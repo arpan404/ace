@@ -7,10 +7,10 @@ import { z } from "zod";
  * Ports the iOS wording and identity rules without copying them:
  * - `AlertContent` (`Sources/Notifications/AlertContent.swift`): title/body,
  *   approval-vs-thread category and passive/active/time-sensitive level.
- * - Request identifiers namespaced per machine (`<hostId>|<id>`), so a repeat
- *   replaces rather than stacks and the same daemon id from two machines is
- *   two notifications; retraction withdraws both the namespaced and the bare
- *   id builds posted before namespacing (ADR 0087).
+ * - Request identifiers namespaced per machine (encoded `<hostId>|<id>`), so a
+ *   repeat replaces rather than stacks and the same daemon id from two
+ *   machines is two notifications; retraction withdraws both the namespaced
+ *   and the bare id builds posted before namespacing (ADR 0087).
  * - Tap opens the exact host/thread (cold-start safe via an encoded link);
  *   Allow/Deny answer only the exact pending option through the durable
  *   outbox with a stable command id, so a duplicate tap cannot double-answer.
@@ -30,9 +30,30 @@ export interface NotificationDisplay {
   denyOption: string | undefined;
 }
 
+/**
+ * Encode one key segment so joined keys stay injective for arbitrary valid
+ * ids. Daemon ids (`boundedId`) allow any 1–200-char string, including `|`,
+ * `:` and `%`: a raw join would alias (`a|b` + `c` vs `a` + `b|c` onto one
+ * request id). `encodeURIComponent` escapes `%` itself, so the join is
+ * injective, and its output never contains `|`, `:` or NUL.
+ */
+export function encodeKeySegment(value: string): string {
+  return encodeURIComponent(value);
+}
+
+/**
+ * Stable outbox command id for one approval answer: a duplicate tap replays
+ * instead of double-answering, even under its own UI request id. Injective
+ * in (interactionId, optionId); unambiguous for arbitrary valid ids.
+ */
+export function notificationCommandId(interactionId: string, optionId: string): string {
+  return `notification:${encodeKeySegment(interactionId)}:${encodeKeySegment(optionId)}`;
+}
+
 /** The system request identifier for one daemon alert on one machine. */
 export function notificationRequestId(alertId: string, hostId?: string | undefined): string {
-  return hostId ? `${hostId}|${alertId}` : alertId;
+  if (hostId === undefined) return alertId;
+  return `${encodeKeySegment(hostId)}|${encodeKeySegment(alertId)}`;
 }
 
 /**
@@ -132,7 +153,7 @@ export type NotificationUserAction = "approve" | "deny";
 
 /** Stable command id for one alert action: a duplicate tap replays, never double-answers. */
 export function notificationActionId(alertId: string, action: NotificationUserAction): string {
-  return `notification-${alertId}-${action}`;
+  return `notification-${encodeKeySegment(alertId)}-${action}`;
 }
 
 /**

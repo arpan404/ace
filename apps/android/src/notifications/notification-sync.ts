@@ -7,7 +7,12 @@ import {
   type NotificationFeed,
   type NotificationPreferences,
 } from "@ace/protocol";
-import { notificationRequestId } from "./notification-routing.ts";
+import { createHostLedgers, type LedgerPersistence } from "./notification-ledger.ts";
+import {
+  encodeKeySegment,
+  notificationCommandId,
+  notificationRequestId,
+} from "./notification-routing.ts";
 
 /**
  * Daemon notification sync for one paired machine (parity slices A14.01–A14.03).
@@ -23,14 +28,26 @@ import { notificationRequestId } from "./notification-routing.ts";
  *   applied on the next connection);
  * - report `presence.update` app state so a backgrounded socket is not
  *   counted as delivered;
- * - catch up per cursor (withdraw retracted ids, admit each entry once via
- *   the caller's ledger);
+ * - catch up per the persisted ledger cursor (withdraw retracted ids, admit
+ *   each entry once via the device + host ledger, follow the daemon head
+ *   including a rebuilt database that moved it backwards);
  * - answer Allow/Deny only for the exact pending approval option, through the
  *   durable outbox, after reading confirmed thread state.
+ *
+ * One bridge per `Client`: a `Client` serves one paired machine, and two
+ * bridges sharing one client would race register/unregister on the same
+ * connection. Every paired machine gets its own client and its own bridge
+ * (mirroring iOS one `NotificationBridge` per `ClientModel`).
  *
  * No fake production connection: every method below runs against the passed
  * client, and tests drive it through the real SDK plus the in-process fake
  * daemon (`@ace/fake-daemon`), the same seam the iOS bridge tests use.
+ *
+ * Limits: retracted ids stay in the shown set until the 512-id bound evicts
+ * them, so a re-pushed id after a retract stays suppressed (same as iOS);
+ * concurrent taps on one interaction take the first tap's option and replay
+ * its outcome; without `hostId` there is no ledger (legacy single-machine
+ * callers) and nothing dedupes or persists.
  */
 
 export type NotificationActionOutcome =
@@ -69,12 +86,25 @@ export interface NotificationSyncOptions {
   receiptMs?: number | undefined;
   schedule?: Schedule | undefined;
   /**
-   * The paired machine this bridge serves. All patch keys are namespaced by
-   * it, so two machines sharing one patch store never collide (one bridge per
-   * machine, mirroring iOS one `NotificationBridge` per `ClientModel`).
-   * Omit only for legacy single-machine callers and tests.
+   * The paired machine this bridge serves. Required for ledger dedupe and
+   * persistence; all patch keys are namespaced by it, so two machines sharing
+   * one patch store never collide. Omit only for legacy single-machine
+   * callers and tests (no dedupe, no persistence).
    */
   hostId?: string | undefined;
+  /**
+   * This phone's device id. Scopes the ledger by device + host (mirroring iOS
+   * `LedgerStore` scope `SHA256(hostId + "\0" + deviceId)`): the same daemon
+   * alert id after a device rotation is another notification. Omit only for
+   * legacy single-device callers; without it the scope is the bare host id.
+   */
+  deviceId?: string | undefined;
+  /**
+   * Where the device + host ledger snapshots live across restarts. Injected;
+   * the default is memory (no durability). Production passes Keystore/SQLite
+   * storage scoped by `namespaceFor`.
+   */
+  persistence?: LedgerPersistence | undefined;
 }
 
 const defaultSchedule: Schedule = (delayMs, run) => {
@@ -88,6 +118,7 @@ export function createNotificationSync(
   options: NotificationSyncOptions = {},
 ): {
   sync(input: { enabled: boolean; appState: AppState; cursor: number }): void;
+  cursor(): number;
   connected(): void;
   resolve(input: {
     requestId: string;
@@ -106,15 +137,20 @@ export function createNotificationSync(
   const receiptMs = options.receiptMs ?? 15000;
   const schedule = options.schedule ?? defaultSchedule;
   const hostId = options.hostId;
-  const keyPrefix = hostId === undefined ? "notifications" : `notifications:${hostId}`;
+  const ledgers = createHostLedgers(
+    hostId === undefined && options.deviceId === undefined && options.persistence === undefined
+      ? undefined
+      : { deviceId: options.deviceId, persistence: options.persistence },
+  );
+  const encodedHost = hostId === undefined ? undefined : encodeKeySegment(hostId);
+  const keyPrefix = encodedHost === undefined ? "notifications" : `notifications:${encodedHost}`;
   const alertKey = (id: string): string =>
-    hostId === undefined
-      ? `notifications:alert:${id}`
-      : `notifications:alert:${notificationRequestId(id, hostId)}`;
+    `notifications:alert:${notificationRequestId(id, hostId)}`;
   const feedKey = `${keyPrefix}:feed`;
   const connectedKey = `${keyPrefix}:connected`;
   const configKey = `${keyPrefix}:config`;
-  const actionKey = (requestId: string): string => `${keyPrefix}:action:${requestId}`;
+  const actionKey = (requestId: string): string =>
+    `${keyPrefix}:action:${encodeKeySegment(requestId)}`;
   let enabled = false;
   let appState: AppState = "foreground";
   let cursor = 0;
@@ -122,6 +158,8 @@ export function createNotificationSync(
   let daemon: "registered" | "unregistered" | undefined;
   let connection = 0;
   let queue: Promise<void> = Promise.resolve();
+  /** One in-flight answer per interaction: concurrent taps share it, never double-enqueue. */
+  const resolving = new Map<string, Promise<NotificationActionOutcome>>();
   const stops: (() => void)[] = [];
   let closed = false;
 
@@ -138,11 +176,15 @@ export function createNotificationSync(
       }
     }),
     client.onMessage((message) => {
-      if (message.type === "notification" && enabled && !closed)
+      if (message.type === "notification" && enabled && !closed) {
+        // Live frames admit through the ledger; the catch-up feed replays the
+        // same ids and must not post them twice.
+        if (hostId !== undefined && !ledgers.admit(hostId, message.notification.id)) return;
         put(alertKey(message.notification.id), () => ({
           type: "notifications.alert",
           notification: message.notification,
         }));
+      }
     }),
   );
 
@@ -151,11 +193,23 @@ export function createNotificationSync(
     enabled = input.enabled;
     synced = true;
     appState = input.appState;
-    cursor = Math.max(cursor, input.cursor);
+    if (hostId === undefined) {
+      cursor = Math.max(cursor, input.cursor);
+    } else {
+      // Seed forward-only from the caller's restored cursor. Rewinds only
+      // ever come from the daemon head in catchUp (a rebuilt database), never
+      // from a stale caller snapshot.
+      if (input.cursor > ledgers.cursor(hostId)) ledgers.advance(hostId, input.cursor);
+      cursor = Math.max(cursor, ledgers.cursor(hostId));
+    }
     if (client.state === "ready") {
       if (changed) presence();
       void follow();
     }
+  }
+
+  function readCursor(): number {
+    return hostId === undefined ? cursor : Math.max(cursor, ledgers.cursor(hostId));
   }
 
   function connected(): void {
@@ -205,19 +259,27 @@ export function createNotificationSync(
   async function catchUp(): Promise<void> {
     let feed: NotificationFeed;
     try {
-      const result = await client.request({ type: "notification.feed", afterCursor: cursor });
+      const result = await client.request({ type: "notification.feed", afterCursor: readCursor() });
       if (result.type !== "notification.feed.result") return;
       feed = { cursor: result.cursor, entries: result.entries, retracted: result.retracted };
     } catch {
       return;
     }
+    let entries = feed.entries;
+    if (hostId !== undefined) {
+      // Admit before advancing: ids shown before a rebuild stay deduped while
+      // the cursor follows the daemon head backwards (mirrors iOS
+      // `LocalNotifier.catchUp`).
+      entries = feed.entries.filter((entry) => ledgers.admit(hostId, entry.notification.id));
+      ledgers.advance(hostId, feed.cursor);
+    }
     // Follow the daemon head, including a rebuilt database that moved it
-    // backwards; the caller's ledger dedupes reissued ids.
+    // backwards; the ledger dedupes reissued ids.
     cursor = feed.cursor;
     put(feedKey, () => ({
       type: "notifications.feed",
       cursor: feed.cursor,
-      entries: feed.entries.map((entry) => entry.notification),
+      entries: entries.map((entry) => entry.notification),
       retracted: feed.retracted,
     }));
   }
@@ -244,10 +306,6 @@ export function createNotificationSync(
     });
   }
 
-  function actionKeyFor(requestId: string): string {
-    return actionKey(requestId);
-  }
-
   async function resolve(input: {
     requestId: string;
     threadId: string;
@@ -257,7 +315,7 @@ export function createNotificationSync(
     canOperate: boolean;
   }): Promise<NotificationActionOutcome> {
     const outcome = (value: NotificationActionOutcome): NotificationActionOutcome => {
-      put(actionKeyFor(input.requestId), () => ({
+      put(actionKey(input.requestId), () => ({
         type: "notifications.action",
         id: input.requestId,
         outcome: value,
@@ -268,40 +326,64 @@ export function createNotificationSync(
     const parsedThread = ThreadId.safeParse(input.threadId);
     const parsedInteraction = InteractionId.safeParse(input.interactionId);
     if (!parsedThread.success || !parsedInteraction.success) return outcome("stale");
-    const lease = client.thread(parsedThread.data);
+    // Concurrent taps on one interaction share a single answer: the first
+    // tap's exact live option wins, every tap reports under its own UI
+    // request id, and the outbox sees exactly one command.
+    const shared = resolving.get(parsedInteraction.data);
+    if (shared !== undefined) return outcome(await shared);
+    const task = settleAction(parsedThread.data, parsedInteraction.data, input.optionId, () =>
+      outcome("saved"),
+    );
+    resolving.set(parsedInteraction.data, task);
     try {
-      if (!(await confirmed(lease.store))) return outcome("unreachable");
-      const interaction = lease.store.interaction(input.interactionId);
+      return outcome(await task);
+    } catch {
+      return outcome("unsaved");
+    } finally {
+      if (resolving.get(parsedInteraction.data) === task) resolving.delete(parsedInteraction.data);
+    }
+  }
+
+  async function settleAction(
+    threadId: string,
+    interactionId: InteractionId,
+    optionId: string,
+    saved: () => void,
+  ): Promise<NotificationActionOutcome> {
+    const lease = client.thread(threadId);
+    try {
+      if (!(await confirmed(lease.store))) return "unreachable";
+      const interaction = lease.store.interaction(interactionId);
       const pending =
         interaction?.state === "pending" && interaction.request.kind === "approval"
-          ? interaction.request.options.find((option) => option.id === input.optionId)
+          ? interaction.request.options.find((option) => option.id === optionId)
           : undefined;
       // The button must name exactly what the daemon offers now; a resolved,
       // revoked or mismatched interaction sends nothing. The payload carries
       // the confirmed live option id, never the stale alert's option.
-      if (!pending) return outcome("stale");
+      if (!pending) return "stale";
       const payload = {
         type: "interaction.resolve" as const,
-        interactionId: parsedInteraction.data,
+        interactionId,
         resolution: { kind: "approval" as const, optionId: pending.id },
       };
-      let commandId: string;
+      // Stable per (interaction, option): a duplicate tap replays the same
+      // outbox command instead of double-answering, even under its own UI
+      // request id. Unambiguous for arbitrary valid ids.
+      const commandId = notificationCommandId(interactionId, pending.id);
       try {
-        commandId = await client.enqueue(payload, input.requestId);
+        await client.enqueue(payload, commandId);
       } catch {
-        return outcome("unsaved");
+        return "unsaved";
       }
-      outcome("saved");
-      return await waitReceipt(commandId, input.requestId);
+      saved();
+      return await waitReceipt(commandId);
     } finally {
       lease.release();
     }
   }
 
-  async function waitReceipt(
-    commandId: string,
-    requestId: string,
-  ): Promise<NotificationActionOutcome> {
+  async function waitReceipt(commandId: string): Promise<NotificationActionOutcome> {
     const selection = client.intent(commandId);
     const terminal = (): boolean | undefined => {
       const snapshot = selection.getSnapshot();
@@ -309,15 +391,7 @@ export function createNotificationSync(
       return snapshot.result.ok;
     };
     const first = terminal();
-    if (first !== undefined) {
-      const value = first ? "confirmed" : "refused";
-      put(actionKeyFor(requestId), () => ({
-        type: "notifications.action",
-        id: requestId,
-        outcome: value,
-      }));
-      return value;
-    }
+    if (first !== undefined) return first ? "confirmed" : "refused";
     const settled = await new Promise<boolean | undefined>((settleReceipt) => {
       let done = false;
       const finish = (value: boolean | undefined): void => {
@@ -334,13 +408,7 @@ export function createNotificationSync(
       const cancel = schedule(receiptMs, () => finish(undefined));
     });
     if (settled === undefined) return "saved";
-    const value = settled ? "confirmed" : "refused";
-    put(actionKeyFor(requestId), () => ({
-      type: "notifications.action",
-      id: requestId,
-      outcome: value,
-    }));
-    return value;
+    return settled ? "confirmed" : "refused";
   }
 
   function snooze(threadId: string, until: number): void {
@@ -379,8 +447,18 @@ export function createNotificationSync(
 
   function close(): void {
     closed = true;
+    resolving.clear();
     for (const stop of stops.splice(0)) stop();
   }
 
-  return { sync, connected, resolve, snooze, savePreferences, loadConfig, close };
+  return {
+    sync,
+    cursor: readCursor,
+    connected,
+    resolve,
+    snooze,
+    savePreferences,
+    loadConfig,
+    close,
+  };
 }

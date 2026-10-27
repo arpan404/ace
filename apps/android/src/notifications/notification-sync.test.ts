@@ -7,21 +7,25 @@ import {
   NotificationPreferences,
 } from "@ace/protocol";
 import { afterEach, expect, it, vi } from "vitest";
+import { ledgerScope, type LedgerPersistence } from "./notification-ledger.ts";
 import { createNotificationSync, type NotificationSink } from "./notification-sync.ts";
 
 /*
  * Android notification sync: the real SDK against the in-process fake daemon.
  * No fake production connection — register/unregister, presence, catch-up and
  * the durable Allow/Deny path all run over the same client the app ships.
+ * One bridge per client: every paired machine gets its own client and bridge.
  */
 
-const closers: (() => Promise<void>)[] = [];
+type Closer = { dead: boolean; close: () => Promise<void> };
+const closers: Closer[] = [];
 afterEach(async () => {
-  for (const close of closers.splice(0)) await close();
+  for (const closer of closers.splice(0)) {
+    if (!closer.dead) await closer.close();
+  }
 });
 
 const threadId = ThreadId.parse("approval");
-const interactionSelection = (): { id: string } => ({ id: "" });
 
 function schedule(delay: number, run: () => void): () => void {
   const timer = setTimeout(run, delay);
@@ -38,43 +42,57 @@ const daemonAlert = (id: string): DaemonNotification =>
     actions: [],
   });
 
-async function phone() {
-  void interactionSelection;
-  const daemon = new FakeDaemon({ clock: () => 1000 });
-  daemon.createThread({
-    id: threadId,
-    workspaceId: "ace",
-    title: "Fix the flaky queue test",
-    provider: "codex",
-    access: "ask",
-  });
-  daemon.apply(threadId, [
-    facts.rootAgent("codex"),
-    facts.turn("root"),
-    {
-      type: "interaction.opened",
-      agent: "root",
-      interaction: "push",
-      blocking: true,
-      request: {
-        kind: "approval",
-        title: "Codex wants to run a command",
-        options: [
-          { id: "deny", label: "Deny", kind: "deny" },
-          { id: "allow", label: "Allow", kind: "allow_once" },
-        ],
+type Put = (key: string, read: () => NotificationSink | undefined) => void;
+
+async function stack(
+  opts: {
+    hostId?: string | undefined;
+    deviceId?: string | undefined;
+    persistence?: LedgerPersistence | undefined;
+    daemon?: FakeDaemon | undefined;
+    put?: Put | undefined;
+    onKey?: ((key: string) => void) | undefined;
+  } = {},
+) {
+  const daemon = opts.daemon ?? new FakeDaemon({ clock: () => 1000 });
+  if (opts.daemon === undefined) {
+    daemon.createThread({
+      id: threadId,
+      workspaceId: "ace",
+      title: "Fix the flaky queue test",
+      provider: "codex",
+      access: "ask",
+    });
+    daemon.apply(threadId, [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      {
+        type: "interaction.opened",
+        agent: "root",
+        interaction: "push",
+        blocking: true,
+        request: {
+          kind: "approval",
+          title: "Codex wants to run a command",
+          options: [
+            { id: "deny", label: "Deny", kind: "deny" },
+            { id: "allow", label: "Allow", kind: "allow_once" },
+          ],
+        },
       },
-    },
-  ]);
+    ]);
+  }
   const interactions = (): { id: string; state?: string }[] => {
     const view = daemon.snapshot({ kind: "thread", threadId });
     return view?.kind === "thread" ? Object.values(view.interactions) : [];
   };
   const interactionId = interactions()[0]?.id ?? "";
+  const hostId = opts.hostId ?? "host-a";
+  const deviceId = opts.deviceId ?? "phone";
   let saved: string | null = null;
   let sequence = 0;
   const client = new ClientCore({
-    deviceId: DeviceId.parse("phone"),
+    deviceId: DeviceId.parse(deviceId),
     transport: () => fakeTransport(daemon),
     storage: {
       load: async () => saved,
@@ -88,18 +106,30 @@ async function phone() {
     id: () => `id-${++sequence}`,
   });
   const sinks: NotificationSink[] = [];
-  const sync = createNotificationSync(
-    client,
-    (_key, read) => {
+  const put: Put =
+    opts.put ??
+    ((_key, read) => {
       const sink = read();
       if (sink) sinks.push(sink);
-    },
-    { schedule, detailsMs: 200, receiptMs: 500 },
-  );
-  closers.push(async () => {
+    });
+  const keyedPut: Put = (key, read) => {
+    opts.onKey?.(key);
+    put(key, read);
+  };
+  const sync = createNotificationSync(client, keyedPut, {
+    schedule,
+    detailsMs: 200,
+    receiptMs: 500,
+    hostId,
+    deviceId,
+    persistence: opts.persistence,
+  });
+  const entry: Closer = { dead: false, close: async () => {} };
+  entry.close = async () => {
     sync.close();
     await client.close();
-  });
+  };
+  closers.push(entry);
   await client.start();
   await vi.waitFor(() => expect(client.state).toBe("ready"));
   const enable = (enabled: boolean, cursor = 0): void =>
@@ -124,6 +154,10 @@ async function phone() {
         optionId,
       })),
     });
+  const dispose = async (): Promise<void> => {
+    entry.dead = true;
+    await entry.close();
+  };
   return {
     daemon,
     client,
@@ -132,10 +166,16 @@ async function phone() {
     barrier,
     settle,
     of,
+    sinks,
     interactions,
     interactionId,
     approvalAlert,
+    dispose,
   };
+}
+
+async function phone() {
+  return stack();
 }
 
 const lastFeed = (of: (type: NotificationSink["type"]) => NotificationSink[]) =>
@@ -153,8 +193,11 @@ it("posts the daemon's live alerts only while notifications are on", async () =>
 });
 
 it("catches up on what the daemon sent while the app was not listening, once per cursor", async () => {
-  const { daemon, enable, of } = await phone();
+  const { daemon, enable, barrier, of } = await phone();
   daemon.notify(daemonAlert("n:1"));
+  // Let the live frame land while disabled (dropped, not admitted) so the
+  // catch-up below is the first sighting.
+  await barrier();
   enable(true);
   await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
   expect(of("notifications.feed")[0]).toMatchObject({
@@ -168,6 +211,19 @@ it("catches up on what the daemon sent while the app was not listening, once per
   expect(of("notifications.feed")[1]).toMatchObject({ entries: [], retracted: ["n:1"] });
 });
 
+it("a live alert is not reposted by the catch-up feed", async () => {
+  const { daemon, enable, of } = await phone();
+  enable(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
+  daemon.notify(daemonAlert("n:live"));
+  await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(1));
+  // The next catch-up replays the same id; the ledger admits it only once.
+  enable(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(2));
+  expect(of("notifications.feed")[1]).toMatchObject({ entries: [] });
+  expect(of("notifications.alert")).toHaveLength(1);
+});
+
 it("turning notifications off unregisters at once, and on again registers", async () => {
   const { daemon, enable, settle, of } = await phone();
   enable(true);
@@ -179,9 +235,11 @@ it("turning notifications off unregisters at once, and on again registers", asyn
   await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(2));
   expect(lastFeed(of)).toMatchObject({ entries: [] });
   daemon.notify(daemonAlert("n:on"));
+  // The live frame posts at once; the later catch-up must not repost it.
+  await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(1));
   enable(true);
   await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(3));
-  expect(lastFeed(of)).toMatchObject({ entries: [{ id: "n:on" }] });
+  expect(lastFeed(of)).toMatchObject({ entries: [] });
 });
 
 it("a mute that could not reach the daemon is applied on reconnect", async () => {
@@ -233,6 +291,48 @@ it("an approval action answers the exact pending option once, through the durabl
     type: "notifications.action",
     id: "tap-2",
     outcome: "stale",
+  });
+});
+
+it("concurrent duplicate taps enqueue once and keep the exact live option", async () => {
+  const { client, sync, of, interactions, interactionId, approvalAlert } = await phone();
+  const enqueue = vi.spyOn(client, "enqueue");
+  const alert = approvalAlert("n:1", ["allow", "deny"]);
+  const [first, second] = await Promise.all([
+    sync.resolve({
+      requestId: "tap-first",
+      threadId,
+      interactionId,
+      optionId: "allow",
+      alert,
+      canOperate: true,
+    }),
+    sync.resolve({
+      requestId: "tap-second",
+      threadId,
+      interactionId,
+      optionId: "allow",
+      alert,
+      canOperate: true,
+    }),
+  ]);
+  expect(first).toBe("confirmed");
+  expect(second).toBe("confirmed");
+  // One outbox command for both taps; the live option is what the daemon got.
+  expect(enqueue).toHaveBeenCalledTimes(1);
+  expect(interactions()[0]).toMatchObject({
+    state: "resolved",
+    resolution: { kind: "approval", optionId: "allow" },
+  });
+  expect(of("notifications.action")).toContainEqual({
+    type: "notifications.action",
+    id: "tap-first",
+    outcome: "confirmed",
+  });
+  expect(of("notifications.action")).toContainEqual({
+    type: "notifications.action",
+    id: "tap-second",
+    outcome: "confirmed",
   });
 });
 
@@ -392,45 +492,130 @@ it("a reissued interaction answers only the new pending option", async () => {
   });
 });
 
-it("two machines sharing one patch store never collide on bridge keys", async () => {
-  const { daemon, client, barrier } = await phone();
-  const seen = new Map<string, NotificationSink | undefined>();
+it("one bridge per client: two machines sharing a patch store never collide", async () => {
   const keys: string[] = [];
-  const put = (key: string, read: () => NotificationSink | undefined): void => {
+  const seen = new Map<string, NotificationSink | undefined>();
+  const put: Put = (key, read) => {
     keys.push(key);
     const sink = read();
     if (sink) seen.set(key, sink);
   };
-  const left = createNotificationSync(client, put, {
-    schedule,
-    detailsMs: 200,
-    receiptMs: 500,
-    hostId: "host-a",
-  });
-  const right = createNotificationSync(client, put, {
-    schedule,
-    detailsMs: 200,
-    receiptMs: 500,
-    hostId: "host-b",
-  });
-  closers.push(async () => {
-    left.close();
-    right.close();
-  });
-  left.sync({ enabled: true, appState: "foreground", cursor: 0 });
-  right.sync({ enabled: true, appState: "foreground", cursor: 0 });
-  await barrier();
-  daemon.notify(daemonAlert("n:same"));
-  await vi.waitFor(() => expect(keys.filter((key) => key.includes("n:same"))).toHaveLength(2));
-  const alertKeys = keys.filter((key) => key.includes("n:same"));
+  // Two paired machines means two daemons, two clients, two bridges — the
+  // patch store is the only thing they share.
+  const left = await stack({ hostId: "host-a", deviceId: "phone", put });
+  const right = await stack({ hostId: "host-b", deviceId: "phone", put });
+  left.enable(true);
+  right.enable(true);
+  await left.barrier();
+  await right.barrier();
+  left.daemon.notify(daemonAlert("n:same"));
+  right.daemon.notify(daemonAlert("n:same"));
+  // Alert ids are encoded in keys (`:` -> `%3A`); the raw id never appears.
+  await vi.waitFor(() => expect(keys.filter((key) => key.includes("n%3Asame"))).toHaveLength(2));
+  const alertKeys = keys.filter((key) => key.includes("n%3Asame"));
   expect(new Set(alertKeys).size).toBe(2);
   expect(alertKeys.some((key) => key.includes("host-a"))).toBe(true);
   expect(alertKeys.some((key) => key.includes("host-b"))).toBe(true);
+  // The same daemon id on two machines is two notifications: both posted.
+  // (Both stacks share one `put`, so count the shared patches, not per-stack sinks.)
+  const alerts = [...seen.values()].filter((sink) => sink?.type === "notifications.alert");
+  expect(alerts).toHaveLength(2);
+  const feeds = keys.filter((key) => key.endsWith(":feed"));
+  expect(new Set(feeds).size).toBe(2);
+});
+
+it("hosts and ids with separators never share a bridge key", async () => {
+  const keys: string[] = [];
+  const put: Put = (key, read) => {
+    keys.push(key);
+    read();
+  };
+  // Raw `host|id` joins would alias ("a|b", "c") with ("a", "b|c").
+  const left = await stack({ hostId: "a|b", deviceId: "phone", put });
+  const right = await stack({ hostId: "a", deviceId: "phone", put });
+  left.enable(true);
+  right.enable(true);
+  await left.barrier();
+  await right.barrier();
+  left.daemon.notify(daemonAlert("c"));
+  right.daemon.notify(daemonAlert("b|c"));
+  await vi.waitFor(() => expect(keys.filter((key) => key.includes("alert"))).toHaveLength(2));
+  const alertKeys = keys.filter((key) => key.includes("alert"));
+  expect(new Set(alertKeys).size).toBe(2);
+  for (const key of alertKeys) expect(key).not.toContain("\0");
+});
+
+it("a restart restores the ledger: catch-up never reposts shown ids", async () => {
+  const saved = new Map<string, { cursor: number; shown: readonly string[] }>();
+  const persistence: LedgerPersistence = {
+    load: (scope) => saved.get(scope) ?? null,
+    save: (scope, snapshot) => {
+      saved.set(scope, snapshot);
+    },
+  };
+  const first = await stack({ hostId: "host-a", deviceId: "phone", persistence });
+  first.daemon.notify(daemonAlert("n:1"));
+  // Let the live frame land while disabled (dropped, not admitted) so the
+  // catch-up below is the first sighting.
+  await first.barrier();
+  first.enable(true);
+  await vi.waitFor(() => expect(first.of("notifications.feed")).toHaveLength(1));
+  expect(first.of("notifications.feed")[0]).toMatchObject({
+    cursor: 1,
+    entries: [{ id: "n:1" }],
+  });
+  expect(first.sync.cursor()).toBe(1);
+  // Simulate a process restart: a fresh client and bridge over the same
+  // daemon and the same persisted ledger.
+  await first.dispose();
+  const second = await stack({
+    hostId: "host-a",
+    deviceId: "phone",
+    persistence,
+    daemon: first.daemon,
+  });
+  expect(second.sync.cursor()).toBe(1);
+  second.enable(true);
+  await vi.waitFor(() => expect(second.of("notifications.feed")).toHaveLength(1));
+  expect(second.of("notifications.feed")[0]).toMatchObject({ cursor: 1, entries: [] });
+  // What arrives after the restart still posts, exactly once.
+  second.daemon.notify(daemonAlert("n:2"));
+  await vi.waitFor(() => expect(second.of("notifications.alert")).toHaveLength(1));
+  expect(second.of("notifications.alert")[0]).toMatchObject({ notification: { id: "n:2" } });
+  second.enable(true);
+  await vi.waitFor(() => expect(second.of("notifications.feed")).toHaveLength(2));
+  expect(second.of("notifications.feed")[1]).toMatchObject({ entries: [] });
+});
+
+it("a rebuilt database rewinds to the head without reposting shown ids", async () => {
+  const saved = new Map<string, { cursor: number; shown: readonly string[] }>();
+  const persistence: LedgerPersistence = {
+    load: (scope) => saved.get(scope) ?? null,
+    save: (scope, snapshot) => {
+      saved.set(scope, snapshot);
+    },
+  };
+  // The ledger was persisted past the rebuilt head; n:1 was already shown.
+  saved.set(ledgerScope("host-a", "phone"), { cursor: 10, shown: ["n:1"] });
+  const { daemon, enable, of, sync } = await stack({
+    hostId: "host-a",
+    deviceId: "phone",
+    persistence,
+  });
+  daemon.notify(daemonAlert("n:1"));
+  enable(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
+  // The cursor follows the daemon head backwards; the reissued id stays
+  // deduped instead of posting again.
+  expect(of("notifications.feed")[0]).toMatchObject({ cursor: 1, entries: [] });
+  expect(sync.cursor()).toBe(1);
 });
 
 it("a cursor beyond the daemon head restarts from the head on rebuilt database", async () => {
-  const { daemon, enable, of } = await phone();
+  const { daemon, enable, barrier, of } = await phone();
   daemon.notify(daemonAlert("n:1"));
+  // Let the live frame land while disabled (dropped, not admitted).
+  await barrier();
   // The ledger was restored past the rebuilt head; catch-up still returns all.
   enable(true, 10);
   await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));

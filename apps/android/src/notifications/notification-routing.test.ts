@@ -3,9 +3,11 @@ import { expect, test } from "vitest";
 import {
   alertDisplay,
   decodeNotificationLink,
+  encodeKeySegment,
   encodeNotificationLink,
   notificationActionId,
   notificationActionPayload,
+  notificationCommandId,
   notificationRequestId,
   retractionRequestIds,
   tapRoute,
@@ -100,6 +102,33 @@ test("the tap link survives process death and rejects forgeries", () => {
 test("each alert action keeps a stable command id so duplicate taps replay", () => {
   expect(notificationActionId("n-1", "approve")).toBe("notification-n-1-approve");
   expect(notificationActionId("n-1", "deny")).toBe("notification-n-1-deny");
+});
+
+test("request ids stay unambiguous for ids containing separators", () => {
+  // A raw `host|id` join would alias these two pairs onto one request id.
+  const left = notificationRequestId("c", "a|b");
+  const right = notificationRequestId("b|c", "a");
+  expect(left).not.toBe(right);
+  expect(left).toContain("%7C");
+  expect(right).toContain("%7C");
+  // Plain ids keep the readable form.
+  expect(notificationRequestId("n-1", "host-a")).toBe("host-a|n-1");
+  // Retraction still withdraws the namespaced id; both pairs stay distinct.
+  expect(retractionRequestIds("c", "a|b")).not.toEqual(retractionRequestIds("b|c", "a"));
+  // Encoded segments never leak a separator or NUL into keys.
+  for (const id of [left, right]) {
+    expect(id.split("|")).toHaveLength(2);
+    expect(id).not.toContain("\0");
+  }
+  expect(encodeKeySegment("a\0b")).not.toContain("\0");
+});
+
+test("command ids are stable and unambiguous per interaction and option", () => {
+  expect(notificationCommandId("i-1", "allow")).toBe(notificationCommandId("i-1", "allow"));
+  expect(notificationCommandId("i-1", "allow")).not.toBe(notificationCommandId("i-1", "deny"));
+  expect(notificationCommandId("i-1", "allow")).not.toBe(notificationCommandId("i-2", "allow"));
+  // Raw `:` joins would alias these; the encoding keeps them apart.
+  expect(notificationCommandId("a:b", "c")).not.toBe(notificationCommandId("a", "b:c"));
 });
 
 test("Allow and Deny admit only the exact offered pair", () => {
