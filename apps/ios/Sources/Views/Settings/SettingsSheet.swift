@@ -3,7 +3,7 @@ import SwiftUI
 /// Every screen Settings pushes inside its own stack.
 enum SettingsRoute: Hashable {
     case machines, machine(String), pair
-    case notifications, lock, appearance
+    case notifications, lock, appearance, keyboard
     case archive, profiles, thread(machine: String, id: String)
     case tool(SettingsTool, machine: String)
     case licences
@@ -19,7 +19,6 @@ struct SettingsSheet: View {
     @Environment(NotificationCoordinator.self) private var notifications: NotificationCoordinator?
     @Environment(\.dismiss) private var dismiss
     @AppStorage("ace.appearance") private var appearance = "system"
-    @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     @State private var path: [SettingsRoute]
     @State private var toolsMachine = ""
     /// The machine whose archive window is open while the archive or one of its threads shows.
@@ -45,11 +44,7 @@ struct SettingsSheet: View {
                 .insetRowBackground()
                 Section {
                     link(.appearance, "Appearance", "paintpalette", value: PhoneAppearance.label(appearance), id: "settings.appearance")
-                    InsetRow(systemImage: "keyboard", title: "Send with Return") {
-                        Toggle("Send with Return", isOn: $returnSends).labelsHidden()
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("settings.returnSends")
+                    link(.keyboard, "Keyboard", "keyboard", id: "settings.keyboard")
                 } header: { InsetHeader("Interface") }
                 .insetRowBackground()
                 Section {
@@ -71,7 +66,6 @@ struct SettingsSheet: View {
                 .insetRowBackground()
             }
             .insetGroupedList()
-            .sensoryFeedback(.selection, trigger: returnSends)
             .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -105,6 +99,7 @@ struct SettingsSheet: View {
         case .lock:
             if let lock { AppLockView(lock: lock) }
         case .appearance: AppearanceView()
+        case .keyboard: KeyboardSettingsView()
         case .archive:
             ArchiveView(inbox: inbox, following: $following) { machine, id in
                 inbox.client(machine)?.open(id)

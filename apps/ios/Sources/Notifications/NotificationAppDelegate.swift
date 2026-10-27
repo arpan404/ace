@@ -18,7 +18,8 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         let info = notification.request.content.userInfo
         let threadId = info[NotificationKeys.threadId] as? String
         let hostId = info[NotificationKeys.hostId] as? String
-        return await MainActor.run { coordinator.presentation(for: threadId, hostId: hostId) }
+        let banner = info[NotificationKeys.banner] as? String != "0"
+        return await MainActor.run { coordinator.presentation(for: threadId, hostId: hostId, banner: banner) }
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let action = response.actionIdentifier

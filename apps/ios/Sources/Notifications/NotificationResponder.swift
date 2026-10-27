@@ -125,9 +125,10 @@ extension NotificationCoordinator {
             await model.disconnectAndWait()
         }
     }
-    /// While the user looks at a thread, its own alerts stay out of the way.
-    func presentation(for threadId: String?, hostId: String? = nil) -> UNNotificationPresentationOptions {
+    /// While the user looks at a thread, its own alerts stay out of the way; an alert whose
+    /// banner is off (Settings › Notifications) goes to the list without showing over the app.
+    func presentation(for threadId: String?, hostId: String? = nil, banner: Bool = true) -> UNNotificationPresentationOptions {
         if foreground, let threadId, machines.contains(where: { ($0.hostId == hostId || hostId == nil) && $0.model.thread?.id == threadId }) { return [] }
-        return [.banner, .list, .sound]
+        return banner ? [.banner, .list, .sound] : [.list]
     }
 }

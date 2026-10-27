@@ -154,7 +154,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
             }
         }
         // ⌘↩ sends from a hardware keyboard; it never stops a running tree.
-        .keyboardShortcut(stops ? nil : KeyboardShortcut(.return, modifiers: .command))
+        .phoneShortcut("send", enabled: !stops)
         .accessibilityIdentifier("composer.send")
     }
     private var disabled: Bool { draft.saving || (stops ? stopping : empty) }

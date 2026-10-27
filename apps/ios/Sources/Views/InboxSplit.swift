@@ -243,6 +243,6 @@ private struct SidebarButton: View {
         } label: { Image(systemName: "sidebar.left") }
             .accessibilityLabel(hidden ? "Show Sidebar" : "Hide Sidebar")
             .accessibilityIdentifier("split.sidebar")
-            .keyboardShortcut("s", modifiers: [.command, .control])
+            .phoneShortcut("toggleSidebar")
     }
 }
