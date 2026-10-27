@@ -199,6 +199,42 @@ export function resolveOpenKeyForHosts(
   return availableHostIds.includes(openKey.machineId) ? openKey : null;
 }
 
+/**
+ * Recovery budget for one merged-reader child (`MachineThreadsReader`).
+ *
+ * The parent `MergedMachineInbox` owns the Retry tick per host; each child
+ * keeps its own bounded auto-recovery count. `epoch` is the last Retry tick
+ * the child has absorbed: a tick bump means the person pressed Retry, so the
+ * budget resets and autos get a fresh bound — the same guarantee the
+ * single-machine inbox Retry gives (`setAutoRecoveries(0)`). Without the
+ * epoch, an exhausted child (5 autos) would stay blocked after Retry while
+ * the single-machine views recover on their own.
+ */
+export interface MergedReaderBudget {
+  readonly autoRecoveries: number;
+  readonly autoTick: number;
+  readonly epoch: number;
+}
+
+/**
+ * Next merged-reader budget for a render with this Retry tick and liveness.
+ * A Retry tick past the absorbed epoch resets the budget even while the
+ * lease is still dead; a healthy read resets without any Retry; a dead read
+ * on the same epoch keeps counting down the bound. Pure.
+ */
+export function nextMergedReaderBudget(
+  prev: MergedReaderBudget,
+  retryTick: number,
+  dead: boolean,
+): MergedReaderBudget {
+  if (retryTick !== prev.epoch) return { autoRecoveries: 0, autoTick: 0, epoch: retryTick };
+  if (!dead) {
+    if (prev.autoRecoveries === 0 && prev.autoTick === 0) return prev;
+    return { autoRecoveries: 0, autoTick: 0, epoch: prev.epoch };
+  }
+  return prev;
+}
+
 /** Route-gated open thread: a revoked/pin route must never keep its thread. */
 export function openKeyForRoutes(
   openKey: ProductionOpenKey | null,

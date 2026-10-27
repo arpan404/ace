@@ -71,12 +71,14 @@ import {
   mergedEntriesFor,
   mergeInboxSections,
   mergedThreadsByKey,
+  nextMergedReaderBudget,
   openKeyForRoutes,
   openKeyString,
   pairedHostsFor,
   pairedKeyFor,
   resolveOpenKeyForHosts,
   showsMachineNames,
+  type MergedReaderBudget,
   type ProductionMergedEntry,
   type ProductionOpenKey,
 } from "./production-merged-inbox.ts";
@@ -1419,8 +1421,13 @@ function MachineThreadsReader({
   onChange(hostId: string, report: MachineThreadsReport): void;
 }) {
   const liveness = useLivenessTick();
-  const [autoRecoveries, setAutoRecoveries] = useState(0);
-  const [autoTick, setAutoTick] = useState(0);
+  const [budget, setBudget] = useState<MergedReaderBudget>(() => ({
+    autoRecoveries: 0,
+    autoTick: 0,
+    epoch: retryTick,
+  }));
+  const autoRecoveries = budget.autoRecoveries;
+  const autoTick = budget.autoTick;
   const route = startup.route(hostId);
   const routeKey = routeKeyFor(route);
   const visible = shouldShowInbox(route);
@@ -1466,20 +1473,23 @@ function MachineThreadsReader({
       return;
     }
     if (shouldAutoRecoverReads(true, fresh, autoRecoveries)) {
-      setAutoRecoveries((value) => value + 1);
-      setAutoTick((value) => value + 1);
+      setBudget((prev) => ({
+        ...prev,
+        autoRecoveries: prev.autoRecoveries + 1,
+        autoTick: prev.autoTick + 1,
+      }));
     }
     // Poll on the liveness tick so a transient blip recovers without Retry.
     // Deps keep the stable `routeKey`/`visible`, never the fresh-per-read
     // route object, so this fires on the 2s tick — not every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startup, hostId, dead, visible, routeKey, liveness, retryTick, autoTick, autoRecoveries]);
+  // Budget follows the parent Retry tick: a tick past the absorbed epoch
+  // resets the bound (same guarantee as the single-machine Retry), and a
+  // healthy read resets without any Retry. See `nextMergedReaderBudget`.
   useEffect(() => {
-    if (!dead) {
-      setAutoRecoveries(0);
-      setAutoTick(0);
-    }
-  }, [dead]);
+    setBudget((prev) => nextMergedReaderBudget(prev, retryTick, dead));
+  }, [retryTick, dead]);
   useEffect(() => {
     onChange(hostId, { threads: data ?? [], dead, problem });
   }, [hostId, data, dead, problem, onChange]);

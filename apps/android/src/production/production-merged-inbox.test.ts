@@ -7,6 +7,7 @@ import {
   mergedKeyFor,
   mergeInboxSections,
   mergedThreadsByKey,
+  nextMergedReaderBudget,
   openKeyForRoutes,
   openKeyString,
   pairedHostsFor,
@@ -15,8 +16,14 @@ import {
   resolveOpenKeyForHosts,
   shouldResolveLeaseFor,
   showsMachineNames,
+  type MergedReaderBudget,
   type ProductionOpenKey,
 } from "./production-merged-inbox.ts";
+import {
+  MAX_AUTO_RECOVER_ATTEMPTS,
+  shouldAutoRecoverReads,
+  shouldPollAutoRecover,
+} from "./production-inbox.ts";
 import type { StartupRoute } from "../runtime/production-startup.ts";
 
 const NOW = 1_000_000;
@@ -219,4 +226,35 @@ it("indexes merged rows by key without cross-machine id collisions", () => {
   expect(partial.get("mac:t1")).toBe(macThread);
   expect(partial.has("linux:t1")).toBe(false);
   expect(mergedThreadsByKey({}, []).size).toBe(0);
+});
+
+it("resets the merged reader budget on parent Retry so autos get a fresh bound", () => {
+  // Regression: the merged child kept its own auto-recovery count and only
+  // reset it on a healthy read, so after 5 exhausted autos a manual Retry
+  // gave one re-resolve while autos stayed blocked — unlike the
+  // single-machine views, whose Retry resets the budget to 0.
+  const exhausted: MergedReaderBudget = {
+    autoRecoveries: MAX_AUTO_RECOVER_ATTEMPTS,
+    autoTick: MAX_AUTO_RECOVER_ATTEMPTS,
+    epoch: 2,
+  };
+  // Still dead on the same epoch: no free refill without a Retry.
+  expect(nextMergedReaderBudget(exhausted, 2, true)).toBe(exhausted);
+  expect(shouldPollAutoRecover(exhausted.autoRecoveries)).toBe(false);
+  expect(shouldAutoRecoverReads(true, "ready", exhausted.autoRecoveries)).toBe(false);
+  // Parent Retry bumps the tick: budget resets even though still dead.
+  const retried = nextMergedReaderBudget(exhausted, 3, true);
+  expect(retried).toEqual({ autoRecoveries: 0, autoTick: 0, epoch: 3 });
+  expect(shouldPollAutoRecover(retried.autoRecoveries)).toBe(true);
+  expect(shouldAutoRecoverReads(true, "ready", retried.autoRecoveries)).toBe(true);
+  // A healthy read resets without any Retry.
+  const spent: MergedReaderBudget = { autoRecoveries: 2, autoTick: 2, epoch: 3 };
+  expect(nextMergedReaderBudget(spent, 3, false)).toEqual({
+    autoRecoveries: 0,
+    autoTick: 0,
+    epoch: 3,
+  });
+  // Fresh budget on the same epoch is referentially stable: no render churn.
+  const fresh: MergedReaderBudget = { autoRecoveries: 0, autoTick: 0, epoch: 3 };
+  expect(nextMergedReaderBudget(fresh, 3, false)).toBe(fresh);
 });
