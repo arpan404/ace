@@ -40,6 +40,12 @@ export const ManageAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("read"), threadId: ThreadId, unread: z.boolean() }),
   z.object({ kind: z.literal("autoSettle"), threadId: ThreadId, enabled: z.boolean() }),
   z.object({ kind: z.literal("move"), threadId: ThreadId, workspaceId: WorkspaceId }),
+  /** Put a snooze back as it was (Undo of a settle, which clears it), or wake (`null`). */
+  z.object({
+    kind: z.literal("snoozeAt"),
+    threadId: ThreadId,
+    until: z.number().finite().nullable(),
+  }),
 ]);
 export type ManageAction = z.infer<typeof ManageAction>;
 
@@ -48,6 +54,8 @@ const BulkKind = z.enum([
   "unpin",
   "settle",
   "unsettle",
+  /** Undo of a settle: only the settle goes (`thread.unsettle` with `undo`). */
+  "undoSettle",
   "archive",
   "unarchive",
   "read",
@@ -65,6 +73,11 @@ export const InboxBulkRequest = z.object({
   workspaceId: WorkspaceId.optional(),
   /** Delete: stop running agents and terminals first (`thread.delete` `force`). */
   force: z.boolean().optional(),
+  /**
+   * The phone's name for this action: when the answer goes out with threads still waiting, the
+   * final one follows as `inbox.bulk.final` under it once every thread is answered.
+   */
+  ticket: z.string().min(1).max(64).optional(),
 });
 export type InboxBulkRequest = z.infer<typeof InboxBulkRequest>;
 
@@ -104,6 +117,11 @@ function patchOf(action: ManageAction): { patch: OrganizePatch; payload: Command
         patch: { autoSettle: action.enabled },
         payload: { type: "thread.autoSettle", threadId: action.threadId, enabled: action.enabled },
       };
+    case "snoozeAt":
+      return {
+        patch: { snoozedUntil: action.until },
+        payload: { type: "thread.snooze", threadId: action.threadId, until: action.until },
+      };
     case "move":
       return {
         patch: { workspaceId: action.workspaceId },
@@ -127,45 +145,40 @@ export function runManage(
   return organizer.run(action.threadId, patch, payload, requestId, pump);
 }
 
-/** The commands of one bulk action, per thread, or undefined to leave the thread alone. */
-function bulkStep(
+/**
+ * One bulk action's command and the change it shows, for any thread by id alone: a thread paged
+ * out of the phone's window (an older settled one, an archived one) still gets its command.
+ */
+function bulkCommand(
   request: InboxBulkRequest,
-  entry: ThreadListEntry,
+  threadId: ThreadId,
   order: number,
 ): { patch: OrganizePatch; payload: CommandPayload } | undefined {
-  const threadId = ThreadId.parse(entry.id);
   switch (request.action) {
     case "pin":
       // Pinned together they lead the group in the order they were listed.
-      return entry.pinned === true
-        ? undefined
-        : {
-            patch: { pinned: true, pinOrder: order },
-            payload: { type: "thread.pin", threadId, pinned: true, order },
-          };
+      return {
+        patch: { pinned: true, pinOrder: order },
+        payload: { type: "thread.pin", threadId, pinned: true, order },
+      };
     case "unpin":
-      return entry.pinned === true
-        ? { patch: { pinned: false }, payload: { type: "thread.pin", threadId, pinned: false } }
-        : undefined;
+      return { patch: { pinned: false }, payload: { type: "thread.pin", threadId, pinned: false } };
     case "settle":
-      return settleChoice(entry, { settled: isSettled(entry) }) === "settle"
-        ? { patch: { settled: true }, payload: { type: "thread.settle", threadId } }
-        : undefined;
+      return { patch: { settled: true }, payload: { type: "thread.settle", threadId } };
     case "unsettle":
-      return isSettled(entry)
-        ? {
-            patch: { settled: false, autoSettle: false },
-            payload: { type: "thread.unsettle", threadId },
-          }
-        : undefined;
+      return {
+        patch: { settled: false, autoSettle: false },
+        payload: { type: "thread.unsettle", threadId },
+      };
+    case "undoSettle":
+      return {
+        patch: { undoSettle: true },
+        payload: { type: "thread.unsettle", threadId, undo: true },
+      };
     case "archive":
-      return entry.archivedAt === undefined
-        ? { patch: { archived: true }, payload: { type: "thread.archive", threadId } }
-        : undefined;
+      return { patch: { archived: true }, payload: { type: "thread.archive", threadId } };
     case "unarchive":
-      return entry.archivedAt === undefined
-        ? undefined
-        : { patch: { archived: false }, payload: { type: "thread.unarchive", threadId } };
+      return { patch: { archived: false }, payload: { type: "thread.unarchive", threadId } };
     case "read":
     case "unread": {
       const unread = request.action === "unread";
@@ -173,7 +186,7 @@ function bulkStep(
     }
     case "move": {
       const workspaceId = request.workspaceId;
-      return workspaceId === undefined || workspaceId === entry.workspaceId
+      return workspaceId === undefined
         ? undefined
         : { patch: { workspaceId }, payload: { type: "thread.move", threadId, workspaceId } };
     }
@@ -185,13 +198,31 @@ function bulkStep(
   }
 }
 
+/** Whether a listed thread is already as the action would leave it (or can't take it now). */
+function alreadyDone(request: InboxBulkRequest, entry: ThreadListEntry): boolean {
+  switch (request.action) {
+    case "pin":
+      return entry.pinned === true;
+    case "unpin":
+      return entry.pinned !== true;
+    case "settle":
+      return settleChoice(entry, { settled: isSettled(entry) }) !== "settle";
+    case "unsettle":
+    case "undoSettle":
+      return !isSettled(entry);
+    case "archive":
+      return entry.archivedAt !== undefined;
+    case "unarchive":
+      return entry.archivedAt === undefined;
+    case "move":
+      return request.workspaceId === entry.workspaceId;
+    default:
+      return false;
+  }
+}
+
 const stillAlive = (alive: CommandResult["alive"]) =>
   alive !== undefined && Object.values(alive).some((count) => count > 0);
-
-const unarchived = (threadId: string): CommandPayload => ({
-  type: "thread.unarchive",
-  threadId: ThreadId.parse(threadId),
-});
 
 /** How long a bulk answer waits for the daemon after every command is saved. */
 export const bulkAnswerMs = 6_000;
@@ -218,12 +249,13 @@ export function runBulk(
   type Step = { threadId: string; patch: OrganizePatch | undefined; payload: CommandPayload };
   const steps = request.threadIds.flatMap((threadId, index): Step[] => {
     const entry = organizer.entry(threadId);
-    // An archived thread is no longer in the list: restoring it needs only its command.
-    if (!entry && request.action === "unarchive")
-      return [{ threadId, patch: undefined, payload: unarchived(threadId) }];
-    const step = entry && bulkStep(request, entry, top + request.threadIds.length - index);
-    if (!step) outcome.skipped.push(threadId);
-    return step ? [{ threadId, ...step }] : [];
+    const command = bulkCommand(request, threadId, top + request.threadIds.length - index);
+    if (!command || (entry && alreadyDone(request, entry))) {
+      outcome.skipped.push(threadId);
+      return [];
+    }
+    // A listed thread shows the change at once; one outside the window just gets its command.
+    return [{ threadId, patch: entry ? command.patch : undefined, payload: command.payload }];
   });
   if (!steps.length) return Promise.resolve(outcome);
   // A row in the list shows the change at once; anything else just sends its command.
@@ -246,20 +278,46 @@ export function runBulk(
     let saving = steps.length;
     let finished = false;
     let cancel: (() => void) | undefined;
+    const withRetry = (result: BulkOutcome): BulkOutcome =>
+      result.running.length
+        ? {
+            ...result,
+            retry: stopAndDeleteQuestion(
+              result.running.map((id) => preview(titles.get(id) ?? "", 512)),
+            ),
+          }
+        : result;
     const finish = () => {
       if (finished) return;
       finished = true;
       cancel?.();
       outcome.waiting = outcome.saved.filter((id) => !answered.has(id));
-      if (outcome.running.length)
-        outcome.retry = stopAndDeleteQuestion(
-          outcome.running.map((id) => preview(titles.get(id) ?? "", 512)),
-        );
-      resolve(outcome);
+      resolve(
+        withRetry({
+          ...outcome,
+          saved: [...outcome.saved],
+          refused: [...outcome.refused],
+          running: [...outcome.running],
+        }),
+      );
+    };
+    // Threads still waiting when the answer went out are answered later, under the ticket.
+    let followed = false;
+    const follow = () => {
+      if (followed || !request.ticket) return;
+      followed = true;
+      const ticket = request.ticket;
+      const final = withRetry({ ...outcome, waiting: [] });
+      pump.put(`bulk:${ticket}`, () => ({ type: "inbox.bulk.final", id: ticket, outcome: final }));
     };
     const settle = () => {
       if (saving > 0) return;
-      if (outcome.saved.every((id) => answered.has(id))) finish();
+      const all = outcome.saved.every((id) => answered.has(id));
+      if (finished) {
+        if (all && outcome.waiting.length) follow();
+        return;
+      }
+      if (all) finish();
       else cancel ??= clock.set(bulkAnswerMs, finish);
     };
     steps.forEach((step, index) => {

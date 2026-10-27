@@ -1,5 +1,5 @@
 import type { ClientCore } from "@ace/client";
-import type { ThreadListEntry } from "@ace/protocol";
+import { WorkspaceId, type ThreadListEntry } from "@ace/protocol";
 import { compareRanked, rankCommand, type RankItem } from "@ace/ui-core/command-rank";
 import { z } from "zod";
 import { preview } from "./presentation.ts";
@@ -24,6 +24,8 @@ export const PaletteRequest = z.object({
       threadOpen: z.boolean().default(false),
     })
     .default({ canStart: true, threadOpen: false }),
+  /** Only this project's threads (the search's project filter), before ranking and limits. */
+  workspaceId: z.string().min(1).max(256).optional(),
 });
 export type PaletteRequest = z.infer<typeof PaletteRequest>;
 
@@ -98,6 +100,7 @@ export interface PaletteAnswer {
     id: string;
     title: string;
     project: string;
+    workspaceId: string;
     /** On the machine's list now; otherwise found by its search (archived, older). */
     listed: boolean;
     at: number;
@@ -125,12 +128,14 @@ export function rankCommands(request: PaletteRequest): PaletteAnswer["commands"]
 export function rankListed(
   entries: readonly ThreadListEntry[],
   query: string,
+  workspaceId?: string,
 ): Pick<PaletteAnswer, "projects" | "threads"> {
   const text = query.trim();
   const projects = new Map<string, string>();
   const threads: PaletteAnswer["threads"] = [];
   for (const entry of entries) {
     if (entry.archivedAt !== undefined || entry.deletedAt !== undefined) continue;
+    if (workspaceId !== undefined && entry.workspaceId !== workspaceId) continue;
     const chat = entry.details?.workspace?.kind === "chat";
     const project = chat ? "Chat" : (entry.details?.workspace?.name ?? entry.workspaceId);
     if (!chat) projects.set(entry.workspaceId, project);
@@ -146,6 +151,7 @@ export function rankListed(
         id: entry.id,
         title: preview(entry.title, 512),
         project: preview(project, 512),
+        workspaceId: entry.workspaceId,
         listed: true,
         at,
         score,
@@ -169,22 +175,32 @@ async function searchedThreads(
   query: string,
   listed: ReadonlySet<string>,
   requestId: string,
+  workspaceId: string | undefined,
 ): Promise<PaletteAnswer["threads"]> {
   if (query.trim().length < 2) return [];
   try {
     const reply = await owner.request(
-      { type: "search.query", requestId, text: query, scope: "threads", limit: limits.threads },
+      {
+        type: "search.query",
+        requestId,
+        text: query,
+        scope: "threads",
+        limit: limits.threads,
+        // The daemon filters before it ranks and limits, so a project's own threads fill them.
+        ...(workspaceId ? { filters: { workspaceId: WorkspaceId.parse(workspaceId) } } : {}),
+      },
       { timeoutMs: 8_000 },
     );
     if (reply.type !== "search.results") return [];
     return reply.hits.flatMap((hit) =>
-      listed.has(hit.threadId)
+      listed.has(hit.threadId) || (workspaceId !== undefined && hit.workspaceId !== workspaceId)
         ? []
         : [
             {
               id: hit.threadId,
               title: preview(hit.threadTitle, 512),
               project: "",
+              workspaceId: hit.workspaceId,
               listed: false,
               at: hit.createdAt,
               // Ranked by the same rule as listed threads, so the phone can merge them.
@@ -203,12 +219,13 @@ export async function answerPalette(
   request: PaletteRequest,
   requestId: string,
 ): Promise<PaletteAnswer> {
-  const listed = rankListed(entries, request.query);
+  const listed = rankListed(entries, request.query, request.workspaceId);
   const found = await searchedThreads(
     owner,
     request.query.trim(),
     new Set(entries.map((entry) => entry.id)),
     `${requestId}.threads`,
+    request.workspaceId,
   );
   return {
     commands: request.commands ? rankCommands(request) : [],
