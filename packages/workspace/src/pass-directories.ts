@@ -1,5 +1,5 @@
-import { closeSync, constants, readSync } from "node:fs";
-import { Descriptor, openAt, statWindowsFd } from "./descriptor.ts";
+import { closeSync, constants, readSync, type Stats } from "node:fs";
+import { Descriptor, openAt, sameWindowsFile, statAt, statWindowsFd } from "./descriptor.ts";
 
 /**
  * Win32: a pass file whose bytes are on this disk. Each async read or close costs a thread-pool
@@ -36,54 +36,86 @@ export class LocalFileDescriptor extends Descriptor {
  * Every handle comes from the add-on's openAt relative to an already-held parent, starting at
  * the verified root handle; openAt refuses a junction or symlink as the opened name, so each
  * held chain is link-free. The cache is bounded and released when the pass ends.
+ *
+ * A held folder can still be moved, even out of the project, and its handle follows it. Windows
+ * refuses to move a folder while any handle under it is open, so holding a folder pins every
+ * folder above it: its parent's place is checked once when it's opened, and its own place is
+ * checked after each file opens in it, when the open file pins it too.
  */
 export class PassDirectories {
   private readonly root: Descriptor;
   private readonly limit: number;
   /** Map order is recency: the first key is evicted first. */
-  private readonly held = new Map<string, Descriptor>();
+  private readonly held = new Map<string, { handle: Descriptor; info: Stats }>();
   private readonly closing: Promise<void>[] = [];
+  private closed = false;
   constructor(root: Descriptor, limit = 256) {
     this.root = root;
     this.limit = limit;
   }
   /** The held directory for a "/"-separated relative path ("" is the root). */
   private directory(path: string): number {
+    if (this.closed) throw Object.assign(new Error("The search pass has ended"), { code: "EBADF" });
     if (!path) return this.root.fd;
     const cached = this.held.get(path);
     if (cached) {
       this.held.delete(path);
       this.held.set(path, cached);
-      return cached.fd;
+      return cached.handle.fd;
     }
     const slash = path.lastIndexOf("/");
-    const parent = this.directory(slash < 0 ? "" : path.slice(0, slash));
+    const parentPath = slash < 0 ? "" : path.slice(0, slash);
+    const parent = this.directory(parentPath);
     const opened = openAt(parent, path.slice(slash + 1), constants.O_RDONLY);
+    let info: Stats;
     try {
-      if (!statWindowsFd(opened.fd).isDirectory())
+      info = statWindowsFd(opened.fd);
+      if (!info.isDirectory())
         throw Object.assign(new Error("Not a directory"), { code: "ENOTDIR" });
+      // The open folder now pins its parent, which may have moved since it was checked.
+      this.inPlace(parentPath);
     } catch (error) {
       this.closing.push(opened.close().catch(() => {}));
       throw error;
     }
-    this.held.set(path, opened);
+    this.held.set(path, { handle: opened, info });
     if (this.held.size > this.limit) {
-      const [oldest, handle] = this.held.entries().next().value ?? [];
-      if (oldest !== undefined && handle) {
+      const [oldest, entry] = this.held.entries().next().value ?? [];
+      if (oldest !== undefined && entry) {
         this.held.delete(oldest);
-        this.closing.push(handle.close().catch(() => {}));
+        this.closing.push(entry.handle.close().catch(() => {}));
       }
     }
     return opened.fd;
   }
+  /** Throws unless the folder at `path` is still that name in its held parent. */
+  private inPlace(path: string): void {
+    if (!path) return;
+    const info = this.held.get(path)?.info;
+    if (!info) throw Object.assign(new Error("Folder is not held"), { code: "ENOENT" });
+    const slash = path.lastIndexOf("/");
+    const parent = this.directory(slash < 0 ? "" : path.slice(0, slash));
+    if (!sameWindowsFile(statAt(parent, path.slice(slash + 1)), info))
+      throw Object.assign(new Error("Folder moved during the search"), { code: "ESTALE" });
+  }
   /** Opens a relative file path read-only; a link anywhere on it fails with ELOOP. */
   file(path: string): Descriptor {
     const slash = path.lastIndexOf("/");
-    const parent = this.directory(slash < 0 ? "" : path.slice(0, slash));
-    return openAt(parent, path.slice(slash + 1), constants.O_RDONLY);
+    const parentPath = slash < 0 ? "" : path.slice(0, slash);
+    const opened = openAt(this.directory(parentPath), path.slice(slash + 1), constants.O_RDONLY);
+    try {
+      // The open file pins its folder, so a folder found in place now stays there.
+      this.inPlace(parentPath);
+    } catch (error) {
+      this.closing.push(opened.close().catch(() => {}));
+      throw error;
+    }
+    return opened;
   }
   async close(): Promise<void> {
-    const handles = [this.root, ...this.held.values()];
+    if (this.closed) return;
+    this.closed = true;
+    const handles = [this.root, ...[...this.held.values()].map((entry) => entry.handle)];
     this.held.clear();
     await Promise.all([
       ...this.closing,
