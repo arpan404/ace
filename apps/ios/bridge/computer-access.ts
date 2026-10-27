@@ -27,7 +27,12 @@ export const ComputerAccessControl = z.object({
      * The screen opened; `mac`: the machine shares app windows the macOS way, the guess used
      * only for an older daemon that doesn't say its platform.
      */
-    z.object({ kind: z.literal("open"), mac: z.boolean().optional() }),
+    z.object({
+      kind: z.literal("open"),
+      mac: z.boolean().optional(),
+      /** The pairing grants admin (true) or doesn't (false); absent when the phone doesn't know. */
+      admin: z.boolean().optional(),
+    }),
     z.object({ kind: z.literal("close") }),
     z.object({ kind: z.literal("locked"), op: z.enum(["install", "remove", "repair", "recheck"]) }),
     z.object({ kind: z.literal("chrome"), op: z.enum(["install", "stop", "revoke"]) }),
@@ -139,6 +144,11 @@ export class ComputerAccess {
   #watching: (() => void) | undefined;
   /** What the daemon said it runs on; undefined until read, or from an older daemon. */
   #platform: { value: HostPlatform | undefined } | undefined;
+  /**
+   * Only the machine's owner (an admin pairing) may use these: false once the pairing's scopes
+   * or a refusal say this phone isn't one. Then Use my Chrome isn't read again.
+   */
+  #admin: boolean | undefined;
   constructor(
     owner: Pick<ClientCore, "request" | "state" | "connectionState" | "onMessage">,
     sink: PatchSink,
@@ -157,6 +167,7 @@ export class ComputerAccess {
     switch (action.kind) {
       case "open":
         this.#open = { mac: action.mac ?? this.#open?.mac ?? false };
+        if (action.admin !== undefined) this.#admin = action.admin;
         this.#subscription ??= this.#subscribe();
         if (!this.#watching) {
           // A connection that comes back (or wasn't ready yet) reads Use my Chrome at once.
@@ -203,6 +214,10 @@ export class ComputerAccess {
     this.#error = undefined;
   }
 
+  /** Only the machine's owner may change these, and this phone isn't it. */
+  #ownerOnly(): boolean {
+    return this.#admin === false;
+  }
   #subscribe() {
     return subscribeLockedUse(
       this.#owner,
@@ -231,7 +246,7 @@ export class ComputerAccess {
     this.#put();
   }
   async #lockedChange(op: "install" | "remove" | "repair"): Promise<void> {
-    if (this.#busy) return;
+    if (this.#busy || this.#ownerOnly()) return;
     const title = {
       install: "Couldn't turn on locked use",
       remove: "Couldn't turn off locked use",
@@ -261,9 +276,13 @@ export class ComputerAccess {
         ),
       );
       if (reply.status) this.#locked = reply.status;
-      if (!reply.ok) this.#error = `${title}. ${lockedUseRefusal(reply.code, reply.reason)}`;
+      if (!reply.ok && reply.code === "forbidden") this.#admin = false;
+      else if (!reply.ok) this.#error = `${title}. ${lockedUseRefusal(reply.code, reply.reason)}`;
     } catch (error) {
-      this.#error = `${title}. ${error instanceof Error ? error.message : lockedUseRefusal(undefined, undefined)}`;
+      // The daemon refuses the intent itself to anyone but the owner (`computer.lockedUse`).
+      if (error instanceof Error && /forbidden|admin/i.test(error.message)) this.#admin = false;
+      else
+        this.#error = `${title}. ${error instanceof Error ? error.message : lockedUseRefusal(undefined, undefined)}`;
     } finally {
       this.#busy = undefined;
       this.#put();
@@ -271,26 +290,29 @@ export class ComputerAccess {
   }
   async #readChrome(): Promise<void> {
     this.#poll = undefined;
-    if (!this.#open) return;
+    // An operate-only phone is refused every time: it never asks, so nothing spins or polls.
+    if (!this.#open || this.#ownerOnly()) return;
     if (this.#owner.state === "ready") {
       const status = await this.#chromeRequest("status").catch(() => undefined);
       if (status && this.#open) {
         this.#chrome = status;
         this.#put();
       }
+      if (this.#ownerOnly()) return;
     }
     if (this.#open && !this.#poll)
       this.#poll = this.#schedule(chromePollMs, () => void this.#readChrome());
   }
   async #chromeChange(op: "install" | "stop" | "revoke"): Promise<void> {
-    if (this.#busy) return;
+    if (this.#busy || this.#ownerOnly()) return;
     this.#busy = `chrome.${op}`;
     this.#error = undefined;
     this.#put();
     try {
       this.#chrome = await this.#chromeRequest(op);
     } catch (error) {
-      this.#error = error instanceof Error ? error.message : "Use my Chrome failed.";
+      if (!this.#ownerOnly())
+        this.#error = error instanceof Error ? error.message : "Use my Chrome failed.";
     } finally {
       this.#busy = undefined;
       this.#put();
@@ -302,7 +324,13 @@ export class ComputerAccess {
     const reply = UserBrowserSettingsResult.parse(
       await this.#owner.request({ type: "user_browser.settings", operation }),
     );
-    if (reply.result.kind === "error") throw new Error(reply.result.message);
+    if (reply.result.kind === "error") {
+      if (reply.result.code === "forbidden") {
+        this.#admin = false;
+        this.#put();
+      }
+      throw new Error(reply.result.message);
+    }
     return reply.result.status;
   }
   #put(): void {
@@ -319,7 +347,9 @@ export class ComputerAccess {
           ? lockedUseRow(locked, { platform: this.#platform.value, sharesLikeMac: open.mac })
           : null,
       lockedFailed: this.#lockedFailed && !locked,
-      chrome: chrome ? chromeSection(chrome, preview) : null,
+      chrome: chrome && !this.#ownerOnly() ? chromeSection(chrome, preview) : null,
+      /** Only the machine's owner can change locked use or use Use my Chrome from here. */
+      ownerOnly: this.#ownerOnly(),
       /** What the daemon said it runs on; null until read, or from an older daemon. */
       platform: this.#platform?.value ?? null,
       busy: this.#busy ?? null,

@@ -129,4 +129,16 @@ describe("Annotating the thread's page from the phone", () => {
     daemon.browser.annotations.end("web", "lease");
     await until(() => annotateView(sink)?.mode === "off", "ended");
   });
+
+  test("Done right after pinning still takes the page's screenshot for the message", async () => {
+    const { daemon, draft, patches, view } = await annotating();
+    daemon.browser.annotations.pin("web", { comment: "Bigger", tag: "h1", text: "Cart" });
+    await until(() => chips(patches)[0]?.state === "ready", "crop");
+    // Before the page settles (the screenshot waits 400 ms), the person leaves annotate mode.
+    view.action({ kind: "annotate", on: false, theme: "dark" });
+    await until(() => {
+      const handOff = draft.handOff();
+      return !!handOff && !("refused" in handOff) && handOff.attachments.length === 2;
+    }, "crop and page screenshot");
+  });
 });

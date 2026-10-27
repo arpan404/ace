@@ -113,6 +113,7 @@ const noContext: BrowserThreadContext = {
 };
 const noFiles: PhoneFiles = {
   write: () => Promise.reject(new Error("This phone can't save files.")),
+  discard: () => Promise.resolve(),
 };
 const noStage: ImageStager = () => Promise.reject(new Error("This phone can't stage images."));
 

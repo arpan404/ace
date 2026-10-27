@@ -39,9 +39,12 @@ export class ChunkedFile {
   #done = false;
   readonly limit: number;
   readonly chunkBytes: number;
-  constructor(limit: number, chunkBytes: number) {
+  /** Keep the bytes for `bytes()`; false when each chunk is handed on as it arrives. */
+  readonly #keep: boolean;
+  constructor(limit: number, chunkBytes: number, options: { keep?: boolean } = {}) {
     this.limit = limit;
     this.chunkBytes = chunkBytes;
+    this.#keep = options.keep ?? true;
   }
   get received(): number {
     return this.#received;
@@ -75,13 +78,14 @@ export class ChunkedFile {
     if (reply.done !== (end === reply.size)) throw new TransferError("The file's end is unclear");
     this.#size = reply.size;
     this.#validator = reply.validator;
-    if (reply.bytes.length) this.#chunks.push(reply.bytes);
+    if (this.#keep && reply.bytes.length) this.#chunks.push(reply.bytes);
     this.#received = end;
     this.#done = reply.done;
   }
-  /** The whole file, once done. */
+  /** The whole file, once done; empty when the chunks weren't kept. */
   bytes(): Uint8Array {
     if (!this.#done) throw new TransferError("The file hasn't fully arrived");
+    if (!this.#keep) return new Uint8Array(0);
     const whole = new Uint8Array(this.#received);
     let at = 0;
     for (const chunk of this.#chunks) {
@@ -116,6 +120,17 @@ export async function fetchChunked(
     maxRetries?: number;
     signal?: AbortSignal;
     onProgress?(received: number, size: number): void;
+    /**
+     * Each chunk once verified, in order, before the next is asked for (`done` on the last).
+     * Its failure ends the transfer. With it, the file is best made with `keep: false`, so only
+     * one chunk is ever held.
+     */
+    onChunk?(chunk: {
+      bytes: Uint8Array;
+      offset: number;
+      size: number;
+      done: boolean;
+    }): void | Promise<void>;
   } = {},
 ): Promise<Uint8Array> {
   const maxRetries = options.maxRetries ?? 40;
@@ -133,6 +148,12 @@ export async function fetchChunked(
     }
     failures = 0;
     file.accept(reply);
+    await options.onChunk?.({
+      bytes: reply.bytes,
+      offset: reply.offset,
+      size: reply.size,
+      done: reply.done,
+    });
     options.onProgress?.(file.received, file.size ?? file.received);
   }
   return file.bytes();

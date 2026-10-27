@@ -61,10 +61,9 @@ export class DeviceStats {
       deviceId: batch.deviceId,
       summary: streamSummary(stats).join(" · "),
       // The phone decodes with VideoToolbox, which says where it ran.
-      details: streamDetails(stats).map((line) =>
-        line === "Decoder: hardware asked for (unconfirmed)"
-          ? "Decoder: hardware (VideoToolbox)"
-          : line,
+      details: streamDetails(
+        stats,
+        batch.hardware ? { decoderLabel: "hardware (VideoToolbox)" } : {},
       ),
     }));
   }

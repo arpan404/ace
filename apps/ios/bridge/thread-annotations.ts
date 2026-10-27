@@ -177,8 +177,17 @@ export class ThreadAnnotations {
     this.#tray.dispose();
   }
 
+  /** An image on its way: still uploading, or attached and not yet listed by the tray. */
   #uploading(): boolean {
-    return [...this.#rows.values()].some((row) => row.state === "uploading");
+    const settled = (picked: Picked | undefined) => {
+      const state = picked ? this.#rows.get(picked.localId)?.state : "ready";
+      return state === "ready" || state === "failed";
+    };
+    return (
+      [...this.#rows.values()].some((row) => row.state === "uploading") ||
+      this.#items.some((item) => !settled(item.crop)) ||
+      [...this.#pages.values()].some((page) => !settled(page))
+    );
   }
   #drop(gone: Item[]): void {
     this.#items = renumbered(this.#items.filter((item) => !gone.includes(item)));
@@ -212,15 +221,16 @@ export class ThreadAnnotations {
   }
 }
 
-/** Numbers 1…n in their current order. */
+/**
+ * Numbers 1…n in their current order. Each item stays the same object (its record is replaced),
+ * since a crop still being captured finishes into the item it was saved with.
+ */
 function renumbered(items: Item[]): Item[] {
   const order = items.toSorted((a, b) => a.annotation.number - b.annotation.number);
-  return items.map((item) => {
-    const number = order.indexOf(item) + 1;
-    return number === item.annotation.number
-      ? item
-      : { ...item, annotation: { ...item.annotation, number } };
-  });
+  for (const [index, item] of order.entries())
+    if (item.annotation.number !== index + 1)
+      item.annotation = { ...item.annotation, number: index + 1 };
+  return items;
 }
 
 /** What the person pinned, as a chip names it: the element's tag and text, or a region. */

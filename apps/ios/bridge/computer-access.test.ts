@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import type { HostPlatform } from "@ace/protocol";
+import type { DeviceScope, HostPlatform } from "@ace/protocol";
 import { ComputerAccess } from "./computer-access.ts";
 import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -14,27 +14,61 @@ afterEach(async () => {
   for (const close of closers.splice(0)) await close();
 });
 
-async function opened(mac = true, platform?: HostPlatform) {
-  const { daemon, client } = sheetFixture();
+async function opened(
+  mac = true,
+  platform?: HostPlatform,
+  pairing: { scopes?: readonly DeviceScope[]; admin?: boolean } = {},
+) {
+  const { daemon, client } = sheetFixture(pairing.scopes ? { scopes: pairing.scopes } : {});
   daemon.platform = platform;
   await client.start();
   const sink = new RecordingSink();
   let ids = 0;
+  /** Every Use my Chrome request the phone made, and the polls waiting to run. */
+  const chromeAsks: string[] = [];
+  const polls = new Set<() => void>();
+  const owner: ConstructorParameters<typeof ComputerAccess>[0] = {
+    request: ((
+      message: Parameters<typeof client.request>[0],
+      options?: Parameters<typeof client.request>[1],
+    ) => {
+      if (message.type === "user_browser.settings") chromeAsks.push(message.operation);
+      return client.request(message, options);
+    }) as typeof client.request,
+    get state() {
+      return client.state;
+    },
+    connectionState: () => client.connectionState(),
+    onMessage: (listener) => client.onMessage(listener),
+  };
   const access = new ComputerAccess(
-    client,
+    owner,
     sink,
     plainPreview,
     (delay, run) => {
+      if (delay === 3_000) {
+        polls.add(run);
+        return () => polls.delete(run);
+      }
       const timer = setTimeout(run, delay);
       return () => clearTimeout(timer);
     },
     () => `id-${++ids}`,
   );
+  /** Run the Use my Chrome polls now, as if three seconds passed. */
+  const poll = () => {
+    const due = [...polls];
+    polls.clear();
+    for (const run of due) run();
+  };
   closers.push(
     () => access.close(),
     () => client.close(),
   );
-  access.handle({ type: "computer.access", action: { kind: "open", mac } });
+  access.handle({
+    type: "computer.access",
+    action: { kind: "open", mac, ...(pairing.admin !== undefined ? { admin: pairing.admin } : {}) },
+  });
   const read = () =>
     sink.read("computer:access") as
       | {
@@ -51,11 +85,12 @@ async function opened(mac = true, platform?: HostPlatform) {
             connections: { title: string; summary: string }[];
           } | null;
           platform: string | null;
-        busy: string | null;
+          ownerOnly: boolean;
+          busy: string | null;
           error: string | null;
         }
       | undefined;
-  return { daemon, access, read };
+  return { daemon, access, read, chromeAsks, poll };
 }
 
 describe("Computer use settings on the phone", () => {
@@ -84,11 +119,11 @@ describe("Computer use settings on the phone", () => {
   test("a refused change says why in the web's words and leaves the state as it was", async () => {
     const { daemon, access, read } = await opened();
     await until(() => read()?.locked != null, "read");
-    daemon.computerAccess.refuse = "forbidden";
+    daemon.computerAccess.refuse = "busy";
     access.handle({ type: "computer.access", action: { kind: "locked", op: "install" } });
     await until(() => read()?.error != null, "refused");
     expect(read()?.error).toBe(
-      "Couldn't turn on locked use. Only this Mac's owner can change this.",
+      "Couldn't turn on locked use. Another change is still running. Try again when it finishes.",
     );
     expect(read()?.locked?.label).toBe("Off");
   });
@@ -132,5 +167,33 @@ describe("Computer use settings on the phone", () => {
     expect(read()?.chrome?.extensionPath).toBe("/Users/ada/.ace/chrome-extension");
     access.handle({ type: "computer.access", action: { kind: "chrome", op: "revoke" } });
     await until(() => read()?.chrome?.installed === false, "revoked");
+  });
+
+  test("an operate-only phone is told only the owner can change these, and never polls", async () => {
+    for (const admin of [false, undefined]) {
+      // Known from the pairing, or learned from the daemon's first refusal.
+      const { daemon, access, read, chromeAsks, poll } = await opened(true, "darwin", {
+        scopes: ["read", "operate"],
+        ...(admin === false ? { admin } : {}),
+      });
+      await until(() => read()?.ownerOnly === true, "owner only");
+      await until(() => read()?.locked != null, "locked use still shows its state");
+      expect(read()?.chrome).toBeNull();
+      // A change the owner must make isn't even asked for.
+      access.handle({ type: "computer.access", action: { kind: "locked", op: "install" } });
+      access.handle({ type: "computer.access", action: { kind: "chrome", op: "install" } });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(daemon.computerAccess.locked).toEqual({ state: "off" });
+      expect(daemon.computerAccess.chrome.installed).toEqual([]);
+      expect(read()?.error).toBeNull();
+      // However long the screen stays open, Use my Chrome isn't asked again.
+      const asked = chromeAsks.length;
+      expect(asked).toBeLessThanOrEqual(admin === false ? 0 : 1);
+      poll();
+      poll();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(chromeAsks).toHaveLength(asked);
+      access.close();
+    }
   });
 });

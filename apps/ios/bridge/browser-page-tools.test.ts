@@ -21,6 +21,31 @@ const state = (sink: RecordingSink) => sink.read("browser:view")?.state as Shown
 const done = (sink: RecordingSink) =>
   sink.read("browser:done") as { message: string; detail: string | null } | undefined;
 
+/** A finished download of the shown tab, with its bytes on the fake machine. */
+async function offerDownload(
+  daemon: Awaited<ReturnType<typeof liveBrowser>>["daemon"],
+  sink: RecordingSink,
+  tabId: string,
+  downloadId: string,
+  bytes: Uint8Array,
+) {
+  daemon.browser.downloadBytes.set(`web\u0000${downloadId}`, bytes);
+  daemon.browser.downloadAdd("web", {
+    downloadId,
+    tabId,
+    filename: `${downloadId}.csv`,
+    bytes: bytes.length,
+    mimeType: "text/csv",
+    flags: [],
+    state: "complete",
+    path: `/fixture/${downloadId}.csv`,
+  });
+  await until(
+    () => (state(sink) as { downloads?: unknown[] } | null)?.downloads?.length === 1,
+    "listed",
+  );
+}
+
 async function opened(files?: PhoneFiles) {
   const fixture = await liveBrowser(files ? { context: { files } } : {});
   fixture.view.action({ kind: "open", threadId: "web", viewport });
@@ -102,7 +127,7 @@ describe("The phone's page commands", () => {
     ]);
   });
 
-  test("a finished download is copied onto the phone whole, then offered", async () => {
+  test("a finished download is written to the phone a chunk at a time, then offered", async () => {
     const written: { offset: number; done: boolean; bytes: Buffer }[] = [];
     const files: PhoneFiles = {
       write: async (input, body) => {
@@ -113,33 +138,49 @@ describe("The phone's page commands", () => {
         });
         return "";
       },
+      discard: async () => "",
     };
     const { daemon, sink, view, tabId } = await opened(files);
     const bytes = new Uint8Array(1_300_000).map((_, index) => index % 251);
-    daemon.browser.downloadBytes.set("web\u0000report", bytes);
-    daemon.browser.downloadAdd("web", {
-      downloadId: "report",
-      tabId: tabId(),
-      filename: "report.csv",
-      bytes: bytes.length,
-      mimeType: "text/csv",
-      flags: [],
-      state: "complete",
-      path: "/fixture/report.csv",
-    });
-    await until(
-      () => (state(sink) as { downloads?: unknown[] } | null)?.downloads?.length === 1,
-      "listed",
-    );
+    await offerDownload(daemon, sink, tabId(), "report", bytes);
     view.action({ kind: "save", downloadId: "report" });
-    await until(() => sink.read("browser:saving:report")?.phase === "ready", "saved");
+    await until(() => sink.read("browser:saving:web:report")?.phase === "ready", "saved");
     expect(Buffer.concat(written.map((write) => write.bytes))).toEqual(Buffer.from(bytes));
-    expect(written.at(-1)?.done).toBe(true);
+    // Each write is one chunk as it arrived, in order: the file is never held whole.
+    expect(Math.max(...written.map((write) => write.bytes.length))).toBeLessThanOrEqual(256 * 1024);
+    expect(written.map((write) => write.offset)).toEqual(
+      written.map((_, index) => index * 256 * 1024),
+    );
     expect(written.filter((write) => write.done)).toHaveLength(1);
+    expect(written.at(-1)?.done).toBe(true);
+  });
+
+  test("a save that fails part way leaves nothing on the phone and says so", async () => {
+    const discarded: string[] = [];
+    let writes = 0;
+    const files: PhoneFiles = {
+      write: async () => {
+        if (++writes === 2) throw new Error("The phone is full.");
+        return "";
+      },
+      discard: async (input) => {
+        discarded.push(input.id);
+        return "";
+      },
+    };
+    const { daemon, sink, view, tabId } = await opened(files);
+    await offerDownload(daemon, sink, tabId(), "report", new Uint8Array(700_000));
+    view.action({ kind: "save", downloadId: "report" });
+    await until(() => sink.read("browser:saving:web:report")?.phase === "failed", "failed");
+    expect(sink.read("browser:saving:web:report")?.message).toContain("The phone is full.");
+    expect(discarded).toEqual(["web/report"]);
   });
 
   test("a download still on its way can't be saved yet, and says so", async () => {
-    const { daemon, sink, view, tabId } = await opened({ write: async () => "" });
+    const { daemon, sink, view, tabId } = await opened({
+      write: async () => "",
+      discard: async () => "",
+    });
     daemon.browser.downloadAdd("web", {
       downloadId: "big",
       tabId: tabId(),

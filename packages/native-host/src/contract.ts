@@ -89,6 +89,8 @@ export interface HostOperations {
     input: { id: string; name: string; offset: number; done: boolean };
     body: string;
   };
+  /** Deletes the device's copy of a file being saved, whole or partial (a failed or cancelled save). */
+  "file.discard": { input: { id: string; name: string }; body: never };
   /**
    * A captured image (base64 body) staged as a message file; answers its `Picked` JSON
    * (`localId`, `name`, `mimeType`, `bytes`, `sha256`).

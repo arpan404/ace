@@ -52,8 +52,6 @@ const Extensions = z.object({
     .max(256),
 });
 
-/** Bytes per write to the phone's file, as base64 in one host call. */
-const writeBytes = 512 * 1024;
 /** The page source the sheet shows, in UTF-16 units; the daemon bounds what it sends too. */
 const sourceLimit = 512 * 1024;
 
@@ -64,6 +62,8 @@ export interface PhoneFiles {
     input: { id: string; name: string; offset: number; done: boolean },
     body: string,
   ): Promise<unknown>;
+  /** Deletes the phone's copy of `id`, whole or partial. */
+  discard(input: { id: string; name: string }): Promise<unknown>;
 }
 
 export interface PageToolsHost {
@@ -141,7 +141,7 @@ export class BrowserPageTools {
         void this.#save(threadId, action.downloadId, state);
         return;
       case "saveCancel":
-        this.#saving.get(action.downloadId)?.abort.abort();
+        this.#saving.get(savingKey(threadId, action.downloadId))?.abort.abort();
         return;
     }
   }
@@ -253,7 +253,9 @@ export class BrowserPageTools {
     downloadId: string,
     state: BrowserState | undefined,
   ): Promise<void> {
-    if (this.#saving.has(downloadId)) return;
+    // A download id is the thread's own: the same id in another thread is another file.
+    const key = savingKey(threadId, downloadId);
+    if (this.#saving.has(key)) return;
     const download = state?.downloads?.find((each) => each.downloadId === downloadId);
     if (!download || download.state !== "complete") {
       this.#problem("That download hasn't finished on your computer yet.");
@@ -265,10 +267,12 @@ export class BrowserPageTools {
     }
     const name = download.filename;
     const saving: Saving = { threadId, name, abort: new AbortController() };
-    this.#saving.set(downloadId, saving);
+    this.#saving.set(key, saving);
+    const id = `${threadId}/${downloadId}`;
     const put = (phase: "saving" | "ready" | "failed", progress: number, message?: string) =>
-      this.#host.sink.put(`browser:saving:${downloadId}`, () => ({
+      this.#host.sink.put(`browser:saving:${key}`, () => ({
         type: "browser.saving",
+        threadId,
         downloadId,
         name: this.#host.preview(name, 256),
         phase,
@@ -277,26 +281,27 @@ export class BrowserPageTools {
       }));
     put("saving", 0);
     try {
-      const bytes = await fetchBrowserDownload(this.#host.owner, threadId, downloadId, {
+      // Each verified chunk goes straight to the phone's file: one chunk is held at a time.
+      await fetchBrowserDownload(this.#host.owner, threadId, downloadId, {
         signal: saving.abort.signal,
         limit: phoneDownloadMax,
-        onProgress: (received, size) => put("saving", size > 0 ? (0.9 * received) / size : 0),
+        onProgress: (received, size) => put("saving", size > 0 ? received / size : 0),
+        onChunk: async (chunk) => {
+          saving.abort.signal.throwIfAborted();
+          await this.#host.files.write(
+            { id, name, offset: chunk.offset, done: chunk.done },
+            base64(chunk.bytes),
+          );
+        },
       });
-      for (let offset = 0; offset < bytes.length || offset === 0; offset += writeBytes) {
-        if (saving.abort.signal.aborted) throw new Error("cancelled");
-        const end = Math.min(bytes.length, offset + writeBytes);
-        await this.#host.files.write(
-          { id: downloadId, name, offset, done: end >= bytes.length },
-          base64(bytes.subarray(offset, end)),
-        );
-        if (end >= bytes.length) break;
-      }
       put("ready", 1);
     } catch (error) {
-      if (saving.abort.signal.aborted) this.#host.sink.clear(`browser:saving:${downloadId}`);
+      // What arrived of it goes: a partial file is never offered.
+      void this.#host.files.discard({ id, name }).catch(() => {});
+      if (saving.abort.signal.aborted) this.#host.sink.clear(`browser:saving:${key}`);
       else put("failed", 0, `Couldn't save ${name} to this phone. ${reason(error)}`);
     } finally {
-      this.#saving.delete(downloadId);
+      this.#saving.delete(key);
     }
   }
   /** A person's command to the shown tab; its failure becomes one sentence. */
@@ -354,4 +359,5 @@ export class BrowserPageTools {
   }
 }
 
+const savingKey = (threadId: string, downloadId: string) => `${threadId}:${downloadId}`;
 const fileName = (path: string) => path.split(/[\\/]/).at(-1) ?? path;

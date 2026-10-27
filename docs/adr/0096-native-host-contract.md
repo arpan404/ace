@@ -188,6 +188,11 @@ answers `unsupported`, which the bridge says in one sentence):
   the device. Offset 0 starts the file again; any other offset must be where the file ends, so a
   slice is never written twice or out of order. The host keeps the copy under a folder named by a
   hash of `id` (ids never become paths) and offers it to the person once `done`.
+- `file.discard` `{ id, name }`: the copy goes, whole or partial, when a save fails or is
+  cancelled. A copy is written to a partial file and only named (and offered) on `done`; one
+  that would pass 128 MB is refused and deleted. The folder hash covers the machine too, so two
+  machines' downloads with the same ids never meet. The bridge writes each verified chunk as it
+  arrives (`fetchBrowserDownload`'s `onChunk`), so one chunk is held at a time.
 - `capture.stage` `{ name, mimeType }` with a base64 PNG or JPEG body: an annotation's crop or
   page screenshot, staged like a picked photo; the host answers the file's `Picked` JSON with its
   SHA-256, since JavaScriptCore has no hashing of its own.

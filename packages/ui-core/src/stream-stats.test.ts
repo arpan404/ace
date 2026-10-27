@@ -55,3 +55,14 @@ test("the stream stats show pictures that arrived but weren't drawn, the longest
     "Decoder: browser default (hardware failed: EncodingError)",
   ]);
 });
+
+test("a client that knows where its decoder runs names it instead of the browser's guess", () => {
+  const meter = new StreamMeter({ sameClock: false });
+  meter.decoder("hardware");
+  meter.add({ capturedAt: 0, shownAt: 0 });
+  const stats = meter.read(1000);
+  expect(streamDetails(stats).at(-1)).toBe("Decoder: hardware asked for (unconfirmed)");
+  expect(streamDetails(stats, { decoderLabel: "hardware (VideoToolbox)" }).at(-1)).toBe(
+    "Decoder: hardware (VideoToolbox)",
+  );
+});

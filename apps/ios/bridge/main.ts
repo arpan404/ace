@@ -277,7 +277,10 @@ async function start(json: string): Promise<void> {
       threadId === openThreadId ? lease?.store.thread?.workspaceId : undefined,
     now: () => host.now(),
     read: nativeChunks,
-    files: { write: (input, body) => call("file.write", input, body) },
+    files: {
+      write: (input, body) => call("file.write", input, body),
+      discard: (input) => call("file.discard", input),
+    },
     stage: async (name, mimeType, data) =>
       Picked.parse(JSON.parse(await call("capture.stage", { name, mimeType }, data))),
     annotations: (threadId) => (threadId === openThreadId ? session?.annotations : undefined),

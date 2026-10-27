@@ -88,6 +88,9 @@ export class BrowserAnnotate {
   }
   stop(): void {
     if (this.#mode === "off") return;
+    // A screenshot still waiting for the page to settle is taken now, before the markers go:
+    // the daemon runs the person's commands in order, so it still sees them.
+    this.#flushPage();
     const threadId = this.#threadId;
     if (threadId)
       void this.#execute(threadId, { action: "annotate", operation: "stop" }).catch(() => {});
@@ -213,6 +216,8 @@ export class BrowserAnnotate {
     this.#mode = "off";
     this.#url = undefined;
     this.#edit = undefined;
+    // Events for a session that ended (an `ended` that arrives late) no longer match.
+    this.#threadId = undefined;
     if (changed) this.#host.changed();
   }
   #schedulePage(): void {
