@@ -59,6 +59,8 @@ export interface ServerOptions {
   browsing?: import("./browsing.ts").BrowsingThreads;
   /** Threads whose agent uses Mac apps now (`computer.using.watch`). */
   computerUsing?: import("./computer-using.ts").ComputerUsingThreads;
+  /** Offshift runs, for the person's own controls (`offshift.request`). */
+  offshifts?: Pick<import("./agent-control/offshift.ts").Offshifts, "person">;
   /** The Activity read cursor (`activity.reads`). */
   activityReads?: import("./activity-reads.ts").ActivityReads;
   /** Local checks and verified batch merges of pull requests (`verify.request`). */

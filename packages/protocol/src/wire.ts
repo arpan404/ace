@@ -128,6 +128,7 @@ export {
   ThreadView,
 } from "./wire-core.ts";
 import { QueueGet, QueueResult } from "./queue.ts";
+import { OffshiftClientRequest, OffshiftClientResult } from "./offshift-person.ts";
 import { ContextRequest, ContextResult } from "./context.ts";
 import {
   HistoryOperationProgress,
@@ -223,6 +224,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...AutomationRequest.options,
   ...ActivityReadsRequest.options,
   VerifyRequest,
+  OffshiftClientRequest,
   QueueGet,
   PiControlRequest,
 
@@ -325,6 +327,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ActivityReadsChanged,
   VerifyResult,
   VerifyChanged,
+  OffshiftClientResult,
   QueueResult,
   PiControlResult,
 

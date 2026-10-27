@@ -48,6 +48,8 @@ export interface Services {
   /** Automations agents made from threads, for the person's own controls. */
   threadAutomations?: import("../agent-control/thread-automations.ts").ThreadAutomations;
   activityReads?: import("../activity-reads.ts").ActivityReads;
+  /** Offshift runs, for the person's own controls (`offshift.request`). */
+  offshifts?: import("../agent-control/offshift.ts").Offshifts;
   /** Local checks and verified batch merges of pull requests (ADR 0094). */
   verify?: import("../verify/verify-service.ts").Verify;
   icons?: import("../icons/icon-service.ts").IconService;

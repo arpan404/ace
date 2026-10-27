@@ -73,6 +73,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "previewSuggestions",
     "automations",
     "threadAutomations",
+    "offshifts",
     "activityReads",
     "utility",
     "verify",
