@@ -62,6 +62,10 @@ struct ChangesSheet: View {
                 ToolbarItem(placement: .principal) { header }
             }
             .changesActions(model: model, summary: summary, title: title, wrap: $wrap)
+            .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
+                // Pinned, so Collapse all and Files stay in reach deep inside a long diff.
+                if let summary, summary.state != "error" { toolbarRow(summary).background(AceTheme.Colours.background) }
+            }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 ReviewBar(model: model, selection: $selection, comment: compose, list: { listing = true })
             }
@@ -95,7 +99,6 @@ struct ChangesSheet: View {
 
     @ViewBuilder private var content: some View {
         if let summary {
-            toolbarRow(summary)
             if summary.state == "error" {
                 EmptyState(icon: nil, title: "Couldn't read changes", line: "Check that this thread has a git checkout, then refresh.", failed: true) {
                     Button("Refresh") { model.sheet(["kind": "changes.refresh"]) }

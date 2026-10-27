@@ -27,9 +27,10 @@ struct LargeFileView: View {
     private var saved: FileDownload? { download.flatMap { model.files.downloads[$0] } }
 
     var body: some View {
+        VStack(spacing: AceTheme.Spacing.none) {
+        header
         ScrollView(wrap ? .vertical : [.vertical, .horizontal]) {
             LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                header
                 ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                     HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.md) {
                         Text("\(index + 1)").foregroundStyle(AceTheme.Colours.decoration)
@@ -43,6 +44,7 @@ struct LargeFileView: View {
                 footer
             }
             .textSelection(.enabled)
+        }
         }
         .task(id: path) { if lines.isEmpty { await more() } }
         .onChange(of: saved?.phase) { _, phase in if phase == "saved" { UINotificationFeedbackGenerator().notificationOccurred(.success) } }

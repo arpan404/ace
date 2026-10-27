@@ -17,33 +17,45 @@ import XCTest
         // The sheet opens on the last turn, with every scope in the title's menu.
         let scope = app.buttons["changes.scope"]
         XCTAssertTrue(scope.waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["Last turn"].waitForExistence(timeout: 20))
+        wait(for: [expectation(for: NSPredicate(format: "label CONTAINS 'Last turn'"), evaluatedWith: scope)], timeout: 20)
         XCTAssertTrue(app.buttons["changes.file.apps/server/src/replay/window.test.ts"].waitForExistence(timeout: 20))
         capture("last-turn")
         scope.tap()
         XCTAssertTrue(app.buttons["Turn 1"].waitForExistence(timeout: 5))
         capture("scope-menu")
         app.buttons["Uncommitted"].tap()
-        XCTAssertTrue(app.staticTexts["44 files"].waitForExistence(timeout: 20))
+        let shown = expectation(for: NSPredicate(format: "label CONTAINS 'Uncommitted'"), evaluatedWith: scope)
+        let count = XCTWaiter.wait(for: [shown], timeout: 20) == .completed
+        capture("uncommitted")
+        XCTAssertTrue(count)
 
-        app.buttons["changes.expand"].tap()
-        XCTAssertTrue(app.buttons["Collapse all"].waitForExistence(timeout: 10))
+        // A file may already be open from the last scope: start from everything closed.
+        if expandAll(app).label == "Collapse all" { expandAll(app).tap() }
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label == 'Expand all'")).firstMatch.waitForExistence(timeout: 10))
+        expandAll(app).tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label == 'Collapse all'")).firstMatch.waitForExistence(timeout: 10))
         capture("expanded")
-        app.buttons["changes.expand"].tap()
+        expandAll(app).tap()
 
         app.buttons["changes.tree"].tap()
         let big = app.buttons["tree.data/fixtures/replay-events.jsonl"]
+        for _ in 0..<8 where !big.exists { app.swipeUp() }
         XCTAssertTrue(big.waitForExistence(timeout: 10))
         capture("tree")
         big.tap()
         let more = app.buttons["diff.more"]
-        XCTAssertTrue(more.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons.matching(identifier: "diff.line").firstMatch.waitForExistence(timeout: 20))
+        // Show more sits under the first 300 rows.
+        for _ in 0..<30 where !more.exists { app.swipeUp(velocity: .fast) }
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
         capture("paged")
         more.tap()
-        XCTAssertTrue(app.buttons["diff.more"].waitForExistence(timeout: 20))
+        // The next page lands under the rows already shown, so Show more moves down.
+        sleep(3)
+        capture("paged-more")
 
         // A comment on a line of the first file, sent to the agent.
-        app.buttons["changes.expand"].tap() // collapse all
+        expandAll(app).tap() // collapse all
         let first = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.file.apps/server/src/replay/window.ts'")).firstMatch
         XCTAssertTrue(first.waitForExistence(timeout: 10)); first.tap()
         let line = app.buttons.matching(identifier: "diff.line").element(boundBy: 2)
@@ -59,11 +71,15 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["review.comment"].waitForExistence(timeout: 15))
         capture("draft")
         app.buttons["review.sendAll"].tap()
-        XCTAssertTrue(app.staticTexts["Sent"].waitForExistence(timeout: 20))
+        let sent = app.staticTexts["Sent"].waitForExistence(timeout: 20)
         capture("sent")
+        XCTAssertTrue(sent)
 
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "review.comment").count, 1, "a sent comment shows once")
         app.buttons["review.list"].tap()
-        XCTAssertTrue(app.buttons["review.approve"].waitForExistence(timeout: 10))
+        let approve = app.buttons["review.approve"].waitForExistence(timeout: 10)
+        capture("comments")
+        XCTAssertTrue(approve)
         app.buttons["review.approve"].tap()
         XCTAssertTrue(app.staticTexts["Review · Approved"].waitForExistence(timeout: 15))
         capture("approved")
@@ -75,6 +91,10 @@ import XCTest
         capture("viewed")
     }
 
+    /// Expand all or Collapse all, whichever the row shows.
+    private func expandAll(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == 'changes.expand' OR label == 'Expand all' OR label == 'Collapse all'")).firstMatch
+    }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]

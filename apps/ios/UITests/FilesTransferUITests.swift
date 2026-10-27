@@ -43,6 +43,19 @@ import XCTest
         app.buttons["files.open"].tap()
         XCTAssertTrue(app.navigationBars["Files"].waitForExistence(timeout: 10))
         capture("open-files")
+        app.buttons["Done"].firstMatch.tap()
+
+        // A 3 MB log reads in pages.
+        app.navigationBars.buttons.element(boundBy: 0).tap() // back to the tree
+        if !search.waitForExistence(timeout: 3) { app.swipeDown() }
+        XCTAssertTrue(search.waitForExistence(timeout: 10)); search.tap()
+        search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 12) + "replay-soak")
+        let log = app.buttons["search.logs/replay-soak.log"]
+        XCTAssertTrue(log.waitForExistence(timeout: 15)); log.tap()
+        let pages = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'read in pages'")).firstMatch
+        XCTAssertTrue(pages.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '000001 replay'")).firstMatch.waitForExistence(timeout: 10))
+        capture("large-file")
     }
 
     private func launch() -> XCUIApplication {
