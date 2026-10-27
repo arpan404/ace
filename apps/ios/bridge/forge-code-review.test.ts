@@ -35,6 +35,7 @@ interface FileView {
   rendered: boolean;
   viewed: string | null;
   headSha: string;
+  revisions: { base: string; head: string; prHead: string; path: string };
 }
 
 test("the Commits list names each commit oldest first, by its first line", async () => {
@@ -191,6 +192,32 @@ test("the Markdown guide reads as rendered blocks, its changed paragraphs remove
     "add",
   ]);
   expect(reply.blocks.at(-1)?.blocks[0]?.k).toBe("alert");
+});
+
+test("a file's sides are read at the commits its diff showed, and say which they are", async () => {
+  const { ask } = await connected();
+  const file = (await ask({ type: "forge.pull.file", ...pull, path: guide })) as FileView;
+  expect(file.revisions).toMatchObject({ prHead: file.headSha, path: guide });
+  const shown = (await ask({
+    type: "forge.pull.file.sides",
+    ...pull,
+    path: guide,
+    as: "rendered",
+    revisions: file.revisions,
+  })) as { revisions: unknown; blocks: { kind: string }[] };
+  expect(shown.revisions).toEqual(file.revisions);
+  // Pinned to other commits (here the base on both sides), it reads those, never the PR's head:
+  // nothing changed between them.
+  const pinned = { ...file.revisions, head: file.revisions.base };
+  const older = (await ask({
+    type: "forge.pull.file.sides",
+    ...pull,
+    path: guide,
+    as: "rendered",
+    revisions: pinned,
+  })) as { revisions: unknown; blocks: { kind: string }[] };
+  expect(older.revisions).toEqual(pinned);
+  expect(older.blocks.every((block) => block.kind === "same")).toBe(true);
 });
 
 test("the screenshot GitHub sends no patch for shows both versions through the daemon", async () => {

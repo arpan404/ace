@@ -107,4 +107,26 @@ import Foundation
         ]
         return try JSONDecoder().decode(ForgePullPage.self, from: JSONSerialization.data(withJSONObject: json))
     }
+
+    // MARK: Viewed names the version on screen
+
+    private func revisions(head: String, prHead: String) -> ForgeFileRevisions {
+        let json = #"{"base":"\#(String(repeating: "b", count: 40))","head":"\#(head)","prHead":"\#(prHead)","path":"docs/guide.md","previousPath":null,"status":"modified"}"#
+        return try! JSONDecoder().decode(ForgeFileRevisions.self, from: Data(json.utf8))
+    }
+
+    @Test func aRenderedViewStillShowingTheOldPushMarksNothingUntilItDrawsTheNewOne() {
+        let old = revisions(head: String(repeating: "1", count: 40), prHead: String(repeating: "1", count: 40))
+        let pushed = revisions(head: String(repeating: "2", count: 40), prHead: String(repeating: "2", count: 40))
+        // The page read the push; the rendered view still has the old version on screen.
+        #expect(ForgeViewedVersion.head(patchHead: pushed.prHead, current: pushed, drawsSides: true, shown: old) == nil)
+        #expect(ForgeViewedVersion.head(patchHead: pushed.prHead, current: pushed, drawsSides: true, shown: nil) == nil)
+        // Once it has drawn the pushed commits, Viewed names that head.
+        #expect(ForgeViewedVersion.head(patchHead: pushed.prHead, current: pushed, drawsSides: true, shown: pushed) == pushed.prHead)
+    }
+
+    @Test func thePatchIsAlwaysTheVersionThePageRead() {
+        let current = revisions(head: String(repeating: "3", count: 40), prHead: String(repeating: "3", count: 40))
+        #expect(ForgeViewedVersion.head(patchHead: current.prHead, current: current, drawsSides: false, shown: nil) == current.prHead)
+    }
 }

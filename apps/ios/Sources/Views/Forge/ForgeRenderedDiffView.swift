@@ -7,6 +7,10 @@ struct ForgeRenderedDiffView: View {
     let client: ClientModel
     let route: ForgeRoute
     let scope: ForgeRichScope
+    /// The commits to draw; a new pair (a push, a refresh) reads again.
+    let revisions: ForgeFileRevisions?
+    /// Tells the page which commits are on screen, so Viewed names that version.
+    let shown: (ForgeFileRevisions?) -> Void
     @State private var blocks: [ForgeFileSides.Block]?
     @State private var hidden = 0
     @State private var failure: String?
@@ -35,7 +39,7 @@ struct ForgeRenderedDiffView: View {
             }
         }
         .animation(AceMotion.smooth, value: blocks == nil)
-        .task(id: route) { await load() }
+        .task(id: ForgeSidesKey(route: route, revisions: revisions)) { await load() }
     }
 
     private func row(_ block: ForgeFileSides.Block) -> some View {
@@ -56,10 +60,12 @@ struct ForgeRenderedDiffView: View {
 
     private func load() async {
         do {
-            guard case .rendered(let read, let more) = try await client.forgeFileSides(route, as: "rendered") else { return }
-            blocks = read
+            let read = try await client.forgeFileSides(route, as: "rendered", revisions: revisions)
+            guard case .rendered(let drawn, let more) = read.sides else { return }
+            blocks = drawn
             hidden = more
             failure = nil
+            shown(read.revisions)
         } catch is CancellationError {
         } catch { failure = error.localizedDescription }
     }

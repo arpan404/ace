@@ -112,6 +112,8 @@ struct ForgeTimeline: Decodable, Sendable, Equatable {
 
 /// One changed file in the Code view (`bridge/forge-code.ts`).
 struct ForgeFileDiff: Decodable, Sendable, Equatable {
+    /// The commits this diff is between; a copy kept from before they were sent has none.
+    var revisions: ForgeFileRevisions?
     struct Anchor: Decodable, Sendable, Equatable, Hashable { let line: Int; let side: String }
     struct Draft: Decodable, Sendable, Equatable, Hashable, Identifiable { let id: String; let body: String }
     struct Line: Decodable, Sendable, Equatable {

@@ -125,7 +125,24 @@ export interface FileReply {
   /** Side by side: the line indexes on the left and right of each row, null for an empty half. */
   pairs: [number | null, number | null][];
   viewed: ViewedMark | null;
+  /** The exact commits this diff is between, which its rendered and image views read too. */
+  revisions: FileRevisions;
 }
+
+/**
+ * The commits a file's diff is between (content at a commit never changes), the PR's head it
+ * was read at (where a Viewed mark is set), and where the file lives on each side.
+ */
+const revisionSha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
+export const FileRevisions = z.object({
+  base: revisionSha,
+  head: revisionSha,
+  prHead: revisionSha,
+  path: z.string().min(1).max(4096),
+  previousPath: z.string().min(1).max(4096).nullable(),
+  status: z.string().max(32),
+});
+export type FileRevisions = z.infer<typeof FileRevisions>;
 
 const pageSize = 25;
 const maxPages = 8;
@@ -251,11 +268,12 @@ export async function readFile(
 ): Promise<FileReply> {
   const detail = await prDetail(reads, request);
   const shas = { headSha: detail.status.headSha, baseSha: detail.baseSha };
-  const [{ file }, state, lifecycle] = await Promise.all([
+  const [found, state, lifecycle] = await Promise.all([
     findFile(reads, request, shas),
     prReviewState(reads, request),
     prLifecycle(reads, request),
   ]);
+  const { file } = found;
   const locked = lockedOut(lifecycle);
   const conversation: Conversation = {
     state,
@@ -336,5 +354,13 @@ export async function readFile(
           : { headSha: detail.status.headSha },
       ).of(file.path),
     ),
+    revisions: {
+      base: found.baseSha,
+      head: found.headSha,
+      prHead: detail.status.headSha,
+      path: file.path,
+      previousPath: file.previousPath ?? null,
+      status: file.status,
+    },
   };
 }

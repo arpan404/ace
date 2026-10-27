@@ -7,7 +7,7 @@ import {
 import { blockDiff, hostedImageType, markdownBlocks } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
-import { findFile } from "./forge-code.ts";
+import { FileRevisions, findFile } from "./forge-code.ts";
 import { ForgeRange } from "./forge-commits.ts";
 import { prDetail } from "./forge-pr-reads.ts";
 import { ForgeRefusal, type ForgeReads } from "./forge-reads.ts";
@@ -30,6 +30,11 @@ export const ForgeFileSidesRequest = z.object({
   range: ForgeRange.optional(),
   /** `rendered`: the Markdown blocks diff; `image`: both images. */
   as: z.enum(["rendered", "image"]),
+  /**
+   * The commits the page's diff showed: both sides are read at exactly these, so what is drawn
+   * matches the version a Viewed mark names. Without them, the PR's head now.
+   */
+  revisions: FileRevisions.optional(),
 });
 export type ForgeFileSidesRequest = z.infer<typeof ForgeFileSidesRequest>;
 
@@ -46,8 +51,16 @@ export type SidesReply =
       blocks: { kind: "same" | "del" | "add"; blocks: RichBlock[] }[];
       /** Blocks past the phone's budget; the rest read on GitHub. */
       hidden: number;
+      /** The commits drawn. */
+      revisions: FileRevisions;
     }
-  | { type: "forge.pull.file.sides"; as: "image"; before: ImageSide; after: ImageSide };
+  | {
+      type: "forge.pull.file.sides";
+      as: "image";
+      before: ImageSide;
+      after: ImageSide;
+      revisions: FileRevisions;
+    };
 
 /** The most blocks a rendered diff draws, and the most text it reads per side. */
 const blockBudget = 400;
@@ -92,13 +105,38 @@ async function readSide(
 }
 
 /** The two reads a file needs; a side the change has no file on is missing. */
-const sidesOf = (file: ForgeFile, shas: { baseSha: string; headSha: string }) => ({
+const sidesOf = (revisions: FileRevisions) => ({
   base:
-    file.status === "added"
+    revisions.status === "added"
       ? undefined
-      : { sha: shas.baseSha, path: file.previousPath ?? file.path },
-  head: file.status === "removed" ? undefined : { sha: shas.headSha, path: file.path },
+      : { sha: revisions.base, path: revisions.previousPath ?? revisions.path },
+  head: revisions.status === "removed" ? undefined : { sha: revisions.head, path: revisions.path },
 });
+
+/** The commits to read: the ones asked for, else the file's diff at the PR's head now. */
+async function revisionsOf(
+  reads: ForgeReads,
+  request: ForgeFileSidesRequest,
+  detail: { status: { headSha: string }; baseSha: string },
+): Promise<{ revisions: FileRevisions; path: string }> {
+  if (request.revisions) return { revisions: request.revisions, path: request.revisions.path };
+  const found = await findFile(reads, request, {
+    headSha: detail.status.headSha,
+    baseSha: detail.baseSha,
+  });
+  const file: ForgeFile = found.file;
+  return {
+    path: file.path,
+    revisions: {
+      base: found.baseSha,
+      head: found.headSha,
+      prHead: detail.status.headSha,
+      path: file.path,
+      previousPath: file.previousPath ?? null,
+      status: file.status,
+    },
+  };
+}
 
 /** A side read as text: an added or removed file has none. */
 const textOf = (content: ForgeFileContent) => {
@@ -113,12 +151,9 @@ export async function readFileSides(
   preview: Preview,
 ): Promise<SidesReply> {
   const detail = await prDetail(reads, request);
-  const found = await findFile(reads, request, {
-    headSha: detail.status.headSha,
-    baseSha: detail.baseSha,
-  });
-  const sides = sidesOf(found.file, found);
-  const image = request.as === "image" ? hostedImageType(found.file.path) : undefined;
+  const { revisions, path } = await revisionsOf(reads, request, detail);
+  const sides = sidesOf(revisions);
+  const image = request.as === "image" ? hostedImageType(path) : undefined;
   if (request.as === "image" && !image) throw new ForgeRefusal("forge_unsupported");
   const missing = { kind: "missing" } as const;
   const [before, after] = await Promise.all(
@@ -139,6 +174,7 @@ export async function readFileSides(
       as: "image",
       before: shown(before),
       after: shown(after),
+      revisions,
     };
   }
   const repository = detail.status.ref.repository;
@@ -155,5 +191,6 @@ export async function readFileSides(
       blocks: repositoryBlocks(preview(change.item, 16_384), repository),
     })),
     hidden: Math.max(0, changes.length - blockBudget),
+    revisions,
   };
 }

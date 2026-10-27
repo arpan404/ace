@@ -6,6 +6,10 @@ import SwiftUI
 struct ForgeImageDiffView: View {
     let client: ClientModel
     let route: ForgeRoute
+    /// The commits to draw; a new pair (a push, a refresh) reads again.
+    let revisions: ForgeFileRevisions?
+    /// Tells the page which commits are on screen, so Viewed names that version.
+    let shown: (ForgeFileRevisions?) -> Void
     @State private var sides: Sides?
     @State private var failure: String?
     @State private var layout = Layout.side
@@ -32,7 +36,7 @@ struct ForgeImageDiffView: View {
         }
         .padding(AceTheme.Spacing.lg)
         .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: sides == nil)
-        .task(id: route) { await load() }
+        .task(id: ForgeSidesKey(route: route, revisions: revisions)) { await load() }
     }
 
     @ViewBuilder private func content(_ sides: Sides) -> some View {
@@ -110,13 +114,15 @@ struct ForgeImageDiffView: View {
 
     private func load() async {
         do {
-            guard case .image(let before, let after) = try await client.forgeFileSides(route, as: "image") else { return }
+            let read = try await client.forgeFileSides(route, as: "image", revisions: revisions)
+            guard case .image(let before, let after) = read.sides else { return }
             // Base64 and image decoding stay off the main thread; a long image never stalls a scroll.
             let decoded = await Task.detached(priority: .userInitiated) {
                 Sides(before: Self.side(before), after: Self.side(after))
             }.value
             sides = decoded
             failure = nil
+            shown(read.revisions)
         } catch is CancellationError {
         } catch { failure = error.localizedDescription }
     }
@@ -128,4 +134,10 @@ struct ForgeImageDiffView: View {
         let image = UIImage(data: data)?.preparingForDisplay()
         return Side(image: image, size: side.size, note: image == nil ? "Can't be shown here" : nil)
     }
+}
+
+/// What a file's sides are read for: the file, and the exact commits.
+struct ForgeSidesKey: Hashable {
+    let route: ForgeRoute
+    let revisions: ForgeFileRevisions?
 }

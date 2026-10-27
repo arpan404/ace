@@ -20,6 +20,8 @@ struct ForgeFileView: View {
     @State private var refused = 0
     @State private var marked = 0
     @State private var renderedOn = true
+    /// The commits the rendered or image view has on screen; nil until it has drawn.
+    @State private var shownRevisions: ForgeFileRevisions?
     @AppStorage("forge.code.wrap") private var wrap = true
     @AppStorage("forge.code.split") private var split = false
     @Environment(\.horizontalSizeClass) private var width
@@ -96,12 +98,12 @@ struct ForgeFileView: View {
             ForgeCodeToolbar(wrap: $wrap, split: $split,
                              rendered: file.rendered ? $renderedOn.animation(AceMotion.smooth) : nil,
                              wide: wide && file.show == "patch", viewed: file.viewed, lines: file.show != "image",
-                             canMark: client.canOperate, marking: !desk.ready) { markViewed(file, desk) }
+                             canMark: client.canOperate, marking: !desk.ready || !showsCurrent(file)) { markViewed(file, desk) }
             Divider().overlay(AceTheme.Colours.separator)
             if showsRendered {
-                ForgeRenderedDiffView(client: client, route: route, scope: desk.scope)
+                ForgeRenderedDiffView(client: client, route: route, scope: desk.scope, revisions: file.revisions) { shownRevisions = $0 }
             } else if file.show == "image" {
-                ForgeImageDiffView(client: client, route: route)
+                ForgeImageDiffView(client: client, route: route, revisions: file.revisions) { shownRevisions = $0 }
             } else {
                 if file.empty {
                     Text(file.show == "patch" ? "GitHub shows no lines for this file." : "GitHub sent no patch for this file; open it on GitHub.").meta()
@@ -151,8 +153,21 @@ struct ForgeFileView: View {
         }
     }
 
+    /// The rendered Markdown or the images are drawn, from both sides read whole.
+    private func drawsSides(_ file: ForgeFileDiff) -> Bool { (file.rendered && renderedOn) || file.show == "image" }
+
+    /// Whether what is on screen is the version the page read: the patch always is; a rendered
+    /// or image view is once it has drawn this diff's commits.
+    private func showsCurrent(_ file: ForgeFileDiff) -> Bool { viewedHead(file) != nil }
+    private func viewedHead(_ file: ForgeFileDiff) -> String? {
+        ForgeViewedVersion.head(patchHead: file.headSha, current: file.revisions, drawsSides: drawsSides(file), shown: shownRevisions)
+    }
+
+    /// Viewed names the pull request head of the version on screen; the daemon refuses it once
+    /// GitHub's head has moved on, so a mark never lands on code the person didn't see.
     private func markViewed(_ file: ForgeFileDiff, _ desk: ForgeReviewDesk) {
-        let action: [String: Any] = ["kind": file.viewed == "viewed" ? "file.unview" : "file.view", "path": file.path, "headSha": file.headSha]
+        guard let head = viewedHead(file) else { return }
+        let action: [String: Any] = ["kind": file.viewed == "viewed" ? "file.unview" : "file.view", "path": file.path, "headSha": head]
         Task { if await desk.run(action) { marked += 1 } }
     }
 
