@@ -321,6 +321,28 @@ phone showed, a lifecycle change names the version shown, and an answer that nev
 shown as unconfirmed with Reconcile (review and lifecycle writes) or Send again (inbox writes,
 which set a state). `@` and `#` complete through `forge.complete` in every editor.
 
+Working on a pull request from its page (`bridge/forge-checks.ts`, `forge-log-pages.ts`,
+`forge-worktree.ts`, `forge-conflicts.ts`, `forge-stack.ts`; rules in `@ace/ui-core`'s
+`pr-check-model`, `pr-conflicts-model`, `pr-stack-controls`, `pr-revert`, shared with the web):
+each check opens a page with its summary, annotations, steps and a log read 200 lines at a
+time from the failure, with Re-run failed jobs, Re-run all jobs, Cancel run (asked first) and
+Fix with agent, which drafts the request in the linked thread's composer or, with none, opens
+New thread on the PR. The project's local check runs, stops and shows its log beside them. The
+Work section checks the PR's head out in a linked thread or starts a thread on it (a worktree
+of the head shown, `thread.create`'s `pullRequest`); Merge conflicts resolves hunk by hunk
+(ours, theirs, both, or edited), hands a file to the agent, then finishes and pushes or aborts;
+Stack shows the layers and every stack change the web offers, each confirmed in words naming
+it. A merged PR offers Revert, an editable draft. `bridge/forge-pr-work.test.ts` covers these on
+the fake daemon, and `ForgePrWorkUITests` drives them on the fixture.
+
+Files changed reads one commit, a span of two, or the commits since the signed-in reviewer's
+last review (`forge.pr.files` with `since`, the reviewers' `viewer` and each review's
+`commitSha`; `sinceLastReview` in `@ace/ui-core`). Commits lists them. A file's toolbar has Wrap,
+Side by side (landscape and iPad), Rendered for Markdown and Viewed, version-aware: a mark from
+an older head reads "Changed since viewed". Images compare side by side or by swipe, bytes read
+through the daemon. A tapped line, extended with Select more, takes one comment across the span.
+`bridge/forge-code-review.test.ts` and `ForgeCodeReviewUITests` cover them.
+
 Pull request and issue text draws natively from blocks `bridge/forge-rich.ts` builds with the
 web's rules (`@ace/ui-core/forge-rich`): GitHub's HTML subset through the web's allowlist,
 alerts, emoji, mentions, references, footnotes, tables, details, light and dark pictures and
