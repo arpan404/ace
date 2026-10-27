@@ -3,9 +3,15 @@
  *
  * Ports iOS `NotificationLedger` (`Sources/Notifications/NotificationLedger.swift`):
  * the same alert arrives live and again from catch-up, so each id is admitted
- * once; the daemon cursor only moves forward per host and a rebuilt database
- * (cursor beyond the high-water mark) restarts from its head. Bounded to the
- * newest 512 ids so a long-lived phone cannot grow without limit.
+ * once; the daemon cursor follows the daemon head (a rebuilt database moves it
+ * backwards) and a restart restores both cursor and shown ids from persistence.
+ * Bounded to the newest 512 ids so a long-lived phone cannot grow without limit.
+ *
+ * Scope is device + host (ADR 0087, iOS `LedgerStore` scope
+ * `SHA256(hostId + "\0" + deviceId)`): the same daemon alert id from two
+ * machines, or the same machine on a rotated device, is another notification.
+ * The JSON pair encoding is injective and NUL-free, matching Android's
+ * `namespaceFor` outbox scope.
  */
 
 export const NOTIFICATION_LEDGER_CAPACITY = 512;
@@ -50,32 +56,53 @@ export function createNotificationLedger(
 }
 
 export type LedgerPersistence = {
-  load(hostId: string): NotificationLedgerSnapshot | null;
-  save(hostId: string, snapshot: NotificationLedgerSnapshot): void;
+  load(scope: string): NotificationLedgerSnapshot | null;
+  save(scope: string, snapshot: NotificationLedgerSnapshot): void;
 };
 
 /**
- * One ledger per paired machine. The host id namespaces both the cursor and
- * the shown ids, so the same daemon alert id from two machines is two
- * notifications (ADR 0087). Persistence is injected; the default is memory.
+ * Scope key for one paired daemon and device. JSON pair encoding is injective
+ * and NUL-free (an embedded NUL would truncate a SQLite comparison and alias
+ * two machines onto one namespace).
  */
-export function createHostLedgers(persistence?: LedgerPersistence | undefined): {
+export function ledgerScope(hostId: string, deviceId: string): string {
+  return JSON.stringify([hostId, deviceId]);
+}
+
+/**
+ * One ledger per paired machine and device. The scope namespaces both the
+ * cursor and the shown ids, so the same daemon alert id from two machines (or
+ * after a device rotation) is another notification. Persistence is injected;
+ * the default is memory. Pass `deviceId` to scope by device + host; without
+ * it the scope is the bare host id (legacy single-device callers).
+ */
+export function createHostLedgers(
+  options?:
+    | { deviceId?: string | undefined; persistence?: LedgerPersistence | undefined }
+    | undefined,
+): {
   admit(hostId: string, id: string): boolean;
   advance(hostId: string, cursor: number): void;
   cursor(hostId: string): number;
   snapshot(hostId: string): NotificationLedgerSnapshot;
 } {
+  const deviceId = options?.deviceId;
+  const persistence = options?.persistence;
   const ledgers = new Map<string, ReturnType<typeof createNotificationLedger>>();
+  const scopeOf = (hostId: string): string =>
+    deviceId === undefined ? hostId : ledgerScope(hostId, deviceId);
   const load = (hostId: string): ReturnType<typeof createNotificationLedger> => {
-    const existing = ledgers.get(hostId);
+    const scope = scopeOf(hostId);
+    const existing = ledgers.get(scope);
     if (existing) return existing;
-    const created = createNotificationLedger(persistence?.load(hostId) ?? undefined);
-    ledgers.set(hostId, created);
+    const created = createNotificationLedger(persistence?.load(scope) ?? undefined);
+    ledgers.set(scope, created);
     return created;
   };
   const persist = (hostId: string): void => {
-    const ledger = ledgers.get(hostId);
-    if (ledger) persistence?.save(hostId, ledger.snapshot());
+    const scope = scopeOf(hostId);
+    const ledger = ledgers.get(scope);
+    if (ledger) persistence?.save(scope, ledger.snapshot());
   };
   return {
     admit(hostId, id) {

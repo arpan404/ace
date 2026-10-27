@@ -1,6 +1,11 @@
 import { ClientCore } from "@ace/client";
 import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
-import { DeviceId, ThreadId, Notification as DaemonNotification } from "@ace/protocol";
+import {
+  DeviceId,
+  ThreadId,
+  Notification as DaemonNotification,
+  NotificationPreferences,
+} from "@ace/protocol";
 import { afterEach, expect, it, vi } from "vitest";
 import { createNotificationSync, type NotificationSink } from "./notification-sync.ts";
 
@@ -260,4 +265,213 @@ it("a view-only pairing answers nothing", async () => {
   });
   expect(outcome).toBe("refused");
   expect(of("notifications.action").at(-1)).toMatchObject({ id: "tap-view", outcome: "refused" });
+});
+
+it("sends the confirmed live option id, never the stale alert's option", async () => {
+  const { sync, of, interactions, interactionId, approvalAlert } = await phone();
+  // Live offers allow/deny; the displayed alert is stale with different ids.
+  const stale = approvalAlert("n:stale", ["approve", "deny"]);
+  const outcome = await sync.resolve({
+    requestId: "tap-live",
+    threadId,
+    interactionId,
+    optionId: "allow",
+    alert: stale,
+    canOperate: true,
+  });
+  expect(outcome).toBe("confirmed");
+  await vi.waitFor(() =>
+    expect(of("notifications.action").at(-1)).toMatchObject({
+      id: "tap-live",
+      outcome: "confirmed",
+    }),
+  );
+  // The daemon received the live id, not the stale alert's approve id.
+  expect(interactions()[0]).toMatchObject({
+    state: "resolved",
+    resolution: { kind: "approval", optionId: "allow" },
+  });
+});
+
+it("a stale option id the live approval does not offer sends nothing", async () => {
+  const { sync, of, interactions, interactionId, approvalAlert } = await phone();
+  const stale = approvalAlert("n:stale", ["approve", "deny"]);
+  const outcome = await sync.resolve({
+    requestId: "tap-stale-option",
+    threadId,
+    interactionId,
+    optionId: "approve",
+    alert: stale,
+    canOperate: true,
+  });
+  expect(outcome).toBe("stale");
+  await vi.waitFor(() => expect(of("notifications.action")).toHaveLength(1));
+  expect(interactions()[0]?.state ?? "pending").toBe("pending");
+});
+
+it("a reissued interaction answers only the new pending option", async () => {
+  const { daemon, sync, of, interactions, interactionId, approvalAlert } = await phone();
+  const stale = approvalAlert("n:old", ["allow", "deny"]);
+  expect(
+    await sync.resolve({
+      requestId: "tap-old",
+      threadId,
+      interactionId,
+      optionId: "allow",
+      alert: stale,
+      canOperate: true,
+    }),
+  ).toBe("confirmed");
+  await vi.waitFor(() =>
+    expect(of("notifications.action").at(-1)).toMatchObject({ outcome: "confirmed" }),
+  );
+  // The daemon reissues: a new pending approval with a new id and options.
+  daemon.apply(threadId, [
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "push-2",
+      blocking: true,
+      request: {
+        kind: "approval",
+        title: "Codex wants to run another command",
+        options: [
+          { id: "deny", label: "Deny", kind: "deny" },
+          { id: "allow_always", label: "Always allow", kind: "allow_once" },
+        ],
+      },
+    },
+  ]);
+  await vi.waitFor(() => expect(interactions()).toHaveLength(2));
+  const next = interactions().find((entry) => entry.id !== interactionId);
+  expect(next?.state ?? "pending").toBe("pending");
+  const nextId = next?.id ?? "";
+  const nextAlert = DaemonNotification.parse({
+    id: "n:new",
+    threadId,
+    title: "Codex wants to run another command",
+    status: "needs_you",
+    interactionId: nextId,
+    backgroundCount: 0,
+    actions: [
+      { action: "deny", optionId: "deny" },
+      { action: "approve", optionId: "allow_always" },
+    ],
+  });
+  // The old alert tapped again finds nothing pending and sends nothing.
+  expect(
+    await sync.resolve({
+      requestId: "tap-old-again",
+      threadId,
+      interactionId,
+      optionId: "allow",
+      alert: stale,
+      canOperate: true,
+    }),
+  ).toBe("stale");
+  // The reissued alert answers the new exact option.
+  expect(
+    await sync.resolve({
+      requestId: "tap-new",
+      threadId,
+      interactionId: nextId,
+      optionId: "allow_always",
+      alert: nextAlert,
+      canOperate: true,
+    }),
+  ).toBe("confirmed");
+  await vi.waitFor(() =>
+    expect(of("notifications.action").at(-1)).toMatchObject({
+      id: "tap-new",
+      outcome: "confirmed",
+    }),
+  );
+  expect(interactions().find((entry) => entry.id === nextId)).toMatchObject({
+    state: "resolved",
+    resolution: { kind: "approval", optionId: "allow_always" },
+  });
+});
+
+it("two machines sharing one patch store never collide on bridge keys", async () => {
+  const { daemon, client, barrier } = await phone();
+  const seen = new Map<string, NotificationSink | undefined>();
+  const keys: string[] = [];
+  const put = (key: string, read: () => NotificationSink | undefined): void => {
+    keys.push(key);
+    const sink = read();
+    if (sink) seen.set(key, sink);
+  };
+  const left = createNotificationSync(client, put, {
+    schedule,
+    detailsMs: 200,
+    receiptMs: 500,
+    hostId: "host-a",
+  });
+  const right = createNotificationSync(client, put, {
+    schedule,
+    detailsMs: 200,
+    receiptMs: 500,
+    hostId: "host-b",
+  });
+  closers.push(async () => {
+    left.close();
+    right.close();
+  });
+  left.sync({ enabled: true, appState: "foreground", cursor: 0 });
+  right.sync({ enabled: true, appState: "foreground", cursor: 0 });
+  await barrier();
+  daemon.notify(daemonAlert("n:same"));
+  await vi.waitFor(() => expect(keys.filter((key) => key.includes("n:same"))).toHaveLength(2));
+  const alertKeys = keys.filter((key) => key.includes("n:same"));
+  expect(new Set(alertKeys).size).toBe(2);
+  expect(alertKeys.some((key) => key.includes("host-a"))).toBe(true);
+  expect(alertKeys.some((key) => key.includes("host-b"))).toBe(true);
+});
+
+it("a cursor beyond the daemon head restarts from the head on rebuilt database", async () => {
+  const { daemon, enable, of } = await phone();
+  daemon.notify(daemonAlert("n:1"));
+  // The ledger was restored past the rebuilt head; catch-up still returns all.
+  enable(true, 10);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
+  expect(of("notifications.feed")[0]).toMatchObject({
+    cursor: 1,
+    entries: [{ id: "n:1" }],
+  });
+});
+
+it("saving preferences preserves quiet hours and agent visibility", async () => {
+  const sent: unknown[] = [];
+  const stub = {
+    connectionState: () => ({ subscribe: () => () => {}, getSnapshot: () => "ready" }),
+    onMessage: () => () => {},
+    send: (message: unknown) => {
+      sent.push(message);
+    },
+    request: async () => ({ type: "notification.config.result" as const }),
+  };
+  const sync = createNotificationSync(
+    stub as unknown as Parameters<typeof createNotificationSync>[0],
+    () => {},
+    { schedule, detailsMs: 200, receiptMs: 500, hostId: "host-a" },
+  );
+  sync.savePreferences(
+    NotificationPreferences.parse({
+      quietHours: { timeZone: "America/Chicago", startMinute: 1320, endMinute: 360 },
+      includePreview: true,
+      agentSays: true,
+    }),
+  );
+  sync.close();
+  const prefs = sent.find(
+    (message): message is { type: string; preferences: Record<string, unknown> } =>
+      typeof message === "object" &&
+      message !== null &&
+      (message as { type?: unknown }).type === "notification.preferences",
+  );
+  expect(prefs?.preferences).toMatchObject({
+    includePreview: true,
+    agentSays: true,
+    quietHours: { timeZone: "America/Chicago", startMinute: 1320, endMinute: 360 },
+  });
 });

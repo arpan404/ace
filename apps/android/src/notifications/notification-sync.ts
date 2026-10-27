@@ -1,6 +1,13 @@
 import type { ClientCore, ThreadSource } from "@ace/client";
-import { ThreadId, type AppState, type Notification, type NotificationFeed } from "@ace/protocol";
-import { notificationActionPayload } from "./notification-routing.ts";
+import {
+  InteractionId,
+  ThreadId,
+  type AppState,
+  type Notification,
+  type NotificationFeed,
+  type NotificationPreferences,
+} from "@ace/protocol";
+import { notificationRequestId } from "./notification-routing.ts";
 
 /**
  * Daemon notification sync for one paired machine (parity slices A14.01–A14.03).
@@ -61,18 +68,19 @@ export interface NotificationSyncOptions {
   detailsMs?: number | undefined;
   receiptMs?: number | undefined;
   schedule?: Schedule | undefined;
+  /**
+   * The paired machine this bridge serves. All patch keys are namespaced by
+   * it, so two machines sharing one patch store never collide (one bridge per
+   * machine, mirroring iOS one `NotificationBridge` per `ClientModel`).
+   * Omit only for legacy single-machine callers and tests.
+   */
+  hostId?: string | undefined;
 }
 
 const defaultSchedule: Schedule = (delayMs, run) => {
   const timer = setTimeout(run, delayMs);
   return () => clearTimeout(timer);
 };
-
-function actionFor(alert: Notification, optionId: string): "approve" | "deny" {
-  return alert.actions.find((candidate) => candidate.optionId === optionId)?.action === "deny"
-    ? "deny"
-    : "approve";
-}
 
 export function createNotificationSync(
   client: NotificationClient,
@@ -90,13 +98,23 @@ export function createNotificationSync(
     canOperate: boolean;
   }): Promise<NotificationActionOutcome>;
   snooze(threadId: string, until: number): void;
-  savePreferences(preferences: { quietHours: null; includePreview: boolean }): void;
+  savePreferences(preferences: NotificationPreferences): void;
   loadConfig(): void;
   close(): void;
 } {
   const detailsMs = options.detailsMs ?? 8000;
   const receiptMs = options.receiptMs ?? 15000;
   const schedule = options.schedule ?? defaultSchedule;
+  const hostId = options.hostId;
+  const keyPrefix = hostId === undefined ? "notifications" : `notifications:${hostId}`;
+  const alertKey = (id: string): string =>
+    hostId === undefined
+      ? `notifications:alert:${id}`
+      : `notifications:alert:${notificationRequestId(id, hostId)}`;
+  const feedKey = `${keyPrefix}:feed`;
+  const connectedKey = `${keyPrefix}:connected`;
+  const configKey = `${keyPrefix}:config`;
+  const actionKey = (requestId: string): string => `${keyPrefix}:action:${requestId}`;
   let enabled = false;
   let appState: AppState = "foreground";
   let cursor = 0;
@@ -121,7 +139,7 @@ export function createNotificationSync(
     }),
     client.onMessage((message) => {
       if (message.type === "notification" && enabled && !closed)
-        put(`notifications:alert:${message.notification.id}`, () => ({
+        put(alertKey(message.notification.id), () => ({
           type: "notifications.alert",
           notification: message.notification,
         }));
@@ -146,7 +164,7 @@ export function createNotificationSync(
 
   async function onConnected(): Promise<void> {
     presence();
-    put("notifications:connected", () => ({ type: "notifications.connected" }));
+    put(connectedKey, () => ({ type: "notifications.connected" }));
     await follow();
   }
 
@@ -193,8 +211,10 @@ export function createNotificationSync(
     } catch {
       return;
     }
+    // Follow the daemon head, including a rebuilt database that moved it
+    // backwards; the caller's ledger dedupes reissued ids.
     cursor = feed.cursor;
-    put("notifications:feed", () => ({
+    put(feedKey, () => ({
       type: "notifications.feed",
       cursor: feed.cursor,
       entries: feed.entries.map((entry) => entry.notification),
@@ -224,6 +244,10 @@ export function createNotificationSync(
     });
   }
 
+  function actionKeyFor(requestId: string): string {
+    return actionKey(requestId);
+  }
+
   async function resolve(input: {
     requestId: string;
     threadId: string;
@@ -233,7 +257,7 @@ export function createNotificationSync(
     canOperate: boolean;
   }): Promise<NotificationActionOutcome> {
     const outcome = (value: NotificationActionOutcome): NotificationActionOutcome => {
-      put(`notifications:action:${input.requestId}`, () => ({
+      put(actionKeyFor(input.requestId), () => ({
         type: "notifications.action",
         id: input.requestId,
         outcome: value,
@@ -242,7 +266,8 @@ export function createNotificationSync(
     };
     if (!input.canOperate) return outcome("refused");
     const parsedThread = ThreadId.safeParse(input.threadId);
-    if (!parsedThread.success) return outcome("stale");
+    const parsedInteraction = InteractionId.safeParse(input.interactionId);
+    if (!parsedThread.success || !parsedInteraction.success) return outcome("stale");
     const lease = client.thread(parsedThread.data);
     try {
       if (!(await confirmed(lease.store))) return outcome("unreachable");
@@ -252,18 +277,14 @@ export function createNotificationSync(
           ? interaction.request.options.find((option) => option.id === input.optionId)
           : undefined;
       // The button must name exactly what the daemon offers now; a resolved,
-      // revoked or mismatched interaction sends nothing.
+      // revoked or mismatched interaction sends nothing. The payload carries
+      // the confirmed live option id, never the stale alert's option.
       if (!pending) return outcome("stale");
-      const payload = notificationActionPayload(
-        input.alert,
-        actionFor(input.alert, input.optionId),
-      );
-      if (
-        !payload ||
-        payload.type !== "interaction.resolve" ||
-        payload.interactionId !== input.interactionId
-      )
-        return outcome("stale");
+      const payload = {
+        type: "interaction.resolve" as const,
+        interactionId: parsedInteraction.data,
+        resolution: { kind: "approval" as const, optionId: pending.id },
+      };
       let commandId: string;
       try {
         commandId = await client.enqueue(payload, input.requestId);
@@ -290,7 +311,7 @@ export function createNotificationSync(
     const first = terminal();
     if (first !== undefined) {
       const value = first ? "confirmed" : "refused";
-      put(`notifications:action:${requestId}`, () => ({
+      put(actionKeyFor(requestId), () => ({
         type: "notifications.action",
         id: requestId,
         outcome: value,
@@ -314,7 +335,7 @@ export function createNotificationSync(
     });
     if (settled === undefined) return "saved";
     const value = settled ? "confirmed" : "refused";
-    put(`notifications:action:${requestId}`, () => ({
+    put(actionKeyFor(requestId), () => ({
       type: "notifications.action",
       id: requestId,
       outcome: value,
@@ -332,7 +353,7 @@ export function createNotificationSync(
     }
   }
 
-  function savePreferences(preferences: { quietHours: null; includePreview: boolean }): void {
+  function savePreferences(preferences: NotificationPreferences): void {
     try {
       client.send({ type: "notification.preferences", preferences });
     } catch {
@@ -346,7 +367,7 @@ export function createNotificationSync(
       .request({ type: "notification.config" })
       .then((result) => {
         if (result.type !== "notification.config.result" || closed) return;
-        put("notifications:config", () => ({
+        put(configKey, () => ({
           type: "notifications.config",
           preferences: result.preferences,
         }));
