@@ -30,6 +30,7 @@ import { ForgeService } from "./forge-service.ts";
 import { downloadFile } from "@ace/client/files";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { phoneDeviceStorage } from "./browser-device.ts";
+import { followDismissed } from "./dismissed-sends.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks } from "./thread-attachments.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
@@ -179,6 +180,12 @@ async function start(json: string): Promise<void> {
     // What the phone draws first at its next launch, before this runtime starts.
     (checkpoint) => void call("inbox.checkpoint", null, checkpoint).catch(() => {}),
     config.inboxSort,
+    followDismissed({
+      load: () => call("storage.dismissed.load"),
+      save: async (value) => {
+        await call("storage.dismissed.save", null, value);
+      },
+    }),
   );
   // Each project's mark, sent once and referenced by the rows (`project-looks.ts`).
   followProjectLooks(client, pump);

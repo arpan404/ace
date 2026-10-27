@@ -18,12 +18,13 @@ import { followInboxSort } from "./inbox-sort.ts";
 import { dispatchCommand } from "./commands.ts";
 import { inboxOrganizer, type InboxOrganizer } from "./inbox-organize.ts";
 import { PlaceAction, runPlace, type PlaceContext } from "./inbox-place.ts";
+import { keepNone, type DismissedSends } from "./dismissed-sends.ts";
 
 /**
  * Stops following; also what `inboxAction` needs to pin and move: the pins and moves shown
  * before the daemon confirms them, and the machine's sort.
  */
-export type InboxFollow = (() => void) & PlaceContext;
+export type InboxFollow = (() => void) & PlaceContext & { dismissed?: DismissedSends };
 import type { PatchSink } from "./agents.ts";
 
 /**
@@ -91,6 +92,8 @@ export function followInbox(
   save?: (checkpoint: string) => void,
   /** The sort the phone last drew this machine's inbox in, until the machine says (`inbox-sort.ts`). */
   lastSort?: HomeSort,
+  /** Failed sends the person took back or discarded: they leave Unsent and the transcript. */
+  dismissed: DismissedSends = keepNone,
 ): InboxFollow {
   const store = owner.threads().store;
   const organizer = inboxOrganizer(owner, machineId, clock);
@@ -167,7 +170,10 @@ export function followInbox(
         if (thread) threads.push(thread);
       }
       arm(inboxNextChange(threads, now));
-      const unsent = sends.getSnapshot().map((send) => ({ key: send.commandId, machineId, send }));
+      const unsent = sends
+        .getSnapshot()
+        .filter((send) => !dismissed.has(send.commandId))
+        .map((send) => ({ key: send.commandId, machineId, send }));
       // The inbox pages home; while the archive is open the store's own window is the archive's.
       // Only the daemon's own copy has a Settled section, so only it carries the daemon's total.
       return inboxLayout(threads, unsent, now, (store.homeWindow ?? store.window)?.before != null, {
@@ -178,7 +184,7 @@ export function followInbox(
   };
   const pending = (id: string) =>
     pump.put(`pending:${id}`, () => {
-      const send = owner.pendingSend(id);
+      const send = dismissed.has(id) ? undefined : owner.pendingSend(id);
       return { type: "pending", id, row: send ? pendingRow(send, connection.getSnapshot()) : null };
     });
   /** The thread ids the phone holds rows for, so one that leaves the list loses only its row. */
@@ -237,6 +243,11 @@ export function followInbox(
       pending(id);
       sections();
     }),
+    dismissed.observe((id) => {
+      if (id !== undefined) pending(id);
+      else for (const send of sends.getSnapshot()) pending(send.commandId);
+      sections();
+    }),
     // The connection patch is produced here, beside the rows that share its fence, so a
     // coalesced offline-to-ready still carries the advanced generation with the ready state.
     // Offline changes what a held send says ("Sends on reconnect"), and any freshness
@@ -266,7 +277,7 @@ export function followInbox(
     checkpoint.stop();
     arm(undefined);
   };
-  return Object.assign(stop, { organizer, sortBy: () => sort.current() });
+  return Object.assign(stop, { organizer, sortBy: () => sort.current(), dismissed });
 }
 
 function pendingRow(send: PendingSend, connection: string) {
@@ -277,6 +288,8 @@ function pendingRow(send: PendingSend, connection: string) {
     state: send.state,
     waiting: send.waiting,
     text: preview(unsentText(send), 8192),
+    /** Why it wasn't sent, behind Details; empty when the SDK kept no reason. */
+    detail: send.state === "failed" && send.error ? preview(send.error, 2048) : "",
     label: status.label,
     token: status.token,
   };
@@ -294,6 +307,9 @@ const InboxAction = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("wake"), threadId: ThreadId }),
   z.object({ kind: z.literal("more") }),
+  /** A failed send the person took back into the composer or discarded; `restore` is Undo. */
+  z.object({ kind: z.literal("dismissSend"), commandId: z.string().min(1).max(256) }),
+  z.object({ kind: z.literal("restoreSend"), commandId: z.string().min(1).max(256) }),
 ]);
 
 function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPayload | undefined {
@@ -328,7 +344,7 @@ export function inboxAction(
   raw: unknown,
   requestId: string,
   pump: PatchSink,
-  inbox?: PlaceContext,
+  inbox?: PlaceContext & { dismissed?: DismissedSends },
 ): void {
   const place = PlaceAction.safeParse(raw);
   if (place.success && inbox) {
@@ -346,6 +362,22 @@ export function inboxAction(
     return;
   }
   const action = parsed.data;
+  if (action.kind === "dismissSend" || action.kind === "restoreSend") {
+    const kept = inbox?.dismissed;
+    // Only a send still failed can be dealt with: one on its way is never hidden.
+    const ok =
+      !!kept &&
+      (action.kind === "restoreSend" || owner.pendingSend(action.commandId)?.state === "failed");
+    if (ok && action.kind === "dismissSend") kept.dismiss(action.commandId);
+    if (ok && action.kind === "restoreSend") kept.restore(action.commandId);
+    pump.put(`admission:${requestId}`, () => ({
+      type: "admission",
+      id: requestId,
+      ok,
+      message: ok ? "" : "That message isn't waiting any more.",
+    }));
+    return;
+  }
   if (action.kind === "more") {
     void owner.threadsMore().catch(() =>
       pump.put("error", () => ({

@@ -73,11 +73,13 @@ struct GroupedValue: View {
 }
 
 /// A small text action inside a request card: "Details". Ghost, a step brighter when pressed.
+/// `prominent` is the strip's way on that carries the work on ("Continue"): full ink, a step bolder.
 struct StripTextButtonStyle: ButtonStyle {
+    var prominent = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(.medium)
-            .foregroundStyle(configuration.isPressed ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
+            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(prominent ? .semibold : .medium)
+            .foregroundStyle(configuration.isPressed || prominent ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceTheme.Spacing.sm)
             .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)

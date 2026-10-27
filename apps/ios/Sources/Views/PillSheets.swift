@@ -104,11 +104,13 @@ struct QueueSheet: View {
     let canAct: Bool
     let canSteer: Bool
     let edit: (QueueRow.Message, [String: Any]) async -> Bool
+    var act: (QueueRow.Action) async -> Bool = { _ in false }
+    var showMore: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
             ScrollView {
-                QueueList(queue: queue, canAct: canAct, canSteer: canSteer, edit: edit)
+                QueueList(queue: queue, canAct: canAct, canSteer: canSteer, edit: edit, act: act, showMore: showMore)
                     .padding(.horizontal, AceTheme.Spacing.xl).padding(.top, AceTheme.Spacing.sm)
             }
             .background(AceTheme.Colours.background)

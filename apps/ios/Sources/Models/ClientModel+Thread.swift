@@ -79,6 +79,17 @@ extension ClientModel {
             threadAction(["type": "queue", "messageId": message.id, "change": change, "requestId": id])
         }
     }
+    /// A queue-wide choice (Pause queue, Resume, Continue, a limit's choice): the bridge fences it
+    /// to the queue as the daemon has it now.
+    func actOnQueue(_ choice: QueueRow.Action) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        var action: [String: Any] = ["id": choice.id, "label": choice.label]
+        if let instance = choice.instanceId { action["instanceId"] = instance }
+        return await admissions.wait(id: id) { threadAction(["type": "queueAct", "action": action, "requestId": id]) }
+    }
+    /// The queue's list shows its next page.
+    func showMoreQueued() { threadAction(["type": "queueMore"]) }
     /// Pause, resume or clear a thread's goal from its sheet, for the navigation generation the
     /// sheet was opened on (`epoch`): a sheet left over from a thread the person has since left is
     /// refused by the bridge, never applied to the thread open now. Resolves once the daemon took

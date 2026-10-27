@@ -2,12 +2,16 @@ import SwiftUI
 
 /// Follow-ups waiting in the daemon's queue, in the sheet the pill's "2 queued" opens. Each can get
 /// new words, go now as a steer (where the provider steers), move up or down, or be removed; the
-/// daemon's next queue revision moves it.
+/// daemon's next queue revision moves it. The header carries the queue's own Pause queue or Resume
+/// queue; a long queue lists a page at a time, with Show more under it.
 struct QueueList: View {
     let queue: QueueRow
     let canAct: Bool
     let canSteer: Bool
     let edit: (QueueRow.Message, [String: Any]) async -> Bool
+    var act: (QueueRow.Action) async -> Bool = { _ in false }
+    var showMore: () -> Void = {}
+    @State private var acting = false
     @State private var editing: QueueRow.Message?
     @State private var words = ""
     @State private var busy: String?
@@ -17,13 +21,29 @@ struct QueueList: View {
                 Text(queue.label).foregroundStyle(AceTheme.Colours.foreground)
                 if !queue.when.isEmpty { Text("· \(queue.when)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1) }
                 Spacer(minLength: AceTheme.Spacing.none)
+                if canAct, let control = queue.control {
+                    Button(control.label) {
+                        acting = true
+                        Task { _ = await act(control); acting = false }
+                    }
+                    .buttonStyle(StripTextButtonStyle())
+                    .disabled(acting)
+                    .accessibilityIdentifier("queue.control")
+                }
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
             ForEach(queue.messages) { message in
                 HStack(spacing: AceTheme.Spacing.sm) {
-                    Text(message.text.isEmpty ? "Attachment" : message.text).lineLimit(2)
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.foreground)
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                        Text(message.text.isEmpty ? "Attachment" : message.text).lineLimit(2)
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.foreground)
+                        // The daemon can't tell whether it reached the agent: sending it again may run it twice.
+                        if message.state == "uncertain" {
+                            Text("May have reached the agent").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        }
+                    }
                     if message.attachments > 0 { AceIcon(.paperclip, size: 14, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.decoration) }
                     Spacer(minLength: AceTheme.Spacing.none)
                     if busy == message.id { ProgressView().controlSize(.mini) }
@@ -50,7 +70,11 @@ struct QueueList: View {
                 .accessibilityElement(children: .contain)
             }
             if queue.more > 0 {
-                Text("+\(queue.more) more").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
+                Button("Show \(queue.more) more") { showMore() }
+                    .buttonStyle(StripTextButtonStyle())
+                    .monospacedDigit()
+                    .padding(.leading, -AceTheme.Spacing.sm)
+                    .accessibilityIdentifier("queue.more")
             }
         }
         .accessibilityIdentifier("queue.strip")

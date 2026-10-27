@@ -147,9 +147,9 @@ struct ThreadView: View {
             .sheet(isPresented: $showQueue) {
                 if let queue = screen.queue {
                     QueueSheet(queue: queue, canAct: model.canOperate,
-                               canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer") { message, change in
-                        await model.editQueued(message, change: change)
-                    }
+                               canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer",
+                               edit: { message, change in await model.editQueued(message, change: change) },
+                               act: { await model.actOnQueue($0) }, showMore: { model.showMoreQueued() })
                 }
             }
             // The next message continued this thread in a new one: open it once its row is here
@@ -202,6 +202,11 @@ struct ThreadView: View {
             VStack(spacing: AceTheme.Spacing.none) {
                 Group {
                     if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
+                    // Then what holds the queue: a usage limit, a stopped turn, a paused queue.
+                    else if let hold = screen.queue?.strip, model.canOperate, !archived {
+                        QueueHoldStrip(strip: hold, act: { await model.actOnQueue($0) },
+                                       chooseModel: { showModels = true }, openQueue: { showQueue = true })
+                    }
                     // A request needs the person first; the transfer's line waits under it.
                     else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
                 }
@@ -252,6 +257,7 @@ struct ThreadView: View {
             .composerGlassGroup()
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
+        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: screen.queue?.strip)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.

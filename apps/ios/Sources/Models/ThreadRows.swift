@@ -225,11 +225,39 @@ struct QueueRow: Codable, Sendable, Equatable {
         let state: String
         let attachments: Int
     }
+    /// A queue-wide choice, worded by the bridge (`bridge/queue-hold.ts`): Pause queue, Resume,
+    /// Continue, a limit's Resume at reset; `choose_model` opens the model sheet and `queue` the
+    /// queue's.
+    struct Action: Codable, Sendable, Equatable, Identifiable {
+        let id: String
+        let label: String
+        var instanceId: String? = nil
+        var primary: Bool? = nil
+    }
+    /// What holds the queue, as the one sentence above the composer and its ways on.
+    struct Strip: Codable, Sendable, Equatable {
+        let kind: String
+        let sentence: String
+        var detail: String = ""
+        let actions: [Action]
+    }
+    /// The message a failed send left at the queue's head, shown in the transcript.
+    struct NotSent: Codable, Sendable, Equatable, Identifiable {
+        let id: String
+        let text: String
+        let attachments: Int
+        let reason: String
+        let detail: String
+    }
     let revision: Int
     let label: String
     let when: String
     let messages: [Message]
     let more: Int
+    /// The queue's own Pause queue or Resume queue; nil from older bridges.
+    var control: Action? = nil
+    var strip: Strip? = nil
+    var notSent: NotSent? = nil
 }
 /// The open thread's model sheet (`thread.models`, `bridge/thread-model-sheet.ts`): every
 /// set-up account's models as New thread lists them, the model checked, and what picking a row
