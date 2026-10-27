@@ -10,7 +10,7 @@ private struct MenuScreen: Identifiable {
 }
 
 /// The ⋯ panel's icon grid: the thread's screens (Changes, Agent tree, Files, Terminal,
-/// Browser, Logs, Find, Turns) as icons, so the menu fits without scrolling.
+/// Browser, Logs, Find, Turns) as icons above the scrollable action sections.
 private struct MenuScreenGrid: View {
     let open: (ThreadDestination) -> Void
     let dismiss: DismissAction
@@ -74,7 +74,7 @@ private struct MenuRow: View {
                 .aceFont(AceTheme.Typography.body, relativeTo: .body)
                 .foregroundStyle(role == .destructive ? Color.red : AceTheme.Colours.foreground)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+                .frame(minHeight: AceTheme.Dimensions.touchTarget)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -82,9 +82,23 @@ private struct MenuRow: View {
     }
 }
 
-/// The thread's ⋯ as a compact panel: an icon grid for its screens, then short action
-/// sections. The native Menu's ~30 rows scrolled on a phone; this fits an iPhone 16 Pro Max
-/// without scrolling at the default text size (a ScrollView only matters for large text).
+/// Shared menu actions need explicit row sizing in a sheet; native context menus supply their own.
+private struct PanelActionStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .aceFont(AceTheme.Typography.body, relativeTo: .body)
+            .foregroundStyle(configuration.role == .destructive ? Color.red : AceTheme.Colours.foreground)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, AceTheme.Spacing.sm)
+            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+            .contentShape(Rectangle())
+            .opacity(enabled ? (configuration.isPressed ? 0.6 : 1) : 0.4)
+    }
+}
+
+/// The thread's ⋯ panel: screen shortcuts followed by scrollable, full-height action rows.
 struct ThreadMenuPanel: View {
     let model: ClientModel
     let thread: ThreadModel
@@ -97,7 +111,6 @@ struct ThreadMenuPanel: View {
     let leave: () -> Void
     @Environment(\.threadOrganizer) private var organizer
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dynamicTypeSize) private var typeSize
     private var row: ThreadRow? { model.inbox[thread.id] }
     private func leaving(_ organizer: ThreadOrganizer) -> ThreadOrganizer {
         ThreadOrganizer(perform: { key, id in
@@ -109,17 +122,11 @@ struct ThreadMenuPanel: View {
     }
 
     var body: some View {
-        // Default text: a plain stack that sizes to its content, so the panel fits without
-        // scrolling. Large text scrolls instead of clipping.
-        Group {
-            if typeSize.isAccessibilitySize {
-                ScrollView { panel }
-            } else {
-                panel
-            }
-        }
-        .frame(idealWidth: 340, maxWidth: 380)
-        .accessibilityLabel("Thread options")
+        ScrollView { panel }
+            .scrollBounceBehavior(.basedOnSize)
+            .accessibilityIdentifier("thread.options.scroll")
+            .frame(idealWidth: 340, maxWidth: 380)
+            .accessibilityLabel("Thread options")
     }
 
     private var panel: some View {
@@ -146,6 +153,7 @@ struct ThreadMenuPanel: View {
                                       sections: model.inboxLayout.menuSections ?? [:],
                                       snoozeOptions: model.inboxLayout.snooze,
                                       organizer: dismissing(leaving(organizer)))
+                        .buttonStyle(PanelActionStyle())
                 }
                 Divider()
                 system
@@ -208,7 +216,7 @@ struct ThreadMenuPanel: View {
                 .aceFont(AceTheme.Typography.body, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+                .frame(minHeight: AceTheme.Dimensions.touchTarget)
                 .contentShape(Rectangle())
         }
         .accessibilityIdentifier("thread.openIn")
@@ -222,14 +230,22 @@ struct ThreadMenuPanel: View {
                 model.continueOn(threadId: thread.id, title: title); dismiss()
             } label: {
                 Label {
-                    Text("Continue on…")
-                    if !ready { Text("Available once the thread stops working") }
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                        Text("Continue on…")
+                        if !ready {
+                            Text("Available once the thread stops working")
+                                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 } icon: { Image(ace: .desktop) }
             }
+            .buttonStyle(PanelActionStyle())
             .disabled(!ready)
             .accessibilityIdentifier("thread.continueOn")
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+            .frame(minHeight: AceTheme.Dimensions.touchTarget)
         }
         if hasActivity, let hostId = model.hostId {
             MenuRow(title: "Show on Lock Screen", icon: .squaresFour) {
@@ -251,7 +267,7 @@ struct ThreadMenuPanel: View {
                 } label: {
                     Label("Snooze", ace: .bellSimpleZ)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
                         .contentShape(Rectangle())
                 }
             }

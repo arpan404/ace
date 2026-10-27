@@ -70,19 +70,23 @@ import XCTest
     }
 
     func testTheOpenThreadsMenuOffersTheSameActions() throws {
-        let app = launch()
-        reveal(app, "thread.ios-done").tap()
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-open", "ios-done"]
+        app.launch()
         let menu = app.buttons["thread.menu"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 15))
+        XCTAssertTrue(menu.waitForExistence(timeout: 30))
         menu.tap()
-        // The panel fits without scrolling; a short screen may still need one drag.
-        for _ in 0..<4 where !app.buttons["Delete thread"].exists {
-            let low = app.buttons["Skills and tools"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            low.press(forDuration: 0.05, thenDragTo: app.buttons["Changes"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        for id in ["thread.action.copy-link", "thread.action.pin", "thread.action.delete"] {
+            let action = app.buttons[id]
+            XCTAssertTrue(action.waitForExistence(timeout: 5))
+            for _ in 0..<8 where !action.isHittable {
+                app.scrollViews["thread.options.scroll"].swipeUp()
+            }
+            XCTAssertTrue(action.isHittable, "Every action must be reachable by scrolling")
+            XCTAssertGreaterThanOrEqual(action.frame.height, 44, "Every options action needs a full tap target")
         }
-        XCTAssertTrue(app.buttons["Delete thread"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Move to project…"].exists)
-        XCTAssertTrue(app.buttons["Turn off auto-settle"].exists)
+        XCTAssertTrue(app.buttons["thread.action.move"].exists)
+        XCTAssertTrue(app.buttons["thread.action.auto-settle-off"].exists)
         screenshot("thread-menu")
     }
 
