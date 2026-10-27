@@ -18,7 +18,7 @@ import {
   type Density,
   type ReduceMotion,
 } from "@/theme/appearance.ts";
-import { themes } from "@/theme/palettes.ts";
+import { themes } from "@ace/themes";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import {
   snapTranslucency,

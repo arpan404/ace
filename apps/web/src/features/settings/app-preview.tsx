@@ -1,6 +1,6 @@
 import { ArrowUpIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import type { Scheme, ThemeId } from "@/theme/palettes.ts";
+import type { Scheme, ThemeId } from "@ace/themes";
 
 /*
  * The ace window in miniature, for the mode and theme pickers. Its tokens are scoped to it the way

@@ -4,8 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, onTestFinished, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
-import { deltaE, parseOpaqueColor, rgbToOklch, type Rgb } from "@/theme/colour.ts";
-import { themeIds, themes } from "@/theme/palettes.ts";
+import { deltaE, parseOpaqueColor, rgbToOklch, type Rgb, themeIds, themes } from "@ace/themes";
 
 const root = document.documentElement;
 const glassCss = readFileSync(join(import.meta.dirname, "../../styles/glass.css"), "utf8");

@@ -1,7 +1,14 @@
 import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
-import { accentIds, defaultCustomAccent } from "./accent.ts";
-import { defaultThemeId, themeIds, themes, type Scheme, type ThemeId } from "./palettes.ts";
+import {
+  accentIds,
+  defaultCustomAccent,
+  defaultThemeId,
+  themeIds,
+  themes,
+  type Scheme,
+  type ThemeId,
+} from "@ace/themes";
 import { defaultTranslucency, snapTranslucency, translucencyClearMax } from "./translucency.ts";
 
 export const Mode = z.enum(["light", "dark", "system"]);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import rawTokens from "../tokens.json" with { type: "json" };
 import { themeDeclarations } from "../../../apps/web/src/theme/css.ts";
-import { defaultThemeId } from "../../../apps/web/src/theme/palettes.ts";
+import { defaultThemeId } from "@ace/themes";
 import { DesignTokensSchema, designTokens } from "./index.ts";
 
 const schemes = ["light", "dark"] as const;

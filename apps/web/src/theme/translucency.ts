@@ -1,5 +1,4 @@
-import { glassTone } from "./glass-floor.ts";
-import type { Palette, Scheme } from "./types.ts";
+import { glassTone, type Palette, type Scheme } from "@ace/themes";
 
 /*
  * Translucency: how much of what's behind a floating layer shows through, from Solid (0) to the

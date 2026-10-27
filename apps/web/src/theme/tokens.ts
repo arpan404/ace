@@ -1,7 +1,12 @@
-import { oklchToHex } from "./colour.ts";
+import {
+  oklchToHex,
+  rampSteps,
+  sharedStatus,
+  type Palette,
+  type Scheme,
+  glassText,
+} from "@ace/themes";
 import { dangerFill } from "./danger.ts";
-import { rampSteps, sharedStatus, type Palette, type Scheme } from "./palettes.ts";
-import { glassText } from "./glass-floor.ts";
 import { defaultTranslucency, glassVariables } from "./translucency.ts";
 
 /*

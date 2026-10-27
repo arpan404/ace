@@ -25,7 +25,7 @@ import {
 import { themesStylesheet, themeStylesheet } from "./css.ts";
 import type { GlassEngine } from "./glass.ts";
 import { startLiquidGlass } from "./liquid-glass.ts";
-import { themes } from "./palettes.ts";
+import { themes } from "@ace/themes";
 import { glassVariables } from "./translucency.ts";
 import { withViewTransition } from "@/lib/motion.ts";
 
