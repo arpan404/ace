@@ -50,8 +50,7 @@ export class TargetBrowser {
   async call(
     device: Device,
     origin: MachineCallOrigin,
-    tool: string,
-    args: Record<string, unknown>,
+    { tool, args, ticket }: { tool: string; args: Record<string, unknown>; ticket: number },
     signal: AbortSignal,
   ): Promise<MachineToolResult> {
     const tools = this.tools();
@@ -59,7 +58,7 @@ export class TargetBrowser {
     const risk = this.readOnly(tool, args) ? "read" : "operate";
     return this.deps.guests.run(
       session,
-      { capability: "browser", risk, label: `${tool} from ${origin.hostName}` },
+      { capability: "browser", risk, label: `${tool} from ${origin.hostName}`, ticket },
       signal,
       async (stop) =>
         toolResult(

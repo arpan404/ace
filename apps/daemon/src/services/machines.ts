@@ -84,11 +84,25 @@ export function startMachines(context: ServiceContext): void {
     ?.subscribe({ keys: ["remote.agentAccess"], scope: {} }, (event) => {
       if (event.type !== "changed") return;
       const entry = event.entries.find((candidate) => candidate.key === "remote.agentAccess");
+      // The switch caps every capability: read stops acting calls of all of them, off all calls.
       if (entry?.value === "off") guests.revoke();
+      if (entry?.value === "read") guests.revoke({ level: "read" });
     })
     .then((release) => resources.own(release))
     .catch((error: unknown) => log.log("warn", "Agent access not followed", logError(error)));
-  services.engine?.bindExternalTaskStop("ace-guest:", (id) => guests.stop(id));
+  services.engine?.bindExternalTaskStop("ace-guest:", (id, thread) => guests.stop(id, thread));
+  // Deleting a guest session stops the calls it holds; their callers hear why.
+  resources.own(
+    store.subscribe((events) => {
+      for (const event of events)
+        if (
+          event.payload.type === "thread.client.updated" &&
+          typeof event.payload.changes.deletedAt === "number" &&
+          guests.guest(event.threadId)
+        )
+          guests.stopThread(event.threadId);
+    }),
+  );
   const browser = new TargetBrowser({ store, browser: () => services.browser, guests });
   services.machineCalls = createMachineTarget({
     hostId,

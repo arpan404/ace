@@ -815,7 +815,7 @@ export class Engine {
     this.hostInteractionHandler = (command) => handler(command) ?? previous?.(command);
   }
   /** Routes a stop of a background hold whose key starts with `prefix` to its external owner. */
-  bindExternalTaskStop(prefix: string, stop: (id: string) => void): void {
+  bindExternalTaskStop(prefix: string, stop: (id: string, threadId: ThreadId) => void): void {
     this.bindHostInteractions((command) => {
       if (command.payload.type !== "background_task.stop") return;
       const owner = this.repo.entityThread("backgroundTasks", command.payload.taskId);
@@ -825,7 +825,7 @@ export class Engine {
       const task = this.repo.state(owner)?.tasks[key];
       if (task?.status !== "running")
         return { commandId: command.id, ok: false, error: "task_not_stoppable" };
-      stop(key.slice(prefix.length));
+      stop(key.slice(prefix.length), owner);
       return { commandId: command.id, ok: true };
     });
   }

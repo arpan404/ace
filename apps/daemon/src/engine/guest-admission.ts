@@ -1,4 +1,4 @@
-import type { CommandPayload, CommandResult, ThreadDetails } from "@ace/protocol";
+import type { CommandId, CommandPayload, CommandResult, ThreadDetails } from "@ace/protocol";
 
 /**
  * Commands that would start or carry on an agent turn. A guest session (ADR 0105) holds remote
@@ -17,7 +17,7 @@ const startsAgent = new Set<CommandPayload["type"]>([
 
 /** The refusal for a command on a guest thread, or undefined when it may go on. */
 export function guestRefusal(
-  commandId: string,
+  commandId: CommandId,
   payload: CommandPayload,
   details: ThreadDetails | undefined,
 ): CommandResult | undefined {

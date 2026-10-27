@@ -1,5 +1,6 @@
 import {
   MachineCapability,
+  type InteractionRequest,
   type MachineAgentAccess,
   type MachineCall,
   type MachineGrantLevel,
@@ -49,7 +50,10 @@ export function pairingLevel(scope: { read: boolean; operate: boolean }): Machin
 }
 
 export interface GrantFacts {
-  /** This machine's `remote.agentAccess`: `off` closes it to every capability. */
+  /**
+   * This machine's `remote.agentAccess`, a ceiling on every capability: `off` closes it, `read`
+   * caps each capability at Read only, `operate` lets each grant apply as set.
+   */
   master: MachineAgentAccess;
   grants: MachineGrants;
   pairing: MachineGrantLevel;
@@ -60,7 +64,7 @@ export interface GrantFacts {
 /** Each capability's level for this device: the lowest of switch, grant, pairing and ceiling. */
 export function effectiveGrants(facts: GrantFacts): MachineGrants {
   const level = (capability: MachineCapability) =>
-    facts.master === "off" ? "off" : lowest(facts.grants[capability], facts.pairing, facts.ceiling);
+    lowest(facts.master, facts.grants[capability], facts.pairing, facts.ceiling);
   return {
     agents: level("agents"),
     browser: level("browser"),
@@ -119,26 +123,61 @@ export function decide(
       message:
         facts.ceiling === "read"
           ? "This thread is read-only, so it can't act on another machine."
-          : "Agents from that machine may only read here. Use a read-only tool, or ask the person to allow more in Settings › Fleet.",
+          : facts.master === "read"
+            ? "This machine lets agents from other machines only read. Use a read-only tool, or ask the person to allow more in Settings › Fleet."
+            : "Agents from that machine may only read here. Use a read-only tool, or ask the person to allow more in Settings › Fleet.",
     };
   return { allow: true, level };
 }
 
+/** The capability a tool belongs to, by its name; undefined for tools no capability serves. */
+export function capabilityOfTool(tool: string): MachineCapability | undefined {
+  const name = tool.replace(/^mcp__ace__/, "");
+  if (name.startsWith("browser_")) return "browser";
+  if (name.startsWith("sim_")) return "devices";
+  if (name.startsWith("screen_")) return "screen";
+  if (name.startsWith("command_")) return "commands";
+  return undefined;
+}
+
+/** The capability whose tool raised a request waiting on the person in a guest session. */
+export function capabilityOfRequest(request: InteractionRequest): MachineCapability | undefined {
+  if (request.kind === "browser_help") return "browser";
+  if (request.kind === "approval" && request.target) return capabilityOfTool(request.target.tool);
+  return undefined;
+}
+
+export interface CallFacts {
+  /** Whether a thread here is a guest session. */
+  guest(threadId: string): boolean;
+  /** A pending request on that thread, if there is one by that id. */
+  request(threadId: string, interactionId: string): InteractionRequest | undefined;
+}
+
 /**
- * The capability a call needs. Status and answers on a guest session belong to whichever guest
- * capability the device holds; on a delegated thread, to Agents.
+ * The capability a call needs. Status on a guest session belongs to whichever guest capability
+ * the device holds; an answer there, to the capability whose tool raised the request. On a
+ * delegated thread both belong to Agents.
  */
 export function capabilityOf(
   call: MachineCall,
-  guest: (threadId: string) => boolean,
+  facts: CallFacts,
 ): MachineCapability | readonly MachineCapability[] | undefined {
   switch (call.op) {
     case "describe":
       return undefined;
     case "status":
-      return call.threadIds.every(guest) ? guestCapabilities : "agents";
-    case "respond":
-      return guest(call.threadId) ? guestCapabilities : "agents";
+      return call.threadIds.length > 0 && call.threadIds.every((id) => facts.guest(id))
+        ? guestCapabilities
+        : "agents";
+    case "respond": {
+      if (!facts.guest(call.threadId)) return "agents";
+      const request = facts.request(call.threadId, call.interactionId);
+      // No such request: any guest capability may hear that it is gone.
+      if (!request) return guestCapabilities;
+      // A request no capability raised can't be answered from another machine.
+      return capabilityOfRequest(request) ?? [];
+    }
     case "browser.session":
     case "browser":
       return "browser";

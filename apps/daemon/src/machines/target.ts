@@ -83,7 +83,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
   /** The grant rules allow the call; refusals carry words the calling agent may read. */
   async function admit(device: Device, origin: MachineCallOrigin, call: MachineCall) {
     const known = await facts(device, origin);
-    const capability = capabilityOf(call, (id) => deps.guests.isGuest(id));
+    const capability = capabilityOf(call, deps.guests);
     const reading = decide(capability, "read", known);
     if (!reading.allow) throw new TargetRefusal(reading.code, reading.message);
     if (risk(call) === "operate") {
@@ -112,7 +112,8 @@ export function createMachineTarget(deps: MachineTargetDeps) {
     const description: MachineDescription = {
       hostId: HostId.parse(deps.hostId),
       name: (await deps.hostName()).slice(0, 256) || "ace",
-      access: Object.values(grants).includes("operate") ? "operate" : "read",
+      // What it meant before grants: whether this device's agents may start work here.
+      access: grants.agents === "operate" ? "operate" : "read",
       grants,
       projects: deps.threads.projects(),
       tools,
@@ -126,6 +127,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
     origin: MachineCallOrigin,
     call: Extract<MachineCall, { op: HostedCapability }>,
     signal: AbortSignal,
+    ticket: number,
   ) {
     const host = deps.hosts[call.op];
     if (!host?.available() || !host.call)
@@ -137,13 +139,21 @@ export function createMachineTarget(deps: MachineTargetDeps) {
     const serve = host.call.bind(host);
     return deps.guests.run(
       session,
-      { capability: call.op, risk: risk(call), label: `${call.tool} from ${origin.hostName}` },
+      {
+        capability: call.op,
+        risk: risk(call),
+        label: `${call.tool} from ${origin.hostName}`,
+        ticket,
+      },
       signal,
       (stop) => serve(session, call.tool, call.args, stop),
     );
   }
   async function run(device: Device, request: MachineCallRequest, signal: AbortSignal) {
     const { call, origin } = request;
+    // Taken before the grant is read: a Stop or a lowered grant after this point still wins
+    // over a call that is only starting.
+    const ticket = deps.guests.ticket();
     const owned = (threadId: string) => {
       if (!deps.threads.owns(device, threadId))
         throw new TargetRefusal("not_found", "No such thread from that machine.");
@@ -179,11 +189,16 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       case "browser.session":
         return { threadId: await deps.browser.session(device, origin) };
       case "browser":
-        return deps.browser.call(device, origin, call.tool, call.args, signal);
+        return deps.browser.call(
+          device,
+          origin,
+          { tool: call.tool, args: call.args, ticket },
+          signal,
+        );
       case "devices":
       case "screen":
       case "commands":
-        return hosted(device, origin, call, signal);
+        return hosted(device, origin, call, signal, ticket);
     }
   }
   return {
@@ -193,7 +208,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       const parsed = MachineCallRequest.safeParse(body);
       if (!parsed.success) return { status: 400, body: { error: "invalid" } };
       const { call, origin } = parsed.data;
-      const capability = capabilityOf(call, (id) => deps.guests.isGuest(id));
+      const capability = capabilityOf(call, deps.guests);
       const fields = {
         device: device.name,
         deviceId: device.id,
