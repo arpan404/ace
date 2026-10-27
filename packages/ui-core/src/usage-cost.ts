@@ -1,8 +1,9 @@
-/** 9_214_000 → "9.2M", 840_000 → "840K". */
+/** 9_214_000 → "9.2M", 840_000 → "840K", 19_300_000_000 → "19.3B". */
 export function formatTokens(value: number): string {
-  if (value >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
-  if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
-  if (value >= 1e3) return `${Math.round(value / 1e3)}K`;
+  // Each step is chosen after rounding, so 999_600 reads "1.0M", never "1000K".
+  if (Math.round(value / 1e8) >= 10) return `${(value / 1e9).toFixed(1)}B`;
+  if (Math.round(value / 1e5) >= 10) return `${(value / 1e6).toFixed(1)}M`;
+  if (Math.round(value) >= 1e3) return `${Math.round(value / 1e3)}K`;
   return String(Math.round(value));
 }
 

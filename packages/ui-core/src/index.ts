@@ -137,6 +137,8 @@ export * from "./folder-search.ts";
 export * from "./path-picker.ts";
 export * from "./usage-cost.ts";
 export * from "./usage-days.ts";
+export * from "./usage-growth.ts";
+export * from "./usage-hues.ts";
 export * from "./usage-limits.ts";
 export * from "./usage-report.ts";
 export * from "./step-display.ts";
