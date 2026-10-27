@@ -24,15 +24,16 @@ export type MachineAgentAccess = z.infer<typeof MachineAgentAccess>;
 export const MachineToolGroup = z.enum(["agents", "browser", "devices", "screen", "commands"]);
 export type MachineToolGroup = z.infer<typeof MachineToolGroup>;
 /** Groups as a target lists them: ones this build doesn't know yet are left out, not fatal. */
-const OfferedGroups = z
-  .array(z.string().max(64))
-  .max(16)
-  .transform((names) =>
-    names.flatMap((name) => {
-      const group = MachineToolGroup.safeParse(name);
-      return group.success ? [group.data] : [];
-    }),
-  );
+const OfferedGroupNames = z.array(z.string().max(64)).max(16);
+const OfferedGroups = OfferedGroupNames.transform((names) =>
+  names.flatMap((name) => {
+    const group = MachineToolGroup.safeParse(name);
+    return group.success ? [group.data] : [];
+  }),
+).meta({
+  "x-ace-json-input": OfferedGroupNames,
+  "x-ace-constraint": "Unknown tool groups are accepted and omitted from the decoded list.",
+});
 export const MachineProject = z.object({ workspaceId: WorkspaceId, name: z.string().max(256) });
 export type MachineProject = z.infer<typeof MachineProject>;
 

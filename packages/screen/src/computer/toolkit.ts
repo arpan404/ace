@@ -76,7 +76,7 @@ const machineInput = {
     .string()
     .regex(/^[a-zA-Z0-9_.-]{1,64}$/)
     .optional()
-    .describe("Another paired machine's apps (machines); omit for this machine."),
+    .describe("From machines; omit for this machine."),
 };
 
 const Resolved = z.looseObject({ bundleId: z.string(), name: z.string(), running: z.boolean() });

@@ -22,6 +22,7 @@ export {
   type ComputerMachineRoute,
   type ComputerToolkitOptions,
 } from "./computer/toolkit.ts";
+export { computerToolNames } from "./computer/schemas.ts";
 export type { ComputerPlatform } from "./computer/schemas.ts";
 export { ComputerClient, ComputerError, type ComputerClientOptions } from "./computer/client.ts";
 export type { ComputerRequestTiming } from "./computer/client.ts";

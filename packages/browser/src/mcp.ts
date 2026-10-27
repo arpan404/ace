@@ -101,7 +101,7 @@ const machineName = z
   .optional();
 /** The optional `machine` argument every browser tool takes when routing is available. */
 export const browserMachineInput = {
-  machine: machineName.describe("A paired machine's browser (machines)."),
+  machine: machineName.describe("From machines; omit for this machine."),
 };
 /**
  * The optional `browser` argument every browser tool takes when "Use my Chrome" is available

@@ -322,3 +322,12 @@ Two real daemons paired over TLS, as in ADR 0078's tests:
 
 The calling daemon offers routed screen tools when a linked machine serves screen even if
 its own computer engine is absent or disabled. A routed call never enables local computer use.
+
+### Tool discovery budgets
+
+Command tools are registered at startup but offered only while a linked machine advertises
+Commands. Background screen tools are offered when a local engine exists or a linked machine
+advertises Screen. The local fallback screen tools remain available on hosts without that
+engine. Refreshing `machines` updates discovery and notifies connected clients. Hidden tools
+are also unavailable through tool search and indirect calls. Routing and risk classes are
+unchanged. This avoids charging every session for capabilities it cannot use.
