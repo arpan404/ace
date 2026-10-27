@@ -7,7 +7,7 @@ import {
   readCommitHistory,
   type ActivityHistory,
   type CommitHistory,
-} from "./pr-history-pages.ts";
+} from "./forge-history-pages.ts";
 
 const event = (page: number): ForgeActivity => ({
   id: `e${page}`,

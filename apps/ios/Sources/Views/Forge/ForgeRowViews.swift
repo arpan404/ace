@@ -2,9 +2,9 @@ import SwiftUI
 
 /// A pull request or issue page pushed on the second tab's stack (`InboxRoute.forge`).
 struct ForgeRoute: Hashable {
-    /// A pull request or issue page, a pull request's Timeline, or one of its changed files; or
-    /// one of its checks, its merge conflicts or its stack.
-    enum Kind: String { case pull, issue, timeline, files, file, check, conflicts, stack }
+    /// A pull request or issue page, a pull request's Timeline, its commits, or one of its
+    /// changed files; or one of its checks, its merge conflicts or its stack.
+    enum Kind: String { case pull, issue, timeline, files, file, commits, check, conflicts, stack }
     let kind: Kind
     let machineId: String
     let project: String
@@ -16,6 +16,8 @@ struct ForgeRoute: Hashable {
     var repository: ForgeRepository?
     /// The check a `check` page shows (`ForgeCheck.id`).
     var checkId: String?
+    /// The commits Files changed and a file show; nil for All commits.
+    var range: ForgeRange?
 }
 
 /// One pull request, in the thread row's shape (`InboxThreadRow`): its state glyph beside the

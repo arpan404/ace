@@ -374,7 +374,8 @@ export class FakeWorkspaceWire {
         (op.op.startsWith("forge.pr.") ||
         op.op === "forge.repo.pr-options" ||
         op.op === "forge.repo.milestones" ||
-        op.op === "forge.compare"
+        op.op === "forge.compare" ||
+        op.op === "forge.file.content"
           ? this.pullRequests.read(op, this.context.now())
           : undefined));
     if (catalogued)

@@ -187,6 +187,8 @@ export const ForgePrFiles = z.object({
   baseSha: sha,
   headSha: sha,
   commit: sha.optional(),
+  /** With `commit`: the files changed after this earlier commit of the PR, through `commit`. */
+  since: sha.optional(),
   files: z.array(ForgeFile).max(25),
   nextPage: z.number().int().positive().optional(),
   truncated: z.boolean(),
@@ -257,6 +259,8 @@ export const ForgeBrowserOperations = [
     headSha: sha,
     baseSha: sha,
     commit: sha.optional(),
+    /** With `commit`: what changed after this earlier commit of the PR, through `commit`. */
+    since: sha.optional(),
   }),
   ...ForgeCheckOperations,
   ...ForgeNewPrOperations,

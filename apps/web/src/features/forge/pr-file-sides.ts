@@ -4,7 +4,7 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
 import type { ForgeFile, ForgeImageType, ForgeRepository } from "@ace/protocol";
 import { readForge } from "@/lib/forge-read.ts";
-import { hostedImageType } from "./pr-file-kind.ts";
+import { hostedImageType } from "@ace/ui-core";
 
 /** One side of a changed file, read whole. */
 export type HostedSide =

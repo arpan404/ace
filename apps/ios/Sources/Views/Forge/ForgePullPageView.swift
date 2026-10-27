@@ -130,6 +130,9 @@ struct ForgePullPageView: View {
                 ForgeLinkRow(title: "Files changed", detail: page.changedFiles == 1 ? "1 file" : "\(page.changedFiles) files", identifier: "forge.pull.files") {
                     open(ForgeRoute(kind: .files, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
                 }
+                ForgeLinkRow(title: "Commits", detail: page.commits == 1 ? "1 commit" : "\(page.commits) commits", identifier: "forge.pull.commits") {
+                    open(ForgeRoute(kind: .commits, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
+                }
             }
         }
         .padding(.vertical, AceTheme.Spacing.md)

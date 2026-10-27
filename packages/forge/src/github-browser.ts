@@ -16,6 +16,7 @@ import { ForgeError } from "./errors.ts";
 import { TimelinePage, timelineActivity } from "./github-activity.ts";
 import { prHasCommit, readCommitPage, type CommitPage } from "./github-commits.ts";
 import { GitHubFileOverflow, listedPages } from "./github-file-overflow.ts";
+import { rangeFiles } from "./github-range-files.ts";
 import type { GhApi } from "./http.ts";
 
 const stateQuery = {
@@ -320,11 +321,31 @@ export class GitHubBrowser {
       headSha: string;
       baseSha: string;
       commit?: string | undefined;
+      since?: string | undefined;
     },
     signal: AbortSignal,
   ): Promise<ForgePrFiles> {
-    const parsed = ForgePrFiles.pick({ headSha: true, baseSha: true, commit: true }).parse(input);
+    const parsed = ForgePrFiles.pick({
+      headSha: true,
+      baseSha: true,
+      commit: true,
+      since: true,
+    }).parse(input);
     ForgeFilePageInput.parse(input);
+    if (parsed.since) {
+      // A span of commits ends at one: there is nothing to compare it with alone.
+      if (!parsed.commit) throw new ForgeError("not_found");
+      ForgePrRef.parse({ repository: this.#repository, number: input.number });
+      const files = await rangeFiles(
+        this.#api,
+        this.#repository,
+        { ...input, headSha: parsed.headSha, commit: parsed.commit, since: parsed.since },
+        signal,
+      );
+      // As for every list: a moved head never labels these as current.
+      await this.#head(input.number, parsed.headSha, parsed.baseSha, signal);
+      return files;
+    }
     // A commit's files come only from GitHub's list.
     if (parsed.commit && input.page > listedPages) throw new ForgeError("not_found");
     ForgePrRef.parse({ repository: this.#repository, number: input.number });

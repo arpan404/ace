@@ -7,6 +7,8 @@ import { ForgeListRequest, readIssues, readPulls } from "./forge-lists.ts";
 import { ForgePullRequest, readPull, writePull } from "./forge-pull.ts";
 import { ForgeReads, ForgeRefusal, type ForgeMemory, type ForgeOwner } from "./forge-reads.ts";
 import { ForgeFileRequest, ForgeFilesRequest, readFile, readFiles } from "./forge-code.ts";
+import { ForgeCommitsRequest, readCommits } from "./forge-commits.ts";
+import { ForgeFileSidesRequest, readFileSides } from "./forge-file-sides.ts";
 import {
   complete,
   ForgeCompleteRequest,
@@ -87,6 +89,8 @@ export const ForgeRequest = z.intersection(
     ForgeConflictsRequest,
     ForgeStackRequest,
     ForgeWorktreeRequest,
+    ForgeCommitsRequest,
+    ForgeFileSidesRequest,
   ]),
   z.object({ fresh: z.boolean().default(false) }),
 );
@@ -164,6 +168,10 @@ export class ForgeService {
           return this.#trimmed(await readFile(reads, request, this.#preview, this.#shown));
         case "forge.pull.files":
           return await readFiles(reads, request, this.#preview);
+        case "forge.pull.commits":
+          return await readCommits(reads, request, this.#preview);
+        case "forge.pull.file.sides":
+          return await readFileSides(reads, request, this.#preview);
         case "forge.complete":
           return await complete(reads, request, this.#preview);
         case "forge.pull.reviewers":

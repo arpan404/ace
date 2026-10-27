@@ -283,3 +283,7 @@ export * from "./pr-conflicts-model.ts";
 export * from "./pr-stack-labels.ts";
 export * from "./pr-stack-controls.ts";
 export * from "./pr-revert.ts";
+export * from "./forge-code-review.ts";
+export * from "./forge-history-pages.ts";
+export * from "./forge-rendered-model.ts";
+export * from "./forge-file-kind.ts";

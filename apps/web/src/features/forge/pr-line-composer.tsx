@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { validHostedAnchor } from "@ace/forge/review-anchor";
-import type { ForgeReviewAnchor, ForgeReviewDraft } from "@ace/protocol";
-import { linesLabel, suggestionBlock, type FileDiff } from "@ace/ui-core";
+import type { ForgeReviewDraft } from "@ace/protocol";
+import { lineRangeAnchor, linesLabel, suggestionBlock, type FileDiff } from "@ace/ui-core";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { Button } from "@/components/ui/button.tsx";
@@ -12,17 +12,8 @@ import { appendTo } from "./pr-quote.tsx";
 import { lockedText, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useEdit, useFocusAsk } from "./pr-ui-store.tsx";
 
-/** The review anchor for `range` of `path` at `headSha`. */
-export function anchorOf(path: string, range: LineRange, headSha: string): ForgeReviewAnchor {
-  const side = range.side === "old" ? "LEFT" : "RIGHT";
-  return {
-    commit: headSha,
-    path,
-    line: range.end,
-    side,
-    ...(range.start < range.end ? { startLine: range.start, startSide: side } : {}),
-  };
-}
+/** The review anchor for `range` of `path` at `headSha` (the shared rule). */
+export const anchorOf = lineRangeAnchor;
 
 /**
  * A new comment under the lines it is about. With no review started it posts on its own (Add
