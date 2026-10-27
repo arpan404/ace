@@ -11,6 +11,12 @@ else
   rm -f "/usr/bin/$name"
 fi
 
+# The `ace` command the postinst wrote, only while it is still ace's (it carries the marker).
+cli=/usr/bin/ace
+if [ -f "$cli" ] && [ ! -L "$cli" ] && grep -qF 'ace-cli-shim: written by the ace desktop app on launch' "$cli"; then
+  rm -f "$cli"
+fi
+
 # Unload, then delete, both AppArmor profiles the postinst installed. AppArmor is touched
 # only when present and enabled, and never inside a chroot.
 for profile in "$name" ace-chromium; do

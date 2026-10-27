@@ -48,7 +48,7 @@ import {
  * standalone installs sees the release too. `publish` uploads exactly those staged files to a
  * draft release tagged at the built commit, then publishes it.
  *
- * On Linux (inside the Debian 11 build container, ADR 0093) `build` packages the AppImage,
+ * On Linux (inside the Debian 12 build container, ADR 0093) `build` packages the AppImage,
  * deb and tar.gz with `latest-linux*.yml` for this host's architecture, unsigned; the
  * AppImage updates itself, the deb and tar.gz are offered the release page. `--with-daemon`
  * there builds node-pty and the archive for this host's Linux target only.
@@ -235,7 +235,7 @@ function verifyMac(output: string, signed: boolean): string {
 
 async function publish(version: string): Promise<void> {
   // This host's staged build plus any other host's (`--include`, e.g. the Linux packages
-  // built in the Debian 11 container), published together as one release.
+  // built in the Debian 12 container), published together as one release.
   const folders = [staging(version), ...options("--include").map((path) => resolve(path))];
   const parts: StagedRelease[] = [];
   const paths = new Map<string, string>();

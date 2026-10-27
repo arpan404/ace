@@ -119,6 +119,20 @@ describe("putting the ace command on a terminal's PATH", () => {
     await expect(lstat(join(home, ".zshrc"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("counts a copy of the shim first on PATH (the deb's /usr/bin/ace) as this app's command", async () => {
+    const { root, home, target } = await machine();
+    const system = join(root, "usr", "bin");
+    await mkdir(system, { recursive: true });
+    await writeFile(join(system, "ace"), await readFile(target.file));
+    await chmod(join(system, "ace"), 0o755);
+
+    await expect(putCliOnPath(target, `${system}:/bin`)).resolves.toEqual({
+      state: "ready",
+      command: join(system, "ace"),
+    });
+    await expect(lstat(join(home, ".zshrc"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("puts a folder with spaces and quotes on PATH once, however often bash reads it", async () => {
     const { home, target } = await machine("/bin/bash", 'my $home "x"');
     await putCliOnPath(target, "/usr/bin:/bin");

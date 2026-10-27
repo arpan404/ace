@@ -69,9 +69,10 @@ if (!process.argv.includes("--skip-build"))
 
 // Also after --skip-build: dist/ may hold another architecture's build.
 await verifyNatives(arch);
-// Linux release packages run on Ubuntu 20.04+ and Debian 11+: what ace builds itself (the
-// daemon's natives, its Node runtime, ripgrep, the screen helper) must not need a newer
-// glibc. Electron's own floor is Chromium's. Local packages may use the host's toolchain.
+// Linux release packages run on Ubuntu 24.04+ and Debian 12+ (ADR 0093; natives are built on
+// Debian 12's glibc 2.36): what ace builds itself (the daemon's natives, its Node runtime,
+// ripgrep, the screen helper) must not need a newer glibc. Electron's own floor is Chromium's.
+// Local packages may use the host's toolchain.
 if (full && process.platform === "linux")
   for (const known of await assertLinuxRuntimeFloor(
     ["daemon", "bin", "helpers", "runtime"].map((d) => join(dist, d)),
@@ -205,7 +206,8 @@ const config: Configuration = {
   },
   nsis: { oneClick: false, perMachine: false, include: join(desktop, "build/installer.nsh") },
   linux: {
-    // `ace` is the daemon CLI (`~/.ace/bin/ace`); the GUI must never install /usr/bin/ace.
+    // `ace` is the daemon CLI, never the GUI: the app writes `~/.ace/bin/ace` on launch, and the
+    // deb's postinst installs the same script as /usr/bin/ace (build/linux/after-install.tpl).
     executableName: "ace-desktop",
     syncDesktopName: true,
     target: [
@@ -247,7 +249,11 @@ const config: Configuration = {
       "libsecret-1-0",
       "libasound2t64 | libasound2",
     ],
-    // Ours, not electron-builder's: they also install and remove ace's Chromium profile.
+    // The tray. electron-builder's default recommends libappindicator3-1, which Debian 13 no
+    // longer ships; Ayatana's fork is its maintained replacement on Debian and Ubuntu.
+    recommends: ["libayatana-appindicator3-1 | libappindicator3-1"],
+    // Ours, not electron-builder's: they also install and remove ace's Chromium profile and
+    // the /usr/bin/ace command.
     afterInstall: join(desktop, "build/linux/after-install.tpl"),
     afterRemove: join(desktop, "build/linux/after-remove.tpl"),
   },
