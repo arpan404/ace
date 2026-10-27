@@ -27,6 +27,7 @@ private struct ChangesActions: ViewModifier {
     @State private var confirmingMerge = false
     @State private var requestingReview = false
     @State private var reviewers = ""
+    @Environment(\.horizontalSizeClass) private var sizeClass
     private var step: ChangesSummary.Step? { summary?.state == "ready" ? summary?.step : nil }
     private var outcome: GitOutcome? { request.flatMap { model.sheets.outcomes[$0] } }
     private var running: Bool { summary?.busy == true || (request != nil && outcome == nil) }
@@ -88,6 +89,14 @@ private struct ChangesActions: ViewModifier {
             }
             if let url = step?.pr?.url.flatMap(URL.init(string:)) { Link(destination: url) { Label("Open on GitHub", systemImage: "safari") } }
             Section {
+                if sizeClass == .regular {
+                    Picker(selection: Binding(get: { summary?.layout ?? "unified" }, set: { model.sheet(["kind": "changes.layout", "layout": $0]) })) {
+                        Text("Unified").tag("unified")
+                        Text("Split").tag("split")
+                    } label: { Label("Layout", systemImage: "rectangle.split.2x1") }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("diff.layout")
+                }
                 Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") }
                     .accessibilityIdentifier("diff.wrap")
                 Button("Refresh", systemImage: "arrow.clockwise") { model.sheet(["kind": "changes.refresh"]) }

@@ -233,7 +233,7 @@ enum BridgePatch: Decodable, Sendable {
     case notification(NotificationPatch)
     case agents(String, Int, AgentSheet)
     case changesSummary(String, Int, ChangesSummary)
-    case changesFile(String, Int, String, FileDiff)
+    case changes(String, Int, ChangesPatch)
     case gitResult(String, Bool, String)
     case gitDraft(GitDraft)
     case archiveList(ArchiveList)
@@ -328,9 +328,9 @@ enum BridgePatch: Decodable, Sendable {
         case let kind where kind.hasPrefix("transfers."): self = .transfers(try TransfersPatch(from: decoder))
         case "agents.sheet": let (id, epoch) = try scope(); self = .agents(id, epoch, try box.decode(AgentSheet.self, forKey: .sheet))
         case "changes.summary": let (id, epoch) = try scope(); self = .changesSummary(id, epoch, try ChangesSummary(from: decoder))
-        case "changes.file":
+        case let kind where ChangesPatch.types.contains(kind):
             let (id, epoch) = try scope()
-            self = .changesFile(id, epoch, try box.decode(String.self, forKey: .path), try box.decode(FileDiff.self, forKey: .diff))
+            self = .changes(id, epoch, try ChangesPatch(type: kind, from: decoder))
         case "git.result": self = .gitResult(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         case "git.draft": self = .gitDraft(try GitDraft(from: decoder))
         case "archive.list": self = .archiveList(try ArchiveList(from: decoder))
