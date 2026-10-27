@@ -74,6 +74,12 @@ class MemoryRows implements SnapshotRows {
       this.items.delete(key);
     }
   }
+  async size() {
+    let bytes = 0;
+    for (const kept of this.records.values()) bytes += kept.text.length;
+    for (const thread of this.threads.values()) bytes += thread.head.length;
+    return bytes;
+  }
   async clear() {
     this.records.clear();
     this.threads.clear();

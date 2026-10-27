@@ -63,5 +63,9 @@ export function nativeSnapshotRows(call: HostRequest): SnapshotRows {
     async clear() {
       await call("snapshot.clear").catch(() => "");
     },
+    async size() {
+      const bytes = Number(await call("snapshot.size"));
+      return Number.isFinite(bytes) && bytes >= 0 ? bytes : 0;
+    },
   };
 }

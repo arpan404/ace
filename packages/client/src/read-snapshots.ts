@@ -97,6 +97,19 @@ export class SnapshotBinding {
     }
   }
 
+  /**
+   * Stop following without writing what is unwritten: the record is being dropped. A write
+   * already started still lands first, so a delete asked after this one wins.
+   */
+  discard(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#cancel?.();
+    this.#cancel = undefined;
+    this.#dirty = false;
+    this.#unfollow();
+  }
+
   close(): Promise<void> {
     if (this.#closed) return this.#written;
     this.#closed = true;

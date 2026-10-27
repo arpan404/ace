@@ -42,6 +42,30 @@ export class HostSnapshots implements ReadSnapshotStorage {
     return this.#storage.set(`${this.#host}/${key}`, value);
   }
 
+  /** Drop one record of this scope; its next read is a miss. */
+  delete(key: string): Promise<void> {
+    if (this.#forgotten || this.#host === undefined || !this.#storage.delete)
+      return Promise.resolve();
+    try {
+      return this.#storage.delete(`${this.#host}/${key}`).catch(() => {});
+    } catch {
+      return Promise.resolve();
+    }
+  }
+
+  /**
+   * Drop every record of this scope and keep reading and writing afterwards: the person cleared
+   * what the phone keeps, and what they open next is kept again.
+   */
+  clearAll(): Promise<void> {
+    if (this.#forgotten) return Promise.resolve();
+    try {
+      return this.#storage.clear?.().catch(() => {}) ?? Promise.resolve();
+    } catch {
+      return Promise.resolve();
+    }
+  }
+
   /** Forget every record of this scope; reads in flight come back empty. */
   forget(): Promise<void> {
     if (this.#forgotten) return Promise.resolve();

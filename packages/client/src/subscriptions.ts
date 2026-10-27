@@ -117,6 +117,23 @@ export class Subscriptions {
   cached(threadId: string): ThreadStore | undefined {
     return this.#cache.get(threadId)?.store;
   }
+  /**
+   * Let go of a thread nobody holds, without writing its read snapshot, so the next open reads
+   * it from the daemon. False when someone holds it: what they show stays live.
+   */
+  discard(threadId: string): boolean {
+    const entry = this.#cache.get(threadId);
+    if (!entry) return true;
+    if (entry.refs) return false;
+    this.#inactiveBytes -= entry.inactiveBytes;
+    this.#cache.delete(threadId);
+    entry.binding?.discard();
+    return true;
+  }
+  /** Let go of every thread nobody holds, as `discard` does. */
+  discardUnheld(): void {
+    for (const threadId of this.#cache.keys()) this.discard(threadId);
+  }
   /** Checkpoint every read snapshot; resolves once all of them, and earlier ones, are written. */
   close(): Promise<void> {
     for (const entry of this.#cache.values()) this.#checkpoint(entry);

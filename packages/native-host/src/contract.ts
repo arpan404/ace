@@ -80,6 +80,8 @@ export interface HostOperations {
   "snapshot.index": { input: null; body: never };
   /** Lets the named records and threads go. */
   "snapshot.drop": { input: { keys: string[] }; body: never };
+  /** How many bytes the snapshot store takes on disk, as decimal text. */
+  "snapshot.size": { input: null; body: never };
   /** Keychain, limited by native code to the keys this runtime may touch. */
   "secret.get": { input: string; body: never };
   "secret.set": { input: { key: string; token: string }; body: never };

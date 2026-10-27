@@ -55,6 +55,8 @@ export interface SnapshotRows {
   index(): Promise<KeptSnapshot[]>;
   drop(keys: readonly string[]): Promise<void>;
   clear(): Promise<void>;
+  /** How many bytes the store takes on disk. */
+  size(): Promise<number>;
 }
 
 export interface RowSnapshotOptions {
@@ -148,6 +150,19 @@ export class RowSnapshots implements ReadSnapshotStorage {
   async clear(): Promise<void> {
     this.#held.clear();
     await this.#rows.clear();
+  }
+
+  /** Drop one record or thread; the drop is asked before this returns, ahead of any later read. */
+  delete(key: string): Promise<void> {
+    this.#held.delete(key);
+    this.#writes.set(key, (this.#writes.get(key) ?? 0) + 1);
+    return this.#rows.drop([key]);
+  }
+
+  /** What is kept: how many threads, and how many bytes the store takes on disk. */
+  async usage(): Promise<{ threads: number; bytes: number }> {
+    const [kept, bytes] = await Promise.all([this.#rows.index(), this.#rows.size()]);
+    return { threads: kept.filter((entry) => entry.kind === "thread").length, bytes };
   }
 
   /** Let go of what the policy no longer keeps. */

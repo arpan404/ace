@@ -35,6 +35,7 @@ import { nativeChunks } from "./thread-attachments.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
+import { CacheAction, handleCacheAction } from "./chat-cache.ts";
 import { NativeTransfers, TransferAction } from "./transfers.ts";
 
 const Config = z.object({
@@ -84,6 +85,7 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("transfers"), action: TransferAction }),
 ]);
 let client: ClientCore | undefined;
+let snapshots: ReturnType<typeof nativeReadSnapshots> | undefined;
 let notifications: NotificationBridge | undefined;
 let lease: Lease<ThreadSource> | undefined;
 let stopThread: (() => void) | undefined;
@@ -122,6 +124,7 @@ function error(): void {
 }
 async function start(json: string): Promise<void> {
   const config = Config.parse(JSON.parse(json));
+  snapshots = nativeReadSnapshots(call, () => host.now());
   const paired = config.paired;
   client = new ClientCore({
     deviceId: config.deviceId,
@@ -153,7 +156,7 @@ async function start(json: string): Promise<void> {
       },
     },
     // The inbox and opened threads paint from what this phone read last time (ADR 0030).
-    readSnapshots: nativeReadSnapshots(call, () => host.now()),
+    readSnapshots: snapshots,
     scheduler,
     id: () => host.uuid(),
     random: () => host.random(),
@@ -281,6 +284,43 @@ async function start(json: string): Promise<void> {
   });
   await client.start();
 }
+/** Show `threadId` under the next navigation generation, as native's `open` does. */
+function openThread(threadId: string, warm: boolean): void {
+  if (!client) return;
+  services?.transcript.close();
+  stopThread?.();
+  sheets.close();
+  lease?.release();
+  openThreadId = threadId;
+  lease = client.thread(threadId);
+  session?.dispose();
+  {
+    const ledger = ledgers.open(threadId, warm);
+    pump.bind(ledger, ++epoch);
+    stopThread = followThread(lease.store, threadId, epoch, pump, ledger);
+  }
+  session = new ThreadSession(client, lease.store, threadId, epoch, pump, nativeChunks, (id) =>
+    suggest?.entries(id),
+  );
+  browser?.close();
+  browser?.probe(threadId, epoch);
+  transfers?.follow({ threadId, epoch, store: lease.store });
+}
+/** Stop following the open thread and let its lease go; the caller moves the generation. */
+function leaveThread(): void {
+  services?.transcript.close();
+  ledgers.trim();
+  session?.dispose();
+  session = undefined;
+  stopThread?.();
+  stopThread = undefined;
+  sheets.close();
+  browser?.close();
+  transfers?.follow(undefined);
+  lease?.release();
+  lease = undefined;
+  openThreadId = undefined;
+}
 function action(json: string): void {
   try {
     const raw: unknown = JSON.parse(json);
@@ -310,6 +350,20 @@ function action(json: string): void {
       else error();
       return;
     }
+    const cache = CacheAction.safeParse(raw);
+    if (cache.success) {
+      if (client && snapshots)
+        void handleCacheAction(cache.data, {
+          client,
+          snapshots,
+          sink: pump,
+          openThread: () => openThreadId,
+          leave: leaveThread,
+          reopen: (threadId) => openThread(threadId, false),
+        });
+      else error();
+      return;
+    }
     const value = Action.parse(raw);
     if (!client) {
       if (value.type === "command")
@@ -324,45 +378,12 @@ function action(json: string): void {
     }
     switch (value.type) {
       case "open":
-        services?.transcript.close();
-        stopThread?.();
-        sheets.close();
-        lease?.release();
-        openThreadId = value.threadId;
-        lease = client.thread(value.threadId);
-        session?.dispose();
-        {
-          const ledger = ledgers.open(value.threadId, value.warm ?? false);
-          pump.bind(ledger, ++epoch);
-          stopThread = followThread(lease.store, value.threadId, epoch, pump, ledger);
-        }
-        session = new ThreadSession(
-          client,
-          lease.store,
-          value.threadId,
-          epoch,
-          pump,
-          nativeChunks,
-          (threadId) => suggest?.entries(threadId),
-        );
-        browser?.close();
-        browser?.probe(value.threadId, epoch);
-        transfers?.follow({ threadId: value.threadId, epoch, store: lease.store });
+        openThread(value.threadId, value.warm ?? false);
         break;
       case "back":
-        services?.transcript.close();
         epoch++;
         pump.bind(undefined, epoch);
-        ledgers.trim();
-        session?.dispose();
-        session = undefined;
-        stopThread?.();
-        sheets.close();
-        browser?.close();
-        transfers?.follow(undefined);
-        lease?.release();
-        lease = undefined;
-        openThreadId = undefined;
+        leaveThread();
         break;
       case "network":
         client.networkOnline(value.online);
