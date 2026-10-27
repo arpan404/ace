@@ -25,16 +25,3 @@ struct ForkStrip: View {
         .padding(.top, AceTheme.Spacing.xs)
     }
 }
-
-/// The strip takes the place of the Fork or Edit button that opened it, so the move reads as one.
-struct ForkDestination: ViewModifier {
-    let namespace: Namespace.ID
-    let rowId: String?
-    func body(content: Content) -> some View {
-        if let rowId {
-            content.matchedGeometryEffect(id: "fork.\(rowId)", in: namespace, properties: .position, isSource: false)
-        } else {
-            content
-        }
-    }
-}

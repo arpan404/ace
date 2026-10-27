@@ -94,7 +94,6 @@ struct MessageActions: View {
                     MessageActionButton(icon: action.icon, label: action.label, identifier: "\(action.identifier).\(row.id)") {
                         transitions.run(action, row)
                     }
-                    .modifier(ForkSource(rowId: row.id, active: action == .fork || action == .edit))
                     .transition(.opacity)
                 }
             }
@@ -139,21 +138,3 @@ private struct MessageActionButton: View {
     }
 }
 
-extension EnvironmentValues {
-    /// The thread screen's namespace for the fork strip growing out of the button that opened it.
-    @Entry var forkMorph: Namespace.ID? = nil
-}
-
-/// The Fork or Edit button the open fork strip grew out of: the strip takes its place in one motion.
-private struct ForkSource: ViewModifier {
-    let rowId: String
-    let active: Bool
-    @Environment(\.forkMorph) private var morph
-    func body(content: Content) -> some View {
-        if active, let morph {
-            content.matchedGeometryEffect(id: "fork.\(rowId)", in: morph, isSource: true)
-        } else {
-            content
-        }
-    }
-}

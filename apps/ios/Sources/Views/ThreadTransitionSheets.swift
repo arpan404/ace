@@ -10,10 +10,9 @@ extension View {
     /// Rename, Bring back to parent, Turns, Attachments and Rewind's confirmation for the open
     /// thread, and what its messages' actions do (`messageTransitions`).
     func threadTransitions(model: ClientModel, thread: ThreadModel, title: String, renaming: Binding<Bool>,
-                           sheet: Binding<ThreadSheet?>, forkFrom: @escaping (String) -> Void,
-                           openThread: @escaping (String) -> Void) -> some View {
+                           sheet: Binding<ThreadSheet?>, openThread: @escaping (String) -> Void) -> some View {
         modifier(ThreadTransitionsHost(model: model, thread: thread, title: title, renaming: renaming, sheet: sheet,
-                                       forkFrom: forkFrom, openThread: openThread))
+                                       openThread: openThread))
     }
 }
 
@@ -23,8 +22,6 @@ private struct ThreadTransitionsHost: ViewModifier {
     let title: String
     @Binding var renaming: Bool
     @Binding var sheet: ThreadSheet?
-    /// The message whose Fork or Edit opened the fork, which the composer's strip grows out of.
-    let forkFrom: (String) -> Void
     let openThread: (String) -> Void
     @State private var rewinding: TranscriptRow?
     @State private var retried = 0
@@ -61,8 +58,8 @@ private struct ThreadTransitionsHost: ViewModifier {
     private var transitions: MessageTransitions {
         MessageTransitions(
             row: thread.screen.transitions,
-            fork: { row in forkFrom(row.id); Task { _ = await model.openFork(.answer(itemId: row.id, runId: row.runId)) } },
-            edit: { row in forkFrom(row.id); Task { _ = await model.openFork(.edit(itemId: row.id)) } },
+            fork: { row in Task { _ = await model.openFork(.answer(itemId: row.id, runId: row.runId)) } },
+            edit: { row in Task { _ = await model.openFork(.edit(itemId: row.id)) } },
             retry: { row in Task { if await model.retryAnswer(row.id) { retried += 1 } } },
             rewind: { row in rewinding = row })
     }
