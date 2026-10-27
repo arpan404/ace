@@ -67,11 +67,7 @@ it("a linked machine uses this machine's apps only as far as the person allows, 
 
   // Read only: looking works, with the picture; acting doesn't.
   await window.set(laptop.deviceId, "screen", "read");
-  const looked = await callAs(
-    laptop,
-    { ...look, args: { ...look.args, screenshot: true } },
-    from,
-  );
+  const looked = await callAs(laptop, { ...look, args: { ...look.args, screenshot: true } }, from);
   if (!looked.ok) throw new Error(looked.message);
   expect(textOf(looked.body)).toContain("Calculator");
   expect(MachineToolResult.parse(looked.body).content).toContainEqual(
