@@ -120,14 +120,19 @@ struct ThreadMenu: View {
                         Button("Bring back to parent…", ace: .gitMerge) { open(.merge) }.accessibilityIdentifier("thread.merge")
                     }
                 }
-                Button("Run and preview…", ace: .play) { open(.scripts) }.accessibilityIdentifier("thread.scripts")
-                Button("Work", ace: .gitBranch) { open(.work) }.accessibilityIdentifier("thread.work")
             }
             // Everything the thread's row offers, in the same words and order (`threadMenu`).
             if let organizer, let row, let hostId = model.hostId, model.canOperate {
                 ThreadActionItems(key: InboxKey(machineId: hostId, id: thread.id), row: row,
                                   labels: model.inboxLayout.menuLabels ?? [:], sections: model.inboxLayout.menuSections ?? [:],
                                   snoozeOptions: model.inboxLayout.snooze, organizer: leaving(organizer))
+            }
+            Section {
+                // Drops what the phone keeps of this thread and reads it again from the machine.
+                Button("Reload from machine", ace: .arrowClockwise) { model.reloadFromMachine() }
+                    .accessibilityIdentifier("thread.reload")
+                Button("Run and preview…", ace: .play) { open(.scripts) }.accessibilityIdentifier("thread.scripts")
+                Button("Work", ace: .gitBranch) { open(.work) }.accessibilityIdentifier("thread.work")
             }
             Section {
                 Button("Files", ace: .folder) { open(.files) }.accessibilityIdentifier("thread.files")
@@ -171,11 +176,6 @@ struct ThreadMenu: View {
                         Button("Archive", ace: .archive) { Task { if await model.archive(thread.id) { leave() } } }
                     }
                 }
-            }
-            Section {
-                // Drops what the phone keeps of this thread and reads it again from the machine.
-                Button("Reload from machine", ace: .arrowClockwise) { model.reloadFromMachine() }
-                    .accessibilityIdentifier("thread.reload")
             }
             if model.canOperate, thread.screen.controls?.canStop == true {
                 Section {
