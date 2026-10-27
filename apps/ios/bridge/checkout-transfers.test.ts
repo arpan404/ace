@@ -166,6 +166,7 @@ async function connect(
   const memory = new CheckoutMemory(
     { load: async () => undefined, save: async () => {} },
     recorder(),
+    { set: () => () => {} },
   );
   const files = new CheckoutFiles(
     owner,

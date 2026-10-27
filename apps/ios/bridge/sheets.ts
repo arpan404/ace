@@ -25,10 +25,11 @@ const OpenAction = z.discriminatedUnion("kind", [
 const SheetAction = z.union([OpenAction, ChangesAction]);
 type SheetAction = z.infer<typeof SheetAction>;
 
-/** What every Changes session shares: the phone's kept review state and a clock. */
+/** What every Changes session shares: the phone's kept review state, a clock and ids. */
 export interface SheetDeps {
   kept?: ChangesKept;
   now?: () => number;
+  id?: () => string;
 }
 
 export interface OpenThread {

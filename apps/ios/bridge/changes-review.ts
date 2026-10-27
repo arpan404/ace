@@ -24,7 +24,13 @@ import type { ChangesKept } from "./changes-kept.ts";
  * a selection becomes a draft checked against the lines the bridge holds, drafts go to the
  * agent, replies, resolving, suggestions and approval go through the daemon, and a refresh
  * brings in comments made on other devices. Drafts live in the phone's kept value.
+ *
+ * Comments go on the Uncommitted scope only: a turn's diff is built from the agent's edits, so
+ * its line numbers aren't the checkout's and a comment there couldn't be anchored.
  */
+
+/** Why the sheet's scope takes no comments, in words. */
+export const turnScopeReason = "Comments go on Uncommitted: a turn's lines can't be anchored.";
 
 /** Drafts one `changes.review` patch lists, newest first. */
 const shownDrafts = 200;
@@ -38,6 +44,10 @@ export interface ReviewDeps {
   epoch: number;
   thread: () => { id: ThreadId; workspaceId: WorkspaceId } | undefined;
   now: () => number;
+  /** A fresh id for each review comment command. */
+  id: () => string;
+  /** The sheet shows the checkout's uncommitted changes, the only scope comments go on. */
+  workingTree: () => boolean;
   /** The rows of `path` in the sheet's scope, diffed if it isn't open. */
   diffOf: (path: string) => DiffRows | undefined;
   /** A suggestion changed the checkout. */
@@ -69,7 +79,8 @@ export class SheetReview {
     this.#deps = deps;
     this.#stop = deps.kept.subscribe(() => this.emit());
     this.emit();
-    void deps.kept.load().then(() => this.refresh());
+    // Waits for the kept drafts when they read, but never for a read that keeps failing.
+    void deps.kept.tried().then(() => this.refresh());
   }
 
   /** Drafts of this thread, newest first. */
@@ -81,7 +92,15 @@ export class SheetReview {
   }
 
   /** Save a comment on lines of the diff shown; the refusal in words, or undefined. */
+  /** Whether the shown scope takes comments, and why not. */
+  allowed(): { allowed: boolean; reason: string } {
+    return this.#deps.workingTree()
+      ? { allowed: true, reason: "" }
+      : { allowed: false, reason: turnScopeReason };
+  }
+
   draft(input: DraftInput): string | undefined {
+    if (!this.#deps.workingTree()) return turnScopeReason;
     if (input.end < input.start || input.end - input.start >= 100)
       return "Comment on fewer than 100 lines.";
     const editing = input.key
@@ -123,7 +142,7 @@ export class SheetReview {
       this.drafts()
         .filter(isPending)
         .map((draft) => draft.key);
-    await sendDrafts(this.#deps.owner, this.#deps.kept, thread, picked);
+    await sendDrafts(this.#deps.owner, this.#deps.kept, thread, picked, this.#deps.id);
   }
 
   resolve(key: string, resolved: boolean): Promise<void> {
@@ -133,7 +152,7 @@ export class SheetReview {
   async apply(key: string): Promise<void> {
     const thread = this.#deps.thread();
     if (!thread) return;
-    await applySuggestion(this.#deps.owner, this.#deps.kept, thread, key);
+    await applySuggestion(this.#deps.owner, this.#deps.kept, thread, key, this.#deps.id);
     if (this.#deps.kept.get().find((draft) => draft.key === key)?.applied) this.#deps.applied();
   }
 
@@ -222,6 +241,7 @@ export class SheetReview {
         session: this.#session && { id: this.#session.id, status: this.#session.status },
         refreshing: this.#refreshing,
         message: this.#error,
+        storage: this.#deps.kept.trouble,
         pending: drafts.filter(isPending).length,
         open: drafts.filter(isOpen).length,
         resolved: drafts.filter((draft) => draft.state === "resolved").length,

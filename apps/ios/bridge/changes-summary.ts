@@ -31,6 +31,8 @@ export interface SummaryInput {
   openLimit: number;
   layout: DiffLayout;
   busy: boolean;
+  /** Whether the scope takes review comments, and why not. */
+  review: { allowed: boolean; reason: string };
 }
 
 function turnSummary(files: readonly ScopeFile[]) {
@@ -91,6 +93,7 @@ export function summaryPatch(input: SummaryInput): Record<string, unknown> {
     open: input.open.map((path) => preview(path, 1024)),
     openLimit: input.openLimit,
     layout: input.layout,
+    review: input.review,
     branch: preview(input.details?.branch ?? "", 256),
     step: {
       ...step,

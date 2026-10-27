@@ -10,6 +10,9 @@ import { expect, test } from "vitest";
 import { LocalStore } from "../store.ts";
 import { applySuggestion, record, saveDraft, type ReviewDraft } from "@ace/ui-core/review";
 
+let commandIds = 0;
+const ids = () => `review-command-${++commandIds}`;
+
 const exec = promisify(execFile);
 async function repository() {
   const directory = await mkdtemp(join(tmpdir(), "ace-web-review-"));
@@ -70,7 +73,7 @@ test("a historical suggestion after an insertion refuses to overwrite a differen
     const current = "const b = 2;\nheader\nconst a = 1;\nfooter\n";
     await f.write(current);
     draft(f, "const a = 3;");
-    await applySuggestion(f.client, f.store, f.thread, f.store.get()[0]?.key ?? "");
+    await applySuggestion(f.client, f.store, f.thread, f.store.get()[0]?.key ?? "", ids);
     expect(await f.read()).toBe(current);
     expect(f.store.get()[0]).toMatchObject({ state: "draft", error: expect.any(String) });
     const sessions = await f.client.command({ type: "review.list" });
@@ -88,7 +91,7 @@ test("recording a historical comment rejects an excerpt that differs from its di
   try {
     await f.write("const b = 2;\nheader\nconst a = 1;\nfooter\n");
     draft(f);
-    await expect(record(f.client, f.store, f.thread, f.store.get())).rejects.toThrow();
+    await expect(record(f.client, f.store, f.thread, f.store.get(), ids)).rejects.toThrow();
   } finally {
     await f.close();
   }
@@ -99,12 +102,12 @@ test("a matching displayed selection is recorded against an immutable snapshot a
   try {
     await f.write("header\nconst a = 1;\nfooter\n");
     draft(f, "const a = 3;");
-    await record(f.client, f.store, f.thread, f.store.get());
+    await record(f.client, f.store, f.thread, f.store.get(), ids);
     const held = f.store.get()[0];
     const listed = await f.client.command({ type: "review.list", sessionId: held?.sessionId });
     expect(listed.review?.comments?.[0]?.anchor.fingerprint.lines).toEqual(["const a = 1;"]);
     expect(listed.review?.comments?.[0]?.anchor.revision.kind).toBe("checkpoint");
-    await applySuggestion(f.client, f.store, f.thread, held?.key ?? "");
+    await applySuggestion(f.client, f.store, f.thread, held?.key ?? "", ids);
     expect(await f.read()).toBe("header\nconst a = 3;\nfooter\n");
     expect(f.store.get()[0]?.state).toBe("resolved");
   } finally {
@@ -118,7 +121,7 @@ test("identical selected text with different displayed context is refused withou
     const current = "different header\nconst a = 1;\nfooter\n";
     await f.write(current);
     draft(f, "const a = 3;");
-    await applySuggestion(f.client, f.store, f.thread, f.store.get()[0]?.key ?? "");
+    await applySuggestion(f.client, f.store, f.thread, f.store.get()[0]?.key ?? "", ids);
     expect(await f.read()).toBe(current);
     expect(f.store.get()[0]).toMatchObject({ state: "draft", error: expect.any(String) });
   } finally {

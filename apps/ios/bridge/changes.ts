@@ -44,6 +44,8 @@ export interface ChangesOptions {
   /** The phone's kept review state, shared by every session. */
   kept?: ChangesKept;
   now?: () => number;
+  /** Fresh ids for review commands, so a resend after a lost reply reuses its own. */
+  id?: () => string;
   limits?: OpenFilesLimits;
 }
 
@@ -77,7 +79,14 @@ function counter(): () => number {
   return () => ++at;
 }
 
-const memoryKept = () => new ChangesKept({ load: async () => undefined, save: async () => {} });
+const memoryKept = () =>
+  new ChangesKept({ load: async () => undefined, save: async () => {} }, { set: () => () => {} });
+
+/** Review command ids without a host (tests): unique within the session. */
+function sessionIds(threadId: string, epoch: number): () => string {
+  let at = 0;
+  return () => `review-${threadId}-${epoch}-${++at}`;
+}
 
 /**
  * The Changes sheet while it is open. The bridge holds the daemon's bounded reads (at most 500
@@ -159,6 +168,8 @@ export class ChangesSession {
       threadId,
       epoch,
       now: options.now ?? counter(),
+      id: options.id ?? sessionIds(threadId, epoch),
+      workingTree: () => this.#scope.workingTree,
       thread: () => {
         const thread = this.#store.thread;
         return thread && { id: thread.id, workspaceId: thread.workspaceId };
@@ -323,6 +334,7 @@ export class ChangesSession {
             openLimit: this.#files.limit,
             layout: this.#kept.layout,
             busy: this.busy,
+            review: this.review.allowed(),
           }),
     );
     this.#sink.put("changes:tree", () =>
