@@ -266,7 +266,11 @@ five pages): models sharing efforts and serving accounts are one set, each accou
 once with only its unusual fields, and superseded releases are counted in `omitted`. A model is
 superseded only when every account that serves it says so, so an account's newest release stays
 listed even when another account has a newer one. Large catalogues keep favourites, the default
-and the newest release of each line, up to eight. `query` searches every account and every
+and the caller's model, then the newest current release of each line across all accounts, up to
+eight; a pinned older release never takes its line's place. A provider states one `default` only
+when every account agrees, judged on the whole catalogue even for a query, else each account
+states its own. A set names a serving account by its label only when `delegate` would resolve
+that label to the same account, else by its id. `query` searches every account and every
 release; `delegate` still takes any catalogue model. The roster reads every page of every
 account (`agents.models`), so a second account's models are never cut off by paging.
 

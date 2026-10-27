@@ -13,6 +13,7 @@ import { withinJsonBudget } from "@ace/mcp-server";
 import { searchModels } from "@ace/models";
 import { callerThread } from "./authorization.ts";
 import { modelRoster } from "./model-roster.ts";
+import { registeredAccounts } from "./account-names.ts";
 import { everyPage } from "./selection-defaults.ts";
 import type { z } from "zod";
 import type { DelegationDependencies } from "./delegations.ts";
@@ -172,5 +173,6 @@ export function readModelRoster(
       ...(model ? { model } : {}),
     },
     query: input.query,
+    named: registeredAccounts(deps.accounts),
   });
 }
