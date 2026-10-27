@@ -183,6 +183,10 @@ export async function linkSkill(
     if (!(await disk.symlink(pinned, target, name)))
       throw new SkillError("exists", `Another folder called ${name} is already in ${root.path}.`);
     if ((await realpath(join(rootReal, name)).catch(() => undefined)) !== canonical.real) {
+      // Windows reads link text by path, which a moved root no longer has; the junction just made
+      // through the handle is taken back through the handle while it is still a link.
+      if (process.platform === "win32" && (await disk.windowsLink(pinned, name)))
+        await disk.removeFile(pinned, name);
       if ((await disk.readLink(pinned, name)) === target) await disk.removeFile(pinned, name);
       throw new SkillError("unavailable", "The new link didn't reach this skill's folder.");
     }

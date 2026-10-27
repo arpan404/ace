@@ -401,6 +401,15 @@ export async function commandEntryExists(directory: number, name: string): Promi
   if (process.platform !== "win32") throw new Error("Only Windows asks through the handle");
   return windowsExists(directory, name);
 }
+/** Windows: whether `name` in the pinned directory is a link, asked through the handle alone. */
+export async function commandEntryIsLink(directory: number, name: string): Promise<boolean> {
+  if (process.platform !== "win32") throw new Error("Only Windows asks through the handle");
+  try {
+    return windowsIsLink(directory, name);
+  } catch {
+    return false;
+  }
+}
 function windowsReadLink(directory: number, name: string): string {
   try {
     if (!windowsIsLink(directory, name)) throw new Error("Not a link");
