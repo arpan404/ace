@@ -136,7 +136,7 @@ export const ScreenUIAction = z.enum([
   "performSecondaryAction",
   "selectText",
 ]);
-export const ScreenUIRef = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
+export const ScreenUIRef = z.string().regex(/^[\w-]{1,64}$/);
 /**
  * One accessibility node. Declared, not inferred: a recursive schema's inferred type has no
  * name, so TypeScript 7.1 cannot write it into the declarations of code that returns one.

@@ -160,8 +160,38 @@ database file. Compaction is a separate, admin-only operation.
 
 ## Compaction
 
-`cleanup.compact` compacts `events.sqlite`. It runs under the Store maintenance
-fence, never inside a retention plan.
+Compaction is automatic. The daemon returns free pages in `events.sqlite` to the OS
+by itself, with no setting, and `cleanup.compact` runs the same compaction on request.
+Both run under the Store maintenance fence, never inside a retention plan.
+
+### Automatic space reclaim
+
+`SpaceReclaim` (`storage/space-reclaim.ts`) is separate from retention and cleanup: it
+never deletes rows, so it is always on. Its policy is pure
+(`storage/space-reclaim-policy.ts`):
+
+- **When**: 10 minutes after start, then every 4 hours. The due time is durable in
+  `storage_reclaim_schedule`, so restarts don't bring it forward, except after a cut-short
+  run, which resumes 10 minutes after the restart.
+- **Threshold**: free pages reach 64 MiB, or 10% of the file, and at least 1 MiB. Below
+  that, ordinary writes reuse the pages anyway. Files with `auto_vacuum=NONE` are skipped.
+- **Load**: each run is preceded by a 15 s probe. More than 60 commits in it, or a history
+  publication in progress, postpones the run by 5 minutes.
+- **Bounded runs**: `StorageService.reclaimSpace` runs at most 16 chunks of 256 pages
+  (16 MiB of 4 KiB pages) per maintenance hold, then releases writers. A remainder runs
+  1 s later, after a fresh probe. A failure retries after 30 minutes.
+- **Journal**: runs use the `storage_compactions` journal with owner `storage:reclaim`.
+  An unfinished compaction of any owner, including one from `ace doctor`, is resumed
+  rather than replaced. Startup recovery leaves `storage:reclaim` entries to the loop, so
+  startup is not slowed.
+- **Shutdown** waits for the current chunk at most; the journal stays `running` and the
+  next start resumes it.
+- The last run ends with `wal_checkpoint(TRUNCATE)`. Between runs, the Store's own WAL
+  maintenance truncates the WAL 5 s after writes go idle, so no separate WAL step is needed.
+
+`PRAGMA optimize` is not run: measured on a large home, it gave no read gain. The small
+`*.sqlite` files beside `events.sqlite` are created without incremental vacuum and hold
+negligible free space, so they are not compacted.
 
 ### What the write fence covers
 
@@ -201,8 +231,8 @@ opt-in bound for tests; the engine actor retries a busy admission rather than fa
 New databases are created with `auto_vacuum=INCREMENTAL`. Compaction releases free
 pages with `incremental_vacuum(256)`. Each chunk is its own transaction, journaled in
 `storage_compactions`, and the step yields between chunks. A run is limited to
-4,096 chunks; any remainder stays `pending` and resumes on the next request or at
-startup. `cleanup.compactAbandon` stops resuming it. Each run ends with
+4,096 chunks; any remainder stays `pending` and resumes on the next request, at
+startup, or in the next automatic run. `cleanup.compactAbandon` stops resuming it. Each run ends with
 `wal_checkpoint(TRUNCATE)`, and `checkpointed: false` means a reader kept the WAL
 from being truncated.
 

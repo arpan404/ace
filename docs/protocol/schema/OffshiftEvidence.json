@@ -4,13 +4,11 @@
   "additionalProperties": false,
   "properties": {
     "action": {
-      "description": "The command or interaction actually performed.",
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"
     },
     "artifact": {
-      "description": "Where the full output is kept: a path, URL or report reference.",
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"
@@ -27,25 +25,15 @@
       "default": null
     },
     "criterionId": {
-      "description": "The criterion this observation checks.",
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
     "kind": {
-      "description": "Which required kind this observation satisfies.",
-      "enum": [
-        "automated",
-        "source",
-        "ui",
-        "human",
-        "manual"
-      ],
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
     },
     "note": {
-      "description": "The observed result and environment, in a sentence or two.",
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"
@@ -54,7 +42,6 @@
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
     "result": {
-      "description": "What the check observed.",
       "enum": [
         "pass",
         "fail"
@@ -62,7 +49,7 @@
       "type": "string"
     },
     "revision": {
-      "description": "The revision from get, read before the check ran.",
+      "description": "From get, before the check ran.",
       "maxLength": 512,
       "minLength": 1,
       "type": "string"

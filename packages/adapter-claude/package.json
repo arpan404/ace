@@ -8,7 +8,8 @@
     "./input": "./src/input.ts",
     "./models": "./src/model-discovery.ts",
     "./session-bound": "./src/session-bound.ts",
-    "./usage-read": "./src/usage-read.ts"
+    "./usage-read": "./src/usage-read.ts",
+    "./tool-search": "./src/tool-search-facts.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

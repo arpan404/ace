@@ -229,3 +229,52 @@ test("process shutdown keeps its exit deadline armed after cancelled startup", a
   (await deadline.promise)();
   expect(exits).toEqual([1]);
 });
+
+// Something can forget a handle after every owned resource closed; it must not turn a clean
+// stop into a deadline failure.
+test("a daemon that stopped cleanly exits 0 even while a handle keeps the process alive", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-clean-exit-"));
+  const signals = new EventEmitter();
+  const timers: { milliseconds: number; run: () => void; cancelled: boolean }[] = [];
+  const exits: number[] = [];
+  const reports: string[] = [];
+  const report = console.error;
+  console.error = (message: unknown) => reports.push(String(message));
+  try {
+    const daemon = await runDaemonProcess(
+      startDaemon,
+      {
+        config: readConfig({ ACE_HOME: root, ACE_PORT: "0", ACE_LOG_LEVEL: "error" }),
+        modelInstances: [],
+        history: { instances: [] },
+      },
+      signals,
+      {
+        after(run, milliseconds) {
+          const timer = { milliseconds, run, cancelled: false };
+          timers.push(timer);
+          return () => {
+            timer.cancelled = true;
+          };
+        },
+        exit(code) {
+          exits.push(code);
+        },
+        openHandles: () => ["TCPSocketWrap"],
+      },
+    );
+    if (!daemon) throw new Error("Daemon did not start");
+    signals.emit("SIGTERM");
+    await expect.poll(() => timers.length).toBe(2);
+    const [deadline, drained] = timers;
+    // The overall deadline stands down once the daemon has closed.
+    expect(deadline).toMatchObject({ milliseconds: 7_500, cancelled: true });
+    expect(drained?.milliseconds).toBeLessThan(7_500);
+    drained?.run();
+    expect(exits).toEqual([0]);
+    expect(reports.join("\n")).toContain("TCPSocketWrap");
+  } finally {
+    console.error = report;
+    await rm(root, { recursive: true, force: true });
+  }
+});

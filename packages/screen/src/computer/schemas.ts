@@ -9,7 +9,7 @@ export type ComputerPlatform = "macos" | "linux" | "windows";
 
 const appIds = {
   macos: {
-    app: 'App name or bundle id, e.g. "Calculator" or "com.apple.TextEdit".',
+    app: 'Name or bundle id, e.g. "Calculator".',
     query: "Part of a name or bundle id; also searches installed apps.",
   },
   linux: {
@@ -24,7 +24,7 @@ const appIds = {
 
 const window = z
   .union([z.number().int().min(1).max(64), z.string().min(1).max(200)])
-  .describe("Window number from the Windows line, or part of its title.");
+  .describe("Number from the Windows line, or part of a title.");
 
 export function computerSchemasFor(platform: ComputerPlatform) {
   const app = z.string().min(1).max(200).describe(appIds[platform].app);
@@ -35,21 +35,10 @@ export function computerSchemasFor(platform: ComputerPlatform) {
     screen_state: z.strictObject({
       app,
       window: window.optional(),
-      screenshot: z
-        .boolean()
-        .optional()
-        .describe("Also return a picture of the window, with element ids tagged on it."),
-      outline: z
-        .boolean()
-        .optional()
-        .describe("false: return only the screenshot, without reading elements (fastest)."),
-      find: z
-        .string()
-        .min(1)
-        .max(200)
-        .optional()
-        .describe("Show only elements whose text contains this, with their parents."),
-      full: z.boolean().optional().describe("Return the whole outline instead of changes."),
+      screenshot: z.boolean().optional().describe("Also a picture, elements tagged with ids."),
+      outline: z.boolean().optional().describe("false: picture only (fastest)."),
+      find: z.string().min(1).max(200).optional().describe("Only elements with this text."),
+      full: z.boolean().optional().describe("Whole outline, not changes."),
     }),
     screen_act: z.strictObject({
       app,
@@ -62,13 +51,8 @@ export function computerSchemasFor(platform: ComputerPlatform) {
           if (problem) context.addIssue({ code: "custom", message: problem });
         }),
       window: window.optional(),
-      screenshot: z.boolean().optional().describe("Also return a picture after acting."),
-      observe: z
-        .boolean()
-        .optional()
-        .describe(
-          "false: skip reading the window afterwards, when the next step is a look anyway.",
-        ),
+      screenshot: z.boolean().optional().describe("Also a picture after acting."),
+      observe: z.boolean().optional().describe("false: skip the look afterwards."),
     }),
   };
 }
@@ -77,34 +61,34 @@ export function computerSchemasFor(platform: ComputerPlatform) {
 export const computerSchemas = computerSchemasFor("macos");
 
 const looks =
-  "Ids stay the same between calls, so later looks return only what changed. Add screenshot:true to see layout or images; the picture tags elements with their ids. outline:false returns just the picture, fastest. Use find to search a large window. Then act with screen_act. For websites use browser_open.";
+  "Ids are stable, so later looks return only changes. For websites use browser_open. Guide: ace-computer-use.";
 const batching =
-  'Batch steps that need no look in between, e.g. [{"type":"click","id":12},{"type":"type","text":"hi"},{"type":"key","key":"Return"}]. Act by element id; use x,y screenshot pixels only for things missing from the outline. Prefer set_value for fields, paste for long or formatted text (markdown keeps headings and lists) and menu paths for commands. wait_for and if let one batch handle a dialog that may or may not show.';
+  'Batch steps that need no look between, e.g. [{"type":"click","id":12},{"type":"type","text":"hi"}]. Act by id; x,y screenshot pixels only for what the outline lacks. Prefer set_value, paste and menu.';
 
 const text = {
   macos: {
     appsTitle: "List Mac apps",
-    apps: "List Mac apps: the running ones, plus installed ones matching query. Pass a name or bundle id to screen_state.",
+    apps: "List running Mac apps, plus installed ones matching query, for screen_state.",
     stateTitle: "Look at a Mac app",
-    state: `Open a Mac app in the background, without taking the person's focus, and read its window as an outline: one numbered element per line. ${looks}`,
+    state: `Open a Mac app in the background and read its window as an outline of numbered elements. ${looks}`,
     actTitle: "Act in a Mac app",
-    act: `Act in an app in the background, then get what changed. ${batching} activate brings the app to the front and interrupts the person: use it only when background actions do not work.`,
+    act: `Act in an app in the background, then get what changed. ${batching} activate interrupts the person: last resort.`,
   },
   linux: {
     appsTitle: "List desktop apps",
-    apps: "List the desktop's apps: the running ones, plus installed ones matching query. Pass a name or desktop-file id to screen_state.",
+    apps: "List running desktop apps, plus installed ones matching query, for screen_state.",
     stateTitle: "Look at a desktop app",
-    state: `Open a desktop app, without taking the person's focus, and read its window through accessibility as an outline: one numbered element per line. ${looks}`,
+    state: `Open a desktop app in the background and read its window as an outline of numbered elements. ${looks}`,
     actTitle: "Act in a desktop app",
-    act: `Act in an app in the background, through accessibility, then get what changed. ${batching} Clicks (by id, or at screenshot x,y), typing, set_value, menus, menu shortcuts, copy/paste and Tab work without the window in front. Hover and drags can't be sent. Typing into Chromium and Electron apps, and keys with no accessible equivalent, need activate first in the same batch: they are then typed in front, taking the person's focus (GNOME, KDE). Linux shortcuts use ctrl, e.g. ctrl+s.`,
+    act: `Act in an app in the background, then get what changed. ${batching} No hover or drags. Typing into Chromium or Electron apps needs activate first in the batch, which takes the person's focus. Shortcuts use ctrl.`,
   },
   windows: {
     appsTitle: "List Windows apps",
-    apps: "List Windows apps: the running ones, plus Start menu apps matching query. Pass a name or app id to screen_state.",
+    apps: "List running Windows apps, plus Start menu apps matching query, for screen_state.",
     stateTitle: "Look at a Windows app",
-    state: `Open a Windows app without taking the person's focus, and read its window through UI Automation as an outline: one numbered element per line. ${looks}`,
+    state: `Open a Windows app in the background and read its window as an outline of numbered elements. ${looks}`,
     actTitle: "Act in a Windows app",
-    act: `Act in an app in the background, then get what changed. ${batching} Clicks by id, set_value, select_text, typing into fields, menus, menu shortcuts and window steps work with the window in the background. Other shortcuts, x,y clicks on things missing from the outline, hover and drags need the window in front: start the batch with activate, which interrupts the person. Windows shortcuts use ctrl, e.g. ctrl+s; cmd means ctrl.`,
+    act: `Act in an app in the background, then get what changed. ${batching} Other shortcuts, x,y clicks, hover and drags need activate first in the batch, which interrupts the person. Shortcuts use ctrl.`,
   },
 } as const;
 

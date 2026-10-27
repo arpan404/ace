@@ -1,7 +1,7 @@
 import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
-import { McpScope } from "@ace/protocol";
+import { McpScope, ScreenKey } from "@ace/protocol";
 import { computerUseTools, computerUseHandler, screenToolkit } from "./index.ts";
 import { manager, ready } from "./testing/support.ts";
 
@@ -21,7 +21,9 @@ async function agentTools() {
   );
   const call = (name: string, args: Record<string, unknown>) =>
     registry.call(name, args, lease.principal, new AbortController().signal);
-  return { test, state, call };
+  const advertised = (name: string) =>
+    registry.list(lease.principal).find((tool) => tool.name === name)?.inputSchema;
+  return { test, state, call, registry, advertised };
 }
 
 it("the advertised input schema and handler accept the same bounded typing", async () => {
@@ -70,4 +72,36 @@ it("a UI read with a query returns only the matching elements", async () => {
   expect(found.nodes.length).toBeGreaterThan(0);
   expect(found.nodes.every((node: { name: string }) => node.name === "Typed text")).toBe(true);
   expect(JSON.stringify(tree.nodes)).not.toEqual(JSON.stringify(found.nodes));
+});
+
+it("every key the helper takes, and no other, is advertised and accepted by screen_input and screen_measure", async () => {
+  const { call, registry, advertised } = await agentTools();
+  const Key = z.object({ pattern: z.string() });
+  const patterns = [
+    z.object({ properties: z.object({ key: Key }) }).parse(advertised("screen_input")).properties
+      .key.pattern,
+    z
+      .object({
+        properties: z.object({ action: z.object({ properties: z.object({ key: Key }) }) }),
+      })
+      .parse(advertised("screen_measure")).properties.action.properties.key.pattern,
+  ];
+  const nearMisses = ["ENTER", "Pageup", "pageUp", "ArrowUP", "F21", "f0", " ", "Enter ", "cmd+s"];
+  for (const pattern of patterns) {
+    const shown = new RegExp(pattern);
+    expect(ScreenKey.options.filter((key) => !shown.test(key))).toEqual([]);
+    expect(nearMisses.filter((key) => shown.test(key))).toEqual([]);
+  }
+  // Calls agents already send keep working, aliases and symbols included.
+  for (const key of ["Return", "enter", "pagedown", "ArrowDown", "F12", "f20", "l", "~"])
+    expect((await call("screen_input", { action: "key", key })).isError, key).not.toBe(true);
+  const refused = await call("screen_input", { action: "key", key: "ENTER" });
+  expect(refused.isError).toBe(true);
+  expect(
+    JSON.parse(String(refused.content[0]?.type === "text" && refused.content[0].text)).code,
+  ).toBe("invalid_arguments");
+  const measured = (key: string) =>
+    registry.action("screen_measure", { action: { kind: "key.press", key } });
+  expect(measured("Escape")).toMatchObject({ access: "write" });
+  expect(measured("ENTER")).toBeUndefined();
 });

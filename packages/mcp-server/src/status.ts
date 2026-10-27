@@ -35,13 +35,13 @@ export function aceGuidance(groups?: readonly string[], tools?: readonly string[
       ? "screen_open_app"
       : "screen_state";
   return [
-    "ace is the app running this session. Your shell, file and web tools work as usual; ace's tools do what only ace can. Use them when:",
-    "- you start work in an existing project: context first;",
+    "ace runs this session. Your shell, file and web tools work as usual; use ace's for what only ace can:",
+    "- you start in an existing project: context first;",
     has("agents")
-      ? "- work splits into independent or parallel parts: delegate (instead of your provider's subagent tool), then wait;"
+      ? "- independent or parallel parts: delegate (not your own subagent tool), then wait;"
       : "",
     has("browser")
-      ? "- you changed a UI or a localhost page: browser_open, then browser_snapshot; the person watches; console and network logs are there;"
+      ? "- you changed a UI or localhost page: browser_open, then browser_snapshot; the person watches;"
       : "",
     "- visuals or images: guide visualize first;",
     "- after gh pr create or finding the PR: thread_link_pr;",
@@ -50,7 +50,7 @@ export function aceGuidance(groups?: readonly string[], tools?: readonly string[
       : "",
     has("screen", "devices") ? `- the person names a native app or simulator: ${nativeApps};` : "",
     "Not sure which ace tool fits? tools_find with what you want to do.",
-    `Each family's how-to and other tools: guide with topic ${guideTopics.join(", ")}; offshift loads Offshift, to own a coding outcome end to end.`,
+    `How-tos and more tools: guide with topic ${guideTopics.join(", ")}, or offshift to own a coding outcome end to end.`,
     "If an ace tool says its group is off, tell the person. Agents never answer approvals.",
   ]
     .filter(Boolean)

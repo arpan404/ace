@@ -142,6 +142,46 @@ Claude Agent SDK defers behind its tool search) lists every tool, and every othe
 static. The stdio bridge carries the choice in `ACE_MCP_BRIDGE_TOOLS`. Always-loaded tools also
 carry `antigravity/alwaysLoad`.
 
+**Claude without tool search (2026-10-27).** Claude Code defers MCP tools only while its tool
+search is on; otherwise it loads every listed tool in full, and ace's whole catalogue (52 tools,
+about 17,200 tokens) would ride on every request. Read from Claude Code 2.1.311's bundle and its
+MCP docs, the CLI decides per request:
+
+- off when `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` is set (only managed settings force it back)
+  or in a HIPAA session;
+- off when `ENABLE_TOOL_SEARCH` is false-like (`false`, `0`, `no`, `off`) or `auto:100`; on when
+  unset, true-like, `auto:0` or unrecognised; `auto` and `auto:N` turn it on only once deferred
+  tools reach N% (default 10) of the context window;
+- off when `ToolSearch` is denied or left out of the tool set;
+- off for models whose name contains `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku`,
+  `claude-3-5-sonnet`, `claude-3-5-haiku` or `claude-3-7-sonnet` (a remotely updatable list),
+  and on Vertex for Claude 3 and pre-4.5 models;
+- learned at run time on Foundry deployments hosted on Azure and behind a gateway
+  (`ANTHROPIC_BASE_URL` not `api.anthropic.com`, or `CLAUDE_CODE_USE_GATEWAY`): a refused
+  `defer_loading` makes the CLI resend without tool search and keep it off for the conversation.
+  Before 2.1.304 a custom base URL meant off unless `ENABLE_TOOL_SEARCH` said on.
+
+Settings `env` applies over the launch env. Claude Code refreshes its tool list on
+`tools/list_changed`, in `-p` and SDK sessions too. So the adapter reads the launch env, the
+settings files it loads and the model (`claudeToolSearchFacts`), and `claudeToolListing` gives the
+session the core listing whenever tool search is off or only settled at run time; the core list
+works under tool search as well. A model switch is checked again and can only narrow the listing:
+ace's server is reconnected with the core header and every later MCP replacement keeps it. The
+narrowing counts only once Claude Code accepts the new MCP set; a failed reconnect is retried on
+the next model switch, turn or MCP replacement until one succeeds. Every replacement, a
+caller's or ace's reconnect, runs one at a time and is built when it runs from the latest intended
+set, so a reconnect never drops a server a caller has just added. The system prompt cannot
+change mid-session, so Claude's guidance line names both ways in: its tool search, or with none,
+`tools_call {name, arguments}`, which the core list offers.
+
+claude-agent-acp (0.97.0) runs the same CLI through the Agent SDK, with the person's settings,
+its own `env` and, after `providers/set`, a gateway's base URL; it can also drop the built-in
+tools (`disableBuiltInTools`), which removes `ToolSearch`. It does not defer in every config, so
+the daemon decides its listing with the same rules from its launch env, settings and the
+thread's model (`engine_sessions.model`, `acpClaudeToolListing`). ACP fixes a session's MCP
+servers when it opens, so a later model switch cannot narrow the list; a session with no model
+known at launch starts on core.
+
 **Antigravity loads on demand (2026-10-20).** Checked live on the Antigravity CLI (`agy`) 1.4.2:
 it loads in full only the MCP tools whose `_meta` carries `"antigravity/alwaysLoad": true`. Every
 other tool's definition is written to `~/.gemini/antigravity-cli/mcp/<server>/<tool>.json`; the
@@ -180,3 +220,71 @@ cost is that it also asks before a dispatched read. ace adds no gate of its own 
 under-declaring would let a destructive call through unasked. Clients that list tools
 individually keep per-tool annotations, which is why `tools_call` is offered only where the
 list is incomplete: a core client calls a found tool directly once its list reloads.
+
+## Addendum: a smaller always-on surface (2026-10-27)
+
+Measured with `mcp-agent-budget.process.test.ts` (characters / 4, browser and computer use on),
+Claude paid about 2,620 tokens of ace context on every request: guidance and session facts,
+the skill listing, five always-loaded schemas and the deferred names. It now pays about 1,540,
+and the whole catalogue a client pays when it loads every tool fell from about 17,200 to about
+10,050 tokens (68,776 to about 40,000 characters), with browser, computer-use and simulator
+descriptions cut by 45% and their detail moved into the guides.
+
+**Claude loads only `context` and `delegate` upfront.** Claude Code and the Claude Agent SDK
+search deferred tools themselves and list ace's guides as skills, so three of the five
+always-loaded tools duplicated something Claude already has:
+
+- `tools_find` was a second search. Claude cannot call a tool it found that way until it loads
+  it with its own tool search, so the ace search added a step without making one unnecessary,
+  and its schemas in the result were never usable directly. Claude's own search ranks the same
+  names and descriptions; its guidance line now says to load ace tools "by task or exact name".
+- `guide` returned the same bodies as the skills Claude lists; Claude's guidance says to use the
+  skill wherever ace says `guide <topic>`. Offshift, which is not a skill, loads `guide` by name.
+- `wait` serves only a later collection: `delegate {waitSeconds}` waits in the same call.
+
+Each still loads by exact name in one step. Antigravity has neither a search nor skills, so its
+own key keeps all five. `anthropic/alwaysLoad` and `antigravity/alwaysLoad` are now separate
+sets (`registry.ts`).
+
+**Guide topics are listed once per channel.** The shared guidance names the five families; the
+`guide` tool's enum names every guide, and its description no longer repeats them. Skill
+descriptions say what each is for and when, in about half the words.
+
+**Compaction rules (`advertised-schema.ts`), for every client.** Each rule only removes keywords,
+so the advertised schema stays valid in the strict subsets Gemini and OpenAI models accept, and
+the registry keeps validating against the full Zod schema:
+
+- string `pattern`s and every string length, except a pattern marked `keepPattern` because it is
+  the field's only list of allowed values (`screen_input` and `screen_measure` key names);
+- a `minimum` of 0 or 1, a `maximum` of 1,000 or more;
+- `minItems: 1`, and a `maxItems` of 32 or more or at least the size of the item enum;
+- a `description` that only restates the field's default or enum values;
+- a union of one item or a list of the same item, advertised as the list (the bare item still
+  decodes as a bare item).
+
+`type` stays beside every `enum`: Gemini's schema subset (Antigravity, Gemini CLI, and OpenCode or
+Pi on Gemini models) refuses an enum without one, and no client tells ace which model it runs, so
+the saving is not worth a per-client branch. A call that breaks a dropped bound gets an
+`invalid_arguments` issue naming it (`array <= 64 in length`, `a string matching /^…$/`), so one
+retry fixes it.
+
+**`models` returns one compact roster.** The default call lists every provider's current models
+in one result (about 1,500 characters on a realistic install, down from 5,400 for the first of
+five pages): models sharing efforts and serving accounts are one set, each account is listed
+once with only its unusual fields, and superseded releases are counted in `omitted`. When the
+accounts serving one model offer different efforts or default efforts, each group of accounts
+gets its own set naming them, so every advertised effort is one `delegate` accepts on that
+account. A model is superseded only when every account that serves it says so, so an account's
+newest release stays listed even when another account has a newer one. Large catalogues show
+the newest current release of up to eight lines across all accounts, in catalogue order, plus
+every favourite, default and the caller's model on top of those eight; a pinned older release
+never takes its line's place or one of the eight. A provider states one `default` only
+when every account agrees, judged on the whole catalogue even for a query, else each account
+states its own. A set names a serving account by its label only when `delegate` would resolve
+that label to the same account, else by its id. `query` searches every account and every
+release; `delegate` still takes any catalogue model. The roster reads every page of every
+account (`agents.models`), so a second account's models are never cut off by paging.
+
+**Budgets.** `mcp-agent-budget.process.test.ts` holds each provider's per-request cost and
+`mcp-catalogue-budget.process.test.ts` the whole catalogue, any single tool and a Claude session
+without tool search, each at the measured cost rounded up to the next 50 tokens.
