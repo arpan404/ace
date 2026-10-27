@@ -256,3 +256,42 @@ it("lowering this machine's switch to read ends running jobs, though Commands st
   });
   await window.close();
 });
+
+it("a target restart ends the commands it was running, so their session settles", async () => {
+  const { pair, window, laptop, project } = await commandsAllowed("operate");
+  await window.close();
+  const answer = texts(
+    await callAs(
+      laptop,
+      run({ command: "sleep 60 & echo $! > restart.pid; wait", background: true }),
+      from,
+    ),
+  );
+  expect(answer[0]).toContain("Started");
+  const sleeper = await pidFrom(join(project, "restart.pid"));
+  await vi.waitFor(() => expect(guestThread(pair).status.state).toBe("waiting"), {
+    timeout: 10_000,
+  });
+  await pair.restartTarget();
+  // The process ended with the daemon that ran it; its shell call reads cancelled, with an end.
+  await vi.waitFor(() => expect(alive(sleeper)).toBe(false), { timeout: 10_000 });
+  await vi.waitFor(
+    () => {
+      const thread = guestThread(pair);
+      expect(thread.status.state).not.toBe("working");
+      expect(thread.status.state).not.toBe("waiting");
+      const items = pair.target.daemon.store.readItems(
+        thread.id,
+        Number.MAX_SAFE_INTEGER,
+        20,
+      ).items;
+      expect(items).toContainEqual(
+        expect.objectContaining({
+          type: "tool_call",
+          call: expect.objectContaining({ status: "cancelled", endedAt: expect.any(Number) }),
+        }),
+      );
+    },
+    { timeout: 15_000 },
+  );
+});

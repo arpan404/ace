@@ -167,3 +167,26 @@ it("this machine's switch going to read stops acting calls of every capability a
   if (off) guests.revoke(off);
   await expect(reading).rejects.toMatchObject({ code: "machine_forbidden" });
 }, 10_000);
+
+it("a command a previous process left running reads cancelled after recovery, and the session settles", async () => {
+  const { h, guests, session } = await setup();
+  // The process that ran it died mid-command: its shell call still reads running.
+  h.engine.guests.command(session.threadId, "ace-command:left-over", {
+    command: "make build",
+    cwd: "/work",
+    status: "running",
+    startedAt: h.clock.now(),
+  });
+  await h.engine.flush();
+  const call = () =>
+    h.store
+      .readItems(session.threadId, Number.MAX_SAFE_INTEGER, 20)
+      .items.flatMap((item) => (item.type === "tool_call" ? [item.call] : []))[0];
+  expect(call()?.status).toBe("running");
+  guests.recover();
+  await h.engine.flush();
+  expect(call()).toMatchObject({ status: "cancelled", endedAt: expect.any(Number) });
+  await vi.waitFor(() =>
+    expect(h.store.getThread(session.threadId)?.status.state).not.toBe("working"),
+  );
+});

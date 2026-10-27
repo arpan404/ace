@@ -139,6 +139,36 @@ export class GuestThreads {
       this.now(),
     );
   }
+  /**
+   * Ends shell calls whose key starts with `prefix` that still read running: their process ended
+   * with the daemon that started them. Each is marked cancelled, ending now.
+   */
+  endCommands(threadId: ThreadId, prefix: string): number {
+    const state = this.repo.state(threadId);
+    const agent = state?.rootKey;
+
+    if (!state || agent === undefined) return 0;
+    const at = this.now();
+    const facts = Object.entries(state.items).flatMap(([key, item]) =>
+      key.startsWith(prefix) && item.type === "tool_call" && item.call.status === "running"
+        ? [
+            {
+              type: "item.upsert" as const,
+              agent,
+              item: key,
+              draft: {
+                type: "tool_call" as const,
+                call: { status: "cancelled" as const, endedAt: at },
+              },
+            },
+          ]
+        : [],
+    );
+    if (facts.length === 0) return 0;
+    this.repo.apply(threadId, facts, at);
+    this.wake(threadId);
+    return facts.length;
+  }
   /** Background rows still running whose key starts with `prefix`. */
   running(threadId: ThreadId, prefix: string): string[] {
     const tasks = this.repo.state(threadId)?.tasks ?? {};

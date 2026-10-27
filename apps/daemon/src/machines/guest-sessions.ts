@@ -80,6 +80,8 @@ type Flight = GuestWork & {
   why?: "stopped" | "revoked";
 };
 const prefix = "ace-guest:";
+/** Shell calls the commands host records in a session (ADR 0105). */
+export const commandPrefix = "ace-command:";
 const Row = z.object({ thread_id: z.string() });
 
 /**
@@ -315,7 +317,10 @@ export class GuestSessions {
     this.revokes.add(listener);
     return () => this.revokes.delete(listener);
   }
-  /** Rows a previous process left running ended with it: mark them stopped. */
+  /**
+   * Work a previous process left running ended with it: its rows are marked stopped, and the
+   * commands it was running (`ace-command:` shell calls) cancelled, so the session settles.
+   */
   recover(): void {
     const engine = this.deps.engine();
     if (!engine) return;
@@ -324,9 +329,12 @@ export class GuestSessions {
       .all();
     for (const row of rows) {
       const threadId = ThreadId.parse(Row.parse(row).thread_id);
+      const thread = this.deps.store.getThread(threadId);
+      if (!thread || thread.deletedAt !== undefined) continue;
       for (const task of engine.guests.running(threadId, prefix))
         if (!this.flights.has(task.slice(prefix.length)))
           engine.guests.hold(threadId, task, { status: "stopped" });
+      engine.guests.endCommands(threadId, commandPrefix);
     }
   }
 }

@@ -5,7 +5,7 @@ import type { Engine } from "../engine/index.ts";
 import { clip } from "../agent-control/watch-view.ts";
 import { TargetRefusal } from "./target-refusal.ts";
 import type { CapabilityHost } from "./capability-hosts.ts";
-import type { GuestSession, GuestSessions } from "./guest-sessions.ts";
+import { commandPrefix, type GuestSession, type GuestSessions } from "./guest-sessions.ts";
 import {
   backgroundTailBytes,
   CommandJobArgs,
@@ -84,6 +84,15 @@ export class CommandHost implements CapabilityHost {
   available(): boolean {
     return true;
   }
+  /**
+   * The daemon is closing: every job ends with its whole process tree, since nothing here would
+   * own it after the restart (its session's record is ended on the next start).
+   */
+  async close(): Promise<void> {
+    const running = [...this.jobs.values()].filter((job) => !job.outcome);
+    for (const job of running) job.run.stop();
+    await Promise.all(running.map((job) => job.run.done));
+  }
   /** A shell command can't be proven read-only, so every command tool acts. */
   readOnly(): boolean {
     return false;
@@ -126,7 +135,7 @@ export class CommandHost implements CapabilityHost {
     if (args.background) return this.background(session, args.command, spec, limits, signal);
     signal.throwIfAborted();
     const run = runCommand(this.deps.spawn, this.deps.clock, spec, limits);
-    const key = `ace-command:${this.deps.newId()}`;
+    const key = `${commandPrefix}${this.deps.newId()}`;
     this.record(session, key, args.command, cwd, run.startedAt);
     const stop = () => run.stop();
     signal.addEventListener("abort", stop, { once: true });
@@ -194,7 +203,7 @@ export class CommandHost implements CapabilityHost {
       throw new TargetRefusal("unavailable", "The command did not start.");
     }
     this.jobs.set(id, started);
-    const key = `ace-command:${id}`;
+    const key = `${commandPrefix}${id}`;
     this.record(session, key, command, spec.cwd, started.run.startedAt);
     void started.run.done.then((outcome) => {
       started.outcome = outcome;

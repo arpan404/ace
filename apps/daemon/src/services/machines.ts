@@ -125,6 +125,17 @@ export function startMachines(context: ServiceContext): void {
       if (capability === "screen") screen.release(session.threadId);
     }),
   );
+  const commands = commandHost({
+    store,
+    engine,
+    guests,
+    threads,
+    dataDir: config.dataDir,
+    now,
+    log,
+  });
+  // A closing daemon ends the commands it runs: nothing would own them after the restart.
+  resources.own(() => commands.close(), "machine commands");
   services.machineCalls = createMachineTarget({
     hostId,
     hostName,
@@ -137,7 +148,7 @@ export function startMachines(context: ServiceContext): void {
     hosts: {
       devices,
       screen,
-      commands: commandHost({ store, engine, guests, threads, dataDir: config.dataDir, now, log }),
+      commands,
     },
     log: record("info"),
   });
