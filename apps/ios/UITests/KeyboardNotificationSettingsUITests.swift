@@ -72,7 +72,8 @@ import XCTest
         screenshot("notifications")
 
         let quiet = app.switches["notifications.phone.quiet"]
-        for _ in 0..<3 where !quiet.isHittable { app.swipeUp() }
+        app.swipeUp()
+        XCTAssertTrue(quiet.waitForExistence(timeout: 5))
         if quiet.value as? String != "1" { flip(quiet) }
         let from = app.staticTexts["From"].firstMatch
         XCTAssertTrue(from.waitForExistence(timeout: 5), "quiet hours show their window")
