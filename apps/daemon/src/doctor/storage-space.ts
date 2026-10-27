@@ -9,7 +9,8 @@ export async function freeBytes(directory: string): Promise<number> {
   return fs.bavail * fs.bsize;
 }
 
-const FIX = "Free up space on this disk. Running ace clean can help.";
+const FIX =
+  "Free up space on this disk. Deleting old database backups (offered by ace doctor) or running ace clean can help.";
 
 /**
  * An upgrade copies a database before changing it, and compaction rewrites its pages, so

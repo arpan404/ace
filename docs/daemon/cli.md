@@ -335,6 +335,10 @@ directly.
 
 - **Fix ace folder access** creates missing ace and log folders and makes them private
   to you. It refuses links, non-directories and folders owned by someone else.
+- **Delete old database backups** removes copies older ace builds made before an upgrade
+  the current database has finished. The daemon deletes them itself when it starts; this
+  repair is for when it can't. It is never preselected, since it gives up rolling back, and is
+  blocked while integrity is unconfirmed or an update is running.
 - **Reclaim database space** is offered when at least 1 MiB is reusable or the WAL
   reaches 32 MiB. The running local daemon compacts in small journaled steps and
   checkpoints the WAL; doctor reports the size before and after. If ace isn't running,
