@@ -38,6 +38,8 @@ export type ForgeWorktreeRequest = z.infer<typeof ForgeWorktreeRequest>;
 export interface WorkReply {
   type: "forge.pull.work";
   headSha: string;
+  /** Open or a draft: only then is there work to start from the page. */
+  open: boolean;
   /** Why no checkout can be prepared, or null when one can. */
   blocked: string | null;
   threads: {
@@ -94,6 +96,7 @@ export async function readWork(
   return {
     type: "forge.pull.work",
     headSha: detail.status.headSha,
+    open,
     blocked: !detail.headRepository
       ? "The pull request's head repository is unavailable."
       : !open

@@ -114,10 +114,9 @@ export class FakePrWork {
       const heads = new Map(local?.branches.map((branch) => [branch.pr?.number, branch.head]));
       next.stack = {
         ...stack,
-        layers: stack.layers.map((layer) => ({
-          ...layer,
-          headSha: heads.get(layer.number) ?? layer.headSha,
-        })),
+        layers: stack.layers.map((layer) =>
+          Object.assign({}, layer, { headSha: heads.get(layer.number) ?? layer.headSha }),
+        ),
       };
       next.operation = operation("rebased", "Published the stack to GitHub.");
     }
