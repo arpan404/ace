@@ -14,6 +14,8 @@ const Intent = z.object({
   threadId: z.string().optional(),
   waiting: z.boolean().optional(),
   localFailure: z.boolean().optional(),
+  /** A local failure the person edited: kept on disk like a daemon refusal, so the edit survives. */
+  edited: z.boolean().optional(),
   order: z.number().int().nonnegative().optional(),
 });
 export type Intent = z.infer<typeof Intent>;
@@ -192,7 +194,6 @@ export class Intents {
     this.#enqueuing.set(id, operation);
     return operation;
   }
-  /** A daemon refusal of one command. Transient ones stay pending and resend with backoff. */
   /**
    * New words for a send that failed, in place: the same command id, thread and kind, saved in one
    * write. A write that fails leaves the original, in memory and on disk, so a crash mid-edit
@@ -218,7 +219,13 @@ export class Intents {
         !fitsUtf8(JSON.stringify({ ...previous, command }), this.#options.bytes - 128)
       )
         throw new ClientError("limit");
-      const next: Intent = { ...previous, command };
+      // A send that failed on this device is kept in memory only, until edited: the edit is the
+      // person's work, so from then on it is saved like any send waiting for them.
+      const next: Intent = {
+        ...previous,
+        command,
+        ...(previous.localFailure ? { edited: true } : {}),
+      };
       this.#put(id, next);
       try {
         await this.#persist(next, []);
@@ -229,6 +236,7 @@ export class Intents {
       this.#options.changed(id);
     });
   }
+  /** A daemon refusal of one command. Transient ones stay pending and resend with backoff. */
   refuse(commandId: string, code: string, retryable: boolean): Promise<void> {
     const intent = this.#records.get(commandId);
     if (intent?.state !== "pending") return Promise.resolve();
@@ -416,7 +424,11 @@ export class Intents {
   #retained(intent: Intent): boolean {
     // A successful receipt transfers durability to the daemon's admission transaction.
     // Transcript leases and preview windows only determine the visible delivered state.
-    return intent.state !== "acked" && intent.state !== "saving" && !intent.localFailure;
+    return (
+      intent.state !== "acked" &&
+      intent.state !== "saving" &&
+      (!intent.localFailure || intent.edited === true)
+    );
   }
   /** Bound memory as well as disk, evicting settled entries before refusing active work. */
   #evict(protect?: string): string[] {
