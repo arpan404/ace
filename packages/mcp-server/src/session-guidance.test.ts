@@ -1,11 +1,6 @@
 import { expect, it } from "vitest";
 import { ProviderKind } from "@ace/protocol";
-import {
-  acpInjection,
-  acpToolListing,
-  aceInstructions,
-  developerInstructions,
-} from "./index.ts";
+import { acpInjection, acpToolListing, aceInstructions, developerInstructions } from "./index.ts";
 
 const connection = { url: "http://127.0.0.1:12345/mcp", bearer: "a".repeat(64) };
 

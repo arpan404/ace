@@ -106,7 +106,11 @@ test("a narrowing whose reconnect failed is retried on the next turn and ends on
   try {
     await h.wait(isInitialize);
     await expect(
-      h.session.configure?.({ provider: "claude", model: "claude-3-5-haiku-20241022", options: {} }),
+      h.session.configure?.({
+        provider: "claude",
+        model: "claude-3-5-haiku-20241022",
+        options: {},
+      }),
     ).rejects.toThrow("connection refused");
     await h.session.send([{ type: "text", text: "go on" }], "queue");
     const retried = h.frames.filter(isSetServers);
