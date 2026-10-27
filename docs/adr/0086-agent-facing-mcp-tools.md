@@ -265,7 +265,8 @@ bundled source and Pi 1.4.0's package (`dist/core/agent-session.js`, `dist/exten
   registers its tools `model-only` (declared, never script-callable), passes ace's MCP hints as
   Pi `annotations` for permission extensions, and, because the server's `tools/list_changed` can
   land after the call's result, reloads its list before returning a call that may open a family,
-  so Pi's next request already declares it. Pi sends ace's schemas unchanged on every provider
+  so Pi's next request already declares it. That wait ends after one second or on interrupt;
+  the reload keeps going and list_changed applies it when it lands. Pi sends ace's schemas unchanged on every provider
   (Gemini `parametersJsonSchema`, OpenAI strict only for tools that opt in); its Anthropic path
   keeps only a root's `type`, `properties` and `required`, and no ace tool has other root keys.
   `--tools` patterns still filter extension tools.

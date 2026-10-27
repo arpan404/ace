@@ -160,6 +160,32 @@ function callSlots(capacity: number) {
     };
   };
 }
+/**
+ * How long a finished call that may open a family waits for the reloaded list. ace's server
+ * answers `tools/list` from memory over loopback in milliseconds; a second covers a busy daemon
+ * without holding a result the agent already has, and Pi awaits the call, so a longer wait would
+ * stall the turn.
+ */
+const reloadWaitMs = 1_000;
+
+/** Resolves once `work` settles, `ms` pass or `signal` aborts, whichever is first; never rejects. */
+function settledWithin(
+  work: Promise<unknown>,
+  ms: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    work.then(finish, finish);
+    if (signal?.aborted) finish();
+    else signal?.addEventListener("abort", finish, { once: true });
+  });
+}
 type McpClient = InstanceType<(typeof import("@modelcontextprotocol/client"))["Client"]>;
 
 /**
@@ -292,8 +318,11 @@ async function listen(
             );
             // The server announces a grown list on its listen stream, which can arrive after this
             // result; Pi declares tools for the next model request, so the family is registered
-            // here first and the model can call what it just found by name.
-            if (!result.isError && mayOpenFamily(tool.name, args)) await sync().catch(() => {});
+            // here first and the model can call what it just found by name. The wait is bounded
+            // and ends on interrupt: the reload is shared and keeps going, and a list it hasn't
+            // applied yet still arrives through list_changed.
+            if (!result.isError && mayOpenFamily(tool.name, args))
+              await settledWithin(sync(), reloadWaitMs, signal);
             return {
               content: result.content.map((block) => {
                 const value = obj(block);
