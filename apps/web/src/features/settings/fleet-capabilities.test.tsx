@@ -23,6 +23,10 @@ test("a linked machine's capabilities are set on the machine it uses, one at a t
   const section = await screen.findByRole("region", { name: "This Mac's agents on Build server" });
   const group = (name: string) => within(section).getByRole("group", { name });
   await waitFor(() => expect(chosen(group("Commands for This Mac"))).toBe("Off"));
+  // Turning Commands on says plainly what it gives away.
+  expect(within(section).getByText(/Run any command here as you/).textContent).toContain(
+    "can reach all your files, ace's data and your network",
+  );
   expect(chosen(group("Simulators & emulators for This Mac"))).toBe("Read and act");
   expect(chosen(group("Computer use for This Mac"))).toBe("Off");
 

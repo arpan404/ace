@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { OutputTail, commandEnv, timeoutFor } from "./command-rules.ts";
+import { CommandRunArgs, OutputTail, commandEnv, timeoutFor } from "./command-rules.ts";
 
 it("a job's output pages through what is kept and says where earlier bytes went", () => {
   const tail = new OutputTail(10);
@@ -22,4 +22,49 @@ it("a command never sees ace's own settings, and long waits must run in the back
     refused: expect.stringContaining("background: true"),
   });
   expect(timeoutFor({ command: "make", timeoutSeconds: 900, background: true })).toBe(900);
+});
+
+it("a command sees neither provider credentials nor anything that looks like a secret, and can't add them", () => {
+  const base = {
+    PATH: "/bin",
+    HOME: "/Users/me",
+    GIT_AUTHOR_NAME: "Me",
+    TOKENIZERS_PARALLELISM: "false",
+    ANTHROPIC_API_KEY: "a",
+    ANTHROPIC_BASE_URL: "b",
+    OPENAI_API_KEY: "c",
+    OPENAI_ORG_ID: "d",
+    GEMINI_API_KEY: "e",
+    GITHUB_TOKEN: "f",
+    NPM_CONFIG__AUTH: "g",
+    CLAUDE_CODE_OAUTH_TOKEN: "h",
+    AWS_PROFILE: "i",
+    AWS_SECRET_ACCESS_KEY: "j",
+    GOOGLE_APPLICATION_CREDENTIALS: "/k.json",
+    STRIPE_SECRET: "l",
+    DB_PASSWORD: "m",
+    SIGNING_PRIVATE_KEY: "n",
+    SSH_AUTH_SOCK: "/tmp/agent.sock",
+    ACE_HOME: "/o",
+  };
+  const env = commandEnv(base, { CI: "1", DEPLOY_TOKEN: "smuggled" });
+  const seen = Object.entries(env).filter(([, value]) => value !== undefined);
+  expect(Object.fromEntries(seen)).toEqual({ CI: "1" });
+  // Everything else the daemon has is left as it is, which the spawn inherits.
+  const removed = Object.keys(env).filter((name) => env[name] === undefined);
+  expect(removed.toSorted()).toEqual(
+    Object.keys(base)
+      .filter(
+        (name) => !["PATH", "HOME", "GIT_AUTHOR_NAME", "TOKENIZERS_PARALLELISM"].includes(name),
+      )
+      .toSorted(),
+  );
+  // An agent asking for one by name is told it can't, rather than silently losing it.
+  for (const name of ["GITHUB_TOKEN", "OPENAI_BASE_URL", "MY_API_KEY", "SSH_AUTH_SOCK", "ACE_X"])
+    expect(CommandRunArgs.safeParse({ command: "make", env: { [name]: "x" } }).success, name).toBe(
+      false,
+    );
+  expect(CommandRunArgs.safeParse({ command: "make", env: { NODE_ENV: "test" } }).success).toBe(
+    true,
+  );
 });

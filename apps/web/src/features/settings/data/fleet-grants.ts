@@ -37,7 +37,7 @@ export const capabilityRows: readonly {
   {
     capability: "commands",
     title: "Commands",
-    note: "Run commands in this machine's projects without asking each time. Every one is logged.",
+    note: "Run any command here as you, without asking each time. A command starts in a project but can reach all your files, ace's data and your network, so turn this on only for a machine you trust like this one. Every command is logged.",
   },
 ];
 

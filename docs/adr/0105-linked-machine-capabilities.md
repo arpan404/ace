@@ -183,10 +183,16 @@ transcript.
 ### Commands: allowed when on
 
 When Commands is Read and act for a machine, its agents run commands here without a prompt
-per command. They are still confined to this machine's registered projects (the working
-directory must resolve inside one), run with this machine's user, are logged as above and are
-stoppable from the guest session. Read only allows no commands; there is no read-only shell.
-Off is the default.
+per command. Read only allows no commands; there is no read-only shell. Off is the default.
+
+**What turning it on gives away.** It gives that machine's agents this user's shell. A command
+starts in one of this machine's registered projects (the working directory must resolve inside
+one), but the project is where it starts, not a boundary: a command can `cd ~`, read and change
+any file this user can, read ace's data directory, talk to the local daemon and anything else
+listening here, and reach the network. Treat Read and act as trusting that machine, and every
+agent the person runs on it, as much as this one. Settings › Fleet says this next to the
+control. What bounds it is the person's choice per machine, the log and transcript record, the
+guest session's Stop and the kill switch, not a sandbox.
 
 Agents call `command_run`, `command_status`, `command_output` and `command_stop`. They always
 take `machine`: a local agent uses its provider's own shell. The calling machine refuses them
@@ -197,8 +203,14 @@ from a read-only thread before sending.
   `..` escapes and links resolving outside are refused.
 - **How.** The command line runs with the account's login shell as the terminal picks it
   (`$SHELL -l -c`; PowerShell, else `cmd.exe`, on Windows), in its own process tree, with no
-  input. Its environment is the daemon's, which a local agent's shell also inherits, minus every
-  `ACE_*` variable, plus up to 32 `env` additions (never `ACE_*`).
+  input. Its environment is the daemon's, which a local agent's shell also inherits, minus what
+  could hand out access without the command asking for it: ace's own `ACE_*` settings, provider
+  and cloud credentials (`ANTHROPIC_*`, `OPENAI_*`, `AWS_*`, `GOOGLE_APPLICATION_CREDENTIALS`),
+  any name that looks like a credential (ending in `_KEY`, or with TOKEN, SECRET, PASSWORD,
+  PASSWD, PASSPHRASE, CREDENTIAL(S), APIKEY or AUTH as a word between its underscores) and
+  `SSH_AUTH_SOCK` (`withheld` in `command-rules.ts`). Up to 32 `env` additions are allowed, and
+  only for names the same rule doesn't withhold. This is hygiene: a command can still read the
+  files those variables point at.
 - **Bounds.** A foreground run waits `timeoutSeconds` (default 120, at most 600) and returns its
   exit code with the last 64 KB of stdout and stderr, noting what was dropped. At the timeout
   the whole tree is stopped. `background: true` returns a job id at once. A job keeps the last

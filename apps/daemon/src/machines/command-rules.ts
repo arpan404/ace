@@ -20,7 +20,10 @@ export const maxPageBytes = 64 * 1024;
 const EnvName = z
   .string()
   .regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/)
-  .refine((name) => !daemonOwned(name), "ace's own settings can't be set");
+  .refine(
+    (name) => !withheld(name),
+    "ace's own settings and names that look like credentials can't be set",
+  );
 const JobId = z.string().regex(/^job-[a-z0-9-]{1,64}$/);
 
 export const CommandRunArgs = z.strictObject({
@@ -90,14 +93,46 @@ export function timeoutFor(args: CommandRunArgs): number | { refused: string } {
   return seconds ?? maxBackgroundSeconds;
 }
 
-/** Keys the daemon reads its own configuration and secrets from; commands never see them. */
-export function daemonOwned(name: string): boolean {
-  return /^ACE_/i.test(name);
+/** Prefixes of ace's own settings and of provider and cloud credentials. */
+const withheldPrefix = /^(ACE|ANTHROPIC|OPENAI|AWS)_/i;
+/** Words (between underscores) that mark a name as holding a credential. */
+const secretWords = new Set([
+  "TOKEN",
+  "TOKENS",
+  "SECRET",
+  "SECRETS",
+  "PASSWORD",
+  "PASSWD",
+  "PASSPHRASE",
+  "CREDENTIAL",
+  "CREDENTIALS",
+  "APIKEY",
+  "AUTH",
+]);
+/** Exact names that hand out access without looking like a secret. */
+const withheldNames = new Set(["SSH_AUTH_SOCK", "GOOGLE_APPLICATION_CREDENTIALS"]);
+
+/**
+ * Variables a command from another machine never sees, and an agent there can't set: ace's own
+ * `ACE_*` settings, provider and cloud credentials (`ANTHROPIC_*`, `OPENAI_*`, `AWS_*`), any name
+ * that looks like a credential (ending in `_KEY`, or with a word such as TOKEN, SECRET,
+ * PASSWORD, CREDENTIALS or AUTH between its underscores) and the SSH agent socket. This is
+ * hygiene, not a sandbox: the command still runs as this machine's user and can read whatever
+ * that user can.
+ */
+export function withheld(name: string): boolean {
+  const upper = name.toUpperCase();
+  return (
+    withheldPrefix.test(upper) ||
+    upper.endsWith("_KEY") ||
+    withheldNames.has(upper) ||
+    upper.split("_").some((word) => secretWords.has(word))
+  );
 }
 
 /**
  * What a command sees, as changes to `base`: the environment a local agent's shell has (this
- * daemon's, which providers inherit) without ace's own `ACE_*` settings, plus the caller's
+ * daemon's, which providers inherit) without what `withheld` names, plus the caller's
  * additions. Removed keys are set to undefined, which a spawn leaves out.
  */
 export function commandEnv(
@@ -105,8 +140,9 @@ export function commandEnv(
   additions: Record<string, string> = {},
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
-  for (const name of Object.keys(base)) if (daemonOwned(name)) env[name] = undefined;
-  return { ...env, ...additions };
+  for (const name of Object.keys(base)) if (withheld(name)) env[name] = undefined;
+  for (const [name, value] of Object.entries(additions)) if (!withheld(name)) env[name] = value;
+  return env;
 }
 
 /**
