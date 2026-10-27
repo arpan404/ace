@@ -236,27 +236,39 @@ function slowWrites(call: HostRequest) {
   return { call: slow, puts: () => puts, release: resolve };
 }
 
-test("a thread let go with its last checkpoint still queued stays cleared", async () => {
-  const daemon = machine();
-  const store = nativeStore();
-  const writes = slowWrites(store.call);
-  const { client, snapshots } = phone(daemon, writes.call, new Map(), () => fakeTransport(daemon), {
-    threads: 1,
-  });
-  await client.start();
-  const one = client.thread("one");
-  await until(() => one.store.order.length === 2, "loaded");
-  // Its first checkpoint is with storage and not yet answered...
-  await until(() => writes.puts() >= 1, "first checkpoint sent");
-  // ...when it changes again and is let go: its last checkpoint waits behind the first.
-  daemon.apply("one", [facts.message("root", "later", "user", "One more thing")]);
-  await until(() => one.store.order.length === 3, "changed");
-  one.release();
-  const two = client.thread("two");
-  closers.push(() => two.release());
+test.each<[string, CacheAction]>([
+  ["cleared with every chat", { type: "cache.clear" }],
+  ["reloaded from its machine", { type: "cache.reload", threadId: "one" }],
+])(
+  "a thread let go with its last checkpoint still queued stays gone once %s",
+  async (_, action) => {
+    const daemon = machine();
+    const store = nativeStore();
+    const writes = slowWrites(store.call);
+    const { client, snapshots } = phone(
+      daemon,
+      writes.call,
+      new Map(),
+      () => fakeTransport(daemon),
+      {
+        threads: 1,
+      },
+    );
+    await client.start();
+    const one = client.thread("one");
+    await until(() => one.store.order.length === 2, "loaded");
+    // Its first checkpoint is with storage and not yet answered...
+    await until(() => writes.puts() >= 1, "first checkpoint sent");
+    // ...when it changes again and is let go: its last checkpoint waits behind the first.
+    daemon.apply("one", [facts.message("root", "later", "user", "One more thing")]);
+    await until(() => one.store.order.length === 3, "changed");
+    one.release();
+    const two = client.thread("two");
+    closers.push(() => two.release());
 
-  await act({ type: "cache.clear" }, client, snapshots, new RecordingSink());
-  writes.release();
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  expect([...store.items.keys()].filter((key) => key.endsWith("thread:one"))).toEqual([]);
-});
+    await act(action, client, snapshots, new RecordingSink());
+    writes.release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect([...store.items.keys()].filter((key) => key.endsWith("thread:one"))).toEqual([]);
+  },
+);

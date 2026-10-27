@@ -124,13 +124,15 @@ export class Subscriptions {
    * it from the daemon. False when someone holds it: what they show stays live.
    */
   discard(threadId: string): boolean {
+    // Checkpoints of the thread's earlier stores, already let go, go first: one may still be
+    // queued behind a write in flight, even when no store is cached now.
+    this.#discardClosing(threadId);
     const entry = this.#cache.get(threadId);
     if (!entry) return true;
     if (entry.refs) return false;
     this.#inactiveBytes -= entry.inactiveBytes;
     this.#cache.delete(threadId);
     entry.binding?.discard();
-    this.#discardClosing(threadId);
     return true;
   }
   /** A thread let go earlier may still have a checkpoint queued: it must not land after a drop. */
