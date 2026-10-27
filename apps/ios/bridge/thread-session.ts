@@ -19,6 +19,7 @@ import { followBlocks } from "./thread-blocks.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { readQueuedWords } from "./queued-words.ts";
+import { SendOps, retryOf, sendBusy } from "./send-ops.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
 import { ThreadAccessFollower } from "./thread-access.ts";
@@ -76,6 +77,8 @@ export class ThreadSession {
   readonly #access: ThreadAccessFollower;
   /** The thread's catalog as the composer last read it, for a typed `/name`. */
   readonly #catalog: (threadId: string) => readonly CatalogEntry[] | undefined;
+  /** Edits and retries of failed sends, one at a time per send (shared with the inbox). */
+  readonly #ops: SendOps;
 
   constructor(
     client: ClientCore,
@@ -85,7 +88,9 @@ export class ThreadSession {
     pump: PatchPump,
     chunks: ChunkReader = nativeChunks,
     catalog: (threadId: string) => readonly CatalogEntry[] | undefined = () => undefined,
+    ops: SendOps = new SendOps(),
   ) {
+    this.#ops = ops;
     this.#catalog = catalog;
     this.#client = client;
     this.#store = store;
@@ -538,9 +543,16 @@ export class ThreadSession {
       this.#admission(id, false, "That message isn't waiting for a retry.");
       return;
     }
+    if (this.#client.pendingSend(retryOf(commandId))) {
+      this.#admission(id, false, "It was sent again already: act on the newer one.");
+      return;
+    }
     try {
-      await retrySend(this.#client, commandId, pending.payload);
-      this.#admission(id, true, "");
+      // The send's words as they are when the retry is saved, never as they were when asked.
+      const ran = await this.#ops.run(commandId, "retrying", () =>
+        retrySend(this.#client, commandId, () => this.#client.pendingSend(commandId)?.payload),
+      );
+      this.#admission(id, ran.ran, ran.ran ? "" : sendBusy(ran.running));
     } catch {
       this.#admission(id, false, "Couldn't send it again. It is still here.");
     }

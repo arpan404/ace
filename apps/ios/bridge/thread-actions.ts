@@ -81,7 +81,12 @@ export const ThreadAction = z.discriminatedUnion("type", [
     change: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("remove") }),
       z.object({ kind: z.literal("steer") }),
-      z.object({ kind: z.literal("words"), text: z.string().min(1) }),
+      z.object({
+        kind: z.literal("words"),
+        text: z.string().min(1),
+        /** The revision the edited words were read at: a newer queue refuses the edit. */
+        revision: z.number().int().nonnegative().optional(),
+      }),
       z.object({ kind: z.literal("move"), step: z.union([z.literal(-1), z.literal(1)]) }),
     ]),
     requestId,

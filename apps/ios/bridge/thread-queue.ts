@@ -69,7 +69,7 @@ export class QueueFollower {
     change:
       | { kind: "remove" }
       | { kind: "steer" }
-      | { kind: "words"; text: string }
+      | { kind: "words"; text: string; revision?: number | undefined }
       | { kind: "move"; step: -1 | 1 },
   ): CommandPayload | undefined {
     const page = this.#page;
@@ -77,7 +77,10 @@ export class QueueFollower {
     if (!page || !message) return undefined;
     const target = {
       threadId: this.#threadId,
-      expectedRevision: page.revision,
+      // New words are fenced to the revision they were read at, so an edit made since on another
+      // device is never overwritten unseen; other changes to the page the person sees.
+      expectedRevision:
+        change.kind === "words" && change.revision !== undefined ? change.revision : page.revision,
       messageId: CommandId.parse(messageId),
     };
     if (change.kind === "remove") return { type: "queue.remove", ...target };

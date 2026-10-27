@@ -14,6 +14,8 @@ export interface FullWords {
   text: string | null;
   /** Why not, when not. */
   message: string;
+  /** The queue revision the words were read at: an edit of them is fenced to it. */
+  revision?: number | null;
 }
 
 const changed = "That message has changed. Check the queue and try again.";
@@ -27,18 +29,19 @@ export const queuedFiles = (message: Pick<QueuedMessage, "input" | "context">) =
   message.input.filter((part) => part.type !== "text" && part.type !== "mention").length +
   (message.context?.attachments?.length ?? 0);
 
-/** The canonical message, or undefined once it is gone. */
+/** The canonical message and the revision it was read at, or undefined once it is gone. */
 async function canonical(
   client: Pick<ClientCore, "request">,
   threadId: ThreadId,
   messageId: string,
   signal: AbortSignal,
-): Promise<QueuedMessage | undefined> {
+): Promise<{ message: QueuedMessage; revision: number } | undefined> {
   const page = await readServerQueue(
     threadId,
     async (request) => (await client.request({ type: "queue.get", ...request }, { signal })).queue,
   );
-  return page.messages.find((entry) => entry.id === messageId);
+  const message = page.messages.find((entry) => entry.id === messageId);
+  return message && { message, revision: page.revision };
 }
 
 /** The message's full words, without changing it (to edit them where it waits). */
@@ -51,7 +54,7 @@ export async function readQueuedWords(
   try {
     const found = await canonical(client, threadId, messageId, signal);
     return found
-      ? { ok: true, text: queuedWords(found), message: "" }
+      ? { ok: true, text: queuedWords(found.message), message: "", revision: found.revision }
       : { ok: false, text: null, message: changed };
   } catch {
     return { ok: false, text: null, message: "Couldn't reach your computer. Try again." };

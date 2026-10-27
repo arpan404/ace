@@ -18,6 +18,7 @@ import { tokensFromInput } from "@ace/ui-core";
 import type { ClientCore } from "@ace/client";
 import { followDismissed } from "./dismissed-sends.ts";
 import { followInbox, inboxAction } from "./inbox.ts";
+import { SendOps } from "./send-ops.ts";
 
 afterEach(reset);
 
@@ -183,5 +184,142 @@ test("editing a failed send rewrites it in the outbox, and Retry sends the new w
   expect(
     sent.some((text) => text.includes(`"id":"${id}:retry"`) && text.includes("Ship it today")),
   ).toBe(true);
+  inbox();
+});
+
+test("an edit read before another device's save never overwrites it, and shows the newer words", async () => {
+  const { owner, thread, held } = await heldThread("edit-raced", "Version A");
+  thread.handle({ type: "queueWords", messageId: held.id, requestId: "w3" });
+  await until(() => words("w3"), "the words as read");
+  const read = latest("words", "w3") as { text: string; revision: number };
+  expect(read.text).toBe("Version A");
+  // Another device saves B, and the phone's queue follows it.
+  const page = await daemonQueue(owner, "edit-raced");
+  const [first] = page.messages;
+  const other = await owner.command({
+    type: "queue.edit",
+    threadId: ThreadId.parse("edit-raced"),
+    expectedRevision: page.revision,
+    messageId: CommandId.parse(held.id),
+    input: [{ type: "text", text: "Version B" }],
+    ...(first?.context ? { context: first.context } : {}),
+  });
+  expect(other.ok).toBe(true);
+  await until(() => queue()?.notSent?.text === "Version B", "the phone following B");
+  // Save of the sheet's words, fenced to what they were read at: refused, B stays.
+  thread.handle({
+    type: "queue",
+    messageId: held.id,
+    change: { kind: "words", text: "Version A, edited", revision: read.revision },
+    requestId: "e4",
+  });
+  await until(() => latest("receipt", "e4"), "the answer");
+  expect(latest("receipt", "e4")?.ok).toBe(false);
+  const [kept] = (await daemonQueue(owner, "edit-raced")).messages;
+  expect(kept && tokensFromInput(kept.input).text).toBe("Version B");
+  // Read again: the newer words and revision; saving over them now is deliberate.
+  thread.handle({ type: "queueWords", messageId: held.id, requestId: "w4" });
+  await until(() => words("w4"), "the newer words");
+  const newer = latest("words", "w4") as { text: string; revision: number };
+  expect(newer.text).toBe("Version B");
+  thread.handle({
+    type: "queue",
+    messageId: held.id,
+    change: { kind: "words", text: "Version A, edited", revision: newer.revision },
+    requestId: "e5",
+  });
+  await until(() => latest("receipt", "e5")?.ok, "the deliberate save");
+});
+
+async function failedSendThread(id: string) {
+  const fake = fixture();
+  fake.createThread({ id, workspaceId: "ace", title: id, provider: "codex" });
+  fake.apply(id, [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+  const owner = connect(fake);
+  const ops = new SendOps();
+  const inbox = followInbox(
+    owner,
+    "machine",
+    pump,
+    clock,
+    undefined,
+    undefined,
+    undefined,
+    followDismissed({ load: async () => "", save: async () => {} }),
+    ops,
+  );
+  const thread = open(owner, id, undefined, ops);
+  await until(() => latest("thread.controls"), "composer controls");
+  thread.handle({ type: "send", text: refuseOnce.text, opposite: false, requestId: "first" });
+  const sendId = await until(
+    () =>
+      owner
+        .pendingSends()
+        .getSnapshot()
+        .find((send) => send.state === "failed")?.commandId,
+    "the failed send",
+  );
+  return { owner, inbox, thread, sendId };
+}
+const retried = (id: string) =>
+  sent.flatMap((text) => {
+    const message = JSON.parse(text) as {
+      type?: string;
+      command?: { id?: string; payload?: { input?: { text?: string }[] } };
+    };
+    return message.type === "command" && message.command?.id === `${id}:retry`
+      ? [message.command.payload?.input?.[0]?.text]
+      : [];
+  });
+
+test("an edit asked for while a retry is on its way waits, and the retry sends the original", async () => {
+  const { owner, inbox, thread, sendId } = await failedSendThread("retry-first");
+  thread.handle({ type: "retrySend", id: sendId, requestId: "r1" });
+  inboxAction(
+    owner,
+    { kind: "editSend", commandId: sendId, text: "Edited too late" },
+    "x1",
+    pump,
+    inbox,
+  );
+  await until(() => words("x1"), "the edit's answer");
+  expect(words("x1")).toMatchObject({ ok: false });
+  expect(words("x1")?.message).toMatch(/being sent again/);
+  await until(() => latest("admission", "r1"), "the retry");
+  expect(retried(sendId)).toEqual([refuseOnce.text]);
+  inbox();
+});
+
+test("a retry asked for while an edit is being saved waits, then sends the edited words", async () => {
+  const { owner, inbox, thread, sendId } = await failedSendThread("edit-first");
+  inboxAction(
+    owner,
+    { kind: "editSend", commandId: sendId, text: "Ship it today" },
+    "x2",
+    pump,
+    inbox,
+  );
+  thread.handle({ type: "retrySend", id: sendId, requestId: "r2" });
+  await until(() => latest("admission", "r2"), "the retry's answer");
+  expect(latest("admission", "r2")).toMatchObject({ ok: false });
+  expect(String(latest("admission", "r2")?.message)).toMatch(/edit is being saved/);
+  await until(() => words("x2")?.ok, "the saved edit");
+  thread.handle({ type: "retrySend", id: sendId, requestId: "r3" });
+  await until(() => latest("admission", "r3")?.ok, "the retry");
+  expect(retried(sendId)).toEqual(["Ship it today"]);
+  inbox();
+});
+
+test("once a send went again, the older attempt steps aside and can't be edited", async () => {
+  const { owner, inbox, thread, sendId } = await failedSendThread("superseded");
+  thread.handle({ type: "retrySend", id: sendId, requestId: "r4" });
+  await until(() => latest("admission", "r4")?.ok, "the retry");
+  await until(() => latest("pending", sendId)?.row === null, "the older row gone");
+  inboxAction(owner, { kind: "editSend", commandId: sendId, text: "Too late" }, "x3", pump, inbox);
+  await until(() => words("x3"), "the answer");
+  expect(words("x3")?.ok).toBe(false);
+  thread.handle({ type: "retrySend", id: sendId, requestId: "r5" });
+  await until(() => latest("admission", "r5"), "the second retry's answer");
+  expect(latest("admission", "r5")?.ok).toBe(false);
   inbox();
 });
