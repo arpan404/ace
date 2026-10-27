@@ -164,7 +164,24 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         : []),
       ...(help ? [browserHelpToolkit(help)] : []),
       // Registered at startup; the devices implementation loads on an agent's first call.
-      ...(devices ? [devicesToolkit(() => devices.load())] : []),
+      ...(devices
+        ? [
+            devicesToolkit(
+              () => devices.load(),
+              undefined,
+              async (call, { caller, signal }) => {
+                const machines = services.machines;
+                if (!machines) throw new PublicToolError("machine_unavailable");
+                return machines.caller.hosted(
+                  caller,
+                  call.machine,
+                  { op: "devices", tool: call.tool, args: call.args },
+                  { timeoutMs: call.timeoutMs, signal },
+                );
+              },
+            ),
+          ]
+        : []),
       // Agents use the background engine on macOS, Linux and Windows.
       ...(services.computer
         ? [
@@ -203,7 +220,8 @@ export async function startMcp(context: ServiceContext): Promise<void> {
                 screen: "Computer use is disabled.",
               }
             : {}),
-          ...(!services.devices?.isEnabled()
+          // Off here, but offered while a linked machine lends its devices (ADR 0105).
+          ...(!services.devices?.isEnabled() && !services.machines?.caller.serves("devices")
             ? {
                 devices: "Devices are disabled.",
               }

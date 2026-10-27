@@ -37,6 +37,8 @@ export async function pairedMachines(
     targetEngineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
     /** The source's calls to the target, e.g. the real transport wrapped to hold a reply. */
     sourceTransport?: import("./transport.ts").MachineTransport;
+    /** The target's devices, e.g. the fake simulators from `@ace/devices/testing`. */
+    targetDevices?: import("@ace/devices").DevicesService;
   } = {},
 ) {
   const target = await daemonFixture(
@@ -45,6 +47,7 @@ export async function pairedMachines(
       browser: browser(),
       machines: { pollMs: 50 },
       ...(options.targetEngineLimits ? { engineLimits: options.targetEngineLimits } : {}),
+      ...(options.targetDevices ? { devices: options.targetDevices } : {}),
     },
     { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" },
   );

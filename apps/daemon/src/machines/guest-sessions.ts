@@ -39,6 +39,8 @@ export interface GuestSession {
    * per calling device, host, thread and agent, so no two remote agents share a lease.
    */
   owner: string;
+  /** The calling agent as leases here name it (`remote:<agent>`), with `threadId` making `owner`. */
+  agent: AgentId;
 }
 
 /** What `run` is told about one call. */
@@ -52,6 +54,17 @@ export interface GuestWork {
    * then refuses the call even though it wasn't running yet when they came.
    */
   ticket: number;
+}
+
+/**
+ * Whose remote work a revocation or the person's Stop covers. Unset fields match every device,
+ * capability or session thread; `level` is what the capability still allows.
+ */
+export interface GuestScope {
+  deviceId?: string;
+  capability?: MachineCapability;
+  level?: "off" | "read";
+  threadId?: string;
 }
 
 /** Why work in a session ended early, for the stage-2 lease and screen releases. */
@@ -79,6 +92,7 @@ export class GuestSessions {
   private opening = new Map<string, Promise<ThreadId>>();
   private flights = new Map<string, Flight>();
   private ends = new Set<(end: GuestEnd) => void>();
+  private revokes = new Set<(scope: GuestScope) => void>();
   /** Counts Stops and revocations, so a call that is starting can tell it missed one. */
   private epoch = 0;
   private stops = new Map<string, number>();
@@ -115,11 +129,13 @@ export class GuestSessions {
     const threadId = await pending;
     const agentId = engine.rootAgent(threadId);
     if (!agentId) throw new TargetRefusal("unavailable", "The session is not ready.");
+    const agent = AgentId.parse(`remote:${origin.agentId ?? "agent"}`);
     return {
       threadId,
       agentId: AgentId.parse(agentId),
       deviceId: device.id,
-      owner: agentOwner(threadId, `remote:${origin.agentId ?? "agent"}`),
+      owner: agentOwner(threadId, agent),
+      agent,
     };
   }
   /** The newest session this calling thread has here that the person hasn't deleted. */
@@ -261,14 +277,13 @@ export class GuestSessions {
     this.stops.set(threadId, ++this.epoch);
     for (const [id, flight] of this.flights)
       if (flight.session.threadId === threadId) this.end(id, "stopped");
+    for (const listener of this.revokes) listener({ threadId });
   }
   /**
    * A grant went down, a device was revoked or the machine closed to agents: calls that need more
    * than `level` stop at once. Unset fields match every device or capability.
    */
-  revoke(
-    scope: { deviceId?: string; capability?: MachineCapability; level?: "off" | "read" } = {},
-  ): void {
+  revoke(scope: Omit<GuestScope, "threadId"> = {}): void {
     const key = [scope.deviceId ?? "*", scope.capability ?? "*", scope.level ?? "off"];
     this.revocations.set(JSON.stringify(key), ++this.epoch);
     for (const [id, flight] of this.flights) {
@@ -277,6 +292,7 @@ export class GuestSessions {
       if (scope.level === "read" && flight.risk === "read") continue;
       this.end(id, "revoked");
     }
+    for (const listener of this.revokes) listener(scope);
   }
   private end(id: string, why: "stopped" | "revoked") {
     const flight = this.flights.get(id);
@@ -290,6 +306,14 @@ export class GuestSessions {
   onEnd(listener: (end: GuestEnd) => void): () => void {
     this.ends.add(listener);
     return () => this.ends.delete(listener);
+  }
+  /**
+   * Hears every revocation and every stopped session, idle or not, so what remote agents hold
+   * (device leases, screen sessions) is released even when no call of theirs is running.
+   */
+  onRevoke(listener: (scope: GuestScope) => void): () => void {
+    this.revokes.add(listener);
+    return () => this.revokes.delete(listener);
   }
   /** Rows a previous process left running ended with it: mark them stopped. */
   recover(): void {

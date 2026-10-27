@@ -1,6 +1,7 @@
 import { PublicToolError, type PublicToolCode } from "@ace/mcp-server";
 import {
   MachineDescription,
+  MachineToolGroup,
   type HostId,
   type MachineCall,
   type MachineCallOrigin,
@@ -21,7 +22,10 @@ export interface DirectoryDeps {
   /** Whether the machine takes transfers from this device; asked when agents can't use it. */
   transfers?(profile: RemoteProfile): Promise<{ name: string; accepts: boolean }>;
   log(message: string, fields: Record<string, unknown>): void;
+  /** The tool groups other machines serve here changed, e.g. a Mac now lends its simulators. */
+  served?(): void;
 }
+const MachineToolGroupNames = MachineToolGroup.options;
 /** A failure as the calling agent reads it: an authored code and a short reason. */
 export interface MachineProblem {
   code: PublicToolCode;
@@ -51,11 +55,28 @@ export class MachineDirectory {
       this.deps.profiles().find((entry) => entry.name === machine)?.hostId
     );
   }
+  /** Whether a machine this daemon last saw online lets its agents use a tool group there. */
+  serves(group: MachineToolGroup): boolean {
+    for (const summary of this.seen.values())
+      if (summary.status === "online" && summary.tools?.includes(group)) return true;
+    return false;
+  }
+  private groups(): string {
+    return MachineToolGroupNames.filter((group) => this.serves(group)).join(",");
+  }
   /** The person-facing name of a machine, as it last described itself. */
   label(machine: string): string {
     return this.seen.get(machine)?.name ?? machine;
   }
   async list(origin: MachineCallOrigin): Promise<MachineSummary[]> {
+    const before = this.groups();
+    try {
+      return await this.listed(origin);
+    } finally {
+      if (this.groups() !== before) this.deps.served?.();
+    }
+  }
+  private async listed(origin: MachineCallOrigin): Promise<MachineSummary[]> {
     const profiles = this.deps.profiles().slice(0, 16);
     const listed = await Promise.all(
       profiles.map(async (profile): Promise<MachineSummary | undefined> => {
@@ -130,8 +151,11 @@ export class MachineDirectory {
       return result;
     } catch (error) {
       const failure = error instanceof MachineFailure ? error : new MachineFailure("offline");
-      if (failure.kind === "refused" && failure.refusal !== "invalid" && call.op !== "status")
+      if (failure.kind === "refused" && failure.refusal !== "invalid" && call.op !== "status") {
+        const before = this.groups();
         this.seen.delete(machine);
+        if (this.groups() !== before) this.deps.served?.();
+      }
       this.deps.log("Machine call to another device failed", {
         machine,
         op,

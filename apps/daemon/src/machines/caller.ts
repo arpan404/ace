@@ -7,6 +7,7 @@ import {
   type AgentControlResult,
   type DelegationRequest,
   type InteractionResolution,
+  type MachineCall,
   type MachineCallOrigin,
   type MachineMessage,
   type MachinePendingRequest,
@@ -70,6 +71,10 @@ export class MachineCaller {
       threadTitle: clip(this.deps.store.getThread(threadId)?.title ?? "", 256),
       ceiling: this.deps.ceiling(threadId),
     };
+  }
+  /** Whether a linked machine last seen online lets agents here use a tool group there. */
+  serves(group: "devices" | "screen" | "commands"): boolean {
+    return this.deps.directory.serves(group);
   }
   async list(caller: McpAttribution): Promise<AgentControlResult> {
     const machines = await this.deps.directory.list(await this.origin(caller.threadId));
@@ -331,6 +336,32 @@ export class MachineCaller {
       done = true;
       stop?.();
       this.deps.mirror.release(source);
+    }
+  }
+  /**
+   * A simulators, computer-use or commands tool on another machine (ADR 0105). It runs there in
+   * this thread's guest session, under that machine's grants, leases and takeover rules.
+   */
+  async hosted(
+    caller: McpAttribution,
+    machine: string,
+    call: Extract<MachineCall, { op: "devices" | "screen" | "commands" }>,
+    options: { timeoutMs: number; signal: AbortSignal },
+  ) {
+    const { directory } = this.deps;
+    // Each calling agent holds its own leases there.
+    const origin = { ...(await this.origin(caller.threadId)), agentId: caller.agentId };
+    try {
+      return MachineToolResult.parse(
+        await directory.call(machine, origin, call, {
+          timeoutMs: options.timeoutMs,
+          signal: options.signal,
+          maxBytes: 8 * 1024 * 1024,
+        }),
+      );
+    } catch (error) {
+      options.signal.throwIfAborted();
+      throw directory.toolError(machine, error);
     }
   }
 }
