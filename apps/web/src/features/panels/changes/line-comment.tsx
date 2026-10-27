@@ -11,8 +11,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
-import type { ReviewDraft } from "./drafts.ts";
-import { readReplies, reply } from "./review-actions.ts";
+import { readReplies, reply, type ReviewDraft } from "@ace/ui-core/review";
 
 const card =
   "mx-2.5 my-1 rounded-md bg-popover px-2.5 py-2 font-sans text-sm leading-[1.45] whitespace-normal shadow-[0_0_0_1px_var(--border)]";
