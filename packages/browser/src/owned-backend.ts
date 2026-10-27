@@ -37,6 +37,10 @@ export function chromeDefaults(
       args: [
         ...(sandbox ? [] : ["--no-sandbox"]),
         ...(platform === "linux" && smallSharedMemory() ? ["--disable-dev-shm-usage"] : []),
+        // Windows: started elevated (an administrator's desktop, UAC off), Chrome and Edge
+        // relaunch themselves unelevated through the shell and the relaunched browser never
+        // gets ace's debugging pipe ("Remote debugging pipe file descriptors are not open").
+        ...(platform === "win32" ? ["--do-not-de-elevate"] : []),
       ],
       ...(platform === "linux" ? { diagnose: linuxLaunchDiagnosis() } : {}),
       deviceScaleFactor: 2,

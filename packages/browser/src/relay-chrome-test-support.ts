@@ -113,6 +113,8 @@ export async function chromeDesktop(executablePath: string) {
       "--no-default-browser-check",
       // Tests run with a temporary HOME; the real keychain would block Chrome's network stack.
       "--use-mock-keychain",
+      // Windows: an elevated test would otherwise see Chrome relaunch unelevated and exit.
+      ...(process.platform === "win32" ? ["--do-not-de-elevate"] : []),
       "--password-store=basic",
       "--window-size=1280,720",
       "about:blank",
