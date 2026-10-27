@@ -25,6 +25,7 @@ struct FleetRulesView: View {
     @State private var problem: String?
     @State private var saving: String?
     @State private var pending: (rule: FleetRulesReply.Rule, value: ServiceValue)?
+    @State private var saved = 0
 
     private var connected: [MachineSession] { inbox.sessions.filter { $0.client.connection == "ready" && $0.client.canOperate } }
 
@@ -39,6 +40,9 @@ struct FleetRulesView: View {
             if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
         }
         .insetGroupedList()
+        .smoothChange(rules.map(\.key))
+        .smoothChange(problem)
+        .sensoryFeedback(.success, trigger: saved)
         .navigationTitle("Fleet rules").navigationBarTitleDisplayMode(.inline)
         .task(id: connected.map(\.hostId)) { await read() }
         .refreshable { await read() }
@@ -116,6 +120,7 @@ struct FleetRulesView: View {
             if reply?.ok == true, let saved = reply?.entries.first(where: { $0.key == rule.key })?.value { values[rule.key, default: [:]][session.hostId] = saved }
             else { failed.append(inbox.name(session.hostId)) }
         }
+        if failed.isEmpty { saved += 1 }
         problem = failed.isEmpty ? nil : "Couldn't change \(rule.title.lowercased()) on \(failed.joined(separator: ", ")). Check that you have full access there."
     }
 }

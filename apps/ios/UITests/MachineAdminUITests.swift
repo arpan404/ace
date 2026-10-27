@@ -57,10 +57,12 @@ import XCTest
     }
     private func openMachine(_ app: XCUIApplication) {
         app.openBrowseDestination("inbox.machines")
-        let row = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "machines.row.")).firstMatch
+        let row = app.descendants(matching: .any)["machines.row.ios-spike-host"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         shot("machines", app)
         row.tap()
+        XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 10))
+        for _ in 0..<6 where !app.buttons["machine.devices"].isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["machine.devices"].waitForExistence(timeout: 20))
         shot("machine-detail", app)
     }

@@ -24,6 +24,17 @@ struct CreateProjectView: View {
         Form {
             Group {
                 if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry) }
+                if cloning {
+                    Section {
+                        NavigationLink {
+                            GitHubRepositoriesView(model: model) { row in
+                                drafts.edit { $0.url = row.cloneUrl; $0.name = row.name }
+                                problem = nil
+                            }
+                        } label: { InsetRow("Choose from GitHub", systemImage: "magnifyingglass", subtitle: "Your repositories, through gh on the machine") }
+                        .accessibilityIdentifier("project.clone.github")
+                    }
+                }
                 Section {
                     if cloning { TextField("Repository URL", text: field(\.url)).accessibilityIdentifier("project.clone.url") }
                     TextField("Project name", text: field(\.name)).accessibilityIdentifier("project.create.name")

@@ -24,6 +24,7 @@ struct ProjectFoldersView: View {
     @State private var removing: FoldersReply.Folder?
     @State private var problem: String?
     @State private var busy = false
+    @State private var changes = 0
 
     var body: some View {
         List {
@@ -39,7 +40,7 @@ struct ProjectFoldersView: View {
                         Spacer(minLength: AceTheme.Spacing.sm)
                         if model.canOperate {
                             Button("Remove", role: .destructive) { removing = folder }
-                                .buttonStyle(.borderless).foregroundStyle(AceTheme.Status.failed)
+                                .buttonStyle(.borderless).foregroundStyle(AceTheme.Status.failed).rowButtonTarget()
                                 .accessibilityIdentifier("folders.remove.\(folder.name)")
                         }
                     }
@@ -70,6 +71,11 @@ struct ProjectFoldersView: View {
             if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
         }
         .insetGroupedList()
+        .smoothChange(folders.map(\.path))
+        .smoothChange(loaded)
+        .smoothChange(missing?.path)
+        .smoothChange(problem)
+        .sensoryFeedback(.success, trigger: changes)
         .disabled(busy)
         .navigationTitle("Project folders").navigationBarTitleDisplayMode(.inline)
         .task(id: model.connection) { await read() }
@@ -95,7 +101,7 @@ struct ProjectFoldersView: View {
         guard let reply = try? await model.service(["type": "native.project", "request": ["op": "allowFolder", "path": target, "create": create]], as: AllowReply.self) else {
             problem = "Couldn't reach the machine. Try again."; return
         }
-        if reply.ok { typed = ""; missing = nil; await read() }
+        if reply.ok { typed = ""; missing = nil; changes += 1; await read() }
         else if reply.canCreate == true, let resolved = reply.path { missing = (path, resolved, reply.name ?? resolved) }
         else { problem = reply.message }
     }
@@ -103,7 +109,7 @@ struct ProjectFoldersView: View {
         busy = true
         defer { busy = false }
         let reply = await model.projectWrite(["op": "removeFolder", "path": folder.path])
-        if !reply.ok { problem = reply.message }
+        if reply.ok { changes += 1 } else { problem = reply.message }
         await read()
     }
 }

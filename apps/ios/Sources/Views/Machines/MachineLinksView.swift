@@ -12,6 +12,7 @@ struct MachineLinksView: View {
     @State private var unlinking: FleetOverview.Link?
     @State private var notice: String?
     @State private var busy = false
+    @State private var changes = 0
 
     private var client: ClientModel? { inbox.client(hostId) }
     private var name: String { inbox.name(hostId) }
@@ -33,6 +34,9 @@ struct MachineLinksView: View {
             }
         }
         .insetGroupedList()
+        .smoothChange(overview == nil)
+        .smoothChange(overview?.links.map(\.profile))
+        .sensoryFeedback(.success, trigger: changes)
         .disabled(busy)
         .navigationTitle("Linked machines").navigationBarTitleDisplayMode(.inline)
         .task(id: client?.connection) { await read() }
@@ -66,7 +70,7 @@ struct MachineLinksView: View {
                     Spacer(minLength: AceTheme.Spacing.sm)
                     if client?.canOperate == true, link.hostId != nil {
                         Button("Unlink", role: .destructive) { unlinking = link }
-                            .buttonStyle(.borderless).foregroundStyle(AceTheme.Status.failed)
+                            .buttonStyle(.borderless).foregroundStyle(AceTheme.Status.failed).rowButtonTarget()
                             .accessibilityIdentifier("links.unlink.\(link.profile)")
                     }
                 }
@@ -85,7 +89,7 @@ struct MachineLinksView: View {
                     HStack {
                         Text(inbox.name(session.hostId)).aceFont(InsetStyle.label, relativeTo: .body)
                         Spacer()
-                        Button("Link") { linking = session }.buttonStyle(.borderless)
+                        Button("Link") { linking = session }.buttonStyle(.borderless).rowButtonTarget()
                             .disabled(session.client.connection != "ready")
                             .accessibilityIdentifier("links.link.\(session.hostId)")
                     }
@@ -110,7 +114,7 @@ struct MachineLinksView: View {
         let issued = await target.client.fleet(["op": "issueLink", "access": access], machine: targetName)
         guard issued.ok, let url = issued.url else { notice = issued.message; return }
         let redeemed = await client.fleet(["op": "redeemLink", "pairingUrl": url, "hostId": target.hostId, "name": targetName], machine: name)
-        if !redeemed.ok { notice = redeemed.message }
+        if redeemed.ok { changes += 1 } else { notice = redeemed.message }
         await read()
     }
 
@@ -124,6 +128,7 @@ struct MachineLinksView: View {
         if let other = inbox.client(target), other.connection == "ready" {
             _ = await other.fleet(["op": "revoke", "deviceId": link.deviceId], machine: inbox.name(target))
         }
+        changes += 1
         await read()
     }
 }

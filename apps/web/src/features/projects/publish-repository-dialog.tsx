@@ -18,7 +18,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog.tsx";
 import { Footer, Problem, TextField } from "./form-parts.tsx";
-import { publicationProblem } from "./publication-copy.ts";
+import { publicationProblem } from "@ace/ui-core";
 
 /** Remote writes happen only from Submit; reopening reads the durable publication record. */
 export function PublishRepositoryDialog(props: {

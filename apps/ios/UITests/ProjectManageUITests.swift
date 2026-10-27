@@ -51,7 +51,9 @@ import XCTest
         shot("project-remove-confirm", app)
         app.buttons["project.remove.confirm"].firstMatch.tap()
         // The fixture's project has a thread that never stops working.
-        XCTAssertTrue(app.buttons["project.remove.stop"].firstMatch.waitForExistence(timeout: 20))
+        let offered = app.buttons["project.remove.stop"].firstMatch.waitForExistence(timeout: 20)
+        shot("project-remove-after-confirm", app)
+        XCTAssertTrue(offered)
         shot("project-remove-running", app)
     }
 

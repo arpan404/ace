@@ -29,6 +29,7 @@ import { z } from "zod";
 import { submitCommand } from "./commands.ts";
 import { FolderRequest, ProjectFolders } from "./project-folders.ts";
 import { answerHostOpen, HostOpenRequest } from "./host-open.ts";
+import { Repositories, RepositoryRequest } from "./repositories.ts";
 
 /*
  * Managing a project from the phone, as the web's Edit project and Remove dialogs do: what a
@@ -78,6 +79,7 @@ export const NativeProjectRequest = z.object({
     }),
     ...FolderRequest.options,
     ...HostOpenRequest.options,
+    ...RepositoryRequest.options,
   ]),
 });
 export type NativeProjectRequest = z.infer<typeof NativeProjectRequest>;
@@ -93,10 +95,12 @@ export class ProjectManage {
   readonly #owner: ProjectManageOwner;
   readonly #schedule: (delay: number, run: () => void) => () => void;
   readonly #folders: ProjectFolders;
+  readonly #repositories: Repositories;
   constructor(owner: ProjectManageOwner, schedule: (delay: number, run: () => void) => () => void) {
     this.#owner = owner;
     this.#schedule = schedule;
     this.#folders = new ProjectFolders(owner, (raw) => this.write(raw));
+    this.#repositories = new Repositories(owner, (raw) => this.write(raw));
   }
 
   async answer(request: NativeProjectRequest["request"]): Promise<unknown> {
@@ -126,6 +130,12 @@ export class ProjectManage {
       }
       case "initials":
         return { ok: true, initials: projectInitials(request.name) };
+      case "repos.context":
+      case "repos.list":
+      case "publish.status":
+      case "publish":
+      case "publish.cancel":
+        return this.#repositories.answer(request);
       case "openers":
       case "open":
         return answerHostOpen(this.#owner, request);

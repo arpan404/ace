@@ -13,6 +13,8 @@ struct ProjectDetailView: View {
     @State private var editing = false
     @State private var removing = false
     @State private var gone = false
+    @State private var saves = 0
+    @State private var publishing = false
     @Environment(\.dismiss) private var dismiss
 
     init(model: ClientModel, project: NativeProject) {
@@ -31,6 +33,17 @@ struct ProjectDetailView: View {
             Section {
                 NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { InsetRow("Files", systemImage: "folder") }
                 NavigationLink { PastSessionsView(model: model, project: project) } label: { InsetRow("Past CLI sessions", systemImage: "clock.arrow.circlepath") }
+                OpenOnHostMenu(model: model, target: HostOpenTarget(workspaceId: project.id)) {
+                    InsetRow("Open in…", systemImage: "arrow.up.forward.app", subtitle: "An editor or the file manager on the computer")
+                }
+                .accessibilityIdentifier("project.openIn")
+                if model.canOperate {
+                    Button { publishing = true } label: {
+                        InsetRow("Publish repository…", systemImage: "arrow.up.doc", subtitle: "A new GitHub repository for this project")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("project.publish")
+                }
             }
             .insetRowBackground()
             notes
@@ -52,6 +65,9 @@ struct ProjectDetailView: View {
             }
         }
         .insetGroupedList()
+        .smoothChange(project.notes.map(\.id) + project.notes.map(\.text))
+        .smoothChange(gone)
+        .sensoryFeedback(.success, trigger: saves)
         .navigationTitle(project.name).navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if model.canOperate {
@@ -66,15 +82,24 @@ struct ProjectDetailView: View {
             NavigationStack {
                 EditProjectView(model: model, project: project) { saved in
                     editing = false
-                    if saved == .removed { dismiss() } else { Task { await reread() } }
+                    if saved == .removed { dismiss() }
+                    else if saved == .saved { saves += 1; Task { await reread() } }
                 }
             }
             .tint(AceTheme.Colours.foreground)
             .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $publishing) {
+            NavigationStack { PublishRepositoryView(model: model, project: project) { publishing = false } }
+                .tint(AceTheme.Colours.foreground)
+                .presentationDetents([.large]).presentationDragIndicator(.visible)
+        }
         .task(id: model.readGeneration(ProjectsView.firstPage)) { await reread() }
         .overlay {
-            if gone { ContentUnavailableView("Project removed", systemImage: "folder", description: Text("It's no longer on this machine.")) }
+            if gone {
+                ContentUnavailableView("Project removed", systemImage: "folder", description: Text("It's no longer on this machine."))
+                    .transition(.opacity)
+            }
         }
     }
 
@@ -120,9 +145,11 @@ private struct ProjectRemoval: ViewModifier {
     @State private var running = false
     @State private var problem: String?
     @State private var busy = false
+    @State private var done = 0
 
     func body(content: Content) -> some View {
         content
+            .sensoryFeedback(.success, trigger: done)
             .confirmationDialog("Remove \(project.name)?", isPresented: $isPresented, titleVisibility: .visible) {
                 Button("Remove project", role: .destructive) { remove(stopRunning: false) }
                     .accessibilityIdentifier("project.remove.confirm")
@@ -142,7 +169,12 @@ private struct ProjectRemoval: ViewModifier {
         Task {
             defer { busy = false }
             let outcome = await model.removeProject(project.id, stopRunning: stopRunning)
-            if outcome.ok { removed() }
+            if outcome.ok {
+                done += 1
+                // The haptic lands before the screen goes.
+                try? await Task.sleep(for: .milliseconds(120))
+                removed()
+            }
             else if outcome.code == "workspace_threads_running" { running = true }
             else { problem = outcome.message ?? "Try again." }
         }

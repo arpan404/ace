@@ -52,7 +52,11 @@ struct EditProjectView: View {
                         ServiceProblem(message: optionsProblem)
                         Button("Retry") { Task { await readOptions() } }
                     } else {
-                        HStack { ProgressView().controlSize(.small); Text("Reading this project's choices…").foregroundStyle(AceTheme.Colours.mutedForeground) }
+                        // The rows' own shape while the machine answers, so nothing jumps when they fill in.
+                        ForEach(["Model", "Access", "Worktree", "Base branch"], id: \.self) { title in
+                            LabeledContent(title) { Text("Inherit") }.redacted(reason: .placeholder)
+                        }
+                        .accessibilityHidden(true)
                     }
                 } header: { InsetHeader("New threads") }
                 .insetRowBackground()
@@ -65,6 +69,12 @@ struct EditProjectView: View {
             if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
         }
         .insetGroupedList()
+        .smoothChange(icon.mode)
+        .smoothChange(options == nil)
+        .smoothChange(notes.map(\.id))
+        .smoothChange(problem)
+        .sensoryFeedback(.selection, trigger: icon.glyph)
+        .sensoryFeedback(.error, trigger: problem) { _, now in now != nil }
         .disabled(saving)
         .navigationTitle("Edit project").navigationBarTitleDisplayMode(.inline)
         .toolbar {

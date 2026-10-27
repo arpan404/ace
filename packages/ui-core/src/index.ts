@@ -136,6 +136,7 @@ export * from "./projects.ts";
 export * from "./project-edit.ts";
 export * from "./device-pairing.ts";
 export * from "./fleet-rules.ts";
+export { publicationProblem } from "./publication-copy.ts";
 export * from "./folder-search.ts";
 export * from "./path-picker.ts";
 export * from "./usage-cost.ts";

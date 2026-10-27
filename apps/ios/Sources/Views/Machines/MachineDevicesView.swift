@@ -14,6 +14,7 @@ struct MachineDevicesView: View {
     @State private var revokingOthers = false
     @State private var notice: String?
     @State private var busy = false
+    @State private var changes = 0
 
     var body: some View {
         List {
@@ -36,6 +37,9 @@ struct MachineDevicesView: View {
             }
         }
         .insetGroupedList()
+        .smoothChange(overview == nil)
+        .smoothChange(overview.map { $0.devices.map(\.id) + $0.pairings.map(\.id) })
+        .sensoryFeedback(.success, trigger: changes)
         .disabled(busy)
         .navigationTitle("Devices").navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -83,7 +87,7 @@ struct MachineDevicesView: View {
                     Spacer(minLength: AceTheme.Spacing.sm)
                     if model.canOperate {
                         Button("Revoke", role: .destructive) { revoking = device }
-                            .buttonStyle(.borderless).foregroundStyle(AceTheme.Status.failed)
+                            .buttonStyle(.borderless).foregroundStyle(AceTheme.Status.failed).rowButtonTarget()
                             .accessibilityIdentifier("devices.revoke.\(device.id)")
                     }
                 }
@@ -113,7 +117,7 @@ struct MachineDevicesView: View {
                         Spacer(minLength: AceTheme.Spacing.sm)
                         if model.canOperate {
                             Button("Cancel") { Task { await run(["op": "cancelPairing", "id": pairing.id]) } }
-                                .buttonStyle(.borderless)
+                                .buttonStyle(.borderless).rowButtonTarget()
                                 .accessibilityIdentifier("devices.cancel.\(pairing.id)")
                         }
                     }
@@ -144,7 +148,7 @@ struct MachineDevicesView: View {
         busy = true
         defer { busy = false }
         let answer = await model.fleet(request, machine: machine)
-        if !answer.ok { notice = answer.message }
+        if answer.ok { changes += 1 } else { notice = answer.message }
         await read()
     }
 }
@@ -170,6 +174,10 @@ struct PairDeviceView: View {
             if let made, let url = made.url { result(made, url: url) } else { form }
         }
         .insetGroupedList()
+        .smoothChange(made?.url)
+        .smoothChange(access)
+        .sensoryFeedback(.success, trigger: made?.url) { _, now in now != nil }
+        .sensoryFeedback(.selection, trigger: access)
         .navigationTitle("Pair a device").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
