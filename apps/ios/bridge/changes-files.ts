@@ -117,7 +117,7 @@ export class OpenFiles {
   }
 
   closeAll(): void {
-    for (const path of [...this.#open.keys()]) this.close(path);
+    for (const path of this.#open.keys()) this.close(path);
   }
 
   /** Follow new reads or a new scope: a file whose version changed starts again at page one. */

@@ -6,7 +6,6 @@ import {
   storedViewed,
   StoredDraft,
   withViewed,
-  type ReviewDraft,
 } from "@ace/ui-core/review";
 import type { DiffPrefs, PanelServices, ViewedFiles } from "../services.ts";
 import type { LocalStore } from "../store.ts";

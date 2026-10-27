@@ -65,7 +65,8 @@ export interface OpenOptions {
   turns?: boolean;
   patch?: string;
   status?: Parameters<ReturnType<typeof sheetFixture>["daemon"]["workspace"]["setGitStatus"]>[1];
-  kept?: ChangesKept;
+  /** What the phone kept, read back by a fresh store as after a relaunch. */
+  value?: KeptValue;
   limits?: OpenFilesLimits;
 }
 
@@ -124,20 +125,21 @@ export async function openChanges(options: OpenOptions = {}) {
     request: (input) => client.request(input),
   };
   const sink = new RecordingSink();
-  const kept = options.kept ?? new ChangesKept(memoryValue());
+  const value = options.value ?? memoryValue();
+  const kept = new ChangesKept(value);
   let now = 10_000;
   const session = new ChangesSession(owner, lease.store, "changes", 1, sink, plainPreview, {
     kept,
     now: () => (now += 1),
     ...(options.limits ? { limits: options.limits } : {}),
   });
-  await until(() => sink.read("changes:summary")?.state === "ready", "first read");
+  await until(() => session.reads !== undefined, "first read");
   await until(() => sink.read("changes:review")?.refreshing === false, "review read");
   const close = async () => {
     session.close();
     await client.close();
   };
-  return { daemon, client, owner, session, sink, kept, close };
+  return { daemon, client, owner, session, sink, kept, value, close };
 }
 
 /** The header patch of an open file, by its path. */
