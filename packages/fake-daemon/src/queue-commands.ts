@@ -61,8 +61,7 @@ function hold(host: ThreadHost, reason: FakeQueuedHold, resumeAt: number | null)
 type FakeQueuedHold = NonNullable<ThreadHost["queue"]["reason"]>;
 
 function limitedUntil(host: ThreadHost): number | undefined {
-  const status = host.view.thread.status;
-  return status.state === "limited" ? status.until : undefined;
+  return host.state.agents[host.state.rootKey ?? "root"]?.limited?.until;
 }
 
 export function queueCommand(
@@ -77,6 +76,17 @@ export function queueCommand(
     "messageId" in payload ? host.queued.findIndex((m) => m.key === payload.messageId) : -1;
   const message = index >= 0 ? host.queued[index] : undefined;
   if ("messageId" in payload && !message) return fail("message_already_claimed");
+  // As the daemon: removing or editing the message a failed send kept at the head releases the
+  // hold, so the head (edited, or the one behind it) is tried in order.
+  const releasesHold =
+    index === 0 &&
+    host.queue.paused &&
+    (host.queue.reason === "not_sent" || host.queue.reason === "model_unavailable");
+  const release = () => {
+    host.queue.paused = false;
+    host.queue.reason = null;
+    host.queue.lastFailure = null;
+  };
   switch (payload.type) {
     case "queue.resend": {
       if (!message || message.state !== "uncertain") return fail("message_not_uncertain");
@@ -120,6 +130,7 @@ export function queueCommand(
       }
       host.queued[index] = edited;
       host.queueDirty = true;
+      if (releasesHold) release();
       return { ok: true, facts: [] };
     }
     case "queue.move": {
@@ -136,16 +147,7 @@ export function queueCommand(
     case "queue.remove":
       host.queued.splice(index, 1);
       host.queueDirty = true;
-      // As the daemon: removing the last message a failed send kept releases that hold.
-      if (
-        host.queue.paused &&
-        (host.queue.reason === "not_sent" || host.queue.reason === "model_unavailable") &&
-        host.queued.length === 0
-      ) {
-        host.queue.paused = false;
-        host.queue.reason = null;
-        host.queue.lastFailure = null;
-      }
+      if (releasesHold) release();
       return { ok: true, facts: [{ type: "queue.changed", count: host.queued.length }] };
     case "queue.pause":
       hold(host, "manual", null);
@@ -193,7 +195,8 @@ export function queueCommand(
 
 /** A rate limit holds the queue until the person chooses what to do. */
 export function holdOnLimit(host: ThreadHost): void {
-  if (host.view.thread.status.state === "limited" && !host.queue.paused) hold(host, "limit", null);
+  if (host.state.agents[host.state.rootKey ?? "root"]?.limited && !host.queue.paused)
+    hold(host, "limit", null);
 }
 
 /** One `queue.get` page: up to `limit` messages after `after`, oldest first. */

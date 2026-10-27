@@ -17,7 +17,8 @@
       "enum": [
         "open",
         "blocked",
-        "delivered"
+        "delivered",
+        "ended"
       ],
       "type": "string"
     }

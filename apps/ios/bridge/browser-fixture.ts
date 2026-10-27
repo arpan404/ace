@@ -26,6 +26,7 @@ export async function liveBrowser(
     read?: ChunkReader;
     names?: Record<string, string>;
     devices?: { storage: KeyValueStorage; ready: Promise<void> };
+    context?: Pick<BrowserThreadContext, "files" | "stage" | "annotations">;
   } = {},
 ) {
   const { daemon, client } = sheetFixture();
@@ -57,6 +58,7 @@ export async function liveBrowser(
       return client.state;
     },
     connectionState: () => client.connectionState(),
+    onStream: (listener) => client.onStream(listener),
   };
   const sink = new RecordingSink();
   const scheduled: (() => void)[] = [];
@@ -67,6 +69,7 @@ export async function liveBrowser(
     now: () => ++now,
     read: options.read ?? (() => Promise.reject(new Error("no files in this test"))),
     ...(options.devices ? { devices: options.devices } : {}),
+    ...options.context,
   };
   const view = new BrowserLive(
     owner,
@@ -87,5 +90,5 @@ export async function liveBrowser(
     const page = BrowserPageMessage.parse(message);
     for (const listener of listeners) listener(page);
   };
-  return { daemon, sink, view, sent, requested, push, scheduled };
+  return { daemon, client, sink, view, sent, requested, push, scheduled };
 }

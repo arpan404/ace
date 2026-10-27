@@ -20,10 +20,12 @@ struct TranscriptFeedRowView: View {
     let row: TranscriptFeedRow
     let thread: ThreadModel
     let links: TranscriptLinks
+    @Environment(\.aceDensityId) private var densityId
     var body: some View {
-        // The web's rhythm: 8 between rows, 16 around a bubble or card, 24 after an answer.
+        // The web's rhythm: 8 between rows, 16 around a bubble or card, 24 after an answer;
+        // Compact trims it (Settings › Appearance).
         BlockView(block: row.block, thread: thread, links: links)
-            .padding(.bottom, row.room)
+            .padding(.bottom, row.room * AceTheme.density(densityId).transcriptRoom)
             .padding(.horizontal, AceTheme.Spacing.xl)
     }
 }

@@ -149,6 +149,18 @@ export class Recovery {
     return Command.parse({ ...command, payload: rest });
   }
   sync(id: ThreadId): void {
+    const held = this.repo.queue.get(id);
+    const state = this.repo.requireState(id);
+    const root = state.rootKey === undefined ? undefined : state.agents[state.rootKey];
+    // Older builds could install the child's quota hold on the parent's account. Retire that
+    // timer without sending anything or clearing the child's independent quota evidence.
+    if (
+      held.limited &&
+      !root?.limited &&
+      (held.reason === "limit" || held.reason === "snooze") &&
+      !this.repo.pending.recovering(id)
+    )
+      this.bindingChanged(id);
     const queue = this.repo.queue.shown(id);
     const saved = this.repo.store.getThread(id)?.queue;
     if (!saved || saved.pendingCount !== queue.pendingCount || saved.revision !== queue.revision) {
@@ -357,7 +369,10 @@ export class Recovery {
       )
     )
       return;
-    const limited = Object.values(state.agents).filter((record) => record.limited);
+    const root = state.rootKey === undefined ? undefined : state.agents[state.rootKey];
+    // A child owns its own refusal. It must not install a timer or hold on the root's account.
+    const limited =
+      root?.limited && root.agent.native.provider === state.config.provider ? [root] : [];
     const queue = this.repo.queue.get(state.threadId);
     if (!limited.length) {
       if (!queue.limited) return;
@@ -615,31 +630,27 @@ export class Recovery {
     );
     const state = this.repo.requireState(id);
     const cleared = Object.entries(state.agents)
-      .filter(([, record]) => record.limited)
+      .filter(([agent, record]) => agent === state.rootKey && record.limited)
       .map(([agent]) => ({ type: "limit.cleared" as const, agent }));
     if (cleared.length) this.repo.apply(id, cleared, this.clock.now());
     this.sync(id);
     this.schedule();
   }
   /**
-   * The person sends while a limit hold nothing definite keeps: a limit with no known reset, one
-   * that has already cleared (or that a switch left behind), or one the thread is leaving (a
-   * switch to another account, model or provider is ahead of the message). Their message
-   * is the go-ahead: the hold and ace's own continuation are dropped and the queue sends in
-   * order, with their message last, on the new selection when there is one. If the provider
-   * refuses again, its definite signal holds the thread again. A known reset that hasn't passed
-   * keeps holding otherwise, and so does a pause the person chose.
+   * The person sends while a limit holds the thread: their message is the go-ahead, even before
+   * the reset the provider gave, because limits often lift early or at times nobody predicted.
+   * The hold, any resume or snooze timer, and ace's own continuation are dropped, and the queue
+   * sends in order with their message last (on the new selection when a switch is ahead of it).
+   * If the provider still refuses, its definite signal holds the thread again. A pause the
+   * person chose keeps holding.
    */
   releaseLimitHold(id: ThreadId, at: number): void {
     const queue = this.repo.queue.get(id);
     if (!queue.paused) return;
-    const leaving =
-      (queue.reason === "limit" || queue.reason === "snooze") &&
-      this.repo.pending.transition(id)?.kind === "thread.switch";
-    const resetless = queue.limited && queue.reason === "limit" && queue.resetAt === null;
+    const limitHold = queue.reason === "limit" || queue.reason === "snooze";
     // `clearLimit` leaves this marker: a manual hold that records when its limit cleared.
     const cleared = !queue.limited && queue.reason === "manual" && queue.resetAt !== null;
-    if (!leaving && (queue.resumeAt !== null || (!resetless && !cleared))) return;
+    if (!limitHold && !cleared) return;
     if (this.repo.queue.hasUncertain(id) || this.repo.pending.recovering(id)) return;
     this.lift(id, at);
   }
@@ -664,7 +675,7 @@ export class Recovery {
     );
     const state = this.repo.requireState(id);
     const cleared = Object.entries(state.agents)
-      .filter(([, record]) => record.limited)
+      .filter(([agent, record]) => agent === state.rootKey && record.limited)
       .map(([agent]) => ({ type: "limit.cleared" as const, agent }));
     if (cleared.length) this.repo.apply(id, cleared, at);
     this.sync(id);
@@ -680,7 +691,7 @@ export class Recovery {
     this.repo.apply(
       id,
       Object.entries(state.agents)
-        .filter(([, record]) => record.limited)
+        .filter(([agent, record]) => agent === state.rootKey && record.limited)
         .map(([agent]) => ({ type: "limit.cleared", agent })),
       this.clock.now(),
     );

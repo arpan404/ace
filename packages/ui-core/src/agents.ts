@@ -99,6 +99,10 @@ export function glyphOf(status: AgentStatus): AgentGlyph {
   }
 }
 
+/** Actual execution, distinct from unfinished work waiting for quota, a person or children. */
+export const isActivelyRunning = (agent: Pick<Agent, "status">) =>
+  agent.status.state === "working" || agent.status.state === "starting";
+
 export const isRunning = (agent: Pick<Agent, "status">) =>
   agent.status.state === "working" ||
   agent.status.state === "starting" ||

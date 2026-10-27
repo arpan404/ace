@@ -3,6 +3,7 @@ import {
   fitsUtf8,
   matchesPendingThread,
   pendingSendsEqual,
+  SendOps,
   type PendingSend,
   deferredProjectsApi,
   transfersApi,
@@ -391,6 +392,22 @@ export class RemoteClient implements ClientApi {
   }
   threads(): Lease<SidebarSource> {
     return this.hold("threads", { kind: "threads" }, () => new MirrorSidebar(this.listeners));
+  }
+  /** Edits and retries of failed sends shown in this tab, one at a time per send. */
+  readonly sendOps = new SendOps();
+  pendingSend(id: string): PendingSend | undefined {
+    return this.sends.get(id);
+  }
+  /** The worker's outbox saves the edit; its reply carries the send as it is now. */
+  async editFailedSend(id: string, payload: CommandPayload): Promise<void> {
+    const result = await this.call("editFailedSend", [id, payload]);
+    const { intent, pending } = trusted<{
+      intent: Intent | undefined;
+      pending: PendingSend | undefined;
+    }>(result);
+    this.intents.put(id, intent);
+    if (pending) this.sends.set(id, pending);
+    this.notifications.emit([`intent:${id}`, "pendingSends"]);
   }
   async enqueue(payload: CommandPayload, suppliedId?: string): Promise<string> {
     const id = suppliedId ?? this.nextCommandId();

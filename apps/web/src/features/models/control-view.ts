@@ -38,6 +38,7 @@ export interface ModelControlView {
    * A switch to `label` not in effect yet: the model it leaves (the chip reads "Opus 4.1 →
    * Sonnet 4.5"; undefined when only the account changes) and when it applies.
    */
+  switchError?: string | undefined;
   switching?: { from: string | undefined; description: string } | undefined;
   /** Offline: changes still go and apply once the daemon is back; the popover says so. */
   offline?: string | undefined;

@@ -5,6 +5,7 @@ import SwiftUI
 /// when several are paired), running subagents and the provider at the end. Only a thread that
 /// needs the person, or failed, takes colour. Branch and pull request live in the thread itself.
 struct InboxThreadRow: View {
+    @Environment(\.aceDensityId) private var densityId
     let row: ThreadRow
     let snoozed: Bool
     var machine: MachineMark? = nil
@@ -21,7 +22,7 @@ struct InboxThreadRow: View {
         let look = look
         HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.md) {
             InboxRowMark(look: look).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+            VStack(alignment: .leading, spacing: AceTheme.density(densityId).inboxLineGap) {
                 HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
                     Text(row.title)
                         .aceFont(InboxRowType.title, relativeTo: .body)
@@ -34,7 +35,7 @@ struct InboxThreadRow: View {
             }
         }
         .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.md)
+        .padding(.vertical, AceTheme.density(densityId).inboxRowPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
@@ -155,6 +156,7 @@ struct InboxRowMarks: View {
 /// A send the SDK still holds, drawn like a thread row: its text, then the shared unsent
 /// wording and the thread it goes to. A send that failed takes the needs-you dot.
 struct InboxUnsentRow: View {
+    @Environment(\.aceDensityId) private var densityId
     let entry: PendingRow
     let thread: ThreadRow?
     var body: some View {
@@ -165,7 +167,7 @@ struct InboxUnsentRow: View {
             }
             .frame(width: 10).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+            VStack(alignment: .leading, spacing: AceTheme.density(densityId).inboxLineGap) {
                 Text(entry.text).aceFont(InboxRowType.title, relativeTo: .body)
                     .foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
                 (Text(entry.label ?? "").foregroundStyle(tone == .needsYou ? tone.text : AceTheme.Colours.mutedForeground)
@@ -174,7 +176,7 @@ struct InboxUnsentRow: View {
             }
         }
         .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.md)
+        .padding(.vertical, AceTheme.density(densityId).inboxRowPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }

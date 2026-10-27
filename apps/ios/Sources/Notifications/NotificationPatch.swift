@@ -12,6 +12,10 @@ struct AlertNotification: Codable, Sendable, Equatable, Identifiable {
     let actions: [Action]
     let preview: String?
     let message: String?
+    /// How this phone shows it, by its own preferences (bridge/notification-delivery.ts). Nil from
+    /// older runtimes: posted and shown as before.
+    var delivery: Delivery? = nil
+    struct Delivery: Codable, Sendable, Equatable { let post: Bool; let interrupt: Bool; let banner: Bool }
 }
 
 struct QuietHours: Codable, Sendable, Equatable {

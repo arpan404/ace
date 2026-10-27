@@ -1,6 +1,7 @@
 import type { ProviderKind } from "@ace/protocol";
 import type { AccountView } from "./accounts.ts";
 import { formatCountdown } from "./time.ts";
+import { joinNames } from "./join-names.ts";
 
 /*
  * The Usage page's limits, account first: each provider's accounts, each listed once with its
@@ -34,8 +35,12 @@ export interface AccountWindow {
 export interface AccountLimits {
   key: string;
   account: AccountView;
+  /** The machine it was read on; "Mac and Studio" for one account signed in on both. */
   environment: string;
+  /** The machine whose reading is shown (the freshest), which a banked reset goes through. */
   environmentId?: string | undefined;
+  /** Every machine that reported this account, by name. */
+  environments: string[];
   /** Banked resets the provider reports; undefined when it doesn't report them. */
   bankedResets: number | undefined;
   bankedExpiresAt: number | null;
@@ -64,6 +69,12 @@ export interface UsageLimits {
   providers: ProviderLimits[];
   /** Providers with accounts but no live limits, by name: one quiet line. */
   quiet: string[];
+  /**
+   * Accounts of one provider on several machines that ace can't tell apart or together (no
+   * sign-in reported), so each machine's is listed: "Can't tell whether the Claude Code
+   * accounts on Mac and Studio are the same; each is listed."
+   */
+  unsure: string[];
 }
 
 const minute = 60_000;
@@ -101,14 +112,31 @@ export function limitPace(
 
 const sessionProviders = new Set(["codex", "claude"]);
 
+/** The same login on another machine: provider, agent and who it is signed in as. */
+function identity(account: AccountView): string | undefined {
+  const who = account.signedInAs?.trim().toLowerCase();
+  return who ? `${account.provider}:${account.acpAgentId ?? ""}:${who}` : undefined;
+}
+
+const freshness = (account: AccountView) =>
+  Math.max(account.quota.observedAt, ...account.windows.map((window) => window.observedAt ?? 0));
+
 /**
  * Group accounts with reported windows by provider, in the order they first appear. Windows past
  * their reset stay, marked stale, so an old reading reads as old instead of vanishing. A
- * provider whose accounts report no window joins the quiet line instead.
+ * provider whose accounts report no window joins the quiet line instead. One login reported by
+ * several machines is listed once, with the freshest reading and every machine's name; its
+ * limits are the provider's, not the machine's, so they are never counted twice.
  */
 export function usageLimits(accounts: readonly UsageAccount[], now: number): UsageLimits {
   const groups = new Map<string, ProviderLimits>();
   const silent = new Map<string, string>();
+  const shared = new Map<string, { entry: AccountLimits; machines: Set<string> }>();
+  /** Per provider: the machines with an account listed, and whether any had no sign-in. */
+  const spread = new Map<
+    string,
+    { label: string; machines: Map<string, string>; unnamed: boolean }
+  >();
   for (const { account, environment, environmentId } of accounts) {
     const key = `${account.provider}:${account.acpAgentId ?? ""}`;
     const windows = account.windows;
@@ -129,33 +157,82 @@ export function usageLimits(accounts: readonly UsageAccount[], now: number): Usa
       };
       groups.set(key, group);
     }
-    group.accounts.push({
-      key: `${environmentId ?? environment}\0${account.id}`,
-      environmentId,
-      account,
-      environment,
-      bankedResets: account.resetCredits?.available,
-      bankedExpiresAt: account.resetCredits?.nextExpiresAt ?? null,
-      plan: account.plan,
-      signIn: account.usageSignIn,
-      windows: windows.map((window) => {
-        const stale = window.resetsAt !== null && window.resetsAt <= now;
-        return {
-          id: window.id,
-          label: window.label,
-          leftPercent: leftPercent(window.usedPercent),
-          resetsAt: window.resetsAt,
-          pace: stale
-            ? undefined
-            : limitPace(window.usedPercent, window.resetsAt, window.windowDurationMins, now),
-          observedAt: window.observedAt ?? account.quota.observedAt,
-          stale,
-        };
-      }),
-      noSessionWindow:
-        sessionProviders.has(account.provider) &&
-        !windows.some((window) => window.label === "Session (5h)"),
-    });
+    const machine = environmentId ?? environment;
+    const reach = spread.get(key) ?? {
+      label: account.providerLabel,
+      machines: new Map<string, string>(),
+      unnamed: false,
+    };
+    reach.machines.set(machine, environment);
+    const who = identity(account);
+    if (!who) reach.unnamed = true;
+    spread.set(key, reach);
+    const entry = accountLimits(account, environment, environmentId, now);
+    const twin = who ? shared.get(who) : undefined;
+    if (twin && !twin.machines.has(machine)) {
+      const environments = [...twin.entry.environments, environment];
+      const kept = freshness(account) > freshness(twin.entry.account) ? entry : twin.entry;
+      const merged = {
+        ...kept,
+        key: twin.entry.key,
+        environments,
+        environment: joinNames(environments),
+      };
+      group.accounts[group.accounts.indexOf(twin.entry)] = merged;
+      twin.entry = merged;
+      twin.machines.add(machine);
+      continue;
+    }
+    group.accounts.push(entry);
+    if (who && !twin) shared.set(who, { entry, machines: new Set([machine]) });
   }
-  return { providers: [...groups.values()], quiet: [...new Set(silent.values())] };
+  const unsure = [...spread.values()].flatMap((reach) =>
+    reach.unnamed && reach.machines.size > 1
+      ? [
+          `Can't tell whether the ${reach.label} accounts on ${joinNames([...reach.machines.values()])} are the same; each is listed.`,
+        ]
+      : [],
+  );
+  return {
+    providers: [...groups.values()],
+    quiet: [...new Set(silent.values())],
+    unsure,
+  };
+}
+
+function accountLimits(
+  account: AccountView,
+  environment: string,
+  environmentId: string | undefined,
+  now: number,
+): AccountLimits {
+  const windows = account.windows;
+  return {
+    key: `${environmentId ?? environment}\0${account.id}`,
+    environmentId,
+    account,
+    environment,
+    environments: [environment],
+    bankedResets: account.resetCredits?.available,
+    bankedExpiresAt: account.resetCredits?.nextExpiresAt ?? null,
+    plan: account.plan,
+    signIn: account.usageSignIn,
+    windows: windows.map((window) => {
+      const stale = window.resetsAt !== null && window.resetsAt <= now;
+      return {
+        id: window.id,
+        label: window.label,
+        leftPercent: leftPercent(window.usedPercent),
+        resetsAt: window.resetsAt,
+        pace: stale
+          ? undefined
+          : limitPace(window.usedPercent, window.resetsAt, window.windowDurationMins, now),
+        observedAt: window.observedAt ?? account.quota.observedAt,
+        stale,
+      };
+    }),
+    noSessionWindow:
+      sessionProviders.has(account.provider) &&
+      !windows.some((window) => window.label === "Session (5h)"),
+  };
 }

@@ -155,3 +155,13 @@ target (ADR 0053's definite-signal rule). The shipped sources are all advisory:
 Antigravity is not shipped: `agy -p /usage --output-format json` could not be confirmed
 against an installed `agy`, nor where its login is kept. Its entry is one declaration once the
 command's answer has been checked.
+
+## Amendment: ace's push gateway
+
+Date: 2026-10-27. Approved by the owner. ace may operate one hosted service, the push gateway
+of [ADR 0106](0106-ios-remote-push-gateway.md), because only ace's Apple team key can wake the
+shipped iOS app. It forwards end-to-end encrypted alerts from a person's own daemon to APNs and
+holds only ace's APNs key and its own sealing key. It sees device tokens, daemon public keys,
+timing and size, never provider credentials, prompts, code, transcripts or alert text, and it
+stores nothing. Every other clause of this ADR stands: providers are still reached only through
+the person's own CLIs, and no other part of ace is hosted.

@@ -71,6 +71,46 @@
     },
     {
       "properties": {
+        "auth": {
+          "pattern": "^[A-Za-z0-9_-]{22}$",
+          "type": "string"
+        },
+        "channel": {
+          "const": "push",
+          "type": "string"
+        },
+        "environment": {
+          "enum": [
+            "sandbox",
+            "production"
+          ],
+          "type": "string"
+        },
+        "p256dh": {
+          "pattern": "^[A-Za-z0-9_-]{87}$",
+          "type": "string"
+        },
+        "platform": {
+          "const": "phone",
+          "type": "string"
+        },
+        "token": {
+          "pattern": "^[a-fA-F0-9]{16,400}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel",
+        "platform",
+        "token",
+        "environment",
+        "p256dh",
+        "auth"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "channel": {
           "const": "fcm",
           "type": "string"

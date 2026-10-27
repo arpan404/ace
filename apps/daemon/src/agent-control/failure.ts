@@ -84,6 +84,7 @@ export function controlAdmissionError(reason: string): AgentControlError {
     unsupported_child_control: "not_supported",
     not_implemented: "not_supported",
     cursor_cli_retired: "provider_unavailable",
+    guest_thread: "not_supported",
     thread_not_found: "thread_not_found",
     source_thread_not_found: "thread_not_found",
     task_not_found: "thread_not_found",

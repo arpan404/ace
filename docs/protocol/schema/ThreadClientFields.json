@@ -33,6 +33,9 @@
     "live": {
       "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"
     },
+    "movedFrom": {
+      "$ref": "https://ace.local/protocol/v1/ThreadMovedFrom.json"
+    },
     "pinOrder": {
       "description": "Place among pinned threads, higher first. Set on pin (the daemon's clock when the command names none, so a new pin leads) and cleared on unpin.",
       "type": "number"

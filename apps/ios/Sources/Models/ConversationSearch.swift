@@ -11,6 +11,9 @@ struct ConversationHit: Decodable, Identifiable, Sendable {
     let createdAt: Double
     let title: Snippet
     let snippet: Snippet
+    /// The daemon's relevance, for merging several machines' hits; nil from older daemons.
+    var score: Double? = nil
+    var workspaceId: String? = nil
     var id: String { "\(threadId):\(itemId ?? "title"):\(kind)" }
     var excerpt: String { kind == "thread" ? title.text : snippet.text }
 }
@@ -29,15 +32,19 @@ struct ConversationSearchReply: Decodable {
     private(set) var loaded = false
     private(set) var problem: String?
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var filters: [String: Any] = [:]
 
-    func search(model: ClientModel, text: String, kind: String, threadId: String?) async {
+    /// `filters` adds the search's own filters (`workspaceId`, `after`). The previous query's
+    /// hits stay on screen until this one's arrive, so results never blank between keystrokes.
+    func search(model: ClientModel, text: String, kind: String, threadId: String?, filters: [String: Any] = [:]) async {
         generation += 1
         let current = generation
-        hits = []; cursor = nil; problem = nil; loaded = false
+        cursor = nil; problem = nil; loaded = false
+        self.filters = filters
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { loading = false; return }
+        guard !query.isEmpty else { hits = []; loading = false; return }
         guard model.connection == "ready" else {
-            loading = false; problem = model.problem?.message ?? "Machine offline. Reconnect to search its conversations."
+            hits = []; loading = false; problem = model.problem?.message ?? "Machine offline. Reconnect to search its conversations."
             return
         }
         loading = true
@@ -49,7 +56,7 @@ struct ConversationSearchReply: Decodable {
         } catch {
             guard current == generation else { return }
             loading = false
-            if !Task.isCancelled { problem = error.localizedDescription }
+            if !Task.isCancelled { hits = []; problem = error.localizedDescription }
         }
     }
     func more(model: ClientModel, text: String, kind: String, threadId: String?) async {
@@ -66,7 +73,7 @@ struct ConversationSearchReply: Decodable {
         } catch { if current == generation && !Task.isCancelled { problem = error.localizedDescription } }
     }
     private func read(_ model: ClientModel, text: String, kind: String, threadId: String?, cursor: String?) async throws -> ConversationSearchReply {
-        var filters: [String: Any] = [:]
+        var filters = self.filters
         if !kind.isEmpty { filters["kind"] = kind }
         if let threadId { filters["threadId"] = threadId }
         var request: [String: Any] = ["type": "search.query", "text": text, "limit": 50, "filters": filters]

@@ -1,4 +1,10 @@
-import type { ChangeTap, ClientCore, PendingSend, SidebarSource } from "@ace/client";
+import {
+  retryOf,
+  type ChangeTap,
+  type ClientCore,
+  type PendingSend,
+  type SidebarSource,
+} from "@ace/client";
 import { settledTotal, type HomeSort } from "@ace/ui-core";
 import {
   inboxNextChange,
@@ -18,12 +24,15 @@ import { followInboxSort } from "./inbox-sort.ts";
 import { dispatchCommand } from "./commands.ts";
 import { inboxOrganizer, type InboxOrganizer } from "./inbox-organize.ts";
 import { PlaceAction, runPlace, type PlaceContext } from "./inbox-place.ts";
+import { keepNone, type DismissedSends } from "./dismissed-sends.ts";
+import { settleSend } from "./send-recovery.ts";
+import { ManageAction, runManage } from "./inbox-manage.ts";
 
 /**
  * Stops following; also what `inboxAction` needs to pin and move: the pins and moves shown
  * before the daemon confirms them, and the machine's sort.
  */
-export type InboxFollow = (() => void) & PlaceContext;
+export type InboxFollow = (() => void) & PlaceContext & { dismissed?: DismissedSends };
 import type { PatchSink } from "./agents.ts";
 
 /**
@@ -91,6 +100,8 @@ export function followInbox(
   save?: (checkpoint: string) => void,
   /** The sort the phone last drew this machine's inbox in, until the machine says (`inbox-sort.ts`). */
   lastSort?: HomeSort,
+  /** Failed sends the person took back or discarded: they leave Unsent and the transcript. */
+  dismissed: DismissedSends = keepNone,
 ): InboxFollow {
   const store = owner.threads().store;
   const organizer = inboxOrganizer(owner, machineId, clock);
@@ -167,7 +178,12 @@ export function followInbox(
         if (thread) threads.push(thread);
       }
       arm(inboxNextChange(threads, now));
-      const unsent = sends.getSnapshot().map((send) => ({ key: send.commandId, machineId, send }));
+      const unsent = sends
+        .getSnapshot()
+        .filter(
+          (send) => !dismissed.has(send.commandId) && !owner.pendingSend(retryOf(send.commandId)),
+        )
+        .map((send) => ({ key: send.commandId, machineId, send }));
       // The inbox pages home; while the archive is open the store's own window is the archive's.
       // Only the daemon's own copy has a Settled section, so only it carries the daemon's total.
       return inboxLayout(threads, unsent, now, (store.homeWindow ?? store.window)?.before != null, {
@@ -178,8 +194,19 @@ export function followInbox(
   };
   const pending = (id: string) =>
     pump.put(`pending:${id}`, () => {
-      const send = owner.pendingSend(id);
-      return { type: "pending", id, row: send ? pendingRow(send, connection.getSnapshot()) : null };
+      // A send sent again stands aside for its newer attempt, the one to act on.
+      const send =
+        dismissed.has(id) || owner.pendingSend(retryOf(id)) ? undefined : owner.pendingSend(id);
+      return {
+        type: "pending",
+        id,
+        row: send
+          ? {
+              ...pendingRow(send, connection.getSnapshot()),
+              busy: owner.sendOps.current(id) ?? null,
+            }
+          : null,
+      };
     });
   /** The thread ids the phone holds rows for, so one that leaves the list loses only its row. */
   let listed = new Set<string>();
@@ -235,6 +262,14 @@ export function followInbox(
     store.observe(change),
     owner.observePendingSends((id) => {
       pending(id);
+      // A retry joining or going re-sends the attempt it stands for.
+      if (id.endsWith(":retry")) pending(id.slice(0, -":retry".length));
+      sections();
+    }),
+    owner.sendOps.observe((id) => pending(id)),
+    dismissed.observe((id) => {
+      if (id !== undefined) pending(id);
+      else for (const send of sends.getSnapshot()) pending(send.commandId);
       sections();
     }),
     // The connection patch is produced here, beside the rows that share its fence, so a
@@ -266,7 +301,7 @@ export function followInbox(
     checkpoint.stop();
     arm(undefined);
   };
-  return Object.assign(stop, { organizer, sortBy: () => sort.current() });
+  return Object.assign(stop, { organizer, sortBy: () => sort.current(), dismissed });
 }
 
 function pendingRow(send: PendingSend, connection: string) {
@@ -277,8 +312,16 @@ function pendingRow(send: PendingSend, connection: string) {
     state: send.state,
     waiting: send.waiting,
     text: preview(unsentText(send), 8192),
+    /** Why it wasn't sent, behind Details; empty when the SDK kept no reason. */
+    detail: send.state === "failed" && send.error ? preview(send.error, 2048) : "",
+    /** Files and images on it: an edit changes its words and keeps them. */
+    files:
+      send.payload.input.filter((part) => part.type !== "text" && part.type !== "mention").length +
+      (send.payload.context?.attachments?.length ?? 0),
     label: status.label,
     token: status.token,
+    /** Git's cleanup fence stopped it: a stale lock the person may clear. */
+    fenced: send.error === "git_quarantined",
   };
 }
 
@@ -293,7 +336,21 @@ const InboxAction = z.discriminatedUnion("kind", [
     preset: z.enum(["hour", "tomorrow", "monday"]),
   }),
   z.object({ kind: z.literal("wake"), threadId: ThreadId }),
+  /** A title the person typed; surrounding space goes, and an empty one is refused. */
+  z.object({ kind: z.literal("rename"), threadId: ThreadId, title: z.string().max(1024) }),
+  /** Named again from its opening request, as a new thread is. */
+  z.object({ kind: z.literal("retitle"), threadId: ThreadId }),
   z.object({ kind: z.literal("more") }),
+  /** A failed send the person took back into the composer or discarded; `restore` is Undo. */
+  z.object({ kind: z.literal("dismissSend"), commandId: z.string().min(1).max(256) }),
+  z.object({ kind: z.literal("restoreSend"), commandId: z.string().min(1).max(256) }),
+  /** Edit of a failed send: its full words, then new words saved in place in the outbox. */
+  z.object({ kind: z.literal("sendWords"), commandId: z.string().min(1).max(256) }),
+  z.object({
+    kind: z.literal("editSend"),
+    commandId: z.string().min(1).max(256),
+    text: z.string().max(100_000),
+  }),
 ]);
 
 function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPayload | undefined {
@@ -314,6 +371,14 @@ function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPay
     }
     case "wake":
       return { type: "thread.snooze", threadId: action.threadId, until: null };
+    case "rename": {
+      const title = action.title.trim();
+      return title && title.length <= 256
+        ? { type: "thread.rename", threadId: action.threadId, title }
+        : undefined;
+    }
+    case "retitle":
+      return { type: "thread.title.regenerate", threadId: action.threadId };
     default:
       return undefined;
   }
@@ -328,11 +393,16 @@ export function inboxAction(
   raw: unknown,
   requestId: string,
   pump: PatchSink,
-  inbox?: PlaceContext,
+  inbox?: PlaceContext & { dismissed?: DismissedSends },
 ): void {
   const place = PlaceAction.safeParse(raw);
   if (place.success && inbox) {
     void runPlace(inbox, place.data, requestId, pump);
+    return;
+  }
+  const manage = ManageAction.safeParse(raw);
+  if (manage.success && inbox) {
+    void runManage(inbox.organizer, manage.data, requestId, pump);
     return;
   }
   const parsed = InboxAction.safeParse(raw);
@@ -346,6 +416,15 @@ export function inboxAction(
     return;
   }
   const action = parsed.data;
+  if (
+    action.kind === "dismissSend" ||
+    action.kind === "restoreSend" ||
+    action.kind === "sendWords" ||
+    action.kind === "editSend"
+  ) {
+    void settleSend(owner, action, requestId, pump, inbox?.dismissed);
+    return;
+  }
   if (action.kind === "more") {
     void owner.threadsMore().catch(() =>
       pump.put("error", () => ({
@@ -355,5 +434,15 @@ export function inboxAction(
     );
     return;
   }
-  void dispatchCommand(owner, payloadOf(action, host.now()), requestId, pump);
+  const payload = payloadOf(action, host.now());
+  if (!payload && action.kind === "rename") {
+    pump.put(`admission:${requestId}`, () => ({
+      type: "admission",
+      id: requestId,
+      ok: false,
+      message: "Give the thread a name of at most 256 characters.",
+    }));
+    return;
+  }
+  void dispatchCommand(owner, payload, requestId, pump);
 }

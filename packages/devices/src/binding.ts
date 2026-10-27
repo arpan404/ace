@@ -1,7 +1,7 @@
 import { DeviceError } from "./sdk.ts";
 import { DeviceLogs } from "./logs.ts";
 import {
-  startDevice,
+  closeDeviceRecording,
   stopDevice,
   type LifecycleOptions,
   type LifecycleOwner,
@@ -10,8 +10,8 @@ import type { DeviceSession } from "./session.ts";
 
 /**
  * A device belongs to the thread whose agent or person took it last. Moving it to another thread
- * starts fresh logs and recordings, so nothing from the old thread reaches the new one, and
- * restarts a live view under the new thread.
+ * starts fresh logs and recordings, so nothing from the old thread reaches the new one. The live
+ * view keeps running: whoever was in control lets go, and the caller hands control on.
  */
 export async function bindDevice(
   session: DeviceSession,
@@ -25,14 +25,18 @@ export async function bindDevice(
     throw new DeviceError("busy", "Device is changing threads", "Retry in a moment.");
   session.changingBinding = true;
   const epoch = ++session.bindingEpoch;
-  const wasLive = session.lifecycle === "live";
   try {
     delete session.threadId;
     // Close deactivates subscribers synchronously before awaiting subprocess exit.
     const closingLogs = session.logs.close();
     session.logs = new DeviceLogs(options.runtime.after);
     session.logOwners.clear();
-    const results = await Promise.allSettled([stopDevice(session, owner), closingLogs]);
+    session.lease.release();
+    const results = await Promise.allSettled([
+      session.capture?.releaseInput?.(),
+      closeDeviceRecording(session),
+      closingLogs,
+    ]);
     delete session.completed;
     delete session.recordingArtifact;
     const errors = results.flatMap((result) =>
@@ -50,7 +54,6 @@ export async function bindDevice(
   } finally {
     session.changingBinding = false;
   }
-  if (wasLive) await startDevice(session, 60, options, owner);
 }
 
 /** Turning devices off frees every device from its thread and terminates its resources. */

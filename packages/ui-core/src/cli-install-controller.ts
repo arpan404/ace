@@ -1,0 +1,255 @@
+import type { ClientApi } from "@ace/client";
+import type {
+  InstallAction,
+  InstallAgent,
+  InstallMethod,
+  ProviderInstallPlan,
+  ProviderInstallProgress,
+  ProviderKind,
+} from "@ace/protocol";
+
+/** What installing, updating or removing a CLI needs of the SDK client. */
+export type InstallClient = Pick<ClientApi, "request" | "onMessage" | "connectionState">;
+
+export type InstallView =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "plan"; plan: ProviderInstallPlan }
+  | { kind: "progress"; progress: ProviderInstallProgress }
+  | { kind: "error"; message: string };
+
+/** Why the computer refused to plan or start an installer, in words for the person. */
+function refusal(error: string | undefined, starting: boolean): string {
+  if (error === "forbidden")
+    return "This device isn't allowed to install on this computer. Install from ace on the computer.";
+  return starting
+    ? "Couldn't start the installer. Another installation may be running. Try again."
+    : "Couldn't prepare the installer. Check your connection and try again.";
+}
+
+const done = (progress: ProviderInstallProgress) =>
+  ["succeeded", "failed", "cancelled", "needs_admin"].includes(progress.state);
+
+/** The socket owns the install job; reconnect polls it without starting another installer. */
+export class CliInstallController {
+  private view: InstallView = { kind: "idle" };
+  private listeners = new Set<() => void>();
+  private stops: (() => void)[] = [];
+  private session: string | undefined;
+  private starting = false;
+  private early: ProviderInstallProgress | undefined;
+  private disposed = false;
+  private planning: AbortController | undefined;
+  private cancelStarting = false;
+  private client: InstallClient;
+  private remember: (session: string | undefined) => void;
+  private target: { provider: ProviderKind; agent?: InstallAgent; acpAgentId?: string };
+
+  constructor(
+    client: InstallClient,
+    target: { provider: ProviderKind; agent?: InstallAgent; acpAgentId?: string },
+    recovery: {
+      session?: string | undefined;
+      remember(session: string | undefined): void;
+    },
+  ) {
+    this.client = client;
+    this.target = target;
+    this.remember = recovery.remember;
+    this.session = recovery.session;
+    if (this.session) this.view = { kind: "loading" };
+  }
+  start(): void {
+    this.disposed = false;
+    const client = this.client;
+    const connection = client.connectionState();
+    let ready = connection.getSnapshot() === "ready";
+    this.stops = [
+      client.onMessage((message) => {
+        if (message.type === "provider.install.progress") this.accept(message.progress);
+      }),
+      connection.subscribe(() => {
+        const next = connection.getSnapshot() === "ready";
+        if (next && !ready) void (this.session ? this.poll() : this.reattach());
+        ready = next;
+      }),
+    ];
+    if (this.session) {
+      this.view = { kind: "loading" };
+      if (ready) void this.poll();
+    } else if (ready) void this.reattach();
+  }
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+  getView = () => this.view;
+  async install(action: InstallAction): Promise<void> {
+    await this.plan(action);
+    if (this.disposed) return;
+    const view = this.view;
+    if (
+      view.kind === "plan" &&
+      view.plan.status === "ready" &&
+      !view.plan.needsAdmin &&
+      view.plan.method
+    )
+      await this.run(action, view.plan.method);
+  }
+  async plan(action: InstallAction): Promise<void> {
+    this.planning?.abort();
+    const controller = new AbortController();
+    this.planning = controller;
+    this.set({ kind: "loading" });
+    try {
+      const reply = await this.client.request(
+        {
+          type: "provider.install.plan",
+          ...this.target,
+          action,
+        },
+        { signal: controller.signal },
+      );
+      if (controller.signal.aborted) return;
+      this.set(
+        reply.result.ok && "plan" in reply.result
+          ? { kind: "plan", plan: reply.result.plan }
+          : {
+              kind: "error",
+              message: refusal(reply.result.ok ? undefined : reply.result.error, false),
+            },
+      );
+    } catch {
+      if (!controller.signal.aborted) this.fail();
+    } finally {
+      if (this.planning === controller) this.planning = undefined;
+    }
+  }
+  async run(action: InstallAction, method: InstallMethod): Promise<void> {
+    this.starting = true;
+    this.cancelStarting = false;
+    this.early = undefined;
+    this.session = undefined;
+    this.set({ kind: "loading" });
+    try {
+      const reply = await this.client.request({
+        type: "provider.install.run",
+        ...this.target,
+        action,
+        method,
+      });
+      if (!reply.result.ok || !("progress" in reply.result)) {
+        this.set({
+          kind: "error",
+          message: refusal(reply.result.ok ? undefined : reply.result.error, true),
+        });
+        return;
+      }
+      this.session = reply.result.progress.session;
+      this.remember(this.session);
+      this.accept(reply.result.progress);
+      if (this.early) this.accept(this.early);
+      if (this.cancelStarting) await this.cancel();
+    } catch {
+      this.fail();
+    } finally {
+      this.starting = false;
+      this.early = undefined;
+    }
+  }
+  async cancel(): Promise<void> {
+    if (!this.session) {
+      this.planning?.abort();
+      this.cancelStarting = this.starting;
+      this.set({ kind: "idle" });
+      return;
+    }
+    try {
+      const reply = await this.client.request({
+        type: "provider.install.cancel",
+        session: this.session,
+      });
+      if (reply.result.ok && "progress" in reply.result) this.accept(reply.result.progress);
+      else this.fail();
+    } catch {
+      this.fail();
+    }
+  }
+  close(): void {
+    if (this.session) void this.poll();
+    else this.set({ kind: "idle" });
+  }
+  dispose(): void {
+    this.disposed = true;
+    this.planning?.abort();
+    for (const stop of this.stops) stop();
+    this.listeners.clear();
+  }
+  private async poll(): Promise<void> {
+    if (!this.session) return;
+    try {
+      const reply = await this.client.request({
+        type: "provider.install.poll",
+        session: this.session,
+      });
+      if (reply.result.ok && "progress" in reply.result) this.accept(reply.result.progress);
+      else {
+        // The computer no longer knows the job (it finished long ago or restarted): show the
+        // provider as it is now, not a progress bar for a job that is gone.
+        this.session = undefined;
+        this.remember(undefined);
+        this.set({ kind: "idle" });
+      }
+    } catch {
+      this.fail();
+    }
+  }
+  /** Finds this device's installation still running for the target after the session id was lost. */
+  private async reattach(): Promise<void> {
+    if (this.session || this.starting) return;
+    try {
+      const reply = await this.client.request({ type: "provider.install.active", ...this.target });
+      if (this.session || this.starting || this.disposed) return;
+      if (!reply.result.ok || !("progress" in reply.result)) return;
+      if (this.view.kind !== "idle") return;
+      this.session = reply.result.progress.session;
+      this.remember(this.session);
+      this.accept(reply.result.progress);
+    } catch {
+      /* Nothing to reattach to; the page shows the provider's status. */
+    }
+  }
+  private accept(progress: ProviderInstallProgress): void {
+    if (
+      progress.provider !== this.target.provider ||
+      progress.agent !== this.target.agent ||
+      progress.acpAgentId !== this.target.acpAgentId
+    )
+      return;
+    if (!this.session) {
+      if (this.starting && (!this.early || this.early.sequence < progress.sequence))
+        this.early = progress;
+      return;
+    }
+    if (progress.session !== this.session) return;
+    if (this.view.kind === "progress" && this.view.progress.sequence >= progress.sequence) return;
+    this.set({ kind: "progress", progress });
+    if (done(progress)) {
+      this.session = undefined;
+      this.remember(undefined);
+    }
+  }
+  private fail(): void {
+    this.set({
+      kind: "error",
+      message: "Couldn't reach this computer. Reconnect to check the installation.",
+    });
+  }
+  private set(view: InstallView): void {
+    if (this.disposed) return;
+    this.view = view;
+    for (const listener of this.listeners) listener();
+  }
+}

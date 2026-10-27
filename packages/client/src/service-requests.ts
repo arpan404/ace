@@ -30,55 +30,61 @@ export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "cli.r
               ? Replies<"worktree.creation.result">
               : Q["type"] extends "verify.request"
                 ? Replies<"verify.result">
-                : Q["type"] extends "lockedUse.subscribe"
-                  ? Replies<"lockedUse.status">
-                  : Q["type"] extends `lockedUse.${string}`
-                    ? Replies<"lockedUse.result">
-                    : LegacyServiceResponse<Q>;
+                : Q["type"] extends "offshift.request"
+                  ? Replies<"offshift.result">
+                  : Q["type"] extends "lockedUse.subscribe"
+                    ? Replies<"lockedUse.status">
+                    : Q["type"] extends `lockedUse.${string}`
+                      ? Replies<"lockedUse.result">
+                      : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storage.request"
   ? Replies<"storage.result">
-  : Q["type"] extends "prompts.request"
-    ? Replies<"prompts.result">
-    : Q["type"] extends "skills.request"
-      ? Replies<"skills.result">
-      : Q["type"] extends "diagnostics.request"
-        ? Replies<"diagnostics.result">
-        : Q["type"] extends "notification.config"
-          ? Replies<"notification.config.result">
-          : Q["type"] extends "notification.register"
-            ? Replies<"notification.register.result">
-            : Q["type"] extends "notification.unregister"
-              ? Replies<"notification.unregister.result">
-              : Q["type"] extends "notification.feed"
-                ? Replies<"notification.feed.result">
-                : Q["type"] extends "host.identity"
-                  ? Replies<"host.identity.result">
-                  : Q["type"] extends "activity.reads" | "activity.markRead"
-                    ? Replies<"activity.reads.result">
-                    : Q["type"] extends "entities.page"
-                      ? Replies<"entities.page">
-                      : Q["type"] extends "queue.get"
-                        ? Extract<Reply, { type: "queue.result" }>
-                        : Q["type"] extends "permissions.capabilities"
-                          ? Replies<"permissions.capabilities.result">
-                          : Q["type"] extends "providers.request"
-                            ? Replies<"providers.result">
-                            : Q["type"] extends "repositories.request"
-                              ? Replies<"repositories.result">
-                              : Q["type"] extends "source-control.request"
-                                ? Replies<"source-control.result">
-                                : Q["type"] extends "projects.request"
-                                  ? Replies<"projects.result">
-                                  : Q["type"] extends "accounts.login" | "accounts.logout"
-                                    ? Replies<"accounts.auth">
-                                    : Q["type"] extends
-                                          | "accounts.add"
-                                          | "accounts.rename"
-                                          | "accounts.remove"
-                                          | "accounts.setDefault"
-                                      ? Replies<"accounts.changed">
-                                      : ExistingServiceResponse<Q>;
+  : Q["type"] extends "admission.request"
+    ? Replies<"admission.result">
+    : Q["type"] extends "appUpdate.request"
+      ? Replies<"appUpdate.result">
+      : Q["type"] extends "prompts.request"
+        ? Replies<"prompts.result">
+        : Q["type"] extends "skills.request"
+          ? Replies<"skills.result">
+          : Q["type"] extends "diagnostics.request"
+            ? Replies<"diagnostics.result">
+            : Q["type"] extends "notification.config"
+              ? Replies<"notification.config.result">
+              : Q["type"] extends "notification.register"
+                ? Replies<"notification.register.result">
+                : Q["type"] extends "notification.unregister"
+                  ? Replies<"notification.unregister.result">
+                  : Q["type"] extends "notification.feed"
+                    ? Replies<"notification.feed.result">
+                    : Q["type"] extends "host.identity"
+                      ? Replies<"host.identity.result">
+                      : Q["type"] extends "activity.reads" | "activity.markRead"
+                        ? Replies<"activity.reads.result">
+                        : Q["type"] extends "entities.page"
+                          ? Replies<"entities.page">
+                          : Q["type"] extends "queue.get"
+                            ? Extract<Reply, { type: "queue.result" }>
+                            : Q["type"] extends "permissions.capabilities"
+                              ? Replies<"permissions.capabilities.result">
+                              : Q["type"] extends "providers.request"
+                                ? Replies<"providers.result">
+                                : Q["type"] extends "repositories.request"
+                                  ? Replies<"repositories.result">
+                                  : Q["type"] extends "source-control.request"
+                                    ? Replies<"source-control.result">
+                                    : Q["type"] extends "projects.request"
+                                      ? Replies<"projects.result">
+                                      : Q["type"] extends "accounts.login" | "accounts.logout"
+                                        ? Replies<"accounts.auth">
+                                        : Q["type"] extends
+                                              | "accounts.add"
+                                              | "accounts.rename"
+                                              | "accounts.remove"
+                                              | "accounts.setDefault"
+                                          ? Replies<"accounts.changed">
+                                          : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
@@ -185,6 +191,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "activity.reads": ["activity.reads.result"],
   "activity.markRead": ["activity.reads.result"],
   "verify.request": ["verify.result"],
+  "offshift.request": ["offshift.result"],
   "turns.page": ["turns.page"],
   "items.window": ["items.window"],
   "turn.steps": ["turn.steps"],
@@ -206,6 +213,8 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "devices.request": ["devices.result"],
   "preview.request": ["preview.result"],
   "storage.request": ["storage.result"],
+  "admission.request": ["admission.result"],
+  "appUpdate.request": ["appUpdate.result"],
   "user_browser.settings": ["user_browser.settings.result"],
   "terminal.request": ["terminal.result"],
   "workspace.request": ["workspace.result"],
@@ -224,6 +233,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "provider.install.plan": ["provider.install.result"],
   "provider.install.run": ["provider.install.result"],
   "provider.install.poll": ["provider.install.result"],
+  "provider.install.active": ["provider.install.result"],
   "provider.install.cancel": ["provider.install.result"],
   "provider.login.start": ["provider.login.result"],
   "provider.login.poll": ["provider.login.result"],
@@ -240,6 +250,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "models.resolve": ["models.result"],
   "settings.get": ["settings.result"],
   "settings.set": ["settings.result"],
+  "settings.setMany": ["settings.result"],
   "settings.reset": ["settings.result"],
   "settings.subscribe": ["settings.result"],
   "settings.unsubscribe": ["settings.result"],

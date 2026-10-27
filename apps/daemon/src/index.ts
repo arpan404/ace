@@ -328,8 +328,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
     );
     // One admission gate for the server and the engine, closed before any service starts when
     // maintenance was asked for, so startup recovery honours it too (ADR 0041).
-    const maintenance = new MaintenanceGate(() => eventStore.updateBlockers());
-    if (process.env.ACE_MAINTENANCE === "1") maintenance.enter();
+    const maintenance = new MaintenanceGate(
+      () => eventStore.updateBlockers(),
+      () => eventStore.waitingBlockers(),
+    );
+    // A restart in the middle of an update keeps the update's hold (ADR 0041).
+    if (process.env.ACE_MAINTENANCE === "1") maintenance.enter("update");
     const serviceContext: ServiceContext = {
       signal: lifetime.signal,
       config,
@@ -443,6 +447,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
       warn: (message, fields) => log.log("warn", message, fields),
     };
     bindLiveServices(serverOptions, services);
+    // Late-bound: the lifecycle exists once the server below has started its transports.
+    services.threadDeletion = async (command) => {
+      const lifecycle = serverOptions.threadLifecycle;
+      if (!lifecycle) return { commandId: command.id, ok: false, error: "not_ready" };
+      return lifecycle.delete(command);
+    };
     lifetime.signal.throwIfAborted();
     server = await startServer(serverOptions);
     lifetime.signal.throwIfAborted();

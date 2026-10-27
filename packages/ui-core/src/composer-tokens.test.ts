@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import { composerInput, editComposerTokens, tokensFromInput, withTypedCommand } from "./index.ts";
+import {
+  composerInput,
+  editComposerTokens,
+  inputWithText,
+  tokensFromInput,
+  withTypedCommand,
+} from "./index.ts";
 import type { CatalogEntry, CatalogMention, ContentPart } from "@ace/protocol";
 const writing: CatalogMention = {
   type: "mention",
@@ -98,4 +104,16 @@ test("unknown names, client actions, mid-message slashes and paths stay plain te
 test("a chip already picked at the start is not duplicated", () => {
   const picked = tokensFromInput([writing, { type: "text", text: " /review" }]);
   expect(withTypedCommand(picked.text, picked.tokens, catalog)).toBe(picked.tokens);
+});
+
+test("new words for a sent message keep its files and the picks still written", () => {
+  const sent: ContentPart[] = [
+    ...input,
+    { type: "image", mimeType: "image/png", url: "ace-attachment://shot" },
+  ];
+  const before = tokensFromInput(sent).text;
+  const edited = inputWithText(sent, `${before} Please hurry.`);
+  expect(tokensFromInput(edited).text).toBe(`${before} Please hurry.`);
+  expect(edited.filter((part) => part.type === "mention")).toEqual([writing, review]);
+  expect(edited.filter((part) => part.type === "image")).toHaveLength(1);
 });

@@ -5,14 +5,17 @@ extension View {
     /// A message's long-press menu, as the system's own apps offer one: Copy, Select text (the
     /// words in a sheet where any part of them can be selected) and Share. The lifted preview is
     /// the message's opening, never a tall answer squeezed into the menu.
-    func messageMenu(_ text: String, title: String) -> some View {
-        modifier(MessageMenu(text: text, title: title))
+    /// `row`'s actions (Edit, Fork, Retry, Rewind) follow, as its action row offers them.
+    func messageMenu(_ text: String, title: String, row: TranscriptRow? = nil) -> some View {
+        modifier(MessageMenu(text: text, title: title, row: row))
     }
 }
 
 private struct MessageMenu: ViewModifier {
     let text: String
     let title: String
+    let row: TranscriptRow?
+    @Environment(\.messageTransitions) private var transitions
     @State private var selecting = false
     func body(content: Content) -> some View {
         if text.isEmpty {
@@ -23,6 +26,16 @@ private struct MessageMenu: ViewModifier {
                     Button("Copy", ace: .copy) { UIPasteboard.general.string = text }
                     Button("Select text", ace: .textAlignLeft) { selecting = true }
                     ShareLink(item: text) { Label("Share", ace: .export) }
+                    if let row, let transitions {
+                        let offered = transitions.offered(for: row)
+                        if !offered.isEmpty {
+                            Section {
+                                ForEach(offered, id: \.self) { action in
+                                    Button(action.label, ace: action.icon) { transitions.run(action, row) }
+                                }
+                            }
+                        }
+                    }
                 } preview: {
                     MarkdownView(text: String(text.prefix(600)), selectable: false)
                         .foregroundStyle(AceTheme.Colours.foreground)

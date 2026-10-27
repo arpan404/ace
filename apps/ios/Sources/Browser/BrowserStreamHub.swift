@@ -31,7 +31,7 @@ struct BinaryRouter {
         /// A simulator's or emulator's picture (kind 4), on the devices channel.
         case device(DeviceFrameChunk)
         case screen(DeviceFrameChunk)
-        /// Not a stream piece: the SDK's own binary channel reads it.
+        /// Not a picture: the SDK's own binary channel reads it (a download's pieces too).
         case sdk
         /// A malformed piece: the connection is dropped, as the SDK does.
         case broken
@@ -40,6 +40,9 @@ struct BinaryRouter {
 
     mutating func route(_ bytes: Data) -> Outcome {
         guard StreamWire.isPiece(bytes) else { return .sdk }
+        // A download's bytes belong to the SDK's transfer (`fetchBrowserDownload`), which
+        // assembles its own pieces; they never interleave with a picture's.
+        if ByteReader(bytes).u8(5) == StreamWire.Kind.download { return .sdk }
         do {
             guard let envelope = try assembler.push(bytes) else { return .none }
             if envelope.kind == StreamWire.Kind.screenFrame { return .screen(try DeviceFrameChunk.decodeScreen(envelope.meta, envelope.payload)) }

@@ -1,6 +1,8 @@
 import CoreGraphics
+import CoreImage
 import Foundation
 import Observation
+import UIKit
 
 /// The thread's live browser view on this machine: the bridge's view and page state, and the
 /// pictures' path from the runtime's sockets to the screen. Chunks are decoded and acknowledged
@@ -29,6 +31,20 @@ import Observation
     private(set) var visitCount = 0
     var problem: BrowserProblem?
     private(set) var upload: (chooserId: String, progress: Double)?
+    /// The page commands' answers (`bridge/browser-page-tools.ts`): a finished command's sentence,
+    /// the page source, screenshots at sizes, the engine's extensions and downloads being saved.
+    var done: BrowserDone?
+    private(set) var source: BrowserSource?
+    var sizes: BrowserSizes?
+    private(set) var extensions: BrowserExtensions?
+    private(set) var saving: [String: BrowserSaving] = [:]
+    /// Bumped by the page's own Send in annotate mode: the screen goes to the message.
+    private(set) var annotateSends = 0
+    /// Each tab's last picture once another tab shows, for an iPad's split (newest eight).
+    private(set) var stills: [String: UIImage] = [:]
+    /// The picture on screen now and the tab it came from.
+    @ObservationIgnored var currentPicture: () -> (image: CVPixelBuffer, tabId: String)? = { nil }
+    @ObservationIgnored private var stillOrder: [String] = []
 
     @ObservationIgnored private var renderer: BrowserRenderer?
     @ObservationIgnored private var latest: LatestBrowserPicture?
@@ -62,7 +78,30 @@ import Observation
         threadId = nil; view = nil; page = nil; pageSize = nil; generation = nil
         pictureZoom = 1; pictureOffset = .zero
         find = nil; shot = nil; logs = nil; visits = []; visitCount = 0; problem = nil; upload = nil
+        done = nil; source = nil; sizes = nil; extensions = nil
+        stills = [:]; stillOrder = []
     }
+    func clearSource() { source = nil }
+    /// The picture on screen now, kept as the still of the tab it came from (never assumed to be
+    /// the tab shown before), made into an image off the main thread; dropped if the view moved
+    /// to another thread meanwhile.
+    private func keepStill() {
+        guard let picture = currentPicture(), let threadId else { return }
+        let held = HeldPicture(buffer: picture.image)
+        let tabId = picture.tabId
+        Task { [weak self] in
+            let image = await Task.detached(priority: .utility) { held.image() }.value
+            guard let self, let image, self.threadId == threadId else { return }
+            self.stills[tabId] = image
+            self.stillOrder.removeAll { $0 == tabId }
+            self.stillOrder.append(tabId)
+            while self.stillOrder.count > 8 { self.stills[self.stillOrder.removeFirst()] = nil }
+        }
+    }
+    func clearExtensions() { extensions = nil }
+    func forgetSaving(_ key: String) { saving[key] = nil }
+    /// The machine's runtime was replaced: its saves no longer report here.
+    func forgetSaves() { saving = [:] }
     func movePicture(zoom: CGFloat, offset: CGPoint) {
         if pictureZoom != zoom { pictureZoom = zoom }
         if pictureOffset != offset { pictureOffset = offset }
@@ -97,6 +136,7 @@ import Observation
                 renderer?.reset()
             }
             generation = info.generation
+            if let before = view?.state?.activeTabId, before != info.state?.activeTabId { keepStill() }
             if view != info { view = info }
         case .page(let threadId, _, let info):
             guard threadId == self.threadId else { return }
@@ -112,6 +152,25 @@ import Observation
         case .problem(let result): if threadId != nil { problem = result }
         case .upload(let chooserId, let progress): if threadId != nil { upload = (chooserId, progress) }
         case .presets(let list): if presets != list { presets = list }
+        case .done(let result): if threadId != nil { done = result }
+        case .source(let result): if threadId != nil { source = result }
+        case .sizes(let result): if threadId != nil { sizes = result }
+        case .extensions(let result): if threadId != nil { extensions = result }
+        // A save outlives the view: the file is the person's once it is on the phone.
+        case .saving(let result): saving[result.key] = result
+        case .annotateSend: if threadId != nil { annotateSends += 1 }
         }
+    }
+}
+
+/// A decoded picture handed to a background task to become an image; the buffer isn't written again.
+private struct HeldPicture: @unchecked Sendable {
+    let buffer: CVPixelBuffer
+    func image() -> UIImage? {
+        let picture = CIImage(cvPixelBuffer: buffer)
+        // Half size is plenty for a still beside the live page.
+        let scaled = picture.transformed(by: CGAffineTransform(scaleX: 0.5, y: 0.5))
+        guard let cgImage = CIContext(options: [.cacheIntermediates: false]).createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
     }
 }

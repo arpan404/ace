@@ -18,7 +18,7 @@ struct EventRowView: View {
         case "event", "system": SystemRow(event: event)
         case "error": ErrorLine(event: event)
         case "refusal": RefusalLine(event: event)
-        case "notSent": NotSentLine(reason: event.note)
+        case "notSent": NotSentLine(reason: event.note, fenced: event.fenced == true)
         case "notice": NoticeLine(event: event)
         case "quiet": QuietText(text: event.text)
         default: ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage)
@@ -176,11 +176,14 @@ struct RefusalLine: View {
 /// "Not sent · the reason", where the daemon put its notice: just after the message.
 struct NotSentLine: View {
     let reason: String
+    /// A stale Git lock stopped it: Clear stale lock follows, as a word.
+    var fenced = false
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xs) {
             AceIcon(.warning, size: 12, relativeTo: .caption)
             Text("Not sent").fontWeight(.medium)
             if !reason.isEmpty { Text("· \(reason)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2) }
+            if fenced { ClearStaleLockWord() }
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
         .foregroundStyle(AceTheme.StatusText.failed)

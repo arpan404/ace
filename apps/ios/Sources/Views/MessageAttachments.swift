@@ -9,6 +9,8 @@ struct MessageAttachmentAccess {
     /// The preview, at most `pixels` on its long side; nil when it can't be read.
     let thumbnail: @MainActor (_ itemId: String, _ ref: String, _ pixels: CGFloat) async -> UIImage?
     let open: @MainActor (_ row: TranscriptRow, _ line: AttachmentLine) -> Void
+    /// The picture itself, from the message carrying it (or the thread's own list when nil).
+    var original: @MainActor (_ itemId: String?, _ ref: String) async -> UIImage? = { _, _ in nil }
 }
 
 extension EnvironmentValues {
@@ -232,7 +234,13 @@ struct MessageAttachmentRoutes: ViewModifier {
                 }
                 return image
             },
-            open: { row, line in open(row, line) }
+            open: { row, line in open(row, line) },
+            original: { itemId, ref in
+                var payload: [String: Any] = ["type": "native.attachment", "threadId": threadId, "ref": ref, "variant": "original"]
+                if let itemId { payload["itemId"] = itemId }
+                guard let reply = try? await model.service(payload, as: AttachmentBytes.self) else { return nil }
+                return await MediaViewer.image(base64: reply.data)
+            }
         )
     }
 
@@ -267,7 +275,7 @@ struct MessageAttachmentRoutes: ViewModifier {
     }
 
     /// A private copy for Quick Look, under the file's own name with any folders taken out.
-    private static func keep(_ data: Data, named name: String) throws -> URL {
+    static func keep(_ data: Data, named name: String) throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ace-attachments", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

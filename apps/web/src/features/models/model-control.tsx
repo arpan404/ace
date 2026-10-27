@@ -55,6 +55,7 @@ export function ModelControl(props: {
     view.offline,
     switching?.from && `Previously ${switching.from}`,
     switching?.description,
+    view.switchError && `Switch failed: ${view.switchError}`,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -118,7 +119,13 @@ export function ModelControl(props: {
               </span>
             )}
             {switching && (
-              <ClockIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
+              <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                <ClockIcon aria-hidden size={12} />
+                Pending
+              </span>
+            )}
+            {view.switchError && (
+              <span className="shrink-0 text-xs text-status-failed">Switch failed</span>
             )}
             <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
           </span>

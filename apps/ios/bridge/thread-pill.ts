@@ -50,6 +50,7 @@ export class PillFollower {
   readonly #store: ThreadSource;
   readonly #put: Put;
   #queued = 0;
+  #held = false;
   #watch = new Set<string>();
 
   constructor(store: ThreadSource, put: Put) {
@@ -72,10 +73,11 @@ export class PillFollower {
       .some((id) => this.#store.interaction(id)?.state === "pending");
   }
 
-  /** The queue was read again: its count is one of the pill's parts. */
-  queued(count: number): void {
-    if (count === this.#queued) return;
+  /** The queue was read again: its count is one of the pill's parts, and whether its strip says what holds the turn. */
+  queued(count: number, held = this.#held): void {
+    if (count === this.#queued && held === this.#held) return;
     this.#queued = count;
+    this.#held = held;
     this.#emit();
   }
 
@@ -95,6 +97,7 @@ export class PillFollower {
         queued: this.#queued,
         goal: thread?.goal,
         requestShown: this.#requestShown(),
+        holdShown: this.#held,
       });
       return {
         type: "thread.pill",

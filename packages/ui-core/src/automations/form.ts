@@ -1,0 +1,357 @@
+import {
+  AccessMode,
+  ProviderKind,
+  maxMessageBytes,
+  type Automation,
+  type AutomationSchedule,
+} from "@ace/protocol";
+import { z } from "zod";
+import {
+  onceInstant,
+  presetStartingAt,
+  presetToSchedule,
+  wallMoment,
+  scheduleToPreset,
+  weekdays,
+  type SchedulePreset,
+} from "./schedule.ts";
+import { customScheduleError } from "./schedule-validate.ts";
+
+/** "2026-10-24T09:30": a start on the schedule zone's wall clock. */
+const startPattern = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/;
+
+/** An IANA zone this browser can format in ("Europe/London"). */
+function isTimeZone(zone: string): boolean {
+  if (!zone) return false;
+  try {
+    return Intl.DateTimeFormat("en", { timeZone: zone }).resolvedOptions().timeZone !== "";
+  } catch {
+    return false;
+  }
+}
+
+/** Everything the create/edit screen holds. Flat, so each control binds to one field. */
+export const AutomationForm = z
+  .object({
+    title: z.string().trim().min(1, "Give the automation a name.").max(256),
+    prompt: z.string().trim().min(1, "Say what the agent should do.").max(maxMessageBytes),
+    workspace: z.string().min(1, "Choose a project."),
+    provider: ProviderKind,
+    access: AccessMode.optional(),
+    model: z.string().trim().max(256),
+    /** The model chip's effort; omitted runs at the model's default. */
+    effort: z.string().max(64).optional(),
+    /** The provider account the chip picked. */
+    instance: z.string().max(256).optional(),
+    trigger: z.enum(["schedule", "github", "file", "manual"]),
+    cadence: z.enum(["minutes", "hourly", "daily", "weekdays", "weekly", "once", "custom"]),
+    time: z.string(),
+    day: z.enum(weekdays),
+    every: z.number(),
+    /** "Every few minutes": how many. */
+    minutes: z.number().catch(15),
+    /** "Once": the wall-clock date, "2026-10-24", in the schedule's zone. */
+    date: z.string().catch(""),
+    /**
+     * When a repeating schedule begins, "2026-10-24T09:30" on the zone's wall clock. Empty, or a
+     * time already past, means now (or an existing schedule's own start).
+     */
+    startsAt: z.string().catch(""),
+    timezone: z.string(),
+    /** An existing schedule's DTSTART, which anchors its recurrence; new ones start now. */
+    startAt: z.number().optional(),
+    syntax: z.enum(["rrule", "cron"]),
+    expression: z.string().trim(),
+    repository: z.string().trim(),
+    event: z.enum(["pr_changed", "ci_failed", "review_comment", "issue_labelled"]),
+    label: z.string().trim().max(256),
+    /** File trigger globs, one per line. */
+    paths: z.string(),
+    worktree: z.boolean(),
+    missedRun: z.enum(["skip", "run_once"]),
+  })
+  .superRefine((form, ctx) => {
+    if (form.trigger === "schedule") {
+      if (!isTimeZone(form.timezone))
+        ctx.addIssue({
+          code: "custom",
+          path: ["timezone"],
+          message: "Choose a time zone from the list.",
+        });
+      if (
+        form.cadence === "hourly" &&
+        (!Number.isInteger(form.every) || form.every < 1 || form.every > 23)
+      )
+        ctx.addIssue({
+          code: "custom",
+          path: ["every"],
+          message: "Enter whole hours from 1 to 23.",
+        });
+      if (
+        form.cadence === "minutes" &&
+        (!Number.isInteger(form.minutes) || form.minutes < 1 || form.minutes > 59)
+      )
+        ctx.addIssue({
+          code: "custom",
+          path: ["minutes"],
+          message: "Enter whole minutes from 1 to 59.",
+        });
+      if (form.cadence !== "once" && form.startsAt && !startPattern.test(form.startsAt))
+        ctx.addIssue({ code: "custom", path: ["startsAt"], message: "Pick when it starts." });
+      if (form.cadence === "once" && !/^\d{4}-\d{2}-\d{2}$/.test(form.date))
+        ctx.addIssue({ code: "custom", path: ["date"], message: "Pick a date." });
+      if (
+        ["daily", "weekdays", "weekly", "once"].includes(form.cadence) &&
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(form.time)
+      )
+        ctx.addIssue({ code: "custom", path: ["time"], message: "Enter a time, like 09:30." });
+    }
+    if (form.trigger === "schedule" && form.cadence === "custom") {
+      if (!form.expression)
+        ctx.addIssue({ code: "custom", path: ["expression"], message: "Enter a schedule." });
+      else if (form.syntax === "cron" && form.expression.split(/\s+/).length !== 5)
+        ctx.addIssue({
+          code: "custom",
+          path: ["expression"],
+          message: "Cron needs five fields: minute hour day month weekday.",
+        });
+      else if (form.syntax === "rrule" && !/FREQ=/i.test(form.expression))
+        ctx.addIssue({
+          code: "custom",
+          path: ["expression"],
+          message: "An RRULE needs FREQ, like FREQ=WEEKLY;BYDAY=MO.",
+        });
+      else if (isTimeZone(form.timezone)) {
+        const error = customScheduleError({
+          kind: form.syntax,
+          expression: form.expression.trim(),
+          timezone: form.timezone,
+          startAt: form.startAt ?? 0,
+        });
+        if (error)
+          ctx.addIssue({
+            code: "custom",
+            path: ["expression"],
+            message: error,
+          });
+      }
+    }
+    if (form.trigger === "github" && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(form.repository))
+      ctx.addIssue({
+        code: "custom",
+        path: ["repository"],
+        message: "Use owner/name, like arpan404/ace.",
+      });
+    if (form.trigger === "github" && form.event === "issue_labelled" && !form.label)
+      ctx.addIssue({ code: "custom", path: ["label"], message: "Name the label to watch for." });
+    if (form.trigger === "file" && !globs(form.paths).length)
+      ctx.addIssue({ code: "custom", path: ["paths"], message: "Add at least one path." });
+  });
+export type AutomationForm = z.infer<typeof AutomationForm>;
+
+/** The file trigger's globs: one per line, blank lines dropped. */
+export const globs = (paths: string) =>
+  paths
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+/** Hour intervals offered for "Every few hours": each divides a day, so runs don't drift. */
+export const hourSteps = [1, 2, 3, 4, 6, 8, 12] as const;
+/** Minute intervals offered for "Every few minutes": each divides an hour. */
+export const minuteSteps = [1, 5, 10, 15, 30] as const;
+
+export function blankForm(workspace: string, timezone: string): AutomationForm {
+  return {
+    title: "",
+    prompt: "",
+    workspace,
+    provider: "claude",
+    model: "",
+    trigger: "schedule",
+    cadence: "daily",
+    time: "09:00",
+    day: "MO",
+    every: 6,
+    minutes: 15,
+    date: "",
+    startsAt: "",
+    timezone,
+    syntax: "rrule",
+    expression: "",
+    repository: "",
+    event: "pr_changed",
+    label: "",
+    paths: "",
+    worktree: true,
+    missedRun: "run_once",
+  };
+}
+
+export function formFromAutomation(automation: Automation, localZone: string): AutomationForm {
+  const form: AutomationForm = {
+    ...blankForm(automation.workspace, localZone),
+    title: automation.title,
+    prompt: automation.prompt,
+    provider: automation.provider,
+    model: automation.model ?? "",
+    effort: automation.effort,
+    instance: automation.instance,
+    access: automation.access,
+    worktree: automation.worktree,
+    missedRun: automation.missedRun,
+  };
+  const trigger = automation.trigger;
+  if (trigger.kind === "github")
+    return {
+      ...form,
+      trigger: "github",
+      repository: trigger.repository,
+      event: trigger.event,
+      label: trigger.label ?? "",
+    };
+  if (trigger.kind === "file") return { ...form, trigger: "file", paths: trigger.paths.join("\n") };
+  if (trigger.kind !== "schedule") return { ...form, trigger: "manual" };
+  const preset = scheduleToPreset(trigger.schedule);
+  const start = wallMoment(trigger.schedule.startAt, trigger.schedule.timezone);
+  const scheduled = {
+    ...form,
+    trigger: "schedule" as const,
+    cadence: preset.kind,
+    timezone: trigger.schedule.timezone,
+    startAt: trigger.schedule.startAt,
+    startsAt: `${start.date}T${start.time}`,
+  };
+  switch (preset.kind) {
+    case "custom":
+      return { ...scheduled, syntax: preset.syntax, expression: preset.expression };
+    case "hourly":
+      return { ...scheduled, every: preset.every };
+    case "minutes":
+      return { ...scheduled, minutes: preset.every };
+    case "once":
+      return { ...scheduled, date: preset.date, time: preset.time };
+    case "weekly":
+      return { ...scheduled, day: preset.day, time: preset.time };
+    default:
+      return { ...scheduled, time: preset.time };
+  }
+}
+
+export function presetFromForm(form: AutomationForm): SchedulePreset {
+  switch (form.cadence) {
+    case "daily":
+    case "weekdays":
+      return { kind: form.cadence, time: form.time };
+    case "weekly":
+      return { kind: "weekly", day: form.day, time: form.time };
+    case "hourly":
+      return { kind: "hourly", every: form.every };
+    case "minutes":
+      return { kind: "minutes", every: form.minutes };
+    case "once":
+      return { kind: "once", date: form.date, time: form.time };
+    case "custom":
+      return { kind: "custom", syntax: form.syntax, expression: form.expression };
+  }
+}
+
+/** The instant a form's start names, in its zone; undefined when it names none. */
+export function chosenStart(form: AutomationForm): number | undefined {
+  const match = startPattern.exec(form.startsAt);
+  return match?.[1] && match[2]
+    ? onceInstant({ date: match[1], time: match[2] }, form.timezone)
+    : undefined;
+}
+
+/**
+ * The schedule the form describes, as it will be saved, so the preview is what runs. A start
+ * still ahead begins on its first run from then; otherwise an existing schedule keeps the start
+ * that anchors its recurrence, and a new one starts now.
+ */
+export function scheduleFromForm(form: AutomationForm, now: number): AutomationSchedule {
+  const preset = presetFromForm(form);
+  const start = form.cadence === "once" ? undefined : chosenStart(form);
+  if (start !== undefined && start > now) return presetStartingAt(preset, form.timezone, start);
+  const begun = form.startAt !== undefined && form.startAt <= now ? form.startAt : now;
+  return presetToSchedule(preset, form.timezone, begun);
+}
+
+/** The trigger a submitted form describes, keeping what the form doesn't show. */
+function triggerFromForm(
+  form: AutomationForm,
+  now: number,
+  previous: Automation["trigger"] | undefined,
+): Automation["trigger"] {
+  switch (form.trigger) {
+    case "manual":
+      return { kind: "manual" };
+    case "file":
+      return { kind: "file", paths: globs(form.paths) };
+    case "github": {
+      const before = previous?.kind === "github" ? previous : undefined;
+      // The label only means something for "an issue is labelled".
+      const label = form.event === "issue_labelled" && form.label ? form.label : undefined;
+      return {
+        kind: "github",
+        repository: form.repository,
+        event: form.event,
+        ...(label ? { label } : {}),
+        ...(before?.pullRequest !== undefined ? { pullRequest: before.pullRequest } : {}),
+        pollIntervalMs: before?.pollIntervalMs ?? 300_000,
+      };
+    }
+    case "schedule":
+      return { kind: "schedule", schedule: scheduleFromForm(form, now) };
+  }
+}
+
+/**
+ * The protocol definition for a submitted form. Editing keeps the original id, enabled state,
+ * concurrency, jitter and the trigger details the form doesn't show (a GitHub trigger's pull
+ * request and poll interval, a schedule's start).
+ */
+export function automationFromForm(
+  form: AutomationForm,
+  context: { id: string; now: number; previous?: Automation | undefined },
+): Automation {
+  const previous = context.previous;
+  const trigger = triggerFromForm(form, context.now, previous?.trigger);
+  return {
+    id: previous?.id ?? context.id,
+    title: form.title,
+    enabled: previous?.enabled ?? true,
+    workspace: form.workspace,
+    provider: form.provider,
+    ...(form.access ? { access: form.access } : {}),
+    ...(form.model ? { model: form.model } : {}),
+    ...(form.effort ? { effort: form.effort } : {}),
+    ...(form.instance ? { instance: form.instance } : {}),
+    prompt: form.prompt,
+    worktree: form.worktree,
+    trigger,
+    missedRun: form.missedRun,
+    concurrency: previous?.concurrency ?? 1,
+    jitterMs: previous?.jitterMs ?? 0,
+  };
+}
+
+const titleLength = 60;
+
+/**
+ * An automation's name from its prompt, the way a thread is titled: the first sentence (or
+ * line), cut at a word near 60 characters. It can be renamed later.
+ */
+export function titleFromPrompt(prompt: string): string {
+  const first =
+    prompt
+      .trim()
+      .split(/\n|(?<=[.!?])\s/)[0]
+      ?.trim() ?? "";
+  const sentence = first.replace(/[.!?]+$/, "");
+  if (!sentence) return "Automation";
+  if (sentence.length <= titleLength) return sentence;
+  const cut = sentence.slice(0, titleLength);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > titleLength / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}

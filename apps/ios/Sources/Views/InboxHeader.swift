@@ -56,7 +56,7 @@ struct InboxHeading<Choices: View>: View {
             } else {
                 label(chevron: false)
             }
-            InboxTitle(problem: problem, openMachines: openMachines)
+            InboxTitle(scope: scope, problem: problem, openMachines: openMachines)
         }
         .fixedSize()
     }
@@ -72,17 +72,15 @@ struct InboxHeading<Choices: View>: View {
                 }
             }
             .accessibilityAddTraits(.isHeader)
-            if problem == nil, let scope {
-                Text(scope).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
-            }
         }
     }
 }
 
-/// What is wrong with the connection, once a problem has lasted 800ms, under the title; the
-/// nothing while every machine is reachable. Tapping it opens Machines.
+/// The line under the title: the scope the list shows ("All projects", "ace"), always, so a
+/// filtered list never looks like the whole inbox; and what is wrong with the connection after
+/// it, once a problem has lasted 800ms. With a problem showing, tapping the line opens Machines.
 struct InboxTitle: View {
+    let scope: String?
     let problem: InboxConnectionProblem?
     let openMachines: () -> Void
     @State private var shown: InboxConnectionProblem?
@@ -93,7 +91,7 @@ struct InboxTitle: View {
                 Button(action: openMachines) {
                     HStack(spacing: AceTheme.Spacing.sm) {
                         if shown.trying { ProgressView().controlSize(.small) } else { Image(systemName: "wifi.slash") }
-                        Text(shown.text).lineLimit(1)
+                        Text([scope, shown.text].compactMap { $0 }.joined(separator: " · ")).lineLimit(1)
                     }
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -104,6 +102,9 @@ struct InboxTitle: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityHint("Opens Machines")
                 .accessibilityIdentifier(shown.identifier)
+            } else if let scope {
+                Text(scope).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
             }
         }
         .task(id: problem) {

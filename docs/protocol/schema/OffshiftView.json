@@ -26,7 +26,8 @@
         "blocked",
         "needs_evidence",
         "waiting_on_tree",
-        "complete"
+        "complete",
+        "ended"
       ],
       "type": "string"
     },

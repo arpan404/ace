@@ -514,6 +514,22 @@
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
         "type": {
+          "const": "thread.title.regenerate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
           "const": "thread.unarchive",
           "type": "string"
         }
@@ -611,6 +627,10 @@
         "type": {
           "const": "thread.unsettle",
           "type": "string"
+        },
+        "undo": {
+          "const": true,
+          "type": "boolean"
         }
       },
       "required": [

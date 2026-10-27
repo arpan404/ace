@@ -62,22 +62,37 @@ import QuartzCore
     /// An item a search hit asked to show once its thread is open.
     var focusOnOpen: ThreadFocus?
     var inboxLoaded = false
+    /// Moves when a row's project changes, or a row joins or leaves: what search's project
+    /// choices are kept against (`MachineInbox.projectChoices`), never a scan of every row.
+    private(set) var projectsVersion = 0
     var inboxLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
     /// The Machines sheet's view of this runtime's computer (`bridge/machine-info.ts`).
     var machineStatus: MachineStatusInfo?
+    /// What the phone keeps of this machine's chats, once asked (`readCache`).
+    var cacheUsage: CacheUsage?
     var providers: MachineProvidersInfo?
+    /// Whether the machine takes new work (`bridge/machine-admission.ts`).
+    var admission: MachineAdmissionInfo?
+    /// The desktop app's update on this machine (`bridge/machine-app-update.ts`).
+    var appUpdate: MachineAppUpdateInfo?
     /// Each project's mark by workspace id, as rows draw it (`bridge/project-looks.ts`).
     var projectLooks: [String: ProjectMarkLook] = [:]
     /// The mark this machine chose; nil until it says (rows then draw a laptop).
     var machineGlyph: AceIcon.Name?
     /// False for a view-only grant: the phone reads threads but submits no commands.
     var canOperate = true
+    /// The pairing grants admin (the machine's owner); nil when this phone doesn't know its
+    /// scopes. Owner-only controls (Use my Chrome, locked use) stay offered until the daemon
+    /// refuses; admin-only settings, such as provider preferences, need it known (`== true`).
+    var canAdmin: Bool?
     /// A thread a tapped notification asked to open.
     var deepLink: String?
     @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
     /// The open thread's Agents and Changes sheets (`bridge/sheets.ts`).
     let sheets = ThreadSheetsModel()
+    /// Each thread's side panel on iPad.
+    let panels = ThreadPanels()
     /// This machine's archive while the archive sheet follows it (`bridge/archive.ts`).
     let archive = ArchiveBrowserModel()
     /// New thread and Add project on this machine; the open thread's Files sheet.
@@ -88,6 +103,7 @@ import QuartzCore
     /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
     let browser = BrowserLiveModel()
     let devices = DevicesModel()
+    let computerAccess = ComputerAccessModel()
     /// Continue on… and Open on… from this machine (`bridge/transfers.ts`).
     let transfers = TransfersModel()
     /// The daemon reads the bridge keeps, for each screen's first frame (`ReadMirror`).
@@ -112,6 +128,9 @@ import QuartzCore
     @ObservationIgnored let admissions = CommandAdmissions()
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
+    @ObservationIgnored let wordRequests = WordsRequests()
+    /// Bulk actions whose first answer left threads waiting, by ticket (`bulkFinal`).
+    @ObservationIgnored let bulkFinals = BulkFinals()
     @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
@@ -128,9 +147,11 @@ import QuartzCore
         let epoch = connectionEpoch
         let closing = retireRuntime()
         hostId = target.hostId
-        inbox.removeAll(); pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
+        inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
+        // Another machine's runtime: this one's saves and computer access no longer apply.
+        browser.forgetSaves(); computerAccess.reset()
         inboxLayout = .empty
-        machineStatus = nil; providers = nil; projectLooks = [:]; machineGlyph = nil
+        machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
@@ -214,7 +235,7 @@ import QuartzCore
     /// Patches the person is waiting on, which never wait for the batch.
     private static func urgent(_ patch: BridgePatch) -> Bool {
         switch patch {
-        case .receipt, .admission, .interaction, .connection, .notification, .pending, .error, .problem, .service: true
+        case .receipt, .admission, .bulkFinal, .interaction, .connection, .notification, .pending, .error, .problem, .service: true
         default: false
         }
     }
@@ -316,7 +337,9 @@ import QuartzCore
             case .serviceGenerations(let generations): reads.update(generations: generations)
             case .readingSettled: break // Only a held page waits for it.
             case .terminal(let patch):
-                if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
+                // Credit follows parsing, so a fast program is paced to what the phone can draw.
+                let id = patch.id
+                terminal.receive(patch) { [weak self] offset in self?.action(["type": "terminal.credit", "id": id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
             case .itemText: break // `resolveTextEdits` turns these into whole rows first.
             case .inboxReset(let ids):
@@ -328,6 +351,7 @@ import QuartzCore
                     normalizeGenerations()
                 }
                 if inbox.isEmpty, row != nil { LaunchTrace.mark("inbox.firstRow", row?.confirmed == true ? "confirmed" : "unconfirmed") }
+                if ProjectChoice.changes(inbox[id], row) { projectsVersion &+= 1 }
                 if let current = row {
                     // Missing generations (old payloads) never confirm.
                     inbox[id] = ThreadLiveActivity.effectiveRow(current, latestGeneration: activityGeneration)
@@ -350,11 +374,17 @@ import QuartzCore
             case .problem(let notice): problem = notice
             case .machineStatus(let info): machineStatus = info
             case .machineProviders(let info): providers = info
+            case .cacheUsage(let usage): cacheUsage = usage
+            case .machineAdmission(let info): admission = info
+            case .machineAppUpdate(let info): appUpdate = info
             case .projectLook(let id, let look): projectLooks[id] = look.map(ProjectMarkLook.init)
             case .machineIdentity(let glyph): machineGlyph = AceIcon.Name(rawValue: glyph)
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .notification(let patch): notificationSink?(patch)
+            case .words(let id, let ok, let text, let message, let revision):
+                wordRequests.resolve(id, .init(ok: ok, text: text, message: message, revision: revision))
+            case .bulkFinal(let ticket, let outcome): bulkFinals.resolve(ticket, outcome)
             case .receipt(let id, let ok, let message) where receipts.tracks(id):
                 // A goal change answers on its own sheet, never as the screen-wide error.
                 receipts.resolve(id, refused: ok ? nil : (message.isEmpty ? "Your computer refused that change." : message))
@@ -430,13 +460,22 @@ import QuartzCore
                 }
             case .agents(let id, let epoch, let sheet):
                 if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet; ThreadOpenTrace.shared.sheetFilled("agents") }
+            case .logs(let id, let epoch, let logs):
+                if thread?.id == id, thread?.epoch == epoch, sheets.logs != logs { sheets.logs = logs }
+            case .logsCopy(let id, let text): sheets.copies[id] = text
             case .changesSummary(let id, let epoch, let summary):
-                if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary; ThreadOpenTrace.shared.sheetFilled("changes") }
-            case .changesFile(let id, let epoch, let path, let diff):
-                if thread?.id == id, thread?.epoch == epoch { sheets.file = .init(path: path, diff: diff) }
+                if thread?.id == id, thread?.epoch == epoch { sheets.apply(summary); ThreadOpenTrace.shared.sheetFilled("changes") }
+            case .changes(let id, let epoch, let patch):
+                if thread?.id == id, thread?.epoch == epoch { sheets.apply(patch) }
             case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
             case .gitDraft(let draft): sheets.draft = draft
+            case .workSummary(let id, let epoch, let summary):
+                if thread?.id == id, thread?.epoch == epoch { sheets.work = summary; ThreadOpenTrace.shared.sheetFilled("work") }
+            case .workBranches(let id, let epoch, let branches):
+                if thread?.id == id, thread?.epoch == epoch { sheets.branches = branches }
+            case .workResult(let result): sheets.workResults[result.id] = result
             case .archiveList(let list): archive.apply(list)
+            case .workspace(let view): panels.apply(view)
             case .compose(let patch): compose.apply(patch)
             case .composer(let patch): suggestions.apply(patch)
             case .files(let patch): files.apply(patch)
@@ -445,6 +484,7 @@ import QuartzCore
                 if let thread, thread.id == id, thread.epoch == epoch { thread.screen.apply(screen) }
             case .browser(let patch): browser.apply(patch)
             case .devices(let patch): devices.apply(patch)
+            case .computerAccess(let state): computerAccess.apply(state)
             }
         }
         thread?.screen.commit()
@@ -465,6 +505,7 @@ import QuartzCore
     /// or jumps to the top while the rest arrive; it drops every other row. A kept row is no
     /// longer confirmed: only its fresh copy may say it is current again.
     private func resetInbox(keeping ids: [String]?) {
+        projectsVersion &+= 1
         guard let ids else { inbox.removeAll(); return }
         let listed = Set(ids)
         for id in inbox.ids {
@@ -496,6 +537,29 @@ import QuartzCore
         thread = nil; sheets.reset()
         ThreadOpenTrace.shared.showing(false)
         browser.close(streams: runtime?.browserStreams)
+    }
+    /// Ask how many chats the phone keeps for this machine and their size (`cacheUsage`).
+    func readCache() { action(["type": "cache.read"]) }
+    /// Drop every chat the phone keeps for this machine. The open thread stays live; the outbox
+    /// and drafts are untouched (`bridge/chat-cache.ts`).
+    func clearCache() {
+        shelf.clear()
+        action(["type": "cache.clear"])
+    }
+    /// Drop the open thread's kept copy and read it again from the machine, in place.
+    func reloadFromMachine() {
+        guard let current = thread else { return }
+        flushFrames()
+        generation += 1
+        sheets.reset()
+        browser.close(streams: runtime?.browserStreams)
+        _ = shelf.take(current.id)
+        let fresh = ThreadModel(id: current.id)
+        fresh.epoch = generation
+        ThreadOpenTrace.shared.open(current.id, warm: false)
+        thread = fresh
+        // The bridge leaves the thread, forgets its copy and opens it again under this generation.
+        action(["type": "cache.reload", "threadId": current.id])
     }
     /// Where this runtime's sockets deliver browser pictures (`ClientModel+Browser.swift`).
     var browserStreams: BrowserStreamHub? { runtime?.browserStreams }
@@ -607,6 +671,8 @@ import QuartzCore
         services.cancel()
         admissions.cancel()
         receipts.cancel()
+        wordRequests.cancel()
+        bulkFinals.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]
         browser.close(streams: runtime?.browserStreams)
         guard let runtime else { return shutdown }

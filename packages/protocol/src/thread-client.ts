@@ -6,7 +6,7 @@ import { WorktreeCreationProgress } from "./worktree-creation.ts";
 import { ExecutionOptions } from "./thread-transitions.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
-import { BackgroundTaskId, InteractionId, RunId, ThreadId, Timestamp } from "./ids.ts";
+import { BackgroundTaskId, InteractionId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
 import { ForgeRepository, LinkedPullRequest } from "./forge.ts";
 import { WorktreeBaseRecord } from "./worktree-base.ts";
 import { ThreadContinuedOn } from "./transfers.ts";
@@ -138,6 +138,11 @@ export const ThreadDetails = z.object({
       icon: MachineIcon.optional(),
     })
     .optional(),
+  /**
+   * A guest session: an agent on another machine uses this machine's tools through it, with no
+   * provider running here (ADR 0105). `name` is the calling machine's.
+   */
+  guest: z.object({ host: z.string().min(1).max(256), name: z.string().max(256) }).optional(),
   diff: z
     .object({
       files: z.number().int().nonnegative(),
@@ -201,6 +206,22 @@ export const ThreadRunMetadata = z.object({
     .optional(),
 });
 export type ThreadRunMetadata = z.infer<typeof ThreadRunMetadata>;
+/**
+ * The forge links a move to another project left behind: the project it came from and the pull
+ * requests and issues linked there. Moving back to that project restores those links (Undo after
+ * Move); branch, head and diff are read again from the checkout, never restored. Cleared once
+ * used, and replaced by the next move.
+ */
+export const ThreadMovedFrom = z.object({
+  workspaceId: WorkspaceId,
+  links: ThreadDetails.pick({
+    repository: true,
+    linkedPrs: true,
+    linkedPr: true,
+    linkedIssues: true,
+  }),
+});
+export type ThreadMovedFrom = z.infer<typeof ThreadMovedFrom>;
 export const ThreadClientFields = ThreadOrganization.extend({
   /** Sequence of the latest execution status, compared with this device's read cursor. */
   activitySeq: z.number().int().nonnegative().optional(),
@@ -208,6 +229,7 @@ export const ThreadClientFields = ThreadOrganization.extend({
   hasSentMessage: z.boolean().optional(),
   details: ThreadDetails.optional(),
   live: ThreadRunMetadata.optional(),
+  movedFrom: ThreadMovedFrom.optional(),
 });
 export type ThreadClientFields = z.infer<typeof ThreadClientFields>;
 export const ThreadClientUpdated = z.object({
@@ -221,6 +243,7 @@ export const ThreadClientUpdated = z.object({
     autoSettle: z.literal(false).nullable().optional(),
     settleWhenDone: z.literal(true).nullable().optional(),
     prSettled: z.number().int().positive().nullable().optional(),
+    movedFrom: ThreadMovedFrom.nullable().optional(),
   }),
 });
 export type ThreadClientUpdated = z.infer<typeof ThreadClientUpdated>;
@@ -238,6 +261,11 @@ export const ThreadOrganizationCommands = [
           "Must contain a non-whitespace title. The daemon trims surrounding whitespace.",
       }),
   }),
+  /**
+   * Name the thread again from its opening request, as a new thread is named: its first words at
+   * once, then the utility model's title when one is set up. A title set by hand is replaced.
+   */
+  z.object({ type: z.literal("thread.title.regenerate"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.unarchive"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.delete"), threadId: ThreadId, force: z.boolean().optional() }),
   z.object({
@@ -252,7 +280,15 @@ export const ThreadOrganizationCommands = [
   }),
   z.object({ type: z.literal("thread.read"), threadId: ThreadId, unread: z.boolean() }),
   z.object({ type: z.literal("thread.settle"), threadId: ThreadId }),
-  z.object({ type: z.literal("thread.unsettle"), threadId: ThreadId }),
+  z.object({
+    type: z.literal("thread.unsettle"),
+    threadId: ThreadId,
+    /**
+     * Take back a settle (Undo): only the settle goes. Activity, auto-settle and an agent's
+     * request to settle stay as they were, where a plain unsettle keeps the thread in the list.
+     */
+    undo: z.literal(true).optional(),
+  }),
   /** Let this thread settle by itself again (`enabled`), or keep it in the list until settled by hand. */
   z.object({ type: z.literal("thread.autoSettle"), threadId: ThreadId, enabled: z.boolean() }),
   z.object({ type: z.literal("thread.snooze"), threadId: ThreadId, until: Timestamp.nullable() }),

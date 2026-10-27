@@ -4,6 +4,7 @@ import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import { PatchPump, followThread } from "./patches.ts";
 import { ThreadSession } from "./thread-session.ts";
+import type { SubagentRetries } from "./subagent-retries.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -21,8 +22,12 @@ export const sent: string[] = [];
 export const refuseOnce = { text: "Refuse this once" };
 /** How long the daemon takes to receive a `settings.get` (a slow link), in milliseconds. */
 export const slowSettings = { ms: 0 };
+/** While `gate` is set, the outbox's saves wait for it: a send stays unsaved until then. */
+export const slowSaves: { gate: Promise<void> | undefined } = { gate: undefined };
 /** `thread.fork` commands the daemon refuses, or holds back until `release` (a slow link). */
 export const forks = { refuse: false, hold: false, release: () => {} };
+/** `queue.remove` commands the daemon refuses as if another device moved the queue first. */
+export const queueRefusals = { remove: false, edit: false };
 /** One account's `models.list`: answered `slowMs` late, or failed `fails` times first. */
 export const accountModels = { instance: "", slowMs: 0, fails: 0 };
 
@@ -38,8 +43,11 @@ export async function reset(): Promise<void> {
   await client?.close();
   native.frames.length = 0;
   slowSettings.ms = 0;
+  refuseOnce.text = "Refuse this once";
+  slowSaves.gate = undefined;
   Object.assign(forks, { refuse: false, hold: false, release: () => {} });
   Object.assign(accountModels, { instance: "", slowMs: 0, fails: 0 });
+  Object.assign(queueRefusals, { remove: false, edit: false });
   native.calls.clear();
   sent.length = 0;
 }
@@ -65,6 +73,16 @@ function refusal(text: string): string | undefined {
     });
   }
   const command = message.type === "command" ? message.command : undefined;
+  if (
+    (command?.payload?.type === "queue.remove" && queueRefusals.remove) ||
+    (command?.payload?.type === "queue.edit" && queueRefusals.edit)
+  )
+    return JSON.stringify({
+      type: "commandResult",
+      commandId: command.id,
+      ok: false,
+      error: "queue_conflict",
+    });
   if (command?.payload?.type === "thread.fork" && forks.refuse)
     return JSON.stringify({
       type: "commandResult",
@@ -97,7 +115,11 @@ export function connect(
     items,
     readSnapshots,
     held,
-  }: { items?: number; readSnapshots?: ReadSnapshotStorage; held?: Promise<void> } = {},
+  }: {
+    items?: number;
+    readSnapshots?: ReadSnapshotStorage;
+    held?: Promise<void>;
+  } = {},
 ): ClientCore {
   let saved: string | null = null;
   client = new ClientCore({
@@ -144,6 +166,7 @@ export function connect(
     storage: {
       load: async () => saved,
       save: async (value) => {
+        await slowSaves.gate;
         saved = value;
       },
     },
@@ -161,10 +184,15 @@ export function connect(
   return client;
 }
 
-export function open(owner: ClientCore, threadId: string, chunks?: ChunkReader): ThreadSession {
+export function open(
+  owner: ClientCore,
+  threadId: string,
+  chunks?: ChunkReader,
+  retries?: SubagentRetries,
+): ThreadSession {
   lease = owner.thread(threadId);
   stop = followThread(lease.store, threadId, 1, pump);
-  session = new ThreadSession(owner, lease.store, threadId, 1, pump, chunks);
+  session = new ThreadSession(owner, lease.store, threadId, 1, pump, chunks, undefined, undefined, undefined, retries);
   return session;
 }
 

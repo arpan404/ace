@@ -32,11 +32,43 @@ import { NativeAttachmentRequest, readNativeAttachment } from "./native-attachme
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
-import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
+import { NativeRichRequest, readNativeRich } from "./native-rich.ts";
+import {
+  ThreadFileIndex,
+  NativeThreadFilesRequest,
+  NativeTurnsRequest,
+  readNativeThreadFiles,
+  readNativeTurns,
+} from "./native-thread-index.ts";
+import { SentPromptRequest, readSentPrompt } from "./sent-prompt.ts";
+import {
+  UsageAccountsRequest,
+  UsageLimitsCombineRequest,
+  UsageRefreshRequest,
+  UsageResetRequest,
+  combineLimits,
+  readUsageAccounts,
+  useBankedReset,
+} from "./usage-limits.ts";
+import { UsagePartRequest, readUsagePart } from "./usage-part.ts";
+import { UsageCombineRequest, combineUsage } from "./usage-report.ts";
+import { host } from "./host.ts";
+import { HostCareRequest, type HostCare } from "./host-care.ts";
+import { HostProblem } from "./host-problem.ts";
+import { answerSettingsPage, settingsPageRequest } from "./settings-page-service.ts";
+import { answerSettingsManage, SettingsManageRequest } from "./settings-manage.ts";
+import { CustomAccentRequest, fitCustomAccent } from "./custom-accent.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
+import { ProviderServices } from "./provider-services.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
+import { NativeProjectRequest, type ProjectManage } from "./project-manage.ts";
+import { answerFleet, NativeFleetRequest } from "./fleet-admin.ts";
+import type { InboxRequests } from "./inbox-manage.ts";
+import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
+import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
+import { NativeAutomationRequest, type NativeAutomations } from "./automations.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -64,6 +96,11 @@ const Request = z.union([
   TerminalRequest,
   UsageSummary,
 ]);
+/**
+ * ADR 0002 lets a paired device hand over an API key only on the relay's encrypted
+ * `provider_auth` channel, which this bridge doesn't have, so a key never leaves the phone here.
+ */
+const ApiKeyHandOver = z.object({ type: z.literal("provider.login.apiKey") });
 const DeviceRequestType = z.object({
   type: z.enum(["devices.request", "devices.gesture", "devices.tree"]),
 });
@@ -91,6 +128,10 @@ export class NativeServices {
    */
   #keeping = new Set<string>();
   readonly transcript: NativeTranscript;
+  /** The Attachments lists last read, for opening a listed file without listing again. */
+  readonly threadFiles = new ThreadFileIndex();
+  /** The files the fork being written in a thread carries, which its list can't remove. */
+  carried: (threadId: string) => ReadonlySet<string> = () => new Set();
   readonly owner: ClientCore;
   readonly sink: PatchSink;
   readonly devices: NativeDevices | undefined;
@@ -98,6 +139,14 @@ export class NativeServices {
   readonly files: CheckoutFiles | undefined;
   readonly forge: ForgeService | undefined;
   readonly reads: NativeReads | undefined;
+  readonly projects: ProjectManage | undefined;
+  readonly inbox: InboxRequests | undefined;
+  readonly care: HostCare | undefined;
+  /** A provider's Settings page: its reads, edits and CLI installs (`provider-services.ts`). */
+  readonly providers: ProviderServices;
+  readonly skills: NativeSkillLibrary;
+  readonly plugins: NativeSkillPlugins;
+  readonly automations: NativeAutomations | undefined;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
@@ -106,6 +155,11 @@ export class NativeServices {
     files?: CheckoutFiles,
     forge?: ForgeService,
     reads?: NativeReads,
+    projects?: ProjectManage,
+    inbox?: InboxRequests,
+    care?: HostCare,
+    now: () => number = () => 0,
+    automations?: NativeAutomations,
   ) {
     this.owner = owner;
     this.sink = sink;
@@ -115,6 +169,24 @@ export class NativeServices {
     this.files = files;
     this.forge = forge;
     this.reads = reads;
+    this.skills = new NativeSkillLibrary(owner, now);
+    this.plugins = new NativeSkillPlugins(owner);
+    this.automations = automations;
+    this.projects = projects;
+    this.inbox = inbox;
+    this.care = care;
+    this.providers = new ProviderServices(owner);
+  }
+  /**
+   * This runtime's services are stopping or being replaced: requests in flight are cancelled,
+   * the provider install controllers stop following the old client and kept work lets go.
+   */
+  dispose(): void {
+    for (const controller of this.#pending.values()) controller.abort();
+    this.#pending.clear();
+    this.#keeping.clear();
+    this.projects?.dispose();
+    this.providers.dispose();
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
@@ -140,6 +212,7 @@ export class NativeServices {
     this.#pending.set(id, controller);
     if (read) this.#keeping.add(id);
     try {
+      if (ApiKeyHandOver.safeParse(raw).success) throw new Error("API keys stay off the phone");
       const screen = NativeScreenRequest.safeParse(raw);
       if (screen.success && this.screen) {
         try {
@@ -182,6 +255,36 @@ export class NativeServices {
         }
         return;
       }
+      const organizing = this.inbox?.(raw, id);
+      if (organizing) {
+        this.#reply(id, true, await organizing, "");
+        return;
+      }
+      const project = NativeProjectRequest.safeParse(raw);
+      if (project.success && this.projects) {
+        this.#reply(
+          id,
+          true,
+          await this.projects.answer(project.data.request, controller.signal),
+          "",
+        );
+        return;
+      }
+      const fleet = NativeFleetRequest.safeParse(raw);
+      if (fleet.success) {
+        this.#reply(id, true, await answerFleet(this.owner, fleet.data), "");
+        return;
+      }
+      const skills = NativeSkillsRequest.safeParse(raw);
+      if (skills.success) {
+        this.#answer(id, raw, await this.skills.answer(skills.data, controller.signal), read);
+        return;
+      }
+      const plugins = NativePluginsRequest.safeParse(raw);
+      if (plugins.success) {
+        this.#answer(id, raw, await this.plugins.answer(plugins.data, controller.signal), read);
+        return;
+      }
       const message = NativeMessageRequest.safeParse(raw);
       if (message.success) {
         this.#reply(
@@ -192,9 +295,113 @@ export class NativeServices {
         );
         return;
       }
-      const limits = UsageLimitsRequest.safeParse(raw);
-      if (limits.success) {
-        this.#answer(id, raw, await readUsageLimits(this.owner, controller.signal), read);
+      const provider = await this.providers.answer(raw, controller.signal);
+      if (provider) {
+        this.#answer(id, raw, provider.value, read);
+        return;
+      }
+      const accent = CustomAccentRequest.safeParse(raw);
+      if (accent.success) {
+        const fitted = fitCustomAccent(accent.data);
+        this.#reply(
+          id,
+          fitted !== undefined,
+          fitted ?? null,
+          fitted ? "" : "That colour can't be used.",
+        );
+        return;
+      }
+      const sent = SentPromptRequest.safeParse(raw);
+      if (sent.success) {
+        this.#reply(id, true, readSentPrompt(this.owner, sent.data), "");
+        return;
+      }
+      const rich = NativeRichRequest.safeParse(raw);
+      if (rich.success) {
+        this.#reply(id, true, await readNativeRich(rich.data), "");
+        return;
+      }
+      const turns = NativeTurnsRequest.safeParse(raw);
+      if (turns.success) {
+        this.#reply(id, true, await readNativeTurns(this.owner, turns.data, controller.signal), "");
+        return;
+      }
+      const threadFiles = NativeThreadFilesRequest.safeParse(raw);
+      if (threadFiles.success) {
+        this.#reply(
+          id,
+          true,
+          await readNativeThreadFiles(
+            this.owner,
+            threadFiles.data,
+            controller.signal,
+            this.threadFiles,
+            this.carried(threadFiles.data.threadId),
+          ),
+          "",
+        );
+        return;
+      }
+      const accounts = UsageAccountsRequest.safeParse(raw);
+      if (accounts.success) {
+        this.#answer(id, raw, await readUsageAccounts(this.owner, false, controller.signal), read);
+        return;
+      }
+      if (UsageRefreshRequest.safeParse(raw).success) {
+        this.#reply(id, true, await readUsageAccounts(this.owner, true, controller.signal), "");
+        return;
+      }
+      const reset = UsageResetRequest.safeParse(raw);
+      if (reset.success) {
+        this.#reply(id, true, await useBankedReset(this.owner, reset.data, controller.signal), "");
+        return;
+      }
+      const part = UsagePartRequest.safeParse(raw);
+      if (part.success) {
+        this.#answer(id, raw, await readUsagePart(this.owner, part.data, controller.signal), read);
+        return;
+      }
+      // Sums other machines' parts in shared code; nothing here reaches this machine.
+      const combine = UsageCombineRequest.safeParse(raw);
+      if (combine.success) {
+        this.#reply(id, true, combineUsage(combine.data), "");
+        return;
+      }
+      const combineAccounts = UsageLimitsCombineRequest.safeParse(raw);
+      if (combineAccounts.success) {
+        this.#reply(id, true, combineLimits(combineAccounts.data, host.now()), "");
+        return;
+      }
+      const care = HostCareRequest.safeParse(raw);
+      if (care.success && this.care) {
+        try {
+          this.#answer(id, raw, await this.care.answer(care.data, controller.signal), read);
+        } catch (error) {
+          // Storage, diagnostics and pausing say what went wrong in the person's words.
+          if (!(error instanceof HostProblem)) throw error;
+          this.#reply(id, false, null, error.message);
+        }
+        return;
+      }
+      const page = settingsPageRequest(raw);
+      if (page) {
+        this.#answer(id, raw, await answerSettingsPage(this.owner, page, controller.signal), read);
+        return;
+      }
+      const manage = SettingsManageRequest.safeParse(raw);
+      if (manage.success) {
+        this.#reply(
+          id,
+          true,
+          await answerSettingsManage(this.owner, manage.data, controller.signal),
+          "",
+        );
+        return;
+      }
+      const automation = NativeAutomationRequest.safeParse(raw);
+      if (automation.success && this.automations) {
+        const value = await this.automations.answer(automation.data, controller.signal);
+        this.#answer(id, raw, value, read);
         return;
       }
       const transcript = NativeTranscriptRequest.safeParse(raw);
@@ -217,7 +424,12 @@ export class NativeServices {
         this.#reply(
           id,
           true,
-          await readNativeAttachment(this.owner, attachment.data, controller.signal),
+          await readNativeAttachment(
+            this.owner,
+            attachment.data,
+            controller.signal,
+            this.threadFiles,
+          ),
           "",
         );
         return;

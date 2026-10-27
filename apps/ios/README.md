@@ -36,6 +36,10 @@ or performance runs. Contract sends deliberately add inputs to its history. The
 streaming thread's turn never ends (`ACE_IOS_SPIKE_STREAMED=650000` starts it as if it had
 streamed that many deltas, about nine hours, to check that a long-running thread opens at once), so a queued follow-up waits in the daemon queue,
 outside the transcript, as it would on a real daemon; `GET /queue?thread=ID` lists it.
+`ios-subagents` holds native subagents that failed, were stopped, wait on a usage limit, or
+finished while a subagent under them asks the person, with an Offshift run held by a blocker;
+`ios-big-tree` holds 162 subagents and 45 background commands for the Agents sheet's pages, with a
+delivered run that must read Working while two subagents still work (`scripts/subagent-scenario.ts`).
 `ACE_IOS_SPIKE_HISTORY=8000` seeds the streaming thread with that many history messages
 instead of 1,999, so reading far back slides the 400-item history window past its bound.
 
@@ -93,6 +97,14 @@ Budgets fail tests when the app gets slower. Two suites hold them:
   of about 60 steps, a step's diff, a thought, and a thought read in full. The app times each from
   the tap to its content laid out, with the bridge traffic the open caused
   (`Sources/Models/DisclosureTrace.swift`, a `disclosure.open` signpost and one `perf` line).
+
+- `AceTests/TerminalPerformanceTests`, in-process, in the configuration the tests run in: the
+  terminal emulator (`Sources/Terminal`) parsing a coloured build log (budget 2 MB/s, measured
+  6.3 MB/s in Debug on the iOS 26 simulator, 2026-10-27), parsing one 120×50 full-screen redraw
+  (budget 8 ms, measured 1.0 ms) and building every row of a 50-row coloured screen for drawing
+  (budget 16 ms, measured 5.8 ms; only changed rows are rebuilt while output streams). Output is
+  parsed off the main thread in 4,096-character slices and credit to the daemon follows parsing,
+  so a program printing faster than the phone draws is paced rather than queued.
 
 Run the UI budgets with two fixtures, the second for the busy inbox:
 
@@ -292,6 +304,25 @@ maps token keys to theme colours and draws the rows. Archive, unarchive (Undo), 
 presets and wake go through the SDK's durable outbox. `InboxContractTests` and
 `InboxUITests` exercise the inbox against the fixture.
 
+Every thread action is a visible control: the open thread's ⋯ and Select mode's bar of words
+carry all of them, and a row's long press (a preview over the same menu) and swipes repeat them.
+Each row carries its action ids from the web's shared `threadMenu` (`@ace/ui-core`), with the
+words in the layout's `menuLabels`. Read, auto-settle and move go through the inbox action;
+delete and every action on several threads go through `inbox.bulk` (`bridge/inbox-manage.ts`),
+which waits a few seconds for the machine's answers so the phone can offer Stop and delete.
+`OrganizeUITests` drive these against the fixture.
+
+Search (the bar's magnifying glass, ⌘K or ⌘F) is search everything: before a query, recent
+searches and every command; with one, commands, settings, projects and threads of every paired
+machine, ranked by the web palette's `rankCommand` (`bridge/palette.ts`), then their messages,
+with kind, project and date filters. The Threads and Thread menus (iPad menu bar and the ⌘-hold
+overlay) carry the web's keys where iPadOS leaves them free.
+
+`ace://` links open the app (`CFBundleURLTypes`): `ace://thread/<id>[/item/<item>][?machine=<host>]`,
+`ace://settings[/<page>]` and `ace://new[?project=<id>]`, read by the shared `readAceLink`
+(`@ace/ui-core`), the desktop's reader too. Copy link writes the thread form. Universal links
+need a hosted domain, which ace doesn't have (ADR 0002).
+
 ## Pull requests and Issues
 
 The second tab (Pulls) holds the web's Pull requests and Issues pages for one machine and
@@ -320,6 +351,28 @@ locked conversation refuses comments before sending, an edit or delete expects t
 phone showed, a lifecycle change names the version shown, and an answer that never came is
 shown as unconfirmed with Reconcile (review and lifecycle writes) or Send again (inbox writes,
 which set a state). `@` and `#` complete through `forge.complete` in every editor.
+
+Working on a pull request from its page (`bridge/forge-checks.ts`, `forge-log-pages.ts`,
+`forge-worktree.ts`, `forge-conflicts.ts`, `forge-stack.ts`; rules in `@ace/ui-core`'s
+`pr-check-model`, `pr-conflicts-model`, `pr-stack-controls`, `pr-revert`, shared with the web):
+each check opens a page with its summary, annotations, steps and a log read 200 lines at a
+time from the failure, with Re-run failed jobs, Re-run all jobs, Cancel run (asked first) and
+Fix with agent, which drafts the request in the linked thread's composer or, with none, opens
+New thread on the PR. The project's local check runs, stops and shows its log beside them. The
+Work section checks the PR's head out in a linked thread or starts a thread on it (a worktree
+of the head shown, `thread.create`'s `pullRequest`); Merge conflicts resolves hunk by hunk
+(ours, theirs, both, or edited), hands a file to the agent, then finishes and pushes or aborts;
+Stack shows the layers and every stack change the web offers, each confirmed in words naming
+it. A merged PR offers Revert, an editable draft. `bridge/forge-pr-work.test.ts` covers these on
+the fake daemon, and `ForgePrWorkUITests` drives them on the fixture.
+
+Files changed reads one commit, a span of two, or the commits since the signed-in reviewer's
+last review (`forge.pr.files` with `since`, the reviewers' `viewer` and each review's
+`commitSha`; `sinceLastReview` in `@ace/ui-core`). Commits lists them. A file's toolbar has Wrap,
+Side by side (landscape and iPad), Rendered for Markdown and Viewed, version-aware: a mark from
+an older head reads "Changed since viewed". Images compare side by side or by swipe, bytes read
+through the daemon. A tapped line, extended with Select more, takes one comment across the span.
+`bridge/forge-code-review.test.ts` and `ForgeCodeReviewUITests` cover them.
 
 Pull request and issue text draws natively from blocks `bridge/forge-rich.ts` builds with the
 web's rules (`@ace/ui-core/forge-rich`): GitHub's HTML subset through the web's allowlist,
@@ -392,6 +445,43 @@ open `Views/Browser/BrowserLiveView` full screen; the request's Done is offered 
   devices channel. Tests: `DeviceStreamTests` (daemon-encoded pieces), `DeviceH264Tests`,
   `DeviceViewportTests`.
 
+## iPad side panel
+
+On iPad, and in any regular window wide enough, a thread's tools open as tabs in a side panel
+beside it rather than over it: Changes, Files, Terminal, Browser and Agents, each the same screen
+the phone opens as a sheet (`Sources/Views/Workspace`). The panel is the split view's inspector
+column, so each tab's screen keeps its own bar and stack. The thread bar's panel button shows
+and hides it; + opens a tool; ⋯ pins, moves and closes the tab showing, closes the others and
+reopens the last closed. Tabs also drag to reorder and carry the same actions in a context menu.
+The panel's edge resizes it. The Panel menu (⇧⌘B, ⇧⌘D, ⌘P, ⌃\`, ⌃⇧B, ⌃⇧A, ⇧⌘[ and ], ⌥⌘W,
+⇧⌥⌘T) repeats those controls.
+
+The rules are shared with the web and any tablet app (`@ace/ui-core/tablet-workspace`, on top of
+the web's `@ace/ui-core/workspace-tabs`): what a thread starts with (Changes and Files, pinned),
+what a tool's key does, where a closed tab comes back, and what each thread remembers across
+launches (its tabs, the tab showing, whether the panel shows, its width). Each machine's bridge
+keeps its threads' panels (`bridge/workspace.ts`) in its own database. Where the panel goes is
+the window's: beside the thread when the thread keeps 440 points next to a panel of at least
+320; in portrait the thread list steps aside while the panel shows; narrower, and in every
+compact window, the tools open over the thread as on a phone.
+
+The inspector sits on the split view itself, not inside the thread's stack, so each panel
+screen has its own bar and stack: its actions (Changes' git menu and step, Agents' Stop all,
+Files' search and manage menu, the browser's Keyboard; `screenBar`) and anything it opens (a
+file, an agent's transcript) stay in the panel, and the thread's bar keeps only its ⋯ and the
+panel button. The tab strip's own menu is a caret, so no two ⋯ sit together. As sheets on
+iPhone the screens are unchanged.
+
+Run and preview joins the panel when `ProjectScriptsView` (the projects branch) and this panel
+are on one branch. The shared rules already offer it as "Run and preview" (kind `preview`). Add:
+
+1. `case preview` to `PanelTool` (`Sources/Models/ThreadPanels.swift`).
+2. In `ThreadDestination.panelTool` (`Sources/Views/ThreadToolbar.swift`): `case .scripts: .preview`.
+3. In `PanelContent` (`Sources/Views/Workspace/PanelContent.swift`):
+   `case .preview: NavigationStack { ProjectScriptsView(model: model, threadId: thread.id) { url in
+   model.browserNewTab(url); model.panel(thread.id, ["op": "open", "kind": "browser"]) } }`, so a
+   dev server opens in the panel's Browser tab rather than over the thread.
+
 ## Agents and Changes sheets
 
 The thread header opens two detent sheets (`Views/Agents`, `Views/Changes`). The bridge
@@ -416,6 +506,25 @@ follows each only while its sheet is shown (`bridge/sheets.ts`), and navigation 
 tree, a running background command, usage, and a three-file diff. The diff includes a
 3,000-line file and a long line. Set `ACE_IOS_SPIKE_PORT` and launch with
 `--spike-port N` to run a fixture beside another agent's.
+
+## Work sheet
+
+The thread header's "project · branch" line, and Work in ⋯, open the thread's Work
+(`Views/Work`, `bridge/work.ts`), followed only while shown like the sheets above. It shows where
+the checkout lives (machine, project, folder; local or a worktree, with a move to the other), the
+branch (a searchable switch, branches read only when the picker opens), linked pull requests (each
+opens on GitHub; Link a PR by number or address; Unlink is a red word, asked first) and what stops
+the checkout. The rules are `@ace/ui-core/work-checkout`, shared with the web's Work card: whether
+the checkout may move (never under live agents), the failed or unconfirmed move with Retry and a
+confirmed Clear, a missing worktree, a failed setup script with Retry and Continue without setup,
+and the question when a move meets uncommitted changes. Writes go through `thread.workspace.*`,
+`forge.pr.link`/`unlink` and `git.lock.clear` once each (`bridge/work-actions.ts`); an answer that
+never came is shown as unconfirmed. The same problems, and a stale Git lock an earlier daemon left,
+show as one line above the composer (`bridge/work-line.ts`) with their ways out as words, and a Not
+sent row stopped by the lock offers Clear stale lock. The daemon already retires such locks by
+itself once their daemon and Git processes are gone; the button is the last resort.
+`POST /review/work {"scenario": "clean" | "stuck" | "locked"}` seeds a fresh thread per
+`WorkUITests` test (`scripts/work-scenario.ts`).
 
 ## New thread, projects and files
 

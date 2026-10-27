@@ -1,3 +1,4 @@
+import { SendOps } from "./send-ops.ts";
 import { HostId } from "@ace/protocol";
 import { attachmentReadScope } from "./attachment-scope.ts";
 import { AttachmentStreams } from "./attachment-channel.ts";
@@ -136,6 +137,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   /** Read snapshots still being written by collections already closed. */
   #checkpoints = new Set<Promise<void>>();
   #intents: Intents;
+  /** Edits and retries of failed sends, one at a time per send, for every screen on this client. */
+  readonly sendOps = new SendOps();
   #statusChecks: CommandStatusChecks;
   #admissions: CommandAdmissions;
   readonly #recordings = new CommandRecordings();
@@ -441,6 +444,13 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   commandId(): string {
     return CommandId.parse(this.options.id());
   }
+  /**
+   * New words for a send that failed, in place in the outbox (one saved write; a failed write
+   * keeps the original). Send it again with `retrySend`.
+   */
+  editFailedSend(id: string, payload: CommandPayload): Promise<void> {
+    return this.#intents.rewrite(id, payload);
+  }
   pendingSend(id: string): PendingSend | undefined {
     return this.#pendingSendEntries.get(id);
   }
@@ -518,6 +528,22 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   thread(id: string): ThreadSubscription {
     if (this.closed) throw new ClientError("offline");
     return this.#subscriptions.acquire(id);
+  }
+  /**
+   * Forget what this client keeps of a thread (ADR 0105): its store, when no view holds it, and
+   * its read snapshot. The next open reads it from the daemon. Durable sends are untouched.
+   */
+  forgetThread(id: string): Promise<void> {
+    this.#subscriptions.discard(id);
+    return this.#snapshots?.delete(`thread:${id}`) ?? Promise.resolve();
+  }
+  /**
+   * Drop every read snapshot and every thread store no view holds. Threads still open stay live
+   * and are kept again as they change. Durable sends and drafts are untouched.
+   */
+  clearReadSnapshots(): Promise<void> {
+    this.#subscriptions.discardUnheld();
+    return this.#snapshots?.clearAll() ?? Promise.resolve();
   }
   cachedThread(id: string): ThreadSource | undefined {
     return this.closed ? undefined : this.#subscriptions.cached(id);

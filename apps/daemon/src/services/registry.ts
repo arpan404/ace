@@ -55,8 +55,11 @@ import { createModelsSession } from "./models.ts";
 import { createReviewSession } from "./review.ts";
 import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
+import { createAdmissionSession } from "./admission.ts";
+import { createAppUpdateSession } from "./app-update.ts";
 import { createActivityReadsSession } from "./activity-reads.ts";
 import { createVerifySession } from "./verify.ts";
+import { createOffshiftSession } from "./offshift.ts";
 import { createIconsSession } from "./icons.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
@@ -71,6 +74,7 @@ export const socketServiceFactories = [
   createAutomationsSession,
   createActivityReadsSession,
   createVerifySession,
+  createOffshiftSession,
   createIconsSession,
   createThreadOrganizationSession,
   createWorkspaceActionsSession,
@@ -111,6 +115,8 @@ export const socketServiceFactories = [
   createThreadTransitionsSession,
   createEngineSession,
   createDiagnosticsSession,
+  createAdmissionSession,
+  createAppUpdateSession,
 ];
 export function createSocketRegistry() {
   const simulators = new Simulators(process.platform);

@@ -59,6 +59,8 @@
     "remote.transferIgnoredFiles",
     "remote.hostedPairingLink",
     "remote.relayUrl",
+    "notifications.remotePush",
+    "notifications.pushGatewayUrl",
     "automations.enabled",
     "agents.maxRunningChildren",
     "generation.model",

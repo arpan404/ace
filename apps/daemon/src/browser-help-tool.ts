@@ -1,4 +1,6 @@
 import type { BrowserService } from "@ace/browser";
+import { z } from "zod";
+import type { BrowserMachineRoute } from "@ace/browser";
 import type { Toolkit } from "@ace/mcp-server";
 import type { ThreadId } from "@ace/protocol";
 import {
@@ -30,20 +32,40 @@ export function browserHelpTab(browser: BrowserService): BrowserHelpTab {
 }
 
 /** `browser_request_help`, beside the browser tools (ADR 0067, collaboration). */
-export function browserHelpToolkit(help: BrowserHelp): Toolkit {
+export function browserHelpToolkit(help: BrowserHelp, route?: BrowserMachineRoute): Toolkit {
   return {
     register(registry) {
-      registry.register({
+      registry.registerContent({
         name: "browser_request_help",
         title: "Ask the person to act in a tab",
         riskClass: "thread-write",
         description:
           "Ask the person to sign in, solve a CAPTCHA, enter a code or answer a dialog in a tab; never type credentials yourself. skipped: work around it. pending: end your turn; their answer comes as a message.",
-        input: BrowserHelpInput,
-        output: BrowserHelpResult,
+        input: route
+          ? BrowserHelpInput.extend({
+              machine: z
+                .string()
+                .regex(/^[a-zA-Z0-9_.-]{1,64}$/)
+                .optional(),
+            })
+          : BrowserHelpInput,
         capability: "browser",
         timeoutMs: 250_000,
-        run: (input, { caller, signal }) => help.request(caller, input, signal),
+        run: async (input, context) => {
+          const { machine, ...args } = z
+            .object({ machine: z.string().optional() })
+            .passthrough()
+            .parse(input);
+          if (route && machine)
+            return route(
+              { machine, tool: "browser_request_help", args, timeoutMs: 245_000 },
+              context,
+            );
+          const result = BrowserHelpResult.parse(
+            await help.request(context.caller, BrowserHelpInput.parse(args), context.signal),
+          );
+          return { content: [{ type: "text", text: JSON.stringify(result) }] };
+        },
       });
     },
   };

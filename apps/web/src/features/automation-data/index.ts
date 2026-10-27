@@ -42,5 +42,5 @@ export {
   scheduleStateCopy,
   type TriggerHealth,
   type ScheduleState,
-} from "./trigger-health.ts";
+} from "@ace/ui-core/automations";
 export { useProjectAutomations, WorkAutomations } from "./work-automations.tsx";

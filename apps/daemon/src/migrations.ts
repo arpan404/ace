@@ -9,6 +9,8 @@ import {
   machineChildGenerations,
   machineChildLaunches,
   machineChildReach,
+  machineGrants,
+  machineJobs,
 } from "./machine-tables.ts";
 
 const migrations = [
@@ -148,6 +150,10 @@ const migrations = [
   machineChildLaunches,
   // Remote children stay reachable: their pairing, a parent's children, refused messages.
   machineChildReach,
+  // Per linked machine, per capability grants; defaults need no backfill.
+  machineGrants,
+  // Remote command jobs that hold their calling thread open; no rows exist before it.
+  machineJobs,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the

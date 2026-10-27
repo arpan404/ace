@@ -21,6 +21,8 @@ const pump = new PatchPump();
 native.ack = (accepted) => pump.ack(accepted);
 const sent: string[] = [];
 let client: ClientCore | undefined;
+/** While set, the outbox's saves wait for it: a new thread stays unsaved until then. */
+let slowSaves: Promise<void> | undefined;
 let sidebar: { release(): void } | undefined;
 
 afterEach(async () => {
@@ -29,6 +31,7 @@ afterEach(async () => {
   client = undefined;
   native.frames.length = 0;
   sent.length = 0;
+  slowSaves = undefined;
 });
 
 async function connect(
@@ -55,6 +58,7 @@ async function connect(
     storage: {
       load: async () => saved,
       save: async (value) => {
+        await slowSaves;
         saved = value;
       },
     },
@@ -217,6 +221,21 @@ test("an existing folder on the computer is found, added as a project and offere
     return patch?.state === "ready" && patch;
   });
   expect((projects.projects as { id: string }[]).map((row) => row.id)).toContain(added.projectId);
+});
+
+test("a folder outside the computer's project folders is refused in words, with Allow offered", async () => {
+  const daemon = fixture();
+  daemon.projects.seedFolders("/home/ada", [{ path: "/home/ada/code/notes" }], {
+    roots: ["/home/ada/code/other"],
+  });
+  const compose = await connect(daemon);
+  compose.compose({ kind: "addProject", path: "/home/ada/code/notes", requestId: "add-outside" });
+  const refused = await until(() => latest("compose.added", "add-outside"));
+  expect(refused).toMatchObject({
+    ok: false,
+    canAllow: true,
+    message: expect.stringContaining("Allow it here"),
+  });
 });
 
 const photo = Buffer.alloc(70 * 1024, 9);
@@ -425,6 +444,37 @@ test("a thread started from an issue links that issue", async () => {
   });
 });
 
+test("a thread started from a pull request opens in a worktree of the head the person saw", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string } | null;
+  const pullRequest = {
+    ref: {
+      repository: { forge: "github", host: "github.com", owner: "acme", name: "ace" },
+      number: 233,
+    },
+    headSha: "a".repeat(40),
+  };
+  compose.compose({
+    kind: "create",
+    commandId: "draft-pull-0001",
+    workspaceId: "ace",
+    provider: start?.provider,
+    model: start?.model,
+    mode: "local",
+    text: "Fix the failing test",
+    pullRequest,
+  });
+  await until(() => latest("admission", "draft-pull-0001"));
+  expect(createPayloads().at(-1)).toMatchObject({
+    type: "thread.create",
+    workspaceId: "ace",
+    mode: "worktree",
+    pullRequest,
+  });
+});
+
 test("New thread opens again on its last projects and agents, and keeps them when the reread fails", async () => {
   const daemon = fixture();
   const compose = await connect(
@@ -499,4 +549,62 @@ test("a chat with no project starts in its own hidden project, with its photo, a
   expect(ids).toContain("ace");
   expect(ids).not.toContain(first?.workspaceId);
   expect(ids).not.toContain(second?.workspaceId);
+});
+
+test("a file picked while the new thread is being saved is refused on its row, never dropped", async () => {
+  const compose = await connect(fixture(), staged);
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string };
+  compose.compose({ kind: "attach", workspaceId: "ace", file: picked });
+  await until(
+    () => (latest("compose.attachments") as Attachments | undefined)?.files[0]?.state === "ready",
+  );
+  const { promise, resolve } = Promise.withResolvers<void>();
+  slowSaves = promise;
+  compose.compose({
+    kind: "create",
+    commandId: "draft-command-0030",
+    workspaceId: "ace",
+    provider: start.provider,
+    model: start.model,
+    mode: "local",
+    text: "Start with this",
+  });
+  type Locked = { files: { id: string; state: string; error: string }[]; locked?: string };
+  const tray = () => latest("compose.attachments") as Locked | undefined;
+  await until(() => tray()?.locked);
+  compose.compose({
+    kind: "attach",
+    workspaceId: "ace",
+    file: { ...picked, localId: "photo-late-0002", name: "late.png" },
+  });
+  await until(() => tray()?.files.some((file) => file.id === "photo-late-0002"));
+  expect(tray()?.files.find((file) => file.id === "photo-late-0002")).toMatchObject({
+    state: "failed",
+    error: expect.stringMatching(/Wait for the thread to start/),
+  });
+  slowSaves = undefined;
+  resolve();
+  expect((await until(() => latest("admission", "draft-command-0030"))).ok).toBe(true);
+  // The thread took only the photo it was sent with.
+  expect(createPayloads().at(-1)).toMatchObject({
+    context: { attachments: [{ sha256: photoSha }] },
+  });
+});
+
+test("a star the computer refuses says stars are changed there, not to reconnect", async () => {
+  const daemon = new FakeDaemon({
+    clock: Date.now,
+    hostId: "ios-test-host",
+    token: "ios-test-token",
+    deviceScopes: { "ios-compose-test": ["read", "operate"] },
+  });
+  const compose = await connect(daemon);
+  await readyAgents(compose);
+  compose.compose({ kind: "favorite", key: "claude\u0000sonnet" });
+  const agents = await until(() => {
+    const patch = latest("compose.agents");
+    return patch?.starProblem ? patch : undefined;
+  });
+  expect(agents.starProblem).toBe("Stars are changed in ace on the computer.");
 });

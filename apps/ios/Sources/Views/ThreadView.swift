@@ -6,7 +6,9 @@ struct ThreadView: View {
     @Environment(\.closeOpenThread) private var closeOpenThread
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
+    @Environment(\.threadDrafts) private var drafts
+    @Environment(\.startNewThread) private var startNewThread
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
     /// Push another thread (a delegated child or a conversation this one started).
@@ -23,15 +25,24 @@ struct ThreadView: View {
     @State private var media: TranscriptRow?
     @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
+    @State private var showScripts = false
     @State private var showComputer = false
     @State private var devicesRoute: DevicesRoute?
     @State private var activityProblem: String?
     @State private var showAgents = false
     @State private var showChanges = false
+    @State private var showWork = false
+    /// The problem line's and Not sent's ways out: one at a time, with their questions.
+    @State private var workRunner = WorkRunner()
+    @State private var confirmingLock = false
     @State private var showTerminal = false
     @State private var showBrowser = false
+    @State private var showLogs = false
+    @State private var showOffshift = false
     @State private var showSearch = false
     @State private var showQueue = false
+    /// Where the iPad's side panel goes; `.none` keeps every tool over the thread, as on a phone.
+    @Environment(\.panelPlace) private var panelPlace
     /// The goal's sheet, named by the navigation generation it was opened on: its changes are for
     /// that one. The generation rides on the presentation itself, since a sheet keeps the content
     /// it was first built with and a value captured beside it would be the one before opening.
@@ -50,6 +61,16 @@ struct ThreadView: View {
     @State private var suggester = ComposerSuggester()
     /// "Attach files" picked from `/`: the + menu's three sources are offered.
     @State private var askAttach = false
+    @State private var renaming = false
+    @State private var transitionSheet: ThreadSheet?
+    /// The fork the composer writes to, once its words are in place (`screen.fork`).
+    @State private var forkKey: String?
+    /// Bumped to bring the keyboard up: a fork opened, a message edited.
+    @State private var composerFocus = 0
+    /// Each fork the machine started: a success tap as it opens.
+    @State private var forksStarted = 0
+    /// Finished answers' math, code colours and diff lines, kept while the thread is open.
+    @State private var rich: MarkdownRich?
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
     /// Starting prefers the inbox's current row (confirmed or not, so an unconfirmed start
     /// still reads Syncing); without one it falls back conservatively as unconfirmed.
@@ -77,8 +98,8 @@ struct ThreadView: View {
     var body: some View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
-                                                openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
-                                                openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status },
+                                                openMedia: { media = $0 }, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
+                                                openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
@@ -90,11 +111,18 @@ struct ThreadView: View {
             }
             .toolbar {
                 ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread),
-                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
-                                               open: open, problem: { activityProblem = $0 }, leave: leave))
+                              rename: model.canOperate && !archived ? { renaming = true } : nil,
+                              retitle: model.canOperate && !archived ? { Task { _ = await model.retitle(thread.id) } } : nil,
+                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, hasActivity: activityRow != nil, activityRow: { activityRow },
+                                               open: open, opensInPanel: panelPlace != .none, problem: { activityProblem = $0 }, leave: leave),
+                              openWork: { showWork = true }, newThread: startNewThread,
+                              panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) })
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
+            // The thread's own keyboard commands, in the iPad menu bar and ⌘-hold overlay. Its
+            // own view, so the row it reads redraws only it, never the transcript.
+            .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
                 if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
                     StateLabel(status: status)
@@ -103,7 +131,29 @@ struct ThreadView: View {
                         .background(AceTheme.Colours.background)
                 }
             }
-            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal)
+            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal, work: $showWork, logs: $showLogs)
+            .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet,
+                               openThread: openThread)
+            .environment(\.markdownRich, rich)
+            // The math page starts only when a formula arrives (`MathRenderer`), never on opening.
+            .task { if rich == nil { rich = MarkdownRich(model: model) } }
+            .sensoryFeedback(.success, trigger: forksStarted)
+            // A new thread started from this one (a fork, a continuation): a success tap as it opens.
+            .onChange(of: screen.continued) { _, opened in if opened != nil { forksStarted += 1 } }
+            // A fork opened: its words go where the composer keeps them (an edited message's to
+            // start with), then the composer writes to it with the keyboard up.
+            .onChange(of: screen.fork?.key, initial: true) { _, key in
+                guard let fork = screen.fork, let hostId = model.hostId, key != nil else {
+                    forkKey = nil
+                    return
+                }
+                let kept = ThreadDrafts.key(hostId: hostId, threadId: fork.key)
+                if !fork.prefill.isEmpty, drafts?.text(for: kept).isEmpty ?? false { drafts?.save(fork.prefill, for: kept) }
+                forkKey = kept
+                composerFocus += 1
+            }
+            .workQuestions(runner: workRunner, model: model, confirmingLock: $confirmingLock)
+            .environment(\.clearStaleLock, model.canOperate ? { confirmingLock = true } : nil)
             .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
                 Button("OK") { activityProblem = nil }
             } message: { Text(activityProblem ?? "") }
@@ -112,6 +162,15 @@ struct ThreadView: View {
             }
             .navigationDestination(item: $devicesRoute) { route in DevicesRouteView(model: model, threadId: thread.id, route: route) }
             .navigationDestination(isPresented: $showComputer) { RemoteScreenView(model: model, threadId: thread.id) }
+            .sheet(isPresented: $showScripts) {
+                NavigationStack {
+                    ProjectScriptsView(model: model, threadId: thread.id) { url in
+                        showScripts = false
+                        model.browserNewTab(url)
+                        showBrowser = true
+                    }
+                }.presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
             .sheet(isPresented: $showTools) {
                 NavigationStack { ThreadToolsView(model: model, thread: thread, openThread: openThread) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
@@ -124,7 +183,7 @@ struct ThreadView: View {
             }
             .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
-                                       mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil))
+                                       mention: model.canOperate ? { mention = $0 } : nil))
             .sheet(isPresented: $showSettings, onDismiss: { afterSettings?(); afterSettings = nil }) {
                 ComposerSettingsSheet(screen: screen,
                                       openModel: { afterSettings = { showModels = true }; showSettings = false },
@@ -137,6 +196,13 @@ struct ThreadView: View {
             .sheet(isPresented: $showTune) {
                 if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
             }
+            .sheet(isPresented: $showOffshift) {
+                NavigationStack {
+                    OffshiftRunView(screen: thread.screen)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showOffshift = false } } }
+                }
+                .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+            }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .transferSheet(model: model, kind: "thread")
             .sheet(item: $goalSheet) { opened in
@@ -147,9 +213,11 @@ struct ThreadView: View {
             .sheet(isPresented: $showQueue) {
                 if let queue = screen.queue {
                     QueueSheet(queue: queue, canAct: model.canOperate,
-                               canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer") { message, change in
-                        await model.editQueued(message, change: change)
-                    }
+                               canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer",
+                               edit: { message, change in await model.editQueued(message, change: change) },
+                               act: { await model.actOnQueue($0) }, showMore: { model.showMoreQueued() },
+                               words: { await model.queuedWords($0) },
+                               saveWords: { await model.editQueuedWords($0, text: $1, revision: $2) })
                 }
             }
             // The next message continued this thread in a new one: open it once its row is here
@@ -173,9 +241,18 @@ struct ThreadView: View {
             .task(id: browserFollow) { if browserFollow != nil { await model.followBrowser() } }
             .navigationDestination(isPresented: $showBrowser) {
                 let help = thread.approvals.first { $0.kind == "browser_help" }
-                BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
+                BrowserScreen(model: model, help: help, toMessage: { tab in
+                    // Back to the thread, the page in the message when asked about.
+                    if let tab, model.canOperate { mention = ComposerMention(path: "", tab: tab) }
+                    showBrowser = false
+                }) { answer in if let help { model.resolve(help, answer: answer) } }
             }
-            .environment(\.openBrowser, { showBrowser = true })
+            .environment(\.openBrowser, { open(.browser) })
+            .panelCommands(panelCommands)
+            // A file picked in the side panel's Files goes into this composer.
+            .onChange(of: model.panels.mentioned) { _, picked in
+                if let picked, picked.scope == thread.id { mention = picked.mention }
+            }
             .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
             #if ACE_FIXTURE
             .overlay(alignment: .topLeading) {
@@ -202,15 +279,29 @@ struct ThreadView: View {
             VStack(spacing: AceTheme.Spacing.none) {
                 Group {
                     if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
+                    // Then what holds the queue: a usage limit, a stopped turn, a paused queue.
+                    else if let hold = screen.queue?.strip,
+                            HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).visible {
+                        QueueHoldStrip(strip: hold,
+                                       canAct: HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).actionable,
+                                       act: { await model.actOnQueue($0) },
+                                       chooseModel: { showModels = true }, openQueue: { showQueue = true })
+                    }
                     // A request needs the person first; the transfer's line waits under it.
                     else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
+                    // What stops the checkout waits under a request and a transfer.
+                    else if let line = screen.work {
+                        WorkProblemLine(model: model, line: line, runner: workRunner, openWork: { showWork = true }, confirmLock: { confirmingLock = true })
+                    }
                 }
-                .transition(.opacity)
+                // A strip rises out of the composer and fades; with Reduce Motion it only fades.
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 if archived {
                     ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
                 } else if model.canOperate {
-                    ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: asking == nil ? placeholder : "Reply…",
+                    ComposerView(controls: screen.controls, stopping: screen.stopping,
+                                 placeholder: screen.fork != nil ? "Message the fork" : asking == nil ? placeholder : "Reply…",
                                  send: { text, alternate, references in
                                      let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
                                      let saved = await model.sendMessage(text, alternate: alternate, reply: reply, references: references)
@@ -218,14 +309,29 @@ struct ThreadView: View {
                                      return saved
                                  }, stop: { model.stopTree() },
                                  inputBegan: { model.metrics?.inputBegan() }, mention: mention,
-                                 files: screen.attachments.count,
-                                 draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
+                                 // Paste, drop and folders join the attach menu's lock: no file joins while a
+                                 // new thread starts from this message (the bridge refuses one anyway).
+                                 intake: screen.attachmentsLocked != nil ? nil : { providers in
+                                     Task {
+                                         let result = await ComposerIntake.stage(providers, into: AttachmentStaging())
+                                         attachProblem = result.note
+                                         for file in result.files { model.attach(file) }
+                                     }
+                                 },
+                                 recall: { older in await model.sentText(thread.id, older: older) },
+                                 files: screen.attachments.count + screen.annotations.count,
+                                 draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                                  suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),
-                                 run: runComposerAction) {
+                                 run: runComposerAction, focusRequest: composerFocus) {
+                        if let fork = screen.fork {
+                            ForkStrip(fork: fork) { model.closeFork() }
+                                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+                        }
                         ComposerAccessories(model: model, screen: screen, problem: attachProblem)
                     } leading: { pick in
-                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, ask: $askAttach)
+                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
                             .foregroundStyle(AceTheme.Colours.foreground)
+                            .disabled(screen.attachmentsLocked != nil)
                     } access: {
                         ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
                     } model: {
@@ -252,6 +358,10 @@ struct ThreadView: View {
             .composerGlassGroup()
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.queue?.strip)
+        // The fork strip rises out of the composer as it opens, or fades under Reduce Motion.
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.fork?.key)
+        .animation(reduceMotion ? .easeInOut(duration: AceTheme.Motion.fast) : .smooth, value: screen.work)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
@@ -261,29 +371,14 @@ struct ThreadView: View {
     /// A pill part opens what it names.
     private func openPill(_ opens: String) {
         switch opens {
-        case "agents": showAgents = true
+        case "agents": open(.agents)
         case "queue": showQueue = true
         case "goal": goalSheet = GoalPresentation(epoch: thread.epoch)
         default: break
         }
     }
-    @ViewBuilder private func requestCard(_ request: ApprovalRow) -> some View {
-        let submission = model.approvalSubmissions[request.id]
-        switch request.kind {
-        case "question":
-            QuestionCard(interaction: request, submission: submission, canAct: model.canOperate, maxHeight: height * 0.6, draft: $questionDraft) {
-                model.answer(request, answers: $0, dismissed: $1)
-            }.id(request.id)
-        case "plan_review":
-            PlanReviewCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-        case "elicitation":
-            FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
-        case "browser_help":
-            BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate,
-                            openBrowser: { showBrowser = true }) { model.resolve(request, answer: $0) }.id(request.id)
-        default:
-            ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
-        }
+    private func requestCard(_ request: ApprovalRow) -> some View {
+        RequestCard(request: request, model: model, maxHeight: height * 0.6, questionDraft: $questionDraft, openBrowser: { open(.browser) })
     }
     /// A builtin from the composer's `/` or + list (the bridge lists only these on a thread).
     private func runComposerAction(_ action: String) {
@@ -291,7 +386,7 @@ struct ThreadView: View {
         case "attach": askAttach = true
         case "plan": Task { _ = await model.setAccess("read-only") }
         case "model": showModels = true
-        case "review": showChanges = true
+        case "review": open(.changes)
         default: break
         }
     }
@@ -299,17 +394,42 @@ struct ThreadView: View {
     /// button's to say.
     private let placeholder = "Ask anything"
     private func open(_ destination: ThreadDestination) {
+        // Beside the thread on iPad: the tool opens as a panel tab instead of over the thread.
+        if panelPlace != .none, let tool = destination.panelTool {
+            panel(["op": "open", "kind": tool.rawValue])
+            return
+        }
         switch destination {
+        case .rename: renaming = true
+        case .forkLast: Task { _ = await model.openFork(.latest) }
+        case .merge: transitionSheet = .merge
+        case .turns: transitionSheet = .turns
+        case .attachments: transitionSheet = .files
+        case .work: showWork = true
         case .changes: showChanges = true
         case .search: showSearch = true
         case .files: showFiles = true
         case .terminal: showTerminal = true
+        case .scripts: showScripts = true
         case .browser: showBrowser = true
         case .devices: devicesRoute = .list
         case .computer: showComputer = true
         case .tools: showTools = true
         case .agents: showAgents = true
+        case .logs: showLogs = true
+        case .offshift: showOffshift = true
         }
+    }
+    /// The panel's keys while it has room beside this thread.
+    private var panelCommands: PanelCommands? {
+        guard panelPlace != .none else { return nil }
+        let view = model.panels.views[thread.id]
+        let shown = view?.open == true ? view?.shown : nil
+        return PanelCommands(act: panel, hasTab: !(view?.tabs.isEmpty ?? true), canReopen: view?.canReopen == true,
+                             closable: shown.flatMap { $0.pinned ? nil : $0.key })
+    }
+    private func panel(_ op: [String: Any]) {
+        withAnimation(reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring) { model.panel(thread.id, op) }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
     private var browserFollow: Int? {

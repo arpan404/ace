@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/menu.tsx";
 import { useAppIcon } from "@/lib/app-icons.ts";
 import { useEditors } from "@/lib/editors.ts";
+import { useHostOpen, useRemoteHost } from "@/lib/host-open.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
@@ -181,7 +182,8 @@ function MachineRow(props: {
 
 /**
  * Open the checkout: in Finder (or the file manager) on this computer, else in the editor used
- * last, with that app's own icon; the chevron lists every installed editor.
+ * last, with that app's own icon; the chevron lists every installed editor. On another machine
+ * the daemon opens it there instead, and says when only the owner can.
  */
 function OpenInRow(props: { thread: ThreadRef }) {
   const details = useThreadMeta(props.thread.id)?.details;
@@ -191,8 +193,12 @@ function OpenInRow(props: { thread: ThreadRef }) {
   const { editors, current, unavailable } = useEditors();
   const editor = current ?? editors?.[0];
   const launch = useThreadEditorLaunch(props.thread);
+  const remote = useRemoteHost();
+  const host = useHostOpen();
   const finderIcon = useAppIcon(folder.revealLabel === "Show in Finder" ? finder : undefined);
   const local = machine.primary ? folder.reveal : undefined;
+  const remoteReveal =
+    !local && remote ? () => void host.reveal({ threadId: props.thread.id }) : undefined;
   const label = local
     ? folder.revealLabel === "Show in Finder"
       ? "Open in Finder"
@@ -209,6 +215,7 @@ function OpenInRow(props: { thread: ThreadRef }) {
         aria-description={!local && !editor ? unavailable : undefined}
         onClick={() => {
           if (local) local();
+          else if (remote && editor) void host.open({ threadId: props.thread.id }, editor.id);
           else if (editor) launch.mutate(editor.id);
         }}
         className="focus-ring-inset flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-l-md px-2.5 text-left text-ui text-foreground disabled:text-muted-foreground"
@@ -241,9 +248,14 @@ function OpenInRow(props: { thread: ThreadRef }) {
         />
         <MenuContent align="end">
           <ThreadOpenIn thread={props.thread} />
-          {folder.reveal && !local && (
+          {folder.reveal && !local && !remote && (
             <MenuItem icon={glyph(FolderOpenIcon)} onClick={folder.reveal}>
               {folder.revealLabel}
+            </MenuItem>
+          )}
+          {remoteReveal && (
+            <MenuItem icon={glyph(FolderOpenIcon)} onClick={remoteReveal}>
+              {host.fileManager ? `Show in ${host.fileManager}` : "Show in file manager"}
             </MenuItem>
           )}
           <MenuSeparator />

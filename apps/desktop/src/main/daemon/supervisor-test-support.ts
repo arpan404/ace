@@ -20,7 +20,12 @@ export function machine() {
     healthy: true,
     external: false,
     blockers: 0,
+    /** The person's pause (the tray's hold). */
     maintenance: false,
+    /** An update's own hold, apart from the person's pause. */
+    updateHold: false,
+    /** How many of the next update-hold requests land but lose their reply. */
+    holdReplyFails: 0,
     admissionAvailable: true,
     /** How long the daemon takes to answer a health check (a busy event loop). */
     healthDelayMs: 0,
@@ -81,10 +86,23 @@ export function machine() {
       state.maintenance = on;
       return state.blockers;
     },
+    setUpdateHold: async (_daemon, on) => {
+      state.updateHold = on;
+      // The request landed, but its reply was lost (a timeout on a busy daemon).
+      if (on && state.holdReplyFails > 0) {
+        state.holdReplyFails--;
+        throw new Error("The request timed out");
+      }
+      return state.blockers;
+    },
     blockers: async () => state.blockers,
     maintenance: async () => {
       if (!state.admissionAvailable) throw new Error("Admission request timed out");
-      return { draining: state.maintenance };
+      const holds = [
+        ...(state.maintenance ? ["user"] : []),
+        ...(state.updateHold ? ["update"] : []),
+      ];
+      return { draining: holds.length > 0, holds };
     },
     timers: {
       set(delayMs, callback) {

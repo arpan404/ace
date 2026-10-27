@@ -32,6 +32,7 @@ export type { MultiDayThreadOptions, SyntheticThreadEvent } from "./scenarios/mu
 export { multiDayDemo } from "./scenarios/multi-day-demo.ts";
 export { longHistory } from "./scenarios/long-history.ts";
 export { workbench } from "./scenarios/workbench.ts";
+export { prWorkThread, seedPrWork } from "./scenarios/pr-work.ts";
 export {
   measurementCall,
   typedMeasurementCall,
@@ -52,6 +53,7 @@ export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
 export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
 export { coldStartReplay } from "./scenarios/cold-start-replay.ts";
+export { outboxDiff, replayTs } from "./scenarios/replay-sources.ts";
 export {
   askingQuestion,
   oneTurnWork,

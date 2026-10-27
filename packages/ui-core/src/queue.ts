@@ -110,9 +110,10 @@ export function queueNotice(
           : `Resets ${describeWake(resumeAt, now, locale)}. Nothing sends until you resume.`,
       actions: [{ id: "resume_now", label: "Continue now" }],
     };
-  if (status?.state === "limited" || reason === "limit") {
+  if (reason === "limit") {
     // The thread's own reset, else the account's: the daemon resumes at the account's too.
-    const until = (status?.state === "limited" ? status.until : undefined) ?? account?.resetsAt;
+    const until =
+      account?.resetsAt ?? resumeAt ?? (status?.state === "limited" ? status.until : undefined);
     const known = until !== undefined && until > now;
     const who = account?.name ?? "The account";
     const target = account?.target;

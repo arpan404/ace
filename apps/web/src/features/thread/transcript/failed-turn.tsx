@@ -1,9 +1,8 @@
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
-import { failedTurnView } from "@ace/ui-core";
+import { failedTurnView, resendPayload } from "@ace/ui-core";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ErrorRow } from "../items/error-row.tsx";
-import { resendPayload } from "../transitions/resend.ts";
 import type { Failure } from "./failure.ts";
 
 /**

@@ -11,13 +11,17 @@ import { z } from "zod";
 export type ReadFamily =
   | "projects"
   | "settings"
+  | "settings-page"
   | "source-control"
   | "automations"
   | "usage"
   | "plugins"
   | "prompts"
   | "catalog"
-  | "forge";
+  | "forge"
+  | "host"
+  | "providers"
+  | "skills";
 
 type Raw = Record<string, unknown>;
 const Raw = z.record(z.string(), z.unknown());
@@ -41,6 +45,11 @@ const pluginLookups = new Set([
   "plugins.prepare",
   "plugins.cancel",
 ]);
+/** The phone's skill-library requests that only read (`skill-library.ts`). */
+/** The phone's plugin requests that change a plugin (`skill-plugins.ts`); the rest only read. */
+const pluginChanges = new Set(["switch", "agent"]);
+/** Open on computer (`openers`, `open`) changes nothing the phone keeps. */
+const skillLookups = new Set(["library", "skill", "draft", "check", "openers", "open"]);
 const projectReads = new Set(["workspace.list"]);
 const projectLookups = new Set([
   "workspace.list",
@@ -60,12 +69,17 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return "projects";
     case "settings.get":
       return "settings";
+    case "settings.page":
+      return "settings-page";
     case "source-control.request":
       return operation(value) === "readiness" ? "source-control" : undefined;
     case "automation.list":
     case "automation.inbox":
+    case "automations.page":
+    case "automations.history":
       return "automations";
-    case "usage.limits":
+    case "usage.accounts":
+    case "usage.part":
     case "usage.summary":
       return "usage";
     case "pluginRequest":
@@ -74,6 +88,17 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return operation(value) === "list" ? "prompts" : undefined;
     case "catalog.list":
       return "catalog";
+    case "host.storage":
+    case "host.diagnostics":
+      return "host";
+    // A provider's Settings page and the off and missing providers (`provider-page.ts`).
+    case "provider.page":
+    case "providers.others":
+      return "providers";
+    case "skills.native":
+      return value.op === "library" ? "skills" : undefined;
+    case "plugins.native":
+      return value.op === "plugins" ? "plugins" : undefined;
     case "forge.pulls":
     case "forge.issues":
     case "forge.pull":
@@ -81,11 +106,17 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "forge.pull.timeline":
     case "forge.pull.file":
     case "forge.pull.files":
+    case "forge.pull.commits":
     case "forge.pull.reviewers":
     case "forge.inbox":
     case "forge.pull.manage":
     case "forge.newpr.context":
     case "forge.newpr.compare":
+    case "forge.pull.checks":
+    case "forge.pull.check":
+    case "forge.pull.conflicts":
+    case "forge.pull.stack":
+    case "forge.pull.work":
       return "forge";
     default:
       return undefined;
@@ -100,17 +131,42 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "projects.request":
       return projectLookups.has(operation(value) ?? "") ? [] : ["projects", "source-control"];
     case "settings.set":
+    case "settings.setMany":
     case "settings.reset":
-      return ["settings", "source-control"];
+      return ["settings", "settings-page", "source-control", "host", "providers"];
+    case "host.storage.apply":
+    case "host.storage.compact":
+    case "host.storage.set":
+    case "host.worktreeTimeout":
+    case "host.reset":
+      return ["host", "settings", "settings-page", "providers"];
+    case "settings.page.set":
+      return ["settings", "settings-page", "source-control", "host", "providers"];
+    case "settings.models.star":
+      return ["settings", "settings-page", "providers"];
     case "automation.put":
     case "automation.remove":
     case "automation.run":
+    case "automation.setEnabled":
+    case "automation.retry":
     case "automation.manage":
+    case "automations.save":
+    case "automations.duplicate":
+    case "automations.write":
+    case "automations.restore":
       return ["automations"];
     case "pluginRequest":
-      return pluginLookups.has(pluginType(value) ?? "") ? [] : ["plugins", "catalog"];
+      return pluginLookups.has(pluginType(value) ?? "") ? [] : ["plugins", "catalog", "skills"];
+    case "skills.native":
+      return skillLookups.has(String(value.op)) ? [] : ["skills", "catalog"];
+    case "plugins.native":
+      return pluginChanges.has(String(value.op)) ? ["plugins", "catalog", "skills"] : [];
     case "prompts.request":
       return ["prompts"];
+    case "provider.edit":
+      return ["providers", "settings", "catalog"];
+    case "provider.logout":
+      return ["providers", "catalog"];
     case "forge.merge":
     case "forge.auto-merge":
     case "forge.review":
@@ -120,6 +176,11 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "forge.newpr.create":
     case "forge.issue.comment":
     case "forge.issue.check":
+    case "forge.checks.write":
+    case "forge.local.write":
+    case "forge.conflicts":
+    case "forge.stack":
+    case "forge.worktree":
       return ["forge"];
     default:
       return [];
@@ -132,16 +193,19 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
     case "workspace.changed":
       return ["projects", "source-control"];
     case "settings.changed":
-      return ["settings", "source-control"];
+      return ["settings", "settings-page", "source-control", "host", "providers"];
     case "usage.updated":
-    case "accounts.changed":
       return ["usage"];
+    case "accounts.changed":
+      return ["usage", "settings-page", "providers"];
     case "plugins.removed":
-      return ["plugins", "catalog"];
+      return ["plugins", "catalog", "skills"];
     case "catalog.changed":
+      // Skill folders changing on the machine reach the catalog's watcher too (ADR 0103).
+      return ["catalog", "skills"];
     case "models.changed":
     case "providers.changed":
-      return ["catalog"];
+      return ["catalog", "settings-page", "providers"];
     case "forge.pr.updated":
       return ["forge"];
     default:

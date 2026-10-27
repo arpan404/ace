@@ -172,12 +172,13 @@ export class ComposeActions {
       this.#owner,
       { draftId: () => this.search.draftScope(workspaceId) },
       stop.signal,
-      (files) =>
+      (files, locked) =>
         this.#sink.put("compose:attachments", () => ({
           type: "compose.attachments",
           workspaceId: shown,
           files,
           blocked: this.#blocked(),
+          ...(locked ? { locked } : {}),
         })),
       this.#chunks,
     );

@@ -132,7 +132,7 @@ import XCTest
         let explorer = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'agents.row.' AND label CONTAINS 'Explorer'")).firstMatch
         if reveal(explorer, in: app, up: 8, down: 0) {
             explorer.tap()
-            XCTAssertTrue(app.descendants(matching: .any)["agents.transcript"].waitForExistence(timeout: 15))
+            XCTAssertTrue(app.descendants(matching: .any)["lane.transcript"].waitForExistence(timeout: 15))
             try audit(app, "agent-transcript")
             // The thread behind the sheet has its own back button; use the sheet's.
             app.navigationBars["Explorer"].buttons["BackButton"].tap()

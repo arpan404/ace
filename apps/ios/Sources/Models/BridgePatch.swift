@@ -52,6 +52,11 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// Inbox rows only: the group the thread's state puts it in ("snoozed", "settled"…), which
     /// a pinned row keeps while it shows under Pinned.
     var group: String? = nil
+    /// Inbox rows only: false when the thread never settles by itself.
+    var autoSettle: Bool? = nil
+    /// Inbox rows only: what its menus offer, in order, by the shared rules (`threadMenu`);
+    /// the words are the layout's `menuLabels`. Nil from older bridges.
+    var menu: [String]? = nil
 }
 /// How an inbox row reads, by the web's Home row rule (`rowAttention`): the attention level,
 /// the status word (none at rest: the row shows its age), its tone and glyph, and whether the
@@ -66,6 +71,8 @@ struct RowLook: Codable, Sendable, Equatable {
     let since: Double?
     let settled: Bool
     let subagents: Int
+    /// A finished result not yet opened, or marked unread by hand; nil from older bridges.
+    var unread: Bool? = nil
     /// The word takes its tone's colour unless the row mutes; waiting never does.
     var loud: Bool { !muted && tone != "waiting" }
 }
@@ -110,6 +117,10 @@ struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     var bubble: BubbleLine? = nil
     /// A thought's header: "Thinking…", "Thought for 12s"; nil on every other row.
     var thought: String? = nil
+    /// What a message's action row offers beyond Copy; nil on every other row.
+    var actions: MessageActionsLine? = nil
+    /// A finished answer's formulas, marked where they sit; nil without math or while it streams.
+    var math: MarkdownRich.Prose? = nil
     /// Shared secondary line, such as the visualization fallback; empty when the row has none.
     let detail: String?
     let quiet: Bool?
@@ -165,6 +176,12 @@ struct PendingRow: Codable, Sendable, Identifiable {
     let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String
     /// The shared unsent wording ("Sends on reconnect", "Not sent") and its colour token.
     let label: String?; let token: String?
+    /// Why it wasn't sent, behind Details, and the files on it; nil from older bridges.
+    var detail: String? = nil; var files: Int? = nil
+    /// What runs on the send now ("editing", "retrying"): the other control waits for it.
+    var busy: String? = nil
+    /// A stale Git lock an earlier daemon left stopped it: Clear stale lock is offered.
+    var fenced: Bool? = nil
 }
 /// A status the bridge has already worded; Swift only maps `token` to a theme colour.
 struct StatusDisplay: Codable, Sendable, Equatable { let label: String; let token: String }
@@ -191,6 +208,9 @@ struct InboxLayout: Codable, Sendable, Equatable {
     /// older bridges.
     var sortBy: String? = nil
     var sorts: [SortOption]? = nil
+    /// The words for each row's `menu` ids (`threadMenuLabels`).
+    var menuLabels: [String: String]? = nil
+    var menuSections: [String: String]? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
 }
 
@@ -216,6 +236,11 @@ enum BridgePatch: Decodable, Sendable {
     case error(String)
     case receipt(String, Bool, String)
     case admission(String, Bool, String)
+    /// A message's full words for the edit sheet, or an edit's answer (`bridge/queued-words.ts`,
+    /// `bridge/send-recovery.ts`): ok, the words when read, and why not when not.
+    case words(String, Bool, String?, String, Int?)
+    /// The machine's last answer to a bulk action whose first answer left threads waiting.
+    case bulkFinal(String, BulkOutcome)
     case block(String, Int, String, BlockRow?)
     case blockPosition(String, Int, String, Int?)
     case controls(String, Int, ControlsRow?)
@@ -226,16 +251,26 @@ enum BridgePatch: Decodable, Sendable {
     case problem(ProblemNotice?)
     case machineStatus(MachineStatusInfo)
     case machineProviders(MachineProvidersInfo)
+    /// The chats this machine's runtime keeps on the phone (`bridge/chat-cache.ts`).
+    case cacheUsage(CacheUsage)
+    case machineAdmission(MachineAdmissionInfo)
+    case machineAppUpdate(MachineAppUpdateInfo)
     /// A project's mark, sent once per project (`bridge/project-looks.ts`); nil clears it.
     case projectLook(String, ProjectLookPatch?)
     /// The icon name of the mark this runtime's machine chose (`bridge/machine-identity.ts`).
     case machineIdentity(String)
     case notification(NotificationPatch)
     case agents(String, Int, AgentSheet)
+    /// The thread's Logs (`bridge/logs.ts`) and a Copy's text.
+    case logs(String, Int, LogsSheet)
+    case logsCopy(String, String)
     case changesSummary(String, Int, ChangesSummary)
-    case changesFile(String, Int, String, FileDiff)
+    case changes(String, Int, ChangesPatch)
     case gitResult(String, Bool, String)
     case gitDraft(GitDraft)
+    case workSummary(String, Int, WorkSummary)
+    case workBranches(String, Int, WorkBranches)
+    case workResult(WorkResult)
     case archiveList(ArchiveList)
     /// New thread and Add project (`Models/ComposeModel.swift`); a thread's Files sheet.
     case compose(ComposePatch)
@@ -244,12 +279,15 @@ enum BridgePatch: Decodable, Sendable {
     case files(FilesPatch)
     /// Continue on… and Open on… (`bridge/transfers.ts`).
     case transfers(TransfersPatch)
+    /// A thread's side panel on iPad (`bridge/workspace.ts`).
+    case workspace(PanelView)
     /// Steps, effort and speed, attachments and lanes (`ScreenPatch`).
     case screen(String, Int, ScreenPatch)
     /// The thread's live browser view (`bridge/browser-live.ts`).
     case browser(BrowserPatch)
     /// A thread's Devices screen and its logs (`bridge/native-devices.ts`).
     case devices(DevicesPatch)
+    case computerAccess(ComputerAccessModel.State)
     /// A kept read restored from an earlier run, and each family's generation (`bridge/native-reads.ts`).
     case serviceCache(ServiceReply.Cache, ServiceValue)
     /// A kept read the bridge stopped keeping: Swift's copy lets it go too.
@@ -258,7 +296,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph }
+    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph, text, revision, outcome, view }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -297,7 +335,12 @@ enum BridgePatch: Decodable, Sendable {
         case "pending": self = .pending(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(PendingRow.self, forKey: .row))
         case "error": self = .error(try box.decode(String.self, forKey: .message))
         case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "words":
+            let ok = try box.decode(Bool.self, forKey: .ok)
+            self = .words(try box.decode(String.self, forKey: .id), ok, ok ? try box.decodeIfPresent(String.self, forKey: .text) : nil,
+                          try box.decode(String.self, forKey: .message), try box.decodeIfPresent(Int.self, forKey: .revision))
         case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "inbox.bulk.final": self = .bulkFinal(try box.decode(String.self, forKey: .id), try box.decode(BulkOutcome.self, forKey: .outcome))
         case "thread.block":
             let (id, epoch) = try scope()
             self = .block(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(BlockRow.self, forKey: .row))
@@ -317,6 +360,9 @@ enum BridgePatch: Decodable, Sendable {
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))
         case "machine.providers": self = .machineProviders(try MachineProvidersInfo(from: decoder))
+        case "cache.usage": self = .cacheUsage(try CacheUsage(from: decoder))
+        case "machine.admission": self = .machineAdmission(try MachineAdmissionInfo(from: decoder))
+        case "machine.appUpdate": self = .machineAppUpdate(try MachineAppUpdateInfo(from: decoder))
         case "project.look":
             // A look that doesn't read draws the initials rather than failing the frame.
             self = .projectLook(try box.decode(String.self, forKey: .id), try? box.decodeIfPresent(ProjectLookPatch.self, forKey: .look))
@@ -327,15 +373,22 @@ enum BridgePatch: Decodable, Sendable {
         case let kind where kind.hasPrefix("files."): self = .files(try FilesPatch(from: decoder))
         case let kind where kind.hasPrefix("transfers."): self = .transfers(try TransfersPatch(from: decoder))
         case "agents.sheet": let (id, epoch) = try scope(); self = .agents(id, epoch, try box.decode(AgentSheet.self, forKey: .sheet))
+        case "logs.sheet": let (id, epoch) = try scope(); self = .logs(id, epoch, try LogsSheet(from: decoder))
+        case "logs.copy": self = .logsCopy(try box.decode(String.self, forKey: .id), try box.decode(String.self, forKey: .text))
         case "changes.summary": let (id, epoch) = try scope(); self = .changesSummary(id, epoch, try ChangesSummary(from: decoder))
-        case "changes.file":
+        case let kind where ChangesPatch.types.contains(kind):
             let (id, epoch) = try scope()
-            self = .changesFile(id, epoch, try box.decode(String.self, forKey: .path), try box.decode(FileDiff.self, forKey: .diff))
+            self = .changes(id, epoch, try ChangesPatch(type: kind, from: decoder))
         case "git.result": self = .gitResult(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         case "git.draft": self = .gitDraft(try GitDraft(from: decoder))
+        case "work.summary": let (id, epoch) = try scope(); self = .workSummary(id, epoch, try WorkSummary(from: decoder))
+        case "work.branches": let (id, epoch) = try scope(); self = .workBranches(id, epoch, try WorkBranches(from: decoder))
+        case "work.result": self = .workResult(try WorkResult(from: decoder))
         case "archive.list": self = .archiveList(try ArchiveList(from: decoder))
+        case "workspace": self = .workspace(try box.decode(PanelView.self, forKey: .view))
         case let kind where BrowserPatch.types.contains(kind): self = .browser(try BrowserPatch(from: decoder))
         case let kind where DevicesPatch.types.contains(kind): self = .devices(try DevicesPatch(from: decoder))
+        case "computer.access": self = .computerAccess(try ComputerAccessModel.State(from: decoder))
         case let kind where ScreenPatch.types.contains(kind):
             let (id, epoch) = try scope()
             self = .screen(id, epoch, try ScreenPatch(type: kind, from: decoder))

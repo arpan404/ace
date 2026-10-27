@@ -4,12 +4,11 @@ import { useAgentTree, useThread, useThreadMeta, type AgentTreeNode } from "@ace
 import type { Interaction } from "@ace/protocol";
 import {
   changesByAgent,
-  isRunning,
+  isActivelyRunning,
   latestChecks,
   offshiftSummary,
   needsYou,
   queuedInputLine,
-  subagentBranchStates,
   summaryPullRequests,
   turnAgentFiles,
 } from "@ace/ui-core";
@@ -83,7 +82,7 @@ export default function WorkTab(props: TabViewProps) {
     return offshiftSummary(card, {
       status,
       live,
-      runningAgents: facts.agents.filter(isRunning).length,
+      runningAgents: facts.agents.filter(isActivelyRunning).length,
       request: request === undefined ? undefined : request === "approval" ? "approval" : "question",
     });
   }, [card, status, live, facts.agents, facts.interactions]);
@@ -119,12 +118,11 @@ export default function WorkTab(props: TabViewProps) {
     };
   }, [facts.interactions, shares, layout.runs, prs]);
   const counts = useMemo(() => {
-    const states = subagentBranchStates(facts.agents, facts.work);
     const agents = facts.agents.filter(
       (agent) => agent.origin !== "root" && !layout.runs.latest.has(agent.id),
     );
     return {
-      running: states.filter((state) => state === "working").length,
+      running: facts.agents.filter(isActivelyRunning).length,
       agents: agents.length,
       live: agents.filter(
         (agent) => facts.work.running.has(agent.id) || facts.work.needsYou.has(agent.id),
@@ -200,7 +198,11 @@ export default function WorkTab(props: TabViewProps) {
       )}
       <TreeWorkContext value={facts.work}>
         {shown.working && (
-          <Section name="Working" labelled={shown.labelled} count={counts.live || undefined}>
+          <Section
+            name={counts.running ? "Working" : "Waiting"}
+            labelled={shown.labelled}
+            count={counts.live || undefined}
+          >
             {layout.working.length > 0 && (
               <WorkTree threadId={props.scope} nodes={layout.working} facts={rowFacts} />
             )}

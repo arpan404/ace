@@ -1,14 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import type {
-  CommandResult,
-  Project,
-  ProjectBadgeStyle,
-  ProjectDefaults,
-  ProjectNoteEdit,
-  ProjectsResult,
-} from "@ace/protocol";
-import { projectProblem, type ProjectProblem } from "@ace/ui-core";
+import type { CommandResult, Project, ProjectsResult } from "@ace/protocol";
+import { projectProblem, type ProjectEdit, type ProjectProblem } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { useScopedMachine, type Machine } from "@/lib/machines.ts";
@@ -76,14 +69,7 @@ function added(result: CommandResult): Added {
 }
 
 /** A project edit: its name, and the icon and defaults fields to change (omitted keeps them). */
-export interface ProjectEdit {
-  name: string;
-  icon?: string | null;
-  badge?: ProjectBadgeStyle | null;
-  defaults?: ProjectDefaults | null;
-  /** Replaces the project's notes in order; a note without an id is new. */
-  notes?: ProjectNoteEdit[];
-}
+export type { ProjectEdit } from "@ace/ui-core";
 
 export interface CreateInput {
   parent: string;

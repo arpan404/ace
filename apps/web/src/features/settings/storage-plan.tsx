@@ -16,7 +16,8 @@ import {
   SettingRow,
   SettingSection,
 } from "@/components/setting-row.tsx";
-import { itemCount, storageBytes, storageReasons } from "./storage-copy.ts";
+import { itemCount, storageReasons } from "@ace/ui-core/host-care";
+import { formatBytes } from "@ace/ui-core/byte-size";
 
 export function StoragePlanPreview(props: {
   plan: StoragePlan;
@@ -41,7 +42,7 @@ export function StoragePlanPreview(props: {
     >
       {props.plan.items.length > 0 ? (
         <SettingNote>
-          {itemCount(remove.length)} to remove · {storageBytes(props.plan.bytes)} of data.{" "}
+          {itemCount(remove.length)} to remove · {formatBytes(props.plan.bytes)} of data.{" "}
           {protectedItems.length} protected.
           {!props.plan.complete &&
             " This is a bounded batch. Preview again after cleanup to find more data."}
@@ -65,7 +66,7 @@ export function StoragePlanPreview(props: {
                 <div className="flex items-start justify-between gap-3 text-sm">
                   <span className="min-w-0 break-all font-medium">{item.label}</span>
                   <span className="shrink-0 tabular-nums text-muted-foreground">
-                    {storageBytes(item.bytes)}
+                    {formatBytes(item.bytes)}
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -184,7 +185,7 @@ export function StorageCompactAction(props: {
     : result.incrementalUnavailable
       ? "This database was created before compaction was available and can't shrink in place."
       : result.state === "complete"
-        ? `Compacted from ${storageBytes(result.databaseBytesBefore)} to ${storageBytes(result.databaseBytes)}.`
+        ? `Compacted from ${formatBytes(result.databaseBytesBefore)} to ${formatBytes(result.databaseBytes)}.`
         : result.state === "pending"
           ? "Compaction paused. Resume to continue."
           : "Compaction stopped.";

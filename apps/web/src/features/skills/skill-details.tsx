@@ -1,5 +1,5 @@
 import type { ProviderKind, SkillEntry, WorkspaceId } from "@ace/protocol";
-import { formatAgo, providerNames } from "@ace/ui-core";
+import { formatAgo } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -8,7 +8,15 @@ import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import { AgentsMenu } from "./agents-menu.tsx";
-import { homeLabel, isSkillAgent, manualText, skillAgents, timesText } from "./library-model.ts";
+import {
+  homeLabel,
+  isSkillAgent,
+  keptAgentsText,
+  lockedAgents,
+  runsText,
+  skillAgents,
+  timesText,
+} from "./library-model.ts";
 import { useSetSkillAgents, useSkillUsage } from "./library-source.ts";
 import { AgentsLine } from "./skill-parts.tsx";
 import { SkillSourceRow } from "./skill-update.tsx";
@@ -62,13 +70,7 @@ export function SkillDetails(props: {
           </Button>
         )}
       </SettingRow>
-      <SettingRow
-        inline
-        title="Runs"
-        description={
-          entry.manual ? manualText(entry.agents) : "Agents load it by themselves when it fits"
-        }
-      >
+      <SettingRow inline title="Runs" description={runsText(entry)}>
         {editable && (
           <Select
             label="Runs"
@@ -101,9 +103,7 @@ function ChangeAgents(props: { entry: SkillEntry; workspaceId: WorkspaceId | und
   const toast = useToast();
   const setAgents = useSetSkillAgents();
   const { entry } = props;
-  const fixed = new Set<ProviderKind>(
-    entry.agents.filter((agent) => !agent.removable).map((agent) => agent.provider),
-  );
+  const fixed = new Set<ProviderKind>(lockedAgents(entry));
   return (
     <AgentsMenu
       agents={skillAgents}
@@ -116,12 +116,9 @@ function ChangeAgents(props: { entry: SkillEntry; workspaceId: WorkspaceId | und
           {
             onSuccess: (reply) => {
               // Agents the daemon had to leave in place were asked to go: say which.
-              const kept = (reply.kept ?? []).filter((each) => !providers.includes(each.provider));
-              if (kept.length)
-                toast.info({
-                  title: `${names(kept.map((each) => each.provider))} still ${kept.length === 1 ? "sees" : "see"} ${skillTitle(entry)}`,
-                  description: "It reads the folder the skill is saved in.",
-                });
+              const title = keptAgentsText(reply.kept, providers, skillTitle(entry));
+              if (title)
+                toast.info({ title, description: "It reads the folder the skill is saved in." });
             },
             onError: () =>
               toast.error({
@@ -134,9 +131,6 @@ function ChangeAgents(props: { entry: SkillEntry; workspaceId: WorkspaceId | und
     />
   );
 }
-
-const names = (providers: readonly ProviderKind[]) =>
-  providers.map((provider) => providerNames[provider]).join(" and ");
 
 /** "6 times · last in Release 0.9.4, 3d ago", or "Not used yet". */
 function UsedRow(props: { entry: SkillEntry; workspaceId: WorkspaceId | undefined }) {

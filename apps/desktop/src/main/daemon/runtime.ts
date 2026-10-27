@@ -13,6 +13,7 @@ import {
   maintenanceStatus,
   readLocalDaemon,
   setMaintenance,
+  setUpdateHold,
   type LocalDaemon,
 } from "./probe.ts";
 import { loginService } from "./service.ts";
@@ -129,6 +130,7 @@ export class DaemonRuntime {
           healthy,
           service: this.target.kind === "managed" ? loginService(home) : undefined,
           setMaintenance,
+          setUpdateHold,
           blockers: maintenanceBlockers,
           maintenance: maintenanceStatus,
           timers: {

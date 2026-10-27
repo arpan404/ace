@@ -1,0 +1,179 @@
+import {
+  ExecutionOptions,
+  type ProviderKind,
+  type ThreadId,
+  type WorkspaceId,
+} from "@ace/protocol";
+import { createEngineThread } from "./create-thread.ts";
+import type { EngineRepository } from "./repository.ts";
+
+export interface GuestThreadInput {
+  id: ThreadId;
+  workspaceId: WorkspaceId;
+  title: string;
+  /** Recorded only: a guest thread never launches its provider. */
+  provider: ProviderKind;
+  cwd: string;
+  guest: { host: string; name: string };
+}
+
+/**
+ * Threads that hold remote tool use from agents on other machines (ADR 0105). They are made
+ * without a provider adapter, so a machine with no CLI installed can host them, and they show
+ * work only through background rows that the host adds and ends.
+ */
+export class GuestThreads {
+  private repo: EngineRepository;
+  private now: () => number;
+  private wake: (id: ThreadId) => void;
+  constructor(repo: EngineRepository, now: () => number, wake: (id: ThreadId) => void) {
+    this.repo = repo;
+    this.now = now;
+    this.wake = wake;
+  }
+  create(input: GuestThreadInput): void {
+    const { repo } = this;
+    if (repo.store.getThread(input.id)) return;
+    const workspace = repo.store.getWorkspace(input.workspaceId);
+    repo.store.atomic(() =>
+      createEngineThread(repo, {
+        id: input.id,
+        workspaceId: input.workspaceId,
+        title: input.title,
+        titleSource: "agent",
+        selection: { provider: input.provider, options: ExecutionOptions.parse({}) },
+        cwd: input.cwd,
+        at: this.now(),
+        silenceMs: 60_000,
+        client: {
+          details: {
+            workspace: {
+              id: input.workspaceId,
+              name: workspace?.name ?? input.workspaceId,
+              path: input.cwd,
+              ...(workspace?.kind ? { kind: workspace.kind } : {}),
+            },
+            mode: "local",
+            worktree: input.cwd,
+            guest: input.guest,
+          },
+        },
+      }),
+    );
+  }
+  /**
+   * Adds or ends a stoppable background row on the thread's root agent. While one runs the
+   * thread reads as waiting, never done; a stop is routed by `bindExternalTaskStop`.
+   */
+  hold(
+    threadId: ThreadId,
+    task: string,
+    hold: { title: string } | { status: "completed" | "failed" | "stopped" },
+  ): void {
+    const state = this.repo.requireState(threadId);
+    const agent = state.rootKey;
+    if (agent === undefined) throw new Error("Guest thread has no root agent yet");
+    this.repo.apply(
+      threadId,
+      [
+        "title" in hold
+          ? {
+              type: "background.started",
+              owner: "ace",
+              agent,
+              task,
+              kind: "other",
+              title: hold.title,
+              stoppable: true,
+            }
+          : { type: "background.ended", task, status: hold.status },
+      ],
+      this.now(),
+    );
+    if (!("title" in hold)) this.wake(threadId);
+  }
+  /**
+   * A command an agent on another machine ran here, as a shell call in the thread's transcript:
+   * its command line and working directory when it starts, its exit code when it ends.
+   */
+  command(
+    threadId: ThreadId,
+    key: string,
+    entry: {
+      command: string;
+      cwd: string;
+      status: "running" | "succeeded" | "failed" | "cancelled";
+      exitCode?: number | null;
+      startedAt: number;
+      endedAt?: number;
+    },
+  ): void {
+    const agent = this.repo.requireState(threadId).rootKey;
+    if (agent === undefined) throw new Error("Guest thread has no root agent yet");
+    this.repo.apply(
+      threadId,
+      [
+        {
+          type: "item.upsert",
+          agent,
+          item: key,
+          draft: {
+            type: "tool_call",
+            call: {
+              kind: "shell",
+              title: entry.command.slice(0, 200),
+              status: entry.status,
+              detail: {
+                kind: "shell",
+                command: entry.command,
+                cwd: entry.cwd,
+                ...(entry.exitCode === undefined ? {} : { exitCode: entry.exitCode }),
+              },
+              startedAt: entry.startedAt,
+              ...(entry.endedAt === undefined ? {} : { endedAt: entry.endedAt }),
+              raw: [],
+            },
+          },
+        },
+      ],
+      this.now(),
+    );
+  }
+  /**
+   * Ends shell calls whose key starts with `prefix` that still read running: their process ended
+   * with the daemon that started them. Each is marked cancelled, ending now.
+   */
+  endCommands(threadId: ThreadId, prefix: string): number {
+    const state = this.repo.state(threadId);
+    const agent = state?.rootKey;
+
+    if (!state || agent === undefined) return 0;
+    const at = this.now();
+    const facts = Object.entries(state.items).flatMap(([key, item]) =>
+      key.startsWith(prefix) && item.type === "tool_call" && item.call.status === "running"
+        ? [
+            {
+              type: "item.upsert" as const,
+              agent,
+              item: key,
+              draft: {
+                type: "tool_call" as const,
+                call: { status: "cancelled" as const, endedAt: at },
+              },
+            },
+          ]
+        : [],
+    );
+    if (facts.length === 0) return 0;
+    this.repo.apply(threadId, facts, at);
+    this.wake(threadId);
+    return facts.length;
+  }
+  /** Background rows still running whose key starts with `prefix`. */
+  running(threadId: ThreadId, prefix: string): string[] {
+    const tasks = this.repo.state(threadId)?.tasks ?? {};
+    return Object.entries(tasks).flatMap(([key, task]) =>
+      key.startsWith(prefix) && task.status === "running" ? [key] : [],
+    );
+  }
+}

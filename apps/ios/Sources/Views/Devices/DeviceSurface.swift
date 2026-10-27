@@ -17,6 +17,8 @@ final class DeviceSurfaceView: UIView {
     var onScreenSize: (CGSize) -> Void = { _ in }
     /// The degrees the picture turns to stand upright, each time they change.
     var onTurn: (DeviceRotation) -> Void = { _ in }
+    /// Each picture as it reaches the screen, for the stream's stats.
+    var sampler: StreamSampler?
     /// While the person drives, a swipe here goes to the device, never to ace's back swipe.
     var interactive = false { didSet { claim.isEnabled = interactive } }
     private lazy var claim = SurfaceTouchClaim.install(on: self)
@@ -55,6 +57,7 @@ final class DeviceSurfaceView: UIView {
         let renderer = video.sampleBufferRenderer
         if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sample)
+        sampler?.shown(captured: picture.chunk.timestamp)
     }
     /// The picture on screen now, upright, for Screenshot.
     func snapshot() -> UIImage? {
@@ -118,6 +121,7 @@ struct DeviceSurface: UIViewRepresentable {
     var identifier = "devices.surface"
     var screenSize: (CGSize) -> Void = { _ in }
     var turn: (DeviceRotation) -> Void = { _ in }
+    var sampler: StreamSampler? = nil
     let input: (DevicePress, DevicePress) -> Void
     func makeUIView(context: Context) -> DeviceSurfaceView {
         let view = DeviceSurfaceView()
@@ -126,7 +130,7 @@ struct DeviceSurface: UIViewRepresentable {
         return view
     }
     func updateUIView(_ view: DeviceSurfaceView, context: Context) {
-        view.nextPicture = next; view.interactive = interactive; view.onGesture = input; view.onScreenSize = screenSize; view.onTurn = turn
+        view.nextPicture = next; view.interactive = interactive; view.onGesture = input; view.onScreenSize = screenSize; view.onTurn = turn; view.sampler = sampler
         handle?.view = view
     }
 }

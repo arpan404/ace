@@ -75,7 +75,8 @@ export class RequestMirror {
     if (!engine) return;
     const current = new Set(requests.map((request) => `${machine}:${request.interactionId}`));
     for (const [id, entry] of this.open)
-      if (entry.source === source && !current.has(id)) this.close(id, entry);
+      if (entry.source === source && !current.has(id) && !this.forwarding.has(id))
+        this.close(id, entry);
     for (const remote of requests) {
       const id = `${machine}:${remote.interactionId}`;
       if (this.open.has(id) || this.forwarding.has(id) || this.open.size >= 64) continue;
@@ -108,29 +109,40 @@ export class RequestMirror {
       return;
     this.deps.engine()?.resolveHostApproval(entry.parentThreadId, entry.key, { state: "expired" });
   }
-  /** The person answered the copy: close it here and forward the answer. */
+  /** Forward the person's answer; only a delivered answer resolves the copy here. */
   resolve(command: Command): CommandResult | undefined {
     if (command.payload.type !== "interaction.resolve") return undefined;
     const { interactionId, resolution } = command.payload;
     const found = [...this.open].find(([, entry]) => entry.localId === interactionId);
     if (!found) return undefined;
     const [id, entry] = found;
-    this.open.delete(id);
+    if (this.forwarding.has(id))
+      return { commandId: command.id, ok: false, error: "answer_in_flight" };
     this.forwarding.add(id);
-    this.deps.engine()?.resolveHostApproval(entry.parentThreadId, entry.key, {
-      state: "resolved",
-      resolution,
-      resolvedBy: command.deviceId,
-    });
     void this.deps
       .respond(entry, resolution)
-      .catch((error: unknown) =>
-        // Still open there: the next poll shows it here again.
+      .then(() => {
+        if (this.open.get(id) !== entry) return;
+        this.open.delete(id);
+        this.deps.engine()?.resolveHostApproval(entry.parentThreadId, entry.key, {
+          state: "resolved",
+          resolution,
+          resolvedBy: command.deviceId,
+        });
+      })
+      .catch((error: unknown) => {
+        this.deps
+          .engine()
+          ?.hostError(
+            entry.parentThreadId,
+            `${entry.key}:delivery-error`,
+            `Answer to ${entry.machine} not delivered: ${String(error)}`,
+          );
         this.deps.log("Machine answer not delivered", {
           machine: entry.machine,
           error: String(error),
-        }),
-      )
+        });
+      })
       .finally(() => this.forwarding.delete(id));
     return { commandId: command.id, ok: true, threadId: entry.parentThreadId };
   }

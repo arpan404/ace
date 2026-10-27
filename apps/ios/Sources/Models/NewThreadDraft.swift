@@ -36,6 +36,18 @@ struct NewThreadDraft: Codable, Equatable, Sendable {
     /// The GitHub issue the thread works on (started from an issue's page); it goes with the
     /// project it was picked in.
     var issue: NewThreadIssue?
+    /// The pull request the thread works on (started from its page): the thread opens in a
+    /// worktree of the PR's head shown there. It goes with the project it was picked in.
+    var pullRequest: NewThreadPull?
+}
+
+/// A pull request a new thread starts on, pinned to the head the person saw.
+struct NewThreadPull: Codable, Equatable, Sendable {
+    let repository: ForgeRepository
+    let number: Int
+    let headSha: String
+    let title: String
+    var json: [String: Any] { ["ref": ["repository": repository.json, "number": number], "headSha": headSha] }
 }
 
 /// An issue a new thread links, and its title for the sheet to name it.
@@ -71,6 +83,25 @@ struct NewThreadDraftStore: Sendable {
         draft.text = text
         draft.picks = nil
         draft.issue = issue
+        draft.pullRequest = nil
+        draft.commandId = nil
+        draft.files.removeAll { $0.workspaceId != projectId }
+        save(draft)
+    }
+    /// New thread from a pull request: its machine and project, and the PR whose head the
+    /// thread's worktree checks out. The first message is `text`, for the person to read over.
+    func seed(machineId: String, projectId: String, pullRequest: NewThreadPull, text: String = "") {
+        var draft = load()
+        if draft.machineId != machineId {
+            draft.provider = nil; draft.model = nil; draft.account = nil; draft.effort = nil; draft.speed = nil; draft.access = nil
+        }
+        draft.machineId = machineId
+        if draft.projectId != projectId { draft.base = nil }
+        draft.projectId = projectId
+        draft.text = text
+        draft.picks = nil
+        draft.issue = nil
+        draft.pullRequest = pullRequest
         draft.commandId = nil
         draft.files.removeAll { $0.workspaceId != projectId }
         save(draft)
@@ -102,7 +133,7 @@ struct NewThreadDraftStore: Sendable {
         next.commandId = draft.commandId
         // Files, picks and the issue go with the project they were picked for.
         next.files.removeAll { $0.workspaceId != next.projectId }
-        if next.projectId != draft.projectId { next.issue = nil; next.picks = nil }
+        if next.projectId != draft.projectId { next.issue = nil; next.pullRequest = nil; next.picks = nil }
         else if next.text != draft.text, var picks = next.picks {
             picks.edited(from: draft.text, to: next.text)
             next.picks = picks.isEmpty ? nil : picks
@@ -141,6 +172,7 @@ struct NewThreadDraftStore: Sendable {
         next.commandId = nil
         next.files = []
         next.issue = nil
+        next.pullRequest = nil
         commit(next)
     }
     /// Saves the draft first, then lets go of the copies it no longer names.

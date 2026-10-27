@@ -27,6 +27,7 @@ import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineLimits } from "./limits.ts";
 import { retireUncertainInputs } from "./stale-inputs.ts";
+import { guestRefusal } from "./guest-admission.ts";
 
 export function engineHandler(
   repo: EngineRepository,
@@ -50,6 +51,11 @@ export function engineHandler(
   return {
     handle(command: Command, context): CommandResult {
       const payload = command.payload;
+      if ("threadId" in payload && payload.threadId) {
+        const thread = repo.store.getThread(ThreadId.parse(payload.threadId));
+        const refused = guestRefusal(command.id, payload, thread?.details);
+        if (refused) return refused;
+      }
       if (payload.type === "thread.send" && repo.store.getThread(payload.threadId)?.imported) {
         try {
           adoptImportedThread(repo, payload.threadId, now());
@@ -460,8 +466,9 @@ export function engineHandler(
         const admitted = steer.send;
         // Any new message, the person's or a parent agent's, is how a stopped or interrupted turn
         // carries on: it releases that hold, drops ace's own "continue", and the queue sends in
-        // order with it last. It is also the go-ahead past a limit that gave no reset, and past
-        // inputs whose delivery stayed uncertain: those leave the queue, never sent again.
+        // order with it last. It is also the go-ahead past a usage limit, even before its
+        // reset (a limit can lift early), and past inputs whose delivery stayed uncertain: those
+        // leave the queue, never sent again.
         if (p.type === "thread.send") {
           retireUncertainInputs(repo, threadId, now());
           releaseInterruptedHold(repo, threadId, now());
@@ -481,6 +488,8 @@ export function engineHandler(
             {
               paused: true,
               reason: "stopped",
+              limited: false,
+              resetAt: null,
               resumeAt: null,
               timerAction: null,
               holdToken: queue.holdToken + 1,
@@ -488,6 +497,14 @@ export function engineHandler(
             now(),
           );
         }
+        if (threadStop)
+          repo.apply(
+            threadId,
+            Object.entries(repo.requireState(threadId).agents)
+              .filter(([, record]) => record.limited && !record.externalStatus)
+              .map(([agent]) => ({ type: "limit.cleared" as const, agent })),
+            now(),
+          );
         repo.add(admitted, threadId, resolutionId);
         repo.acceptInput(admitted, threadId, now());
         queueSteerSelection(repo, threadId, steer, now());

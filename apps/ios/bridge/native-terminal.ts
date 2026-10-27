@@ -8,7 +8,8 @@ export const NativeTerminalAction = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("terminal.watch"),
     id: z.string().min(1).max(64),
-    threadId: z.string().min(1),
+    /** Omitted for a sign-in terminal, which belongs to no thread (`provider.login.terminal`). */
+    threadId: z.string().min(1).optional(),
     terminalId: z.string().min(1).max(128),
     offset: z.number().int().nonnegative(),
   }),
@@ -81,7 +82,7 @@ export class NativeTerminal {
         type: "terminal.request",
         operation: {
           op: "subscribe",
-          threadId: watch.threadId,
+          ...(watch.threadId ? { threadId: watch.threadId } : {}),
           terminalId: watch.terminalId,
           subscriptionId: watch.id,
           fromOffset: watch.offset,

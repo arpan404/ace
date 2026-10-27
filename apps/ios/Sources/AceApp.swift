@@ -9,7 +9,10 @@ import QuartzCore
     @State private var production = ProductionApp.make()
     /// Unsent thread words, kept across navigation and relaunch (`ThreadDrafts`).
     @State private var drafts = (try? ProductionApp.storageDirectory()).map { directory in
-        ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
+        let drafts = ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
+        // Words an earlier build kept on their way back to a composer go into its draft (`LegacyTakeBacks`).
+        LegacyTakeBacks.drain(databases: directory, into: drafts)
+        return drafts
     }
     var body: some Scene {
         WindowGroup {
@@ -26,7 +29,10 @@ import QuartzCore
             .modifier(PhoneAppearance())
             .overlay(alignment: .topLeading) { PerfProbeView() }
         }
-        .commands { ThreadCommands() }
+        .commands {
+            ThreadCommands()
+            PanelMenuCommands()
+        }
     }
     @ViewBuilder private var renderFixture: some View {
         #if ACE_FIXTURE
@@ -42,7 +48,7 @@ import QuartzCore
     /// Debug `--spike` only: the loopback fixture with a fixed fake device credential.
     private var spike: some View {
         Group {
-            if started { InboxView(inbox: spikeInbox) }
+            if started || SpikeConfiguration.lateMachines { InboxView(inbox: spikeInbox) }
             else { EmptyState(icon: .graph, title: "Connecting to the spike daemon").frame(maxHeight: .infinity) }
         }
         .environment(notificationDelegate.coordinator)
@@ -50,9 +56,13 @@ import QuartzCore
         .task {
             let targets = SpikeConfiguration.targets()
             guard !started, !targets.isEmpty, let directory = try? ProductionApp.storageDirectory() else { return }
+            if SpikeConfiguration.lateMachines { try? await Task.sleep(for: .seconds(4)) }
             // One runtime per fixture machine, as production runs one per paired computer.
             for (index, spike) in targets.enumerated() {
                 let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
+                if SpikeConfiguration.viewOnly { model.canOperate = false }
+                // The fixture's host token is an administrator's.
+                model.canAdmin = true
                 spikeInbox.attach(spike.target.hostId, name: spike.name, client: model)
                 await notificationDelegate.coordinator.attach(model, target: spike.target)
                 await model.connect(target: spike.target, directory: directory, itemLimit: SpikeConfiguration.itemLimit)

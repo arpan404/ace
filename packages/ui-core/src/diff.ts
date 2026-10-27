@@ -205,42 +205,58 @@ export function fold(lines: readonly DiffLine[], context = contextLines): DiffRo
 
 const hunkHeader = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
-/** Rows for a unified diff. Unknown gaps between hunks become folds of known size. */
-export function parseUnifiedDiff(text: string): DiffRow[] {
-  const rows: DiffRow[] = [];
-  let oldLine = 0;
-  let newLine = 0;
+/**
+ * A unified diff read a line at a time, so a patch arriving in parts is parsed once: each line's
+ * rows are added as it is read, and the hunk it is in carries over to the next part.
+ */
+export class UnifiedDiffLines {
+  #oldLine = 0;
+  #newLine = 0;
   // Lines left in the current hunk on each side; the header's counts bound it.
-  let oldLeft = 0;
-  let newLeft = 0;
-  let nextOld = 1;
-  for (const raw of text.split("\n")) {
+  #oldLeft = 0;
+  #newLeft = 0;
+  #nextOld = 1;
+
+  /** No hunk is open: the next line is a header or text between hunks. */
+  get between(): boolean {
+    return this.#oldLeft <= 0 && this.#newLeft <= 0;
+  }
+
+  /** Read one line (without its line break), adding its rows to `rows`. */
+  read(raw: string, rows: DiffRow[]): void {
     const header = hunkHeader.exec(raw);
     if (header) {
       const start = Number(header[1]);
-      if (start > nextOld) rows.push({ kind: "fold", count: start - nextOld });
-      oldLine = start;
-      newLine = Number(header[3]);
-      oldLeft = Number(header[2] ?? 1);
-      newLeft = Number(header[4] ?? 1);
-      continue;
+      if (start > this.#nextOld) rows.push({ kind: "fold", count: start - this.#nextOld });
+      this.#oldLine = start;
+      this.#newLine = Number(header[3]);
+      this.#oldLeft = Number(header[2] ?? 1);
+      this.#newLeft = Number(header[4] ?? 1);
+      return;
     }
-    if (oldLeft <= 0 && newLeft <= 0) continue;
+    if (this.between) return;
     const mark = raw[0];
     const body = raw.slice(1);
     if (mark === "+") {
-      rows.push({ kind: "add", new: newLine++, text: body });
-      newLeft--;
+      rows.push({ kind: "add", new: this.#newLine++, text: body });
+      this.#newLeft--;
     } else if (mark === "-") {
-      rows.push({ kind: "del", old: oldLine++, text: body });
-      oldLeft--;
+      rows.push({ kind: "del", old: this.#oldLine++, text: body });
+      this.#oldLeft--;
     } else if (mark === " " || raw === "") {
-      rows.push({ kind: "context", old: oldLine++, new: newLine++, text: body });
-      oldLeft--;
-      newLeft--;
+      rows.push({ kind: "context", old: this.#oldLine++, new: this.#newLine++, text: body });
+      this.#oldLeft--;
+      this.#newLeft--;
     }
-    nextOld = oldLine;
+    this.#nextOld = this.#oldLine;
   }
+}
+
+/** Rows for a unified diff. Unknown gaps between hunks become folds of known size. */
+export function parseUnifiedDiff(text: string): DiffRow[] {
+  const rows: DiffRow[] = [];
+  const lines = new UnifiedDiffLines();
+  for (const raw of text.split("\n")) lines.read(raw, rows);
   return rows;
 }
 
@@ -353,30 +369,48 @@ export type SplitRow =
   | { kind: "fold"; row: Extract<DiffRow, { kind: "fold" }> }
   | { kind: "pair"; left?: DiffLine; right?: DiffLine };
 export function pairRows(rows: readonly DiffRow[]): SplitRow[] {
-  const out: SplitRow[] = [];
-  let dels: DiffLine[] = [];
-  let adds: DiffLine[] = [];
+  return splitPairs(rows.map((row) => row.kind)).map(({ left, right }): SplitRow => {
+    const row = rows[left ?? right ?? 0];
+    if (row?.kind === "fold") return { kind: "fold", row };
+    const at = (index: number | null) => {
+      const line = index === null ? undefined : rows[index];
+      return line && line.kind !== "fold" ? line : undefined;
+    };
+    const pair: SplitRow = { kind: "pair" };
+    const l = at(left);
+    const r = at(right);
+    if (l) pair.left = l;
+    if (r) pair.right = r;
+    return pair;
+  });
+}
+
+/**
+ * Side-by-side pairing by row index: a change's deletions and additions line up row by row,
+ * and any other row (context, a fold, a hunk header) stands on both sides at once.
+ */
+export function splitPairs(
+  kinds: readonly string[],
+): { left: number | null; right: number | null }[] {
+  const out: { left: number | null; right: number | null }[] = [];
+  let dels: number[] = [];
+  let adds: number[] = [];
   const flush = () => {
-    for (let i = 0; i < Math.max(dels.length, adds.length); i++) {
-      const left = dels[i];
-      const right = adds[i];
-      out.push({ kind: "pair", ...(left ? { left } : {}), ...(right ? { right } : {}) });
-    }
+    for (let i = 0; i < Math.max(dels.length, adds.length); i++)
+      out.push({ left: dels[i] ?? null, right: adds[i] ?? null });
     dels = [];
     adds = [];
   };
-  for (const row of rows) {
-    if (row.kind === "del") {
+  kinds.forEach((kind, index) => {
+    if (kind === "del") {
       if (adds.length) flush();
-      dels.push(row);
-    } else if (row.kind === "add") adds.push(row);
+      dels.push(index);
+    } else if (kind === "add") adds.push(index);
     else {
       flush();
-      out.push(
-        row.kind === "fold" ? { kind: "fold", row } : { kind: "pair", left: row, right: row },
-      );
+      out.push({ left: index, right: index });
     }
-  }
+  });
   flush();
   return out;
 }

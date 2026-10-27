@@ -1,4 +1,5 @@
 import {
+  MachineCommandJobsResult,
   MachineDelegateResult,
   MachineMessageResult,
   MachineSessionResult,
@@ -7,11 +8,13 @@ import {
   type AgentControlResult,
   type DelegationRequest,
   type InteractionResolution,
+  type MachineCall,
   type MachineCallOrigin,
   type MachineMessage,
   type MachinePendingRequest,
   type MachineThreadView,
   type McpAttribution,
+  type AgentId,
   type ThreadId,
 } from "@ace/protocol";
 import { HostId } from "@ace/protocol";
@@ -22,6 +25,7 @@ import type { MachineDirectory } from "./directory.ts";
 import type { MachineChildren } from "./children.ts";
 import type { Answer, ResendAnswer } from "./child-messages.ts";
 import type { RequestMirror } from "./mirror.ts";
+import type { RemoteJobs } from "./remote-jobs.ts";
 import { MachineFailure } from "./transport.ts";
 
 /**
@@ -49,6 +53,10 @@ export interface CallerDeps {
   mirror: RequestMirror;
   schedule(ms: number, run: () => void): () => void;
   pollMs: number;
+  /** The calling thread's ceiling, sent so the target applies it too (ADR 0105). */
+  ceiling(threadId: ThreadId): "read" | "operate";
+  /** Background command jobs started there, held in their calling thread here until they end. */
+  jobs(): RemoteJobs | undefined;
 }
 
 /**
@@ -66,7 +74,12 @@ export class MachineCaller {
       hostName: clip((await this.deps.hostName()) || "ace", 256) || "ace",
       threadId,
       threadTitle: clip(this.deps.store.getThread(threadId)?.title ?? "", 256),
+      ceiling: this.deps.ceiling(threadId),
     };
+  }
+  /** Whether a linked machine last seen online lets agents here use a tool group there. */
+  serves(group: "devices" | "screen" | "commands"): boolean {
+    return this.deps.directory.serves(group);
   }
   async list(caller: McpAttribution): Promise<AgentControlResult> {
     const machines = await this.deps.directory.list(await this.origin(caller.threadId));
@@ -273,10 +286,10 @@ export class MachineCaller {
     );
   }
   /**
-   * A browser tool on another machine. While it runs, that machine's requests for this call
-   * (a private takeover there) show here too, so the person can answer from either one.
+   * A command tool on another machine (ADR 0105). Commands always act, so a read-only thread
+   * here is refused before anything is sent; the target applies the same ceiling.
    */
-  async browser(
+  async command(
     caller: McpAttribution,
     machine: string,
     tool: string,
@@ -284,16 +297,117 @@ export class MachineCaller {
     options: { timeoutMs: number; signal: AbortSignal },
   ) {
     const { directory } = this.deps;
-    const origin = await this.origin(caller.threadId);
+    if (this.deps.ceiling(caller.threadId) === "read")
+      throw directory.toolError(
+        machine,
+        new MachineFailure(
+          "refused",
+          "machine_forbidden",
+          "This thread is read-only, so it can't run commands on another machine.",
+        ),
+      );
+    const origin = { ...(await this.origin(caller.threadId)), agentId: caller.agentId };
+    let result: MachineToolResult;
+    try {
+      result = MachineToolResult.parse(
+        await directory.call(
+          machine,
+          origin,
+          { op: "commands", tool, args },
+          { timeoutMs: options.timeoutMs, signal: options.signal, maxBytes: 2 * 1024 * 1024 },
+        ),
+      );
+    } catch (error) {
+      options.signal.throwIfAborted();
+      throw directory.toolError(machine, error);
+    }
+    const { job, ...shown } = result;
+    // A job started there holds this thread open until it ends, so it never reads done early.
+    if (tool === "command_run" && job)
+      this.deps.jobs()?.add({
+        machine,
+        jobId: job.id,
+        threadId: caller.threadId,
+        agentId: caller.agentId,
+        command: typeof args["command"] === "string" ? args["command"] : "command",
+        timeoutSeconds: job.timeoutSeconds,
+      });
+    return shown;
+  }
+  /** Whether this thread's command jobs on that machine still run (ADR 0105). */
+  async commandJobs(machine: string, threadId: ThreadId, jobIds: readonly string[]) {
+    const answer = await this.deps.directory.call(
+      machine,
+      await this.origin(threadId),
+      { op: "command.jobs", jobIds: [...jobIds] },
+      { timeoutMs: 10_000 },
+    );
+    return MachineCommandJobsResult.parse(answer).jobs;
+  }
+  /** Stops one of this thread's command jobs there, as the person's Stop on its row asks. */
+  async stopCommandJob(machine: string, threadId: ThreadId, agentId: AgentId, jobId: string) {
+    await this.deps.directory.call(
+      machine,
+      { ...(await this.origin(threadId)), agentId },
+      { op: "commands", tool: "command_stop", args: { jobId } },
+      { timeoutMs: 25_000 },
+    );
+  }
+  /**
+   * A browser tool on another machine. While it runs, that machine's requests for this call
+   * (a private takeover there) show here too, so the person can answer from either one.
+   */
+  browser(
+    caller: McpAttribution,
+    machine: string,
+    tool: string,
+    args: Record<string, unknown>,
+    options: { timeoutMs: number; signal: AbortSignal },
+  ) {
+    return this.inSession(caller, machine, { op: "browser", tool, args }, options);
+  }
+  /**
+   * A computer-use tool on another machine (ADR 0105). That machine's computer-use switch and app
+   * rules decide; anything there that waits for the person shows here too while it runs.
+   */
+  screen(
+    caller: McpAttribution,
+    machine: string,
+    tool: string,
+    args: Record<string, unknown>,
+    options: { timeoutMs: number; signal: AbortSignal },
+  ) {
+    return this.inSession(
+      caller,
+      machine,
+      { op: "screen", tool, args },
+      { ...options, timeoutMs: Math.min(options.timeoutMs, 120_000) },
+    );
+  }
+  /** One tool call in the calling thread's guest session there, mirroring its requests. */
+  private async inSession(
+    caller: McpAttribution,
+    machine: string,
+    call: Extract<MachineCall, { op: "browser" | "screen" }>,
+    options: { timeoutMs: number; signal: AbortSignal },
+  ) {
+    const { directory } = this.deps;
+    // Each calling agent holds its own leases there (ADR 0105).
+    const origin = { ...(await this.origin(caller.threadId)), agentId: caller.agentId };
     let session: ThreadId;
     try {
       session = MachineSessionResult.parse(
-        await directory.call(machine, origin, { op: "browser.session" }, { timeoutMs: 15_000 }),
+        await directory.call(
+          machine,
+          origin,
+          { op: "browser.session", ...(call.op === "browser" ? {} : { capability: call.op }) },
+          { timeoutMs: 15_000 },
+        ),
       ).threadId;
     } catch (error) {
       throw directory.toolError(machine, error);
     }
-    const source = `browser:${caller.threadId}:${session}`;
+    const source = `${call.op}:${caller.threadId}:${session}`;
     const name = directory.label(machine);
     let stop: (() => void) | undefined;
     let done = false;
@@ -313,12 +427,11 @@ export class MachineCaller {
     watch();
     try {
       return MachineToolResult.parse(
-        await directory.call(
-          machine,
-          origin,
-          { op: "browser", tool, args },
-          { timeoutMs: options.timeoutMs, signal: options.signal, maxBytes: 8 * 1024 * 1024 },
-        ),
+        await directory.call(machine, origin, call, {
+          timeoutMs: options.timeoutMs,
+          signal: options.signal,
+          maxBytes: 8 * 1024 * 1024,
+        }),
       );
     } catch (error) {
       options.signal.throwIfAborted();
@@ -327,6 +440,32 @@ export class MachineCaller {
       done = true;
       stop?.();
       this.deps.mirror.release(source);
+    }
+  }
+  /**
+   * A simulators, computer-use or commands tool on another machine (ADR 0105). It runs there in
+   * this thread's guest session, under that machine's grants, leases and takeover rules.
+   */
+  async hosted(
+    caller: McpAttribution,
+    machine: string,
+    call: Extract<MachineCall, { op: "devices" | "screen" | "commands" }>,
+    options: { timeoutMs: number; signal: AbortSignal },
+  ) {
+    const { directory } = this.deps;
+    // Each calling agent holds its own leases there.
+    const origin = { ...(await this.origin(caller.threadId)), agentId: caller.agentId };
+    try {
+      return MachineToolResult.parse(
+        await directory.call(machine, origin, call, {
+          timeoutMs: options.timeoutMs,
+          signal: options.signal,
+          maxBytes: 8 * 1024 * 1024,
+        }),
+      );
+    } catch (error) {
+      options.signal.throwIfAborted();
+      throw directory.toolError(machine, error);
     }
   }
 }

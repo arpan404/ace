@@ -15,8 +15,10 @@ extension ClientModel {
 /// Create PR open their editor (with an AI draft on request); Merge uses the method last picked
 /// on this phone and asks to confirm; an open PR can ask for review. Progress and the outcome
 /// float above the bottom edge.
-private struct ChangesActions: ViewModifier {
+private struct ChangesActions<Header: View>: ViewModifier {
     @Bindable var model: ClientModel
+    /// The sheet's heading, beside the actions (`screenBar`).
+    let header: Header
     let summary: ChangesSummary?
     let title: String
     @Binding var wrap: Bool
@@ -27,6 +29,7 @@ private struct ChangesActions: ViewModifier {
     @State private var confirmingMerge = false
     @State private var requestingReview = false
     @State private var reviewers = ""
+    @Environment(\.horizontalSizeClass) private var sizeClass
     private var step: ChangesSummary.Step? { summary?.state == "ready" ? summary?.step : nil }
     private var outcome: GitOutcome? { request.flatMap { model.sheets.outcomes[$0] } }
     private var running: Bool { summary?.busy == true || (request != nil && outcome == nil) }
@@ -36,12 +39,12 @@ private struct ChangesActions: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    menu
-                    // A step that can't run yet stays in the menu with its reason, never greyed here.
-                    if let step, step.kind != "none", step.blocked == nil, model.canOperate { stepButton(step) }
-                }
+            .screenBar {
+                header
+            } actions: {
+                menu
+                // A step that can't run yet stays in the menu with its reason, never greyed here.
+                if let step, step.kind != "none", step.blocked == nil, model.canOperate { stepButton(step) }
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { status }
             .sheet(isPresented: $editing) {
@@ -88,6 +91,14 @@ private struct ChangesActions: ViewModifier {
             }
             if let url = step?.pr?.url.flatMap(URL.init(string:)) { Link(destination: url) { Label("Open on GitHub", systemImage: "safari") } }
             Section {
+                if sizeClass == .regular {
+                    Picker(selection: Binding(get: { summary?.layout ?? "unified" }, set: { model.sheet(["kind": "changes.layout", "layout": $0]) })) {
+                        Text("Unified").tag("unified")
+                        Text("Split").tag("split")
+                    } label: { Label("Layout", systemImage: "rectangle.split.2x1") }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("diff.layout")
+                }
                 Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") }
                     .accessibilityIdentifier("diff.wrap")
                 Button("Refresh", systemImage: "arrow.clockwise") { model.sheet(["kind": "changes.refresh"]) }
@@ -136,7 +147,8 @@ private struct ChangesActions: ViewModifier {
 }
 
 extension View {
-    func changesActions(model: ClientModel, summary: ChangesSummary?, title: String, wrap: Binding<Bool>) -> some View {
-        modifier(ChangesActions(model: model, summary: summary, title: title, wrap: wrap))
+    func changesActions<Header: View>(model: ClientModel, summary: ChangesSummary?, title: String, wrap: Binding<Bool>,
+                                      @ViewBuilder header: () -> Header) -> some View {
+        modifier(ChangesActions(model: model, header: header(), summary: summary, title: title, wrap: wrap))
     }
 }

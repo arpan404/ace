@@ -30,8 +30,14 @@ export function StatusLine(props: {
 }) {
   const now = useNow();
   const fresh = useLiveConnection().fresh;
-  const { status } = props.thread;
-  const { label, tone } = threadStatusLabel(status);
+  const status =
+    props.thread.status.state === "working" && props.running === 0
+      ? { state: "waiting" as const, on: "background_task" as const }
+      : props.thread.status;
+  const { label, tone } =
+    props.thread.status.state === "working" && props.running === 0
+      ? { label: "Waiting", tone: "waiting" as const }
+      : threadStatusLabel(status);
   const going = live.has(status.state);
   const facts = [label];
   if (going && props.running)

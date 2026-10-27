@@ -3,8 +3,8 @@ import type { RunRole, SettingsValues } from "@ace/protocol";
 import { roleKeys, runRoles } from "@ace/settings/roles";
 import {
   choiceForModel,
-  effortLabel,
   pickerModelsFromChoices,
+  roleEffortChoices,
   pickerProviders,
   providerNames,
 } from "@ace/ui-core";
@@ -24,11 +24,7 @@ import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
 
 type Effort = SettingsValues["providers.coder.reasoningEffort"];
-const efforts: Effort[] = ["default", "minimal", "low", "medium", "high", "xhigh", "max"];
-const effortOptions: SelectOption<Effort>[] = efforts.map((value) => ({
-  value,
-  label: value === "default" ? "Default effort" : effortLabel(value),
-}));
+const effortOptions: readonly SelectOption<Effort>[] = roleEffortChoices;
 const rows = {
   build: "roles.build",
   judgment: "roles.judgment",

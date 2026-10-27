@@ -2,6 +2,7 @@ import type { ClientCore } from "@ace/client";
 import {
   AccessMode,
   ForgeIssueRef,
+  ForgePrWorktree,
   KnownSpeed,
   WorkspaceId,
   type CatalogEntry,
@@ -21,7 +22,7 @@ import { joinContext, messageContent, References } from "./composer-references.t
 import { readProjects } from "./project-list.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 import { NewThreadAccessReader, knownProvider } from "./new-thread-access.ts";
-import { ModelFavorites } from "./model-favorites.ts";
+import { ModelFavorites, starProblem } from "./model-favorites.ts";
 import { agentsPatch, type Stars } from "./new-thread-agents.ts";
 import { readAgents } from "./agent-read.ts";
 import type { AttachmentTray } from "./thread-attachments.ts";
@@ -82,6 +83,8 @@ export const CreateAction = z.object({
   text: z.string().max(100_000),
   /** The GitHub issue the thread works on, linked as the web's New thread from an issue does. */
   issue: ForgeIssueRef.optional(),
+  /** The pull request the thread works on, in a worktree of the head the person saw. */
+  pullRequest: ForgePrWorktree.optional(),
   /** Rows picked from `@` and `/`, as inserted (`composer-references.ts`). */
   references: References.optional(),
 });
@@ -135,6 +138,11 @@ export class NewThread {
     void this.projects();
     void this.agents();
     void this.#access.open();
+  }
+
+  /** The coding agents the last read found; undefined until one succeeds. */
+  get loadedAgents(): NewThreadAgents | undefined {
+    return this.#agents;
   }
 
   /** What the sheet has chosen: the picker leads with it, and its access modes are read. */
@@ -223,11 +231,8 @@ export class NewThread {
         keys: await this.#favorites.toggle(key, catalogModelIds(this.#catalog)),
         problem: null,
       };
-    } catch {
-      this.#stars = {
-        ...this.#stars,
-        problem: "Couldn't save this favourite. Reconnect and try again.",
-      };
+    } catch (error) {
+      this.#stars = { ...this.#stars, problem: starProblem(error) };
     }
     if (this.#agents) this.#emitAgents(this.#agents);
   }
@@ -314,7 +319,7 @@ export class NewThread {
       admission(false, "Write the first message or attach a file.");
       return false;
     }
-    const files = tray?.context() ?? { context: undefined };
+    const files = tray?.context() ?? { context: undefined, ids: [] };
     if ("refused" in files) {
       admission(false, files.refused);
       return false;
@@ -347,15 +352,18 @@ export class NewThread {
       input: content.input,
       context: joinContext(files.context, content.references),
       ...(action.issue ? { issue: action.issue } : {}),
+      ...(action.pullRequest ? { pullRequest: action.pullRequest } : {}),
     });
     const draftId = files.context?.draftId;
+    // The new thread takes only these files: none joins until it is saved or refused.
+    tray?.lock("Wait for the thread to start, then add files.");
     try {
       await submitCommand(
         this.#owner,
         payload,
         () => {
           // The thread takes the files and their draft scope with it.
-          tray?.sent();
+          tray?.sent(files.ids);
           if (draftId) this.#files.adopt(draftId);
           admission(true, "");
         },
@@ -373,6 +381,7 @@ export class NewThread {
       );
       return true;
     } catch {
+      tray?.unlock();
       admission(false, "Couldn't save the new thread on this phone. Your draft is still here.");
       return false;
     }

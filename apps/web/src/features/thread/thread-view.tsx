@@ -63,6 +63,7 @@ import { WorkButton } from "./header/work-button.tsx";
 import { useRememberedWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
 import { WorkSide } from "./header/work-side.tsx";
 import { DelegateBottom } from "./subagent/delegate-bottom.tsx";
+import { GuestBottom } from "./guest/guest-bottom.tsx";
 import { QueuedLaunch } from "./subagent/queued-launch.tsx";
 import { ThreadForgeLinks } from "@/components/forge-links.tsx";
 
@@ -264,12 +265,14 @@ function ThreadScreen(props: {
                 </div>
                 {thread && (
                   <DelegateBottom thread={meta} onFork={forkPoint && (() => openFork(forkPoint))}>
-                    <ThreadComposer
-                      thread={thread}
-                      status={meta?.status}
-                      composer={composer}
-                      requestTarget={props.target?.itemId}
-                    />
+                    <GuestBottom thread={meta} requestTarget={props.target?.itemId}>
+                      <ThreadComposer
+                        thread={thread}
+                        status={meta?.status}
+                        composer={composer}
+                        requestTarget={props.target?.itemId}
+                      />
+                    </GuestBottom>
                   </DelegateBottom>
                 )}
               </div>

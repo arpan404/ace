@@ -1,7 +1,15 @@
-import { themeAccent, themedPalette, type AccentChoice } from "./accent.ts";
-import { readableAcross } from "./colour.ts";
-import { themeIds, themes, type Palette, type Scheme, type ThemeId } from "./palettes.ts";
-import { paletteSurfaces } from "./surfaces.ts";
+import {
+  themeAccent,
+  themedPalette,
+  type AccentChoice,
+  readableAcross,
+  themeIds,
+  themes,
+  type Palette,
+  type Scheme,
+  type ThemeId,
+  paletteSurfaces,
+} from "@ace/themes";
 import { themeTokens } from "./tokens.ts";
 import { defaultTranslucency } from "./translucency.ts";
 

@@ -49,7 +49,8 @@ export function QueuedTray(props: {
   const { queue } = props;
   const compact = useComposerCompact();
   const { storage } = useLayout();
-  const editing = useQueueEdit(props.threadId)?.message;
+  const session = useQueueEdit(props.threadId);
+  const editing = session?.message;
   const [announcement, announce] = useState("");
   const restoreFocus = useRef<{ id: string; handle: HTMLButtonElement } | undefined>(undefined);
   const drag = useRef<{ id: string; revision: number | undefined; order: string } | undefined>(
@@ -122,13 +123,25 @@ export function QueuedTray(props: {
           <p id={hintId} className="sr-only">
             Drag to reorder, or focus a handle and press Alt+Arrow Up or Alt+Arrow Down.
           </p>
+          {session?.newer !== undefined && (
+            <div role="status" aria-label="Changed on another device" className="px-1 py-0.5">
+              <p className="text-foreground">
+                It changed on another device. Your edit is kept: saving replaces what it says now.
+              </p>
+              <p className="line-clamp-3 whitespace-pre-wrap text-muted-foreground">
+                {session.newer}
+              </p>
+            </div>
+          )}
           {editing && !messages.some((message) => message.id === editing.id) && (
             // Its row isn't shown (sent, or moved past the loaded page): Cancel still needs a home.
             <p role="status" className="flex items-center gap-1 px-1 py-0.5 text-subtle-foreground">
               <span className="min-w-0 flex-1 truncate">
-                {queue.allMessages.some((message) => message.id === editing.id)
-                  ? "Editing a message further down the queue."
-                  : "The message you're editing has left the queue."}
+                {session?.held
+                  ? "Editing the message that wasn't sent."
+                  : queue.allMessages.some((message) => message.id === editing.id)
+                    ? "Editing a message further down the queue."
+                    : "The message you're editing has left the queue."}
               </span>
               <Button
                 variant="ghost"
@@ -261,7 +274,7 @@ export function QueuedTray(props: {
                       }
                       onClick={() => {
                         if (saving || "saving" in message) return;
-                        if (beginQueueEdit(storage, props.threadId, message))
+                        if (beginQueueEdit(storage, props.threadId, message, queue.page?.revision))
                           props.onEditInComposer?.();
                       }}
                     />

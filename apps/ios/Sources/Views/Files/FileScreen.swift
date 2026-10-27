@@ -10,7 +10,7 @@ struct FileScreen: View {
     let model: ClientModel
     let scope: FilesScope
     let target: FileTarget
-    let mention: ((String) -> Void)?
+    let mention: ((ComposerMention) -> Void)?
     /// Where an Undo for this file goes once the screen closes after deleting it; without one
     /// the screen stays, saying the file is gone, with Undo.
     var deleted: ((FileStrip) -> Void)?
@@ -31,9 +31,13 @@ struct FileScreen: View {
     @State private var share: SharedFile?
     @State private var showChanges = false
     @State private var handle = SourceHandle()
+    /// Lines selected while reading: Mention lines puts them in the message.
+    @State private var selectedLines: ClosedRange<Int>?
+    @State private var mentioned = 0
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var actions: FileActions
 
-    init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((String) -> Void)?, deleted: ((FileStrip) -> Void)? = nil) {
+    init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((ComposerMention) -> Void)?, deleted: ((FileStrip) -> Void)? = nil) {
         self.deleted = deleted
         self.model = model
         self.scope = scope
@@ -67,8 +71,19 @@ struct FileScreen: View {
                 Button("Discard changes", role: .destructive) { stopEditing() }
                 Button("Keep editing", role: .cancel) {}
             }
+            .overlay(alignment: .bottom) { mentionLines }
+            .animation(reduceMotion ? .easeInOut(duration: 0.15) : .smooth(duration: 0.25), value: selectedLines)
+            .sensoryFeedback(.success, trigger: mentioned)
             .modifier(FileActionPrompts(actions: actions))
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
+            .onChange(of: path, initial: true) { _, now in model.fileOpened(scope, now) }
+    }
+
+    /// The switcher picked another open file: show it here, as a tab switch would.
+    private func switchTo(_ picked: String) {
+        guard picked != path, !editing else { return }
+        content = nil; image = nil; failure = nil; source = false
+        path = picked
     }
 
     // MARK: Content
@@ -85,11 +100,7 @@ struct FileScreen: View {
                     if hasChanges { Button("Show changes") { showChanges = true } }
                 }
             case "large":
-                ContentUnavailableView {
-                    Label("Too large to show here", systemImage: "doc.text")
-                } description: {
-                    Text("\(name) is \(size(content.size)). Files over 2 MB open as a download.")
-                } actions: { Button("Share") { shareFile() } }
+                LargeFileView(model: model, scope: scope, path: path, size: content.size)
             case "binary":
                 ContentUnavailableView {
                     Label("Binary file", systemImage: "doc")
@@ -133,15 +144,44 @@ struct FileScreen: View {
             SourceTextView(document: SourceDocument(key: "\(path)|\(content.version ?? "")|\(editSession)", text: text,
                                                     colours: content.colours ?? [], runs: content.runs ?? [],
                                                     marks: Dictionary((content.marks ?? []).map { ($0.line, $0.kind) }, uniquingKeysWith: { a, _ in a })),
-                           wrap: wrap, editable: editing, line: target.line, handle: handle, dirty: { dirty = $0 })
+                           wrap: wrap, editable: editing, line: target.line, handle: handle, dirty: { dirty = $0 },
+                           selected: mention == nil ? nil : { selectedLines = $0 },
+                           mention: mention == nil ? nil : { mentionSelection($0) })
                 .ignoresSafeArea(.container, edges: .bottom)
         }
+    }
+
+    /// While lines are selected, one glass capsule over the text says what Mention puts in the
+    /// message: "Mention line 12" or "Mention lines 12–20".
+    @ViewBuilder private var mentionLines: some View {
+        if let lines = selectedLines, mention != nil, !editing {
+            Button { mentionSelection(lines) } label: {
+                Text(lines.count == 1 ? "Mention line \(lines.lowerBound)" : "Mention lines \(lines.lowerBound)–\(lines.upperBound)")
+                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .monospacedDigit()
+                    .padding(.horizontal, AceTheme.Spacing.lg)
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .contentShape(AceShape.capsule)
+            }
+            .buttonStyle(.plain)
+            .floatingGlass()
+            .padding(.bottom, AceTheme.Spacing.lg)
+            .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            .accessibilityIdentifier("preview.mentionLines")
+        }
+    }
+    private func mentionSelection(_ lines: ClosedRange<Int>) {
+        mentioned += 1
+        selectedLines = nil
+        mention?(ComposerMention(path: path, lines: lines))
     }
 
     // MARK: Toolbars
 
     @ToolbarContentBuilder private var viewToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
+            OpenFilesButton(model: model, scope: scope) { picked in switchTo(picked) }
             if text != nil, !markdownPreview {
                 Button("Find in file", systemImage: "magnifyingglass") { handle.find() }.accessibilityIdentifier("file.find")
             }
@@ -153,14 +193,25 @@ struct FileScreen: View {
         }
     }
 
+    /// This file on the computer, for Open in.
+    private var hostTarget: HostOpenTarget {
+        switch scope {
+        case .thread(let id): HostOpenTarget(threadId: id, path: path, line: target.line)
+        case .project(let id): HostOpenTarget(workspaceId: id, path: path, line: target.line)
+        }
+    }
     @ViewBuilder private var fileMenu: some View {
         if text != nil, !markdownPreview { Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") } }
         if content?.markdown == true {
             Button(source ? "View preview" : "View source", systemImage: source ? "eye" : "chevron.left.forwardslash.chevron.right") { source.toggle() }
         }
         if hasChanges { Button("Show changes", systemImage: "plusminus") { showChanges = true }.accessibilityIdentifier("file.changes") }
-        if let mention { Button("Mention in message", systemImage: "at") { mention(path) }.accessibilityIdentifier("preview.mention") }
+        if let mention { Button("Mention in message", systemImage: "at") { mention(ComposerMention(path: path)) }.accessibilityIdentifier("preview.mention") }
         Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+        if content?.kind != "missing" {
+            OpenOnHostMenu(model: model, target: hostTarget) { Label("Open in…", systemImage: "arrow.up.forward.app") }
+                .accessibilityIdentifier("file.openIn")
+        }
         if content != nil, content?.kind != "missing" { Button("Share", systemImage: "square.and.arrow.up") { shareFile() } }
         if actions.canChange, content?.kind != "missing" {
             Divider()
@@ -283,11 +334,14 @@ struct SharedFile: Identifiable {
     var id: URL { url }
 }
 
-/// The system share sheet for one file.
+/// The system share sheet for one file; `finished` runs once the person shares or cancels.
 struct ShareSheet: UIViewControllerRepresentable {
     let url: URL
+    var finished: (() -> Void)? = nil
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let finished { controller.completionWithItemsHandler = { _, _, _, _ in finished() } }
+        return controller
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

@@ -9,6 +9,12 @@ import {
   type NotificationFeed,
 } from "@ace/protocol";
 import { submitCommand } from "./commands.ts";
+import {
+  PhoneNotificationPrefs,
+  defaultPhonePrefs,
+  phoneDelivery,
+  type PhoneDelivery,
+} from "./notification-delivery.ts";
 
 const boundedId = z.string().min(1).max(200);
 export const NotificationAction = z.discriminatedUnion("type", [
@@ -17,6 +23,8 @@ export const NotificationAction = z.discriminatedUnion("type", [
     enabled: z.boolean(),
     appState: AppState,
     cursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    /** This phone's own delivery preferences; older hosts omit them. */
+    phone: PhoneNotificationPrefs.optional(),
   }),
   z.object({ type: z.literal("notifications.config") }),
   z.object({ type: z.literal("notifications.preferences"), preferences: NotificationPreferences }),
@@ -39,6 +47,8 @@ export type ActionOutcome = "stale" | "unreachable" | "unsaved" | "saved" | "con
 
 type Put = (key: string, read: () => Record<string, unknown>) => void;
 type Schedule = (delayMs: number, run: () => void) => () => void;
+/** Minutes after local midnight now, from the host's clock. */
+type MinuteOfDay = () => number;
 
 /**
  * Local notifications for the iOS app. Alerts come only from the daemon's canonical
@@ -51,6 +61,8 @@ export class NotificationBridge {
   #enabled = false;
   #appState: AppState = "foreground";
   #cursor = 0;
+  #phone: PhoneNotificationPrefs = defaultPhonePrefs;
+  #minuteOfDay: MinuteOfDay;
   /** False until Swift reports on/off; the runtime's default must not unregister a device. */
   #synced = false;
   /** What this connection has told the daemon; unknown again after every reconnect. */
@@ -62,8 +74,15 @@ export class NotificationBridge {
   /** How long an action waits for this thread's confirmed state before giving up. */
   readonly detailsMs: number;
 
-  constructor(client: ClientCore, put: Put, schedule: Schedule, detailsMs = 8000) {
+  constructor(
+    client: ClientCore,
+    put: Put,
+    schedule: Schedule,
+    minuteOfDay: MinuteOfDay,
+    detailsMs = 8000,
+  ) {
     this.#client = client;
+    this.#minuteOfDay = minuteOfDay;
     this.#put = put;
     this.#schedule = schedule;
     this.detailsMs = detailsMs;
@@ -91,6 +110,7 @@ export class NotificationBridge {
         this.#enabled = action.enabled;
         this.#synced = true;
         this.#appState = action.appState;
+        if (action.phone) this.#phone = action.phone;
         this.#cursor = Math.max(this.#cursor, action.cursor);
         if (this.#client.state === "ready") {
           if (changed) this.#presence();
@@ -174,15 +194,23 @@ export class NotificationBridge {
     this.#put("notifications:feed", () => ({
       type: "notifications.feed",
       cursor: feed.cursor,
-      entries: feed.entries.map((entry) => entry.notification),
+      entries: feed.entries.map((entry) => this.#delivered(entry.notification)),
       retracted: feed.retracted,
     }));
   }
   #alert(notification: Notification): void {
     this.#put(`notifications:alert:${notification.id}`, () => ({
       type: "notifications.alert",
-      notification,
+      notification: this.#delivered(notification),
     }));
+  }
+  /** The alert with how this phone shows it now (`notification-delivery.ts`). */
+  #delivered(notification: Notification): Notification & { delivery: PhoneDelivery } {
+    const delivery = phoneDelivery(notification.status, this.#phone, {
+      foreground: this.#appState === "foreground",
+      minuteOfDay: this.#minuteOfDay(),
+    });
+    return { ...notification, delivery };
   }
   async #config(): Promise<void> {
     try {

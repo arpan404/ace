@@ -205,17 +205,16 @@ test("an explicit Codex rate-limit event with resetsAt holds the queue until the
   try {
     const id = await h.create();
     expect(h.store.getThread(id)?.status.state).toBe("limited");
-    h.command({ type: "thread.send", threadId: id, input: text("after the reset") });
     await h.engine.flush();
-    // Definite and timed: the person's message waits for the reset the provider gave.
+    // With no new message, the chosen reset timer still holds.
     expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit", resumeAt: reset });
     h.clock.advance(reset - 1);
     await h.engine.flush();
     expect(providerSends()).toBe(1);
     h.clock.advance(reset);
     await h.engine.flush();
-    // The continuation and then the held message reach Codex, in order.
-    expect(providerSends()).toBe(3);
+    // Only the continuation reaches Codex.
+    expect(providerSends()).toBe(2);
     expect(h.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
     expect(h.store.getThread(id)?.status.state).toBe("done");
   } finally {
@@ -228,18 +227,17 @@ test("under the manual policy a reset clears the limit but sends nothing until t
   const { h, providerSends, close } = await codexThread(clearedThen(reset, 2));
   try {
     const id = await h.create();
-    h.command({ type: "thread.send", threadId: id, input: text("held") });
     await h.engine.flush();
     // No resume is promised: ace never starts a turn by itself.
     expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit", resumeAt: null });
     h.clock.advance(reset);
     await h.engine.flush();
     expect(h.store.getThread(id)?.status.state).not.toBe("limited");
-    expect(h.engine.queue(id)).toMatchObject({ paused: true, messages: [{ input: text("held") }] });
+    expect(h.engine.queue(id)).toMatchObject({ paused: true, messages: [] });
     expect(providerSends()).toBe(1);
     expect(resume(h, id).ok).toBe(true);
     await h.engine.flush();
-    expect(providerSends()).toBe(3);
+    expect(providerSends()).toBe(2);
     expect(h.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
   } finally {
     await close();
@@ -269,7 +267,6 @@ test("a fresh usage reading below the limit clears a limited account and its thr
   const { h, registry, providerSends, close } = await codexThread(clearedThen(reset, 2));
   try {
     const id = await h.create();
-    h.command({ type: "thread.send", threadId: id, input: text("queued") });
     await h.engine.flush();
     expect(registry.summary("account-a", h.clock.now())?.availability).toBe("exhausted");
     expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit" });
@@ -293,16 +290,39 @@ test("a fresh usage reading below the limit clears a limited account and its thr
     await h.engine.flush();
     expect(registry.summary("account-a", h.clock.now())?.availability).toBe("available");
     expect(h.store.getThread(id)?.status.state).not.toBe("limited");
-    // The limit is gone, but ace starts no turn: the message waits for the person.
+    // The limit is gone, but ace starts no turn until the person resumes.
     expect(providerSends()).toBe(1);
     expect(h.engine.queue(id)).toMatchObject({
       paused: true,
-      messages: [{ input: text("queued") }],
+      messages: [],
     });
     expect(resume(h, id).ok).toBe(true);
     await h.engine.flush();
-    expect(providerSends()).toBe(3);
+    expect(providerSends()).toBe(2);
     expect(h.store.getThread(id)?.status.state).toBe("done");
+  } finally {
+    await close();
+  }
+});
+
+test("a new message retries Codex before its account reset and cancels the scheduled resume", async () => {
+  const reset = 1_000 + 20 * minute;
+  const { h, providerSends, close } = await codexThread(
+    clearedThen(reset, 1),
+    carriesOn,
+    "resume_at_reset",
+  );
+  try {
+    const id = await h.create();
+    expect(h.engine.queue(id)).toMatchObject({ paused: true, resumeAt: reset });
+    h.command({ type: "thread.send", threadId: id, input: text("try now") });
+    await h.engine.flush();
+    expect(providerSends()).toBe(2);
+    expect(h.engine.queue(id)).toMatchObject({ paused: false, resumeAt: null, messages: [] });
+    expect(h.store.getThread(id)?.status.state).toBe("done");
+    h.clock.advance(reset);
+    await h.engine.flush();
+    expect(providerSends()).toBe(2);
   } finally {
     await close();
   }

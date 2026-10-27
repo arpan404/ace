@@ -52,6 +52,19 @@ export const NotificationAddress = z.discriminatedUnion("channel", [
     platform: z.literal("phone"),
     token: z.string().regex(/^[a-fA-F0-9]{64}$/),
   }),
+  /**
+   * The phone's APNs token, for alerts through ace's push gateway (ADR 0106). The daemon
+   * encrypts each alert to `p256dh`/`auth` (RFC 8291); only the phone can read it.
+   */
+  z.object({
+    channel: z.literal("push"),
+    platform: z.literal("phone"),
+    /** Hex, variable length: Apple says not to hard-code its size. */
+    token: z.string().regex(/^[a-fA-F0-9]{16,400}$/),
+    environment: z.enum(["sandbox", "production"]),
+    p256dh: WebPushSubscription.shape.p256dh,
+    auth: WebPushSubscription.shape.auth,
+  }),
   z.object({
     channel: z.literal("fcm"),
     platform: z.literal("phone"),
@@ -138,6 +151,21 @@ export const NotificationMessage = z.object({
   type: z.literal("notification"),
   notification: Notification,
 });
+/**
+ * A phone took a live `notification` frame. Without it, within a few seconds, the daemon
+ * treats the phone as suspended and pushes instead (ADR 0106).
+ */
+export const NotificationAck = z.object({
+  type: z.literal("notification.ack"),
+  id: boundedId,
+});
+/** What the push gateway carries, encrypted end to end: the alert and the machine it is from. */
+export const PushAlertPayload = z.object({
+  v: z.literal(1),
+  hostId: z.string().min(1).max(200),
+  notification: Notification,
+});
+export type PushAlertPayload = z.infer<typeof PushAlertPayload>;
 export const NotificationDevice = z.object({
   id: DeviceId.and(boundedId),
   address: NotificationAddress,

@@ -12,7 +12,12 @@ test("a flowing queue says nothing", () => {
 });
 
 test("a usage limit with a known reset offers resume at reset, snooze, another account and now", () => {
-  const notice = queueNotice({ state: "limited", until: reset }, flowing, now, "en-US");
+  const notice = queueNotice(
+    { state: "limited", until: reset },
+    { paused: true, reason: "limit", resumeAt: null },
+    now,
+    "en-US",
+  );
   expect(notice?.title).toBe("Usage limit reached");
   expect(notice?.detail).toContain("5:30 PM");
   expect(ids(notice)).toEqual([
@@ -127,4 +132,15 @@ test("a held message explains a failed resume after reloading the queue", () => 
     detail: title,
     actions: [{ id: "resume", label: "Try again" }],
   });
+});
+
+test("a child's aggregate limit never offers recovery on the parent's flowing queue", () => {
+  expect(queueNotice({ state: "limited", until: reset }, flowing, now)).toBeUndefined();
+  expect(
+    queueNotice(
+      { state: "limited", until: reset },
+      { paused: true, reason: "stopped", resumeAt: null },
+      now,
+    )?.kind,
+  ).toBe("stopped");
 });
