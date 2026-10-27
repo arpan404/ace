@@ -98,14 +98,14 @@ registrations for it get 410 without another APNs call.
 
 In-memory token buckets, bounded maps with oldest-first eviction, injectable clock:
 
-| Limit                            | Default       |
-| -------------------------------- | ------------- |
-| Requests per client IP (IPv6 /64) | 600 per hour  |
-| Registrations per daemon key      | 60 per hour   |
-| Pushes per daemon key             | 600 per hour  |
-| Pushes per handle (one phone)     | 120 per hour  |
-| Request body                      | 2,800 bytes   |
-| Concurrent APNs requests          | 64            |
+| Limit                             | Default      |
+| --------------------------------- | ------------ |
+| Requests per client IP (IPv6 /64) | 600 per hour |
+| Registrations per daemon key      | 60 per hour  |
+| Pushes per daemon key             | 600 per hour |
+| Pushes per handle (one phone)     | 120 per hour |
+| Request body                      | 2,800 bytes  |
+| Concurrent APNs requests          | 64           |
 
 Anyone can generate a key, so per-key limits alone don't stop a determined sender; the per-IP
 limit does most of that work, and the gateway's own visible text is fixed, so the worst case is a
@@ -115,7 +115,7 @@ the person's own paired daemons. App Attest is a possible later hardening.
 ### Daemon
 
 - New notification address `{ channel: "push", platform: "phone", token, environment, p256dh,
-  auth }` (`protocol/notifications.ts`). The token is hex of variable length (Apple says not to
+auth }` (`protocol/notifications.ts`). The token is hex of variable length (Apple says not to
   hard-code its size). The phone registers it once per connection while alerts are on.
 - `createPushGatewayTransport` (`@ace/notify`) seals each alert, registers and caches handles
   in memory, and posts to the gateway. Plaintext is trimmed to a fixed budget (preview, then
@@ -183,7 +183,7 @@ the person's own paired daemons. App Attest is a possible later hardening.
 - `apps/daemon/src/notification-push.server.process.test.ts`: a phone that acknowledges gets no
   push; a phone that doesn't (suspended with its socket open) gets one; the setting turns it off.
 - iOS: Swift tests decrypt a Node-made RFC 8291 vector and fail closed on tampering; `xcrun simctl
-  push` on the simulator shows the NSE's text, and the generic fallback without a key.
+push` on the simulator shows the NSE's text, and the generic fallback without a key.
 
 ## Deploy checklist (owner)
 

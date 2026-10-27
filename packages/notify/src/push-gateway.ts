@@ -27,6 +27,11 @@ const Registration = z.object({
 type Handle = z.infer<typeof Registration>;
 type Address = Extract<NotificationDevice["address"], { channel: "push" }>;
 
+function handleKey(origin: string, address: Address): string {
+  return createHash("sha256")
+    .update(`${origin}\n${address.environment}\n${address.token.toLowerCase()}`)
+    .digest("base64url");
+}
 /**
  * The bounded alert a phone can read: the full alert when it fits, otherwise without the
  * preview, the agent's message and the catch-up list, in that order. Never more than the
@@ -72,10 +77,6 @@ export function createPushGatewayTransport(
     }
     return token.value;
   };
-  const handleKey = (origin: string, address: Address) =>
-    createHash("sha256")
-      .update(`${origin}\n${address.environment}\n${address.token.toLowerCase()}`)
-      .digest("base64url");
   const register = async (
     origin: string,
     address: Address,
@@ -155,7 +156,13 @@ export function createPushGatewayTransport(
         for (let attempt = 0; attempt < 2; attempt++) {
           const found = await handleFor(target.origin, address, requestSignal);
           if (typeof found === "string") return found;
-          const status = await post(target.origin, found.handle, address, notification, requestSignal);
+          const status = await post(
+            target.origin,
+            found.handle,
+            address,
+            notification,
+            requestSignal,
+          );
           // An unreadable or expired handle (the gateway rotated its key): register once more.
           if (status === 404 || status === 403) {
             handles.delete(found.id);

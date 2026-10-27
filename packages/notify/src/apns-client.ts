@@ -15,8 +15,7 @@ export const ApnsOrigin = z
     try {
       const url = new URL(value);
       return (
-        (url.protocol === "https:" ||
-          (url.protocol === "http:" && url.hostname === "127.0.0.1")) &&
+        (url.protocol === "https:" || (url.protocol === "http:" && url.hostname === "127.0.0.1")) &&
         !url.username &&
         !url.password &&
         url.pathname === "/" &&
@@ -32,9 +31,7 @@ const ApnsClientConfig = z.object({
   teamId: z.string().regex(/^[A-Za-z0-9]{10}$/),
   keyId: z.string().regex(/^[A-Za-z0-9]{10}$/),
   privateKey: z.string().max(4096),
-  origins: z
-    .object({ production: ApnsOrigin, sandbox: ApnsOrigin })
-    .default({ ...appleOrigins }),
+  origins: z.object({ production: ApnsOrigin, sandbox: ApnsOrigin }).default({ ...appleOrigins }),
   maxConcurrent: z.number().int().min(1).max(1000).default(16),
 });
 export const ApnsToken = z.string().regex(/^[a-fA-F0-9]{16,400}$/);
@@ -156,12 +153,7 @@ export function createApnsClient(
           signal.addEventListener("abort", abort, { once: true });
           stream.setTimeout(10_000, abort);
           stream.on("response", (received) => {
-            const parsed = z.coerce
-              .number()
-              .int()
-              .min(100)
-              .max(599)
-              .safeParse(received[":status"]);
+            const parsed = z.coerce.number().int().min(100).max(599).safeParse(received[":status"]);
             status = parsed.success ? parsed.data : 0;
           });
           stream.on("data", (chunk: Buffer) => {
