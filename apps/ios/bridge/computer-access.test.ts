@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import type { DeviceScope, HostPlatform } from "@ace/protocol";
+import type { DeviceScope } from "@ace/protocol";
 import { ComputerAccess } from "./computer-access.ts";
 import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -16,7 +16,7 @@ afterEach(async () => {
 
 async function opened(
   mac = true,
-  platform?: HostPlatform,
+  platform?: string,
   pairing: { scopes?: readonly DeviceScope[]; admin?: boolean } = {},
 ) {
   const { daemon, client } = sheetFixture(pairing.scopes ? { scopes: pairing.scopes } : {});
@@ -132,6 +132,18 @@ describe("Computer use settings on the phone", () => {
     const { read } = await opened(false);
     await until(() => read()?.chrome != null, "read");
     expect(read()?.locked).toBeNull();
+  });
+
+  test("a platform this phone doesn't know reads as absent: it falls back to how the machine shares windows", async () => {
+    // Shares windows the macOS way: offered, as an older daemon's would be.
+    const mac = await opened(true, "freebsd");
+    await until(() => mac.read()?.locked != null, "offered");
+    expect(mac.read()?.platform).toBeNull();
+    // Shares them another way: never offered.
+    const other = await opened(false, "freebsd");
+    await until(() => other.read()?.chrome != null, "read");
+    expect(other.read()?.locked).toBeNull();
+    expect(other.read()?.platform).toBeNull();
   });
 
   test("a Windows or Linux machine never offers locked use, whatever state it reports", async () => {

@@ -7,7 +7,13 @@ import {
   type UserBrowserConnection,
   type UserBrowserStatus,
 } from "@ace/protocol";
-import { lockedUseLabel, lockedUseRefusal, lockedUseShown, lockedUseSwitchOn } from "@ace/ui-core";
+import {
+  hostPlatform,
+  lockedUseLabel,
+  lockedUseRefusal,
+  lockedUseShown,
+  lockedUseSwitchOn,
+} from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 import type { Schedule } from "./browser-live.ts";
@@ -239,7 +245,7 @@ export class ComputerAccess {
     if (!this.#open || this.#owner.state !== "ready") return;
     try {
       const reply = await this.#owner.request({ type: "host.identity" });
-      this.#platform = { value: reply.identity.platform };
+      this.#platform = { value: hostPlatform(reply.identity.platform) };
     } catch {
       this.#platform = { value: undefined };
     }

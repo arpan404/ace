@@ -22,7 +22,7 @@ export const MachineIcon = z.object({
 });
 export type MachineIcon = z.infer<typeof MachineIcon>;
 
-/** The operating system a daemon runs on, as Node names it. */
+/** The operating systems clients know a daemon by, as Node names them. */
 export const HostPlatform = z.enum(["darwin", "linux", "win32"]);
 export type HostPlatform = z.infer<typeof HostPlatform>;
 
@@ -35,10 +35,11 @@ export const HostIdentity = z.object({
   hostname: z.string().max(256).optional(),
   version: z.string().min(1).max(128),
   /**
-   * The daemon's operating system, so clients offer only what it supports (locked computer use
-   * is macOS only). Absent from older daemons; one this client doesn't know reads as absent.
+   * The daemon's operating system as Node names it, so clients offer only what it supports
+   * (locked computer use is macOS only). Absent from older daemons. Any string is accepted;
+   * clients read it through `hostPlatform` (`@ace/ui-core`), where one they don't know is absent.
    */
-  platform: HostPlatform.optional().catch(undefined),
+  platform: z.string().optional(),
 });
 export type HostIdentity = z.infer<typeof HostIdentity>;
 export const HostIdentityRequest = z.object({

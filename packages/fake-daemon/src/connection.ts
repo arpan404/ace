@@ -24,7 +24,7 @@ export interface Host {
   readonly icon?: import("@ace/protocol").MachineIcon | undefined;
   readonly version?: string;
   /** The OS host.identity reports; absent, as an older daemon's. */
-  readonly platform?: import("@ace/protocol").HostPlatform | undefined;
+  readonly platform?: string | undefined;
   readonly head: number;
   readonly duplicateEvents: boolean;
   accepts(credential: { token?: string | undefined; ticket?: string | undefined }): boolean;

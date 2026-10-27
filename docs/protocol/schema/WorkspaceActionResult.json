@@ -54,6 +54,11 @@
               "maxItems": 32,
               "type": "array"
             },
+            "fileManager": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
             "kind": {
               "const": "editors",
               "type": "string"
@@ -62,6 +67,18 @@
           "required": [
             "kind",
             "editors"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "opened",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
           ],
           "type": "object"
         },
@@ -238,12 +255,22 @@
               "const": "gitDiff",
               "type": "string"
             },
+            "nextOffset": {
+              "exclusiveMinimum": 0,
+              "maximum": 33554432,
+              "type": "integer"
+            },
             "patch": {
               "maxLength": 262144,
               "type": "string"
             },
             "truncated": {
               "type": "boolean"
+            },
+            "validator": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
             }
           },
           "required": [

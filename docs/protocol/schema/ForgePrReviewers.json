@@ -66,6 +66,18 @@
       },
       "maxItems": 100,
       "type": "array"
+    },
+    "viewer": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [

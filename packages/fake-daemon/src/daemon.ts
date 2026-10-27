@@ -2,7 +2,7 @@ import { FakeComputerAccess } from "./computer-access.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
-import { MachineIcon, type HostPlatform } from "@ace/protocol";
+import { MachineIcon } from "@ace/protocol";
 import { regeneratedTitle } from "./title-regenerate.ts";
 import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
@@ -116,7 +116,7 @@ export class FakeDaemon implements Host {
   }
   readonly version: string;
   /** The OS host.identity reports; tests change it, undefined reads as an older daemon. */
-  platform: HostPlatform | undefined;
+  platform: string | undefined;
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
   private options: FakeDaemonOptions;
