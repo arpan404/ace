@@ -81,14 +81,22 @@ struct ForgeLinePickStrip: View {
                 }
             }
             Spacer(minLength: AceTheme.Spacing.sm)
-            Button(pick.extending ? "Done" : "Select more", action: extend)
-                .accessibilityIdentifier("forge.pick.extend")
+            Button(action: extend) {
+                // Both words hold the slot at the wider one's size, so the swap fades in place.
+                ZStack(alignment: .trailing) {
+                    Text("Select more").hidden()
+                    Text(pick.extending ? "Done" : "Select more").contentTransition(.opacity)
+                }
+            }
+            .accessibilityLabel(pick.extending ? "Done" : "Select more")
+            .accessibilityIdentifier("forge.pick.extend")
             Button("Clear", action: clear)
                 .accessibilityIdentifier("forge.pick.clear")
             Button("Comment", action: comment)
                 .fontWeight(.semibold)
                 .accessibilityIdentifier("forge.pick.comment")
         }
+        .buttonStyle(.forgeWord)
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
         .padding(.horizontal, AceTheme.Spacing.lg)
         .frame(minHeight: 52)
