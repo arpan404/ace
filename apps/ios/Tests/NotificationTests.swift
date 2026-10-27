@@ -108,8 +108,11 @@ import Testing
         let alert = #"{"id":"n:1","threadId":"thread","title":"Fix","status":"needs_you","interactionId":"push","backgroundCount":0,"actions":[{"action":"approve","optionId":"allow"},{"action":"deny","optionId":"deny"}]}"#
         laptop.patch(#"{"type":"notifications.feed","cursor":9,"entries":[\#(alert)],"retracted":[]}"#)
         studio.patch(#"{"type":"notifications.alert","notification":\#(alert)}"#)
-        for _ in 0..<50 { await Task.yield() }
-        #expect(center.posted.map(\.hostId) == ["laptop", "studio"])
+        // The machines post independently, in no promised order: one alert each, each its own.
+        try await until("both machines' alerts posted") { center.posted.count == 2 }
+        #expect(center.posted.filter { $0.hostId == "laptop" }.count == 1)
+        #expect(center.posted.filter { $0.hostId == "studio" }.count == 1)
+        #expect(Set(center.posted.map(\.identifier)).count == 2)
         // Only the laptop's catch-up cursor moved: the next sync tells each machine its own.
         coordinator.sync()
         #expect(laptop.actions("notifications.sync").last?["cursor"] as? Int == 9)
@@ -162,8 +165,7 @@ import Testing
         await model.connect(target: try target(), directory: URL(fileURLWithPath: "/unused"))
         let session = try #require(sessions.values.first)
         session.patch(#"{"type":"connection","state":"ready"}"#)
-        for _ in 0..<20 { await Task.yield() }
-        #expect(model.connection == "ready")
+        try await until("the connection is ready") { model.connection == "ready" }
         return (coordinator, center, session)
     }
     private func defaults() throws -> UserDefaults { try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)")) }
@@ -176,6 +178,22 @@ import Testing
                           actions: actions ? [.init(action: "approve", optionId: "allow"), .init(action: "deny", optionId: "deny")] : [],
                           preview: nil, message: nil)
     }
+}
+
+/// Waits for `condition` on the main actor, by the clock, failing after `seconds` with `label`.
+/// Patches reach the coordinator through tasks, so a test waits on what it needs, never on a count
+/// of turns.
+@MainActor private func until(_ label: String, seconds: Int = 10, _ condition: () -> Bool) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(seconds))
+    while !condition() {
+        if clock.now >= deadline { throw WaitTimeout(label: label) }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+}
+private struct WaitTimeout: Error, CustomStringConvertible {
+    let label: String
+    var description: String { "Timed out waiting for \(label)" }
 }
 
 /// Polling steps pass at once; long deadlines never fire during a test.
@@ -222,10 +240,7 @@ private final class Session: ClientSession, @unchecked Sendable {
     func patch(_ json: String) { receive(Data("[\(json)]".utf8)) }
     func actions(_ type: String) -> [[String: Any]] { lock.withLock { invoked.filter { $0["type"] as? String == type } } }
     @MainActor func waitFor(_ type: String) async throws -> [String: Any] {
-        for _ in 0..<1000 {
-            if let found = actions(type).first { return found }
-            await Task.yield()
-        }
-        throw CancellationError()
+        try await until("a \(type) action") { !actions(type).isEmpty }
+        return actions(type)[0]
     }
 }
