@@ -241,9 +241,12 @@ it("the read handle exposes selections only, with no mutation or raw-client bypa
         "check",
         "connectionState",
         "error",
+        "filesRequest",
+        "filesSend",
         "hostId",
         "intent",
         "networkOnline",
+        "observeFiles",
         "reconnectNow",
         "thread",
         "threads",
@@ -284,6 +287,9 @@ it("the read handle exposes selections only, with no mutation or raw-client bypa
       "enqueue",
       "command",
       "submitNew",
+      "filesRequest",
+      "filesSend",
+      "observeFiles",
     ]) {
       expect(raw[key], `runtime[${key}]`).toBeUndefined();
       expect(key in raw, `runtime has ${key}`).toBe(false);

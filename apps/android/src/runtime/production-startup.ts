@@ -9,7 +9,7 @@ import type {
   Storage,
   ThreadSource,
 } from "@ace/client";
-import type { CommandPayload, CommandResult } from "@ace/protocol";
+import type { CommandPayload, CommandResult, ServerMessage } from "@ace/protocol";
 import type { SQLiteDatabase } from "expo-sqlite";
 import { z } from "zod";
 import { TrustMonitor } from "../security/pinned-transport.ts";
@@ -28,6 +28,9 @@ import {
   createProductionMakeRuntime,
   namespaceFor,
   type ProductionEpochs,
+  type ProductionFilesCancel,
+  type ProductionFilesRequest,
+  type ProductionFilesResponse,
   type ProductionMachineRuntime,
   type ProductionMakeRuntime,
   type ProductionMutations,
@@ -343,6 +346,19 @@ export interface ReadingHandle {
   cachedThread(id: string): ThreadSource | undefined;
   /** The durable receipt for one command; read-only, needs only liveness. */
   intent(id: string): Selection<Intent | undefined>;
+  /**
+   * One read-only file burst over the pinned client (tree, read, download,
+   * git marks). No grant check: the viewer reads while view-only. Rejects
+   * anything outside the production file allowlist before the socket.
+   */
+  filesRequest(
+    input: ProductionFilesRequest,
+    options?: RequestOptions,
+  ): Promise<ProductionFilesResponse>;
+  /** Download-channel cleanup only; anything else throws. */
+  filesSend(message: ProductionFilesCancel): void;
+  /** File-change taps only; every other server message is dropped. */
+  observeFiles(listener: (message: ServerMessage) => void): () => void;
   reconnectNow(): void;
   wake(): void;
   networkOnline(online: boolean): void;
@@ -609,6 +625,9 @@ export function createProductionStartup(deps: ProductionStartupDeps): Production
       cachedThreads: () => resolveReads().cachedThreads(),
       cachedThread: (id: string) => resolveReads().cachedThread(id),
       intent: (id) => resolveReads().intent(id),
+      filesRequest: (input, options) => resolveReads().filesRequest(input, options),
+      filesSend: (message) => resolveReads().filesSend(message),
+      observeFiles: (listener) => resolveReads().observeFiles(listener),
       reconnectNow: () => {
         resolveRuntime().reconnectNow();
       },

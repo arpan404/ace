@@ -5,14 +5,18 @@ import {
   type ConnectionState,
   type Intent,
   type Lease,
+  type OneWayMessage,
+  type RequestOptions,
   type Scheduler,
   type Selection,
+  type ServiceRequest,
+  type ServiceResponse,
   type SidebarSource,
   type Storage,
   type ThreadSource,
   type Transport,
 } from "@ace/client";
-import { DeviceId, HostId } from "@ace/protocol";
+import { DeviceId, HostId, type ServerMessage } from "@ace/protocol";
 import {
   projectSidebarLease,
   projectThreadLease,
@@ -165,14 +169,85 @@ export interface ProductionMutations extends Pick<
 > {}
 
 /**
+ * Read-only file operations the production viewer may use, without ever
+ * touching a mutation. `files.request` stays at list/stat/read/download of
+ * the checkout plus `link.download` (a file one assistant message links to,
+ * which the daemon resolves itself); every write/create/rename/move/delete,
+ * upload and archive op is refused before it reaches the socket.
+ * `workspace.request` stays at `git.status`/`git.diff` (the change letters
+ * and marks the viewer paints); drafts and every other workspace op are
+ * refused. `files.pull` is the download channel's continuation read.
+ */
+export const PRODUCTION_FILES_REQUEST_OPS: ReadonlySet<string> = new Set([
+  "list",
+  "stat",
+  "read",
+  "download",
+  "link.download",
+]);
+export const PRODUCTION_WORKSPACE_READ_OPS: ReadonlySet<string> = new Set([
+  "git.status",
+  "git.diff",
+]);
+
+export type ProductionFilesRequest =
+  | Extract<ServiceRequest, { type: "files.request" }>
+  | Extract<ServiceRequest, { type: "files.pull" }>
+  | Extract<ServiceRequest, { type: "workspace.request" }>;
+export type ProductionFilesResponse = ServiceResponse<ProductionFilesRequest>;
+export type ProductionFilesCancel = Extract<OneWayMessage, { type: "files.cancel" }>;
+
+/**
+ * Fail closed for anything outside the read-only file allowlist above.
+ * Unknown shapes, uploads, writes and non-git workspace ops throw before any
+ * network use; the daemon re-validates the scope.
+ */
+export function assertProductionFilesRequest(
+  input: unknown,
+): asserts input is ProductionFilesRequest {
+  if (typeof input !== "object" || input === null) throw new Error("Files are read-only here.");
+  const request = input as { type?: unknown; operation?: unknown };
+  if (request.type === "files.pull") return;
+  if (request.type === "files.request") {
+    const op =
+      typeof request.operation === "object" && request.operation !== null
+        ? (request.operation as { op?: unknown }).op
+        : undefined;
+    if (typeof op === "string" && PRODUCTION_FILES_REQUEST_OPS.has(op)) return;
+  }
+  if (request.type === "workspace.request") {
+    const op =
+      typeof request.operation === "object" && request.operation !== null
+        ? (request.operation as { op?: unknown }).op
+        : undefined;
+    if (typeof op === "string" && PRODUCTION_WORKSPACE_READ_OPS.has(op)) return;
+  }
+  throw new Error("Files are read-only here.");
+}
+
+/** Only a download-channel cleanup may send; everything else throws. */
+export function assertProductionFilesSend(
+  message: unknown,
+): asserts message is ProductionFilesCancel {
+  if (
+    typeof message === "object" &&
+    message !== null &&
+    (message as { type?: unknown }).type === "files.cancel"
+  )
+    return;
+  throw new Error("Files are read-only here.");
+}
+
+/**
  * Read-only inbox/thread view over one machine's live SDK `Client`. Mirrors
  * the iOS `ClientModel` read path (inbox rows and the open thread stay
  * readable while `canOperate` is false): no grant check runs here, only
  * liveness plus the binding pin below. Only synchronous selection leases,
- * the connection selection and the durable receipt view are exposed; every
- * network-fetching read (`threadsWindow`, `loadOlder`, `itemsWindow`,
- * `threadSearch`, `markThreadRead`, …) and every mutation stays unreachable
- * so a view-only phone cannot reach a mutating path through this boundary.
+ * the connection selection, the durable receipt view and the read-only file
+ * burst below are exposed; every other network-fetching read
+ * (`threadsWindow`, `loadOlder`, `itemsWindow`, `threadSearch`,
+ * `markThreadRead`, …) and every mutation stays unreachable so a view-only
+ * phone cannot reach a mutating path through this boundary.
  * At runtime every lease store is a null-prototype projected view with only
  * the reader methods (no `Sidebar`/`ThreadStore` prototype or mutator
  * escapes, frozen copies out), every `Selection` re-checks the pin on
@@ -188,6 +263,25 @@ export interface ProductionReads {
   cachedThreads(): SidebarSource | undefined;
   cachedThread(id: string): ThreadSource | undefined;
   intent(id: string): Selection<Intent | undefined>;
+  /**
+   * One read-only file burst (tree, read, download, git marks) over the
+   * pinned client. Re-checks the exact-owner pin per call with no grant
+   * check, so the viewer reads while view-only; anything outside
+   * `assertProductionFilesRequest` throws before the socket. Never the raw
+   * `Client.request`: only this allowlisted entry.
+   */
+  filesRequest(
+    input: ProductionFilesRequest,
+    options?: RequestOptions,
+  ): Promise<ProductionFilesResponse>;
+  /** Download-channel cleanup only; anything else throws. Never raw `send`. */
+  filesSend(message: ProductionFilesCancel): void;
+  /**
+   * File-change taps only (`files.changed` plus event batches carrying
+   * `workspace.files_changed`); every other server message is dropped, and a
+   * pin failure detaches instead of delivering. Never raw `onMessage`.
+   */
+  observeFiles(listener: (message: ServerMessage) => void): () => void;
 }
 
 export interface ProductionMachineRuntime extends MachineRuntime {
@@ -416,6 +510,44 @@ export function createProductionMakeRuntime(deps: ProductionRuntimeDeps): Produc
         return held === undefined ? undefined : snapshotThread(held);
       },
       intent: (commandId) => wrapSelection(checkPin, checkBound().client.intent(commandId)),
+      filesRequest: (input, options) => {
+        const current = checkBound();
+        assertProductionFilesRequest(input);
+        return current.client.request(input, options) as Promise<ProductionFilesResponse>;
+      },
+      filesSend: (message) => {
+        const current = checkBound();
+        assertProductionFilesSend(message);
+        current.client.send(message);
+      },
+      observeFiles: (listener) => {
+        checkPin();
+        let stop: (() => void) | undefined;
+        const wrapped = (message: ServerMessage): void => {
+          try {
+            checkPin();
+          } catch {
+            stop?.();
+            return;
+          }
+          if (message.type === "files.changed") {
+            listener(message);
+            return;
+          }
+          if (
+            message.type === "events" &&
+            Array.isArray((message as { events?: unknown }).events)
+          ) {
+            const events = (message as { events: { payload?: { type?: unknown } }[] }).events;
+            if (events.some((event) => event.payload?.type === "workspace.files_changed"))
+              listener(message);
+          }
+        };
+        stop = boundClient.onMessage(wrapped);
+        return () => {
+          stop?.();
+        };
+      },
     };
   };
   return makeRuntime;

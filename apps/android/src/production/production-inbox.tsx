@@ -53,6 +53,8 @@ import {
 } from "./production-inbox.ts";
 import { canShowProductionComposer } from "./production-composer.ts";
 import { ProductionComposer } from "./production-composer.tsx";
+import { FileScreen, FilesScreen } from "../Files.tsx";
+import { productionFilesClient } from "./production-files.ts";
 import {
   ProductionInteractionStrip,
   isCoveredProductionInteraction,
@@ -855,6 +857,19 @@ export function ProductionThreadView({
   const threadLiveness = useLivenessTick();
   const [retryTick, setRetryTick] = useState(0);
   const [autoRecoveries, setAutoRecoveries] = useState(0);
+  // File viewer route: null paints the thread, `{}` its tree, `{path}` one file.
+  // Read-only like the thread: the adapter below never exposes the raw client.
+  const [fileRoute, setFileRoute] = useState<{ path?: string; line?: number } | null>(null);
+  const filesScope = useMemo(() => ({ threadId }), [threadId]);
+  const filesClient = useMemo(() => {
+    try {
+      return productionFilesClient(startup.runtimeForReading(hostId), threadId);
+    } catch {
+      return null;
+    }
+    // A fresh handle per host/thread; each read re-resolves the pin itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startup, hostId, threadId]);
   const threadRoute = startup.route(hostId);
   const routeBlocked = !shouldShowInbox(threadRoute);
   const resolvedLease = useMemo(() => {
@@ -946,6 +961,14 @@ export function ProductionThreadView({
     setAutoRecoveries(0);
     setRetryTick((value) => value + 1);
   }
+  /** Header Back steps out of the file viewer first (file, then tree), then the thread. */
+  function back(): void {
+    if (fileRoute !== null) {
+      if (fileRoute.path !== undefined) setFileRoute({});
+      else setFileRoute(null);
+    } else onBack();
+  }
+  const filesOpen = fileRoute !== null;
   if (routeBlocked) {
     return (
       <View style={{ flex: 1, padding: tokens.spacing.xl, gap: tokens.spacing.md }}>
@@ -977,67 +1000,98 @@ export function ProductionThreadView({
           paddingVertical: tokens.spacing.sm,
         }}
       >
-        <AceButton label="Back" onPress={onBack} kind="secondary" />
+        <AceButton label="Back" onPress={back} kind="secondary" />
         <Text
           style={{ ...textStyle("rowTitle"), color: theme.colours.foreground, flex: 1 }}
           numberOfLines={1}
         >
-          {headline?.title ?? "Thread"}
+          {filesOpen ? (fileRoute.path ?? "Files") : (headline?.title ?? "Thread")}
         </Text>
+        {filesOpen ? null : (
+          <AceButton
+            label="Files"
+            onPress={() => setFileRoute({})}
+            kind="secondary"
+            enabled={filesClient !== null}
+          />
+        )}
       </View>
-      {statusValue ? (
-        <Text
-          style={{
-            ...textStyle("caption"),
-            color: theme.colours.mutedForeground,
-            paddingHorizontal: tokens.spacing.xl,
-          }}
-        >
-          {statusValue.state} · {headline?.count ?? 0} messages
-        </Text>
-      ) : null}
-      {connection !== "ready" ? (
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: tokens.spacing.md,
-            paddingHorizontal: tokens.spacing.xl,
-            paddingVertical: tokens.spacing.xs,
-          }}
-        >
-          <AceText role="caption">
-            {connection === "connecting" ? "Connecting to your machine…" : `${connection}…`}
-          </AceText>
-          <AceButton label="Retry" onPress={retry} kind="secondary" />
-        </View>
-      ) : null}
-      {lease === null ? null : (
-        <ProductionThreadContent
-          startup={startup}
-          hostId={hostId}
-          store={lease.store}
-          notify={notify}
-        />
-      )}
-      {canShowProductionComposer({
-        canOperate: startup.canOperate(hostId),
-        // Revoked/pin routes return above, so reaching here means paired.
-        routePaired: true,
-      }) ? (
-        <ProductionComposer
-          startup={startup}
-          hostId={hostId}
-          threadId={threadId}
-          drafts={drafts}
-          notify={notify}
-        />
+      {filesOpen && filesClient !== null ? (
+        fileRoute.path === undefined ? (
+          <FilesScreen
+            client={filesClient}
+            scope={filesScope}
+            onOpenFile={(path, line) =>
+              setFileRoute(line === undefined ? { path } : { path, line })
+            }
+            notify={notify}
+          />
+        ) : (
+          <FileScreen
+            client={filesClient}
+            scope={filesScope}
+            path={fileRoute.path}
+            {...(fileRoute.line === undefined ? {} : { line: fileRoute.line })}
+            notify={notify}
+          />
+        )
       ) : (
-        <View style={{ padding: tokens.spacing.lg }}>
-          <AceText role="caption" colour={theme.colours.mutedForeground}>
-            View only. Reply on your computer.
-          </AceText>
-        </View>
+        <>
+          {statusValue ? (
+            <Text
+              style={{
+                ...textStyle("caption"),
+                color: theme.colours.mutedForeground,
+                paddingHorizontal: tokens.spacing.xl,
+              }}
+            >
+              {statusValue.state} · {headline?.count ?? 0} messages
+            </Text>
+          ) : null}
+          {connection !== "ready" ? (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: tokens.spacing.md,
+                paddingHorizontal: tokens.spacing.xl,
+                paddingVertical: tokens.spacing.xs,
+              }}
+            >
+              <AceText role="caption">
+                {connection === "connecting" ? "Connecting to your machine…" : `${connection}…`}
+              </AceText>
+              <AceButton label="Retry" onPress={retry} kind="secondary" />
+            </View>
+          ) : null}
+          {lease === null ? null : (
+            <ProductionThreadContent
+              startup={startup}
+              hostId={hostId}
+              store={lease.store}
+              notify={notify}
+            />
+          )}
+          {canShowProductionComposer({
+            canOperate: startup.canOperate(hostId),
+            // Revoked/pin routes return above, so reaching here means paired.
+            routePaired: true,
+          }) ? (
+            <ProductionComposer
+              startup={startup}
+              hostId={hostId}
+              threadId={threadId}
+              drafts={drafts}
+              notify={notify}
+            />
+          ) : (
+            <View style={{ padding: tokens.spacing.lg }}>
+              <AceText role="caption" colour={theme.colours.mutedForeground}>
+                View only. Reply on your computer.
+              </AceText>
+            </View>
+          )}
+        </>
       )}
     </View>
   );
