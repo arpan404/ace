@@ -142,7 +142,27 @@ export function runManage(
   pump: PatchSink,
 ): Promise<boolean> {
   const { patch, payload } = patchOf(action);
-  return organizer.run(action.threadId, patch, payload, requestId, pump);
+  if (action.kind !== "snoozeAt")
+    return organizer.run(action.threadId, patch, payload, requestId, pump);
+  // Putting a snooze back (Undo of a settle): one the machine finds already over, by its own
+  // clock, had simply ended. That is the state Undo wants, so it answers as taken.
+  let ended = false;
+  const answer: PatchSink = {
+    clear: (prefix) => pump.clear(prefix),
+    put: (key, read) =>
+      pump.put(
+        key,
+        key === `receipt:${requestId}`
+          ? () => {
+              const value = read();
+              return value && ended ? { ...value, ok: true, message: "" } : value;
+            }
+          : read,
+      ),
+  };
+  return organizer.run(action.threadId, patch, payload, requestId, answer, (result) => {
+    ended = !result.ok && result.error === "snooze_in_past";
+  });
 }
 
 /**

@@ -69,9 +69,9 @@ struct InboxView: View {
             // `ace://` links from other apps, Shortcuts and Copy link. One that arrives before the
             // machines are read or while the app is locked waits until it can open.
             .onOpenURL { url in links.add(url) }
-            .task(id: LinkReadiness(links: links, unlocked: !(lock?.locked ?? false), machinesReady: machinesReady)) {
+            .task(id: LinkReadiness(links: links, unlocked: !(lock?.locked ?? false), machinesReady: machinesReady, noMachines: noMachines)) {
                 // Taking them changes this task's id, which cancels it: they open in their own task.
-                let urls = links.take(unlocked: !(lock?.locked ?? false), machinesReady: machinesReady)
+                let urls = links.take(unlocked: !(lock?.locked ?? false), machinesReady: machinesReady, noMachines: noMachines)
                 guard !urls.isEmpty else { return }
                 Task { for url in urls { await openLink(url) } }
             }
@@ -256,12 +256,14 @@ struct InboxView: View {
     private var machinesReady: Bool {
         (machines?.loaded ?? true) && inbox.sessions.contains { $0.client.inboxLoaded || $0.client.connection == "ready" }
     }
-    private struct LinkReadiness: Equatable { let links: PendingLinks; let unlocked: Bool; let machinesReady: Bool }
+    /// The phone's machines are read and none is paired.
+    private var noMachines: Bool { (machines?.loaded ?? false) && inbox.sessions.isEmpty }
+    private struct LinkReadiness: Equatable { let links: PendingLinks; let unlocked: Bool; let machinesReady: Bool; let noMachines: Bool }
 
     /// Opens what an `ace://` link names, read by the shared rules. A thread waits a moment for
     /// its machine's list after a cold launch; one no paired machine holds says so.
     private func openLink(_ url: URL) async {
-        guard let link = await inbox.readLink(url) else {
+        guard let link = inbox.sessions.isEmpty ? OpenedLink.withoutMachine(url) : await inbox.readLink(url) else {
             if url.scheme?.lowercased() == AceLink.scheme, !inbox.sessions.isEmpty { organize.problem = "That ace link couldn't be read." }
             return
         }
@@ -322,12 +324,17 @@ struct InboxView: View {
         if let undo = organize.undo, openTab == nil || toastBesideList {
             HStack(spacing: AceTheme.Spacing.md) {
                 Text(undo.text).lineLimit(1)
-                Button("Undo") {
-                    Task { if await organize.takeBack(undo, in: inbox) { reveal = undo.keys.first } }
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .accessibilityIdentifier("inbox.toast")
+                // While an Undo waits on a machine there is nothing to press; it says so.
+                if !undo.busy {
+                    Button("Undo") {
+                        Task { if await organize.takeBack(undo, in: inbox) { reveal = undo.keys.first } }
+                    }
+                    .fontWeight(.semibold)
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .accessibilityIdentifier(undo.identifier)
                 }
-                .fontWeight(.semibold)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .accessibilityIdentifier(undo.identifier)
             }
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             .foregroundStyle(AceTheme.Colours.foreground)
@@ -338,6 +345,8 @@ struct InboxView: View {
             .padding(.bottom, toastBesideList ? AceTheme.Dimensions.touchTarget * 2 + AceTheme.Spacing.xxl : 76)
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .task(id: undo) {
+                // An Undo still waiting stays until its machines answer.
+                guard !undo.busy else { return }
                 try? await Task.sleep(for: .seconds(5))
                 if organize.undo == undo { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { organize.undo = nil } }
             }

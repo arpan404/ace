@@ -17,6 +17,8 @@ struct InboxUndo: Equatable {
     let text: String
     /// Two undos for the same threads still show as new toasts.
     var serial = UUID()
+    /// An Undo still waiting on a machine: the toast says so and offers nothing until it answers.
+    var busy = false
 
     init(keys: [InboxKey], kind: Kind, text: String) { self.keys = keys; self.kind = kind; self.text = text }
 
@@ -50,7 +52,8 @@ struct MoveAsk: Identifiable, Equatable {
     /// The last answer for `ticket` when its first left threads waiting; nil when the machine
     /// goes away first, and they stay pending.
     func final(_ machineId: String, ticket: String) async -> BulkOutcome?
-    func snooze(_ key: InboxKey, until: Double?) async -> Bool
+    /// nil once the machine took it, else its refusal in words.
+    func snooze(_ key: InboxKey, until: Double?) async -> String?
     func deleteQuestion(_ machineId: String, _ ids: [String]) async -> DeleteQuestion?
     func row(_ key: InboxKey) -> ThreadRow?
     /// The phone's clock (ms).
@@ -75,6 +78,8 @@ struct MoveAsk: Identifiable, Equatable {
     /// Bumped when an action lands (bulk, delete, move, Mark unread), for its haptic.
     var feedback = 0
     @ObservationIgnored private var tickets = 0
+    /// Each waiting thread's command: whether its machine took it, once it answers.
+    @ObservationIgnored private var landings: [InboxKey: Landing] = [:]
 
     /// Each machine's threads among `keys`, in the order given.
     static func byMachine(_ keys: [InboxKey]) -> [(machineId: String, ids: [String])] {
@@ -130,10 +135,18 @@ struct MoveAsk: Identifiable, Equatable {
             guard !sorted.waiting.isEmpty else { continue }
             let waiting = sorted.waiting
             pending.formUnion(waiting)
+            let signals = Dictionary(uniqueKeysWithValues: waiting.map { ($0, Landing()) })
+            landings.merge(signals) { _, new in new }
             Task { @MainActor [weak self] in
+                // A machine that goes away first leaves them pending, and an Undo waiting on them.
                 guard let final = await host.final(group.machineId, ticket: ticket) else { return }
+                let answered = Sorted(group.machineId, final, requested: waiting.map(\.id))
                 self?.pending.subtract(waiting)
-                later(Sorted(group.machineId, final, requested: waiting.map(\.id)))
+                for (key, signal) in signals {
+                    signal.settle(answered.taken.contains(key))
+                    if self?.landings[key] === signal { self?.landings[key] = nil }
+                }
+                later(answered)
             }
         }
         return all
@@ -190,28 +203,17 @@ struct MoveAsk: Identifiable, Equatable {
         if action == .settle { for key in keys { if let until = host.row(key)?.snoozedUntil { snoozes[key] = until } } }
         let verb = action == .settle ? "Settled" : "Archived"
         let kind: InboxUndo.Kind? = action == .settle ? .settled(snoozes: snoozes) : action == .archive ? .archived : nil
-        var serial: UUID?
-        var waitingLeft = 0
+        let toast = PendingToast(verb: verb)
         let sorted = await send(action, keys, in: host) { [weak self] later in
-            guard let self else { return }
-            self.report(later.refused.map(\.message), doing: action.rawValue)
-            // Taken after the toast went up: it joins that toast's Undo while it shows.
-            waitingLeft = max(0, waitingLeft - later.taken.count - later.refused.count)
-            guard let kind, let current = self.undo, current.serial == serial, !later.taken.isEmpty else { return }
-            let keys = current.keys + later.taken
-            var joined = InboxUndo(keys: keys, kind: kind, text: Self.toast(verb, done: keys.count, waiting: waitingLeft))
-            joined.serial = current.serial
-            self.undo = joined
+            self?.report(later.refused.map(\.message), doing: action.rawValue)
+            self?.answered(toast, later)
         }
         report(sorted.refused.map(\.message), doing: action.rawValue)
-        waitingLeft = sorted.waiting.count
         guard !sorted.taken.isEmpty || !sorted.waiting.isEmpty else { return }
         feedback += 1
-        if let kind {
-            let toast = InboxUndo(keys: sorted.taken, kind: kind, text: Self.toast(verb, done: sorted.taken.count, waiting: sorted.waiting.count))
-            serial = toast.serial
-            undo = toast
-        }
+        guard let kind else { return }
+        // Undo covers the waiting threads too: theirs goes out once their own command lands.
+        show(toast, InboxUndo(keys: sorted.taken + sorted.waiting, kind: kind, text: ""), waiting: sorted.waiting)
     }
 
     /// Move `keys` (all on one machine) to `project`, with Undo back to where each was.
@@ -221,54 +223,118 @@ struct MoveAsk: Identifiable, Equatable {
         for key in keys { if let workspace = host.row(key)?.workspaceId, workspace != project.id { from[key] = workspace } }
         guard !from.isEmpty else { return }
         let moving = keys.filter { from[$0] != nil }
+        let toast = PendingToast(verb: "Moved", suffix: " to \(project.name)")
         let sorted = await send(.move, moving, in: host, workspaceId: project.id) { [weak self] later in
             self?.report(later.refused.map(\.message), doing: "move")
+            self?.answered(toast, later)
         }
         report(sorted.refused.map(\.message), doing: "move")
-        let moved = from.filter { sorted.taken.contains($0.key) }
-        guard !moved.isEmpty || !sorted.waiting.isEmpty else { return }
+        let covered = sorted.taken + sorted.waiting
+        guard !covered.isEmpty else { return }
         feedback += 1
-        let pending = sorted.waiting.isEmpty ? "" : " · \(sorted.waiting.count) waiting"
-        undo = InboxUndo(keys: Array(moved.keys), kind: .moved(from: moved),
-                         text: (moved.count + sorted.waiting.count == 1 ? "Moved to \(project.name)" : "Moved \(moved.count + sorted.waiting.count) threads to \(project.name)") + pending)
+        show(toast, InboxUndo(keys: covered, kind: .moved(from: from.filter { covered.contains($0.key) }), text: ""), waiting: sorted.waiting)
     }
 
-    /// Take back the toast's action, restoring what it changed. Resolves with whether every
-    /// thread was put back; any its machine refused stay on the toast to try again, and the
-    /// alert names them.
+    /// The toast of one action whose threads may still be waiting on their machines.
+    private final class PendingToast {
+        let verb: String
+        let suffix: String
+        var serial: UUID?
+        var waiting: Set<InboxKey> = []
+        init(verb: String, suffix: String = "") { self.verb = verb; self.suffix = suffix }
+        func text(_ count: Int) -> String {
+            let words = count == 1 ? "\(verb) thread\(suffix)" : "\(verb) \(count) threads\(suffix)"
+            return words + (waiting.isEmpty ? "" : " · \(waiting.count) waiting")
+        }
+    }
+    private func show(_ toast: PendingToast, _ undo: InboxUndo, waiting: [InboxKey]) {
+        toast.waiting = Set(waiting)
+        let shown = InboxUndo(keys: undo.keys, kind: undo.kind, text: toast.text(undo.keys.count))
+        toast.serial = shown.serial
+        self.undo = shown
+    }
+    /// A late answer: refused threads leave the toast's Undo, and its count of waiting ones drops.
+    private func answered(_ toast: PendingToast, _ later: Sorted) {
+        toast.waiting.subtract(later.taken + later.refused.map(\.key) + later.running)
+        guard let current = undo, current.serial == toast.serial else { return }
+        let refused = Set(later.refused.map(\.key) + later.running)
+        let keys = current.keys.filter { !refused.contains($0) }
+        guard !keys.isEmpty else { undo = nil; return }
+        var kept = InboxUndo(keys: keys, kind: current.kind, text: toast.text(keys.count))
+        kept.serial = current.serial
+        undo = kept
+    }
+
+    /// Take back the toast's action, restoring what it changed. A thread whose own command is
+    /// still waiting is put back once that lands. Resolves true only once every thread is back;
+    /// while any waits the toast says so, and any its machine refused stay on it to try again.
     func takeBack(_ undo: InboxUndo, in host: any OrganizeHost) async -> Bool {
-        self.undo = nil
-        var failed: [InboxKey] = []
-        var reasons: [String] = []
+        var busy = InboxUndo(keys: undo.keys, kind: undo.kind, text: "Undoing…")
+        busy.busy = true
+        self.undo = busy
+        let serial = busy.serial
+        // Only threads whose action their machine took have anything to put back.
+        var landed: [InboxKey] = []
+        for key in undo.keys {
+            if let landing = landings[key] { if await landing.wait() { landed.append(key) } } else { landed.append(key) }
+        }
+        let outcome = UndoOutcome()
+        let finish = { [weak self] in self?.undoAnswered(undo, outcome, serial: serial, host: host) }
         switch undo.kind {
         case .settled(let snoozes):
-            let sorted = await send(.undoSettle, undo.keys, in: host)
-            failed += sorted.refused.map(\.key); reasons += sorted.refused.map(\.message)
-            // The snooze the settle cleared comes back, while it still has time to run.
-            let now = host.clock()
-            for key in sorted.taken + sorted.waiting {
-                guard let until = snoozes[key], until > now else { continue }
-                if await !host.snooze(key, until: until) { failed.append(key); reasons.append("Couldn't put its snooze back.") }
+            let sorted = await send(.undoSettle, landed, in: host) { [weak self] later in
+                outcome.record(later)
+                Task { @MainActor in
+                    await self?.putSnoozesBack(later.taken, snoozes, outcome, host: host)
+                    finish()
+                }
             }
+            outcome.record(sorted)
+            await putSnoozesBack(sorted.taken, snoozes, outcome, host: host)
         case .archived:
-            let sorted = await send(.unarchive, undo.keys, in: host)
-            failed += sorted.refused.map(\.key); reasons += sorted.refused.map(\.message)
+            let sorted = await send(.unarchive, landed, in: host) { later in outcome.record(later); finish() }
+            outcome.record(sorted)
         case .moved(let from):
-            // One move per project they came from; moving back restores their details there.
-            let byProject = Dictionary(grouping: undo.keys) { from[$0] ?? "" }
+            // One move per project they came from; moving back restores their links there.
+            let byProject = Dictionary(grouping: landed) { from[$0] ?? "" }
             for (workspace, keys) in byProject where !workspace.isEmpty {
-                let sorted = await send(.move, keys, in: host, workspaceId: workspace)
-                failed += sorted.refused.map(\.key); reasons += sorted.refused.map(\.message)
+                let sorted = await send(.move, keys, in: host, workspaceId: workspace) { later in outcome.record(later); finish() }
+                outcome.record(sorted)
             }
         }
-        guard !failed.isEmpty else { return true }
-        let unique = Array(Set(failed))
-        let titles = unique.compactMap { host.row($0)?.title }
+        return undoAnswered(undo, outcome, serial: serial, host: host)
+    }
+
+    /// Where an Undo stands: done only once nothing waits and nothing failed.
+    @discardableResult private func undoAnswered(_ undo: InboxUndo, _ outcome: UndoOutcome, serial: UUID, host: any OrganizeHost) -> Bool {
+        guard self.undo?.serial == serial else { return outcome.done }
+        if !outcome.waiting.isEmpty {
+            var busy = InboxUndo(keys: undo.keys, kind: undo.kind, text: "Undoing · \(outcome.waiting.count) waiting")
+            busy.busy = true
+            busy.serial = serial
+            self.undo = busy
+            return false
+        }
+        guard !outcome.failed.isEmpty else { self.undo = nil; return true }
+        let failed = outcome.failed.map(\.key)
+        let titles = failed.compactMap { host.row($0)?.title }
         let names = titles.isEmpty ? "" : " (\(titles.prefix(3).joined(separator: ", ")))"
-        problem = "Couldn't undo \(unique.count == 1 ? "1 thread" : "\(unique.count) threads")\(names). \(reasons.first ?? "")"
+        let count = failed.count == 1 ? "1 thread" : "\(failed.count) threads"
+        problem = "Couldn't undo \(count)\(names). \(outcome.failed.first?.message ?? "")"
         // Still undoable: the toast stays with the threads that weren't put back.
-        self.undo = InboxUndo(keys: unique, kind: undo.kind, text: "Couldn't undo \(unique.count == 1 ? "1 thread" : "\(unique.count) threads")")
+        var retry = InboxUndo(keys: failed, kind: undo.kind, text: "Couldn't undo \(count)")
+        retry.serial = serial
+        self.undo = retry
         return false
+    }
+
+    /// The snooze a settle cleared comes back, while it still has time to run.
+    private func putSnoozesBack(_ keys: [InboxKey], _ snoozes: [InboxKey: Double], _ outcome: UndoOutcome, host: any OrganizeHost) async {
+        let now = host.clock()
+        for key in keys {
+            guard let until = snoozes[key], until > now else { continue }
+            if let refusal = await host.snooze(key, until: until) { outcome.fail(key, "Couldn't put its snooze back. \(refusal)") }
+        }
     }
 
     private func report(_ refused: [String], doing verb: String) {
@@ -296,10 +362,41 @@ extension MachineInbox: OrganizeHost {
     func final(_ machineId: String, ticket: String) async -> BulkOutcome? {
         await client(machineId)?.bulkFinals.wait(ticket)
     }
-    func snooze(_ key: InboxKey, until: Double?) async -> Bool {
-        await client(key.machineId)?.snooze(key.id, until: until) == true
+    func snooze(_ key: InboxKey, until: Double?) async -> String? {
+        guard let client = client(key.machineId) else { return "That machine isn't paired any more." }
+        return await client.snooze(key.id, until: until)
     }
     func deleteQuestion(_ machineId: String, _ ids: [String]) async -> DeleteQuestion? {
         await client(machineId)?.deleteQuestion(ids)
     }
+}
+
+/// Whether one waiting thread's command landed: Undo waits on it before putting the thread back.
+@MainActor final class Landing {
+    private var taken: Bool?
+    private var waiters: [CheckedContinuation<Bool, Never>] = []
+    func settle(_ taken: Bool) {
+        guard self.taken == nil else { return }
+        self.taken = taken
+        for waiter in waiters { waiter.resume(returning: taken) }
+        waiters = []
+    }
+    func wait() async -> Bool {
+        if let taken { return taken }
+        return await withCheckedContinuation { waiters.append($0) }
+    }
+}
+
+/// An Undo's answers so far: which threads still wait on their machines, and which failed.
+@MainActor final class UndoOutcome {
+    private(set) var waiting: Set<InboxKey> = []
+    private(set) var failed: [(key: InboxKey, message: String)] = []
+    var done: Bool { waiting.isEmpty && failed.isEmpty }
+    func record(_ sorted: InboxOrganize.Sorted) {
+        waiting.formUnion(sorted.waiting)
+        waiting.subtract(sorted.taken)
+        for refusal in sorted.refused { waiting.remove(refusal.key); failed.append(refusal) }
+        for key in sorted.running { waiting.remove(key); failed.append((key, "Still running.")) }
+    }
+    func fail(_ key: InboxKey, _ message: String) { failed.append((key, message)) }
 }

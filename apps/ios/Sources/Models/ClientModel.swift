@@ -62,6 +62,9 @@ import QuartzCore
     /// An item a search hit asked to show once its thread is open.
     var focusOnOpen: ThreadFocus?
     var inboxLoaded = false
+    /// Moves when a row's project changes, or a row joins or leaves: what search's project
+    /// choices are kept against (`MachineInbox.projectChoices`), never a scan of every row.
+    private(set) var projectsVersion = 0
     var inboxLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
     /// The Machines sheet's view of this runtime's computer (`bridge/machine-info.ts`).
@@ -130,7 +133,7 @@ import QuartzCore
         let epoch = connectionEpoch
         let closing = retireRuntime()
         hostId = target.hostId
-        inbox.removeAll(); pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
+        inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil; projectLooks = [:]; machineGlyph = nil
         connection = "connecting"; error = nil; problem = nil
@@ -330,6 +333,7 @@ import QuartzCore
                     normalizeGenerations()
                 }
                 if inbox.isEmpty, row != nil { LaunchTrace.mark("inbox.firstRow", row?.confirmed == true ? "confirmed" : "unconfirmed") }
+                if ProjectChoice.changes(inbox[id], row) { projectsVersion &+= 1 }
                 if let current = row {
                     // Missing generations (old payloads) never confirm.
                     inbox[id] = ThreadLiveActivity.effectiveRow(current, latestGeneration: activityGeneration)
@@ -468,6 +472,7 @@ import QuartzCore
     /// or jumps to the top while the rest arrive; it drops every other row. A kept row is no
     /// longer confirmed: only its fresh copy may say it is current again.
     private func resetInbox(keeping ids: [String]?) {
+        projectsVersion &+= 1
         guard let ids else { inbox.removeAll(); return }
         let listed = Set(ids)
         for id in inbox.ids {

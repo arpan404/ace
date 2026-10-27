@@ -29,12 +29,12 @@ import Testing
         let organize = InboxOrganize()
         let keys = [InboxKey(machineId: "mac", id: "a"), InboxKey(machineId: "mac", id: "b")]
         await organize.run(.archive, keys, in: host)
-        #expect(organize.undo?.keys == [keys[0]])
+        // Undo covers the waiting thread too.
+        #expect(organize.undo?.keys == keys)
         #expect(organize.undo?.text == "Archived 2 threads · 1 waiting")
-        // Taken while the toast shows: it joins the Undo.
         host.finish("organize-1", BulkOutcome(saved: ["b"]))
-        await settle { organize.undo?.keys.count == 2 }
-        #expect(organize.undo?.text == "Archived 2 threads")
+        await settle { organize.undo?.text == "Archived 2 threads" }
+        #expect(organize.undo?.keys == keys)
     }
 
     @Test func undoOfASettleTakesBackOnlyTheSettleAndPutsTheSnoozeBack() async {
@@ -72,6 +72,94 @@ import Testing
         #expect(organize.undo?.keys == [b])
         #expect(organize.problem?.contains("Fix login") == true)
         #expect(organize.problem?.contains("The thread is gone.") == true)
+    }
+
+    @Test func undoOfASettleStillWaitingWaitsForItThenTakesItBack() async {
+        let host = FakeHost()
+        let key = InboxKey(machineId: "mac", id: "a")
+        host.answers = [BulkOutcome(saved: ["a"], waiting: ["a"]), BulkOutcome(saved: ["a"])]
+        let organize = InboxOrganize()
+        await organize.run(.settle, [key], in: host)
+        let undo = try! #require(organize.undo)
+        #expect(undo.keys == [key])
+        let back = Task { await organize.takeBack(undo, in: host) }
+        await settle { organize.undo?.busy == true }
+        // Nothing to take back until the settle itself lands, and no success reported meanwhile.
+        #expect(host.sent.map(\.action) == [.settle])
+        #expect(organize.undo?.busy == true)
+        host.finish("organize-1", BulkOutcome(saved: ["a"]))
+        #expect(await back.value)
+        #expect(host.sent.map(\.action) == [.settle, .undoSettle])
+        #expect(organize.undo == nil)
+    }
+
+    @Test func undoOfAMoveCoversTakenAndWaitingThreads() async {
+        let host = FakeHost()
+        let a = InboxKey(machineId: "mac", id: "a"), b = InboxKey(machineId: "mac", id: "b")
+        host.rows[a] = FakeHost.row("a", workspaceId: "ace"); host.rows[b] = FakeHost.row("b", workspaceId: "ace")
+        host.answers = [BulkOutcome(saved: ["a", "b"], waiting: ["b"]), BulkOutcome(saved: ["a", "b"])]
+        let organize = InboxOrganize()
+        await organize.move([a, b], to: ComposeProject(id: "notes", name: "notes", path: "/n", recent: false), in: host)
+        let undo = try! #require(organize.undo)
+        #expect(Set(undo.keys) == [a, b])
+        #expect(undo.text == "Moved 2 threads to notes · 1 waiting")
+        let back = Task { await organize.takeBack(undo, in: host) }
+        await settle { host.sent.count >= 1 && organize.undo?.busy == true }
+        host.finish("organize-1", BulkOutcome(saved: ["b"]))
+        #expect(await back.value)
+        // Both go back once b's own move landed: none is left behind in the other project.
+        #expect(host.sent.dropFirst().map { "\($0.ids.sorted().joined()):\($0.workspaceId ?? "")" } == ["ab:ace"])
+    }
+
+    @Test func aMoveTheMachineRefusesLaterLeavesTheToastsUndo() async {
+        let host = FakeHost()
+        let a = InboxKey(machineId: "mac", id: "a"), b = InboxKey(machineId: "mac", id: "b")
+        host.rows[a] = FakeHost.row("a", workspaceId: "ace"); host.rows[b] = FakeHost.row("b", workspaceId: "ace")
+        host.answers = [BulkOutcome(saved: ["a", "b"], waiting: ["b"])]
+        let organize = InboxOrganize()
+        await organize.move([a, b], to: ComposeProject(id: "notes", name: "notes", path: "/n", recent: false), in: host)
+        host.finish("organize-1", BulkOutcome(saved: ["b"], refused: [.init(threadId: "b", message: "Stop its agents first.")]))
+        await settle { organize.undo?.keys == [a] }
+        #expect(organize.undo?.text == "Moved thread to notes")
+        #expect(organize.problem == "Stop its agents first.")
+    }
+
+    @Test func anUndoTheMachineRefusesLaterIsReportedAndStaysUndoable() async {
+        let host = FakeHost()
+        let a = InboxKey(machineId: "mac", id: "a")
+        host.rows[a] = FakeHost.row("a", title: "Fix login")
+        host.answers = [BulkOutcome(saved: ["a"], waiting: ["a"])]
+        let organize = InboxOrganize()
+        let undone = await organize.takeBack(InboxUndo(keys: [a], kind: .archived, text: "Archived thread"), in: host)
+        // The unarchive still waits: not a success, and the toast says so.
+        #expect(!undone)
+        #expect(organize.undo?.busy == true)
+        host.finish("organize-1", BulkOutcome(saved: ["a"], refused: [.init(threadId: "a", message: "The thread is gone.")]))
+        await settle { organize.undo?.busy == false }
+        #expect(organize.undo?.keys == [a])
+        #expect(organize.problem?.contains("Fix login") == true)
+    }
+
+    @Test func projectChoicesFollowARowsProjectChangeAndIgnoreItsOtherChanges() {
+        let row = FakeHost.row("a", workspaceId: "ace")
+        var busy = row; busy.workspaceId = "ace"
+        var moved = row; moved.workspaceId = "notes"
+        #expect(!ProjectChoice.changes(row, busy))
+        #expect(ProjectChoice.changes(row, moved))
+        #expect(ProjectChoice.changes(nil, row))
+        #expect(ProjectChoice.changes(row, nil))
+    }
+
+    @Test func withNoMachinePairedSettingsAndNewThreadLinksOpenAndThreadLinksWait() {
+        var links = PendingLinks()
+        let settings = URL(string: "ace://settings/appearance")!
+        let thread = URL(string: "ace://thread/t-1")!
+        links.add(settings); links.add(thread)
+        #expect(links.take(unlocked: true, machinesReady: false, noMachines: true) == [settings])
+        #expect(links.waiting == [thread])
+        #expect(OpenedLink.withoutMachine(settings) == OpenedLink(kind: "settings", page: "appearance"))
+        #expect(OpenedLink.withoutMachine(URL(string: "ace://new")!) == OpenedLink(kind: "new-thread"))
+        #expect(OpenedLink.withoutMachine(thread) == nil)
     }
 
     @Test func projectChoicesAreRebuiltOnlyWhenTheListChanges() {
@@ -125,14 +213,17 @@ import Testing
     func finish(_ ticket: String, _ outcome: BulkOutcome) {
         if let waiting = finals.removeValue(forKey: ticket) { waiting.resume(returning: outcome) } else { early[ticket] = outcome }
     }
-    func snooze(_ key: InboxKey, until: Double?) async -> Bool { snoozes[key] = until; return true }
+    var snoozeRefusal: String?
+    func snooze(_ key: InboxKey, until: Double?) async -> String? { snoozes[key] = until; return snoozeRefusal }
     func deleteQuestion(_ machineId: String, _ ids: [String]) async -> DeleteQuestion? { nil }
     func row(_ key: InboxKey) -> ThreadRow? { rows[key] }
     func clock() -> Double { 1_800_000_000_000 }
 
-    static func row(_ id: String, title: String? = nil, snoozedUntil: Double? = nil) -> ThreadRow {
-        ThreadRow(id: id, title: title ?? id, state: "done", attention: nil, project: "ace", branch: "", machine: "", provider: "codex",
-                  model: "", agents: 1, snoozedUntil: snoozedUntil, updatedAt: 1, canSteer: false,
-                  status: StatusDisplay(label: "Done", token: "done"), machineId: "mac", activityAt: nil)
+    static func row(_ id: String, title: String? = nil, snoozedUntil: Double? = nil, workspaceId: String? = nil) -> ThreadRow {
+        var row = ThreadRow(id: id, title: title ?? id, state: "done", attention: nil, project: "ace", branch: "", machine: "", provider: "codex",
+                            model: "", agents: 1, snoozedUntil: snoozedUntil, updatedAt: 1, canSteer: false,
+                            status: StatusDisplay(label: "Done", token: "done"), machineId: "mac", activityAt: nil)
+        row.workspaceId = workspaceId
+        return row
     }
 }

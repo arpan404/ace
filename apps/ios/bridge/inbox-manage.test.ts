@@ -352,3 +352,12 @@ test("a project filter keeps other projects' archived threads out of search ever
   })) as Answer;
   expect(scoped.threads.map((thread) => thread.id)).toEqual(["relay-here"]);
 });
+
+test("putting back a snooze the machine finds already over counts as done", async () => {
+  const { sink, act } = await following((machine) => finished(machine, "a"));
+  await until(() => ids(sink).length === 1, "the inbox");
+  // The phone's clock thinks the snooze still runs; the machine's says it has ended.
+  act({ kind: "snoozeAt", threadId: "a", until: 1 }, "back-a");
+  await until(() => sink.read("receipt:back-a") !== undefined, "the answer");
+  expect(sink.read("receipt:back-a")).toMatchObject({ ok: true, message: "" });
+});

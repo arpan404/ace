@@ -67,10 +67,32 @@ struct PendingLinks: Equatable {
         if !waiting.contains(url) { waiting.append(url) }
     }
     /// Every kept link, oldest first, once the app is unlocked and a machine's runtime can read
-    /// them; nothing before then.
-    mutating func take(unlocked: Bool, machinesReady: Bool) -> [URL] {
-        guard unlocked, machinesReady, !waiting.isEmpty else { return [] }
-        defer { waiting = [] }
-        return waiting
+    /// them. With no machine paired at all, settings and New thread links open anyway (New thread
+    /// then asks to pair first); thread links wait for a machine.
+    mutating func take(unlocked: Bool, machinesReady: Bool, noMachines: Bool = false) -> [URL] {
+        guard unlocked, !waiting.isEmpty else { return [] }
+        if machinesReady { defer { waiting = [] }; return waiting }
+        guard noMachines else { return [] }
+        let now = waiting.filter { OpenedLink.withoutMachine($0) != nil }
+        waiting.removeAll { now.contains($0) }
+        return now
+    }
+}
+
+extension OpenedLink {
+    /// The two links that need no machine, read without one: `ace://settings[/<page>]` and
+    /// `ace://new`. Every other link waits for a machine's runtime and the shared reader.
+    static func withoutMachine(_ url: URL) -> OpenedLink? {
+        guard url.scheme?.lowercased() == AceLink.scheme else { return nil }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        switch url.host?.lowercased() {
+        case "settings":
+            guard parts.count <= 1 else { return nil }
+            let page = parts.first
+            guard page.map({ $0.range(of: "^[a-z-]{1,40}$", options: .regularExpression) != nil }) ?? true else { return nil }
+            return OpenedLink(kind: "settings", page: page)
+        case "new": return parts.isEmpty ? OpenedLink(kind: "new-thread") : nil
+        default: return nil
+        }
     }
 }

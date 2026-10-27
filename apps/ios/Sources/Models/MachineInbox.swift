@@ -34,9 +34,9 @@ final class MachineSession: Identifiable {
     /// only when threads join or leave a machine's list, never on a row's own change, so a busy
     /// inbox doesn't rescan and sort every row on each redraw.
     func projectChoices() -> [ProjectChoice] {
-        let membership = sessions.map { session in
-            ([session.hostId] + session.client.inboxLayout.sections.flatMap(\.ids)).joined(separator: "\u{0}")
-        }
+        // Each machine's projects version moves only when a row's project changes or rows join
+        // or leave, so reading it costs one number per machine.
+        let membership = sessions.map { "\($0.hostId):\($0.client.projectsVersion)" }
         return projectCache.choices(for: membership + [showsMachineNames ? "named" : ""]) {
             var seen = Set<String>()
             return sessions.flatMap { session in
@@ -145,7 +145,15 @@ final class MachineSession: Identifiable {
 }
 
 /// A project search can filter by: one machine's project ("machine/workspace") and its name.
-struct ProjectChoice: Equatable, Sendable { let id: String; let name: String }
+struct ProjectChoice: Equatable, Sendable {
+    let id: String
+    let name: String
+    /// Whether a row's change can change the project choices: it joined or left, or its project
+    /// (id, name, or being a chat) changed. Every other change, the busy ones, can't.
+    static func changes(_ old: ThreadRow?, _ new: ThreadRow?) -> Bool {
+        old?.workspaceId != new?.workspaceId || old?.project != new?.project || old?.chat != new?.chat
+    }
+}
 
 /// Keeps the project choices until the list they were read from changes.
 struct ProjectChoiceCache {
