@@ -1,3 +1,4 @@
+import { base64DataUrl } from "@ace/provider-kit/data-url";
 import type { SendOptions } from "./contracts.ts";
 
 /**
@@ -12,10 +13,10 @@ export function sdkInput(input: SendOptions["input"]) {
     if (part.type === "mention") throw new Error("Unresolved Cursor mention");
     if (part.type === "text") texts.push(part.text);
     else if (part.type === "image") {
-      const match = /^data:([^;,]+);base64,(.+)$/s.exec(part.url);
-      if (!match?.[2] || match[1] !== part.mimeType)
+      const image = base64DataUrl(part.url);
+      if (!image?.data || image.mimeType !== part.mimeType)
         throw new Error("Cursor images require a matching base64 data URL");
-      images.push({ data: match[2], mimeType: part.mimeType });
+      images.push({ data: image.data, mimeType: part.mimeType });
     } else texts.push(`Referenced workspace file: ${part.path}`);
   }
   return { text: texts.join("\n"), ...(images.length ? { images } : {}) };
