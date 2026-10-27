@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -40,4 +40,24 @@ test("an installed release reads its version off the release folder", async () =
   const entry = "/home/person/.ace/releases/1.4.0-linux-x64/ace.mjs";
   expect(await cliVersion({}, entry)).toBe("1.4.0");
   expect(await cliVersion({ ACE_VERSION: "not-a-version" }, entry)).toBe("development");
+});
+
+test("the CLI bundled in the desktop app reads the app's version beside it, launcher or not", async () => {
+  const root = await home();
+  // The installed Linux app's layout: /opt/ace/resources/daemon/{ace.mjs,desktop-app.json}.
+  const daemon = join(root, "opt", "ace", "resources", "daemon");
+  await mkdir(daemon, { recursive: true });
+  const entry = join(daemon, "ace.mjs");
+  await writeFile(join(daemon, "desktop-app.json"), '{"version":"0.0.12"}\n');
+  expect(await cliVersion({}, entry)).toBe("0.0.12");
+  // An upgrade replaces the marker with the bundle, so an old launcher reports the new version.
+  await writeFile(join(daemon, "desktop-app.json"), '{"version":"0.0.13"}\n');
+  expect(await cliVersion({}, entry)).toBe("0.0.13");
+  // A stamped version still wins, and an unreadable marker is a development build.
+  expect(await cliVersion({ ACE_VERSION: "0.0.14" }, entry)).toBe("0.0.14");
+  await writeFile(join(daemon, "desktop-app.json"), "not json");
+  expect(await cliVersion({}, entry)).toBe("development");
+  await writeFile(join(daemon, "desktop-app.json"), '{"version":"latest"}');
+  expect(await cliVersion({}, entry)).toBe("development");
+  expect(await cliVersion({}, join(root, "elsewhere", "ace.mjs"))).toBe("development");
 });

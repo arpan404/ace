@@ -1,6 +1,7 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { detectToolchains } from "@ace/diagnostics/toolchains";
 import { DaemonHealth, ReleaseVersion, type Toolchain } from "@ace/protocol";
+import { DesktopApp, desktopAppMarker } from "@ace/service/desktop-update";
 import type { DoctorContext, DoctorFeature } from "./feature.ts";
 import { dataFormatVerdict, storedFormat } from "./install-data-format.ts";
 import { aceOnPath, pathVerdict, readHead } from "./install-path.ts";
@@ -24,8 +25,25 @@ async function appVersion(bundle: string): Promise<string | undefined> {
 }
 
 /**
- * The running CLI's version: a stamped `ACE_VERSION`, else the release or app bundle its entry
- * script lives in, else "development". `ace --version` and the doctor's version check share it.
+ * The app version the desktop build writes beside its bundled daemon (`daemon/desktop-app.json`),
+ * when `entry` is that daemon's `ace.mjs`. It ships inside the app, so an app upgrade replaces it
+ * along with the CLI itself, however old the `ace` launcher that runs it.
+ */
+async function bundledAppVersion(entry: string): Promise<string | undefined> {
+  const text = await readHead(join(dirname(entry), desktopAppMarker), 4096);
+  if (!text) return undefined;
+  try {
+    return DesktopApp.safeParse(JSON.parse(text)).data?.version;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The running CLI's version: a stamped `ACE_VERSION`, else the release folder its entry script
+ * lives in, else the desktop app it is bundled in (its `desktop-app.json`, then on macOS the
+ * bundle's Info.plist), else "development". `ace --version` and the doctor's version check
+ * share it.
  */
 export async function cliVersion(
   env: NodeJS.ProcessEnv,
@@ -35,6 +53,8 @@ export async function cliVersion(
   if (stamped !== undefined) return ReleaseVersion.safeParse(stamped).data ?? "development";
   const origin = cliOrigin(entry);
   if (origin?.kind === "release") return origin.version;
+  const bundled = entry ? await bundledAppVersion(entry) : undefined;
+  if (bundled) return bundled;
   const version = origin ? await appVersion(origin.bundle) : undefined;
   return version ?? "development";
 }
