@@ -155,9 +155,10 @@ it("open pairing links are listed without their codes, and a cancelled one no lo
     deviceTtlMs: 7 * day,
   });
   const listed = await ask(host, { op: "pairings" });
+  // Both expire at once, so their order falls to their random ids (ORDER BY expires_at, id).
   expect(listed.result).toEqual({
     kind: "pairings",
-    pairings: [
+    pairings: expect.arrayContaining([
       { id: kept.id, label: "Phone", scopes: ["read"], expiresAt: kept.expiresAt },
       {
         id: cancelled.id,
@@ -165,8 +166,9 @@ it("open pairing links are listed without their codes, and a cancelled one no lo
         expiresAt: cancelled.expiresAt,
         deviceTtlMs: 7 * day,
       },
-    ],
+    ]),
   });
+  expect(listed.result).toHaveProperty("pairings.length", 2);
   const text = JSON.stringify(listed);
   expect(text).not.toContain(kept.code);
   expect(text).not.toContain(cancelled.code);
@@ -185,8 +187,12 @@ it("open pairing links are listed without their codes, and a cancelled one no lo
   const http = PairingResponse.parse(
     await f.request("/v1/pairings", { method: "POST", token, body: { scopes: ["read"] } }),
   );
+  // Same expiry again: the order falls to the random ids.
   expect((await ask(host, { op: "pairings" })).result).toMatchObject({
-    pairings: [{ id: kept.id }, { id: http.id }],
+    pairings: expect.arrayContaining([
+      expect.objectContaining({ id: kept.id }),
+      expect.objectContaining({ id: http.id }),
+    ]),
   });
 });
 
