@@ -21,6 +21,18 @@ struct InboxRowActions {
     let select: (InboxKey) -> Void
 }
 
+/// What the list holds, in order: which rows are in which group, and which shelves are open.
+private struct Membership: Equatable {
+    let keys: [String]
+    let rows: [[InboxKey]]
+    let shelves: InboxShelves
+    init(sections: [MergedInbox.Section], shelves: InboxShelves) {
+        keys = sections.map(\.key)
+        rows = sections.map(\.rows)
+        self.shelves = shelves
+    }
+}
+
 /// Which folded groups at the end of the list are open.
 struct InboxShelves: Equatable { var snoozed = false; var settled = false }
 
@@ -107,6 +119,11 @@ struct InboxList: View {
             // (on iPad) Shift or Command with the pointer or arrows to pick several.
             .environment(\.editMode, .constant(selection == nil ? .inactive : .active))
             .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
+            // Rows joining, leaving or moving between groups take the list's own insert, remove
+            // and move animations, keyed on membership alone, so a row's own text changing never
+            // animates the list. Reduce Motion crossfades instead.
+            .animation(reduceMotion ? .easeInOut(duration: 0.2) : AceTheme.Motion.standardCurve,
+                       value: Membership(sections: sections, shelves: shelves))
             .onAppear { if !sections.isEmpty { InboxList.traceRows(sections) } }
             .onChange(of: sections.isEmpty) { _, empty in if !empty { InboxList.traceRows(sections) } }
             .onChange(of: revealable(sections), initial: true) { _, key in

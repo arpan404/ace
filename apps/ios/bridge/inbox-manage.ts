@@ -22,6 +22,7 @@ import { dispatchCommand, type Receipt } from "./commands.ts";
 import type { InboxOrganizer } from "./inbox-organize.ts";
 import type { InboxClock } from "./inbox-rows.ts";
 import { preview } from "./presentation.ts";
+import { answerPalette, PaletteRequest } from "./palette.ts";
 
 /*
  * The rest of the web's thread actions for the phone's inbox, by the same commands and patches as
@@ -315,6 +316,8 @@ export function inboxRequests(
   return (raw, requestId) => {
     const bulk = InboxBulkRequest.safeParse(raw);
     if (bulk.success) return runBulk(owner, organizer, clock, bulk.data, requestId, pump);
+    const palette = PaletteRequest.safeParse(raw);
+    if (palette.success) return answerPalette(owner, organizer.entries(), palette.data, requestId);
     const link = AceLinkRequest.safeParse(raw);
     if (link.success) return Promise.resolve({ link: readAceLink(link.data.url) ?? null });
     const question = InboxDeleteQuestionRequest.safeParse(raw);

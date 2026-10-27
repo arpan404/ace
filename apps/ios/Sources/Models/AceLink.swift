@@ -14,3 +14,44 @@ enum AceLink {
         return components.url ?? URL(string: "ace://thread")!
     }
 }
+
+/// An `ace://` link as the shared runtime read it (`readAceLink`).
+struct OpenedLink: Decodable, Equatable, Sendable {
+    let kind: String
+    var threadId: String? = nil
+    var itemId: String? = nil
+    var machine: String? = nil
+    var page: String? = nil
+    var project: String? = nil
+}
+private struct LinkReply: Decodable { let link: OpenedLink? }
+
+extension MachineInbox {
+    /// Reads `url` with the shared rules on any paired machine's runtime; nil when it isn't an
+    /// ace link or no machine is paired yet.
+    func readLink(_ url: URL) async -> OpenedLink? {
+        guard url.scheme?.lowercased() == AceLink.scheme, let client = sessions.first?.client else { return nil }
+        return try? await client.service(["type": "link.read", "url": url.absoluteString], as: LinkReply.self).link
+    }
+    /// The machine holding `threadId`: the one the link names when it holds it, else any that does.
+    func machine(holding threadId: String, named: String?) -> String? {
+        if let named, client(named)?.inbox[threadId] != nil { return named }
+        return sessions.first { $0.client.inbox[threadId] != nil }?.hostId
+    }
+}
+
+extension SettingsRoute {
+    /// The Settings page a link names, by the web's page names where the phone has one.
+    static func linked(_ page: String?) -> [SettingsRoute] {
+        switch page {
+        case "machines", "devices": [.machines]
+        case "pair": [.pair]
+        case "notifications": [.notifications]
+        case "appearance", "general": [.appearance]
+        case "archive", "archived": [.archive]
+        case "profiles": [.profiles]
+        case "licences", "licenses", "about": [.licences]
+        default: []
+        }
+    }
+}

@@ -198,3 +198,43 @@ test("a link another app opens is read by the shared rules", async () => {
   });
   expect(await request({ type: "link.read", url: "javascript:alert(1)" })).toEqual({ link: null });
 });
+
+test("search everything ranks commands, projects and threads by the palette's rules", async () => {
+  const { sink, request } = await following((machine) => {
+    finished(machine, "relay-fix");
+    finished(machine, "other", "notes");
+  });
+  await until(() => ids(sink).length === 2, "the inbox");
+  type Answer = {
+    commands: { id: string }[];
+    projects: { id: string }[];
+    threads: { id: string; listed: boolean }[];
+  };
+  const empty = (await request({
+    type: "palette.query",
+    query: "",
+    commands: true,
+    context: { canStart: true, threadOpen: false },
+  })) as Answer;
+  // Before a query, every command the app can run now, and nothing about the open thread.
+  expect(empty.commands.map((command) => command.id)).toContain("new-thread");
+  expect(empty.commands.map((command) => command.id)).not.toContain("thread:changes");
+  expect(empty.threads).toEqual([]);
+
+  const typed = (await request({
+    type: "palette.query",
+    query: "relay",
+    commands: true,
+  })) as Answer;
+  expect(typed.threads.map((thread) => thread.id)).toEqual(["relay-fix"]);
+  expect(typed.threads[0]?.listed).toBe(true);
+  const settings = (await request({
+    type: "palette.query",
+    query: "dark mode",
+    commands: true,
+  })) as Answer;
+  expect(settings.commands[0]?.id).toBe("settings:appearance");
+  const projects = (await request({ type: "palette.query", query: "notes" })) as Answer;
+  expect(projects.projects.map((project) => project.id)).toEqual(["notes"]);
+  expect(projects.commands).toEqual([]);
+});

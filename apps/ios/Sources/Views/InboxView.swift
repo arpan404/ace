@@ -60,6 +60,8 @@ struct InboxView: View {
             .newThreadEntry(inbox: inbox, composing: $composing, project: composeProject ?? projectFilter) { key in openThread(key) }
             .onChange(of: composing) { _, now in if !now { composeProject = nil } }
             .organizeSheets(organize, inbox: inbox)
+            // `ace://` links from other apps, Shortcuts and Copy link.
+            .onOpenURL { url in Task { await openLink(url) } }
             .environment(\.threadOrganizer, organizer)
             // A thread deleted for good closes where it was open.
             .onChange(of: organize.deleted) { _, deleted in
@@ -129,6 +131,8 @@ struct InboxView: View {
         .onChange(of: pullsPath) { old, new in pathChanged(.pulls, old: old, new: new) }
         .environment(\.otherMachines, otherMachines)
         .sensoryFeedback(.success, trigger: settles)
+        // Bulk actions, deletes, moves and Mark unread confirm with the same tap.
+        .sensoryFeedback(.success, trigger: organize.feedback)
         // Beside an open thread, or over it as the drawer, the toast sits under the list it acted
         // on, clear of the composer and the list's foot.
         .overlay(alignment: toastBesideList ? .bottomLeading : .bottom) { toast }
@@ -191,7 +195,13 @@ struct InboxView: View {
                    shelves: $shelves, reveal: $reveal, actions: actions,
                    header: InboxHeaderActions(settings: { settingsStart = []; showingSettings = true },
                                               machines: { settingsStart = [.machines]; showingSettings = true },
-                                              pair: pair),
+                                              pair: pair,
+                                              page: { route in settingsStart = route; showingSettings = true },
+                                              archived: { key in
+                                                  inbox.client(key.machineId)?.open(key.id)
+                                                  settingsStart = [.thread(machine: key.machineId, id: key.id)]
+                                                  showingSettings = true
+                                              }),
                    organize: organize) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the
             // same machine's client as their parent.
@@ -228,6 +238,34 @@ struct InboxView: View {
             // Select mode belongs to each tab's list (`InboxStack`).
             select: { _ in })
     }
+    /// Opens what an `ace://` link names, read by the shared rules. A thread waits a moment for
+    /// its machine's list after a cold launch; one no paired machine holds says so.
+    private func openLink(_ url: URL) async {
+        guard let link = await inbox.readLink(url) else {
+            if url.scheme?.lowercased() == AceLink.scheme, !inbox.sessions.isEmpty { organize.problem = "That ace link couldn't be read." }
+            return
+        }
+        switch link.kind {
+        case "thread":
+            guard let id = link.threadId else { return }
+            for _ in 0..<50 where inbox.machine(holding: id, named: link.machine) == nil { try? await Task.sleep(for: .milliseconds(200)) }
+            guard let machine = inbox.machine(holding: id, named: link.machine), let client = inbox.client(machine) else {
+                organize.problem = "That thread isn't on a paired machine, or it was archived."
+                return
+            }
+            if let item = link.itemId { client.focusOnOpen = ThreadFocus(thread: id, item: item) }
+            openThread(InboxKey(machineId: machine, id: id))
+        case "settings":
+            settingsStart = SettingsRoute.linked(link.page)
+            showingSettings = true
+        case "new-thread":
+            composeProject = link.project
+            startThread()
+        case "open-folder":
+            organize.problem = "Folders open in ace on your computer."
+        default: break
+        }
+    }
     /// A thread's shared menu ids run here, for its row's menu and the open thread's ⋯ alike.
     private var organizer: ThreadOrganizer {
         ThreadOrganizer(perform: { key, id in perform(id, key) },
@@ -238,7 +276,7 @@ struct InboxView: View {
         guard let client = inbox.client(key.machineId) else { return }
         let row = inbox.row(key)
         switch id {
-        case "unread", "read": Task { _ = await client.markUnread(key.id, id == "unread") }
+        case "unread", "read": Task { if await client.markUnread(key.id, id == "unread") { organize.feedback += 1 } }
         case "pin", "unpin": if let row { actions.pin(row, key, id == "pin") }
         case "move": organize.moving = MoveAsk(machineId: key.machineId, keys: [key])
         case "settle": if let row { actions.settle(row, key) }

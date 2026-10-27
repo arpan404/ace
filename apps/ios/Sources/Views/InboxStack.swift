@@ -6,6 +6,10 @@ struct InboxHeaderActions {
     let machines: () -> Void
     /// Pairs a first computer; nil until the phone knows it has none (and in the debug fixture).
     var pair: (() -> Void)?
+    /// Opens Settings at a page (search-everything's settings commands).
+    var page: ([SettingsRoute]) -> Void = { _ in }
+    /// Opens a thread the list doesn't hold (archived), read-only in Settings › Archive.
+    var archived: (InboxKey) -> Void = { _ in }
 }
 
 /// One tab's list and the page it opens (`InboxSplit`): the compact wordmark (or a connection
@@ -40,6 +44,8 @@ struct InboxStack<Destination: View>: View {
     @State private var query = ""
     @State private var searching = false
     @State private var forgeKind = ForgeKind.pulls
+    /// The open thread's own commands, published by its page (`ThreadKeys`).
+    @FocusedValue(\.threadKeys) private var threadKeys
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -103,21 +109,24 @@ struct InboxStack<Destination: View>: View {
                 // The list stays mounted under the results, so it keeps its place while the
                 // person searches and is back where it was when they cancel.
                 ZStack {
-                    let results = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, reveal: $reveal, actions: picking, compose: nil,
                               pair: header.pair, selection: selecting ? $selection : nil)
                         .refreshable { await refresh() }
-                        .opacity(results ? 0 : 1)
-                        .allowsHitTesting(!results)
-                        .accessibilityHidden(results)
-                    if results {
-                        InboxSearchList(inbox: inbox, query: query, includes: includes, open: picking.open)
+                        .opacity(searching ? 0 : 1)
+                        .allowsHitTesting(!searching)
+                        .accessibilityHidden(searching)
+                    if searching {
+                        InboxSearchList(inbox: inbox, query: $query, includes: includes, threadOpen: threadKeys != nil,
+                                        actions: searchActions)
+                            .transition(.opacity)
                     }
                 }
+                // The list and search everything crossfade; nothing slides.
+                .animation(reduceMotion ? .easeInOut(duration: 0.15) : AceTheme.Motion.standardCurve, value: searching)
             }
         }
         .modifier(InboxSearchField(query: $query, searching: $searching,
-                                   prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : forgeKind == .issues ? "Search issues" : "Search notifications") : "Search threads and messages"))
+                                   prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : forgeKind == .issues ? "Search issues" : "Search notifications") : "Search everything"))
     }
 
     /// A row picked in the list (`ThreadDrawer.pick`): the drawer closes, the search ends in a
@@ -138,7 +147,7 @@ struct InboxStack<Destination: View>: View {
                         organizer: actions.organizer, select: { key in startSelecting(with: key) })
     }
     private func startSelecting(with key: InboxKey? = nil) {
-        withAnimation(.smooth) {
+        withAnimation(listMotion) {
             searching = false
             selection = key.map { [$0] } ?? []
             selecting = true
@@ -152,6 +161,35 @@ struct InboxStack<Destination: View>: View {
             return section.rows.filter(includes)
         }
     }
+    /// What search everything's rows open.
+    private var searchActions: SearchActions {
+        SearchActions(open: { key in picking.open(key) }, command: runCommand,
+                      project: { machineId, workspace in
+                          withAnimation(listMotion) {
+                              if inbox.showsMachineNames { machine = machineId }
+                              project = workspace
+                              searching = false
+                          }
+                      },
+                      archived: { key in searching = false; header.archived(key) })
+    }
+    /// A command id from the shared catalog (`bridge/palette.ts`).
+    private func runCommand(_ id: String) {
+        let operable = inbox.sessions.first { $0.client.canOperate }?.hostId ?? inbox.sessions.first?.hostId
+        switch id {
+        case "new-thread": searching = false; forge.startThread()
+        case "select": startSelecting()
+        case "pulls", "issues": searching = false; tab = .pulls
+        case "settings": searching = false; header.settings()
+        default:
+            if id.hasPrefix("settings:") { searching = false; header.page(SettingsRoute.linked(String(id.dropFirst(9)))) }
+            else if id.hasPrefix("tool:"), let tool = SettingsTool(rawValue: String(id.dropFirst(5))), let operable {
+                searching = false; header.page([.tool(tool, machine: operable)])
+            } else if id.hasPrefix("thread:"), let destination = ThreadDestination(command: String(id.dropFirst(7))) {
+                searching = false; threadKeys?.open(destination)
+            }
+        }
+    }
     /// A pull request, issue or thread picked from the Pulls list.
     private func pick(_ open: () -> Void) {
         let layout = ThreadDrawer.layout(sizeClass, path: path)
@@ -159,6 +197,8 @@ struct InboxStack<Destination: View>: View {
         if layout != .beside { searching = false }
         open()
     }
+    /// Select mode, search and scope changes: the system's smooth curve, a fade under Reduce Motion.
+    private var listMotion: Animation { reduceMotion ? .easeInOut(duration: 0.2) : .smooth }
     private var drawerMotion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring }
 
     private var filters: InboxFilters { InboxFilters(inbox: inbox, machine: $machine, project: $project) }
@@ -175,8 +215,18 @@ struct InboxStack<Destination: View>: View {
     private var commands: InboxCommands {
         InboxCommands(
             newThread: inbox.canStartThreads ? forge.startThread : nil,
-            search: { withAnimation(.smooth) { searching = true } },
-            next: { step(1) }, previous: { step(-1) })
+            search: { withAnimation(listMotion) { searching = true } },
+            select: { startSelecting() },
+            settings: header.settings,
+            next: { step(1) }, previous: { step(-1) }, nextNeedsYou: nextNeedsYou)
+    }
+    /// The next thread that needs the person after the open one, round to the first.
+    private func nextNeedsYou() {
+        let rows = inbox.merged.sections.first { $0.key == "needs-you" }?.rows.filter(includes) ?? []
+        guard !rows.isEmpty else { return }
+        let open = ThreadColumns.selection(path)
+        let after = open.flatMap { rows.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
+        actions.open(rows[after < rows.count ? after : 0])
     }
     private func step(_ step: Int) {
         let order = ThreadColumns.order(inbox.merged.sections.map { section in
@@ -210,7 +260,7 @@ struct InboxStack<Destination: View>: View {
                 .accessibilityIdentifier("select.count")
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Done") { withAnimation(.smooth) { selecting = false; selection = [] } }
+            Button("Done") { withAnimation(listMotion) { selecting = false; selection = [] } }
                 .fontWeight(.semibold)
                 .keyboardShortcut(.escape, modifiers: [])
                 .accessibilityIdentifier("select.done")
@@ -239,7 +289,7 @@ struct InboxStack<Destination: View>: View {
         // narrow column (a window beside its controls) still shows them all.
         if #available(iOS 26, *), !holdsTabs { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
         ToolbarItem(placement: .topBarTrailing) {
-            Button { withAnimation(.smooth) { searching = true } } label: { Image(systemName: "magnifyingglass") }
+            Button { withAnimation(listMotion) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
         }
         // The phone's floating New thread button, in the Threads sidebar's own bar.
@@ -304,7 +354,7 @@ private struct InboxSearchField: ViewModifier {
             .onAppear { if searching { shown = true } }
             .onChange(of: searching) { _, now in
                 // The field joins the bar in the same animation the system uses to focus it.
-                if now { withAnimation(.smooth) { shown = true } } else { query = ""; shown = false }
+                if now { withAnimation(listMotion) { shown = true } } else { query = ""; shown = false }
             }
     }
 }

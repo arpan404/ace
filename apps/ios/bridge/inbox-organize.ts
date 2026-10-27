@@ -17,6 +17,8 @@ export interface InboxOrganizer {
   readonly machineId: string;
   /** The daemon's entry with this phone's unconfirmed actions applied. */
   entry(id: string): ThreadListEntry | undefined;
+  /** Every listed thread's entry, as `entry` shows it. */
+  entries(): ThreadListEntry[];
   /** Hear which thread's shown entry changed because an action was taken or dropped. */
   observe(listener: (threadId: string) => void): () => void;
   /**
@@ -48,6 +50,12 @@ export function inboxOrganizer(
     entry(id) {
       const entry = store.thread(id);
       return entry && pending.apply(entry);
+    },
+    entries() {
+      return store.ids.flatMap((id) => {
+        const entry = store.thread(id);
+        return entry ? [pending.apply(entry)] : [];
+      });
     },
     observe: pending.subscribe,
     run(threadId, patch, payload, requestId, pump, heard) {

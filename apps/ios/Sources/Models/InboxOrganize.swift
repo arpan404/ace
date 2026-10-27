@@ -48,6 +48,8 @@ struct MoveAsk: Identifiable, Equatable {
     var undo: InboxUndo?
     /// Threads gone for good, so a page open on one of them closes.
     var deleted: Set<InboxKey> = []
+    /// Bumped when an action lands (bulk, delete, move, Mark unread), for its haptic.
+    var feedback = 0
 
     /// Each machine's threads among `keys`, in the order given.
     static func byMachine(_ keys: [InboxKey]) -> [(machineId: String, ids: [String])] {
@@ -93,6 +95,7 @@ struct MoveAsk: Identifiable, Equatable {
             let outcome = await client.bulk(.delete, group.ids, force: ask.question.force)
             let gone = Set(outcome.saved).subtracting(outcome.running).subtracting(outcome.refused.map(\.threadId))
             deleted.formUnion(gone.map { InboxKey(machineId: group.machineId, id: $0) })
+            if !gone.isEmpty { feedback += 1 }
             running += outcome.running.map { InboxKey(machineId: group.machineId, id: $0) }
             if let retry = outcome.retry { retries.append(retry) }
             refused += outcome.refused.map(\.message)
@@ -118,6 +121,7 @@ struct MoveAsk: Identifiable, Equatable {
         }
         report(refused, doing: action.rawValue)
         guard !done.isEmpty else { return }
+        feedback += 1
         switch action {
         case .settle: undo = InboxUndo(keys: done, kind: .settled, text: Self.counted("Settled", done.count))
         case .archive: undo = InboxUndo(keys: done, kind: .archived, text: Self.counted("Archived", done.count))
@@ -138,6 +142,7 @@ struct MoveAsk: Identifiable, Equatable {
         report(outcome.refused.map(\.message), doing: "move")
         let moved = from.filter { outcome.saved.contains($0.key.id) && !failed.contains($0.key.id) }
         guard !moved.isEmpty else { return }
+        feedback += 1
         undo = InboxUndo(keys: Array(moved.keys), kind: .moved(from: moved),
                          text: moved.count == 1 ? "Moved to \(project.name)" : "Moved \(moved.count) threads to \(project.name)")
     }

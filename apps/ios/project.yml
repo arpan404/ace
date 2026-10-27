@@ -63,6 +63,10 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         NSLocalNetworkUsageDescription: Connect to your own ace daemon.
+        # `ace://` links open a thread, settings or New thread (`AceLink`, `readAceLink`).
+        CFBundleURLTypes:
+          - CFBundleURLName: app.ace.link
+            CFBundleURLSchemes: [ace]
         NSFaceIDUsageDescription: Unlock your paired machines.
         NSCameraUsageDescription: Scan the pairing code shown by ace on your computer, or take a photo for an agent.
         UIBackgroundModes: [fetch]
