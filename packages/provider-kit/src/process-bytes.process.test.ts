@@ -73,7 +73,7 @@ test.runIf(process.platform === "win32").each(["a stop", "a normal exit"] as con
         process.kill(pid, "SIGKILL");
         while (isRunning(pid)) await delay(25);
       }
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 20 });
     }
   },
 );
