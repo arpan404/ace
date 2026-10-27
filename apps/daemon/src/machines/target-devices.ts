@@ -119,7 +119,10 @@ export class TargetDevices implements CapabilityHost {
     const text = machine
       ? `An agent from ${machine} holds ${target.data.simId}.`
       : `An agent on this machine holds ${target.data.simId}.`;
-    return { ...result, content: [...result.content, { type: "text" as const, text }].slice(0, 16) };
+    return {
+      ...result,
+      content: [...result.content, { type: "text" as const, text }].slice(0, 16),
+    };
   }
   private release(owner: string): void {
     if (!this.holders.delete(owner)) return;

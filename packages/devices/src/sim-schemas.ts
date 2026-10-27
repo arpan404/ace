@@ -90,24 +90,24 @@ const none = { required: [], allowed: base };
 type SimActInput = z.infer<typeof SimActFields>;
 const pointed = new Set(["tap", "long_press"]);
 const simActRules = perAction<SimActInput>("action", {
-    ui: { required: ["ref"], allowed: [...base, "ref", "uiAction", "value", "name"] },
-    tap: { required: [], allowed: [...base, "x", "y", "ref"] },
-    long_press: { required: [], allowed: [...base, "x", "y", "ref", "durationMs"] },
-    swipe: {
-      required: ["x", "y", "toX", "toY"],
-      allowed: [...base, "x", "y", "toX", "toY", "durationMs"],
-    },
-    type: { required: ["text"], allowed: [...base, "text", "ref"] },
-    key: { required: ["key"], allowed: [...base, "key"] },
-    open_app: { required: ["appId"], allowed: [...base, "appId"] },
-    open_url: { required: ["url"], allowed: [...base, "url"] },
-    install: { required: ["path"], allowed: [...base, "path"] },
-    record_start: none,
-    record_stop: none,
-    clipboard_get: none,
-    clipboard_set: { required: ["text"], allowed: [...base, "text"] },
-    posture: { required: ["posture"], allowed: [...base, "posture"] },
-  });
+  ui: { required: ["ref"], allowed: [...base, "ref", "uiAction", "value", "name"] },
+  tap: { required: [], allowed: [...base, "x", "y", "ref"] },
+  long_press: { required: [], allowed: [...base, "x", "y", "ref", "durationMs"] },
+  swipe: {
+    required: ["x", "y", "toX", "toY"],
+    allowed: [...base, "x", "y", "toX", "toY", "durationMs"],
+  },
+  type: { required: ["text"], allowed: [...base, "text", "ref"] },
+  key: { required: ["key"], allowed: [...base, "key"] },
+  open_app: { required: ["appId"], allowed: [...base, "appId"] },
+  open_url: { required: ["url"], allowed: [...base, "url"] },
+  install: { required: ["path"], allowed: [...base, "path"] },
+  record_start: none,
+  record_stop: none,
+  clipboard_get: none,
+  clipboard_set: { required: ["text"], allowed: [...base, "text"] },
+  posture: { required: ["posture"], allowed: [...base, "posture"] },
+});
 const simActPoint = (value: SimActInput, context: z.RefinementCtx) => {
   if (!pointed.has(value.action)) return;
   const located = value.x !== undefined || value.y !== undefined;

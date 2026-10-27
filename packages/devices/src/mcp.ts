@@ -2,12 +2,7 @@ import { z } from "zod";
 import type { ModelImageRuntime, ToolContext, Toolkit } from "@ace/mcp-server";
 import type { DevicesService } from "./service.ts";
 import { agentOwner } from "./owner.ts";
-import {
-  routedSimSchemas,
-  simToolMetadata,
-  simSchemas,
-  type SimToolName,
-} from "./sim-schemas.ts";
+import { routedSimSchemas, simToolMetadata, simSchemas, type SimToolName } from "./sim-schemas.ts";
 import type { SimResult } from "./sim-tools.ts";
 
 function content(result: SimResult) {
