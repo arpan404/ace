@@ -84,17 +84,62 @@ function staged(picks: Record<string, Buffer>, onRead?: (offset: number) => Prom
   return { meta, read };
 }
 
-async function connect() {
-  const fake = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
+type Wire = Parameters<FakeDaemon["connect"]>[0];
+
+/**
+ * The daemon publishes an upload but its reply never arrives: the first `upload.commit` result is
+ * dropped and the connection closes, as a network cut at that instant does. `lost` runs then.
+ */
+function commitReplyLost(fake: FakeDaemon, lost: () => void = idle) {
+  let dropped = false;
+  return {
+    connect(wire: Wire) {
+      let commit: unknown;
+      const connection = fake.connect({
+        ...wire,
+        send: (text) => {
+          const reply: { type?: unknown; requestId?: unknown } = JSON.parse(text);
+          if (!dropped && commit && reply.type === "files.result" && reply.requestId === commit) {
+            dropped = true;
+            lost();
+            fake.disconnectAll();
+            return;
+          }
+          wire.send(text);
+        },
+      });
+      const receive = connection.receive.bind(connection);
+      connection.receive = (text) => {
+        const sent: { requestId?: unknown; operation?: { op?: unknown } } = JSON.parse(text);
+        if (sent.operation?.op === "upload.commit") commit = sent.requestId;
+        receive(text);
+      };
+      return connection;
+    },
+  };
+}
+
+async function connect(
+  options: {
+    clock?: () => number;
+    route?: (fake: FakeDaemon) => { connect(wire: Wire): ReturnType<FakeDaemon["connect"]> };
+  } = {},
+) {
+  const fake = new FakeDaemon({
+    clock: options.clock ?? Date.now,
+    hostId: "ios-test-host",
+    token: "t",
+  });
   fake.createThread({ id: thread, workspaceId: "ace", title: "Transfers", provider: "claude" });
   fake.workspace.setDetails(thread, { worktree: "/work/transfers" });
   fake.checkouts.seed(thread, "docs/notes.md", "# Kept on the host\n");
   fake.checkouts.seed(thread, "docs/plan.md", "# Plan\n");
   fake.checkouts.seedBytes(thread, "assets/big.bin", Buffer.alloc(300_000, 7));
+  const route = options.route?.(fake) ?? fake;
   const owner = new ClientCore({
     deviceId: DeviceId.parse("ios-transfers-test"),
     expectedHostId: HostId.parse("ios-test-host"),
-    transport: () => fakeTransport(fake),
+    transport: () => fakeTransport(route),
     credential: async () => ({ token: "t" }),
     storage: { load: async () => null, save: async () => {} },
     scheduler: {
@@ -291,6 +336,53 @@ test("an upload cut by a lost connection goes on from what the daemon already st
   expect(Math.min(...sent.map(Number))).toBeGreaterThan(0);
   const read = await ask({ op: "read", path: "recording.bin" });
   expect(read).toMatchObject({ kind: "binary", size: bytes.length });
+});
+
+test("an upload whose commit reply is lost ends done, without a conflict or a copy", async () => {
+  const { owner, text } = await connect({ route: (fake) => commitReplyLost(fake) });
+  const sink = recorder();
+  const picks = staged({ aaaaaaaa: Buffer.from("# Sent once\n") });
+  new CheckoutUploads(owner, sink, picks.read).handle({
+    type: "files.upload",
+    id: "lost",
+    threadId: scope.threadId,
+    folder: "docs",
+    files: [picks.meta("aaaaaaaa", "sent.md")],
+  });
+  const settled = await until(() => {
+    const last = sink.last("files.upload", "lost");
+    return last && ["done", "asking", "failed"].includes(String(last.phase)) && last;
+  });
+  expect(settled.phase).toBe("done");
+  expect(sink.seen.some((each) => each.phase === "waiting")).toBe(true);
+  expect(settled.items).toEqual([expect.objectContaining({ path: "docs/sent.md", state: "done" })]);
+  expect(await text("docs/sent.md")).toBe("# Sent once\n");
+  expect(await text("docs/sent 2.md")).toBe("missing");
+});
+
+test("an upload the daemon no longer remembers ends done when the path holds the same bytes", async () => {
+  let now = Date.now();
+  const { owner, text } = await connect({
+    clock: () => now,
+    // Two days pass before the reconnect: the daemon has forgotten the committed upload.
+    route: (fake) => commitReplyLost(fake, () => (now += 2 * 86_400_000)),
+  });
+  const sink = recorder();
+  const picks = staged({ aaaaaaaa: Buffer.from("# Sent long ago\n") });
+  new CheckoutUploads(owner, sink, picks.read).handle({
+    type: "files.upload",
+    id: "forgot",
+    threadId: scope.threadId,
+    folder: "",
+    files: [picks.meta("aaaaaaaa", "old.md")],
+  });
+  const settled = await until(() => {
+    const last = sink.last("files.upload", "forgot");
+    return last && ["done", "asking", "failed"].includes(String(last.phase)) && last;
+  });
+  expect(settled.phase).toBe("done");
+  expect(settled.items).toEqual([expect.objectContaining({ path: "old.md", state: "done" })]);
+  expect(await text("old.md")).toBe("# Sent long ago\n");
 });
 
 test("stopping an upload leaves nothing at the path", async () => {

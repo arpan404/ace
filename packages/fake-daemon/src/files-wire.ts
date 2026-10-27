@@ -8,6 +8,7 @@ import {
 } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
 import { FakeCheckout, type CheckoutFile } from "./fake-checkout.ts";
+import { UploadReceipts } from "./upload-receipts.ts";
 
 type File = CheckoutFile;
 type Upload = {
@@ -42,6 +43,7 @@ export class FakeFilesWire {
   private checkout: FakeCheckout;
   private files: Map<string, File>;
   private uploads = new Map<string, Upload>();
+  private receipts: UploadReceipts;
   private sequence = 0;
   private host: FakeServiceContext;
   private registered: (workspaceId: string) => boolean;
@@ -53,6 +55,7 @@ export class FakeFilesWire {
     this.host = host;
     this.registered = registered;
     this.checkout = new FakeCheckout(host);
+    this.receipts = new UploadReceipts(() => host.now());
     this.files = this.checkout.files;
   }
   /** Put a text file (and its folders) in a thread's checkout, as a scenario's agent would. */
@@ -415,8 +418,16 @@ export class FakeFilesWire {
               this.uploads.set(uploadId, upload);
             } else {
               uploadId = op.uploadId;
+              const receipt = this.receipts.get(uploadId);
+              if (receipt) {
+                if (receipt.device !== device || receipt.threadId !== threadId)
+                  throw new Error("FORBIDDEN");
+                // As the daemon: already published; committing again returns its result.
+                throw new Error("COMMITTED");
+              }
               const existing = this.uploads.get(uploadId);
-              if (!existing || existing.device !== device || existing.threadId !== threadId)
+              if (!existing) throw new Error("NOT_FOUND");
+              if (existing.device !== device || existing.threadId !== threadId)
                 throw new Error("FORBIDDEN");
               upload = existing;
             }
@@ -438,11 +449,21 @@ export class FakeFilesWire {
             return;
           }
           if (op.op === "upload.commit" || op.op === "upload.cancel") {
+            const receipt = op.op === "upload.commit" ? this.receipts.get(op.uploadId) : undefined;
+            if (receipt) {
+              if (receipt.device !== device || receipt.threadId !== threadId)
+                throw new Error("FORBIDDEN");
+              if (receipt.sha256 !== op.sha256) throw new Error("HASH_MISMATCH");
+              emit({ type: "files.result", requestId: message.requestId, value: receipt.value });
+              return;
+            }
             const upload = this.uploads.get(op.uploadId);
-            if (!upload || upload.device !== device || upload.threadId !== threadId)
+            if (!upload) throw new Error("NOT_FOUND");
+            if (upload.device !== device || upload.threadId !== threadId)
               throw new Error("FORBIDDEN");
             const path = upload.key.slice(upload.key.indexOf("\0") + 1);
             if (this.key(threadId, path) !== upload.key) throw new Error("FORBIDDEN");
+            let value: unknown = { ok: true };
             if (op.op === "upload.commit") {
               if (upload.offset !== upload.size) throw new Error("OFFSET");
               const bytes = new Uint8Array(upload.size);
@@ -454,12 +475,15 @@ export class FakeFilesWire {
               if ((await hash(bytes)) !== op.sha256) throw new Error("HASH_MISMATCH");
               if ((this.files.get(upload.key)?.version ?? null) !== upload.expected)
                 throw new Error("CONFLICT");
-              this.files.set(upload.key, { bytes, version: `file-${++this.sequence}` });
+              const version = `file-${++this.sequence}`;
+              this.files.set(upload.key, { bytes, version });
+              value = { ok: true, path, version };
+              this.receipts.add(op.uploadId, { device, threadId, sha256: op.sha256, value });
             }
             this.uploads.delete(op.uploadId);
             for (const [id, channel] of channels)
               if (channel.kind === "write" && channel.uploadId === op.uploadId) channels.delete(id);
-            emit({ type: "files.result", requestId: message.requestId, value: { ok: true } });
+            emit({ type: "files.result", requestId: message.requestId, value });
             return;
           }
           if (op.op === "archive.download") {

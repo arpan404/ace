@@ -1,4 +1,4 @@
-import { connectionLost, decodeBase64, sendResumableUpload } from "@ace/client";
+import { connectionLost, decodeBase64, fileDigest, sendResumableUpload } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
 import {
   CheckoutError,
@@ -18,8 +18,10 @@ import { chunkBytes, Picked, type ChunkReader } from "./thread-attachments.ts";
  * after another. Each is read from Swift's staged copy a chunk at a time. A file already at the
  * path waits for the person: replace it, keep both (a numbered name beside it), or skip it, for
  * this file or every one left. A lost connection doesn't lose the upload: the daemon keeps what
- * it stored and the file goes on from there once the connection is back. The batch's state is
- * one `files.upload` patch.
+ * it stored and the file goes on from there once the connection is back. When the connection
+ * went just as the daemon published the file, the daemon's receipt (or, once it has forgotten the
+ * upload, the same bytes found at the path) says the file is done, so it is neither asked about
+ * as a conflict nor sent twice. The batch's state is one `files.upload` patch.
  */
 
 const id = z.string().min(1).max(64);
@@ -77,6 +79,8 @@ interface Batch {
 const batchLimit = 8;
 /** How far keep both looks for a free numbered name. */
 const keepBothTries = 64;
+/** The largest file read back to see whether a forgotten upload already landed. */
+const landedCheckBytes = 64 * 1024 * 1024;
 
 export class CheckoutUploads {
   readonly #owner: FilesOwner;
@@ -187,8 +191,13 @@ export class CheckoutUploads {
             expected = await this.#version(batch, item.path);
             continue;
           }
-          // The daemon no longer holds the upload (expired, or restarted): start it again.
+          // The daemon no longer holds the upload (expired, or restarted). Its commit may have
+          // landed before it forgot: the same bytes at the path mean done. Else start it again.
           if (resumed && attempt < 3 && ["NOT_FOUND", "EXPIRED", "FORBIDDEN"].includes(code)) {
+            if (await this.#landed(batch, item)) {
+              item.state = "done";
+              return;
+            }
             item.sent = 0;
             continue;
           }
@@ -241,6 +250,36 @@ export class CheckoutUploads {
     if (reply.type !== "files.result")
       throw new CheckoutError("protocol", "Couldn't read the reply. Try again.");
     return Stat.parse(reply.value).version ?? null;
+  }
+
+  /** Whether the file at the item's path already holds exactly the picked bytes. */
+  async #landed(batch: Batch, item: Item): Promise<boolean> {
+    const { bytes: size, sha256 } = item.file;
+    if (size > landedCheckBytes) return false;
+    const options = { signal: batch.controller.signal, timeoutMs: 60_000 };
+    try {
+      const reply = await this.#owner.request(
+        {
+          type: "files.request",
+          threadId: batch.threadId,
+          operation: { op: "stat", path: item.path },
+        },
+        options,
+      );
+      if (reply.type !== "files.result") return false;
+      const stat = Stat.safeParse(reply.value);
+      if (!stat.success || stat.data.size !== size || !stat.data.version) return false;
+      const input = {
+        threadId: batch.threadId,
+        op: "download" as const,
+        path: item.path,
+        offset: 0,
+        validator: stat.data.version,
+      };
+      return (await fileDigest(this.#owner, input, options)) === sha256;
+    } catch {
+      return false;
+    }
   }
 
   async #freePath(batch: Batch, path: string): Promise<string> {

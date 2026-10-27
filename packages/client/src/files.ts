@@ -5,12 +5,15 @@ import { decodeBase64 } from "./base64.ts";
 import { encodeBase64 } from "./base64-encode.ts";
 import { ClientError, type RequestOptions } from "./types.ts";
 
-/** Each pull completes before yielding; no download bytes are read ahead of the consumer. */
+/**
+ * Each pull completes before yielding; no download bytes are read ahead of the consumer. Returns
+ * the daemon's SHA-256 of everything it sent.
+ */
 async function* downloadChunks(
   client: FileClient,
   input: FileDownloadInput,
   options: RequestOptions,
-): AsyncGenerator<Uint8Array> {
+): AsyncGenerator<Uint8Array, string> {
   const { threadId, workspaceId, scope, ...operation } = input;
   const ready = await client.request(
     { type: "files.request", threadId, workspaceId, scope, operation },
@@ -34,7 +37,7 @@ async function* downloadChunks(
       if (result.eof) {
         if (bytes.length || !result.sha256 || (ready.size !== null && offset !== ready.size))
           throw new ClientError("protocol");
-        return;
+        return result.sha256;
       }
       if (!bytes.length) throw new ClientError("protocol");
       yield bytes;
@@ -106,20 +109,7 @@ async function sendChunks(
       progress?.(offset);
     }
     if (offset !== input.size) throw new ClientError("protocol", "Incomplete upload source");
-    const result = await client.request(
-      {
-        type: "files.request",
-        threadId: input.threadId,
-        operation: { op: "upload.commit", uploadId: ready.uploadId, sha256: input.sha256 },
-      },
-      options,
-    );
-    if (result.type !== "files.result")
-      throw new ClientError(
-        "daemon",
-        result.type === "files.error" ? result.code : "Invalid commit response",
-      );
-    return result.value;
+    return await commitUpload(client, input, ready.uploadId, options);
   } finally {
     try {
       client.send({ type: "files.cancel", channel: ready.channel });
@@ -127,6 +117,37 @@ async function sendChunks(
       /* Disconnect owns channels. */
     }
   }
+}
+
+/**
+ * Publishes a fully sent upload. Committing one the daemon already published returns that
+ * commit's result again (its receipt), as long as the daemon still keeps it.
+ */
+async function commitUpload(
+  client: FileClient,
+  input: FileUploadInput,
+  uploadId: string,
+  options: RequestOptions,
+): Promise<unknown> {
+  const result = await client.request(
+    {
+      type: "files.request",
+      threadId: input.threadId,
+      operation: { op: "upload.commit", uploadId, sha256: input.sha256 },
+    },
+    options,
+  );
+  if (result.type !== "files.result")
+    throw new ClientError(
+      "daemon",
+      result.type === "files.error" ? result.code : "Invalid commit response",
+    );
+  return result.value;
+}
+
+/** The daemon's answer to resuming an upload it already published. */
+function alreadyCommitted(error: unknown): boolean {
+  return error instanceof ClientError && error.code === "daemon" && error.message === "COMMITTED";
 }
 
 async function cancelUpload(
@@ -151,6 +172,26 @@ export async function* downloadFile(
   const lifetime = fileConnection(client);
   try {
     yield* downloadChunks(lifetime.client, input, options);
+  } finally {
+    lifetime.close();
+  }
+}
+/**
+ * The daemon's SHA-256 of a file, read through to its end without keeping the bytes: for
+ * telling whether a file already holds what this device meant to send.
+ */
+export async function fileDigest(
+  client: FileHost,
+  input: FileDownloadInput,
+  options: RequestOptions,
+): Promise<string> {
+  const lifetime = fileConnection(client);
+  try {
+    const chunks = downloadChunks(lifetime.client, input, options);
+    for (;;) {
+      const next = await chunks.next();
+      if (next.done) return next.value;
+    }
   } finally {
     lifetime.close();
   }
@@ -201,7 +242,9 @@ export interface ResumableUpload {
 /**
  * Send a file that may outlive one connection. A connection lost midway (`connectionLost`)
  * leaves the daemon's upload in place, so a later call with `uploadId` continues from
- * the bytes it already stored. Any other failure, or an abort, cancels the upload.
+ * the bytes it already stored. When the connection went after the daemon published the file
+ * (the commit's reply was lost), that later call returns the commit's result instead. Any
+ * other failure, or an abort, cancels the upload.
  */
 export async function sendResumableUpload(
   client: FileHost,
@@ -210,7 +253,13 @@ export async function sendResumableUpload(
 ): Promise<unknown> {
   const lifetime = fileConnection(client);
   try {
-    const ready = await openUpload(lifetime.client, upload.input, upload.uploadId, options);
+    let ready: UploadReady;
+    try {
+      ready = await openUpload(lifetime.client, upload.input, upload.uploadId, options);
+    } catch (error) {
+      if (upload.uploadId === undefined || !alreadyCommitted(error)) throw error;
+      return await commitUpload(lifetime.client, upload.input, upload.uploadId, options);
+    }
     upload.opened?.(ready.uploadId, ready.offset);
     let keep = false;
     try {

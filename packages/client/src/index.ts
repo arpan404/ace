@@ -82,6 +82,7 @@ export { decodeBase64 } from "./base64.ts";
 export {
   connectionLost,
   downloadFile,
+  fileDigest,
   sendResumableUpload,
   uploadFile,
   type ResumableUpload,
