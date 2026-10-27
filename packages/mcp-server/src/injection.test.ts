@@ -109,10 +109,11 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
 
 it("each provider receives ace's shared guidance exactly once", () => {
   const shared = aceInstructions.split("\n")[0] ?? aceInstructions;
-  for (const provider of ["claude", "opencode", "acp", "antigravity"] as const)
+  for (const provider of ["claude", "opencode", "acp"] as const)
     expect(developerInstructions(provider)).not.toContain(shared);
-  for (const provider of ["codex", "cursor", "pi"] as const)
-    expect(developerInstructions(provider).split(shared)).toHaveLength(2);
+  // Antigravity files server instructions away from its model, so its own prompt carries them.
+  for (const provider of ["codex", "cursor", "pi", "antigravity"] as const)
+    expect(developerInstructions(provider).split(shared), provider).toHaveLength(2);
   // Codex and Cursor opt out of server instructions, so the copy above is the only one.
   expect(codexInjection(connection).config["mcp_servers.ace"].http_headers).toMatchObject({
     "X-Ace-Instructions": "native",
