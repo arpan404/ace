@@ -26,11 +26,16 @@ struct SkillPageView: View {
     var body: some View {
         List {
             if let page {
-                if !page.description.isEmpty {
-                    Text(page.description).aceFont(AceTheme.Typography.body, relativeTo: .body)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xs, bottom: 0, trailing: AceTheme.Spacing.xs))
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                    Text(page.title).font(.title2.weight(.semibold)).foregroundStyle(AceTheme.Colours.foreground)
+                        .accessibilityAddTraits(.isHeader)
+                    if !page.description.isEmpty {
+                        Text(page.description).aceFont(AceTheme.Typography.body, relativeTo: .body)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
                 }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xs, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.xs))
                 details(page)
                 Section {
                     MarkdownView(text: page.instructions.isEmpty ? "_No instructions yet._" : page.instructions)
@@ -96,7 +101,7 @@ struct SkillPageView: View {
 
     @ViewBuilder private func details(_ page: SkillPage) -> some View {
         Section {
-            InsetRow(systemImage: nil, title: "Agents", subtitle: page.agentsText) {
+            SkillDetailRow(title: "Agents", line: page.agentsText) {
                 if page.editable, model.canOperate {
                     Button("Change") { choosingAgents = true }.buttonStyle(.borderless).disabled(busy)
                         .accessibilityIdentifier("skill.agents")
@@ -119,15 +124,15 @@ struct SkillPageView: View {
             SkillOpenOnComputer(model: model, target: page.open)
             runsRow(page)
             if let hint = page.argumentHint {
-                InsetRow(systemImage: nil, title: "Arguments", subtitle: hint) { EmptyView() }
+                SkillDetailRow(title: "Arguments", line: hint) { EmptyView() }
             }
-            InsetRow(systemImage: nil, title: "Used", subtitle: usedText(page)) { EmptyView() }
+            SkillDetailRow(title: "Used", line: usedText(page)) { EmptyView() }
         } header: { InsetHeader("Details") }
         .insetRowBackground()
     }
 
     @ViewBuilder private func runsRow(_ page: SkillPage) -> some View {
-        InsetRow(systemImage: nil, title: "Runs", subtitle: page.runs) {
+        SkillDetailRow(title: "Runs", line: page.runs) {
             if page.editable, model.canOperate {
                 Picker("Runs", selection: Binding(get: { page.manual }, set: { manual in Task { await setRuns(manual) } })) {
                     ForEach(page.runsChoices, id: \.manual) { Text($0.label).tag($0.manual) }
@@ -182,12 +187,33 @@ struct SkillPageView: View {
     }
 }
 
+/// A detail: its name, a muted line that wraps as long as it needs, and a control on the right.
+struct SkillDetailRow<Trailing: View>: View {
+    let title: String
+    let line: String
+    @ViewBuilder var trailing: () -> Trailing
+    var body: some View {
+        HStack(alignment: .center, spacing: AceTheme.Spacing.sm) {
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                Text(title).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                Text(line).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+            }
+            Spacer(minLength: AceTheme.Spacing.sm)
+            trailing()
+        }
+        .padding(.vertical, AceTheme.Spacing.xs)
+        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+    }
+}
+
 /// The page's shape while it reads.
 private struct SkillPagePlaceholder: View {
     var body: some View {
         Section {
             ForEach(["Agents", "Saved in", "Runs", "Used"], id: \.self) { title in
-                InsetRow(systemImage: nil, title: title, subtitle: "Claude Code and Codex") { EmptyView() }
+                SkillDetailRow(title: title, line: "Claude Code and Codex") { EmptyView() }
             }
         } header: { InsetHeader("Details") }
         .insetRowBackground()

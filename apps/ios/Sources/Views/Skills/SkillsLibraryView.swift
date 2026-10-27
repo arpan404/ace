@@ -113,6 +113,9 @@ struct SkillsLibraryView: View {
             await read()
         }
         .task(id: model.readGeneration(libraryRead)) { await readLibrary() }
+        .task(id: model.connection) {
+            if model.connection == "ready", projects.isEmpty { projects = (try? await model.allProjects()) ?? [] }
+        }
         .task(id: model.pluginGeneration(["type": "plugins.list"])) { await readPlugins() }
         .refreshable { await read() }
         .sheet(isPresented: $creating) {
@@ -127,7 +130,6 @@ struct SkillsLibraryView: View {
 
     private func read() async {
         guard model.connection == "ready" else { return }
-        if projects.isEmpty { projects = (try? await model.allProjects()) ?? [] }
         async let skills: Void = readLibrary()
         async let installed: Void = readPlugins()
         _ = await (skills, installed)

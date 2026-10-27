@@ -56,7 +56,9 @@ struct NewSkillView: View {
                     SourceTextView(document: SourceDocument(key: "new", text: "", colours: [], runs: [], marks: [:]),
                                    wrap: true, editable: !creating, line: nil, handle: handle, dirty: { bodyDirty = $0 })
                         .frame(height: 220)
-                        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xs, leading: 0, bottom: AceTheme.Spacing.xs, trailing: AceTheme.Spacing.xs))
+                        .clipShape(AceShape.group)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
                         .accessibilityIdentifier("skill.new.body")
                 } header: { InsetHeader("Instructions") }
                 if let project {

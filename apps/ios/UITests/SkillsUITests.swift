@@ -37,7 +37,8 @@ import XCTest
         edit.tap()
         let field = app.textFields["skill.edit.description"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
-        field.tap()
+        // Type at the end of what is there.
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.85)).tap()
         field.typeText(", newest first")
         screenshot("edit")
         app.buttons["skill.edit.save"].tap()
