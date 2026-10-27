@@ -228,6 +228,8 @@ $stages = [ordered]@{
     Move-Item -Force "$release/ace-$second-$arch-setup.exe" $installers
     # A scratch data home so the smoke never touches the machine user's own ~/.ace.
     $env:ACE_HOME = Join-Path $Work "installer-home"
+    # The smoke needs a clean home and keeps it on uninstall, so clear the last run's.
+    if (Test-Path $env:ACE_HOME) { Remove-Item -Recurse -Force $env:ACE_HOME }
     try {
       Invoke-Step "install, run, update and uninstall" {
         & ./apps/desktop/scripts/installer-smoke.ps1 -First (Join-Path $installers "ace-$first-$arch-setup.exe") -Second (Join-Path $installers "ace-$second-$arch-setup.exe") -SecondVersion $second
