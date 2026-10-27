@@ -219,10 +219,12 @@ export function usageMetricView(
     providers: providers.map((entry) => {
       const unpricedOnly = entry.usd === 0 && entry.unpricedTokens > 0;
       const prior = before.get(entry.provider);
+      const { hue, ink } = look(entry.provider);
       return {
         id: entry.provider,
         name: names.provider(entry.provider),
-        ...look(entry.provider),
+        hue,
+        ink,
         figure: money
           ? unpricedOnly
             ? "Unpriced"

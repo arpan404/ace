@@ -2,7 +2,7 @@ import Charts
 import SwiftUI
 
 /// A day-by-day line per provider in the provider's hue, as the web Usage page draws it. Touching
-/// the chart picks a day and shows its figures; assistive tech hears the peak day.
+/// a day picks it and shows its figures, tapping it again lets it go; assistive tech hears the peak day.
 struct UsageDailyChart: View {
     let chart: UsageMetricView.Chart
     @State private var picked: Int?
@@ -37,20 +37,21 @@ struct UsageDailyChart: View {
     }
 
     /// The picked day's figures, or the series' names when none is picked: the chart's legend.
+    /// It stays one line so picking a day never moves the chart: with a day picked and no room
+    /// for names, each figure keeps only its provider's dot (the rows above name them).
     @ViewBuilder private var readout: some View {
         let day = picked.flatMap { chart.days[safe: $0] }
         ViewThatFits(in: .horizontal) {
-            readoutLine(day: day, axis: .horizontal)
-            readoutLine(day: day, axis: .vertical)
+            readoutLine(day: day, names: true)
+            readoutLine(day: day, names: false)
+            readoutLine(day: day, names: false).minimumScaleFactor(0.7)
         }
         .frame(minHeight: 20, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
-    private func readoutLine(day: UsageMetricView.Chart.Day?, axis: Axis) -> some View {
-        let layout = axis == .horizontal
-            ? AnyLayout(HStackLayout(spacing: AceTheme.Spacing.md))
-            : AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xxs))
-        return layout {
+    private func readoutLine(day: UsageMetricView.Chart.Day?, names: Bool) -> some View {
+        HStack(spacing: AceTheme.Spacing.md) {
             if let day {
                 Text(day.title).aceFont(AceTheme.Typography.label, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.foreground)
@@ -58,15 +59,18 @@ struct UsageDailyChart: View {
             ForEach(Array(chart.series.enumerated()), id: \.offset) { index, series in
                 HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
                     Circle().fill(UsageColour.of(series.hue, ink: series.ink)).frame(width: 7, height: 7)
-                    Text(series.name).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    if names || day == nil {
+                        Text(series.name).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
                     if let day {
                         Text(day.texts[safe: index] ?? "").monospacedDigit().foregroundStyle(AceTheme.Colours.foreground)
+                            .accessibilityLabel("\(series.name) \(day.texts[safe: index] ?? "")")
                     }
                 }
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                .lineLimit(1)
             }
         }
+        .lineLimit(1)
     }
 
     private var plot: some View {
@@ -80,6 +84,13 @@ struct UsageDailyChart: View {
         .chartXAxis { xAxis }
         .chartYAxis { yAxis }
         .chartXSelection(value: $picked)
+        .chartGesture { proxy in
+            SpatialTapGesture().onEnded { tap in
+                let before = picked
+                proxy.selectXValue(at: tap.location.x)
+                if picked == before { picked = nil }
+            }
+        }
         .sensoryFeedback(.selection, trigger: picked)
     }
 
