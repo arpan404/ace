@@ -431,3 +431,58 @@ test("redeeming a remote account's reset spends only that environment's balance"
     ),
   ).toBeTruthy();
 });
+
+test("the total says how it grew against the same number of days before the range", async () => {
+  const app = harness();
+  const usage = app.daemon.services.usage;
+  const answer = usage.report.bind(usage);
+  const thisWeek = now - 7 * day;
+  // Twice the tokens this week as the week before.
+  usage.report = (query, kind) => {
+    const scale = Date.parse(query.from) >= thisWeek ? 2 : 1;
+    usage.sources = [
+      { ...source("codex", "codex-personal", "gpt-5.3-codex", 5), daily: 80_000 * scale },
+    ];
+    return answer(query, kind);
+  };
+  await app.open("/usage");
+  await show("Tokens");
+  await userEvent.click(await screen.findByRole("button", { name: "7 days" }));
+  await waitFor(() =>
+    expect(screen.getByTestId("usage-growth").textContent).toBe("+100% vs previous 7 days"),
+  );
+  expect(
+    within(screen.getByRole("listitem", { name: "Codex" })).getByLabelText("+100% growth"),
+  ).toBeTruthy();
+});
+
+test("the figures name every machine they count, and one that goes offline is named, not dropped", async () => {
+  const app = harness({ machines: [{ hostId: "build-server", name: "Build server" }] });
+  const server = app.machines.get("build-server");
+  if (!server) throw new Error("no build server");
+  app.daemon.services.usage.sources = [source("codex", "codex-personal", "gpt-5.3-codex", 5)];
+  server.services.usage.sources = [source("codex", "codex-team", "gpt-5.3-codex", 5)];
+  await app.open("/usage");
+  await waitFor(() =>
+    expect(screen.getByTestId("usage-coverage").textContent).toBe("All 2 machines"),
+  );
+
+  await show("Tokens");
+  await userEvent.click(await screen.findByRole("button", { name: "7 days" }));
+  await waitFor(() => expect(stat("Processed tokens")).toBe("1.4M"));
+  expect(screen.getByTestId("usage-coverage").textContent).toBe("All 2 machines");
+
+  app.crashMachine("build-server");
+  await waitFor(() =>
+    expect(screen.getByTestId("usage-coverage").textContent).toBe(
+      "1 of 2 machines · Build server is offline",
+    ),
+  );
+  await waitFor(() => expect(stat("Processed tokens")).toBe("700K"));
+
+  await show("Limits");
+  expect(screen.getByTestId("usage-coverage").textContent).toBe(
+    "1 of 2 machines · Build server is offline",
+  );
+  expect(screen.queryByRole("article", { name: /· Build server$/ })).toBeNull();
+});

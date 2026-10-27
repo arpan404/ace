@@ -4,6 +4,8 @@ import {
   catalogModelIds,
   catalogModelNames,
   dayRange,
+  growthBasis,
+  previousSpan,
   providerNames,
   usageAccountProviders,
   usageAccounts,
@@ -29,6 +31,7 @@ import { Screen } from "@/features/shell/index.ts";
 import { LimitsView } from "./limits-view.tsx";
 import { SpendView } from "./spend-view.tsx";
 import {
+  accountsCoverage,
   useEnvironmentAccounts,
   useEnvironmentUsage,
   useRefreshUsage,
@@ -67,25 +70,28 @@ export function UsagePage() {
   const [environmentId, setEnvironmentId] = useState<string>(all);
   const [provider, setProvider] = useState<string>(all);
   const machines = useMachines();
-  const online = machines.filter((machine) => machine.client !== undefined);
-  const environments = online.filter(
+  // Offline machines stay in scope so the coverage line names them; nothing reads from them.
+  const environments = machines.filter(
     (machine) => environmentId === all || machine.id === environmentId,
   );
+  const online = environments.filter((machine) => machine.client !== undefined);
   const accounts = useEnvironmentAccounts(environments);
+  const limitsCoverage = accountsCoverage(accounts);
   const span: UsageSpan = {
     from: usageDay(now, zone.timeZone, Number(range) - 1),
     to: usageDay(now, zone.timeZone),
     ready: zone.ready,
   };
   const usage = useEnvironmentUsage(environments, span, provider === all ? undefined : [provider]);
-  const refresh = useRefreshUsage(environments);
+  const refresh = useRefreshUsage(online);
   const catalog = useModelCatalog();
   const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
   const modelId = useMemo(() => catalogModelIds(catalog ?? []), [catalog]);
   const machineAccounts: MachineAccounts[] = accounts.map((entry) => ({
     id: entry.environment.id,
     name: entry.environment.name,
-    accounts: entry.accounts,
+    // An offline machine's last accounts aren't counted: the coverage line names it instead.
+    accounts: entry.environment.client ? entry.accounts : undefined,
   }));
   const listed = usageAccounts(machineAccounts, provider === all ? undefined : provider);
   const providerOptions = [
@@ -94,16 +100,27 @@ export function UsagePage() {
   ];
   const environmentOptions = [
     { value: all, label: "All environments" },
-    ...online.map((machine) => ({ value: machine.id, label: machine.name })),
+    ...machines.map((machine) => ({ value: machine.id, label: machine.name })),
   ];
   const days = useMemo(() => dayRange(span.from, span.to), [span.from, span.to]);
   const report = useMemo(
     () =>
-      usage.data && usageReport(usage.data, days, (owner, model) => modelId(owner, model) ?? model),
+      usage.data &&
+      usageReport(usage.data.current, days, (owner, model) => modelId(owner, model) ?? model),
     [usage.data, days, modelId],
   );
-  const accountsLoaded = accounts.every((entry) => entry.accounts !== undefined || entry.error);
-  const accountsFailed = accounts.find((entry) => entry.error && !entry.accounts)?.error;
+  const previous = useMemo(() => {
+    if (!usage.data) return undefined;
+    const before = previousSpan(span.from, span.to);
+    return usageReport(usage.data.previous, dayRange(before.from, before.to));
+  }, [usage.data, span.from, span.to]);
+  const accountsLoaded = !limitsCoverage.missing.some((entry) => entry.reach === "loading");
+  // Nothing to list only when no machine's accounts could be read.
+  const accountsFailed =
+    limitsCoverage.counted === 0
+      ? accounts.find((entry) => entry.error && !entry.accounts)?.error
+      : undefined;
+  const coverage = view === "limits" ? limitsCoverage : usage.coverage;
   return (
     <Screen title="Usage">
       <div className="h-full overflow-auto">
@@ -151,12 +168,27 @@ export function UsagePage() {
               />
             </div>
           </div>
+          {machines.length > 1 && (
+            <p
+              aria-live="polite"
+              data-testid="usage-coverage"
+              className={`mt-3 min-h-4 text-xs ${coverage.complete ? "text-subtle-foreground" : "text-foreground"}`}
+            >
+              {coverage.line}
+            </p>
+          )}
           <div className="mt-8">
             {view === "limits" ? (
               accountsFailed ? (
                 <Failed error={accountsFailed} retry={() => void refresh()} />
               ) : !accountsLoaded ? (
                 <ListSkeleton label="limits" shape="row" rows={5} className="min-h-80" />
+              ) : listed.length === 0 && !limitsCoverage.complete ? (
+                <EmptyState
+                  icon={ChartBarIcon}
+                  title="No limits could be read"
+                  description={limitsCoverage.line ?? undefined}
+                />
               ) : listed.length === 0 ? (
                 <EmptyState
                   icon={ChartBarIcon}
@@ -194,6 +226,8 @@ export function UsagePage() {
             ) : (
               <SpendView
                 report={report}
+                previous={previous}
+                basis={growthBasis(Number(range))}
                 metric={view}
                 providerName={providerName}
                 modelName={modelName}
