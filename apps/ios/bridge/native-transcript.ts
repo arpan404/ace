@@ -31,11 +31,14 @@ export const NativeTranscriptRequest = z
     threadId: ThreadId,
     /** The reading view's generation: its patches carry it as their epoch. */
     epoch: z.number().int().negative(),
-    operation: z.enum(["hold", "older", "newer", "live", "item"]),
+    operation: z.enum(["hold", "older", "newer", "live", "item", "turn"]),
     /** The item a jump brings into view (`operation: "item"`). */
     itemId: ItemId.optional(),
+    /** The turn a jump opens at its ask (`operation: "turn"`). */
+    ordinal: z.number().int().positive().optional(),
   })
-  .refine((value) => (value.operation === "item") === (value.itemId !== undefined));
+  .refine((value) => (value.operation === "item") === (value.itemId !== undefined))
+  .refine((value) => (value.operation === "turn") === (value.ordinal !== undefined));
 type Query = z.infer<typeof NativeTranscriptRequest>;
 
 export interface TranscriptState {
@@ -121,6 +124,9 @@ export class NativeTranscript {
         case "item":
           if (query.itemId) await active.jump.toItem(query.itemId);
           break;
+        case "turn":
+          if (query.ordinal) await active.jump.toTurn(query.ordinal);
+          break;
       }
       if (signal.aborted || this.#active !== active) throw new Error("Reading cancelled");
       const snapshot = active.jump.snapshot();
@@ -132,7 +138,10 @@ export class NativeTranscript {
         hasOlder: shown.window.before !== null,
         hasNewer: !shown.joined,
         joined: shown.joined,
-        focus: query.operation === "item" ? (snapshot.focus?.itemId ?? null) : null,
+        focus:
+          query.operation === "item" || query.operation === "turn"
+            ? (snapshot.focus?.itemId ?? null)
+            : null,
         count: shown.reading.source.order.length,
       };
     } finally {

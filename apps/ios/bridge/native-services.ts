@@ -32,6 +32,12 @@ import { NativeAttachmentRequest, readNativeAttachment } from "./native-attachme
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
+import {
+  NativeThreadFilesRequest,
+  NativeTurnsRequest,
+  readNativeThreadFiles,
+  readNativeTurns,
+} from "./native-thread-index.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
@@ -188,6 +194,21 @@ export class NativeServices {
           id,
           true,
           await readNativeMessage(this.owner, message.data, controller.signal),
+          "",
+        );
+        return;
+      }
+      const turns = NativeTurnsRequest.safeParse(raw);
+      if (turns.success) {
+        this.#reply(id, true, await readNativeTurns(this.owner, turns.data, controller.signal), "");
+        return;
+      }
+      const threadFiles = NativeThreadFilesRequest.safeParse(raw);
+      if (threadFiles.success) {
+        this.#reply(
+          id,
+          true,
+          await readNativeThreadFiles(this.owner, threadFiles.data, controller.signal),
           "",
         );
         return;
