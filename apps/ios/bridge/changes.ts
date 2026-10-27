@@ -74,10 +74,7 @@ function counter(): () => number {
 }
 
 const memoryKept = () =>
-  new ChangesKept(
-    { load: async () => undefined, save: async () => {} },
-    { set: () => () => {} },
-  );
+  new ChangesKept({ load: async () => undefined, save: async () => {} }, { set: () => () => {} });
 
 /** Review command ids without a host (tests): unique within the session. */
 function sessionIds(threadId: string, epoch: number): () => string {

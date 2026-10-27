@@ -156,7 +156,10 @@ export async function record(
   const previous = drafts[0] && recordedIn(drafts[0]);
   const reuse = previous && drafts.every((draft) => recordedIn(draft) === previous);
   const forget = () =>
-    patch(store, new Set(drafts.map((draft) => draft.key)), ({ commentCommand: _, ...d }) => d);
+    patch(store, new Set(drafts.map((draft) => draft.key)), (d) => ({
+      ...d,
+      commentCommand: undefined,
+    }));
   const opened = reuse
     ? await review(client, {
         type: "review.list",
@@ -206,7 +209,8 @@ export async function record(
       command.id,
     ).catch((error: unknown) => {
       // Refused: nothing was recorded, so a retry asks afresh.
-      if (error instanceof ReviewRefusal) patch(store, only, ({ commentCommand: _, ...d }) => d);
+      if (error instanceof ReviewRefusal)
+        patch(store, only, (d) => ({ ...d, commentCommand: undefined }));
       throw error;
     });
     if (!comment) throw new Error("The daemon didn't record the comment: try again.");
@@ -217,7 +221,15 @@ export async function record(
     store.set((held) =>
       held.flatMap((d) =>
         d.key === draft.key
-          ? [{ ...d, commentId, sessionId, source: opened.session?.source, commentCommand: undefined }]
+          ? [
+              {
+                ...d,
+                commentId,
+                sessionId,
+                source: opened.session?.source,
+                commentCommand: undefined,
+              },
+            ]
           : d.commentId === commentId
             ? []
             : [d],

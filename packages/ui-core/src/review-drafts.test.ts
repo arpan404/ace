@@ -37,7 +37,13 @@ describe("recording a review comment", () => {
     const thread = { id: "thread-1", workspaceId: "ws-1" } as unknown as Parameters<
       typeof record
     >[2];
-    const result = await record(client as unknown as Parameters<typeof record>[0], store, thread, [draft], () => "comment-command");
+    const result = await record(
+      client as unknown as Parameters<typeof record>[0],
+      store,
+      thread,
+      [draft],
+      () => "comment-command",
+    );
     expect(result.commentIds).toEqual(["c1"]);
     expect(store.get().map((each) => [each.key, each.commentId])).toEqual([["local", "c1"]]);
   });

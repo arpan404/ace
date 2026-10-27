@@ -32,6 +32,8 @@ All paths are repository-relative. Long strings are clipped by the bridge's prev
 
 Every review action with a `requestId` (1–64 chars) answers once on `changes:notice` with that id. Failures of a send or resolve also show in the draft's own `error` and `state`.
 
+Comments go on the Uncommitted scope only. A turn's diff is built from the agent's edits, so its line numbers aren't the checkout's and a comment there couldn't be anchored. In any other scope `review.draft` answers `ok: false` with the reason, and `summary.review` says so before the phone offers the control. Sending a draft again after its answer was lost reuses the comment's command id, so the daemon answers with the comment it already recorded instead of recording a second.
+
 | kind             | fields                                                                                                                                              | effect                                                                                                                                                                                                                                                                                                                                                                          |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `review.draft`   | `requestId`, `path`, `side: "old" \| "new"`, `start: number`, `end: number`, `text: string` (1–4096), `suggestion?: string` (≤8192), `key?: string` | Save a comment on lines `start..end` (end ≥ start, fewer than 100 lines) of the diff the sheet shows for `path`. The bridge takes the review fingerprint from the rows it holds, so the lines must be in the scope's diff. A cut working-tree file must be open, with the lines loaded. With `key`, edits that unsent draft. A refusal is `ok: false` with the reason in words. |
@@ -64,6 +66,7 @@ The scope's file list, what is open, and the next git step. Existing fields keep
 | `open` _new_                        | string[]                                                                    | Paths open now, in opening order.                                                                                                                                                                                     |
 | `openLimit` _new_                   | number                                                                      | Most files open at once (30).                                                                                                                                                                                         |
 | `layout` _new_                      | `"unified" \| "split"`                                                      | Kept layout.                                                                                                                                                                                                          |
+| `review` _new_                      | `{ allowed: boolean, reason: string }`                                      | Whether the scope shown takes line comments. `allowed` is true only for the working tree (`reason: ""`). Otherwise hide the comment controls and show `reason` (one line) in their place.                             |
 | `branch`, `step`, `busy`, `methods` | as before                                                                   | The checkout's next git step, whatever scope the list shows.                                                                                                                                                          |
 
 `FileRow`:
@@ -139,16 +142,17 @@ One whole row: `file`, `path`, `version` and `row: Row`. The row's `text` is up 
 
 ### `changes:review` → `type: "changes.review"` _new_
 
-| field        | type                                                                          | meaning                                         |
-| ------------ | ----------------------------------------------------------------------------- | ----------------------------------------------- |
-| `session`    | `{ id: string, status: "open" \| "changes-requested" \| "approved" } \| null` | The thread's newest review on the daemon.       |
-| `refreshing` | boolean                                                                       | A `review.refresh` is running.                  |
-| `message`    | string                                                                        | The last refresh's failure in words, else `""`. |
-| `pending`    | number                                                                        | Drafts still to send (`draft` or `failed`).     |
-| `open`       | number                                                                        | Sent and unresolved (`sent` or `resolving`).    |
-| `resolved`   | number                                                                        |                                                 |
-| `hidden`     | number                                                                        | Drafts past the 200 listed.                     |
-| `drafts`     | `Draft[]`                                                                     | This thread's drafts, newest first.             |
+| field           | type                                                                          | meaning                                                                                                                                                                                                          |
+| --------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session`       | `{ id: string, status: "open" \| "changes-requested" \| "approved" } \| null` | The thread's newest review on the daemon.                                                                                                                                                                        |
+| `refreshing`    | boolean                                                                       | A `review.refresh` is running.                                                                                                                                                                                   |
+| `message`       | string                                                                        | The last refresh's failure in words, else `""`.                                                                                                                                                                  |
+| `storage` _new_ | string                                                                        | Why this phone can't keep the review right now (its kept value failed to read or save, or unsent comments are too large to keep), else `""`. Show it as one line; it clears itself once a read or save succeeds. |
+| `pending`       | number                                                                        | Drafts still to send (`draft` or `failed`).                                                                                                                                                                      |
+| `open`          | number                                                                        | Sent and unresolved (`sent` or `resolving`).                                                                                                                                                                     |
+| `resolved`      | number                                                                        |                                                                                                                                                                                                                  |
+| `hidden`        | number                                                                        | Drafts past the 200 listed.                                                                                                                                                                                      |
+| `drafts`        | `Draft[]`                                                                     | This thread's drafts, newest first.                                                                                                                                                                              |
 
 `Draft`:
 
@@ -183,13 +187,13 @@ A review action finished: `requestId`, `action` (the action's kind), `ok` (boole
 
 The bridge keeps all three in the `review` kept value (`storage.value.*`, one JSON value, 1 MiB host cap): `{ v: 1, drafts, viewed, layout }`.
 
-- **Drafts:** at most 400, newest first. When the value would not fit, resolved drafts go first, then the oldest.
-- **Viewed:** per thread, a map from path to version, bounded to the 64 most recent threads and 500 files each, as on the web.
+- **Drafts:** newest first. Unsent (`draft`, `failed`) and open (`sending`, `sent`, `resolving`) drafts are always kept; resolved ones fill what room is left, up to 400 drafts in all. When the unsent and open ones alone don't fit, nothing is saved (the last saved value stays) and `review.storage` says so.
+- **Viewed:** per thread, a map from path to version, bounded to the 64 most recent threads and 500 files each, as on the web, and to 128 KiB: the oldest files of the oldest threads go first. Marks never push out a draft.
   - In the working tree, the version is a hash of the file's whole patch section. For a file cut from the checkout's patch, it is built from the status counts plus a hash of the part read.
   - In turn scopes, the version is the web's `fileDiffKey`, which changes when any of the file's changes does.
 - **Layout:** the diff layout, `"unified"` or `"split"`.
 
-The value is read once when the bridge starts a Changes session. Drafts written before the read finishes are kept.
+The value is read when the bridge starts a Changes session. A failed read (the host errs, or what it holds isn't JSON) is not "nothing kept": the bridge tries again after 1 s, doubling to at most a minute, and saves nothing until a read succeeds, so it never writes over what was kept. Drafts written meanwhile stay in memory and are merged with the kept ones when the read lands; `review.storage` says why meanwhile. A failed save is tried again the same way. The Files screen's `files` kept value follows the same rules.
 
 ## Daemon `git.diff` paging
 

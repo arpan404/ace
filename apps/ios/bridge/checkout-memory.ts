@@ -48,6 +48,12 @@ const Kept = z.object({
   open: z.array(z.tuple([z.string(), z.array(z.string())])).catch([]),
 });
 
+/** `theirs` under `mine`: a scope in both keeps `mine`, the newer. */
+function under(mine: ScopedLists, theirs: ScopedLists, limit: number): ScopedLists {
+  const held = new Set(mine.map(([key]) => key));
+  return [...mine, ...theirs.filter(([key]) => !held.has(key))].slice(0, limit);
+}
+
 /** One key per scope, so a thread and a project folder never share lists. */
 export function memoryKey(scope: FilesScope): string {
   return "threadId" in scope ? `thread:${scope.threadId}` : `project:${scope.workspaceId}`;
@@ -139,10 +145,6 @@ export class CheckoutMemory {
   #merge(value: unknown): void {
     const kept = Kept.safeParse(value ?? {});
     if (!kept.success) return;
-    const under = (mine: ScopedLists, theirs: ScopedLists, limit: number) => {
-      const held = new Set(mine.map(([key]) => key));
-      return [...mine, ...theirs.filter(([key]) => !held.has(key))].slice(0, limit);
-    };
     this.#recent = under(this.#recent, kept.data.recent, recentLimits.scopes);
     this.#open = under(this.#open, kept.data.open, openLimits.scopes);
     if (this.#shown) this.#show(this.#shown);

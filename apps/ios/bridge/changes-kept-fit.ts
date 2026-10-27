@@ -25,7 +25,10 @@ export type Fitted =
 const bytes = (value: unknown) => utf8Bytes(JSON.stringify(value));
 
 /** The newest marks that fit in `budget` bytes: the oldest files of the oldest threads go first. */
-export function fitMarks(marks: StoredMarks, budget: number): { viewed: StoredMarks; size: number } {
+export function fitMarks(
+  marks: StoredMarks,
+  budget: number,
+): { viewed: StoredMarks; size: number } {
   let size = 2;
   const kept: StoredMarks = [];
   for (let thread = marks.length - 1; thread >= 0; thread--) {
@@ -46,10 +49,10 @@ export function fitMarks(marks: StoredMarks, budget: number): { viewed: StoredMa
       size -= head;
       break;
     }
-    kept.push([id, held.reverse()]);
+    kept.push([id, held.toReversed()]);
     if (held.length < files.length) break;
   }
-  return { viewed: kept.reverse(), size };
+  return { viewed: kept.toReversed(), size };
 }
 
 const byNewest = (a: ReviewDraft, b: ReviewDraft) => b.createdAt - a.createdAt;

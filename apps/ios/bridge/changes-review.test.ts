@@ -160,10 +160,12 @@ describe("Changes sheet review", () => {
     expect(sheet.sink.read("changes:summary")?.review).toEqual({ allowed: true, reason: "" });
     sheet.session.scope("last");
     sheet.session.open("src/replay.ts", true);
-    const summary = sheet.sink.read("changes:summary");
-    expect(summary?.review).toMatchObject({ allowed: false, reason: expect.stringContaining("Uncommitted") });
+    const scoped = sheet.sink.read("changes:summary")?.review as { reason: string } | undefined;
+    const reason = scoped?.reason ?? "";
+    expect(sheet.sink.read("changes:summary")?.review).toEqual({ allowed: false, reason });
+    expect(reason).toContain("Uncommitted");
     const notice = await act(sheet, { ...comment, text: "On the turn" });
-    expect(notice).toMatchObject({ ok: false, message: (summary?.review as { reason: string }).reason });
+    expect(notice).toMatchObject({ ok: false, message: reason });
     expect(drafts(sheet.sink)).toEqual([]);
     expect(sheet.daemon.review.comments()).toEqual([]);
   });

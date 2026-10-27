@@ -53,7 +53,11 @@ test("thousands of viewed marks never push out unsent or open review comments", 
   const value = memoryValue();
   const kept = new ChangesKept(value, handTimers());
   await kept.load();
-  kept.set(() => [draft("unsent", "draft", 1), draft("failed", "failed", 2), draft("open", "sent", 3)]);
+  kept.set(() => [
+    draft("unsent", "draft", 1),
+    draft("failed", "failed", 2),
+    draft("open", "sent", 3),
+  ]);
   // 64 threads × 80 files with long paths: well over a megabyte of marks.
   const long = "src/".padEnd(200, "x");
   for (let thread = 0; thread < 64; thread++)
@@ -69,11 +73,12 @@ test("thousands of viewed marks never push out unsent or open review comments", 
   await relaunched.load();
   expect(relaunched.viewed.get("thread-63")?.get(`${long}/79.ts`)).toBe("version-63-79");
   expect(relaunched.viewed.has("thread-0")).toBe(false);
-  expect(relaunched.get().map((each) => each.key).toSorted()).toEqual([
-    "failed",
-    "open",
-    "unsent",
-  ]);
+  expect(
+    relaunched
+      .get()
+      .map((each) => each.key)
+      .toSorted(),
+  ).toEqual(["failed", "open", "unsent"]);
 });
 
 test("a save the host refuses is said in words and tried again", async () => {
@@ -121,7 +126,12 @@ test("a failed read at launch is tried again, and nothing is saved over the kept
   await settle();
   await kept.flushed();
   expect(kept.trouble).toBe("");
-  expect(kept.get().map((each) => each.key).toSorted()).toEqual(["kept", "new"]);
+  expect(
+    kept
+      .get()
+      .map((each) => each.key)
+      .toSorted(),
+  ).toEqual(["kept", "new"]);
   expect(keptKeys(value.held).toSorted()).toEqual(["kept", "new"]);
   expect(kept.layout).toBe("split");
 });
