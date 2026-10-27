@@ -26,7 +26,7 @@ struct ForgeRevertSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-                    Text("A draft pull request that undoes #\(number). Its diff and checks run before anything merges.").meta()
+                    Text("A draft pull request that undoes #\(number). Its diff and checks run before anything merges.").meta().lineLimit(nil).fixedSize(horizontal: false, vertical: true)
                     TextField("Title", text: $title)
                         .aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .padding(AceTheme.Spacing.md)
