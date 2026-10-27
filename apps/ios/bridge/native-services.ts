@@ -37,6 +37,8 @@ import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
+import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
+import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -98,6 +100,8 @@ export class NativeServices {
   readonly files: CheckoutFiles | undefined;
   readonly forge: ForgeService | undefined;
   readonly reads: NativeReads | undefined;
+  readonly skills: NativeSkillLibrary;
+  readonly plugins: NativeSkillPlugins;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
@@ -106,6 +110,7 @@ export class NativeServices {
     files?: CheckoutFiles,
     forge?: ForgeService,
     reads?: NativeReads,
+    now: () => number = () => 0,
   ) {
     this.owner = owner;
     this.sink = sink;
@@ -115,6 +120,8 @@ export class NativeServices {
     this.files = files;
     this.forge = forge;
     this.reads = reads;
+    this.skills = new NativeSkillLibrary(owner, now);
+    this.plugins = new NativeSkillPlugins(owner);
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
@@ -180,6 +187,16 @@ export class NativeServices {
         } catch (error) {
           this.#reply(id, false, null, error instanceof Error ? error.message : "");
         }
+        return;
+      }
+      const skills = NativeSkillsRequest.safeParse(raw);
+      if (skills.success) {
+        this.#answer(id, raw, await this.skills.answer(skills.data, controller.signal), read);
+        return;
+      }
+      const plugins = NativePluginsRequest.safeParse(raw);
+      if (plugins.success) {
+        this.#answer(id, raw, await this.plugins.answer(plugins.data, controller.signal), read);
         return;
       }
       const message = NativeMessageRequest.safeParse(raw);

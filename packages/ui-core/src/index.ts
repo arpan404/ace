@@ -78,6 +78,7 @@ export * from "./machine-mark.ts";
 export type { Brand } from "./brand-art/index.gen.ts";
 export type { BrandArt, BrandGradient, BrandPath } from "./brand-art-types.ts";
 export * from "./providers.ts";
+export * from "./skill-library.ts";
 export * from "./provider-slots.ts";
 export * from "./subagent-row.ts";
 export * from "./row-room.ts";

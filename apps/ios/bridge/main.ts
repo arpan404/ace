@@ -262,6 +262,7 @@ async function start(json: string): Promise<void> {
       (input, signal) => downloadFile(forgeClient, input, { signal, timeoutMs: 60_000 }),
     ),
     reads,
+    () => host.now(),
   );
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);

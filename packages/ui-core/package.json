@@ -32,6 +32,7 @@
     "./source-highlight": "./src/source-highlight.ts",
     "./transfers": "./src/transfers.ts",
     "./byte-size": "./src/byte-size.ts",
+    "./skill-library": "./src/skill-library.ts",
     "./forge-rich": "./src/forge-rich/index.ts"
   },
   "scripts": {
