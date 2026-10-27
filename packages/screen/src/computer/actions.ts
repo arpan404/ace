@@ -9,7 +9,7 @@
  */
 import { z } from "zod";
 
-const id = z.number().int().min(1).describe("Element id from the outline.");
+const id = z.number().int().min(1).describe("From the outline.");
 const point = z.number().min(0).max(20_000);
 const screenPoint = z.number().min(-20_000).max(20_000);
 const size = z.number().int().min(1).max(20_000);
@@ -231,7 +231,7 @@ const grammar = [
   "wait {ms}",
   "wait_for {text | id; gone, timeout_ms}",
   "activate",
-  "if {text | id; gone, steps}: run the next steps only if it is there now, else skip them",
+  "if {text | id; gone, steps}: guards the next steps",
 ].join(" · ");
 
 // Advertised shapes: the strict steps check their bounds.
@@ -245,67 +245,39 @@ const anyEndpoint = z.union([
 const AdvertisedStep = z.strictObject({
   type: z.enum(stepTypes).describe(`Fields after ";" are optional. ${grammar}`),
   id: id.optional(),
-  x: anyPoint
-    .optional()
-    .describe("Screenshot pixel, for things missing from the outline; window move: screen point."),
+  x: anyPoint.optional().describe("Screenshot pixel; window move: screen point."),
   y: anyPoint.optional(),
   text: z
     .string()
     .min(1)
     .max(200_000)
     .optional()
-    .describe(
-      "select_text: exactly as the outline shows it; wait_for, if: text in an element's line.",
-    ),
-  key: z
-    .string()
-    .min(1)
-    .max(64)
-    .optional()
-    .describe('"Return", "Escape", "Down", "cmd+n", "shift+Tab".'),
+    .describe("select_text: as the outline shows it; wait_for, if: in an element's line."),
+  key: z.string().min(1).max(64).optional().describe('"Return", "Down", "cmd+n", "shift+Tab".'),
   value: z.union([z.string().max(100_000), z.number(), z.boolean()]).optional(),
-  name: z.string().min(1).max(80).optional().describe("One of the element's listed Actions."),
+  name: z.string().min(1).max(80).optional().describe("From the element's Actions."),
   path: z.array(z.string()).optional().describe('e.g. ["File", "Export…"].'),
-  button: z.enum(["left", "right", "middle"]).optional().describe("right opens the context menu."),
-  count: z.number().int().min(1).max(3).optional().describe("2 for a double-click."),
-  modifiers: z
-    .array(z.enum(["cmd", "shift", "alt", "ctrl", "fn"]))
-    .optional()
-    .describe('Held during the step, e.g. ["cmd"].'),
-  hold_ms: z.number().int().optional().describe("Long press, up to 5000."),
+  button: z.enum(["left", "right", "middle"]).optional(),
+  count: z.number().int().min(1).max(3).optional(),
+  modifiers: z.array(z.enum(["cmd", "shift", "alt", "ctrl", "fn"])).optional(),
+  hold_ms: z.number().int().optional().describe("Up to 5000."),
   repeat: z.number().int().min(1).max(50).optional(),
-  format: z
-    .enum(["text", "markdown", "html"])
-    .optional()
-    .describe("markdown or html paste as rich text."),
-  prefix: z
-    .string()
-    .max(200)
-    .optional()
-    .describe("Text just before it, when it occurs more than once."),
+  format: z.enum(["text", "markdown", "html"]).optional().describe("markdown, html: rich text."),
+  prefix: z.string().max(200).optional().describe("Text just before it, if repeated."),
   suffix: z.string().max(200).optional(),
-  cursor: z.enum(["before", "after"]).optional().describe("Place the caret instead of selecting."),
+  cursor: z.enum(["before", "after"]).optional().describe("Place the caret instead."),
   direction: z.enum(["up", "down", "left", "right"]).optional(),
   pages: z.number().min(0.1).max(20).optional().describe("Default 1."),
   pixels: z.number().int().optional(),
-  from: anyEndpoint.optional().describe("[x, y] screenshot pixels, or {id}; to as well."),
+  from: anyEndpoint.optional().describe("Pixels or {id}; to too."),
   to: anyEndpoint.optional(),
-  op: z
-    .enum(windowOps)
-    .optional()
-    .describe("On the current window; move and resize take screen points."),
+  op: z.enum(windowOps).optional().describe("move, resize: screen points."),
   width: z.number().int().optional(),
   height: z.number().int().optional(),
   ms: z.number().int().optional().describe("Up to 10000."),
   gone: z.boolean().optional().describe("Until or only if it is not there."),
   timeout_ms: z.number().int().min(100).max(15_000).optional().describe("Default 5000."),
-  steps: z
-    .number()
-    .int()
-    .min(1)
-    .max(19)
-    .optional()
-    .describe("How many steps if guards; default 1."),
+  steps: z.number().int().min(1).max(19).optional().describe("Steps if guards; default 1."),
 });
 
 export const ComputerAction = AdvertisedStep.pipe(StrictStep);

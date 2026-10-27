@@ -25,6 +25,14 @@ it("each session hears how to reach thread_start in the way its tool list allows
   expect(antigravity).not.toContain("select:mcp__ace__");
 });
 
+it("Claude's guidance still reaches an unlisted ace tool after its list narrows to core", () => {
+  // Rendered once with the full list; a model switch can later drop tool search and leave the
+  // core list, so the same text must name the call a core list offers (tools_call).
+  const text = developerInstructions("claude", { listing: "all" });
+  expect(text).toContain("select:mcp__ace__thread_start");
+  expect(text).toContain("tools_call {name, arguments}");
+});
+
 const guidance = (cli: string) =>
   acpInjection({ ...connection, listing: acpToolListing(cli) }).developerInstructions;
 

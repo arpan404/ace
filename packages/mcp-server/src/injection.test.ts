@@ -109,7 +109,7 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
 });
 
 it("each provider receives ace's shared guidance exactly once", () => {
-  const shared = "ace is the app running this session";
+  const shared = aceInstructions.split("\n")[0] ?? aceInstructions;
   for (const provider of ["claude", "opencode", "acp", "antigravity"] as const)
     expect(developerInstructions(provider)).not.toContain(shared);
   for (const provider of ["codex", "cursor", "pi"] as const)
