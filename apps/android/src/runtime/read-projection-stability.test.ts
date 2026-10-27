@@ -3,6 +3,7 @@ import {
   projectSidebar,
   projectSidebarLease,
   projectThread,
+  projectThreadLease,
   snapshotSidebar,
   snapshotThread,
   wrapSelection,
@@ -211,7 +212,7 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
     expect(withSnap.appended).toBeUndefined();
   });
 
-  it("bounds per-id caches and drops them on lease release", async () => {
+  it("keeps per-id snapshots stable past the recency cap and drops them on lease release", async () => {
     const { RELEASE_PROJECTION_CACHES } = await import("./read-projection.ts");
     const rows: Record<string, { id: string }> = {};
     for (let i = 0; i < 600; i++) rows[`t${i}`] = { id: `t${i}` };
@@ -230,14 +231,23 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
       observe: () => () => {},
     };
     const view = projectSidebar(noopCheck, live as never);
+    // Regression: 472f77955's LRU-500 reminted an unchanged row once >500
+    // keys interleaved, breaking `Object.is` stability for
+    // `useSyncExternalStore`. The identity tier keeps the frozen copy while
+    // the live row object is unchanged, regardless of interleave width.
     const first = view.thread("t0");
     for (let i = 1; i < 600; i++) view.thread(`t${i}`);
-    // The oldest entry evicted past the 500 cap: the same live row now mints
-    // a fresh frozen copy instead of pinning every id ever read.
-    expect(view.thread("t0")).not.toBe(first);
-    // A recently read id stays Object.is-stable for useSyncExternalStore.
-    const recent = view.thread("t599");
-    expect(view.thread("t599")).toBe(recent);
+    expect(view.thread("t0")).toBe(first);
+    // Round-robin twice more: recency churn must not remint either.
+    for (let round = 0; round < 2; round++)
+      for (let i = 0; i < 600; i++) expect(view.thread(`t${i}`)).toBe(view.thread(`t${i}`));
+    expect(view.thread("t0")).toBe(first);
+
+    // Change detection still works: a replaced live row mints a new copy.
+    rows["t0"] = { id: "t0" };
+    const second = view.thread("t0");
+    expect(second).not.toBe(first);
+    expect(view.thread("t0")).toBe(second);
 
     // Lease release clears every cache so live rows are not pinned past it.
     const inner = {
@@ -257,6 +267,101 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
     // The store is dead after release; clearing ran without throwing.
     expect(() => leaseStore.thread("t1")).toThrow("not connected");
     expect(typeof clearer).toBe("function");
+    // Caches are per-lease: a fresh lease over the same live store mints
+    // its own copies instead of sharing the released lease's retention.
+    const fresh = projectSidebarLease(noopCheck, inner as never);
+    expect(fresh.store.thread("t1")).not.toBe(held);
+    expect(fresh.store.thread("t1")).toBe(fresh.store.thread("t1"));
+    fresh.release();
+  });
+
+  it("keeps thread item snapshots stable across wide interleaving", () => {
+    const items: Record<string, { id: string }> = {};
+    for (let i = 0; i < 600; i++) items[`m${i}`] = { id: `m${i}` };
+    const live = {
+      error: undefined,
+      syncing: false,
+      unconfirmed: false,
+      thread: undefined,
+      queue: undefined,
+      offshift: undefined,
+      context: undefined,
+      order: Object.keys(items),
+      cursor: 1,
+      itemsBefore: null,
+      agentIds: () => [] as string[],
+      interactionIds: () => [] as string[],
+      taskIds: () => [] as string[],
+      item: (id: string) => items[id],
+      agent: () => undefined,
+      run: () => undefined,
+      interaction: () => undefined,
+      task: () => undefined,
+      usage: () => undefined,
+      contextMeter: () => undefined,
+      usageSnapshot: () => undefined,
+      truncated: () => false,
+      select: () => {
+        throw new Error("unused");
+      },
+      observe: () => () => {},
+    };
+    const view = projectThread(noopCheck, live as never);
+    const first = view.item("m0");
+    for (let i = 1; i < 600; i++) view.item(`m${i}`);
+    // Unchanged live items survive >500-key interleaving without reminting.
+    expect(view.item("m0")).toBe(first);
+    for (let i = 0; i < 600; i++) view.item(`m${i}`);
+    expect(view.item("m0")).toBe(first);
+  });
+
+  it("keeps allocating array copies content-stable and drops them on release", () => {
+    let members = ["a1"];
+    const live = {
+      error: undefined,
+      syncing: false,
+      unconfirmed: false,
+      thread: undefined,
+      queue: undefined,
+      offshift: undefined,
+      context: undefined,
+      order: [] as string[],
+      cursor: 1,
+      itemsBefore: null,
+      agentIds: () => [...members],
+      interactionIds: () => [] as string[],
+      taskIds: () => [] as string[],
+      item: () => undefined,
+      agent: () => undefined,
+      run: () => undefined,
+      interaction: () => undefined,
+      task: () => undefined,
+      usage: () => undefined,
+      contextMeter: () => undefined,
+      usageSnapshot: () => undefined,
+      truncated: () => false,
+      children: (_agentId: string) => [...members],
+      select: () => {
+        throw new Error("unused");
+      },
+      observe: () => () => {},
+    };
+    const inner = { store: live, release: () => {} };
+    const lease = projectThreadLease(noopCheck, inner as never);
+    const store = lease.store;
+    // The live getter allocates per call; equal contents stay Object.is-stable.
+    expect(live.children("a1")).not.toBe(live.children("a1"));
+    const first = store.children("a1");
+    expect(store.children("a1")).toBe(first);
+    // Changed contents mint a new frozen copy; the old one stays put.
+    members = ["a1", "a2"];
+    const second = store.children("a1");
+    expect(second).not.toBe(first);
+    expect(second).toEqual(["a1", "a2"]);
+    expect(first).toEqual(["a1"]);
+    expect(store.children("a1")).toBe(second);
+    lease.release();
+    expect(() => store.children("a1")).toThrow("not connected");
   });
 
   it("projected appended is false on frozen copies, live on store identities", async () => {
@@ -297,7 +402,13 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
         throughSeq: seq,
         events: [Event.parse({ id: `e${seq}`, seq, at: seq, threadId: thread.id, payload })],
       });
-    deliver(11, { type: "item.delta", itemId: "m1", agentId: "root", field: "text", append: " world" });
+    deliver(11, {
+      type: "item.delta",
+      itemId: "m1",
+      agentId: "root",
+      field: "text",
+      append: " world",
+    });
     const v1 = store.item("m1");
     deliver(12, { type: "item.delta", itemId: "m1", agentId: "root", field: "text", append: "!" });
     const v2 = store.item("m1");

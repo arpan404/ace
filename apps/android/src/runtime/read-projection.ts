@@ -153,12 +153,31 @@ function memoCopy<T>(getLive: () => T, copy: (value: T) => T): (() => T) & { cle
 }
 
 /**
- * Per-arg copy cache, bounded so a long-lived lease cannot grow without
- * bound. Tradeoff: entries past the cap evict the least-recently-read key,
- * so an evicted id mints a fresh frozen copy on next read (`Object.is`
- * stability holds only for retained keys). That costs one extra render for
- * an evicted row, never correctness; the alternative — retaining every id
- * ever read plus its live row — pins evicted store rows forever.
+ * Per-arg copy cache: bounded strong pins plus identity-stable hits.
+ *
+ * Two tiers. `recent` is an LRU `Map` (at most `limit` entries) for the fast
+ * path: it keeps per-key stability for list rendering (`a` then `b` then `a`
+ * again) and content stability for live getters that allocate a fresh array
+ * per call (`children()` spreads, so `Object.is` never hits and
+ * `sameStringArray` is the only equality). `byLive` is a `WeakMap` keyed by
+ * the live object itself: a row evicted from `recent` by interleaving still
+ * returns its frozen copy while the live row object is unchanged, so
+ * `Object.is` stability (`useSyncExternalStore` contract) no longer depends
+ * on the recency cap for identity-stable sources (`Sidebar.thread(id)`,
+ * `ThreadStore.item(id)`, … return the stored row reference).
+ *
+ * Memory. `recent` pins at most `limit` live+frozen pairs. `byLive` holds
+ * one small wrapper per distinct live object read while that object is
+ * alive; keys are weak, so replacing or removing a live row lets its entry
+ * collect, and `clear()` (lease release) drops the whole map at once. This
+ * bounds retention by the live working set instead of read history.
+ *
+ * Residual tradeoff, stated plainly: getters whose live value allocates per
+ * call (fresh arrays) cannot key `byLive` — the key would be garbage by the
+ * next read — so they rely on `recent` content equality alone. Churn past
+ * `limit` distinct args remints those copies (an extra render; data stays
+ * correct). Fixing that needs the live layer to hand out a stable reference
+ * (shared-contract change, out of scope for Android-only work).
  */
 const ARG_CACHE_LIMIT = 500;
 
@@ -175,26 +194,46 @@ function memoCopyArg<A, R>(
   // a `Map` keeps each id stable while its live value is unchanged, matching
   // real `Sidebar.thread(id)` / `ThreadStore.item(id)` record stability.
   // Insertion order is recency: hits refresh, misses past the cap evict oldest.
-  const cache = new Map<A, { live: unknown; frozen: unknown }>();
+  const recent = new Map<A, { live: unknown; frozen: unknown }>();
+  // Identity tier: frozen copy by live object identity. `WeakMap` has no
+  // `clear`, so release swaps in a fresh map (the old one then collects).
+  // The wrapper object distinguishes "live maps to frozen `undefined`"
+  // (exotic values copy to `undefined`) from "live never seen".
+  let byLive = new WeakMap<object, { frozen: unknown }>();
   const get = (arg: A): R => {
     const live = fn(arg);
-    const held = cache.get(arg);
+    const held = recent.get(arg);
     if (held !== undefined && (Object.is(live, held.live) || sameStringArray(live, held.live))) {
-      cache.delete(arg);
-      cache.set(arg, held);
+      recent.delete(arg);
+      recent.set(arg, held);
       return held.frozen as R;
     }
+    if (typeof live === "object" && live !== null) {
+      const known = byLive.get(live);
+      if (known !== undefined) {
+        const entry = { live, frozen: known.frozen };
+        recent.delete(arg);
+        recent.set(arg, entry);
+        if (recent.size > limit) {
+          const oldest = recent.keys().next();
+          if (!oldest.done) recent.delete(oldest.value);
+        }
+        return known.frozen as R;
+      }
+    }
     const frozen = copy(live);
-    cache.delete(arg);
-    cache.set(arg, { live, frozen });
-    if (cache.size > limit) {
-      const oldest = cache.keys().next();
-      if (!oldest.done) cache.delete(oldest.value);
+    if (typeof live === "object" && live !== null) byLive.set(live, { frozen });
+    recent.delete(arg);
+    recent.set(arg, { live, frozen });
+    if (recent.size > limit) {
+      const oldest = recent.keys().next();
+      if (!oldest.done) recent.delete(oldest.value);
     }
     return frozen;
   };
   get.clear = (): void => {
-    cache.clear();
+    recent.clear();
+    byLive = new WeakMap();
   };
   return get;
 }
