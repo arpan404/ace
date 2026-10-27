@@ -16,7 +16,6 @@ import { daemonComputerToolkit } from "../computer-tools.ts";
 import { GuestSessions } from "../machines/guest-sessions.ts";
 import { MachineGrantStore } from "../machines/grant-store.ts";
 import { switchRevocation } from "../machines/grant-rules.ts";
-import { unservedHost } from "../machines/capability-hosts.ts";
 import { commandHost } from "../machines/command-host-shell.ts";
 import { MachineDirectory } from "../machines/directory.ts";
 import { MachineChildren } from "../machines/children.ts";
@@ -108,7 +107,12 @@ export function startMachines(context: ServiceContext): void {
           guests.stopThread(event.threadId);
     }),
   );
-  const browser = new TargetBrowser({ store, browser: () => services.browser, guests });
+  const browser = new TargetBrowser({
+    store,
+    browser: () => services.browser,
+    guests,
+    help: () => services.browserHelp,
+  });
   const devices = new TargetDevices({
     devices: () => services.devices,
     guestMachine: (threadId) => store.getThread(ThreadId.parse(threadId))?.details?.guest?.name,
@@ -119,12 +123,7 @@ export function startMachines(context: ServiceContext): void {
     enabled: () => services.screen?.isEnabled() ?? false,
     toolkit: (computer) => daemonComputerToolkit(services, computer),
   });
-  // Work stopped or revoked lets go of what its agents held here (ADR 0105).
-  resources.own(
-    guests.onEnd(({ session, capability }) => {
-      if (capability === "screen") screen.release(session.threadId);
-    }),
-  );
+  resources.own(screen.follow(guests));
   services.machineCalls = createMachineTarget({
     hostId,
     hostName,

@@ -116,10 +116,8 @@ it.each([
   },
 ])("$title", async ({ attributed }) => {
   const mac = await computerUse();
-  const linux = await computerUse();
-  const pair = await pairedMachines({ access: "operate", targetScreen: mac, sourceScreen: linux });
+  const pair = await pairedMachines({ access: "operate", targetScreen: mac });
   await mac.screen.enable(true);
-  await linux.screen.enable(true);
   const window = await fleetWindow(pair.target);
   await window.set(sourceProfile(pair).deviceId, "screen", "operate");
   await pair.source.call({ op: "machines" });
@@ -261,5 +259,108 @@ it("turning computer use down stops that machine's action at once and forgets wh
   if (!fresh.ok) throw new Error(fresh.message);
   expect(textOf(fresh.body)).not.toContain("No change since your last look.");
   expect(textOf(fresh.body)).toContain("button 7");
+  await window.close();
+});
+
+it.each(["grant", "master", "pairing", "thread"] as const)(
+  "a read-only %s cannot launch a stopped app",
+  async (ceiling) => {
+    const mac = await computerUse({ FAKE_STOPPED_APP: "Calculator" });
+    const pair = await pairedMachines({
+      access: ceiling === "master" ? "read" : "operate",
+      ...(ceiling === "pairing" ? { scopes: ["read"] } : {}),
+      targetScreen: mac,
+    });
+    await mac.screen.enable(true);
+    const window = await fleetWindow(pair.target);
+    await window.set(
+      sourceProfile(pair).deviceId,
+      "screen",
+      ceiling === "grant" ? "read" : "operate",
+    );
+    const result = await callAs(sourceProfile(pair), look, {
+      host: "linux-box",
+      thread: "look-only",
+      ceiling: ceiling === "thread" ? "read" : "operate",
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "machine_forbidden",
+      message: expect.stringContaining("Ask the person to open it"),
+    });
+    expect(await mac.ops()).not.toContain("launched");
+    const apps = await mac.computer.request("resolve", { app: "Calculator" });
+    expect(apps).toMatchObject({ running: false });
+    await window.close();
+  },
+);
+
+it.each(["grant", "delete", "stop"] as const)(
+  "an idle guest's next look is fresh after %s",
+  async (reason) => {
+    const mac = await computerUse();
+    const pair = await pairedMachines({ access: "operate", targetScreen: mac });
+    await mac.screen.enable(true);
+    const window = await fleetWindow(pair.target);
+    const profile = sourceProfile(pair);
+    await window.set(profile.deviceId, "screen", "operate");
+    const from = { host: "linux-box", thread: "idle-look" };
+    const first = await callAs(profile, look, from);
+    if (!first.ok) throw new Error(first.message);
+    const again = await callAs(profile, look, from);
+    if (!again.ok) throw new Error(again.message);
+    expect(textOf(again.body)).toContain("No change since your last look");
+    if (reason === "grant") {
+      await window.set(profile.deviceId, "screen", "off");
+      await window.set(profile.deviceId, "screen", "operate");
+    } else if (reason === "delete") {
+      await window.remove(guestThread(pair, "linux-box"));
+    } else {
+      const stopped = await callAs(
+        profile,
+        { op: "cancel", threadId: guestThread(pair, "linux-box") },
+        from,
+      );
+      expect(stopped.ok).toBe(true);
+    }
+    const fresh = await callAs(profile, look, from);
+    if (!fresh.ok) throw new Error(fresh.message);
+    expect(textOf(fresh.body)).toContain("Calculator");
+    expect(textOf(fresh.body)).not.toContain("No change since your last look");
+    await window.close();
+  },
+);
+
+it("a source with its computer use off can use a linked screen without enabling its own", async () => {
+  const mac = await computerUse();
+  const linux = await computerUse();
+  const pair = await pairedMachines({ access: "operate", targetScreen: mac, sourceScreen: linux });
+  await mac.screen.enable(true);
+  const window = await fleetWindow(pair.target);
+  await window.set(sourceProfile(pair).deviceId, "screen", "operate");
+  await pair.source.call({ op: "machines" });
+  const { threadId, agentId } = pair.source.caller;
+  const lease = pair.source.daemon.mcp.openSession(
+    { sessionId: "off-local", threadId, agentId, capabilities: ["screen"] },
+    new AbortController().signal,
+  );
+  const connection = { url: pair.source.daemon.mcp.url, bearer: lease.bearer };
+  const remote = ToolReply.parse(
+    await (
+      await invoke(connection, "screen_state", { app: "Calculator", machine: "studio" })
+    ).json(),
+  ).result;
+  expect(remote.isError).not.toBe(true);
+  expect(remote.content).toContainEqual(
+    expect.objectContaining({ text: expect.stringContaining("Calculator") }),
+  );
+  const local = ToolReply.parse(
+    await (await invoke(connection, "screen_state", { app: "Calculator" })).json(),
+  ).result;
+  expect(local.isError).toBe(true);
+  expect(local.content).toContainEqual(
+    expect.objectContaining({ text: expect.stringContaining("disabled") }),
+  );
+  expect(await linux.ops()).toBe("");
   await window.close();
 });

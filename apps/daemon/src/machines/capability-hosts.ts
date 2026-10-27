@@ -22,6 +22,7 @@ export interface CapabilityHost {
     tool: string,
     args: Record<string, unknown>,
     signal: AbortSignal,
+    level?: "read" | "operate",
   ): Promise<MachineToolResult>;
 }
 

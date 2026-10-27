@@ -132,6 +132,8 @@ async function act(request: Request, app: App): Promise<unknown> {
   };
 }
 
+const running = (app: App) => env["FAKE_STOPPED_APP"] !== app.name;
+
 const locked = () =>
   !!env["FAKE_LOCKED"] &&
   existsSync(env["FAKE_LOCKED"]) &&
@@ -169,14 +171,17 @@ async function answer(request: Request): Promise<unknown> {
           apps: Object.values(apps).map(({ bundleId, name }) => ({
             bundleId,
             name,
-            running: true,
+            running: running({ bundleId, name }),
           })),
         },
       };
     case "resolve":
-      return app ? { id: request.id, ok: true, result: { ...app, running: true } } : missing;
+      return app
+        ? { id: request.id, ok: true, result: { ...app, running: running(app) } }
+        : missing;
     case "state":
       if (!app) return missing;
+      if (!running(app)) log(`launched ${app.name}`);
       if (once(env["FAKE_CRASH_ONCE"])) process.exit(3);
       if (app.name === "Stuck") return undefined;
       return { id: request.id, ok: true, result: state(app, request["screenshot"] === true) };

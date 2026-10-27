@@ -2,6 +2,8 @@ import type { Device, MachineCallOrigin, MachineToolResult, ThreadId } from "@ac
 import type { BrowserService } from "@ace/browser";
 import { ToolRegistry, nodeScheduler } from "@ace/mcp-server";
 import type { Store } from "../store.ts";
+import { browserHelpToolkit } from "../browser-help-tool.ts";
+import type { BrowserHelp } from "../browser-help.ts";
 import { browserToolkit } from "../browser-toolkit.ts";
 import { TargetRefusal } from "./target-refusal.ts";
 import type { GuestSessions } from "./guest-sessions.ts";
@@ -11,6 +13,7 @@ export interface TargetBrowserDeps {
   store: Store;
   browser(): BrowserService | undefined;
   guests: GuestSessions;
+  help?(): BrowserHelp | undefined;
 }
 
 /**
@@ -33,6 +36,8 @@ export class TargetBrowser {
     if (this.registry?.browser !== browser) {
       const tools = new ToolRegistry({ scheduler: nodeScheduler });
       browserToolkit(browser, this.deps.store).register(tools);
+      const help = this.deps.help?.();
+      if (help) browserHelpToolkit(help).register(tools);
       this.registry = { browser, tools };
     }
     return this.registry.tools;

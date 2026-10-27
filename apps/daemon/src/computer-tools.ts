@@ -23,14 +23,15 @@ export function computerPlatform(platform: NodeJS.Platform): ComputerPlatform {
 export function daemonComputerToolkit(
   services: Pick<
     Partial<Services>,
-    "computerUsing" | "settings" | "lockedUseRuntime" | "computer" | "engine"
+    "computerUsing" | "settings" | "lockedUseRuntime" | "computer" | "engine" | "screen"
   >,
-  computer: ComputerClient,
+  computer: ComputerClient | undefined,
   route?: ComputerMachineRoute,
 ): Toolkit {
   const lockedUse = computerLockedUseGate(services);
   return computerToolkit(computer, {
     platform: computerPlatform(process.platform),
+    enabled: () => services.screen?.isEnabled() ?? false,
     // Read on every call, so a change in Settings applies to the next one.
     blockedApps: async () => (await services.settings?.get("computer.blockedApps"))?.value ?? [],
     using: (threadId, app) =>
