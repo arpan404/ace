@@ -1,5 +1,6 @@
 import { useClient, useThread, useThreadMeta } from "@ace/client-react";
 import { ItemId, ThreadId, maxMessageBytes } from "@ace/protocol";
+import { mergeAnswerOf, mergeSummaryOf } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -26,33 +27,12 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
   const navigate = useNavigate();
   const machine = useMachineSearch();
   const read = useCallback(
-    (reader: import("@ace/client").ThreadReader) => {
-      for (let at = reader.order.length - 1; at >= 0; at--) {
-        const item = reader.item(reader.order[at] ?? "");
-        if (
-          item?.type === "message" &&
-          item.role === "assistant" &&
-          item.complete &&
-          !item.synthetic &&
-          // What the fork copied from its parent is not its own work to bring back.
-          !item.inherited &&
-          item.agentId === meta?.rootAgentId
-        )
-          return item;
-      }
-      return undefined;
-    },
+    (reader: import("@ace/client").ThreadReader) => mergeAnswerOf(reader, meta?.rootAgentId),
     [meta?.rootAgentId],
   );
   const answer = useThread(props.thread.id, ["thread", "order"], read);
   const [draft, setSummary] = useState<string>();
-  const summary =
-    draft ??
-    answer?.parts
-      .flatMap((part) => (part.type === "text" ? [part.text] : []))
-      .join("")
-      .slice(0, maxMessageBytes) ??
-    "";
+  const summary = draft ?? mergeSummaryOf(answer, maxMessageBytes);
   const [includeCode, setIncludeCode] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();

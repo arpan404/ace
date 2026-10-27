@@ -157,6 +157,8 @@ export * from "./follow-up.ts";
 export * from "./stop-fence.ts";
 export * from "./fork-point.ts";
 export * from "./continuation.ts";
+export * from "./edit-point.ts";
+export * from "./resend.ts";
 export {
   composerInput,
   editComposerTokens,

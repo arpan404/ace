@@ -1,6 +1,6 @@
 import { Item, Run } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { retryPointOf } from "./edit-point.ts";
+import { editPointOf, mergeAnswerOf, mergeSummaryOf, retryPointOf } from "./edit-point.ts";
 
 const message = (
   id: string,
@@ -72,4 +72,42 @@ test("an answer still being written, or one the person already replied to, doesn
     [run("r1", "completed")],
   );
   expect(retryPointOf(replied, "answer-1", "root")).toBeUndefined();
+});
+
+test("editing a later message forks from the answer before it; the opening message can't be edited", () => {
+  expect(editPointOf(thread, "ask-2", "root")).toEqual({
+    fork: { type: "turn", runId: "r1" },
+    piEntry: "entry-1",
+  });
+  expect(editPointOf(thread, "ask-1", "root")).toBeUndefined();
+  expect(editPointOf(thread, "answer-1", "root")).toBeUndefined();
+});
+
+test("a message steered into a running turn edits from the last finished turn before it", () => {
+  const steered = reader(
+    [
+      message("ask-1", "user", "r1"),
+      message("answer-1", "assistant", "r1"),
+      message("ask-2", "user", "r2"),
+      message("partial", "assistant", "r2", { complete: false }),
+      message("steer", "user", "r2"),
+    ],
+    [run("r1", "completed"), run("r2", "active")],
+  );
+  expect(editPointOf(steered, "steer", "root")?.fork).toEqual({ type: "turn", runId: "r1" });
+});
+
+test("a fork brings back its own newest answer, never what it copied from its parent", () => {
+  const copied = Item.parse({
+    ...message("copied", "assistant", "r0"),
+    inherited: { threadId: "parent" },
+  });
+  const fork = reader(
+    [copied, message("ask", "user", "r1"), message("own", "assistant", "r1")],
+    [run("r1", "completed")],
+  );
+  expect(mergeAnswerOf(fork, "root")?.id).toBe("own");
+  expect(mergeSummaryOf(mergeAnswerOf(fork, "root"), 2)).toBe("ow");
+  const fresh = reader([copied], []);
+  expect(mergeAnswerOf(fresh, "root")).toBeUndefined();
 });
