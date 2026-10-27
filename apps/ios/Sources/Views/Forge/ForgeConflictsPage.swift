@@ -71,7 +71,7 @@ struct ForgeConflictsPageView: View {
                 Text("Merged locally, not pushed").aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                     .foregroundStyle(AceTone.failed.text)
                     .accessibilityIdentifier("forge.conflicts.unpushed")
-                Text("The merge is committed in this checkout. Push it to \(page.headBranch).").meta()
+                Text("The merge is committed in this checkout. Push it to \(page.headBranch).").meta().lineLimit(nil).fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, AceTheme.Spacing.lg)
             .transition(.opacity)
