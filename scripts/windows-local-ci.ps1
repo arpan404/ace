@@ -3,7 +3,8 @@
 #
 # Usage (from the repo root, after `bun install --frozen-lockfile`):
 #   ./scripts/windows-local-ci.ps1 [-Stage native|screen|browser|standalone|desktop|installer|git|all]
-#                                  [-Work C:\ace\ci] [-Install] [-Reports] [-MachineChanges]
+#                                  [-Files <test files>] [-Work C:\ace\ci] [-Install] [-Reports]
+#                                  [-MachineChanges]
 #
 # Stages (`all` runs every stage but `git`, in this order):
 #   native      descriptor.node + screen helper build and cargo tests, then the bounded native suite
@@ -17,12 +18,15 @@
 #   installer   install unit tests, two NSIS packages, install/run/update/uninstall smoke
 #   git         the Git, forge and review suites (dispatch-only on GitHub; not part of `all`)
 #
+# -Files narrows the native, screen, browser and git suites to those test files (the native suite
+# alone takes about half an hour on the ARM64 VM, longer than one locked VM session should).
 # screen, browser, desktop and installer need the logged-in desktop (not an SSH session 0).
 # Each stage logs to <Work>\<stage>.log; <Work>\summary.txt and summary.json hold pass/fail per
 # stage. The exit code is non-zero when any stage failed.
 param(
   [ValidateSet("native", "screen", "browser", "standalone", "desktop", "installer", "git", "all")]
   [string[]] $Stage = @("all"),
+  [string[]] $Files = @(),
   [string] $Work = "C:\ace\ci",
   [switch] $Install,
   [switch] $Reports,
@@ -135,19 +139,19 @@ function Use-Chromium {
 $stages = [ordered]@{
   native = {
     Build-Native
-    Invoke-Vitest @("--config", "scripts/vitest-windows-native.config.ts")
+    Invoke-Vitest (@("--config", "scripts/vitest-windows-native.config.ts") + $Files)
   }
   screen = {
     Require-Desktop
     Build-Native
     $env:ACE_WINDOWS_SCREEN_HELPER = $helper
-    try { Invoke-Vitest @("--config", "scripts/vitest-windows-screen.config.ts") }
+    try { Invoke-Vitest (@("--config", "scripts/vitest-windows-screen.config.ts") + $Files) }
     finally { Remove-Item Env:ACE_WINDOWS_SCREEN_HELPER -ErrorAction SilentlyContinue }
   }
   browser = {
     Require-Desktop
     Use-Chromium
-    Invoke-Vitest @("--config", "scripts/vitest-windows-browser.config.ts")
+    Invoke-Vitest (@("--config", "scripts/vitest-windows-browser.config.ts") + $Files)
     if ($Reports) {
       Invoke-Step "browser video profile (report only)" { node packages/browser/bench/video-profile.ts }
       $env:ACE_VIDEO_LINK_REPORT_ONLY = "1"; $env:ACE_VIDEO_LINK_BASELINE_SECONDS = "10"
@@ -217,7 +221,7 @@ $stages = [ordered]@{
     } finally { Remove-Item Env:ACE_HOME -ErrorAction SilentlyContinue }
   }
   git = {
-    Invoke-Vitest @("--config", "scripts/vitest-git-native.config.ts")
+    Invoke-Vitest (@("--config", "scripts/vitest-git-native.config.ts") + $Files)
   }
 }
 
