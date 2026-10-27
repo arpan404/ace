@@ -158,14 +158,14 @@ const devices: Story = {
 };
 
 /* Work crosses machines: lines draw from the Mac to what its agents use elsewhere, then to the
- * phone that approves. */
+ * phone that approves. Each line ends in a port on the card it reaches. */
 const fleet: Story = {
   play(panel) {
-    const machines = [...panel.querySelectorAll<HTMLElement>(".machine")];
-    const [mac, server, workstation] = machines;
+    const [mac, server, workstation] = [...panel.querySelectorAll<HTMLElement>(".machine")];
     const phone = panel.querySelector<HTMLElement>(".phone");
     if (!mac || !server || !workstation || !phone) return;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const svgNs = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNs, "svg");
     svg.classList.add("fleet-links");
     svg.setAttribute("aria-hidden", "true");
     panel.append(svg);
@@ -175,52 +175,92 @@ const fleet: Story = {
       [mac, workstation],
       [server, phone],
     ];
-    const paths = links.map(() => {
-      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      svg.append(path);
-      return path;
+    const lines = links.map(() => {
+      const group = document.createElementNS(svgNs, "g");
+      const path = document.createElementNS(svgNs, "path");
+      const ports = [0, 1].map(() => {
+        const port = document.createElementNS(svgNs, "circle");
+        port.setAttribute("r", "3");
+        return port;
+      });
+      group.append(path, ...ports);
+      svg.append(group);
+      return { group, path, ports };
     });
     const draw = () => {
       links.forEach(([from, to], index) => {
-        const path = paths[index];
-        if (path) path.setAttribute("d", connect(panel, from, to));
+        const line = lines[index];
+        if (!line) return;
+        const { d, ends } = connect(panel, from, to);
+        line.path.setAttribute("d", d);
+        ends.forEach(([x, y], end) => {
+          line.ports[end]?.setAttribute("cx", String(x));
+          line.ports[end]?.setAttribute("cy", String(y));
+        });
+        line.path.style.setProperty("--length", String(line.path.getTotalLength()));
       });
     };
     draw();
     new ResizeObserver(draw).observe(panel);
-    for (const path of paths) path.style.setProperty("--length", String(path.getTotalLength()));
 
-    paths.forEach((path, index) => {
-      const at = 300 + index * 1200;
+    lines.forEach((line, index) => {
+      const at = 300 + index * 1100;
       timeline([
-        [at, () => path.classList.add("drawn")],
-        [at + 600, () => spark(panel, path.getAttribute("d") ?? "")],
+        [at, () => line.group.classList.add("drawn")],
+        [at + 550, () => spark(panel, line.path.getAttribute("d") ?? "")],
       ]);
     });
-    timeline([[300 + paths.length * 1200 + 300, () => replay(phone, "ring")]]);
+    timeline([[300 + lines.length * 1100 + 300, () => replay(phone, "ring")]]);
   },
 };
 
-/** A curve from one panel's edge to another's, leaving sideways or downward as they sit. */
-function connect(panel: HTMLElement, from: HTMLElement, to: HTMLElement): string {
-  const box = panel.getBoundingClientRect();
-  const a = from.getBoundingClientRect();
-  const b = to.getBoundingClientRect();
-  const sideways = b.left >= a.right - 1;
-  if (sideways) {
-    const y = Math.min(a.bottom - 16, Math.max(a.top + 16, b.top + b.height / 2)) - box.top;
-    const x1 = a.right - box.left;
-    const x2 = b.left - box.left;
-    const y2 = b.top + b.height / 2 - box.top;
-    const mid = (x1 + x2) / 2;
-    return `M ${x1} ${y} C ${mid} ${y}, ${mid} ${y2}, ${x2} ${y2}`;
+/** An element's box in `root`'s own layout, unaffected by transforms mid-animation. */
+function layoutBox(element: HTMLElement, root: HTMLElement) {
+  let left = 0;
+  let top = 0;
+  for (let at: HTMLElement | null = element; at && at !== root;) {
+    left += at.offsetLeft;
+    top += at.offsetTop;
+    at = at.offsetParent instanceof HTMLElement ? at.offsetParent : null;
   }
-  const x1 = a.left + a.width / 2 - box.left;
-  const y1 = a.bottom - box.top;
-  const x2 = b.left + b.width / 2 - box.left;
-  const y2 = b.top - box.top;
-  const mid = (y1 + y2) / 2;
-  return `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`;
+  const width = element.offsetWidth;
+  const height = element.offsetHeight;
+  return { left, top, right: left + width, bottom: top + height, width, height };
+}
+
+/**
+ * A curve from one card's edge to another's: sideways when the second sits to the right,
+ * otherwise straight down. Returns the path and its two end points, for the ports.
+ */
+function connect(
+  panel: HTMLElement,
+  from: HTMLElement,
+  to: HTMLElement,
+): { d: string; ends: [number, number][] } {
+  const a = layoutBox(from, panel);
+  const b = layoutBox(to, panel);
+  if (b.left >= a.right - 1) {
+    const y1 = a.top + Math.min(a.height - 20, 58);
+    const y2 = b.top + Math.min(b.height - 20, 58);
+    const mid = (a.right + b.left) / 2;
+    return {
+      d: `M ${a.right} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${b.left} ${y2}`,
+      ends: [
+        [a.right, y1],
+        [b.left, y2],
+      ],
+    };
+  }
+  const x1 = a.left + a.width / 2;
+  const x2 = b.left + b.width / 2;
+  const mid = (a.bottom + b.top) / 2;
+  return {
+    d: `M ${x1} ${a.bottom} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${b.top}`,
+    ends: [
+      [x1, a.bottom],
+      [x2, b.top],
+    ],
+  };
 }
 
 /** A spark that travels a path once, then removes itself. */
