@@ -110,6 +110,57 @@ describe("the capability a call on a guest session needs", () => {
       decide(capabilityOf(respond("question"), session), "operate", facts("operate")),
     ).toMatchObject({ allow: false });
   });
+  it.each(["screen_act", "mcp__ace__screen_act"])(
+    "answering an approval from %s requires Computer use at Read and act",
+    (tool) => {
+      const request: InteractionRequest = {
+        kind: "approval",
+        title: "Let it keep typing in Calculator?",
+        target: { tool, access: "execute" },
+        options: [{ id: "allow_once", label: "Allow once", kind: "allow_once" }],
+      };
+      const screenSession: CallFacts = { guest: () => true, request: () => request };
+      const capability = capabilityOf(respond("screen"), screenSession);
+      for (const level of ["off", "read", "operate"] as const) {
+        const known = {
+          ...facts("operate"),
+          grants: { ...everythingOn, screen: level },
+        };
+        expect(decide(capability, "operate", known)).toMatchObject({
+          allow: level === "operate",
+        });
+      }
+      expect(
+        decide(capability, "operate", {
+          ...facts("operate"),
+          grants: {
+            agents: "off",
+            browser: "off",
+            devices: "off",
+            commands: "off",
+            screen: "operate",
+          },
+        }),
+      ).toMatchObject({ allow: true });
+    },
+  );
+  it("an approval without tool attribution stays refused even with Computer use granted", () => {
+    const unattributedSession: CallFacts = {
+      guest: () => true,
+      request: () => ({
+        kind: "approval",
+        title: "Let it keep typing in Calculator?",
+        options: [],
+      }),
+    };
+    expect(
+      decide(
+        capabilityOf(respond("unattributed"), unattributedSession),
+        "operate",
+        facts("operate"),
+      ),
+    ).toMatchObject({ allow: false });
+  });
   it("status with no threads is an Agents call, not a guest one", () => {
     // The wire asks for at least one; the rule must not lean on that.
     const status: MachineCall = { op: "status", threadIds: [] };

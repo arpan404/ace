@@ -104,7 +104,17 @@ it("a linked machine uses this machine's apps only as far as the person allows, 
   await window.close();
 });
 
-it("an agent here uses the other machine's apps with machine, and a request there is answered here", async () => {
+it.each([
+  {
+    attributed: true,
+    title:
+      "an agent here uses the other machine's apps with machine, and a request there is answered here",
+  },
+  {
+    attributed: false,
+    title: "a refused answer shows an error here and leaves both copies pending",
+  },
+])("$title", async ({ attributed }) => {
   const mac = await computerUse();
   const linux = await computerUse();
   const pair = await pairedMachines({ access: "operate", targetScreen: mac, sourceScreen: linux });
@@ -147,6 +157,7 @@ it("an agent here uses the other machine's apps with machine, and a request ther
     {
       kind: "approval",
       title: "Let it keep typing in Calculator?",
+      ...(attributed ? { target: { tool: "screen_act", access: "execute" as const } } : {}),
       options: [{ id: "allow_once", label: "Allow once", kind: "allow_once" }],
     },
     [],
@@ -171,14 +182,34 @@ it("an agent here uses the other machine's apps with machine, and a request ther
       interaction.request.title === "Studio: Let it keep typing in Calculator?",
   );
   await pair.answer(mirrored, "allow_once");
-  await vi.waitFor(
-    () =>
-      expect(pair.target.daemon.store.getInteraction(asked)).toMatchObject({
-        state: "resolved",
-        resolution: { kind: "approval", optionId: "allow_once" },
-      }),
-    { timeout: 10_000 },
-  );
+  if (attributed) {
+    await vi.waitFor(
+      () => {
+        for (const interaction of [
+          pair.target.daemon.store.getInteraction(asked),
+          pair.source.daemon.store.getInteraction(mirrored.id),
+        ])
+          expect(interaction).toMatchObject({
+            state: "resolved",
+            resolution: { kind: "approval", optionId: "allow_once" },
+          });
+      },
+      { timeout: 10_000 },
+    );
+  } else {
+    const store = pair.source.daemon.store;
+    await vi.waitFor(() =>
+      expect(store.readItems(threadId, store.headSeq() + 1, 50).items).toContainEqual(
+        expect.objectContaining({
+          type: "notice",
+          level: "error",
+          text: expect.stringMatching(/Answer to studio not delivered:.*off here/),
+        }),
+      ),
+    );
+    expect(pair.target.daemon.store.getInteraction(asked)?.state).toBe("pending");
+    expect(store.getInteraction(mirrored.id)?.state).toBe("pending");
+  }
 
   const result = await acting;
   expect(result.isError, JSON.stringify(result)).not.toBe(true);

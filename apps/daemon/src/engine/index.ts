@@ -881,6 +881,17 @@ export class Engine {
     if (!interaction) throw new Error("Host interaction was not admitted");
     return interaction.id;
   }
+  /** A host operation failed after its command was accepted: show the error in the thread. */
+  hostError(threadId: ThreadId, key: string, text: string): void {
+    this.actor(threadId).apply([
+      {
+        type: "item.upsert",
+        agent: this.repo.requireState(threadId).rootKey ?? "root",
+        item: key,
+        draft: { type: "notice", level: "error", text, complete: true },
+      },
+    ]);
+  }
   resolveHostApproval(
     threadId: ThreadId,
     key: string,
