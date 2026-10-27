@@ -51,11 +51,12 @@ async function heldThread(id: string, first: string) {
   ]);
   fake.seedServices({ attachmentImages: [{ threadId: id, name: fixtureImage.name }] });
   fake.holdQueue(id, "not_sent", { title: "Codex couldn't start.", code: "session_start_failed" });
-  const messages = [
-    ["held-1", first, { mentions: [], attachments: [{ sha256: fixtureImage.sha256 }] }],
+  const files = { mentions: [], attachments: [{ sha256: fixtureImage.sha256 }] };
+  const messages: [string, string, typeof files | undefined][] = [
+    ["held-1", first, files],
     ["held-2", "Then write the tests", undefined],
     ["held-3", "Then open a pull request", undefined],
-  ] as const;
+  ];
   for (const [command, text, context] of messages)
     expect(
       fake.command({
@@ -173,8 +174,8 @@ test("editing a failed send rewrites it in the outbox, and Retry sends the new w
   await until(() => words("s1"), "its full words");
   expect(words("s1")?.text).toBe(long);
   inboxAction(owner, { kind: "editSend", commandId: id, text: "Ship it today" }, "s2", pump, inbox);
-  await until(() => latest("admission", "s2"), "the saved edit");
-  expect(latest("admission", "s2")?.ok).toBe(true);
+  await until(() => words("s2"), "the saved edit");
+  expect(words("s2")?.ok).toBe(true);
   const [part] = owner.pendingSend(id)?.payload.input ?? [];
   expect(part).toEqual({ type: "text", text: "Ship it today" });
   thread.handle({ type: "retrySend", id, requestId: "r1" });

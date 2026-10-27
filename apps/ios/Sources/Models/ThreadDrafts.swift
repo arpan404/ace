@@ -30,8 +30,7 @@ import SwiftUI
     func picks(for key: String) -> ComposerPicks { entries.last { $0.key == key }?.picks ?? ComposerPicks() }
 
     /// Keep `text` and its picks as the newest draft; words that are only whitespace remove it.
-    /// False when the file couldn't be written.
-    @discardableResult func save(_ text: String, picks: ComposerPicks = ComposerPicks(), for key: String) -> Bool {
+    func save(_ text: String, picks: ComposerPicks = ComposerPicks(), for key: String) {
         var next = entries.filter { $0.key != key }
         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let kept = String(text.prefix(Self.characters))
@@ -39,10 +38,9 @@ import SwiftUI
             next.append(Entry(key: key, text: kept, picks: picks.isEmpty || kept != text ? nil : picks))
         }
         if next.count > Self.limit { next.removeFirst(next.count - Self.limit) }
-        guard next != entries else { return true }
+        guard next != entries else { return }
         entries = next
-        do { try file.save(next) } catch { return false }
-        return true
+        try? file.save(next)
     }
 }
 

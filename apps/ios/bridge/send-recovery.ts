@@ -27,6 +27,15 @@ export async function settleSend(
   const failed = send?.state === "failed";
   const admit = (ok: boolean, message: string) =>
     pump.put(`admission:${requestId}`, () => ({ type: "admission", id: requestId, ok, message }));
+  // The edit sheet waits on one answer that carries why not.
+  const answer = (ok: boolean, message: string) =>
+    pump.put(`words:${requestId}`, () => ({
+      type: "words",
+      id: requestId,
+      ok,
+      text: null,
+      message,
+    }));
   switch (action.kind) {
     case "sendWords": {
       const text = failed && send ? tokensFromInput(send.payload.input).text : null;
@@ -41,16 +50,16 @@ export async function settleSend(
     }
     case "editSend": {
       const text = action.text.trim();
-      if (!failed || !send) return admit(false, gone);
-      if (!text) return admit(false, "Write a message first.");
+      if (!failed || !send) return answer(false, gone);
+      if (!text) return answer(false, "Write a message first.");
       try {
         await owner.editFailedSend(action.commandId, {
           ...send.payload,
           input: inputWithText(send.payload.input, text),
         });
-        admit(true, "");
+        answer(true, "");
       } catch {
-        admit(false, "Couldn't save the edit on this phone. The original is still here.");
+        answer(false, "Couldn't save the edit on this phone. The original is still here.");
       }
       return;
     }
