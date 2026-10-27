@@ -55,3 +55,22 @@ extension SettingsRoute {
         }
     }
 }
+
+/// Links that arrived before the app could open them: at a cold launch, before the paired
+/// machines are read, while the app is locked. Kept in order until the inbox is ready, then
+/// handed over once each.
+struct PendingLinks: Equatable {
+    private(set) var waiting: [URL] = []
+    mutating func add(_ url: URL) {
+        guard url.scheme?.lowercased() == AceLink.scheme else { return }
+        // A link opened twice before the app is ready opens once.
+        if !waiting.contains(url) { waiting.append(url) }
+    }
+    /// Every kept link, oldest first, once the app is unlocked and a machine's runtime can read
+    /// them; nothing before then.
+    mutating func take(unlocked: Bool, machinesReady: Bool) -> [URL] {
+        guard unlocked, machinesReady, !waiting.isEmpty else { return [] }
+        defer { waiting = [] }
+        return waiting
+    }
+}

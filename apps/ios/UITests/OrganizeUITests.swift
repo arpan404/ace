@@ -122,6 +122,23 @@ import XCTest
         screenshot("search-recent")
     }
 
+    func testAnArchivedSearchHitOpensAsTheMainPageItsComposerSendsTo() throws {
+        let app = launch()
+        app.revealRow("thread.ios-done")
+        app.buttons["inbox.search"].tap()
+        XCTAssertTrue(app.buttons["search.command.new-thread"].waitForExistence(timeout: 10))
+        app.typeText("Archived task 7")
+        let hit = app.buttons["search.thread.ios-archived-06"]
+        XCTAssertTrue(hit.waitForExistence(timeout: 15))
+        hit.tap()
+        // The thread is the main page, as a row tap opens it: no Settings sheet over the old one.
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["settings.close"].exists, "opened inside Settings, apart from the main page")
+        let title = app.descendants(matching: .any)["thread.title"].firstMatch
+        XCTAssertTrue(title.label.contains("Archived task 7"), title.label)
+        screenshot("archived-hit-opened")
+    }
+
     func testAnAceLinkOpensItsThread() throws {
         let app = launch()
         app.revealRow("thread.ios-done")

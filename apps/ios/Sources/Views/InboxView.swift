@@ -39,6 +39,8 @@ struct InboxView: View {
     @State private var composeProject: String?
     /// The Pulls tab's list: Pull requests, Issues or Notifications.
     @State private var forgeKind = ForgeKind.pulls
+    /// `ace://` links waiting for the app to be ready (`PendingLinks`).
+    @State private var links = PendingLinks()
     /// The open thread's commands, for search everything (`ThreadKeysBox`).
     @State private var threadKeysBox = ThreadKeysBox()
     /// A row brought back by Undo or Unsettle, scrolled into view once it is in the list again:
@@ -64,8 +66,12 @@ struct InboxView: View {
             .newThreadEntry(inbox: inbox, composing: $composing, project: composeProject ?? projectFilter) { key in openThread(key) }
             .onChange(of: composing) { _, now in if !now { composeProject = nil } }
             .organizeSheets(organize, inbox: inbox)
-            // `ace://` links from other apps, Shortcuts and Copy link.
-            .onOpenURL { url in Task { await openLink(url) } }
+            // `ace://` links from other apps, Shortcuts and Copy link. One that arrives before the
+            // machines are read or while the app is locked waits until it can open.
+            .onOpenURL { url in links.add(url) }
+            .task(id: LinkReadiness(links: links, unlocked: !(lock?.locked ?? false), machinesReady: machinesReady)) {
+                for url in links.take(unlocked: !(lock?.locked ?? false), machinesReady: machinesReady) { await openLink(url) }
+            }
             .environment(\.threadOrganizer, organizer)
             .environment(\.threadKeysBox, threadKeysBox)
             // A thread deleted for good closes where it was open.
@@ -141,6 +147,7 @@ struct InboxView: View {
         // Beside an open thread, or over it as the drawer, the toast sits under the list it acted
         // on, clear of the composer and the list's foot.
         .overlay(alignment: toastBesideList ? .bottomLeading : .bottom) { toast }
+        .animation(reduceMotion ? nil : AceTheme.Motion.spring, value: organize.undo?.serial)
     }
 
     private var sheets: some View {
@@ -202,11 +209,9 @@ struct InboxView: View {
                                               machines: { settingsStart = [.machines]; showingSettings = true },
                                               pair: pair,
                                               page: { route in settingsStart = route; showingSettings = true },
-                                              archived: { key in
-                                                  inbox.client(key.machineId)?.open(key.id)
-                                                  settingsStart = [.thread(machine: key.machineId, id: key.id)]
-                                                  showingSettings = true
-                                              }),
+                                              // A search result off the list (archived) opens like a
+                                              // row: the open page and its client move together.
+                                              archived: { key in openThread(key, listed: false) }),
                    organize: organize) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the
             // same machine's client as their parent.
@@ -227,7 +232,8 @@ struct InboxView: View {
             settle: { row, key in
                 acted()
                 settles += 1
-                command(key, .settled) { await $0.settle(row.id) }
+                // The coordinator keeps the snooze a settle clears, for an exact Undo.
+                Task { await organize.run(.settle, [key], in: inbox) }
             },
             unsettle: { row, key in
                 acted()
@@ -236,13 +242,19 @@ struct InboxView: View {
             snooze: { acted(); snoozing = $0 },
             snoozeUntil: { row, key, preset in acted(); Task { _ = await inbox.client(key.machineId)?.snooze(row.id, preset: preset) } },
             wake: { row, key in acted(); Task { _ = await inbox.client(key.machineId)?.wake(row.id) } },
-            archive: { row, key in acted(); command(key, .archived) { await $0.archive(row.id) } },
+            archive: { _, key in acted(); Task { await organize.run(.archive, [key], in: inbox) } },
             pin: { row, key, pinned in acted(); Task { _ = await inbox.client(key.machineId)?.pin(row.id, pinned) } },
             move: { key, section, index in acted(); Task { await inbox.move(key, in: section, to: index) } },
             organizer: organizer,
             // Select mode belongs to each tab's list (`InboxStack`).
             select: { _ in })
     }
+    /// A machine's runtime is up to read links: the machines are read and one has started.
+    private var machinesReady: Bool {
+        (machines?.loaded ?? true) && inbox.sessions.contains { $0.client.inboxLoaded || $0.client.connection == "ready" }
+    }
+    private struct LinkReadiness: Equatable { let links: PendingLinks; let unlocked: Bool; let machinesReady: Bool }
+
     /// Opens what an `ace://` link names, read by the shared rules. A thread waits a moment for
     /// its machine's list after a cold launch; one no paired machine holds says so.
     private func openLink(_ url: URL) async {
@@ -297,14 +309,6 @@ struct InboxView: View {
         default: break
         }
     }
-    /// Runs an undoable inbox command; once this device admits it, the toast offers Undo.
-    private func command(_ key: InboxKey, _ kind: InboxUndo.Kind, _ run: @escaping (ClientModel) async -> Bool) {
-        Task {
-            guard let client = inbox.client(key.machineId), await run(client) else { return }
-            withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { organize.undo = InboxUndo(key: key, kind: kind) }
-        }
-    }
-
     /// The list showing beside a page (regular) or over it as the open drawer, with Threads and
     /// Pull requests at its foot in place of the tab bar.
     private var toastBesideList: Bool {
@@ -320,7 +324,7 @@ struct InboxView: View {
                 }
                 .fontWeight(.semibold)
                 .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .accessibilityIdentifier(undo.kind == .settled ? "inbox.undoSettle" : undo.kind == .archived ? "inbox.undoArchive" : "inbox.undoMove")
+                .accessibilityIdentifier(undo.identifier)
             }
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             .foregroundStyle(AceTheme.Colours.foreground)
@@ -339,8 +343,9 @@ struct InboxView: View {
 
     /// Opening routes to the row's machine and shows the thread on the Threads tab, whichever tab
     /// asked (the Pulls tab keeps its page); a thread open on another machine is closed first.
-    private func openThread(_ key: InboxKey) {
-        guard let client = inbox.client(key.machineId), client.inbox[key.id] != nil else { return }
+    /// `listed` false opens a thread its machine's list doesn't hold (an archived search hit).
+    private func openThread(_ key: InboxKey, listed: Bool = true) {
+        guard let client = inbox.client(key.machineId), !listed || client.inbox[key.id] != nil else { return }
         // Shown from anywhere (a notification, a transfer, a row), the thread shows with its
         // drawer in. Already showing, it is not opened again: that would restart its session.
         withAnimation(reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring) { threadsDrawer.close() }

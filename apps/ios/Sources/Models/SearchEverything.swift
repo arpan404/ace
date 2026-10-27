@@ -7,6 +7,8 @@ struct PaletteAnswer: Decodable, Sendable, Equatable {
     struct Project: Decodable, Sendable, Equatable { let id: String; let name: String; let score: Double }
     struct Thread: Decodable, Sendable, Equatable {
         let id: String; let title: String; let project: String
+        /// Its project, listed or found by search, so a project filter holds for both.
+        var workspaceId: String? = nil
         /// On the machine's list now; otherwise found by its search (archived or older).
         let listed: Bool
         let at: Double; let score: Double
@@ -29,24 +31,26 @@ struct FoundThread: Identifiable, Equatable { let machineId: String; let thread:
     private(set) var threads: [FoundThread] = []
     @ObservationIgnored private var generation = 0
 
-    func run(_ inbox: MachineInbox, query: String, threadOpen: Bool) async {
+    /// `project` scopes the threads to one machine's project, filtered before they are ranked.
+    func run(_ inbox: MachineInbox, query: String, threadOpen: Bool, project: (machineId: String, workspaceId: String)? = nil) async {
         generation += 1
         let current = generation
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         // Typing settles before machines are asked; an empty query lists commands at once.
         if !text.isEmpty { try? await Task.sleep(for: .milliseconds(150)) }
         guard !Task.isCancelled, current == generation else { return }
-        let sessions = inbox.sessions.filter { $0.client.connection == "ready" }
+        let sessions = inbox.sessions.filter { $0.client.connection == "ready" && (project == nil || $0.hostId == project?.machineId) }
         let commander = sessions.first(where: { $0.client.canOperate })?.hostId ?? sessions.first?.hostId
         let canStart = inbox.canStartThreads
         // Every machine answers at once, on this actor.
         let asks = sessions.map { session in
             let client = session.client, host = session.hostId
             return Task { () -> (String, PaletteAnswer?) in
-                let request: [String: Any] = [
+                var request: [String: Any] = [
                     "type": "palette.query", "query": text, "commands": host == commander,
                     "context": ["canStart": canStart, "threadOpen": threadOpen],
                 ]
+                if let project { request["workspaceId"] = project.workspaceId }
                 return (host, try? await client.service(request, as: PaletteAnswer.self))
             }
         }

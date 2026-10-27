@@ -26,17 +26,22 @@ extension ClientModel {
     func setAutoSettle(_ threadId: String, _ enabled: Bool) async -> Bool {
         await inboxCommand(["kind": "autoSettle", "threadId": threadId, "enabled": enabled])
     }
+    /// Puts a snooze back as it was (Undo of a settle), or wakes the thread (`nil`).
+    func snooze(_ threadId: String, until: Double?) async -> Bool {
+        await inboxCommand(["kind": "snoozeAt", "threadId": threadId, "until": until.map { $0 as Any } ?? NSNull()])
+    }
     /// Moves the thread to another of this machine's projects; the row moves at once.
     func moveThread(_ threadId: String, to workspaceId: String) async -> Bool {
         await inboxCommand(["kind": "move", "threadId": threadId, "workspaceId": workspaceId])
     }
     /// One action on several of this machine's threads, or a delete (`bridge/inbox-manage.ts`):
     /// answers once each is saved and the machine has answered, or a few seconds after saving.
-    func bulk(_ action: BulkAction, _ threadIds: [String], workspaceId: String? = nil, force: Bool = false) async -> BulkOutcome {
+    func bulk(_ action: BulkAction, _ threadIds: [String], workspaceId: String? = nil, force: Bool = false, ticket: String? = nil) async -> BulkOutcome {
         guard canOperate else { return BulkOutcome(refused: threadIds.map { .init(threadId: $0, message: "This phone can only view this machine.") }) }
         var request: [String: Any] = ["type": "inbox.bulk", "action": action.rawValue, "threadIds": threadIds]
         if let workspaceId { request["workspaceId"] = workspaceId }
         if force { request["force"] = true }
+        if let ticket { request["ticket"] = ticket }
         do { return try await service(request, as: BulkOutcome.self) }
         catch { return BulkOutcome(refused: threadIds.map { .init(threadId: $0, message: error.localizedDescription) }) }
     }
@@ -48,7 +53,7 @@ extension ClientModel {
 
 /// What `ClientModel.bulk` does to each thread (`InboxBulkRequest`).
 enum BulkAction: String, Sendable {
-    case pin, unpin, settle, unsettle, archive, unarchive, read, unread, move, delete
+    case pin, unpin, settle, unsettle, undoSettle, archive, unarchive, read, unread, move, delete
 }
 
 /// The machine's answer to a bulk action (`BulkOutcome` in `bridge/inbox-manage.ts`).

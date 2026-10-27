@@ -112,6 +112,8 @@ import QuartzCore
     @ObservationIgnored let admissions = CommandAdmissions()
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
+    /// Bulk actions whose first answer left threads waiting, by ticket (`bulkFinal`).
+    @ObservationIgnored let bulkFinals = BulkFinals()
     @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
@@ -214,7 +216,7 @@ import QuartzCore
     /// Patches the person is waiting on, which never wait for the batch.
     private static func urgent(_ patch: BridgePatch) -> Bool {
         switch patch {
-        case .receipt, .admission, .interaction, .connection, .notification, .pending, .error, .problem, .service: true
+        case .receipt, .admission, .bulkFinal, .interaction, .connection, .notification, .pending, .error, .problem, .service: true
         default: false
         }
     }
@@ -355,6 +357,7 @@ import QuartzCore
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .notification(let patch): notificationSink?(patch)
+            case .bulkFinal(let ticket, let outcome): bulkFinals.resolve(ticket, outcome)
             case .receipt(let id, let ok, let message) where receipts.tracks(id):
                 // A goal change answers on its own sheet, never as the screen-wide error.
                 receipts.resolve(id, refused: ok ? nil : (message.isEmpty ? "Your computer refused that change." : message))
@@ -607,6 +610,7 @@ import QuartzCore
         services.cancel()
         admissions.cancel()
         receipts.cancel()
+        bulkFinals.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]
         browser.close(streams: runtime?.browserStreams)
         guard let runtime else { return shutdown }

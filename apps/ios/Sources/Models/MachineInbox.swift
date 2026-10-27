@@ -22,12 +22,36 @@ final class MachineSession: Identifiable {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let now: () -> Double
     @ObservationIgnored private var memo: (inputs: [(String, InboxLayout)], merged: MergedInbox)?
+    @ObservationIgnored private var projectCache = ProjectChoiceCache()
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Double) {
         self.defaults = defaults; self.now = now
         seen = defaults.dictionary(forKey: Self.seenKey) as? [String: Double] ?? [:]
         glyphs = defaults.dictionary(forKey: Self.glyphsKey) as? [String: String] ?? [:]
     }
+
+    /// The projects search can be filtered by, every machine's, by name. Built from the rows
+    /// only when threads join or leave a machine's list, never on a row's own change, so a busy
+    /// inbox doesn't rescan and sort every row on each redraw.
+    func projectChoices() -> [ProjectChoice] {
+        let membership = sessions.map { session in
+            ([session.hostId] + session.client.inboxLayout.sections.flatMap(\.ids)).joined(separator: "\u{0}")
+        }
+        return projectCache.choices(for: membership + [showsMachineNames ? "named" : ""]) {
+            var seen = Set<String>()
+            return sessions.flatMap { session in
+                session.client.inbox.values.compactMap { row -> ProjectChoice? in
+                    guard let workspace = row.workspaceId, row.chat != true else { return nil }
+                    let id = "\(session.hostId)/\(workspace)"
+                    guard seen.insert(id).inserted else { return nil }
+                    return ProjectChoice(id: id, name: showsMachineNames ? "\(row.project) · \(name(session.hostId))" : row.project)
+                }
+            }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+    }
+
+    /// The phone's clock (ms), as the inbox was given it.
+    func clock() -> Double { now() }
 
     /// Machine names show on rows only when there is more than one machine to tell apart.
     var showsMachineNames: Bool { sessions.count > 1 }
@@ -118,4 +142,17 @@ final class MachineSession: Identifiable {
     }
     private static let seenKey = "ace.machines.lastSeen"
     private static let glyphsKey = "ace.machines.marks"
+}
+
+/// A project search can filter by: one machine's project ("machine/workspace") and its name.
+struct ProjectChoice: Equatable, Sendable { let id: String; let name: String }
+
+/// Keeps the project choices until the list they were read from changes.
+struct ProjectChoiceCache {
+    private var key: [String]?
+    private var kept: [ProjectChoice] = []
+    mutating func choices(for key: [String], build: () -> [ProjectChoice]) -> [ProjectChoice] {
+        if key != self.key { kept = build(); self.key = key }
+        return kept
+    }
 }

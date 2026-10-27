@@ -81,17 +81,7 @@ struct InboxSearchList: View {
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     private var text: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    private var projectChoices: [(id: String, name: String)] {
-        var seen = Set<String>()
-        return inbox.sessions.flatMap { session in
-            session.client.inbox.values.compactMap { row -> (String, String)? in
-                guard let workspace = row.workspaceId, row.chat != true else { return nil }
-                let id = "\(session.hostId)/\(workspace)"
-                guard seen.insert(id).inserted else { return nil }
-                return (id, inbox.showsMachineNames ? "\(row.project) · \(inbox.name(session.hostId))" : row.project)
-            }
-        }.sorted { $0.1.localizedCaseInsensitiveCompare($1.1) == .orderedAscending }
-    }
+    private var projectChoices: [ProjectChoice] { inbox.projectChoices() }
     private var scopedMachine: String? { scope.project.isEmpty ? nil : String(scope.project.split(separator: "/", maxSplits: 1).first ?? "") }
     private var scopedWorkspace: String? { scope.project.isEmpty ? nil : scope.project.split(separator: "/", maxSplits: 1).last.map(String.init) }
 
@@ -106,8 +96,9 @@ struct InboxSearchList: View {
         .environment(\.defaultMinListRowHeight, 0)
         // New results crossfade in; under Reduce Motion they simply fade.
         .animation(reduceMotion ? .easeInOut(duration: 0.15) : AceTheme.Motion.standardCurve, value: shape)
-        .task(id: "\(text)|\(threadOpen)|\(inbox.sessions.map { "\($0.hostId):\($0.client.connection)" })") {
-            await everything.run(inbox, query: text, threadOpen: threadOpen)
+        .task(id: "\(text)|\(threadOpen)|\(scope.project)|\(inbox.sessions.map { "\($0.hostId):\($0.client.connection)" })") {
+            let project = scopedMachine.flatMap { machine in scopedWorkspace.map { (machineId: machine, workspaceId: $0) } }
+            await everything.run(inbox, query: text, threadOpen: threadOpen, project: project)
         }
         .task(id: "\(text)|\(scope.kind)|\(scope.project)|\(scope.days)|\(inbox.sessions.map { "\($0.hostId):\($0.client.connection)" })") {
             guard !text.isEmpty, scope.kind != "thread" else { return }
@@ -213,8 +204,9 @@ struct InboxSearchList: View {
     private var foundThreads: [FoundThread] {
         everything.threads.filter { found in
             let key = InboxKey(machineId: found.machineId, id: found.thread.id)
+            // The machines filtered by project before ranking; this holds while a new answer loads.
             if let scopedMachine, found.machineId != scopedMachine { return false }
-            if let scopedWorkspace, found.thread.listed, inbox.row(key)?.workspaceId != scopedWorkspace { return false }
+            if let scopedWorkspace, found.thread.workspaceId != scopedWorkspace { return false }
             if scope.days > 0, found.thread.at < (Date().timeIntervalSince1970 - Double(scope.days) * 86_400) * 1000 { return false }
             return !found.thread.listed || includes(key)
         }
