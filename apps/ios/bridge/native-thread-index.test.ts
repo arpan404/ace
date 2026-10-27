@@ -19,6 +19,8 @@ import { readNativeAttachment } from "./native-attachment.ts";
 afterEach(reset);
 
 const signal = () => new AbortController().signal;
+/** How many times the phone has listed a thread's files. */
+const lists = () => sent.filter((text) => text.includes('"attachment.list"')).length;
 /** The phone's connection to the fake daemon, once it is ready. */
 async function connected() {
   const owner = connect(threeTurns());
@@ -92,7 +94,6 @@ test("a file the Attachments list shows opens without listing the thread again",
       index,
     )
   ).files;
-  const lists = () => sent.filter((text) => text.includes('"attachment.list"')).length;
   const before = lists();
   const opened = await readNativeAttachment(
     owner,
