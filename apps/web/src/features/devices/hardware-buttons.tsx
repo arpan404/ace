@@ -106,15 +106,15 @@ export function SideButtons(props: { hardware: Hardware; body: Size; unit: numbe
         hardwareKey={button.key}
         side={button.edge}
         press={press}
-        className="bg-(--device-body) shadow-(--device-rim)"
-        live={`hover:bg-(--device-body-hover) ${pushIn[button.edge]}`}
+        className="bg-(--device-body) bg-(image:--device-metal) shadow-(--device-rim)"
+        live={`hover:brightness-125 ${pushIn[button.edge]}`}
         style={style}
       />
     ) : (
       <span
         key={button.label}
         aria-hidden
-        className="absolute bg-(--device-body) shadow-(--device-rim)"
+        className="absolute bg-(--device-body) bg-(image:--device-metal) shadow-(--device-rim)"
         style={style}
       />
     );

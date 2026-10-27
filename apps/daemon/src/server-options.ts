@@ -72,6 +72,8 @@ export interface ServerOptions {
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
   pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
+  /** This Mac's locked computer use component (`lockedUse.*`); a placeholder when absent. */
+  lockedUse?: import("@ace/screen").LockedUseInstaller;
   devices?: import("@ace/devices").DevicesService | import("./lazy-devices.ts").LazyDevices;
   accounts?: AccountService;
   accountManagement?: import("./account-management.ts").AccountManagement;

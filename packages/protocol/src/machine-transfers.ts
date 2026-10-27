@@ -43,6 +43,12 @@ export const TransferBegin = z.strictObject({
   name: z.string().min(1).max(256),
   /** A folder on the target for a new project; omitted: its default. */
   parent: z.string().min(1).max(4096).optional(),
+  /**
+   * The source project's id on the sending machine. The target remembers which project a
+   * transfer from that machine and project landed in, so sending it again (a folder or a
+   * repository without a remote) lands in that same copy instead of making a new one.
+   */
+  sourceWorkspaceId: WorkspaceId.optional(),
   /** Source origin: reused or cloned for remote transfers, restored after bundle imports. */
   remote: z
     .object({ url: z.string().min(1).max(2048), normalized: z.string().max(2048) })
@@ -141,6 +147,10 @@ export const IncomingTransfer = z.object({
       branch: z.string().max(1024).optional(),
       threadId: ThreadId.optional(),
       ignoredSkipped: z.number().int().nonnegative().optional(),
+      /** See `Transfer.result.keptFiles`. */
+      keptFiles: z.number().int().nonnegative().optional(),
+      /** See `Transfer.result.branchOnly`. */
+      branchOnly: z.boolean().optional(),
     })
     .optional(),
   error: z.object({ code: z.string().min(1).max(64), message: z.string().max(512) }).optional(),

@@ -1,11 +1,10 @@
-"""Live check of `--computer` on KDE Plasma 6, Wayland or X11 (see run-kde.sh).
+"""Live check of `--computer` on KDE Plasma 6 on Wayland (see run-kde.sh).
 
 Qt apps expose their trees once the helper turns accessibility on; KCalc, KWrite and Kate are
 driven by element id and menu path as an agent would. Plasma's own pieces (the shell, KRunner,
 KWin, the portal) are never targets. On Wayland, screenshots go through KDE's ScreenCast chooser,
 which this test answers through the chooser's own accessibility tree, as the person would click
-it (portal_dialog.py); raw input and window management are refused. On X11 the helper captures
-windows itself, manages them through EWMH and sends raw keys to the front window.
+it (portal_dialog.py); raw input and window management are refused.
 """
 import base64
 import os
@@ -20,7 +19,6 @@ import portal_dialog  # noqa: E402
 from helper import Helper, find, outline  # noqa: E402
 
 BINARY = sys.argv[1]
-SESSION = os.environ.get("XDG_SESSION_TYPE", "")
 DATA = tempfile.mkdtemp(prefix="ace-computer-kde-")
 TOKEN = os.path.join(DATA, "portal", "computer-org.kde.kcalc.token")
 NOTE = os.path.join(DATA, "kde-note.txt")
@@ -55,7 +53,7 @@ def desktop(helper: Helper) -> None:
         check(f"apps lists {name} by its desktop id", listed.get(app_id, {}).get("name") == name, sorted(listed))
     hidden = [app for app in listed if any(part in app.lower() for part in ("plasmashell", "krunner", "kded", "kwin", "portal"))]
     check("apps leaves out Plasma's shell, KRunner, kded, KWin and the portal", not hidden, hidden)
-    for component in ("plasmashell", "krunner", "org.kde.krunner", "kded6", "kwin_wayland", "kwin_x11", "xdg-desktop-portal-kde"):
+    for component in ("plasmashell", "krunner", "org.kde.krunner", "kded6", "kwin_wayland", "xdg-desktop-portal-kde"):
         refused = helper.call("resolve", app=component)
         check(f"{component} is refused as a target", refused.get("error", {}).get("code") in ("app_not_allowed", "app_not_found"), refused)
     check("KRunner is refused as part of the desktop, not missing",
@@ -154,27 +152,6 @@ def wayland_limits(helper: Helper) -> None:
     check("window moves are refused with a reason", moved.get("error", {}).get("code") == "not_supported", moved)
 
 
-def x11(helper: Helper) -> None:
-    shot = helper.result("state", app="kcalc", screenshot=True, marks=True, outline=False)
-    check("X11 captures KCalc's window directly", picture(shot)[:2] == b"\xff\xd8", shot.get("screenshotError"))
-    state = helper.result("state", app="kcalc")
-    keys = ids_by_name(state)
-    raw = helper.result("act", app="kcalc", actions=[{"type": "key", "key": "Escape"}])
-    check("a raw key for a background window asks for activate", raw.get("error", {}).get("code") == "not_on_screen", raw)
-    typed = helper.result("act", app="kcalc", actions=[
-        {"type": "click", "id": keys["All clear"]},
-        {"type": "activate"},
-        {"type": "key", "key": "9"},
-        {"type": "wait_for", "text": "9", "timeout_ms": 3000},
-    ])
-    check("after activate, raw keys reach KCalc through KWin", "error" not in typed, typed)
-    for op in ("minimize", "restore", "zoom", "restore"):
-        done = helper.result("act", app="kcalc", actions=[{"type": "window", "op": op}])
-        check(f"window {op} works through KWin on X11", "error" not in done, done)
-    moved = helper.result("act", app="kcalc", actions=[{"type": "window", "op": "move", "x": 40, "y": 60}])
-    check("window move works through KWin on X11", "error" not in moved, moved)
-
-
 def main() -> None:
     with open(NOTE, "w") as file:
         file.write("hello\n")
@@ -190,11 +167,8 @@ def main() -> None:
         calculator(helper)
         editor(helper)
         menus(helper)
-        if SESSION == "wayland":
-            wayland_limits(helper)
-            helper = wayland_screenshots(helper)
-        else:
-            x11(helper)
+        wayland_limits(helper)
+        helper = wayland_screenshots(helper)
     except Exception as error:  # report, don't hide the summary
         check("the KDE check ran", False, repr(error))
     finally:

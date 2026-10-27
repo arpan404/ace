@@ -14,12 +14,15 @@ extension View {
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         }
     }
+    /// Liquid glass for the composer: tinted only lightly toward the page, so the transcript
+    /// scrolling behind it shows through, as in the system's own apps.
+    @available(iOS 26, *) static var composerLiquidGlass: Glass { .regular.tint(AceTheme.Colours.background.opacity(0.25)).interactive() }
     /// The composer, its strip and the first message's card: glass the transcript scrolls behind
     /// and shows through, softly blurred, like the system's own bars. iOS 18 gets the thin
     /// material with a hairline edge.
     @ViewBuilder func composerGlass<S: Shape>(in shape: S) -> some View {
         if #available(iOS 26, *) {
-            self.glassEffect(Self.darkGlass, in: shape)
+            self.glassEffect(Self.composerLiquidGlass, in: shape)
         } else {
             self.background(.thinMaterial, in: shape)
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))

@@ -1,5 +1,10 @@
-import type { ContentPart, MessageContext, MessageContextItem } from "@ace/protocol";
-import { composerInput, type ComposerDraft, type KeyValueStorage } from "@ace/ui-core";
+import type { ContentPart, MessageContext } from "@ace/protocol";
+import {
+  composerInput,
+  referenceContext,
+  type ComposerDraft,
+  type KeyValueStorage,
+} from "@ace/ui-core";
 import { mentionsIn } from "./draft.ts";
 import { readDraft, writeDraft } from "./draft-store.ts";
 
@@ -11,24 +16,11 @@ export interface SubmittedDraft {
 /** The message content, independent of the model, account or new daemon draft scope. */
 export function composerContent(draft: ComposerDraft) {
   const tokens = draft.tokens ?? [];
+  const references = referenceContext(tokens, mentionsIn(draft.text, new Set(draft.mentions)));
   return {
     input: composerInput(draft.text, tokens),
-    threadRefs: tokens.flatMap((token): MessageContextItem[] =>
-      token.thread ? [token.thread] : token.browserTab ? [token.browserTab] : [],
-    ),
-    mentions: [
-      ...mentionsIn(draft.text, new Set(draft.mentions)).filter(
-        (mention) => !tokens.some((token) => token.file?.path === mention.path),
-      ),
-      ...tokens.flatMap((token) => (token.file ? [token.file] : [])),
-    ].filter(
-      (mention, index, all) =>
-        all.findIndex(
-          (other) =>
-            other.path === mention.path &&
-            JSON.stringify(other.lines) === JSON.stringify(mention.lines),
-        ) === index,
-    ),
+    threadRefs: references.items,
+    mentions: references.mentions,
     attachments: draft.attachments.map((file) => ({ sha256: file.sha256 })),
   };
 }

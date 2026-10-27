@@ -52,6 +52,7 @@ export const defaults: SettingsValues = {
   "browser.downloadDefault": "",
   "browser.userChrome.storageReads": false,
   "computer.blockedApps": [],
+  "computer.lockedUse": false,
   "devices.emulatorWindow": false,
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},

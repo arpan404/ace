@@ -1,6 +1,7 @@
 import { PublicToolError, type PublicToolCode } from "@ace/mcp-server";
 import {
   MachineDescription,
+  type HostId,
   type MachineCall,
   type MachineCallOrigin,
   type MachineSummary,
@@ -35,12 +36,20 @@ export interface MachineProblem {
 export class MachineDirectory {
   private deps: DirectoryDeps;
   private seen = new Map<string, MachineSummary>();
+  private hosts = new Map<string, HostId>();
   constructor(deps: DirectoryDeps) {
     this.deps = deps;
   }
   /** The device this machine is paired with `machine` as, or undefined when it is not paired. */
   device(machine: string): string | undefined {
     return this.deps.profiles().find((entry) => entry.name === machine)?.deviceId;
+  }
+  /** The machine's host id: as it last described itself, else as its pairing recorded it. */
+  host(machine: string): HostId | undefined {
+    return (
+      this.hosts.get(machine) ??
+      this.deps.profiles().find((entry) => entry.name === machine)?.hostId
+    );
   }
   /** The person-facing name of a machine, as it last described itself. */
   label(machine: string): string {
@@ -65,6 +74,7 @@ export class MachineDirectory {
           };
           if (description.transfers !== undefined) summary.transfers = description.transfers;
           this.seen.set(profile.name, summary);
+          this.hosts.set(profile.name, description.hostId);
           return summary;
         } catch (error) {
           const offline = error instanceof MachineFailure && error.kind !== "refused";

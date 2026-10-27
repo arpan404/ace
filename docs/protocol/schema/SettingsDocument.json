@@ -88,6 +88,9 @@
           "maxItems": 200,
           "type": "array"
         },
+        "computer.lockedUse": {
+          "type": "boolean"
+        },
         "devices.emulatorWindow": {
           "type": "boolean"
         },

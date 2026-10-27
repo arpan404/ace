@@ -49,6 +49,7 @@ function unused<T extends object>(): T {
 function projectsIn(root: string, unregistered: string[] = []): TargetProjects {
   return {
     list: () => [],
+    busy: () => false,
     parent: async (requested) => {
       const handle = PinnedDirectory.open(requested ?? root);
       return { path: requested ?? root, handle, close: () => handle.close() };

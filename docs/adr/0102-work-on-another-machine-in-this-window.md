@@ -73,7 +73,8 @@ machines' unsent drafts join the Unsent rows the same way.
 
 Another machine's thread names its machine first in the header's crumb (`Build server / api /
 Title`), with the mark and name every machine uses; a thread on this window's own machine names
-none. Every link and navigation inside a scoped thread and its panels keeps `?machine=`
+none. A delegated child or a subagent names only its parent (`Parent / Child`), never a machine,
+wherever either runs. Every link and navigation inside a scoped thread and its panels keeps `?machine=`
 (`useMachineSearch()`): subagents, parents, forks (`/t/<id>/fork?machine=`), merges back, a
 continued or retried thread, search hits, requests, and the PR panel's linked tasks. Where a
 destination reads only this window's daemon it is left out instead: issue pages (issue links

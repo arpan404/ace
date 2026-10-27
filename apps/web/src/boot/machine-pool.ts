@@ -1,3 +1,4 @@
+import { documentVisibility } from "@/lib/page-visibility.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import { machineSecrets } from "./machine-secrets.ts";
 import { ClientError, type Storage } from "@ace/client";
@@ -139,7 +140,8 @@ export function browserMachinePool(options: {
   );
   return new MachinePool({
     directory,
-    remote: { scheduler: timers },
+    // A hidden or frozen window can't hear its workers; that silence must not end a connection.
+    remote: { scheduler: timers, visibility: documentVisibility },
     spawn(entry, token) {
       if (entry.target.kind !== "direct")
         throw new ClientError("offline", "Relay machines aren't supported in this window yet");

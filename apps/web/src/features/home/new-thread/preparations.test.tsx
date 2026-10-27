@@ -276,14 +276,25 @@ test("a removed project's draft opens its saved content and recovery guidance in
   await userEvent.click(
     await screen.findByRole("link", { name: "Unregistered project content. Draft, Project relay" }),
   );
-  expect((await screen.findByRole("alert")).textContent).toContain(
-    "This preparation's project is no longer registered",
+  expect((await screen.findByRole("alert")).textContent).toMatch(
+    /^This project isn't on .+\. Add it here to keep going/,
   );
+  expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
   expect(screen.getByLabelText("Saved message").textContent).toBe("Unregistered project content");
   expect(screen.queryByRole("combobox", { name: "Message" })).toBeNull();
+  expect(screen.queryByText("Add your first project")).toBeNull();
+  expect(screen.getByRole("button", { name: "Add a project" })).toBeTruthy();
   expect(
     screen.getByRole("link", { name: "Other project content. Draft, Project billing-api" }),
   ).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Discard draft in relay" }));
+  expect((await message()).textContent).toBe("");
+  expect(
+    screen.queryByText("This preparation's project is no longer registered", { exact: false }),
+  ).toBeNull();
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  await screen.findByRole("heading", { name: "Project unavailable" });
+  expect(screen.getByLabelText("Saved message").textContent).toBe("Unregistered project content");
 });
 
 test("a refused content write keeps the live preparation and shows that it is not saved", async () => {

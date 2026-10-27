@@ -166,8 +166,9 @@ export const DeviceState = z.object({
   /** The last thing an agent did on this device. */
   activity: DeviceActivity.optional(),
   /**
-   * A foldable device's posture, present only when ace can fold it (an iPhone Duo Simulator on
-   * an Xcode whose device service ace knows). Absent for every other device.
+   * A foldable device's posture, present only when ace can fold it: an iPhone Duo Simulator on
+   * an Xcode whose device service ace knows, or an Android emulator with a hinge (a Pixel Fold).
+   * Absent for every other device.
    */
   posture: DevicePosture.optional(),
 });
@@ -197,6 +198,11 @@ export const DeviceOperation = z.discriminatedUnion("op", [
     ...target,
     /** `png` for a client that can't draw SVG (the native apps); SVG otherwise. */
     format: z.enum(["svg", "png"]).optional(),
+    /**
+     * The posture to draw a foldable in: its cover's look while closed, its inner screen's once
+     * open. Absent, the device's current posture.
+     */
+    posture: DevicePosture.optional(),
   }),
   z.object({ op: z.literal("boot"), ...target }),
   z.object({ op: z.literal("shutdown"), ...target }),

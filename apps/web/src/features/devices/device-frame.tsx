@@ -39,8 +39,9 @@ const px = (value: number) => `${Math.round(value * 10) / 10}px`;
 const homeBezel = { 0: "bottom", 90: "left", 180: "top", 270: "right" } as const;
 
 /**
- * A device drawn around its screen, sized to fit `room`: a thin metal band, the black glass
- * inside it, the screen with the model's own corner radius, and `hardware`: the buttons on its sides and an older
+ * A device drawn around its screen, sized to fit `room`: a thin metal band lit from above, one
+ * even ring of black glass inside it, the screen with the model's own corner radius (the body's
+ * corners concentric with it), and `hardware`: the buttons on its sides and an older
  * iPhone's home button, pressable when `hardware.press` says how. Drawn with boxes only;
  * `children` (the live screen) fill the screen and are clipped to its corners, and `overlay`
  * sits over them in the same box. Nothing is painted over the picture: the device's own pixels
@@ -70,7 +71,7 @@ export function DeviceFrame(props: {
     >
       <span
         aria-hidden
-        className="absolute inset-0 bg-(--device-body) shadow-(--device-rim)"
+        className="absolute inset-0 bg-(--device-body) bg-(image:--device-metal) shadow-(--device-rim)"
         style={{ borderRadius: px(geometry.bodyRadius * unit) }}
       />
       {band > 0 && (

@@ -78,26 +78,58 @@ struct NewThreadComposer: View {
     /// Opens effort and speed for the first turn.
     let chooseTune: () -> Void
     let send: () -> Void
+    /// The first message's `@`, `/` and + lists.
+    let suggester: ComposerSuggester
+    /// A builtin picked from `/` or + that the sheet runs (plan, model, project).
+    let run: (String) -> Void
     @State private var focused = false
+    @State private var place: CaretPlacement?
+    @State private var askAttach = false
+    @State private var notice: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var draft: NewThreadDraft { drafts.draft }
 
+    private var text: Binding<String> { Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }) }
+    private func pick(_ row: SuggestionRow) {
+        suggester.choose(row, text: text, place: $place, keep: { drafts.add($0) }, notice: { notice = $0 }) { action in
+            if action == "attach" { askAttach = true } else { run(action) }
+        }
+    }
     var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            if suggester.trigger != nil {
+                ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() })
+            }
+            if let notice {
+                Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .padding(.horizontal, AceTheme.Spacing.sm).padding(.bottom, AceTheme.Spacing.xs)
+            }
+            surface
+        }
+        .onChange(of: draft.text) { _, _ in notice = nil }
+        .modifier(ComposerSuggestHost(suggester: suggester, text: text, place: $place, keep: { drafts.add($0) }))
+        .onAppear { suggester.active = true }
+        .onDisappear { suggester.active = false }
+    }
+    private var surface: some View {
         ComposerSurface {
             if !files.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: AceTheme.Spacing.xs) {
-                        ForEach(files) { file in AttachmentChip(file: file) { client?.composeDetach(file.id); drafts.remove(file.id) } }
-                    }
-                    .padding(.horizontal, AceTheme.Spacing.md)
+                ComposerMediaStrip(files: files, staging: drafts.staging, inset: AceTheme.Spacing.md) { id in
+                    client?.composeDetach(id)
+                    drafts.remove(id)
                 }
             }
             // The thread composer's text view: a few lines tall while focused, and it grows to five
             // lines, then scrolls.
-            NativeTextInput(text: Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }), inputBegan: {},
+            NativeTextInput(text: text, inputBegan: {},
                             submit: { if blocker == nil && !sending { send() } }, card: true, focused: focused,
-                            onFocus: { focus, duration in withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus } },
-                            identifier: "newThread.message", focusOnAppear: true)
+                            onFocus: { focus, duration in
+                                if !focus { suggester.close() } else { suggester.readAhead() }
+                                withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus }
+                            },
+                            identifier: "newThread.message", focusOnAppear: true,
+                            onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: (draft.picks ?? ComposerPicks()).held) }, place: place)
                 .overlay(alignment: .topLeading) {
                     if draft.text.isEmpty {
                         Text("Describe a task").aceFont(AceTheme.Typography.body, relativeTo: .body)
@@ -113,7 +145,8 @@ struct NewThreadComposer: View {
                     guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
                     drafts.picked(staged, workspaceId: project)
                     client.composeAttach(staged, workspaceId: project)
-                }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging) {
+                }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging,
+                   more: suggester.adding, pickMore: pick, ask: $askAttach) {
                     Image(systemName: "plus").font(.title3).foregroundStyle(AceTheme.Colours.foreground)
                 }
                 .disabled(draft.projectId == nil || client?.canOperate != true)

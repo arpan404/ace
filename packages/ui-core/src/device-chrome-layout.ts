@@ -49,6 +49,15 @@ export function chromeTurn(chrome: Pick<DeviceChrome, "screen">, turn: Turn): Tu
 }
 
 /**
+ * The picture a chrome's own screen stands in for until the first live picture arrives: its
+ * screen as shown with the body turned `turn`, so it always fits the chrome it came from.
+ */
+export function chromePicture(chrome: Pick<DeviceChrome, "screen">, turn: Turn): Size {
+  const { width, height } = chrome.screen;
+  return sideways(turn) ? { width: height, height: width } : { width, height };
+}
+
+/**
  * Where the chrome and the picture go in `room`, with the body turned `turn` degrees clockwise.
  * `picture` is the live picture's size in points as shown (already turned). Undefined when the
  * chrome's screen isn't the picture's shape, so the caller draws its own frame instead. Never

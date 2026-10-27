@@ -15,13 +15,8 @@ import { useProjectName } from "@/lib/projects.ts";
 export function ThreadCrumb(props: { threadId: string }) {
   const meta = useThreadMeta(props.threadId);
   const parent = meta?.delegatedBy;
-  if (parent)
-    return (
-      <>
-        <MachineCrumb />
-        <ParentCrumb threadId={parent} />
-      </>
-    );
+  // A delegated child reads `parent / child`, wherever it runs: never a machine first.
+  if (parent) return <ParentCrumb threadId={parent} />;
   return meta ? <ProjectCrumb workspaceId={meta.workspaceId} /> : null;
 }
 
@@ -61,9 +56,9 @@ function MachineCrumb() {
 export function SubagentCrumb(props: { threadId: string; parentAgentId: string }) {
   const parent = useAgent(props.threadId, props.parentAgentId);
   const search = useMachineSearch();
+  // A subagent reads `thread / subagent`, wherever it runs: never a machine first.
   return (
     <>
-      <MachineCrumb />
       {!parent || parent.origin === "root" ? (
         <ParentCrumb threadId={props.threadId} />
       ) : (
@@ -88,13 +83,31 @@ export function ParentCrumb(props: { threadId: string }) {
   const parent = useSidebarThread(props.threadId);
   const search = useMachineSearch();
   return (
+    <ParentCrumbLink
+      threadId={props.threadId}
+      title={parent?.title ?? "Parent thread"}
+      search={search}
+    />
+  );
+}
+
+/**
+ * The link back to a parent thread, from what was read about it: it reads no machine itself, so
+ * a view on another machine (a child delegated there) can show its parent on this one.
+ */
+export function ParentCrumbLink(props: {
+  threadId: string;
+  title: string;
+  search: { machine?: string };
+}) {
+  return (
     <Link
       to="/t/$threadId"
       params={{ threadId: props.threadId }}
-      search={search}
+      search={props.search}
       className={crumbLink}
     >
-      {parent?.title ?? "Parent thread"}
+      {props.title}
     </Link>
   );
 }

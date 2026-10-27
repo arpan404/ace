@@ -1,27 +1,24 @@
 #!/bin/bash
 # The desktop app's Electron e2e tests (`bun run desktop:e2e`) on Linux, each session a
 # throwaway desktop with its own D-Bus, runtime directory and XDG folders:
-#   x11            Xvfb + openbox
 #   wayland        headless GNOME Shell (Wayland only, no Xwayland), Electron forced to
-#                  `--ozone-platform=wayland`
-#   wayland-auto   the same desktop, Electron left to pick its platform (the default)
-#   all            the three in turn
-#   kde-wayland    KDE Plasma 6 on KWin Wayland, through
-#   kde-x11        native/screen-helper-linux/tests/computer/kde-session.sh (which lists what
-#                  KDE needs); KDE is not part of `all`
-#   hyprland       Hyprland (Omarchy's desktop) on a vkms device, and Sway on wlroots'
-#   sway           headless backend, as apps/daemon/scripts/linux-e2e/wlroots-session.sh
-#                  sets them up (it lists what they need); Electron runs Wayland-native.
-#                  Neither is part of `all`
+#                  `--ozone-platform=wayland` (the default session)
+#   wayland-auto   the same desktop, Electron left to pick its platform
+#   all            the two in turn
+#   kde            KDE Plasma 6 on KWin Wayland, through
+#                  native/screen-helper-linux/tests/computer/kde-session.sh (which lists what
+#                  KDE needs); not part of `all`
+#   hyprland       Hyprland (Omarchy's desktop) on a vkms device, as
+#                  apps/daemon/scripts/linux-e2e/hyprland-session.sh sets it up (it lists what
+#                  it needs); Electron runs Wayland-native. Not part of `all`
 # The browser scenarios need ace's pinned Chrome for the daemon's headless engine; it is
 # fetched into ACE_E2E_CHROME_HOME. Where the kernel restricts unprivileged user namespaces
 # (Ubuntu 23.10+), Electron's and Chrome's sandboxes need AppArmor profiles: one is loaded for
 # each for the run and removed afterwards (sudo).
 #
 # Usage, from anywhere inside a Linux checkout after `bun install`:
-#   apps/desktop/scripts/linux-e2e.sh [x11|wayland|wayland-auto|all|kde-wayland|kde-x11|hyprland|sway] [vitest filters]
-# Needs: Xvfb, openbox, xdotool, dbus; for Wayland gnome-shell, pipewire, wireplumber,
-# xdg-desktop-portal-gnome. Environment: ACE_E2E_DISPLAY (X display number, default 52),
+#   apps/desktop/scripts/linux-e2e.sh [wayland|wayland-auto|all|kde|hyprland] [vitest filters]
+# Needs: dbus, gnome-shell, pipewire, wireplumber, xdg-desktop-portal-gnome. Environment:
 # ACE_E2E_APPARMOR_PROFILE (profile name prefix, default ace-desktop-e2e),
 # ACE_E2E_CHROME_HOME (default ~/.cache/ace-desktop-e2e), ACE_E2E_LOGS (session logs, default a
 # new temp directory).
@@ -43,32 +40,7 @@ run_suite() {
     --config vitest.e2e.config.ts "$@" 2>&1
 }
 
-# Inside dbus-run-session: one desktop, then the suite.
-inner_x11() {
-  local display=$1
-  shift
-  # The browser scenarios run at --force-device-scale-factor=2: 1600x1000 logical pixels, a
-  # window wide enough for the sidebar and the panel together, as on a laptop's HiDPI screen.
-  Xvfb ":$display" -screen 0 3200x2000x24 -nolisten tcp >"$logs/xvfb.log" 2>&1 &
-  export DISPLAY=":$display" XDG_SESSION_TYPE=x11
-  unset WAYLAND_DISPLAY
-  wait_for 10 test -e "/tmp/.X11-unix/X$display"
-  dbus-update-activation-environment DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE XDG_DATA_DIRS \
-    >/dev/null 2>&1 || true
-  openbox >"$logs/openbox.log" 2>&1 &
-  sleep 0.5
-  # The tests drive the app's pointer through Chromium, not X. X's own pointer starts in the
-  # middle of the screen, over the app's window: a native page view shown or hidden under it
-  # sends the page enter and leave events there, which close hover menus mid-test. Park it in
-  # the corner, outside every window the tests open.
-  xdotool mousemove 3199 1999
-  local status=0
-  run_suite "$@" || status=$?
-  kill $(jobs -p) 2>/dev/null || true
-  wait 2>/dev/null || true
-  return $status
-}
-
+# Inside dbus-run-session: GNOME Shell, then the suite.
 inner_wayland() {
   unset DISPLAY
   export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=GNOME
@@ -91,46 +63,34 @@ inner_wayland() {
   return $status
 }
 
-# Inside kde-session.sh: on X11 the pointer is parked first, as inner_x11 does.
+# Inside kde-session.sh.
 inner_kde() {
-  local kind=$1
-  shift
-  [ "$kind" = x11 ] && xdotool mousemove 3199 1999
   run_suite "$@"
 }
 
-# shellcheck source=../../daemon/scripts/linux-e2e/wlroots-session.sh
-. "$root/apps/daemon/scripts/linux-e2e/wlroots-session.sh"
+# shellcheck source=../../daemon/scripts/linux-e2e/hyprland-session.sh
+. "$root/apps/daemon/scripts/linux-e2e/hyprland-session.sh"
 
-# Inside dbus-run-session: Hyprland or Sway with its bar, notifications and idle daemon, then
-# the suite.
-inner_wlroots() { # <hyprland|sway> [vitest filters]
-  local which=$1
-  shift
-  "${which}_session" 3200x2000
+# Inside dbus-run-session: Hyprland with its bar, notifications and idle daemon, then the suite.
+inner_hyprland() {
+  hyprland_session 3200x2000
   local status=0
   run_suite "$@" || status=$?
-  wlroots_windows "$which"
+  hyprctl clients >"$logs/clients.txt" 2>&1 || true
   kill $(jobs -p) 2>/dev/null || true
   wait 2>/dev/null || true
   return $status
 }
 
 case "${1:-}" in
-  __hyprland | __sway)
-    which=${1#__}
+  __hyprland)
     shift
-    inner_wlroots "$which" "$@"
+    inner_hyprland "$@"
     exit $?
     ;;
   __kde)
     shift
     inner_kde "$@"
-    exit $?
-    ;;
-  __x11)
-    shift
-    inner_x11 "$@"
     exit $?
     ;;
   __wayland)
@@ -140,14 +100,13 @@ case "${1:-}" in
     ;;
 esac
 
-mode=x11
+mode=wayland
 case "${1:-}" in
-  x11 | wayland | wayland-auto | all | kde-wayland | kde-x11 | hyprland | sway)
+  wayland | wayland-auto | all | kde | hyprland)
     mode=$1
     shift
     ;;
 esac
-display=${ACE_E2E_DISPLAY:-52}
 prefix=${ACE_E2E_APPARMOR_PROFILE:-ace-desktop-e2e}
 # Not the daemon runner's copy: two loaded profiles attached to one path apply to neither, so
 # concurrent runs of both would break each other's sandbox.
@@ -203,15 +162,7 @@ session() { # <mode> [vitest filters]
   local xdg=(XDG_RUNTIME_DIR="$runtime" XDG_CONFIG_HOME="$state/config"
     XDG_STATE_HOME="$state/state" XDG_CACHE_HOME="$state/cache" XDG_DATA_HOME="$state/data")
   case $which in
-    x11)
-      if [ -e "/tmp/.X11-unix/X$display" ]; then
-        echo "Display :$display is taken; set ACE_E2E_DISPLAY" >&2
-        return 1
-      fi
-      env "${xdg[@]}" dbus-run-session -- "$self" __x11 "$display" "$@" \
-        2>>"$logs/session.log" || status=$?
-      ;;
-    wayland | hyprland | sway)
+    wayland | hyprland)
       # Every Electron the tests start runs Wayland-native, never through Xwayland.
       printf '#!/bin/sh\nexec %q --ozone-platform=wayland "$@"\n' "$electron" >"$scratch/electron"
       chmod +x "$scratch/electron"
@@ -223,12 +174,11 @@ session() { # <mode> [vitest filters]
       env "${xdg[@]}" dbus-run-session -- "$self" __wayland "$@" \
         2>>"$logs/session.log" || status=$?
       ;;
-    kde-wayland | kde-x11)
+    kde)
       # kde-session.sh makes its own runtime and XDG folders; the screen is sized for scale 2.
-      (cd "$root/apps/desktop" && ACE_KDE_DISPLAY=$display ACE_KDE_SIZE=3200x2000 \
-        ACE_KDE_LOGS="$logs" ACE_E2E_ELECTRON=1 \
-        "$root/native/screen-helper-linux/tests/computer/kde-session.sh" "${which#kde-}" \
-        "$self" __kde "${which#kde-}" "$@") || status=$?
+      (cd "$root/apps/desktop" && ACE_KDE_SIZE=3200x2000 ACE_KDE_LOGS="$logs" ACE_E2E_ELECTRON=1 \
+        "$root/native/screen-helper-linux/tests/computer/kde-session.sh" \
+        "$self" __kde "$@") || status=$?
       ;;
   esac
   # The document portal mounts itself in the runtime directory.
@@ -239,7 +189,7 @@ session() { # <mode> [vitest filters]
 
 if [ "$mode" = all ]; then
   failed=()
-  for which in x11 wayland wayland-auto; do session "$which" "$@" || failed+=("$which"); done
+  for which in wayland wayland-auto; do session "$which" "$@" || failed+=("$which"); done
   if [ ${#failed[@]} -gt 0 ]; then
     echo "Failed sessions: ${failed[*]}" >&2
     exit 1

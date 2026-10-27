@@ -44,6 +44,14 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// Inbox rows only: the account mark the provider glyph wears when its provider has several
     /// accounts (`inbox-accounts.ts`); nil draws the plain mark.
     var account: String? = nil
+    /// Inbox rows only: pinned threads lead the list in `pinOrder` (higher first; nil for a pin
+    /// from before places existed); `listOrder` is the place when the list is sorted by hand.
+    var pinned: Bool? = nil
+    var pinOrder: Double? = nil
+    var listOrder: Double? = nil
+    /// Inbox rows only: the group the thread's state puts it in ("snoozed", "settled"…), which
+    /// a pinned row keeps while it shows under Pinned.
+    var group: String? = nil
 }
 /// How an inbox row reads, by the web's Home row rule (`rowAttention`): the attention level,
 /// the status word (none at rest: the row shows its age), its tone and glyph, and whether the
@@ -231,6 +239,8 @@ enum BridgePatch: Decodable, Sendable {
     case archiveList(ArchiveList)
     /// New thread and Add project (`Models/ComposeModel.swift`); a thread's Files sheet.
     case compose(ComposePatch)
+    /// The composer's `@`, `/` and + lists (`Models/ComposerSuggestions.swift`).
+    case composer(ComposerSuggestPatch)
     case files(FilesPatch)
     /// Continue on… and Open on… (`bridge/transfers.ts`).
     case transfers(TransfersPatch)
@@ -313,6 +323,7 @@ enum BridgePatch: Decodable, Sendable {
         case "machine.identity": self = .machineIdentity(try box.decode(String.self, forKey: .glyph))
         case let kind where kind.hasPrefix("notifications."): self = .notification(try NotificationPatch(from: decoder))
         case let kind where kind.hasPrefix("compose."): self = .compose(try ComposePatch(from: decoder))
+        case let kind where kind.hasPrefix("composer."): self = .composer(try ComposerSuggestPatch(from: decoder))
         case let kind where kind.hasPrefix("files."): self = .files(try FilesPatch(from: decoder))
         case let kind where kind.hasPrefix("transfers."): self = .transfers(try TransfersPatch(from: decoder))
         case "agents.sheet": let (id, epoch) = try scope(); self = .agents(id, epoch, try box.decode(AgentSheet.self, forKey: .sheet))

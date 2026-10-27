@@ -130,6 +130,7 @@ export function startMachines(context: ServiceContext): void {
     },
     mirror,
     label: (machine) => directory.label(machine),
+    host: (machine) => directory.host(machine),
     deliver: (parentThreadId, key, text) => {
       const parent = store.getThread(parentThreadId);
       if (!parent || parent.deletedAt !== undefined) return;

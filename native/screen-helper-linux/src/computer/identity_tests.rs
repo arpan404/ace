@@ -3,27 +3,22 @@ use crate::computer::desktop::DesktopApp;
 use crate::computer::desktop::tests::TempDir;
 use std::path::PathBuf;
 
-fn app(id: &str, exec: &str, wm_class: Option<&str>) -> DesktopApp {
+fn app(id: &str, exec: &str) -> DesktopApp {
     DesktopApp {
         id: id.into(),
         name: id.into(),
         path: PathBuf::new(),
         exec: Some(exec.into()),
-        wm_class: wm_class.map(str::to_owned),
         listed: true,
     }
 }
 
 fn installed() -> Vec<DesktopApp> {
     vec![
-        app(
-            "org.gnome.TextEditor",
-            "gnome-text-editor %U",
-            Some("gnome-text-editor"),
-        ),
-        app("org.gnome.Calculator", "gnome-calculator", None),
-        app("org.xfce.mousepad", "mousepad %U", None),
-        app("my-app", "my-app", None),
+        app("org.gnome.TextEditor", "gnome-text-editor %U"),
+        app("org.gnome.Calculator", "gnome-calculator"),
+        app("org.xfce.mousepad", "mousepad %U"),
+        app("my-app", "my-app"),
     ]
 }
 
@@ -55,7 +50,7 @@ fn flatpak_and_systemd_scopes_name_the_app() {
     assert_eq!(flatpak.flatpak_id.as_deref(), Some("org.gimp.GIMP"));
     let editor = read_process(&proc.0, 8);
     assert_eq!(
-        identify(&editor, &Hints::default(), &installed()).0,
+        identify(&editor, None, &installed()).0,
         "org.gnome.TextEditor"
     );
 }
@@ -79,44 +74,56 @@ fn unit_names_yield_installed_ids_even_with_dashes() {
 }
 
 #[test]
-fn without_declared_identity_window_and_exe_names_are_matched() {
+fn without_declared_identity_accessible_and_exe_names_are_matched() {
     let apps = installed();
     let plain = ProcessFacts {
         exe_name: Some("mousepad".into()),
         ..ProcessFacts::default()
     };
-    let accessible = Hints {
-        accessible_name: Some("org.xfce.mousepad".into()),
-        ..Hints::default()
-    };
-    assert_eq!(identify(&plain, &accessible, &apps).0, "org.xfce.mousepad");
-    let window = Hints {
-        wm_class: vec!["gnome-text-editor".into()],
-        ..Hints::default()
-    };
+    assert_eq!(identify(&plain, Some("org.xfce.mousepad"), &apps).0, "org.xfce.mousepad");
     let editor = ProcessFacts {
         exe_name: Some("gnome-text-editor".into()),
         ..ProcessFacts::default()
     };
-    assert_eq!(identify(&editor, &window, &apps).0, "org.gnome.TextEditor");
-    assert_eq!(identify(&plain, &Hints::default(), &apps).0, "org.xfce.mousepad");
+    assert_eq!(identify(&editor, Some("Text Editor"), &apps).0, "org.gnome.TextEditor");
+    assert_eq!(identify(&plain, None, &apps).0, "org.xfce.mousepad");
     let unknown = ProcessFacts {
         exe_name: Some("xclock".into()),
         ..ProcessFacts::default()
     };
-    let (id, entry) = identify(&unknown, &Hints::default(), &apps);
+    let (id, entry) = identify(&unknown, None, &apps);
     assert_eq!((id.as_str(), entry), ("xclock", None));
 }
 
+fn office() -> Vec<DesktopApp> {
+    vec![
+        app("libreoffice-startcenter", "libreoffice %U"),
+        app("libreoffice-writer", "libreoffice --writer %U"),
+        app("libreoffice-calc", "libreoffice --calc %U"),
+    ]
+    .into_iter()
+    .map(|mut entry| {
+        entry.name = match entry.id.as_str() {
+            "libreoffice-startcenter" => "LibreOffice".into(),
+            "libreoffice-writer" => "LibreOffice Writer".into(),
+            _ => "LibreOffice Calc".into(),
+        };
+        entry
+    })
+    .collect()
+}
+
 #[test]
-fn the_gtk_application_id_is_trusted_over_name_matching() {
-    let hints = Hints {
-        gtk_application_id: Some("org.gnome.Calculator".into()),
-        wm_class: vec!["gnome-text-editor".into()],
-        ..Hints::default()
+fn a_suite_process_is_its_launcher_and_each_window_belongs_to_its_module() {
+    let installed = office();
+    let soffice = ProcessFacts {
+        exe_name: Some("soffice.bin".into()),
+        ..ProcessFacts::default()
     };
-    assert_eq!(
-        identify(&ProcessFacts::default(), &hints, &installed()).0,
-        "org.gnome.Calculator"
-    );
+    assert_eq!(identify(&soffice, Some("soffice"), &installed).0, "libreoffice-startcenter");
+    let family = family(&soffice, &installed);
+    assert_eq!(family.len(), 3);
+    assert_eq!(module_of("Untitled 1 — LibreOffice Writer", &family).unwrap().id, "libreoffice-writer");
+    assert_eq!(module_of("Budget.ods — LibreOffice Calc", &family).unwrap().id, "libreoffice-calc");
+    assert_eq!(module_of("Welcome to LibreOffice!", &family), None);
 }

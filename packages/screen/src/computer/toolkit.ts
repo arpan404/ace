@@ -18,6 +18,7 @@ import {
   stateHeader,
   windowKey,
 } from "./outline.ts";
+import type { LockedUseGate } from "./locked-use-gate.ts";
 import { blockedReason } from "./policy.ts";
 import {
   computerSchemasFor,
@@ -44,6 +45,11 @@ export interface ComputerToolkitOptions {
   blockedApps?: () => readonly string[] | Promise<readonly string[]>;
   /** Told while a thread's agent looks at or acts in an app; the returned function ends it. */
   using?: (threadId: string, app: string) => () => void;
+  /**
+   * Locked computer use: decides whether a state or act runs inside a protected interval on a
+   * locked Mac. Absent, every request goes to the helper as it is.
+   */
+  lockedUse?: LockedUseGate;
 }
 
 const Resolved = z.looseObject({ bundleId: z.string(), name: z.string(), running: z.boolean() });
@@ -63,7 +69,8 @@ export function computerToolkit(
   options: ComputerToolkitOptions = {},
 ): Toolkit {
   const memory = new ComputerMemory();
-  const computerSchemas = computerSchemasFor(options.platform ?? "macos");
+  const platform = options.platform ?? "macos";
+  const computerSchemas = computerSchemasFor(platform);
   const computerToolMetadata = computerToolMetadataFor(options.platform ?? "macos");
   const personBlocked = async () => (await options.blockedApps?.()) ?? [];
 
@@ -80,7 +87,7 @@ export function computerToolkit(
       : outlineBody(lines, windowId, view.full ? undefined : memory.baseline(key));
     if (!view.find) memory.remember(key, baselineOf(lines, windowId));
     const note = appNote(state.app.bundleId);
-    const parts = [stateHeader(state)];
+    const parts = [stateHeader(state, platform)];
     if (note && memory.firstNote(key)) parts.push(`Note: ${note}`);
     parts.push(body.text || "(the window exposes no accessible elements)");
     if (body.kind === "unchanged" && view.ran && sentInput(view.ran))
@@ -123,7 +130,14 @@ export function computerToolkit(
   ): Promise<unknown> => {
     const done = options.using?.(context.caller.threadId, app.name);
     try {
-      return await client.request(op, payload, { signal: context.signal, app: app.bundleId });
+      const send = (signal: AbortSignal) =>
+        client.request(op, payload, { signal, app: app.bundleId });
+      if (!options.lockedUse) return await send(context.signal);
+      const { threadId, agentId } = context.caller;
+      return await options.lockedUse(
+        { threadId, agentId, app: app.bundleId, signal: context.signal },
+        send,
+      );
     } catch (error) {
       if (error instanceof ComputerError && error.code === "app_not_found")
         memory.forgetApp(app.key);
@@ -174,7 +188,10 @@ export function computerToolkit(
       if (pictureOnly) {
         const picture = screenshotNote(state);
         return {
-          content: withPicture(state, [stateHeader(state), picture].filter(Boolean).join("\n\n")),
+          content: withPicture(
+            state,
+            [stateHeader(state, platform), picture].filter(Boolean).join("\n\n"),
+          ),
         };
       }
       return {

@@ -38,4 +38,18 @@ import Testing
         let reopened = try DurableStore(url: path)
         #expect(try reopened.perform("storage.reads.load", input: Data("null".utf8)) == #"{"version":1,"reads":[{"key":"k"}]}"#)
     }
+    @Test func theBrowsersDeviceChoicesSurviveReopening() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let path = root.appendingPathComponent("outbox.sqlite")
+        let kept = #"{"always":false,"tabs":[["web/t1",{"toolbar":true,"scale":"fit","applied":true}]]}"#
+        do {
+            let store = try DurableStore(url: path)
+            #expect(try store.perform("storage.devices.load", input: Data("null".utf8)) == "")
+            _ = try store.perform("storage.devices.save", body: #"{"always":false,"tabs":[]}"#)
+            _ = try store.perform("storage.devices.save", body: kept)
+        }
+        let reopened = try DurableStore(url: path)
+        #expect(try reopened.perform("storage.devices.load", input: Data("null".utf8)) == kept)
+    }
 }

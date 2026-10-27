@@ -15,6 +15,8 @@ import { relayRoute } from "./relay-route.ts";
 
 import { remotePlan, type RemotePreferences as Preferences } from "./remote-policy.ts";
 const keys = ["remote.enabled", "remote.transport", "remote.relayUrl"] as const;
+/** How often the address remote access listens on is checked against the network's. */
+export const addressCheckMs = 30_000;
 
 /** Owns network resources separately from local sessions and their event history. */
 export function remoteRuntime(
@@ -26,6 +28,10 @@ export function remoteRuntime(
 ) {
   options.relay = undefined;
   const delay = options.runtime?.delay ?? systemDeliveryRuntime.delay;
+  const every = options.runtime?.every ?? systemDeliveryRuntime.every;
+  let stopWatch: (() => void) | undefined;
+  /** The address the direct listener is bound to and links name, while one is open. */
+  let bound: string | undefined;
   let retry: (() => void) | undefined;
   let retryMs = 1000;
   let error: string | undefined;
@@ -73,6 +79,28 @@ export function remoteRuntime(
     listener = undefined;
     active = "";
     directSignature = "";
+    bound = undefined;
+  };
+  /**
+   * The network gave this machine another address (Tailscale reassigned it, or the LAN changed):
+   * the listener on the old one is unreachable, so it moves to the new one. A check that fails
+   * leaves a working listener alone; only an address that resolves and differs moves it.
+   */
+  const recheck = async () => {
+    const config = options.remoteConfig;
+    if (closed || !config || bound === undefined || directTransport === "local") return;
+    let remote;
+    try {
+      remote = await remoteListener({ ...config, listen: directTransport }, options.network);
+    } catch {
+      return;
+    }
+    if (closed || !remote || `${remote.host} ${remote.advertisedHost}` === bound) return;
+    options.log?.(
+      new Error(`Remote access moved from ${bound.split(" ")[1]} to ${remote.advertisedHost}`),
+    );
+    await retire();
+    await apply(preferences);
   };
   const apply = async (next: Preferences) => {
     if (closed) return;
@@ -143,6 +171,7 @@ export function remoteRuntime(
         attach(listener);
         const port = await bindListener(listener, remote.host, remote.port);
         directTransport = listen;
+        bound = `${remote.host} ${remote.advertisedHost}`;
         connection = {
           origin: `https://${urlHost(remote.advertisedHost)}:${port}`,
           fingerprint: remote.identity.fingerprint,
@@ -245,6 +274,10 @@ export function remoteRuntime(
       stop = await options.settings?.subscribe({ keys: [...keys], scope: {} }, (event) => {
         if (event.type === "changed") reconcile();
       });
+      if (!closed)
+        stopWatch = every(() => {
+          if (bound !== undefined && !closed) void serialize(recheck).catch(recover);
+        }, addressCheckMs);
     },
     get relayHostId() {
       return relay?.relayHostId;
@@ -272,6 +305,8 @@ export function remoteRuntime(
     },
     async close() {
       closed = true;
+      stopWatch?.();
+      stopWatch = undefined;
       retry?.();
       retry = undefined;
       stop?.();

@@ -95,6 +95,8 @@ export { landingBranchName, machineSlug } from "./transfer-branch-name.ts";
 export type { LandingBranch } from "./transfer-branch-name.ts";
 export type { BundleCloneOptions } from "./transfer-clone.ts";
 export type { BundleRefs } from "./transfer-refs.ts";
+export { gitAbove } from "./transfer-source.ts";
+export type { SourceCheckout } from "./transfer-source.ts";
 export type { CheckoutState } from "./transfer-checkout.ts";
 
 export class GitService {

@@ -80,6 +80,9 @@
       "maxItems": 200,
       "type": "array"
     },
+    "computer.lockedUse": {
+      "type": "boolean"
+    },
     "devices.emulatorWindow": {
       "type": "boolean"
     },
@@ -435,6 +438,7 @@
     "browser.downloadDefault",
     "browser.userChrome.storageReads",
     "computer.blockedApps",
+    "computer.lockedUse",
     "devices.emulatorWindow",
     "access.defaultMode",
     "access.nativeModes",

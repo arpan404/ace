@@ -68,6 +68,12 @@ export class HelperConnection {
     return this.current !== undefined || this.queue.length > 0;
   }
 
+  /** The helper's process id, starting the helper if none is running. */
+  async pid(): Promise<number | undefined> {
+    if (this.closed) return undefined;
+    return (await this.process()).pid;
+  }
+
   request(
     op: string,
     payload: Record<string, unknown>,
@@ -75,6 +81,9 @@ export class HelperConnection {
     signal: AbortSignal | undefined,
   ): Promise<unknown> {
     if (this.closed) return Promise.reject(new ComputerError("closed", "Computer use stopped."));
+    // An abort that already happened fires no `abort` event, so it is honoured here: the
+    // request is never queued or written.
+    if (signal?.aborted) return Promise.reject(new ComputerError("cancelled", "Cancelled."));
     const timing = this.options.timing
       ? new ComputerRequestSpan(op, this.options.timing.now)
       : undefined;

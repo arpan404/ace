@@ -21,6 +21,11 @@ struct NativeTextInput: UIViewRepresentable {
     var identifier = "composer.input"
     /// Takes the keyboard as soon as it shows (New thread's first message).
     var focusOnAppear = false
+    /// The words and the caret's UTF-16 offset, as typing or tapping moves them (no selection,
+    /// nothing being composed): the composer's `@` and `/` lists follow it.
+    var onCaret: ((String, Int) -> Void)? = nil
+    /// Where the caret goes after the composer changed the words itself; each value applies once.
+    var place: CaretPlacement? = nil
     @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     @Environment(\.escape) private var escape
     func makeUIView(context: Context) -> ComposerTextView {
@@ -44,6 +49,11 @@ struct NativeTextInput: UIViewRepresentable {
     func updateUIView(_ view: ComposerTextView, context: Context) {
         context.coordinator.parent = self
         if view.text != text { view.text = text; context.coordinator.measure(view) }
+        if let place, place.id != context.coordinator.placed {
+            context.coordinator.placed = place.id
+            view.selectedRange = NSRange(location: min(place.offset, (view.text as NSString).length), length: 0)
+            context.coordinator.reportCaret(view)
+        }
         view.inputBegan = inputBegan
         view.escape = escape
         view.compact = !card
@@ -63,6 +73,14 @@ struct NativeTextInput: UIViewRepresentable {
     @MainActor final class Coordinator: NSObject, UITextViewDelegate {
         var parent: NativeTextInput
         init(parent: NativeTextInput) { self.parent = parent }
+        /// The last caret placement applied.
+        var placed: UUID?
+        func reportCaret(_ textView: UITextView) {
+            guard let onCaret = parent.onCaret, textView.markedTextRange == nil, textView.selectedRange.length == 0 else { return }
+            let text = textView.text ?? ""
+            let caret = textView.selectedRange.location
+            Task { @MainActor in onCaret(text, caret) }
+        }
         /// The keyboard's last animation duration; the composer grows on the same curve.
         private var keyboardDuration = 0.35
         private var observing = false
@@ -95,6 +113,7 @@ struct NativeTextInput: UIViewRepresentable {
             measure(textView)
             textView.invalidateIntrinsicContentSize()
             textView.scrollRangeToVisible(textView.selectedRange)
+            reportCaret(textView)
         }
         /// The width the text had on one line of the compact composer; the card switches back
         /// only once the text fits it again, so the layout never flips back and forth.
@@ -115,9 +134,18 @@ struct NativeTextInput: UIViewRepresentable {
             let wraps = text.contains("\n") || (compactWidth > 0 && needed > compactWidth - AceTheme.Spacing.xs)
             if wraps != parent.wraps { Task { @MainActor in onWrap(wraps) } }
         }
-        func textViewDidChangeSelection(_ textView: UITextView) { textView.scrollRangeToVisible(textView.selectedRange) }
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            textView.scrollRangeToVisible(textView.selectedRange)
+            reportCaret(textView)
+        }
     }
 }
+/// A caret position the composer asks for once, after changing the words itself.
+struct CaretPlacement: Equatable {
+    let id = UUID()
+    let offset: Int
+}
+
 @MainActor final class ComposerTextView: UITextView {
     var inputBegan: () -> Void = {}
     /// Esc from a hardware keyboard; without one, Esc drops the keyboard.

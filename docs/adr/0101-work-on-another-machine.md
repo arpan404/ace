@@ -75,8 +75,25 @@ The sending machine chooses, in order:
    branch when the sender had that tracking ref. This uses local information only, without a
    network request. Remote metadata travels with both methods and survives fallback; URLs with
    embedded credentials are rejected using the clone URL validation.
-3. **archive**: a folder that isn't a Git repository. A tar of the whole folder, symlinks kept as
-   links and never followed out of the folder, sockets and devices skipped.
+3. **archive**: any other folder: one that isn't in a Git repository, a folder inside a
+   repository that isn't its top (so only that folder lands there, never the whole repository),
+   and a repository with no commit and no uncommitted changes to carry. A tar of the folder,
+   symlinks kept as links and never followed out of the folder, sockets and devices skipped. What
+   stays behind is one pure module, `apps/daemon/src/transfers/archive-selection.ts`:
+   - Inside a repository: its `.git` and nested repositories stay; files Git ignores go only with
+     `includeIgnored`, and even then without the dependency and cache folders listed under
+     "Ignored files". A folder Git ignores as a whole is copied as a plain folder: the person
+     chose it.
+   - A plain folder: those dependency and cache folders stay wherever they sit, and `.env` files
+     (not `.env.example`, `.sample`, `.template`, `.dist` or `.defaults`) go only with
+     `includeIgnored`.
+   - The archive carries the folder as it is on disk; `includeChanges` has no meaning for it.
+
+   Only Git saying "not a git repository", with no `.git` at or above the folder, or Git missing
+   likewise, makes a folder plain. Any other Git failure (a repository another user owns, a
+   damaged config, a broken `.git` link, Git missing in a repository) fails the transfer with a
+   next step (`source_untrusted`, `source_unreadable`, `git_missing`) instead of copying the
+   folder whole.
 
 Uncommitted changes (method 1 and 2, when `includeChanges`) are captured without touching the
 sender's checkout or index: a temporary index file, `git add -A` into it, `write-tree` and
@@ -102,8 +119,8 @@ So the git methods (1 and 2) send them too, unless the transfer says not to.
   platform-specific or rebuilt stay, wherever they sit: `node_modules`, `.venv`, `venv`,
   `__pycache__`, `.pnpm-store`, `.yarn/cache`, `.gradle`, `.next`, `.turbo`, `.cache`, `target`.
   So do nested Git repositories (a folder holding `.git`). The list is one pure module,
-  `apps/daemon/src/transfers/ignored-files.ts`. The archive method (3) already copies the whole
-  folder and is unchanged.
+  `apps/daemon/src/transfers/ignored-files.ts`. The archive method (3) carries ignored files in
+  its one tar, by the rules above.
 - How it travels: a second payload in the same transfer, uploaded after the code to
   `PUT /v1/transfers/chunk?…&part=ignored`, resumed from the target's `ignoredOffset` like the
   first. `commit` carries its size, SHA-256 and file count as `ignored`. A target answers with
@@ -130,11 +147,21 @@ So the git methods (1 and 2) send them too, unless the transfer says not to.
 
 ### Where it lands
 
-- A project the target already has (same origin): the branch is fetched from the bundle. If the
-  project's own checkout is clean and on that branch, it is fast-forwarded and the changes are
-  applied there. Otherwise the target's checkout is never disturbed: the branch gets its own linked
-  worktree in a folder beside the project (`<project>-<branch>`), or, for a thread continuation,
-  the new thread runs in worktree mode from that branch. A branch name already used there at a
+- A project the target already has: one with the same origin, or, for a folder or a repository
+  without a remote, the copy an earlier transfer of the same source project made (the sender names
+  its project in `begin.sourceWorkspaceId`; the target records where each landed in
+  `transfer_incoming_landed`, keyed by the sender's host id and project and checked against the
+  paired device, and reuses it while it is still registered). The branch is fetched from the
+  bundle; a clone there that fell behind origin fetches origin first, and when the bundle still
+  can't be read the full bundle is fetched into that same project, never a new copy beside it.
+  If the project's own checkout is clean, on that branch and idle (no unsettled local thread and
+  no thread's shell open in it), it is fast-forwarded and the changes are applied there. Otherwise
+  (and when the branch there has commits of its own) the target's checkout is never disturbed:
+  for a thread continuation the new thread runs in worktree mode from a branch of its own; for
+  Open on, only that branch is made, with uncommitted changes as its top commit, and the result
+  says `branchOnly` so a client starts a worktree thread from it. A folder sent again adds only
+  the files its copy lacks and never replaces one; the result counts the kept ones in
+  `keptFiles`. A branch name already used there at a
   different commit, or at the same commit but checked out in a worktree (so the landing couldn't
   open its own worktree on it), gets a `-from-<machine>` suffix (`-2`, `-3`… when that is taken
   too). When one of the branch's folders is itself a branch there (`feature` against an incoming
@@ -145,8 +172,8 @@ So the git methods (1 and 2) send them too, unless the transfer says not to.
   `refs/ace/transfer-head/<id>` so the bundle holds it, and the target lands that exact commit on
   a new branch named `detached-<first 12 hex of the commit>`, following the same rules as any
   branch. Both machines delete the pin afterwards.
-- Otherwise a new project in `parent`, or else the folder of the target's newest project, or else
-  its home, always inside its allowed project roots; named after the source project (`-2`, `-3`…
+- Otherwise a new project in `parent`, or else the folder of the target's newest project when
+  that folder isn't inside a Git work tree (a copy never lands inside a monorepo), or else its home, always inside its allowed project roots; named after the source project (`-2`, `-3`…
   when taken), registered through `workspace.add` or `workspace.clone`. The parent is validated
   and held open as a descriptor (ADR 0063) from the moment it is chosen: the new folder is made
   inside it without following links and held open too. The archive is unpacked, the bundle
@@ -157,10 +184,12 @@ So the git methods (1 and 2) send them too, unless the transfer says not to.
 - A free name is only a reservation. The transfer records the folder's identity (`dev:ino`) on
   its row once it has made it; a name someone else took first is theirs and is never removed. A
   rollback removes a folder through the parent's descriptor, only while the name still leads to
-  that identity, and never by path. After a restart it validates the parent against the allowed
-  roots again first. A folder whose ownership can't be shown (a crash came between making it and
-  recording it) or that can't be removed (more than 10,000 entries in one folder) is left in place
-  and recorded in `transfer_incoming_left`.
+  that identity, and never by path: every unlink and rmdir goes through a held descriptor. A folder
+  holding more than the 10,000 entries a descriptor listing allows is listed by path instead, only
+  while that path still leads to the held folder. After a restart it validates the parent against
+  the allowed roots again first. A folder whose ownership can't be shown (a crash came between
+  making it and recording it) or that can't be removed is left in place and recorded in
+  `transfer_incoming_left`.
 - method `remote` clones origin on the target when the import starts. If that clone fails, or the
   bundle needs commits the reused project doesn't have, the target asks for a full bundle and
   the transfer carries on as `bundle`.

@@ -4,6 +4,7 @@ import {
   type Command,
   type CommandResult,
   type DelegationOutcome,
+  type HostId,
   type MachineMessage,
   type MachineThreadView,
   type McpAttribution,
@@ -51,6 +52,8 @@ export interface ChildrenDeps {
   resend: ChildMessagesDeps["resend"];
   mirror: RequestMirror;
   label(machine: string): string;
+  /** The machine's host id when known, so the parent's row can name where the child lives. */
+  host?(machine: string): HostId | undefined;
   /** Hands a settled result or a message notice to the parent; `key` names it once. */
   deliver(parentThreadId: ThreadId, key: string, text: string): void;
   /** A live wait reads this child, so its result is not woken separately. */
@@ -178,6 +181,7 @@ export class MachineChildren implements RemoteChildren {
           parentAgentId: child.parentAgentId,
           machine: child.machine,
           name: this.deps.label(child.machine),
+          hostId: this.deps.host?.(child.machine),
           provider: child.provider,
           model: child.model,
           role: child.role,
@@ -259,6 +263,7 @@ export class MachineChildren implements RemoteChildren {
           parentAgentId: row.parent_agent,
           machine: row.machine,
           name: this.deps.label(row.machine),
+          hostId: this.deps.host?.(row.machine),
           provider: row.provider,
           model: row.model ?? undefined,
           role: row.role,
@@ -457,6 +462,7 @@ export class MachineChildren implements RemoteChildren {
           parentAgentId: row.parent_agent,
           machine: row.machine,
           name,
+          hostId: this.deps.host?.(row.machine),
           provider: row.provider,
           model: row.model ?? undefined,
           role: row.role,
