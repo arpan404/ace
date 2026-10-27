@@ -46,8 +46,9 @@ struct AccountBadgeLook: Decodable, Equatable {
         }
     }
     static func name(_ colour: String) -> String { colour == "neutral" ? "Ink" : colour.capitalized }
-    private static func tint(_ light: UInt32, _ dark: UInt32) -> Color {
-        Color(uiColor: UIColor { traits in
+    /// UIKit resolves dynamic colours on render threads too, so this touches nothing isolated.
+    nonisolated private static func tint(_ light: UInt32, _ dark: UInt32) -> Color {
+        Color(uiColor: UIColor { @Sendable traits in
             let value = traits.userInterfaceStyle == .dark ? dark : light
             return UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)
         })
