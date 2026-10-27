@@ -83,11 +83,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
           <SettingRow
             key={kind}
             title={storageLabels[kind]}
-            description={
-              kind === "worktrees"
-                ? "Archived threads only, used by Preview cleanup. Settled threads use the Worktrees section."
-                : undefined
-            }
+            description={kind === "worktrees" ? "Archived threads only." : undefined}
             inline
           >
             <input
@@ -115,7 +111,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
       )}
       <SettingRow
         title="Daily cleanup"
-        description="Applies retention to other storage every day. Worktrees use their own automatic deletion setting."
+        description="Runs every day. Worktrees have their own setting."
         inline
       >
         <Switch

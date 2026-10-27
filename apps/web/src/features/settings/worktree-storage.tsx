@@ -51,7 +51,7 @@ export function WorktreeStorageSettings(props: {
     <SettingSection
       label="Worktrees"
       scope="daemon"
-      note="Automatic deletion removes clean worktrees of settled threads once their branch is in origin/main. Repos without an origin/main branch are never removed automatically. Pinned and live work stays."
+      note="Automatic deletion only removes clean worktrees merged into origin/main."
     >
       <SettingRow title="Automatic deletion" inline>
         <Switch
@@ -86,7 +86,7 @@ export function WorktreeStorageSettings(props: {
       </SettingRow>
       <SettingRow
         title="Back up to origin"
-        description="Commits every file not in .gitignore, including untracked files such as .env, and pushes the branch to origin under your Git identity. Check .gitignore first. Failed backups keep the worktree."
+        description="Commits everything not in .gitignore, .env included, and pushes to origin."
         inline
       >
         <Switch
@@ -101,10 +101,6 @@ export function WorktreeStorageSettings(props: {
           {error}
         </SettingNote>
       )}
-      <SettingNote>
-        Delete all settled worktrees also removes clean branches not yet in origin/main once they
-        are pushed. Their commits stay on origin. You confirm the list first.
-      </SettingNote>
       <SettingFooter>
         <Button
           size="sm"
@@ -129,8 +125,7 @@ export function FailedBackups(props: { backups: StorageUsage["backups"] }) {
     <SettingNote role="alert">
       {failed.length === 1
         ? "Backup failed for 1 worktree. It was kept."
-        : `Backup failed for ${failed.length} worktrees. They were kept.`}{" "}
-      Check origin access, then refresh after the next backup.
+        : `Backup failed for ${failed.length} worktrees. They were kept.`}
       {shown.map((backup) => (
         <span key={backup.path} className="mt-1 block break-all">
           {backup.path}
