@@ -21,6 +21,10 @@ export function secureDataDir(dataDir: string): void {
     throw new Error(`Refusing data directory ${dataDir}: it is owned by another user`);
   if ((stat.mode & 0o077) !== 0) chmodSync(dataDir, 0o700);
 }
+/** Another daemon holds this data directory's lock (it may still be starting or stopping). */
+export class DaemonLockHeldError extends Error {
+  override name = "DaemonLockHeldError";
+}
 export function acquireLock(dataDir: string): () => void {
   secureDataDir(dataDir);
   const path = join(dataDir, "daemon-lock");
@@ -35,9 +39,12 @@ export function acquireLock(dataDir: string): () => void {
     writeFileSync(path, owner, { mode: 0o600 });
   } catch (error) {
     lock.close();
-    throw new Error(`Cannot acquire daemon lock in ${dataDir}. Another daemon owns it.`, {
-      cause: error,
-    });
+    throw new DaemonLockHeldError(
+      `Cannot acquire daemon lock in ${dataDir}. Another daemon owns it.`,
+      {
+        cause: error,
+      },
+    );
   }
   let released = false;
   return () => {
