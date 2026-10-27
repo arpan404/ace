@@ -1,3 +1,4 @@
+import { agentSettingTitles } from "@ace/ui-core";
 import { desktopCli } from "@/boot/desktop-cli.ts";
 import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { hasDesktopUpdates } from "@/boot/desktop-updates.ts";
@@ -66,7 +67,7 @@ const entries = [
   {
     id: "providers.default",
     page: "/settings/agents",
-    title: "Default provider for new threads",
+    title: agentSettingTitles["providers.default"],
     keywords: ["agent", "claude", "codex", "model"],
   },
   {
@@ -84,85 +85,85 @@ const entries = [
   {
     id: "threads.limitPolicy",
     page: "/settings/agents",
-    title: "When an account hits its limit",
+    title: agentSettingTitles["threads.limitPolicy"],
     keywords: ["usage", "quota", "rate limit", "resume", "snooze", "migrate", "switch account"],
   },
   {
     id: "agents.maxRunningChildren",
     page: "/settings/agents",
-    title: "Agents a thread runs at once",
+    title: agentSettingTitles["agents.maxRunningChildren"],
     keywords: ["delegate", "children", "subagents", "parallel", "concurrency", "queue", "limit"],
   },
   {
     id: "threads.useWorktree",
     page: "/settings/agents",
-    title: "New threads use a worktree",
+    title: agentSettingTitles["threads.useWorktree"],
     keywords: ["git", "branch", "checkout"],
   },
   {
     id: "threads.sortBy",
     page: "/settings/agents",
-    title: "Sort threads",
+    title: agentSettingTitles["threads.sortBy"],
     keywords: ["order", "sidebar", "manual", "newest", "activity"],
   },
   {
     id: "threads.autoSettleAfter",
     page: "/settings/agents",
-    title: "Settle done threads",
+    title: agentSettingTitles["threads.autoSettleAfter"],
     keywords: ["archive", "auto settle", "cleanup"],
   },
   {
     id: "threads.settleOnMerge",
     page: "/settings/agents",
-    title: "Settle when the PR merges",
+    title: agentSettingTitles["threads.settleOnMerge"],
     keywords: ["pull request", "merge"],
   },
   {
     id: "threads.forkOnSwitch",
     page: "/settings/agents",
-    title: "Fork when switching providers",
+    title: agentSettingTitles["threads.forkOnSwitch"],
     keywords: ["provider", "account", "switch", "fork", "preserve", "history"],
   },
   {
     id: "threads.followUpBehavior",
     page: "/settings/agents",
-    title: "Messages sent while the agent works",
+    title: agentSettingTitles["threads.followUpBehavior"],
     keywords: ["queue", "steer", "follow up"],
   },
   {
     id: "generation.model",
     page: "/settings/agents",
-    title: "Titles and commit messages",
+    title: agentSettingTitles["generation.model"],
     keywords: ["utility model", "thread title", "commit message", "pull request", "haiku", "luna"],
   },
   {
     id: "roles.build",
     page: "/settings/agents",
-    title: "Build",
+    title: agentSettingTitles["roles.build"],
     keywords: ["roles", "runRole", "delegate", "coder", "implement"],
   },
   {
     id: "roles.judgment",
     page: "/settings/agents",
-    title: "Judgment",
+    title: agentSettingTitles["roles.judgment"],
     keywords: ["roles", "runRole", "delegate", "planner", "design"],
   },
   {
     id: "roles.review",
     page: "/settings/agents",
-    title: "Review",
+    title: agentSettingTitles["roles.review"],
     keywords: ["roles", "runRole", "delegate", "reviewer"],
   },
   {
     id: "roles.verify",
     page: "/settings/agents",
-    title: "Verify",
+    title: agentSettingTitles["roles.verify"],
     keywords: ["roles", "runRole", "delegate", "verifier", "check"],
   },
   {
     id: "generation.autoDraftCommits",
     page: "/settings/agents",
-    title: "Auto-draft commit messages",
+    title: agentSettingTitles["generation.autoDraftCommits"],
     keywords: ["commit", "draft", "generate"],
   },
   {
@@ -186,7 +187,7 @@ const entries = [
   {
     id: "automations.enabled",
     page: "/settings/agents",
-    title: "Run automations",
+    title: agentSettingTitles["automations.enabled"],
     keywords: ["schedule", "cron"],
   },
   {
@@ -198,13 +199,13 @@ const entries = [
   {
     id: "threads.settleOnClose",
     page: "/settings/agents",
-    title: "Settle when the PR closes",
+    title: agentSettingTitles["threads.settleOnClose"],
     keywords: ["pull request", "closed"],
   },
   {
     id: "access.defaultMode",
     page: "/settings/agents",
-    title: "Access",
+    title: agentSettingTitles["access.defaultMode"],
     keywords: ["permissions", "approval", "read-only", "ask", "auto review", "full access"],
   },
   {

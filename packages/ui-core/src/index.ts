@@ -15,6 +15,7 @@ export * from "./lost-child.ts";
 export * from "./agent-runs.ts";
 export * from "./agent-prs.ts";
 export * from "./arrange.ts";
+export * from "./agent-settings.ts";
 export * from "./attachment-fit.ts";
 export * from "./attachment-limits.ts";
 export * from "./context-errors.ts";
@@ -253,7 +254,11 @@ export { livePlanStep } from "./plan.ts";
 export { isThreadStartCall, startedThreadOf, type StartedThread } from "./started-thread.ts";
 export { saidAt } from "./fork-marker.ts";
 /** The utility model for titles and commit/PR drafts: the same resolution the daemon runs. */
-export { resolveUtilityModel, type UtilityModel } from "@ace/models/utility-model";
+export {
+  resolveUtilityModel,
+  utilityProviders,
+  type UtilityModel,
+} from "@ace/models/utility-model";
 
 export {
   JumpController,
