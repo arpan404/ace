@@ -205,8 +205,11 @@ struct ThreadView: View {
                 Group {
                     if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
                     // Then what holds the queue: a usage limit, a stopped turn, a paused queue.
-                    else if let hold = screen.queue?.strip, model.canOperate, !archived {
-                        QueueHoldStrip(strip: hold, act: { await model.actOnQueue($0) },
+                    else if let hold = screen.queue?.strip,
+                            HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).visible {
+                        QueueHoldStrip(strip: hold,
+                                       canAct: HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).actionable,
+                                       act: { await model.actOnQueue($0) },
                                        chooseModel: { showModels = true }, openQueue: { showQueue = true })
                     }
                     // A request needs the person first; the transfer's line waits under it.
