@@ -21,6 +21,11 @@ export function seedProjects(daemon: FakeDaemon): void {
     ],
     { roots: ["/Users/arpan", "/tmp"] },
   );
+  // Open in lists the host's editors; nothing starts in the fixture.
+  daemon.workspace.setEditors([
+    { id: "code", name: "Visual Studio Code", command: "/usr/local/bin/code" },
+    { id: "zed", name: "Zed", command: "/usr/local/bin/zed" },
+  ]);
   for (let index = 0; index < 240; index++)
     daemon.checkouts.seed(
       "ios-done",

@@ -167,7 +167,7 @@ export class ProjectManage {
       return Promise.resolve(refused("invalid", projectProblem("invalid").message));
     return new Promise((resolve) => {
       let done = false;
-      let stop = () => {};
+      let stop: () => void = noop;
       const finish = (outcome: WriteOutcome) => {
         if (done) return;
         done = true;
@@ -247,10 +247,13 @@ export class ProjectManage {
     const options = newThreadOptions(catalog.models, [], statuses);
     return projectDefaultModels(options.models, current)
       .slice(0, 400)
-      .map((model) => ({ ...model, label: `${model.label} · ${providerNames[model.provider]}` }));
+      .map((model) =>
+        Object.assign(model, { label: `${model.label} · ${providerNames[model.provider]}` }),
+      );
   }
 }
 
+const noop = () => {};
 const capital = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 /** The editor's fixed choices, in the web's words and order. */

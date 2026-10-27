@@ -170,6 +170,9 @@ class Refusal extends Error {
   }
 }
 
+const lifetime = (ms: number | undefined) =>
+  deviceLifetimes.find((entry) => entry.value === (ms ?? 0))?.label;
+
 /** Links, devices and open pairing links, each read on its own so one refusal hides only itself. */
 async function overview(
   ask: (operation: FleetOperation) => Promise<FleetOutcome>,
@@ -190,8 +193,6 @@ async function overview(
     ),
     read({ op: "pairings" }, (outcome) => (outcome.kind === "pairings" ? outcome.pairings : [])),
   ]);
-  const lifetime = (ms: number | undefined) =>
-    deviceLifetimes.find((entry) => entry.value === (ms ?? 0))?.label;
   return {
     ok: true,
     choices,

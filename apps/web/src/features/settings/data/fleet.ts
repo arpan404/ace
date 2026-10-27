@@ -106,11 +106,12 @@ export async function revokeDevice(client: ClientApi, deviceId: string): Promise
 
 export type { LinkAccess } from "@ace/ui-core";
 
+const pairingProblem = (error: unknown, machine: Machine) =>
+  linkPairingProblem(refusalCode(error), machine.name);
+const redeemProblem = (error: unknown, source: Machine, target: Machine) =>
+  linkRedeemProblem(refusalCode(error), source.name, target.name);
+
 export async function linkMachine(from: Machine, to: Machine, access: LinkAccess) {
-  const pairingProblem = (error: unknown, machine: Machine) =>
-    linkPairingProblem(refusalCode(error), machine.name);
-  const redeemProblem = (error: unknown, source: Machine, target: Machine) =>
-    linkRedeemProblem(refusalCode(error), source.name, target.name);
   if (!from.client || !to.client) throw new Error("Both machines must be online to link them.");
   const toClient = to.client;
   const fromClient = from.client;

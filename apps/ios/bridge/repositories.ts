@@ -145,7 +145,7 @@ export class Repositories {
             () => undefined,
           );
           return {
-            ...(status ?? {}),
+            ...status,
             ok: outcome.ok,
             ...(outcome.ok ? {} : { message: publicationProblem(outcome.code) }),
           };

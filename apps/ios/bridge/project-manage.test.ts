@@ -94,12 +94,12 @@ describe("managing a project from the phone", () => {
   });
 });
 
-describe("the folders a machine may open projects in", () => {
-  const roots = async (manage: ProjectManage) =>
-    ((await manage.answer({ op: "roots" })) as { folders: { path: string }[] }).folders.map(
-      (folder) => folder.path,
-    );
+const roots = async (manage: ProjectManage) =>
+  ((await manage.answer({ op: "roots" })) as { folders: { path: string }[] }).folders.map(
+    (folder) => folder.path,
+  );
 
+describe("the folders a machine may open projects in", () => {
   test("allowing a folder under ~ adds the machine's own path to its project folders", async () => {
     const { daemon, manage } = await machine();
     daemon.projects.seedFolders("/Users/dev", [{ path: "/Users/dev/code" }]);

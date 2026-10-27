@@ -256,7 +256,7 @@ struct PairDeviceView: View {
                 }
             }
             .frame(maxWidth: .infinity).padding(.vertical, AceTheme.Spacing.sm)
-            if let link = URL(string: url) { ShareLink("Share link", item: link) }
+            if let link = URL(string: url) { ShareLink(item: link) { Text("Share link") } }
         } footer: { Text("Scan it with ace on the other device, or open the link there.") }
         .insetRowBackground()
         Section { Button("Done") { done() } }.insetRowBackground()
