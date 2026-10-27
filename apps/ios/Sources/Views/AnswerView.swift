@@ -19,8 +19,8 @@ struct AnswerRow: View {
     @Environment(\.fileLinks) private var fileLinks
     @Environment(\.markdownRich) private var rich
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The finished answer with its math as text (`MarkdownRich`).
-    @State private var withMath: String?
+    /// The finished answer with its formulas marked, and the formulas (`MarkdownRich`).
+    @State private var withMath: MarkdownRich.Prose?
     @State private var full: String?
     @State private var problem: String?
     /// Whole answers past this many characters open in the reader instead of the row.
@@ -31,9 +31,11 @@ struct AnswerRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             if !shown.isEmpty {
                 let menu = !between && !live
-                MarkdownView(text: live ? shown : (withMath ?? rich?.knownProse(shown) ?? shown), selectable: !menu)
+                let math = live ? nil : (withMath ?? rich?.knownProse(shown))
+                MarkdownView(text: math?.text ?? shown, selectable: !menu)
                     .fileLinks(fileLinks, itemId: row.id)
                     .environment(\.markdownSettled, !live)
+                    .environment(\.markdownMath, math?.math ?? [])
                     .messageMenu(menu ? shown : "", title: "Answer", row: row)
                     .animation(reduceMotion ? nil : .smooth, value: withMath)
             }
@@ -50,8 +52,7 @@ struct AnswerRow: View {
         // Math is set once the answer stops streaming; a kept read draws on the first frame.
         .task(id: row.complete && !streaming ? shown : "") {
             guard row.complete, !streaming, let rich, rich.knownProse(shown) == nil else { return }
-            let read = await rich.prose(shown)
-            if read != shown { withMath = read }
+            if let read = await rich.prose(shown) { withMath = read }
         }
     }
     private var shown: String { full ?? row.text }

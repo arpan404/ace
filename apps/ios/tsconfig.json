@@ -4,5 +4,5 @@
     "lib": ["es2024", "dom"],
     "types": ["node", "bun"]
   },
-  "include": ["bridge", "scripts", "bridge-tests"]
+  "include": ["bridge", "scripts", "bridge-tests", "math"]
 }

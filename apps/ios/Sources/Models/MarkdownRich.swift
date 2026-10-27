@@ -11,21 +11,26 @@ import UIKit
         let colours: [[String]]
         let runs: [Int]
     }
-    private struct Prose: Decodable { let text: String }
+    /// The answer with each formula marked where it sits, and the formulas (`mathSpans`).
+    struct Prose: Decodable, Equatable {
+        let text: String
+        let math: [MathSpan]
+    }
     private let model: ClientModel
-    private var prose: [String: String] = [:]
+    private var prose: [String: Prose] = [:]
     private var code: [String: Code] = [:]
     private static let kept = 300
     init(model: ClientModel) { self.model = model }
 
-    func knownProse(_ text: String) -> String? { prose[text] }
+    func knownProse(_ text: String) -> Prose? { prose[text] }
     func knownCode(_ language: String, _ text: String) -> Code? { code[language + "\u{0}" + text] }
 
-    /// The text with its math as text; the text itself when it holds none or the read fails.
-    func prose(_ text: String) async -> String {
+    /// The text with its formulas marked; nil when it holds none or the read fails.
+    func prose(_ text: String) async -> Prose? {
         if let known = prose[text] { return known }
-        guard text.contains("$") || text.contains("\\(") || text.contains("\\[") else { return text }
-        let read = (try? await model.service(["type": "native.rich", "kind": "prose", "text": text], as: Prose.self))?.text ?? text
+        guard text.contains("$") || text.contains("\\(") || text.contains("\\[") else { return nil }
+        guard let read = try? await model.service(["type": "native.rich", "kind": "prose", "text": text], as: Prose.self),
+              !read.math.isEmpty else { return nil }
         keep(&prose, text, read)
         return read
     }

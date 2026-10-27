@@ -299,11 +299,32 @@ export function texText(tex: string): string {
 const inlineMath =
   /(`+)[\s\S]*?\1|\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$(?=\S)([^$\n]+?)(?<=\S)\$(?!\d)/g;
 
+/** One formula found in an answer: its TeX, whether it stands as a block, and its text form. */
+export interface MathSpan {
+  tex: string;
+  display: boolean;
+  /** `texText` of it: shown while the typeset formula is drawn, and if it can't be. */
+  text: string;
+}
+
 /**
- * An agent's Markdown with its math as text: display math (`$$` or `\[` on lines of their own)
- * as a fenced ```math block, inline math in place. Code spans and fences are left as written.
+ * Where formula `index` sits in `mathSpans`'s text: two private-use characters around its
+ * number, which no agent prose carries and which a client swaps for the typeset formula.
  */
-export function proseMath(markdown: string): string {
+export const mathMarker = (index: number) => `\uE000${index}\uE001`;
+
+/**
+ * An agent's Markdown with each formula found outside code (`$…$`, `\(…\)`, `$$…$$`, `\[…\]`)
+ * replaced by its marker: display math (`$$` or `\[` on lines of their own) as a fenced
+ * ```math block holding the marker, inline math in place. Code spans and fences stay as written.
+ */
+export function mathSpans(markdown: string): { text: string; math: MathSpan[] } {
+  const math: MathSpan[] = [];
+  const add = (tex: string, display: boolean) => {
+    const trimmed = tex.trim();
+    math.push({ tex: trimmed, display, text: texText(trimmed.replace(/\s*\n\s*/g, " ")).trim() });
+    return mathMarker(math.length - 1);
+  };
   const out: string[] = [];
   const lines = markdown.split("\n");
   let fence: string | undefined;
@@ -323,10 +344,9 @@ export function proseMath(markdown: string): string {
     }
     const opens = trimmed === "$$" ? "$$" : trimmed === "\\[" ? "\\]" : undefined;
     if (opens) {
-      const closer = opens === "$$" ? "$$" : "\\]";
-      const end = lines.findIndex((candidate, index) => index > at && candidate.trim() === closer);
+      const end = lines.findIndex((candidate, index) => index > at && candidate.trim() === opens);
       if (end > at) {
-        out.push("```math", texText(lines.slice(at + 1, end).join(" ")).trim(), "```");
+        out.push("```math", add(lines.slice(at + 1, end).join("\n"), true), "```");
         at = end;
         continue;
       }
@@ -337,10 +357,16 @@ export function proseMath(markdown: string): string {
         (whole: string, ticks?: string, ...groups: (string | undefined)[]) => {
           if (ticks) return whole;
           const tex = groups.slice(0, 4).find((group) => group !== undefined);
-          return tex === undefined ? whole : texText(tex);
+          return tex === undefined ? whole : add(tex, false);
         },
       ),
     );
   }
-  return out.join("\n");
+  return { text: out.join("\n"), math };
+}
+
+/** An agent's Markdown with its math as text (`mathSpans`, each formula in its text form). */
+export function proseMath(markdown: string): string {
+  const { text, math } = mathSpans(markdown);
+  return text.replace(/\uE000(\d+)\uE001/g, (_, index: string) => math[Number(index)]?.text ?? "");
 }

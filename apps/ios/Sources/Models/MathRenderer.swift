@@ -1,0 +1,195 @@
+import SwiftUI
+import UIKit
+import WebKit
+
+/// One formula of a finished answer, as the bridge found it (`mathSpans` in `@ace/ui-core`).
+struct MathSpan: Codable, Sendable, Equatable {
+    let tex: String
+    let display: Bool
+    /// Its text form, drawn until the typeset formula is, and if it can't be.
+    let text: String
+}
+
+/// A typeset formula: a template image (drawn in whatever ink its text has, so one image serves
+/// light and dark) and where its baseline falls, in points from its top.
+struct MathImage {
+    let image: UIImage
+    let baseline: CGFloat
+}
+
+/// Typesets formulas with KaTeX, the web's renderer and safety settings, in one offscreen web
+/// view that loads the bundled page (`Resources/math.html`, built by `scripts/build-math.ts`)
+/// the first time an answer holds math. Formulas are typeset one at a time, off any gesture or
+/// scroll, and each result is kept, so a formula is typeset once per size in a launch. A formula
+/// KaTeX refuses, or a page that won't load, answers nil and the text form stays.
+@MainActor final class MathRenderer: NSObject, WKNavigationDelegate {
+    static let shared = MathRenderer()
+    private var web: WKWebView?
+    private var loading: CheckedContinuation<Void, Never>?
+    private var ready = false
+    private var queue: Task<Void, Never>?
+    private let images = NSCache<NSString, Box>()
+    private var refused: Set<String> = []
+    private final class Box { let value: MathImage; init(_ value: MathImage) { self.value = value } }
+
+    override private init() {
+        images.totalCostLimit = 16 * 1024 * 1024
+        super.init()
+    }
+
+    private static func key(_ span: MathSpan, size: CGFloat) -> String { "\(span.display ? "D" : "I")\(Int(size * 10))\u{0}\(span.tex)" }
+
+    /// A formula already typeset at `size`, for drawing on the first frame.
+    func cached(_ span: MathSpan, size: CGFloat) -> MathImage? {
+        images.object(forKey: Self.key(span, size: size) as NSString)?.value
+    }
+
+    /// The formula typeset at `size` points; nil when it can't be.
+    func render(_ span: MathSpan, size: CGFloat) async -> MathImage? {
+        let key = Self.key(span, size: size)
+        if let hit = images.object(forKey: key as NSString) { return hit.value }
+        if refused.contains(key) { return nil }
+        let previous = queue
+        let work = Task { () -> MathImage? in
+            await previous?.value
+            if let hit = images.object(forKey: key as NSString) { return hit.value }
+            return await typeset(span, size: size)
+        }
+        queue = Task { _ = await work.value }
+        guard let image = await work.value else {
+            refused.insert(key)
+            return nil
+        }
+        let pixels = image.image.size.width * image.image.size.height * image.image.scale * image.image.scale
+        images.setObject(Box(image), forKey: key as NSString, cost: Int(pixels))
+        return image
+    }
+
+    private func typeset(_ span: MathSpan, size: CGFloat) async -> MathImage? {
+        guard let web = await page() else { return nil }
+        let reply = try? await web.callAsyncJavaScript("return await aceMath(tex, display, size)",
+                                                       arguments: ["tex": span.tex, "display": span.display, "size": Double(size)],
+                                                       contentWorld: .page)
+        guard let box = reply as? [String: Any],
+              let x = (box["x"] as? NSNumber)?.doubleValue, let y = (box["y"] as? NSNumber)?.doubleValue,
+              let width = (box["width"] as? NSNumber)?.doubleValue, let height = (box["height"] as? NSNumber)?.doubleValue,
+              let baseline = (box["baseline"] as? NSNumber)?.doubleValue,
+              width > 0, height > 0, x + width <= Double(web.bounds.width), y + height <= Double(web.bounds.height)
+        else { return nil }
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = CGRect(x: x, y: y, width: width, height: height)
+        configuration.snapshotWidth = NSNumber(value: width)
+        configuration.afterScreenUpdates = true
+        guard let shot = try? await web.takeSnapshot(configuration: configuration),
+              let drawn = await Task.detached(priority: .utility, operation: { Self.inked(shot) }).value else { return nil }
+        return MathImage(image: drawn.image.withRenderingMode(.alwaysTemplate), baseline: baseline - drawn.top)
+    }
+
+    /// The snapshot cropped to the pixels KaTeX drew, and how far down the crop starts, in points.
+    nonisolated private static func inked(_ shot: UIImage) -> (image: UIImage, top: CGFloat)? {
+        guard let cg = shot.cgImage else { return nil }
+        let width = cg.width, height = cg.height
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        guard let context = CGContext(data: &alpha, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return nil }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+        var minX = width, minY = height, maxX = -1, maxY = -1
+        for y in 0..<height {
+            let row = y * width
+            for x in 0..<width where alpha[row + x] > 8 {
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        // A pixel of air on each side, so antialiased edges are never cut.
+        let crop = CGRect(x: max(0, minX - 2), y: max(0, minY - 2),
+                          width: min(width, maxX + 3) - max(0, minX - 2), height: min(height, maxY + 3) - max(0, minY - 2))
+        guard let cropped = cg.cropping(to: crop) else { return nil }
+        return (UIImage(cgImage: cropped, scale: shot.scale, orientation: .up), crop.minY / shot.scale)
+    }
+
+    /// The page, loaded once. It sits in the window but off screen: a web view draws (and so
+    /// can be snapshotted) only while it is in one. It never takes touches or VoiceOver focus.
+    private func page() async -> WKWebView? {
+        if let web, ready { return web }
+        if web == nil {
+            guard let url = Bundle.main.url(forResource: "math", withExtension: "html"),
+                  let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+                    .flatMap(\.windows).first(where: \.isKeyWindow) else { return nil }
+            let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = .nonPersistent()
+            let view = WKWebView(frame: CGRect(x: -5000, y: 0, width: 2000, height: 800), configuration: configuration)
+            view.isOpaque = false
+            view.backgroundColor = .clear
+            view.scrollView.backgroundColor = .clear
+            view.scrollView.isScrollEnabled = false
+            // The window's safe area would push the page down under the snapshot's rectangle.
+            view.scrollView.contentInsetAdjustmentBehavior = .never
+            view.isUserInteractionEnabled = false
+            view.accessibilityElementsHidden = true
+            view.navigationDelegate = self
+            window.insertSubview(view, at: 0)
+            web = view
+            view.loadFileURL(url, allowingReadAccessTo: url)
+        }
+        if !ready { await withCheckedContinuation { loading = $0 } }
+        return ready ? web : nil
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Task { @MainActor in finishLoading(ok: true) }
+    }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        Task { @MainActor in finishLoading(ok: false) }
+    }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        Task { @MainActor in finishLoading(ok: false) }
+    }
+    /// Only the bundled page itself ever loads.
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
+        action.request.url?.isFileURL == true ? .allow : .cancel
+    }
+    private func finishLoading(ok: Bool) {
+        ready = ok
+        if !ok { web?.removeFromSuperview(); web = nil }
+        loading?.resume()
+        loading = nil
+    }
+}
+
+extension EnvironmentValues {
+    /// The finished answer's formulas, by the index their markers carry.
+    @Entry var markdownMath: [MathSpan] = []
+}
+
+enum MathMarkers {
+    /// Prose and formula markers in order: `.prose(text)` and `.formula(index)`.
+    enum Piece: Equatable { case prose(String), formula(Int) }
+    static func pieces(_ text: String) -> [Piece] {
+        var pieces: [Piece] = []
+        var rest = Substring(text)
+        while let open = rest.firstIndex(of: "\u{E000}"), let close = rest[open...].firstIndex(of: "\u{E001}") {
+            if open > rest.startIndex { pieces.append(.prose(String(rest[..<open]))) }
+            if let index = Int(rest[rest.index(after: open)..<close]) { pieces.append(.formula(index)) }
+            rest = rest[rest.index(after: close)...]
+        }
+        if !rest.isEmpty { pieces.append(.prose(String(rest))) }
+        return pieces
+    }
+    /// The text with each formula in its text form, where a formula can't be drawn inline.
+    static func plain(_ text: String, _ math: [MathSpan]) -> String {
+        guard text.contains("\u{E000}") else { return text }
+        return pieces(text).map { piece in
+            switch piece {
+            case .prose(let prose): prose
+            case .formula(let index): index < math.count ? math[index].text : ""
+            }
+        }.joined()
+    }
+    /// The font size formulas typeset at: the prose's, at the reader's text size.
+    @MainActor static func size(_ dynamicType: DynamicTypeSize) -> CGFloat {
+        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(dynamicType))
+        return UIFontMetrics(forTextStyle: .body).scaledValue(for: AceTheme.Typography.body.size, compatibleWith: traits)
+    }
+}

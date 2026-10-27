@@ -1,10 +1,10 @@
-import { proseMath, readDiffText } from "@ace/ui-core";
+import { mathSpans, readDiffText } from "@ace/ui-core";
 import { z } from "zod";
 import { colourRuns } from "./checkout-colours.ts";
 
 /*
  * What a finished answer draws beyond plain Markdown, asked for once it stops streaming so a
- * streamed delta never pays for it: its math as text (shared `proseMath`), and a fenced block's
+ * streamed delta never pays for it: its formulas (shared `mathSpans`), and a fenced block's
  * grammar colours (shared `colourRuns`, as the file screen draws them) or, for a diff fence, its
  * lines classified by the shared diff reader. Pure over the request.
  */
@@ -28,16 +28,30 @@ export const NativeRichRequest = z.discriminatedUnion("kind", [
 ]);
 
 export async function readNativeRich(request: z.infer<typeof NativeRichRequest>) {
-  if (request.kind === "prose") return { text: proseMath(request.text) };
-  const language = request.language.toLowerCase();
+  return request.kind === "prose"
+    ? richProse(request.text)
+    : richCode(request.language, request.text);
+}
+
+/**
+ * Each formula marked where it sits, for the phone to typeset (`Sources/Models/MathRenderer`)
+ * and to show in its text form until then, or if it can't be.
+ */
+export function richProse(text: string) {
+  return mathSpans(text);
+}
+
+/** A fenced block's colours, or a diff fence's classified lines. */
+export async function richCode(fence: string, text: string) {
+  const language = fence.toLowerCase();
   if (diffLanguages.has(language)) {
-    const diff = readDiffText(request.text);
+    const diff = readDiffText(text);
     return {
       diff: diff.lines.map((line) => ({ kind: line.kind, text: line.text })),
       colours: [],
       runs: [],
     };
   }
-  const runs = await colourRuns(request.text, language);
+  const runs = await colourRuns(text, language);
   return { diff: null, colours: runs?.colours ?? [], runs: runs?.runs ?? [] };
 }

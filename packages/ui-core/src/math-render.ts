@@ -2,9 +2,9 @@
  * KaTeX with the safety settings agent prose requires: no hyperlinks or HTML
  * commands (`trust: false`) and no red error output. Untrusted commands
  * (`\href`, `\url`) render red rather than throwing, so those fall back too.
- * Shared by the main thread and the markdown worker; both pass their own
- * `renderToString` in so neither imports the other's module (the worker must
- * not pull in KaTeX's CSS).
+ * Shared by the web's main thread and markdown worker and the phone's math page; each
+ * passes its own `renderToString` in, so none imports another's module (the worker
+ * must not pull in KaTeX's CSS).
  */
 
 export type TexRenderer = (

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { proseMath, texText } from "./tex-text.ts";
+import { mathMarker, mathSpans, proseMath, texText } from "./tex-text.ts";
 
 test("formulas read as their symbols, scripts and fractions", () => {
   expect(texText("\\sigma^2 = \\frac{1}{n}\\sum_{i=1}^{n}(x_i - \\mu)^2")).toBe(
@@ -41,5 +41,17 @@ test("inline and display math become text; code and prices stay as written", () 
       "echo $x$",
       "```",
     ].join("\n"),
+  );
+});
+
+test("each formula is found once, with its block-ness and text form, and marked where it was", () => {
+  const { text, math } = mathSpans("Spread $\\sigma^2$, mean \\(\\mu\\).\n$$\nE = mc^2\n$$\n`$x$`");
+  expect(math).toEqual([
+    { tex: "\\sigma^2", display: false, text: "σ²" },
+    { tex: "\\mu", display: false, text: "μ" },
+    { tex: "E = mc^2", display: true, text: "E = mc²" },
+  ]);
+  expect(text).toBe(
+    `Spread ${mathMarker(0)}, mean ${mathMarker(1)}.\n\`\`\`math\n${mathMarker(2)}\n\`\`\`\n\`$x$\``,
   );
 });
