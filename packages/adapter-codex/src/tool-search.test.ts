@@ -1,5 +1,9 @@
 import { expect, it } from "vitest";
-import { codexToolListing } from "./tool-search.ts";
+import { codexToolListing as listingFor, type CodexToolFacts } from "./tool-search.ts";
+
+/** Facts from a readable config with Codex's own catalog, unless the case says otherwise. */
+const codexToolListing = (facts: CodexToolFacts) =>
+  listingFor({ catalogSource: "codex", ...facts });
 
 /** Slugs as Codex 0.163.0's bundled catalog lists them. */
 const catalog = ["gpt-6.1-sol", "gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"];
@@ -65,4 +69,37 @@ it("strict third-party code mode keeps ace deferred without search, only on a co
 
 it("an unread catalog keeps every tool listed rather than guessing", () => {
   expect(codexToolListing({ model: "gpt-oss:20b", provider: "ollama" })).toBe("all");
+});
+
+it("a provider's own catalog URL matches only the exact slug, so a dated variant loads every tool", () => {
+  const provider = {
+    provider: "custom",
+    catalogSource: "provider",
+    catalog: ["custom-model"],
+  } as const;
+  // Codex finds no exact entry, falls back to metadata without search and loads every tool.
+  expect(codexToolListing({ ...provider, model: "custom-model-2026-10-27" })).toBe("static");
+  expect(codexToolListing({ ...provider, model: "openrouter/custom-model" })).toBe("static");
+});
+
+it("a model a custom catalog lists keeps every tool listed, since its search support is not visible", () => {
+  // model/list never returns supports_search_tool, and a custom catalog's author sets it.
+  expect(
+    codexToolListing({
+      provider: "custom",
+      catalogSource: "provider",
+      model: "custom-model",
+      catalog: ["custom-model"],
+    }),
+  ).toBe("all");
+  // A catalog file matches by prefix, as Codex's own catalog does, but its metadata is custom.
+  const file = { catalogSource: "file", catalog: ["local-coder"] } as const;
+  expect(codexToolListing({ ...file, model: "local-coder-7b" })).toBe("all");
+  expect(codexToolListing({ ...file, model: "other-model" })).toBe("static");
+  // The default model of a custom catalog is one of its own entries.
+  expect(codexToolListing({ catalogSource: "provider", provider: "custom" })).toBe("all");
+});
+
+it("an unread config keeps every tool listed, whatever the catalog", () => {
+  expect(listingFor({ model: "gpt-oss:20b", catalog })).toBe("all");
 });

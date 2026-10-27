@@ -211,6 +211,11 @@ for await (const line of createInterface({ input: process.stdin })) {
         }),
       },
     });
+  } else if (
+    (method === "config/read" || method === "model/list") &&
+    process.env["ACE_FAKE_RESUME"] === "stalled-facts"
+  ) {
+    // A stalled app-server: these reads are never answered.
   } else if (method === "config/read") {
     respond({
       config: {

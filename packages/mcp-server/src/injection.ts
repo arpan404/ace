@@ -4,11 +4,9 @@ import {
   codexClientHeader,
   coreToolsHeader,
   callBudgetHeader,
-  dispatches,
   toolListingHeader,
   type ToolListing,
 } from "./toolsets.ts";
-import { aceToolDispatch } from "./tool-names.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { destructiveAceTools } from "./agent-control.ts";
 import {
@@ -50,10 +48,10 @@ export function codexInjection(input: Injected & { listing?: ToolListing | undef
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
   const listing = input.listing ?? usualToolListing("codex");
   const header = toolListingHeader(listing);
-  // On the fixed list tools_call reaches the destructive tools too, so it keeps the prompt.
-  const prompted = dispatches(listing)
-    ? [...destructiveAceTools, aceToolDispatch]
-    : destructiveAceTools;
+  // On the fixed list the destructive tools are listed by name, so they keep Codex's prompt and
+  // tools_call, which refuses them there, is approved like every other ace tool: Codex never asks
+  // in read-only access, so a prompted tools_call would refuse even a read-only target.
+  const prompted = destructiveAceTools;
   return {
     config: {
       "mcp_servers.ace": {

@@ -494,7 +494,14 @@ export async function openCodexSession(
       injection = codexInjection({
         ...ctx.aceMcp,
         listing: codexToolListing(
-          await readCodexToolFacts(request, ctx.cwd, ctx.model, ctx.signal),
+          await readCodexToolFacts({
+            request: (method, params) => request(method, params),
+            cwd: ctx.cwd,
+            model: ctx.model,
+            signal: ctx.signal,
+            schedule: io.schedule,
+            catalogs: link.catalogs,
+          }),
         ),
       });
     const threadPolicy: Pick<

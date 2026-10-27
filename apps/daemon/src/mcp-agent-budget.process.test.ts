@@ -6,6 +6,7 @@ import {
   ToolRegistry,
   aceInstructions,
   bareToolName,
+  codexClientHeader,
   coreToolsHeader,
   developerInstructions,
   nodeScheduler,
@@ -314,13 +315,28 @@ const codexWithoutToolSearchCap = 3_100;
 it(`a Codex session without tool search pays at most ${codexWithoutToolSearchCap} tokens of ace context per request`, async () => {
   const agents = await session();
   const text = guidance("codex", { ...agents.facts, listing: "static" });
+  if (!world) throw new Error("Missing world");
+  // As Codex connects: the fixed list, as Codex's client, which lists destructive tools by name.
+  const { connection } = await world.agent({});
+  const codex = await EvalAgent.connect({
+    url: connection.url,
+    bearer: connection.bearer,
+    nativeInstructions: "",
+    serverInstructions: false,
+    headers: {
+      [staticToolsHeader.name]: staticToolsHeader.value,
+      [codexClientHeader.name]: codexClientHeader.value,
+    },
+  });
   const always = [
     text,
-    ...agents.fixed.tools.map(descriptor),
+    ...codex.tools.map(descriptor),
     text.includes("installed as skills") ? await skillListing() : "",
   ].join("\n");
   expect(text).toContain("tools_call {name, arguments}");
+  expect(codex.has("automation_remove")).toBe(true);
   expect(tokens(always)).toBeLessThanOrEqual(codexWithoutToolSearchCap);
+  await codex.close();
 });
 
 it("Claude's per-request ace context stays under 1,550 tokens", async () => {

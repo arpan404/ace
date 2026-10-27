@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { bareToolName, codexInjection, type ToolListing } from "@ace/mcp-server";
-import { EvalAgent } from "./evals/agent.ts";
+import { EvalAgent, type ListedTool } from "./evals/agent.ts";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
 
 /**
@@ -29,7 +29,12 @@ async function codexSession(listing?: ToolListing) {
     serverInstructions: false,
     headers,
   });
-  return { claude, codex, instructions: injected.developerInstructions };
+  return {
+    claude,
+    codex,
+    instructions: injected.developerInstructions,
+    server: injected.config["mcp_servers.ace"],
+  };
 }
 
 const Guide = z.object({
@@ -127,5 +132,56 @@ it("Codex's guidance names the way in for a model without exec: its tool_search,
   );
   const read = Guide.parse((await codex.call("guide", { topic: "ace-threads" })).data);
   expect(read.how).toContain("without exec, load them with your tool_search");
+  await codex.close();
+});
+
+type CodexServerEntry = Awaited<ReturnType<typeof codexSession>>["server"];
+/**
+ * Codex 0.163.0's gate before an MCP call, as ace's read-only access runs Codex: approval policy
+ * `never` without full disk write (`core/src/mcp_tool_call.rs`, `codex-mcp/src/mcp/mod.rs`). The
+ * tool's `approval_mode`, else the server's default, decides: `approve` runs, `prompt` asks, and
+ * under `never` an ask is refused. `auto` and `writes` read the tool's annotations.
+ */
+function codexRunsUnderNever(server: CodexServerEntry, tool: ListedTool): boolean {
+  const tools: Record<string, { approval_mode: string }> = server.tools;
+  const mode = tools[bareToolName(tool.name)]?.approval_mode ?? server.default_tools_approval_mode;
+  const hints = tool.annotations ?? {};
+  if (mode === "approve") return true;
+  if (mode === "prompt") return false;
+  if (mode === "writes") return hints["readOnlyHint"] === true;
+  if (hints["destructiveHint"] === true) return false;
+  if (hints["readOnlyHint"] === true) return true;
+  return hints["destructiveHint"] === false && hints["openWorldHint"] === false;
+}
+
+it("on the fixed list in read-only access, Codex runs a read-only tools_call target and asks before a destructive tool", async () => {
+  const { codex, server } = await codexSession("static");
+  await world?.daemon.settings.set("automations.enabled", true, { kind: "global" });
+  /** A call as Codex makes it: through its approval gate, then to ace. */
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const tool = codex.tools.find((listed) => bareToolName(listed.name) === name);
+    if (!tool) return "unlisted";
+    if (!codexRunsUnderNever(server, tool)) return "refused by Codex";
+    const result = await codex.call(name, args);
+    return result.failed ? `failed: ${result.text}` : "ran";
+  };
+  // threads_find is not on the fixed list: tools_call is the only way to it.
+  expect(codex.has("threads_find")).toBe(false);
+  expect(await call("tools_call", { name: "threads_find", arguments: { query: "x" } })).toBe("ran");
+  // The destructive tool is listed by name and keeps Codex's ask, which `never` refuses.
+  const saved = await codex.call("tools_call", {
+    name: "automation_put",
+    arguments: { id: "nightly-lint", title: "Nightly lint", prompt: "Run the linter" },
+  });
+  expect(saved.failed, saved.text).toBe(false);
+  expect(await call("automation_remove", { id: "nightly-lint" })).toBe("refused by Codex");
+  // tools_call, which Codex runs without asking, never reaches it.
+  const dispatched = await call("tools_call", {
+    name: "automation_remove",
+    arguments: { id: "nightly-lint" },
+  });
+  expect(dispatched).toMatch(/^failed: .*by its own name/);
+  const listed = await codex.call("tools_call", { name: "automations_list", arguments: {} });
+  expect(listed.text).toContain("nightly-lint");
   await codex.close();
 });
