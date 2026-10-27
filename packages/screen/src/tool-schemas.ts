@@ -10,14 +10,30 @@ import {
   ScreenUIRef,
   type ApprovalTarget,
 } from "@ace/protocol";
+import { keepPattern } from "@ace/mcp-server";
 import { z } from "zod";
 
-const sessionId = ScreenId.optional().describe(
-  "sessionId from screen_open_app. Omit when this thread controls one app.",
-);
+const sessionId = ScreenId.optional().describe("Omit with one app.");
 const windowId = z.number().int().positive();
 const coordinate = z.number().finite().nonnegative();
 const delta = z.number().int().min(-1000).max(1000);
+/**
+ * Exactly the names `ScreenKey` accepts, as one pattern: models read it instead of a 174-entry
+ * enum, and decoding still checks the enum. It is the field's only list of names, so it is
+ * advertised even though other patterns are not.
+ */
+export const screenKeyPattern =
+  /^(?:[!-~]|[Ff](?:[1-9]|1\d|20)|[Ee](?:nter|sc(?:ape)?|nd)|[Rr](?:eturn|ight)|[Tt]ab|[Ss]pace|[Bb]ackspace|[Dd](?:elete|own)|[Hh]ome|[Ll]eft|[Uu]p|Page(?:Up|Down)|page(?:up|down)|Arrow(?:Left|Right|Up|Down)|arrow(?:left|right|up|down))$/;
+const toolKey = z.string().regex(screenKeyPattern).meta(keepPattern).pipe(ScreenKey);
+const [click, drag, keyPress, typed, scrolled, pasted] = ScreenMeasurementAction.options;
+const MeasuredAction = z.discriminatedUnion("kind", [
+  click,
+  drag,
+  keyPress.extend({ key: toolKey }),
+  typed,
+  scrolled,
+  pasted,
+]);
 
 /** Fields an action needs, and fields it never reads; both are argument errors. */
 export function perAction<T extends Record<string, unknown>>(
@@ -48,19 +64,15 @@ const ScreenInputFields = z.strictObject({
   sessionId,
   action: z
     .enum(["click", "type", "key", "scroll", "paste"])
-    .describe(
-      "click needs x,y; type and paste need text; key needs key (plus modifiers); scroll needs dx,dy and optional x,y.",
-    ),
-  x: coordinate
-    .optional()
-    .describe("Target-window point (screenshot pixels divided by its scale)."),
-  y: coordinate.optional().describe("Target-window point, like x."),
-  button: z.enum(["left", "right"]).optional().describe("Mouse button for click. Default left."),
-  text: z.string().max(4096).optional().describe("Text to type or paste."),
-  key: ScreenKey.optional().describe("One named key, without modifiers, e.g. Enter, Tab, l."),
-  modifiers: ScreenKeyModifiers.unwrap().optional().describe("Modifiers held with key."),
-  dx: delta.optional().describe("Horizontal scroll distance in points."),
-  dy: delta.optional().describe("Vertical scroll distance in points; positive scrolls down."),
+    .describe("click: x,y; button. type, paste: text. key: key; modifiers. scroll: dx,dy; x,y."),
+  x: coordinate.optional().describe("Window point: screenshot pixel / scale."),
+  y: coordinate.optional(),
+  button: z.enum(["left", "right"]).optional(),
+  text: z.string().max(4096).optional(),
+  key: toolKey.optional(),
+  modifiers: ScreenKeyModifiers.unwrap().optional(),
+  dx: delta.optional(),
+  dy: delta.optional().describe("Positive scrolls down."),
 });
 const session = ["sessionId"] as const;
 export const ScreenInputArgs = ScreenInputFields.superRefine(
@@ -75,21 +87,17 @@ export const ScreenInputArgs = ScreenInputFields.superRefine(
 
 const UIActFields = z.strictObject({
   sessionId,
-  ref: ScreenUIRef.optional().describe("Element ref from screen_ui_tree."),
-  action: ScreenUIAction.optional().describe("Accessibility action to perform on ref."),
-  name: ScreenUIActOptions.shape.name.describe(
-    "Secondary action name, for performSecondaryAction.",
-  ),
-  range: ScreenUIActOptions.shape.range.describe("Text range, for selectText."),
-  value: ScreenUIActOptions.shape.value.describe(
-    "setValue text or boolean, or {dx,dy} for scroll.",
-  ),
+  ref: ScreenUIRef.optional(),
+  action: ScreenUIAction.optional(),
+  name: ScreenUIActOptions.shape.name.describe("For performSecondaryAction."),
+  range: ScreenUIActOptions.shape.range,
+  value: ScreenUIActOptions.shape.value.describe("For setValue or scroll."),
   menu: z
     .array(z.string().min(1).max(256))
     .min(1)
     .max(8)
     .optional()
-    .describe('Menu path to press instead of a ref, e.g. ["File","New Window"].'),
+    .describe('Instead of ref, e.g. ["File","New Window"].'),
 });
 export const ScreenUIActArgs = UIActFields.superRefine((value, context) => {
   if (value.menu !== undefined) {
@@ -105,12 +113,12 @@ export const ScreenUIActArgs = UIActFields.superRefine((value, context) => {
 
 /** Read fields shared by screen_ui_tree and sim_ui: a query runs a find, otherwise the tree. */
 export const uiReadShape = {
-  role: z.string().min(1).max(128).optional().describe("Find elements with this role."),
-  name: z.string().min(1).max(256).optional().describe("Find elements whose name matches."),
-  text: z.string().min(1).max(512).optional().describe("Find elements containing this text."),
-  limit: z.number().int().min(1).max(64).default(16).describe("Most matches a find returns."),
-  maxDepth: z.number().int().min(0).max(16).default(8).describe("Tree depth without a query."),
-  maxNodes: z.number().int().min(1).max(512).default(128).describe("Tree nodes without a query."),
+  role: z.string().min(1).max(128).optional(),
+  name: z.string().min(1).max(256).optional(),
+  text: z.string().min(1).max(512).optional(),
+  limit: z.number().int().min(1).max(64).default(16).describe("Find only."),
+  maxDepth: z.number().int().min(0).max(16).default(8).describe("Tree only."),
+  maxNodes: z.number().int().min(1).max(512).default(128).describe("Tree only."),
 };
 type UIRead = {
   role?: string | undefined;
@@ -138,43 +146,25 @@ export function uiReadRequest(args: UIRead & UITree):
 
 export const computerUseSchemas = {
   screen_open_app: z.strictObject({
-    bundleId: ScreenBundle.describe("Exact macOS bundle id, e.g. com.apple.TextEdit."),
-    windowId: windowId
-      .optional()
-      .describe(
-        "A windowId from screen_windows or an earlier result. On an app you already control, switches to that window.",
-      ),
-    url: ScreenAppURL.optional().describe(
-      "URL or deep link to open in the app once acquired. For websites use browser_open.",
-    ),
+    bundleId: ScreenBundle.describe("e.g. com.apple.TextEdit."),
+    windowId: windowId.optional().describe("From screen_windows."),
+    url: ScreenAppURL.optional().describe("A deep link."),
     mode: z
       .enum(["background", "foreground"])
       .optional()
-      .describe(
-        "foreground activates the app and uses the real cursor and keyboard; use it only when the app ignores background input. Omitted keeps the current mode (new sessions start in background).",
-      ),
+      .describe("foreground takes the real cursor and keyboard."),
   }),
-  screen_windows: z.strictObject({
-    bundleId: ScreenBundle.describe("Exact macOS bundle id."),
-  }),
+  screen_windows: z.strictObject({ bundleId: ScreenBundle }),
   screen_ui_tree: z.strictObject({ sessionId, ...uiReadShape }),
   screen_ui_act: ScreenUIActArgs,
   screen_input: ScreenInputArgs,
   screen_screenshot: z.strictObject({ sessionId }),
   screen_measure: z.strictObject({
     sessionId,
-    action: ScreenMeasurementAction.optional().describe(
-      "Input to perform and measure. Omit to observe only.",
-    ),
-    observeMs: z
-      .number()
-      .int()
-      .min(1)
-      .max(10_000)
-      .default(2000)
-      .describe("How long to watch per run."),
-    repeat: z.number().int().min(1).max(5).default(1).describe("Runs; repeats redo the action."),
-    filmstrip: z.boolean().default(true).describe("Attach a timestamped filmstrip image."),
+    action: MeasuredAction.optional().describe("Omit to observe only."),
+    observeMs: z.number().int().min(1).max(10_000).default(2000).describe("Per run."),
+    repeat: z.number().int().min(1).max(5).default(1),
+    filmstrip: z.boolean().default(true),
   }),
 };
 export type ScreenToolName = keyof typeof computerUseSchemas;
@@ -193,47 +183,47 @@ export const screenToolMetadata: Record<
     riskClass: "external-effect",
     timeoutMs: 15_000,
     description:
-      "Launch or rejoin a macOS app by bundle id and take a background session the person can watch. Returns sessionId and candidate windows. Pass windowId to pick or switch window, url for a deep link, mode for foreground input. Then screen_ui_tree. For websites use browser_open.",
+      "Launch or rejoin a macOS app in a background session the person can watch; returns sessionId and windows.",
   },
   screen_windows: {
     title: "List app windows",
     riskClass: "read-only",
     timeoutMs: 15_000,
-    description: "List an app's windows with windowIds. Pass one to screen_open_app.",
+    description: "List an app's windows, with windowIds for screen_open_app.",
   },
   screen_ui_tree: {
     title: "Read app UI",
     riskClass: "read-only",
     timeoutMs: 15_000,
     description:
-      "Read the app's accessibility tree with stable refs, or pass role, name or text to find matching elements. Use before screenshots; act with screen_ui_act.",
+      "Read the app's accessibility tree with refs, or find elements by role, name or text.",
   },
   screen_ui_act: {
     title: "Act on app element",
     riskClass: "external-effect",
     timeoutMs: 15_000,
     description:
-      "Perform an accessibility action on a ref from screen_ui_tree, or press a menu path. Returns a settled UI snapshot.",
+      "Do an accessibility action on a screen_ui_tree ref, or press a menu path. Returns the settled UI.",
   },
   screen_input: {
     title: "Send app input",
     riskClass: "external-effect",
     timeoutMs: 15_000,
     description:
-      "Click, type, paste, press a key or scroll in the app. Prefer screen_ui_act; points are target-window points. Returns a settled UI snapshot.",
+      "Click, type, paste, press a key or scroll in the app; prefer screen_ui_act. Returns the settled UI.",
   },
   screen_screenshot: {
     title: "Screenshot app",
     riskClass: "read-only",
     timeoutMs: 30_000,
     description:
-      "Visual check of the app window. Costs more tokens than screen_ui_tree. Reports the scale between image pixels and input points.",
+      "Picture of the app window; costlier than screen_ui_tree. Reports its scale to input points.",
   },
   screen_measure: {
     title: "Measure app smoothness",
     riskClass: "external-effect",
     timeoutMs: 90_000,
     description:
-      "Measure frame timing while observing, or while performing one input action. Returns latency, settle time, FPS and hitch time per second (<5 ms smooth, 5–10 minor, >10 janky) plus a filmstrip. At most 10 s per run and 20 s total.",
+      "Measure frame timing while observing or during one input action. Hitch ms per second: under 5 smooth, over 10 janky. At most 20 s in all.",
   },
 };

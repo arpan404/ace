@@ -118,17 +118,24 @@ export const nodeScheduler: Scheduler = {
 };
 const JsonObjectSchema = z.object({ type: z.literal("object") }).passthrough();
 /**
- * Claude Code defers MCP tools behind tool search; these stay loaded because the instructions
- * name them as entry points: project context, the guides, delegation and its wait, and the
- * search for the rest. browser_open and html_render are deferred: they are used in some sessions
- * only, and Claude loads them by exact name (`session-guidance.ts`). Every upfront tool costs
- * context on every request, so keep this short. Compared by bare name.
+ * Clients that defer MCP tools load these upfront, by their own `_meta` key; every upfront tool
+ * costs context on every request, so keep both short. Compared by bare name.
+ *
+ * Claude Code (and the Claude Agent SDK) searches deferred tools itself and lists ace's guides
+ * as skills, so only the two entry points it calls without a lookup stay loaded: project
+ * context and delegation, whose `waitSeconds` waits in the same call. `tools_find` would be a
+ * second, slower search (Claude must still load whatever it finds before calling it), `guide` a
+ * second copy of the skills, and `wait` serves only a later collection; each loads by exact
+ * name in one step (`session-guidance.ts`).
+ *
+ * Antigravity has neither a tool search nor skills: it reads a deferred tool's definition file
+ * by name, so it also keeps `wait`, `guide` and `tools_find` loaded.
  */
-const alwaysLoadedTools: ReadonlySet<string> = new Set([
-  "context",
-  "guide",
-  "delegate",
+const claudeAlwaysLoaded: ReadonlySet<string> = new Set(["context", "delegate"]);
+const antigravityAlwaysLoaded: ReadonlySet<string> = new Set([
+  ...claudeAlwaysLoaded,
   "wait",
+  "guide",
   "tools_find",
 ]);
 function noop(): void {}
@@ -286,8 +293,9 @@ export class ToolRegistry {
         "ace/riskClass": risk,
         // Antigravity (1.4.2, CLI and ACP server) loads tools carrying its own key in full and
         // reaches the rest through its call_mcp_tool.
-        ...(alwaysLoadedTools.has(bareToolName(name))
-          ? { "anthropic/alwaysLoad": true, "antigravity/alwaysLoad": true }
+        ...(claudeAlwaysLoaded.has(bareToolName(name)) ? { "anthropic/alwaysLoad": true } : {}),
+        ...(antigravityAlwaysLoaded.has(bareToolName(name))
+          ? { "antigravity/alwaysLoad": true }
           : {}),
       },
       inputSchema,

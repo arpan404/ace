@@ -48,7 +48,11 @@ function expectation(issue: z.core.$ZodIssue): string {
     case "too_small":
       return `${issue.origin} ${issue.inclusive === false ? ">" : ">="} ${String(issue.minimum)}${issue.origin === "string" || issue.origin === "array" ? " in length" : ""}`;
     case "invalid_format":
-      return `${issue.format} format`;
+      // Advertised schemas drop patterns (`advertised-schema.ts`), so the issue names the one
+      // the value broke: it comes from ace's schema, never from the value.
+      return issue.format === "regex" && typeof issue.pattern === "string"
+        ? clip(`a string matching ${issue.pattern}`)
+        : `${issue.format} format`;
     case "not_multiple_of":
       return `a multiple of ${String(issue.divisor)}`;
     case "invalid_union":

@@ -4,7 +4,6 @@
   "additionalProperties": false,
   "properties": {
     "family": {
-      "description": "Only this family's tools.",
       "enum": [
         "ace-agents",
         "ace-browser",
@@ -17,13 +16,12 @@
     },
     "limit": {
       "default": 5,
-      "description": "At most this many.",
       "maximum": 10,
       "minimum": 1,
       "type": "integer"
     },
     "query": {
-      "description": "What you want to do, in plain words, e.g. \"click a button in Safari\".",
+      "description": "In plain words, e.g. \"click a button in Safari\".",
       "maxLength": 500,
       "minLength": 1,
       "type": "string"

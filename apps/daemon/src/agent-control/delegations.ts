@@ -38,7 +38,7 @@ import { threadOutcome } from "./results.ts";
 import { messageArrival } from "./message-arrival.ts";
 import { deliveryNotice, noticeText, type DeliveryNotice } from "./message-notices.ts";
 import { MessageSenders } from "./message-senders.ts";
-import { readAgentCatalog } from "./catalog.ts";
+import { readAgentCatalog, readModelRoster } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
 import { accountModelName, delegationEffort, selectedDelegationModel } from "./models.ts";
@@ -219,6 +219,10 @@ export class DelegationService {
     input: import("zod").z.infer<typeof import("@ace/protocol").AgentCatalogInput>,
   ) {
     return readAgentCatalog(this.deps, caller, input);
+  }
+  /** The compact roster the `models` tool shows: current models, every account once. */
+  models(caller: McpAttribution, input: import("@ace/protocol").AgentModelsInput) {
+    return readModelRoster(this.deps, caller, input);
   }
   canFork(threadId: ThreadId) {
     const thread = this.deps.store.getThread(threadId);

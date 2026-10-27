@@ -1,5 +1,5 @@
 import { z } from "zod";
-export const ScreenId = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
+export const ScreenId = z.string().regex(/^[\w-]{1,64}$/);
 export const ScreenBundle = z.string().min(1).max(256);
 export const ScreenPermissions = z.object({
   screenRecording: z.boolean(),

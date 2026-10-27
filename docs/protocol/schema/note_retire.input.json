@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "noteId": {
-      "description": "The note's id from context topic notes.",
+      "description": "From context topic notes.",
       "maxLength": 64,
       "minLength": 1,
       "type": "string"

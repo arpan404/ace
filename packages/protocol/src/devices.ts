@@ -7,7 +7,7 @@ export * from "./device-chrome.ts";
 export const AppDeviceId = z
   .string()
   .max(256)
-  .regex(/^(?:ios:[a-fA-F0-9-]{36}|android:[a-zA-Z0-9_.-]{1,200})$/);
+  .regex(/^(?:ios:[\da-fA-F-]{36}|android:[\w.-]{1,200})$/);
 export const AppDevice = z.object({
   id: AppDeviceId,
   platform: z.enum(["ios", "android"]),
