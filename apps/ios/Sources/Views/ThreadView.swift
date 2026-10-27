@@ -57,6 +57,13 @@ struct ThreadView: View {
     @State private var forkKey: String?
     /// Bumped to bring the keyboard up: a fork opened, a message edited.
     @State private var composerFocus = 0
+    /// The message whose Fork or Edit opened the fork: the strip grows out of its button.
+    @State private var forkSource: String?
+    /// Each fork the machine started: a success tap as it opens.
+    @State private var forksStarted = 0
+    @Namespace private var forkMorph
+    /// Finished answers' math, code colours and diff lines, kept while the thread is open.
+    @State private var rich: MarkdownRich?
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
     /// Starting prefers the inbox's current row (confirmed or not, so an unconfirmed start
     /// still reads Syncing); without one it falls back conservatively as unconfirmed.
@@ -113,15 +120,29 @@ struct ThreadView: View {
                 }
             }
             .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal)
-            .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet, openThread: openThread)
+            .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet,
+                               forkFrom: { forkSource = $0 }, openThread: openThread)
+            .environment(\.forkMorph, (forkMorph, forkSource))
+            .environment(\.markdownRich, rich)
+            .task { if rich == nil { rich = MarkdownRich(model: model) } }
+            .sensoryFeedback(.success, trigger: forksStarted)
+            // A new thread started from this one (a fork, a continuation): a success tap as it opens.
+            .onChange(of: screen.continued) { _, opened in if opened != nil { forksStarted += 1 } }
             // A fork opened: its words go where the composer keeps them (an edited message's to
             // start with), then the composer writes to it with the keyboard up.
             .onChange(of: screen.fork?.key, initial: true) { _, key in
-                guard let fork = screen.fork, let hostId = model.hostId, key != nil else { forkKey = nil; return }
+                guard let fork = screen.fork, let hostId = model.hostId, key != nil else {
+                    forkKey = nil
+                    forkSource = nil
+                    return
+                }
                 let kept = ThreadDrafts.key(hostId: hostId, threadId: fork.key)
                 if !fork.prefill.isEmpty, drafts?.text(for: kept).isEmpty ?? false { drafts?.save(fork.prefill, for: kept) }
                 forkKey = kept
                 composerFocus += 1
+                // The strip starts on the button that opened it; letting go of the match next
+                // frame carries it into its place in the composer in one motion.
+                Task { @MainActor in withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth) { forkSource = nil } }
             }
             .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
                 Button("OK") { activityProblem = nil }
@@ -242,7 +263,11 @@ struct ThreadView: View {
                                  draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                                  suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),
                                  run: runComposerAction, focusRequest: composerFocus) {
-                        if let fork = screen.fork { ForkStrip(fork: fork) { model.closeFork() } }
+                        if let fork = screen.fork {
+                            ForkStrip(fork: fork) { model.closeFork() }
+                                .modifier(ForkDestination(namespace: forkMorph, rowId: forkSource))
+                                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+                        }
                         ComposerAccessories(model: model, screen: screen, problem: attachProblem)
                     } leading: { pick in
                         AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, ask: $askAttach)
@@ -273,6 +298,8 @@ struct ThreadView: View {
             .composerGlassGroup()
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
+        // The fork strip grows out of the button that opened it, or fades under Reduce Motion.
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.fork?.key)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.

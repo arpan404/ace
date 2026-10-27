@@ -72,13 +72,14 @@ struct MessageActions: View {
     let copy: String?
     let label: String
     @Environment(\.messageTransitions) private var transitions
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var copied = false
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
+        let offered = transitions?.offered(for: row) ?? []
+        HStack(spacing: AceTheme.Spacing.none) {
             Text(Date(timeIntervalSince1970: row.createdAt / 1000), format: .dateTime.hour().minute())
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .padding(.trailing, AceTheme.Spacing.xxs)
             if let copy {
                 MessageActionButton(icon: copied ? .check : .copy, label: copied ? "Copied" : label, identifier: "copy.\(row.id)") {
                     UIPasteboard.general.string = copy
@@ -86,18 +87,23 @@ struct MessageActions: View {
                 }
             }
             if let transitions {
-                ForEach(transitions.offered(for: row), id: \.self) { action in
+                ForEach(offered, id: \.self) { action in
                     MessageActionButton(icon: action.icon, label: action.label, identifier: "\(action.identifier).\(row.id)") {
                         transitions.run(action, row)
                     }
+                    .modifier(ForkSource(rowId: row.id, active: action == .fork || action == .edit))
+                    .transition(.opacity)
                 }
             }
             if copied {
                 Text("Copied").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .transition(.opacity)
             }
         }
-        .frame(minHeight: AceTheme.Spacing.xxl)
+        // A turn ending brings Fork in, Copy turns to Copied: each fades rather than pops.
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: offered)
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: copied)
         .sensoryFeedback(.success, trigger: copied) { _, now in now }
         .task(id: copied) {
             guard copied else { return }
@@ -106,21 +112,46 @@ struct MessageActions: View {
     }
 }
 
-/// One bare icon of a message's action row, with a touch target larger than it looks.
+/// One bare icon of a message's action row: a 15pt glyph in a full 44pt touch target, so a thumb
+/// hits it without the row taking more room than a caption line (the target reaches past it).
 private struct MessageActionButton: View {
     let icon: AceIcon.Name
     let label: String
     let identifier: String
     let action: () -> Void
+    private let reach = (AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xxl) / 2
     var body: some View {
         Button(action: action) {
-            AceIcon(icon, size: 14, relativeTo: .caption)
-                .frame(width: AceTheme.Spacing.xxl, height: AceTheme.Spacing.xxl)
-                .contentShape(Rectangle().inset(by: -AceTheme.Spacing.sm))
+            AceIcon(icon, size: 15, relativeTo: .caption)
+                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Spacing.xxl)
+                // The full target's height, reaching into the room above and below the row.
+                .padding(.vertical, reach)
+                .contentShape(Rectangle())
+                .padding(.vertical, -reach)
         }
         .buttonStyle(.plain)
         .foregroundStyle(AceTheme.Colours.subtleForeground)
         .accessibilityLabel(label)
         .accessibilityIdentifier("message.\(identifier)")
+    }
+}
+
+extension EnvironmentValues {
+    /// The thread screen's namespace for the fork strip growing out of the button that opened it,
+    /// and the row whose button that was.
+    @Entry var forkMorph: (namespace: Namespace.ID, rowId: String?)? = nil
+}
+
+/// The Fork or Edit button the open fork strip grew out of: the strip takes its place in one motion.
+private struct ForkSource: ViewModifier {
+    let rowId: String
+    let active: Bool
+    @Environment(\.forkMorph) private var morph
+    func body(content: Content) -> some View {
+        if active, let morph {
+            content.matchedGeometryEffect(id: "fork.\(rowId)", in: morph.namespace, isSource: true)
+        } else {
+            content
+        }
     }
 }

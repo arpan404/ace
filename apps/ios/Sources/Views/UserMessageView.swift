@@ -18,6 +18,7 @@ struct UserMessageRow: View {
             MessageActions(row: row, copy: readable ? copyText : nil, label: "Copy message")
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("message.user.\(row.id)")
     }
     /// The bubble's words as shown: mentions by name, code as written.

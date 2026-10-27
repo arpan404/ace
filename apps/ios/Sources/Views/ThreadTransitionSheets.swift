@@ -10,8 +10,10 @@ extension View {
     /// Rename, Bring back to parent, Turns, Attachments and Rewind's confirmation for the open
     /// thread, and what its messages' actions do (`messageTransitions`).
     func threadTransitions(model: ClientModel, thread: ThreadModel, title: String, renaming: Binding<Bool>,
-                           sheet: Binding<ThreadSheet?>, openThread: @escaping (String) -> Void) -> some View {
-        modifier(ThreadTransitionsHost(model: model, thread: thread, title: title, renaming: renaming, sheet: sheet, openThread: openThread))
+                           sheet: Binding<ThreadSheet?>, forkFrom: @escaping (String) -> Void,
+                           openThread: @escaping (String) -> Void) -> some View {
+        modifier(ThreadTransitionsHost(model: model, thread: thread, title: title, renaming: renaming, sheet: sheet,
+                                       forkFrom: forkFrom, openThread: openThread))
     }
 }
 
@@ -21,13 +23,17 @@ private struct ThreadTransitionsHost: ViewModifier {
     let title: String
     @Binding var renaming: Bool
     @Binding var sheet: ThreadSheet?
+    /// The message whose Fork or Edit opened the fork, which the composer's strip grows out of.
+    let forkFrom: (String) -> Void
     let openThread: (String) -> Void
     @State private var rewinding: TranscriptRow?
+    @State private var retried = 0
     @State private var problem: String?
 
     func body(content: Content) -> some View {
         content
             .environment(\.messageTransitions, model.canOperate ? transitions : nil)
+            .sensoryFeedback(.success, trigger: retried)
             .renameThread(model: model, threadId: thread.id, title: title, isPresented: $renaming)
             .sheet(item: $sheet) { which in
                 switch which {
@@ -45,7 +51,7 @@ private struct ThreadTransitionsHost: ViewModifier {
                 Button("Cancel", role: .cancel) {}
                 Button("Rewind") {
                     guard let row = rewinding else { return }
-                    Task { _ = await model.rewind(to: row.id) }
+                    Task { if await model.rewind(to: row.id) { retried += 1 } }
                 }.accessibilityIdentifier("rewind.confirm")
             } message: {
                 Text("Your next message continues from this turn. Later turns stay visible in ace, but Pi won't use them as context. Files are not reverted.")
@@ -55,9 +61,9 @@ private struct ThreadTransitionsHost: ViewModifier {
     private var transitions: MessageTransitions {
         MessageTransitions(
             row: thread.screen.transitions,
-            fork: { row in Task { _ = await model.openFork(.answer(itemId: row.id, runId: row.runId)) } },
-            edit: { row in Task { _ = await model.openFork(.edit(itemId: row.id)) } },
-            retry: { row in Task { _ = await model.retryAnswer(row.id) } },
+            fork: { row in forkFrom(row.id); Task { _ = await model.openFork(.answer(itemId: row.id, runId: row.runId)) } },
+            edit: { row in forkFrom(row.id); Task { _ = await model.openFork(.edit(itemId: row.id)) } },
+            retry: { row in Task { if await model.retryAnswer(row.id) { retried += 1 } } },
             rewind: { row in rewinding = row })
     }
 }
@@ -76,19 +82,27 @@ private struct RenameThread: ViewModifier {
     @Binding var isPresented: Bool
     @State private var name = ""
     @State private var problem: String?
+    @State private var saved = 0
     func body(content: Content) -> some View {
         content
+            .sensoryFeedback(.success, trigger: saved)
             .alert("Rename thread", isPresented: $isPresented) {
                 TextField("Name", text: $name).accessibilityIdentifier("rename.field")
                 Button("Save") {
                     let typed = name, threadId = threadId
-                    Task { problem = await model?.rename(threadId, to: typed) }
+                    Task {
+                        problem = await model?.rename(threadId, to: typed)
+                        if problem == nil { saved += 1 }
+                    }
                 }
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("rename.save")
                 Button("Name from first message") {
                     let threadId = threadId
-                    Task { problem = await model?.retitle(threadId) }
+                    Task {
+                        problem = await model?.retitle(threadId)
+                        if problem == nil { saved += 1 }
+                    }
                 }
                     .accessibilityIdentifier("rename.retitle")
                 Button("Cancel", role: .cancel) {}
