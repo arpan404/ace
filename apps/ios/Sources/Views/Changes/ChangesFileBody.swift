@@ -12,6 +12,7 @@ struct ChangesFileBody: View {
     let comment: (ChangesReview.Draft) -> AnyView
 
     private var header: ChangesFileHeader? { model.sheets.files[path] }
+    @Environment(\.changesCommentable) private var commentable
 
     var body: some View {
         if let header {
@@ -79,7 +80,7 @@ struct ChangesFileBody: View {
     /// A tap picks a line; a tap on another line of the same side extends the pick to a range of
     /// at most 100 lines; a tap on the only picked line lets it go.
     private func pick(_ row: ChangesRow) {
-        guard let anchor = row.anchor else { return }
+        guard commentable, let anchor = row.anchor else { return }
         UISelectionFeedbackGenerator().selectionChanged()
         if var current = selection, current.path == path, current.side == anchor.side {
             if current.start == current.end && current.start == anchor.line { selection = nil; return }

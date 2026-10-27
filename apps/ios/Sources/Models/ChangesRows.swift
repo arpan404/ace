@@ -108,6 +108,8 @@ struct ChangesReview: Codable, Sendable, Equatable {
     let session: Session?
     let refreshing: Bool
     let message: String
+    /// Why this phone can't keep the review right now (a failed read or save), else "".
+    let storage: String?
     let pending: Int
     let open: Int
     let resolved: Int

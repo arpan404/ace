@@ -19,6 +19,8 @@ import XCTest
         XCTAssertTrue(scope.waitForExistence(timeout: 20))
         wait(for: [expectation(for: NSPredicate(format: "label CONTAINS 'Last turn'"), evaluatedWith: scope)], timeout: 20)
         XCTAssertTrue(app.buttons["changes.file.apps/server/src/replay/window.test.ts"].waitForExistence(timeout: 20))
+        // A turn's line numbers aren't the checkout's: no comments here, and the bar says why.
+        XCTAssertTrue(app.descendants(matching: .any)["review.notHere"].waitForExistence(timeout: 10))
         capture("last-turn")
         scope.tap()
         XCTAssertTrue(app.buttons["Turn 1"].waitForExistence(timeout: 5))

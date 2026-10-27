@@ -88,6 +88,9 @@ struct ChangesSummary: Codable, Sendable, Equatable {
     let openLimit: Int?
     /// `unified` or `split`, kept on this phone.
     let layout: String?
+    /// Whether the scope shown takes line comments, and why not in words.
+    struct Review: Codable, Sendable, Equatable { let allowed: Bool; let reason: String }
+    let review: Review?
 }
 
 /// One file's unified diff within the shared budget; `truncated` sends the rest to the computer.

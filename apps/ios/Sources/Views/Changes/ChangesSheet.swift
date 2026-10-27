@@ -21,6 +21,8 @@ struct ChangesSheet: View {
     @State private var target: String?
     private var summary: ChangesSummary? { model.sheets.changes }
     private var openPaths: Set<String> { Set(summary?.open ?? []) }
+    /// Line comments go on Uncommitted only; the bridge says why not elsewhere.
+    private var commentable: Bool { summary?.review?.allowed ?? true }
     /// Split needs room for two columns of code: iPad and wide windows.
     private var split: Bool { summary?.layout == "split" && sizeClass == .regular }
 
@@ -50,6 +52,7 @@ struct ChangesSheet: View {
                         content
                     }
                     .animation(reduceMotion ? nil : .smooth(duration: AceTheme.Motion.standard), value: summary?.open ?? [])
+                    .environment(\.changesCommentable, commentable)
                 }
                 .onChange(of: target) { _, path in
                     guard let path else { return }
@@ -78,6 +81,7 @@ struct ChangesSheet: View {
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 ReviewBar(model: model, selection: $selection, comment: compose, list: { presented = .review })
+                    .environment(\.changesCommentable, commentable)
             }
             .sheet(item: $presented) { layer in
                 switch layer {
@@ -225,6 +229,7 @@ struct ChangesSheet: View {
 
     private func scope(_ id: String) {
         selection = nil
+        // A pick can't carry over: comments don't go on every scope.
         model.sheet(["kind": "changes.scope", "scope": id])
         UISelectionFeedbackGenerator().selectionChanged()
     }

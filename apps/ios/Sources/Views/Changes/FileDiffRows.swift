@@ -8,6 +8,12 @@ import SwiftUI
     static let bar: CGFloat = 4
 }
 
+extension EnvironmentValues {
+    /// Whether the scope shown takes line comments (Uncommitted only: a turn's line numbers
+    /// aren't the checkout's, so a comment there couldn't be anchored).
+    @Entry var changesCommentable = true
+}
+
 /// Lines picked for a comment: one side of one file, `start...end`.
 struct LineSelection: Equatable {
     let path: String
@@ -31,6 +37,7 @@ struct ChangesLineRow: View {
     let tap: () -> Void
     let wholeLine: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.changesCommentable) private var commentable
 
     var body: some View {
         if row.kind == "fold" {
@@ -41,7 +48,7 @@ struct ChangesLineRow: View {
                 .frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight, alignment: .leading)
                 .background(AceTheme.Colours.fill.opacity(0.5))
         } else {
-            Button(action: tap) {
+            Button(action: { if commentable { tap() } }) {
                 HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.none) {
                     Text(number).foregroundStyle(numberColour)
                         .frame(width: FileDiffStyle.gutter - AceTheme.Spacing.md, alignment: .trailing)
@@ -70,13 +77,13 @@ struct ChangesLineRow: View {
             }
             .buttonStyle(.plain)
             .contextMenu {
-                Button("Comment on this line", systemImage: "text.bubble", action: tap)
+                if commentable { Button("Comment on this line", systemImage: "text.bubble", action: tap) }
                 Button("Copy line", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(row.kind == "add" ? "Added" : row.kind == "del" ? "Removed" : "Unchanged") line \(number): \(row.text)")
             .accessibilityAddTraits(selected ? .isSelected : [])
-            .accessibilityHint("Picks the line for a comment")
+            .accessibilityHint(commentable ? "Picks the line for a comment" : "")
         }
     }
     private var number: String { String(row.kind == "del" ? row.old ?? 0 : row.new ?? row.old ?? 0) }

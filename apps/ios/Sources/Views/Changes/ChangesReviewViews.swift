@@ -256,10 +256,24 @@ struct ReviewBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var review: ChangesReview? { model.sheets.review }
+    @Environment(\.changesCommentable) private var commentable
+    /// A line to show when there is no pick and no review yet: why comments can't go here, or
+    /// why the phone can't keep them.
+    private var note: (String, Bool)? {
+        if let storage = review?.storage, !storage.isEmpty { return (storage, true) }
+        if !commentable { return (model.sheets.changes?.review?.reason ?? "", false) }
+        return nil
+    }
 
     var body: some View {
         Group {
-            if let selection {
+            if let note, selection == nil {
+                Text(note.0)
+                    .foregroundStyle(note.1 ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier(note.1 ? "review.storage" : "review.notHere")
+            } else if let selection {
                 HStack(spacing: AceTheme.Spacing.md) {
                     Text(selection.label).fontWeight(.medium).monospacedDigit()
                     Text(selection.side == "old" ? "removed side" : "").foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -297,7 +311,7 @@ struct ReviewBar: View {
         .aceGlass(in: AceShape.capsule)
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.bottom, AceTheme.Spacing.sm)
-        .opacity(selection == nil && (review?.drafts.isEmpty ?? true) && review?.session == nil ? 0 : 1)
+        .opacity(selection == nil && note == nil && (review?.drafts.isEmpty ?? true) && review?.session == nil ? 0 : 1)
         .animation(reduceMotion ? .easeInOut(duration: AceTheme.Motion.fast) : .smooth(duration: AceTheme.Motion.standard), value: selection)
     }
 
