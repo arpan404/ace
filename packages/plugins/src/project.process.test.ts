@@ -362,3 +362,24 @@ test.runIf(onWindows)(
     });
   },
 );
+test.runIf(onWindows)(
+  "on Windows every plugin root placeholder in one value expands, including after : and =",
+  async () => {
+    const f = await fixture({
+      ...sampleFiles,
+      "commands/check.md":
+        "Run node ${PLUGIN_ROOT}/scripts/start.js --with=${PLUGIN_ROOT}/scripts/server.js:${PLUGIN_ROOT}/scripts/start.js",
+    });
+    cleanups.push(f.close);
+    await f.manager.accept(await f.prepare());
+    const root = join(f.root, "claude");
+    const projection = projectPlugins("claude", await f.manager.installed(), { root });
+    await materializeProjection(projection, { root });
+    const base = join(root, "generated/plugins/sample");
+    const start = join(base, "payload/scripts/start.js");
+    const server = join(base, "payload/scripts/server.js");
+    expect(await readFile(join(base, "commands/check.md"), "utf8")).toBe(
+      `Run node ${start} --with=${server}:${start}`,
+    );
+  },
+);

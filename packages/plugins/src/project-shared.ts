@@ -15,7 +15,9 @@ export function expandRoot(value: string, root: string): string {
  */
 function expandWindowsRoot(value: string, root: string): string {
   return value.replace(
-    /(?:\$\{(?:ACE|CLAUDE|CURSOR)_PLUGIN_ROOT\}|\$\{PLUGIN_ROOT\})([^\s"'`<>|;,()[\]{}]*)/g,
+    // The tail stops at "$", ":" and "=" too, so `${ROOT}/a:${ROOT}/b` and `--x=${ROOT}/a`
+    // expand every placeholder.
+    /(?:\$\{(?:ACE|CLAUDE|CURSOR)_PLUGIN_ROOT\}|\$\{PLUGIN_ROOT\})([^\s"'`<>|;,()[\]{}$:=]*)/g,
     (_match, tail: string) => root + tail.replaceAll("/", "\\"),
   );
 }
