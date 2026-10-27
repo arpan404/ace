@@ -11,8 +11,11 @@ import { displayAppearance } from "../status.ts";
 import {
   PRODUCTION_THREAD_WINDOW,
   inboxEntriesFor,
+  openIdForRoute,
   readingFailureCopy,
   resolveOpenIdForHost,
+  retryReading,
+  shouldAutoRecoverReads,
   shouldShowInbox,
   threadHeadlineFor,
   threadWindowFor,
@@ -130,6 +133,20 @@ const noOrder = emptySelection<readonly string[]>([]);
 const noEntries = emptySelection<ProductionInboxEntry[] | undefined>(undefined);
 const noConnection = emptySelection<ConnectionState>("connecting");
 
+/**
+ * Stable `useSyncExternalStore` inputs: every fallback/selection below keeps
+ * one module identity so the 2s liveness tick re-render never resubscribes
+ * and the dead path stays `Object.is`-stable. Inline `[]`/`{}`/`emptySelection`
+ * would mint a new identity per render and churn subscriptions.
+ */
+const EMPTY_ORDER: readonly string[] = Object.freeze([]);
+const FALLBACK_HEADLINE: { title: string; count: number } = Object.freeze({
+  title: "Thread",
+  count: 0,
+});
+const noUndefined: Selection<undefined> = emptySelection(undefined);
+const noHeadline: Selection<{ title: string; count: number }> = emptySelection(FALLBACK_HEADLINE);
+
 function InboxRow({
   id,
   store,
@@ -156,7 +173,7 @@ function InboxRow({
       return null;
     }
   }, [store, id, machineId]);
-  const row = useFailClosedSelection(selection ?? emptySelection(undefined), undefined);
+  const row = useFailClosedSelection(selection ?? noUndefined, undefined);
   if (!row) return null;
   const status = displayAppearance(inboxStatus(row, now), theme);
   return (
@@ -188,7 +205,7 @@ function ThreadItems({ store }: { store: ThreadSource }) {
       return null;
     }
   }, [store]);
-  const order = useFailClosedSelection(orderSelection ?? noOrder, []);
+  const order = useFailClosedSelection(orderSelection ?? noOrder, EMPTY_ORDER);
   const window = useMemo(() => threadWindowFor(order, PRODUCTION_THREAD_WINDOW), [order]);
   if (window.total === 0) {
     return (
@@ -222,6 +239,10 @@ function ThreadItems({ store }: { store: ThreadSource }) {
         data={window.shown}
         keyExtractor={(itemId: string) => itemId}
         renderItem={({ item }: { item: string }) => <ThreadItemRow id={item} store={store} />}
+        maintainVisibleContentPosition={{
+          autoscrollToBottomThreshold: 0.1,
+          startRenderingFromBottom: true,
+        }}
       />
     </View>
   );
@@ -236,7 +257,7 @@ function ThreadItemRow({ id, store }: { id: string; store: ThreadSource }) {
       return null;
     }
   }, [store, id]);
-  const item = useFailClosedSelection(selection ?? emptySelection(undefined), undefined);
+  const item = useFailClosedSelection(selection ?? noUndefined, undefined);
   if (!item) return null;
   const { text, detail, user } = transcriptRowContent(item);
   if (!text && !detail) return null;
@@ -274,8 +295,10 @@ export function ProductionThreadView({
   onBack(): void;
 }) {
   const theme = useTheme();
-  useLivenessTick();
+  const threadLiveness = useLivenessTick();
   const [retryTick, setRetryTick] = useState(0);
+  const threadRoute = startup.route(hostId);
+  const routeBlocked = !shouldShowInbox(threadRoute);
   const resolvedLease = useMemo(() => {
     try {
       return {
@@ -285,7 +308,7 @@ export function ProductionThreadView({
     } catch (error) {
       return { lease: null, problem: readingFailureCopy(error) };
     }
-    // Re-resolve on explicit retry; liveness ticks only re-render.
+    // Re-resolve on explicit retry or auto-recovery; liveness ticks only re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startup, hostId, threadId, retryTick]);
   const lease = resolvedLease.lease;
@@ -301,10 +324,7 @@ export function ProductionThreadView({
       return null;
     }
   }, [lease]);
-  const headline = useFailClosedSelection(
-    headlineSelection ?? emptySelection({ title: "Thread", count: 0 }),
-    { title: "Thread", count: 0 },
-  );
+  const headline = useFailClosedSelection(headlineSelection ?? noHeadline, FALLBACK_HEADLINE);
   const statusSelection = useMemo(() => {
     if (lease === null) return null;
     try {
@@ -313,17 +333,14 @@ export function ProductionThreadView({
       return null;
     }
   }, [lease]);
-  const statusValue = useFailClosedSelection(
-    statusSelection ?? emptySelection(undefined),
-    undefined,
-  );
+  const statusValue = useFailClosedSelection(statusSelection ?? noUndefined, undefined);
   const connectionSelection = useMemo(() => {
     try {
       return startup.runtimeForReading(hostId).connectionState();
     } catch {
       return null;
     }
-    // Re-resolve on explicit retry; liveness ticks only re-render.
+    // Re-resolve on explicit retry or auto-recovery; liveness ticks only re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startup, hostId, retryTick]);
   // Subscribed (not just read): a disconnect notifies through the projection
@@ -335,22 +352,34 @@ export function ProductionThreadView({
     isDeadSelection(headlineSelection) ||
     isDeadSelection(statusSelection) ||
     connection !== "ready";
-  function retry(): void {
+  // Auto-recovery where safe: when this view is fail-closed but a fresh read
+  // handle already reports `ready`, re-resolve the lease. Revoked routes
+  // never reach here (gated above); disconnect/removal still needs Retry.
+  useEffect(() => {
+    if (!dead || routeBlocked) return;
+    let fresh: string | null = null;
     try {
-      const handle = startup.runtimeForReading(hostId);
-      try {
-        handle.reconnectNow();
-      } catch {
-        try {
-          handle.wake();
-        } catch {
-          /* Retry still re-resolves below; the copy explains the state. */
-        }
-      }
+      fresh = startup.runtimeForReading(hostId).connectionState().getSnapshot();
     } catch {
-      /* Handle resolution itself failed; re-resolve to refresh the copy. */
+      return;
     }
+    if (shouldAutoRecoverReads(true, fresh)) setRetryTick((value) => value + 1);
+    // Poll on the liveness tick so a transient blip recovers without Retry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startup, hostId, dead, routeBlocked, threadLiveness, retryTick]);
+  function retry(): void {
+    retryReading(startup, hostId);
     setRetryTick((value) => value + 1);
+  }
+  if (routeBlocked) {
+    return (
+      <View style={{ flex: 1, padding: tokens.spacing.xl, gap: tokens.spacing.md }}>
+        <AceButton label="Back" onPress={onBack} kind="secondary" />
+        <AceText role="body">
+          {threadRoute.route === "paired" ? null : threadRoute.message}
+        </AceText>
+      </View>
+    );
   }
   if (
     dead &&
@@ -444,11 +473,17 @@ export function ActiveMachineInbox({
   const effectiveOpenId = resolveOpenIdForHost(prevHostId, hostId, openId);
   const liveness = useLivenessTick();
   const [retryTick, setRetryTick] = useState(0);
-  void liveness;
   const route = startup.route(hostId);
   const routeKey = `${route.route}:${route.route === "pairing" ? route.reason : ""}`;
+  // A revoked/pin route must not keep the cached thread mounted: clear the
+  // open id during render (same derived-state pattern as the host switch)
+  // so the next branch below can never paint a stale thread.
+  if (!shouldShowInbox(route) && openId !== null) {
+    setOpenId(null);
+  }
+  const gatedOpenId = openIdForRoute(effectiveOpenId, route);
   const canOperate = startup.canOperate(hostId);
-  const now = useNowTick(effectiveOpenId === null);
+  const now = useNowTick(gatedOpenId === null);
 
   const resolved = useMemo(() => {
     if (!shouldShowInbox(route)) return { lease: null, problem: null as string | null };
@@ -501,34 +536,25 @@ export function ActiveMachineInbox({
   );
   const invalidated =
     lease !== null && (entriesSelection === null || isDeadSelection(entriesSelection));
-  function retry(): void {
+  const leaseDead = lease === null || invalidated;
+  // Auto-recovery where safe: when fail-closed but a fresh read handle
+  // already reports `ready`, re-resolve. Revoked routes never reach here;
+  // disconnect/removal still needs Retry.
+  useEffect(() => {
+    if (!leaseDead || !shouldShowInbox(route)) return;
+    let fresh: string | null = null;
     try {
-      const handle = startup.runtimeForReading(hostId);
-      try {
-        handle.reconnectNow();
-      } catch {
-        try {
-          handle.wake();
-        } catch {
-          /* Retry still re-resolves below. */
-        }
-      }
+      fresh = startup.runtimeForReading(hostId).connectionState().getSnapshot();
     } catch {
-      /* Handle resolution itself failed; re-resolve to refresh the copy. */
+      return;
     }
+    if (shouldAutoRecoverReads(true, fresh)) setRetryTick((value) => value + 1);
+    // Poll on the liveness tick so a transient blip recovers without Retry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startup, hostId, route, routeKey, liveness, retryTick, leaseDead]);
+  function retry(): void {
+    retryReading(startup, hostId);
     setRetryTick((value) => value + 1);
-  }
-
-  if (effectiveOpenId !== null) {
-    return (
-      <ProductionThreadView
-        key={`${hostId}:${effectiveOpenId}`}
-        startup={startup}
-        hostId={hostId}
-        threadId={effectiveOpenId}
-        onBack={() => setOpenId(null)}
-      />
-    );
   }
 
   if (!shouldShowInbox(route)) {
@@ -536,6 +562,18 @@ export function ActiveMachineInbox({
       <View style={{ paddingHorizontal: tokens.spacing.xl, gap: tokens.spacing.sm }}>
         <AceText role="caption">{route.route === "paired" ? null : route.message}</AceText>
       </View>
+    );
+  }
+
+  if (gatedOpenId !== null) {
+    return (
+      <ProductionThreadView
+        key={`${hostId}:${gatedOpenId}`}
+        startup={startup}
+        hostId={hostId}
+        threadId={gatedOpenId}
+        onBack={() => setOpenId(null)}
+      />
     );
   }
   if (lease === null || invalidated) {

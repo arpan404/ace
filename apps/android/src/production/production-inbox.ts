@@ -87,3 +87,54 @@ export function resolveOpenIdForHost(
 ): string | null {
   return prevHostId === hostId ? openId : null;
 }
+
+/**
+ * Route-gated open thread: a revoked/pin route must never keep rendering the
+ * cached thread. The inbox clears `openId` on the route flip and gates the
+ * thread view on the route, so a stale `openId` never outlives pairing.
+ */
+export function openIdForRoute(openId: string | null, route: StartupRoute): string | null {
+  return shouldShowInbox(route) ? openId : null;
+}
+
+/**
+ * Safe auto-recovery condition: re-resolve only when the retained lease is
+ * dead and a fresh read handle already reports `ready`. A stale snapshot
+ * never triggers it, and a revoked route never reaches it (callers gate on
+ * the route first), so recovery cannot follow a new owner or bypass pairing.
+ */
+export function shouldAutoRecoverReads(
+  leaseDead: boolean,
+  freshConnection: string | null,
+): boolean {
+  return leaseDead && freshConnection === "ready";
+}
+
+export interface RetryableReads {
+  runtimeForReading(hostId: string): {
+    reconnectNow(): void;
+    wake(): void;
+  };
+}
+
+/**
+ * Shared Retry path: nudge the live runtime, then let the caller re-resolve.
+ * `reconnectNow` first, `wake` as fallback; every failure is tolerated
+ * because the re-resolve below still refreshes the fail-closed copy.
+ */
+export function retryReading(startup: RetryableReads, hostId: string): void {
+  try {
+    const handle = startup.runtimeForReading(hostId);
+    try {
+      handle.reconnectNow();
+    } catch {
+      try {
+        handle.wake();
+      } catch {
+        /* Re-resolve still refreshes the copy. */
+      }
+    }
+  } catch {
+    /* Handle resolution itself failed; the caller still re-resolves. */
+  }
+}

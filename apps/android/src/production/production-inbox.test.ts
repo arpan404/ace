@@ -10,8 +10,11 @@ import {
   PRODUCTION_THREAD_WINDOW,
   inboxEntriesFor,
   inboxThreadsFor,
+  openIdForRoute,
   readingFailureCopy,
   resolveOpenIdForHost,
+  retryReading,
+  shouldAutoRecoverReads,
   shouldShowInbox,
   threadHeadlineFor,
   threadWindowFor,
@@ -287,6 +290,90 @@ it("resolves the open thread synchronously on host change, never flashing the ol
   expect(resolveOpenIdForHost("host-1", "host-1", "thread-1")).toBe("thread-1");
   expect(resolveOpenIdForHost("host-1", "host-1", null)).toBe(null);
   expect(resolveOpenIdForHost("host-1", "host-2", "thread-1")).toBe(null);
+});
+
+it("closes the open thread when the route leaves paired", () => {
+  expect(openIdForRoute("thread-1", { route: "paired" })).toBe("thread-1");
+  expect(openIdForRoute(null, { route: "paired" })).toBe(null);
+  expect(
+    openIdForRoute("thread-1", {
+      route: "pairing",
+      reason: "revoked",
+      message: "This machine needs pairing again.",
+    }),
+  ).toBe(null);
+  expect(
+    openIdForRoute("thread-1", {
+      route: "pairing",
+      reason: "pin",
+      message: "This computer's identity doesn't match the pairing link. Nothing was sent.",
+    }),
+  ).toBe(null);
+});
+
+it("auto-recovers only when the lease is dead and a fresh handle is ready", () => {
+  expect(shouldAutoRecoverReads(true, "ready")).toBe(true);
+  expect(shouldAutoRecoverReads(true, "connecting")).toBe(false);
+  expect(shouldAutoRecoverReads(true, null)).toBe(false);
+  expect(shouldAutoRecoverReads(false, "ready")).toBe(false);
+});
+
+it("retries through reconnectNow with a wake fallback and never throws", () => {
+  const calls: string[] = [];
+  retryReading(
+    {
+      runtimeForReading: () => ({
+        reconnectNow: () => {
+          calls.push("reconnectNow");
+        },
+        wake: () => {
+          calls.push("wake");
+        },
+      }),
+    },
+    "host-1",
+  );
+  expect(calls).toEqual(["reconnectNow"]);
+  const fallback: string[] = [];
+  retryReading(
+    {
+      runtimeForReading: () => ({
+        reconnectNow: () => {
+          throw new Error("down");
+        },
+        wake: () => {
+          fallback.push("wake");
+        },
+      }),
+    },
+    "host-1",
+  );
+  expect(fallback).toEqual(["wake"]);
+  expect(() =>
+    retryReading(
+      {
+        runtimeForReading: () => {
+          throw new Error("not connected");
+        },
+      },
+      "host-1",
+    ),
+  ).not.toThrow();
+  expect(() =>
+    retryReading(
+      {
+        runtimeForReading: () => ({
+          reconnectNow: () => {
+            throw new Error("down");
+          },
+          wake: () => {
+            throw new Error("down");
+          },
+        }),
+      },
+      "host-1",
+    ),
+  ).not.toThrow();
 });
 
 it("keeps section headings alongside thread rows for parity with the fixture inbox", async () => {
