@@ -24,7 +24,7 @@ struct DeviceScreen: View {
     /// Opened on its own (from a transcript step): leaving closes the Devices view too.
     var closesView = false
     @Environment(\.scenePhase) private var scene
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var typing = false
     @State private var text = ""
     @State private var sheet: DeviceSheet?

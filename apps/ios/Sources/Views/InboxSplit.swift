@@ -16,7 +16,7 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     @ViewBuilder let list: () -> Sidebar
     @ViewBuilder let page: (InboxRoute) -> Page
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var visibility = NavigationSplitViewVisibility.all
     @State private var width: CGFloat = 0
     /// Counts the window's changes still settling; zero once the split view has settled.
@@ -235,7 +235,7 @@ struct CloseOpenThread {
 /// away and the thread recentres in its reading column.
 private struct SidebarButton: View {
     @Binding var visibility: NavigationSplitViewVisibility
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         let hidden = visibility == .detailOnly
         Button {

@@ -13,7 +13,7 @@ enum BrowserSheet: String, Identifiable {
 struct BrowserScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @Bindable var model: ClientModel
     /// The thread's open browser request, if the agent asked the person for help.
     let help: ApprovalRow?
@@ -189,7 +189,7 @@ struct BrowserStrip<Actions: View>: View {
 
 /// Where the agent last pointed: a cursor that glides there and never takes a touch.
 private struct AgentCursor: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let name: String
     let at: CGPoint
     var body: some View {

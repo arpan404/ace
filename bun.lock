@@ -906,6 +906,9 @@
     },
     "packages/themes": {
       "name": "@ace/themes",
+      "devDependencies": {
+        "@ace/design-tokens": "workspace:*",
+      },
     },
     "packages/ui-core": {
       "name": "@ace/ui-core",

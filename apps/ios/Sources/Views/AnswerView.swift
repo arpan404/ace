@@ -74,7 +74,7 @@ struct AnswerRow: View {
 
 /// The caret after text still arriving: a soft pulse, still under Reduce Motion.
 struct StreamingCaret: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var dim = false
     var body: some View {
         AceShape.capsule.fill(AceTheme.Colours.mutedForeground)

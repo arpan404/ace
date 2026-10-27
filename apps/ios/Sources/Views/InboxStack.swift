@@ -36,7 +36,7 @@ struct InboxStack<Destination: View>: View {
     @State private var searching = false
     @State private var forgeKind = ForgeKind.pulls
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     /// The tab and the chips: a row shows when its machine, project and pull request match.
     private func includes(_ key: InboxKey) -> Bool {

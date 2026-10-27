@@ -6,6 +6,7 @@ import {
   defaultThemeId,
   themeIds,
   themes,
+  transcriptSizeIds,
   type Scheme,
   type ThemeId,
 } from "@ace/themes";
@@ -20,7 +21,7 @@ export const ReduceMotion = z.enum(["system", "on", "off"]);
 export type ReduceMotion = z.infer<typeof ReduceMotion>;
 export const Density = z.enum(["comfortable", "compact"]);
 export type Density = z.infer<typeof Density>;
-export const TranscriptSize = z.enum(["small", "default", "large"]);
+export const TranscriptSize = z.enum(transcriptSizeIds);
 export type TranscriptSize = z.infer<typeof TranscriptSize>;
 
 /** Local, per-device appearance. Daemon settings live in the daemon, not here. */
@@ -52,11 +53,7 @@ export const defaultAppearance: Appearance = {
   transcriptSize: "default",
 };
 
-export const transcriptSizes: Record<TranscriptSize, { px: number; label: string }> = {
-  small: { px: 14, label: "Small" },
-  default: { px: 15, label: "Default" },
-  large: { px: 17, label: "Large" },
-};
+export { transcriptSizes } from "@ace/themes";
 
 const storageKey = "ace.appearance";
 

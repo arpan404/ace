@@ -44,7 +44,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     @State private var place: CaretPlacement?
     /// Why the last pick couldn't be made, until the words change.
     @State private var notice: String?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.threadDrafts) private var drafts
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass

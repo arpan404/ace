@@ -251,7 +251,7 @@ struct FilesScreen: View {
 struct FileTreeRowView: View {
     let row: FileTreeRow
     let open: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             Color.clear.frame(width: CGFloat(row.depth) * 18, height: 1)

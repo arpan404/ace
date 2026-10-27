@@ -124,7 +124,7 @@ struct ChangedFileHeader: View {
     let reviewed: Bool
     let toggle: () -> Void
     let review: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
