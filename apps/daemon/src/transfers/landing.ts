@@ -148,11 +148,6 @@ class Made {
   private registered: WorkspaceId | undefined;
   /** Past the cutoff: what was made is the result and stays. */
   kept = false;
-  /**
-   * Windows: the landing is over (cancelled or failed), so its folder is removed even if that
-   * means waiting for a stopped Git to let go. A full-history retry lands beside it instead.
-   */
-  settling = false;
   constructor(deps: LandingDeps) {
     this.deps = deps;
   }
@@ -256,7 +251,7 @@ class Made {
       if (there && folderIdentity(there) === beside.id) await removeQuietly(beside.path);
     }
     const folder = this.folder;
-    if (process.platform === "win32" && this.settling && folder?.id)
+    if (process.platform === "win32" && folder?.id)
       await removeIfOwnedSettling(folder.parent, folder.name, folder.id);
     if (folder?.id) removeIfOwned(folder.parent, folder.name, folder.id);
     this.deps.made({ createdPath: undefined, createdId: undefined, registeredId: undefined });
@@ -284,7 +279,6 @@ export async function landTransfer(
   try {
     return await land(deps, made, record, file, signal);
   } catch (error) {
-    if (process.platform === "win32") made.settling = !(error instanceof NeedsFullBundle);
     await made.undo().catch(() => undefined);
     throw error;
   } finally {
