@@ -50,7 +50,7 @@ export interface DesktopDaemonStatus {
   paused?: boolean;
   message?: string | undefined;
   /** Why the desktop's own daemon last exited, when its exit code said so. */
-  cause?: "port-in-use" | undefined;
+  cause?: "port-in-use" | "lock-held" | undefined;
   /** Set while the desktop restarts its crashed daemon on its own. */
   retry?: { attempt: number; of: number } | undefined;
 }
@@ -202,7 +202,8 @@ function parseStatus(value: unknown): DesktopDaemonStatus | undefined {
     state: status.state,
     paused: status.paused === true,
     message: typeof status.message === "string" ? status.message : undefined,
-    cause: status.cause === "port-in-use" ? status.cause : undefined,
+    cause:
+      status.cause === "port-in-use" || status.cause === "lock-held" ? status.cause : undefined,
     retry:
       typeof retry?.attempt === "number" && typeof retry.of === "number"
         ? { attempt: retry.attempt, of: retry.of }

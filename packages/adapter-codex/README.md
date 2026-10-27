@@ -1,6 +1,6 @@
 # @ace/adapter-codex
 
-Local Codex app-server adapter for Node 24+. It uses the user's installed CLI and its existing login. It never handles provider credentials.
+Local Codex app-server adapter for Node 26+. It uses the user's installed CLI and its existing login. It never handles provider credentials.
 
 ```ts
 import { createCodexAdapter } from "@ace/adapter-codex";

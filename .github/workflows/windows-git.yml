@@ -44,7 +44,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      NODE_VERSION: 24.13.0
+      NODE_VERSION: 26.12.1
       BUN_VERSION: 1.4.0
       ACE_WINDOWS_GIT_TESTS: ${{ inputs.tests || 'packages/git/src/**/*.test.ts,packages/forge/src/**/*.test.ts,packages/review/src/**/*.test.ts' }}
     steps:

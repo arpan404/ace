@@ -23,7 +23,7 @@ const discovery = {
   executable: async () => {},
   platform: "darwin" as const,
   arch: "arm64",
-  nodeVersion: "24.0.0",
+  nodeVersion: "26.0.0",
 };
 
 /** Open a Cursor session and return the environment its SDK host would start with. */

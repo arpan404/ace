@@ -5,7 +5,7 @@ The repo owner changed worker policy during this task: final verification is sta
 ## Static review
 
 - The service package exposes plans, an injected service-manager runner, streaming artifact verification, maintenance admission, SQLite snapshots and a journaled updater through its package export.
-- Node 24.13.0 and JS dependencies are pinned. Archives use sorted paths, fixed metadata and the pinned gzip implementation. macOS stages node-pty and its helper; Linux stages a checksum-pinned PTY produced on the target host.
+- Node 26.12.1 and JS dependencies are pinned. Archives use sorted paths, fixed metadata and the pinned gzip implementation. macOS stages node-pty and its helper; Linux stages a checksum-pinned PTY produced on the target host.
 - Release authority is an embedded Ed25519 public key. Signature verification precedes downloads; archive length and SHA-256 verification precede extraction. Private signing keys must remain outside the repository.
 - Downloads, feed bodies, archives, extraction entries and logs have bounds. Maintenance command admission is constant-time and allocation-free. Blocker queries use a partial SQLite index and do not replay transcripts.
 - Update intent is durable before service stop. Only a completely synced snapshot is marked restorable. Migration checks use copies; journaled startup closes admission. Rollback validates the exact recorded inventory and integrity before deleting live databases and syncs restored files before removing the journal.
@@ -72,7 +72,7 @@ Nine mutations were executed and caught before the owner changed the policy. The
 - A focused 28-test feature run passed; a later 12-test update/mutex run passed. These preceded the final prepared-journal and Linux-staging fixes.
 - The earlier full check did not pass: 898 passed, four skipped and 11 failed. Ten failures were timeouts on the loaded shared host; one exact status expectation lacked the new version field. That expectation was corrected. Git, core and notification timeout cases passed in isolation with larger hang limits. The replacement full run was interrupted when the owner prohibited test execution; no final full-suite pass is claimed.
 - The macOS arm64 artifact opened a real owned shell PTY, started the daemon and persistence workers in an isolated data directory, answered authenticated status and shut down. The final artifact needs run at merge on all four targets.
-- Two Node 24.13.0 macOS arm64 builds produced the same 39,729,182-byte archive and SHA-256 `74615ddde63c000e54c82f1d7b897aa756b44b7bbe23bc6c7025664fa4e84c32`. Final runtime changes supersede that artifact; final reproducibility needs run at merge.
+- Two Node 26.12.1 macOS arm64 builds produced the same 39,729,182-byte archive and SHA-256 `74615ddde63c000e54c82f1d7b897aa756b44b7bbe23bc6c7025664fa4e84c32`. Final runtime changes supersede that artifact; final reproducibility needs run at merge.
 - Non-gating measurements on the shared host at load about 199: streaming SHA-256 18.37 MiB/s, bounded log writes 69.00 MiB/s, admission 279.36 million operations/s, combined benchmark process peak RSS 168.84 MiB. Final measurements need run at merge; they are not performance gates.
 
 ## Release prerequisites and limits

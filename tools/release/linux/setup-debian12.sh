@@ -1,7 +1,7 @@
 #!/bin/sh
 # Prepares a Debian 12 (glibc 2.36) container, as root, to build ace's Linux release:
 # the C/C++ toolchain for node-pty, the workspace addon and the terminal guardian, Rust and the
-# PipeWire headers for the screen helper, Node 24.13.0 (checksum-pinned, the release runtime),
+# PipeWire headers for the screen helper, Node 26.12.1 (checksum-pinned, the release runtime),
 # and Bun. Everything built here runs on Ubuntu 24.04+, Debian 12+, Fedora and Arch (Omarchy).
 # Used by .github/workflows/release.yml and for local builds (tools/release/README.md).
 set -eu
@@ -9,12 +9,12 @@ set -eu
 . /etc/os-release
 [ "$ID" = debian ] && [ "$VERSION_ID" = 12 ] || { echo 'Expected Debian 12' >&2; exit 1; }
 
-NODE_VERSION=24.13.0
+NODE_VERSION=26.12.1
 BUN_VERSION=1.4.0
 RUST_VERSION=1.91.1
 case "$(uname -m)" in
-  x86_64) node_arch=x64; node_sha=6223aad1a81f9d1e7b682c59d12e2de233f7b4c37475cd40d1c89c42b737ffa8;;
-  aarch64) node_arch=arm64; node_sha=0f6d40b94c6a2eb6b4c240ffc8b9fd3ada7ab044c177dd413c06e1ef9a63f081;;
+  x86_64) node_arch=x64; node_sha=0fd1eb7770598f52a21995edf6ed35fc690400fa437c2386af329519e9143132;;
+  aarch64) node_arch=arm64; node_sha=a6c01af459dd8972ab3fb08ee5da81244d26ba8c4944a62d5bbba8c597ae154f;;
   *) echo 'Unsupported architecture' >&2; exit 1;;
 esac
 

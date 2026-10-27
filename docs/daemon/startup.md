@@ -1,7 +1,7 @@
 # Daemon startup
 
 Run source with `ACE_HOME=/path/to/private/home bun run --filter @ace/daemon dev`
-or `ACE_HOME=/path/to/private/home bun run ace -- start`. The runtime is Node 24+.
+or `ACE_HOME=/path/to/private/home bun run ace -- start`. The runtime is Node 26+.
 The root package has no `daemon` or `dev` script.
 
 The event store, authentication files and core service attempts open before the

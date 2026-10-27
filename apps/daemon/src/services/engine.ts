@@ -59,7 +59,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         ? async () => ({ installed: false, supported: false })
         : undefined,
     ));
-  if (!engineOptions.registry) resources.own(() => registry.close());
+  if (!engineOptions.registry) resources.own(() => registry.close(), "provider registry");
   context.signal.throwIfAborted();
   const capabilities = daemonMcpCapabilities(services);
   const acp =
@@ -352,7 +352,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       ((thread, error) =>
         log.log("warn", `Stopping settled thread ${thread} failed`, logError(error))),
   });
-  resources.own(() => engine.close());
+  resources.own(() => engine.close(), "provider sessions");
   // Turns deferred while maintenance held new work start when it reopens.
   const stopReopen = context.maintenance?.onReopen(() => engine.admissionReopened());
   if (stopReopen) resources.own(() => stopReopen());

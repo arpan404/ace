@@ -72,9 +72,9 @@ const antigravityFix =
 export function nodeVerdict(version: string): Verdict {
   const major = /^v?(\d+)\./.exec(version)?.[1];
   return verdict(
-    major && Number(major) >= 24 ? "ok" : "fail",
+    major && Number(major) >= 26 ? "ok" : "fail",
     `Node ${version}`,
-    "Install Node 24 or newer and restart ace.",
+    "Install Node 26 or newer and restart ace.",
   );
 }
 export function providerVerdict(provider: string, result: DiscoveryResult): Verdict {
@@ -135,7 +135,7 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
   const checks: Check[] = [
     {
       id: "node",
-      fix: "Install Node 24+.",
+      fix: "Install Node 26+.",
       run: async (signal) => nodeVerdict(await probes.node(signal)),
     },
     ...(["claude", "codex", "opencode", "cursor"] as const).map((provider) => ({

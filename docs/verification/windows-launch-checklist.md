@@ -6,7 +6,7 @@ checklist is the remaining gate before a Windows release. See ADR 0091.
 
 ## Environment
 
-- Windows 10/11 x64, Node 24+, bun, git; repo checkout with `bun install`.
+- Windows 10/11 x64, Node 26+, bun, git; repo checkout with `bun install`.
 - `where taskkill cmd.exe node` all resolve.
 - One npm-distributed agent CLI installed and signed in (for example `codex`),
   plus one `.cmd` entrypoint on `PATH` (for example Cursor's `cursor-agent.cmd`

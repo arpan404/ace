@@ -3,13 +3,15 @@ import { ScheduledStorageCleanup, storageSchedule } from "../storage/schedule.ts
 import { DataRetention } from "../storage/data-retention.ts";
 import { WorktreeIO } from "../storage/worktree-io.ts";
 import { WorktreeMaintenance } from "../storage/worktree-maintenance.ts";
+import { SpaceReclaim } from "../storage/space-reclaim.ts";
+import { SPACE_RECLAIMER } from "../storage/space-reclaim-policy.ts";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 export async function startStorage(context: ServiceContext): Promise<void> {
   const worktrees = new WorktreeIO();
-  context.resources.own(() => worktrees.close());
+  context.resources.own(() => worktrees.close(), "storage worktree worker");
   const owner = {
     store: context.store,
     services: context.services,
@@ -19,17 +21,26 @@ export async function startStorage(context: ServiceContext): Promise<void> {
     worktrees,
   };
   const storage = new StorageService(owner);
-  context.resources.own(() => storage.close());
-  context.resources.onShutdown(() => storage.stop());
+  context.resources.own(() => storage.close(), "storage operations");
+  context.resources.onShutdown(() => {
+    storage.stop();
+    // Git in the worktree worker is outside the daemon's process stop, and storage's close
+    // waits for the operation using it: cancel that Git work as soon as shutdown begins.
+    // Maintenance inspects every checkout afresh, so a cancelled push or removal runs again.
+    void worktrees.close().catch(() => {});
+  });
   // Recovery finishes after the other listener-phase services have recovered their ownership.
   const scheduled =
     (await context.services.settings?.get("storage.scheduledCleanup"))?.value === true;
   const worktreeDays = (await context.services.settings?.get("storage.worktreeRetentionDays"))
     ?.value;
+  // Automatic space reclaim resumes its own compaction later, so startup is not slowed.
   await storage.resume((reviewer) =>
     reviewer === "storage:worktrees"
       ? typeof worktreeDays === "number"
-      : reviewer !== "storage:scheduler" || scheduled,
+      : reviewer === SPACE_RECLAIMER
+        ? false
+        : reviewer !== "storage:scheduler" || scheduled,
   );
   context.services.storage = storage;
   const schedule = new ScheduledStorageCleanup(
@@ -57,6 +68,15 @@ export async function startStorage(context: ServiceContext): Promise<void> {
   );
   context.resources.own(() => worktreeMaintenance.close());
   await worktreeMaintenance.start();
+  const reclaim = new SpaceReclaim(
+    owner,
+    storage,
+    context.options.storageSchedule ?? storageSchedule,
+    context.options.spaceReclaimTiming,
+    backgroundFailure(context, "Database space reclaim failed"),
+  );
+  context.resources.own(() => reclaim.close());
+  await reclaim.start();
 }
 
 export function createStorageSession(context: SocketContext): SocketService {

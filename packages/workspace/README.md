@@ -1,6 +1,6 @@
 # Workspace file service
 
-`@ace/workspace` is a Node 24+ service for browsing a thread's workspace. It has no daemon or client dependencies. macOS and Linux installs require a C compiler: `bun install` builds the small Node-API descriptor bridge using MIT-licensed Node.js headers. The service and matching logic are TypeScript; the bridge exposes descriptor-relative filesystem syscalls missing from Node's filesystem API and creates POSIX input pipes.
+`@ace/workspace` is a Node 26+ service for browsing a thread's workspace. It has no daemon or client dependencies. macOS and Linux installs require a C compiler: `bun install` builds the small Node-API descriptor bridge using MIT-licensed Node.js headers. The service and matching logic are TypeScript; the bridge exposes descriptor-relative filesystem syscalls missing from Node's filesystem API and creates POSIX input pipes.
 
 ```ts
 import { createWorkspace, WorkspaceError } from "@ace/workspace";

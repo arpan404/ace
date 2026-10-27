@@ -16,7 +16,7 @@ const options = {
   executable: async () => {},
   platform: "darwin",
   arch: "arm64",
-  nodeVersion: "24.0.0",
+  nodeVersion: "26.0.0",
 };
 const resolved = (version: string, helper = version) => ({
   ...options,

@@ -29,7 +29,7 @@ export async function bundleDaemon(
     minify: true,
     metafile: true,
     platform: "node" as const,
-    target: "node24",
+    target: "node26",
     mainFields: ["module", "main"],
     format: "esm" as const,
     external: ["node-pty", ...runtimePackages.map((pkg) => pkg.name)],

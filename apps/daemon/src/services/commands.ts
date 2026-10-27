@@ -28,7 +28,7 @@ export async function startCommands(context: ServiceContext): Promise<void> {
     context.signal.throwIfAborted();
     await initializeCommands(context);
   });
-  context.resources.own(() => initialization);
+  context.resources.own(() => initialization, "commands startup");
 }
 async function initializeCommands({
   store,
@@ -47,7 +47,7 @@ async function initializeCommands({
     id,
   });
   services.promptFiles = promptFiles;
-  resources.own(() => promptFiles.close());
+  resources.own(() => promptFiles.close(), "prompt files");
   const integration = options.commands ?? {};
   const plugins = services.plugins;
   const skillLibrary = createDaemonSkillLibrary({
@@ -68,7 +68,7 @@ async function initializeCommands({
   // the command library from starting.
   void skillLibrary.start();
   services.skillLibrary = skillLibrary;
-  resources.own(() => skillLibrary.close());
+  resources.own(() => skillLibrary.close(), "skill library");
   if (plugins) resources.own(plugins.subscribeCatalog(() => skillLibrary.invalidate()));
   const registered = () => services.accountRegistry?.list() ?? [];
   const defaults = defaultCommandInstances(process.env);
@@ -166,7 +166,7 @@ async function initializeCommands({
   );
   if (services.plugins)
     resources.own(services.plugins.subscribeCatalog(() => library.invalidateExtras()));
-  resources.own(() => library.close());
+  resources.own(() => library.close(), "command library");
   if (integration.events) {
     const disconnect = connectDaemonCommandEvents(library, integration.events);
     resources.onShutdown(disconnect);
