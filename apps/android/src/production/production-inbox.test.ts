@@ -25,7 +25,10 @@ import {
   shouldShowInbox,
   threadHeadlineFor,
   threadWindowFor,
+  visibleBlockItemIds,
+  windowBlocksFor,
 } from "./production-inbox.ts";
+import type { Block } from "@ace/ui-core/transcript-blocks";
 
 const PIN = "9f".repeat(32);
 const TOKEN = "e0".repeat(32);
@@ -413,6 +416,31 @@ it("keeps only the latest thread rows under a custom limit", () => {
   expect([...window.shown]).toEqual(["c", "d"]);
   expect(window.total).toBe(4);
   expect(window.truncated).toBe(2);
+});
+
+it("keeps only windowed blocks and renders only shown items inside a boundary block", () => {
+  const blocks: Block[] = [
+    { kind: "user", key: "u1", itemId: "a" },
+    { kind: "message", key: "m1", itemId: "b" },
+    { kind: "work", key: "w1", itemIds: ["b", "c", "d"] },
+    { kind: "end", key: "e1", ending: "failed", runId: undefined, askId: undefined },
+  ];
+  const shown = ["c", "d"];
+  const kept = windowBlocksFor(blocks, shown);
+  expect(kept.map((block) => block.key)).toEqual(["w1", "e1"]);
+  expect(visibleBlockItemIds(blocks[2]!, shown)).toEqual(["c", "d"]);
+  expect(visibleBlockItemIds(blocks[1]!, shown)).toEqual([]);
+  expect(windowBlocksFor(blocks, new Set(shown)).map((block) => block.key)).toEqual(["w1", "e1"]);
+});
+
+it("keeps item-less dividers with the tail and drops fully evicted rows", () => {
+  const blocks: Block[] = [
+    { kind: "end", key: "e0", ending: "failed", runId: undefined, askId: undefined },
+    { kind: "user", key: "u1", itemId: "old" },
+    { kind: "message", key: "m1", itemId: "new" },
+  ];
+  expect(windowBlocksFor(blocks, ["new"]).map((block) => block.key)).toEqual(["e0", "m1"]);
+  expect(windowBlocksFor([], ["new"])).toEqual([]);
 });
 
 it("never resolves or retains a lease for a revoked route, even on direct mount", () => {

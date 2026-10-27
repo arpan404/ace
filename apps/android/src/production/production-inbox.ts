@@ -1,5 +1,6 @@
 import type { SidebarReader, ThreadReader } from "@ace/client";
 import { inboxSections, type InboxThread } from "@ace/ui-core/mobile";
+import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
 import type { StartupRoute } from "../runtime/production-startup.ts";
 
 /**
@@ -91,6 +92,41 @@ export function threadWindowFor(
   const total = order.length;
   const shown = total > limit ? order.slice(total - limit) : order.slice();
   return { shown, total, truncated: total - shown.length };
+}
+
+/**
+ * Rich transcript windowing for the production read-only thread.
+ *
+ * Blocks are computed over the full order (grouping stays exact), then
+ * filtered to the latest-N item window the read handle holds. A block is
+ * kept when it names no items (end/forked/live dividers carry no item and
+ * belong to the tail they close) or when any of its items sits in the shown
+ * set. Rows render only the block's shown items, so a boundary work block
+ * never pulls pre-window history back into view. Pure.
+ */
+export function windowBlocksFor(
+  blocks: readonly Block[],
+  shown: readonly string[] | ReadonlySet<string>,
+): Block[] {
+  const allowed = shown instanceof Set ? shown : new Set(shown);
+  return blocks.filter((block) => {
+    const ids = blockItems(block);
+    if (ids.length === 0) return true;
+    return ids.some((id) => allowed.has(id));
+  });
+}
+
+/**
+ * A block's item ids restricted to the shown window, in block order. Rows
+ * read only these, so a boundary block spanning the cut renders its tail
+ * without resurrecting older history. Pure.
+ */
+export function visibleBlockItemIds(
+  block: Block,
+  shown: readonly string[] | ReadonlySet<string>,
+): string[] {
+  const allowed = shown instanceof Set ? shown : new Set(shown);
+  return blockItems(block).filter((id) => allowed.has(id));
 }
 
 /**

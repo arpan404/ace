@@ -1,9 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppState, Pressable, View, Text } from "react-native";
 import { FlashList } from "@shopify/flash-list";
-import type { ConnectionState, Selection, SidebarSource, ThreadSource } from "@ace/client";
+import type {
+  ConnectionState,
+  Selection,
+  SidebarSource,
+  ThreadKey,
+  ThreadReader,
+  ThreadSource,
+} from "@ace/client";
+import type { Item } from "@ace/protocol";
 import { transcriptRowContent } from "@ace/ui-core/mobile";
 import { inboxStatus } from "@ace/ui-core/mobile";
+import { blocksEqual, type Block } from "@ace/ui-core/transcript-blocks";
+import { createBlockReader, type Watched } from "@ace/ui-core/transcript-block-reader";
+import { blockKey, endBlockText, forkedBlockText, startedBlockText } from "../transcript.ts";
+import { startedThreadOf } from "@ace/ui-core";
+import { Markdown } from "../transcript/Markdown.tsx";
 import { useSelection } from "../selection.ts";
 import { AceText, AceButton } from "../components.tsx";
 import { tokens, useTheme, textStyle } from "../theme.tsx";
@@ -25,6 +38,8 @@ import {
   shouldShowInbox,
   threadHeadlineFor,
   threadWindowFor,
+  visibleBlockItemIds,
+  windowBlocksFor,
   type ProductionInboxEntry,
 } from "./production-inbox.ts";
 import { canShowProductionComposer } from "./production-composer.ts";
@@ -205,6 +220,311 @@ function InboxRow({
   );
 }
 
+const PRODUCTION_BLOCK_BASE_KEYS: readonly ThreadKey[] = [
+  "order",
+  "thread",
+  "agents",
+  "tasks",
+  "interactions",
+  "queue",
+];
+const PRODUCTION_BLOCK_NO_KEYS: readonly ThreadKey[] = [];
+const EMPTY_BLOCKS: readonly Block[] = Object.freeze([]);
+const noBlocksReading: Watched<readonly Block[]> = Object.freeze({
+  value: EMPTY_BLOCKS,
+  watch: PRODUCTION_BLOCK_NO_KEYS,
+});
+
+function sameBlockList(a: readonly string[], b: readonly string[]): boolean {
+  return a === b || (a.length === b.length && a.every((key, index) => key === b[index]));
+}
+
+function sameBlockReading(a: Watched<readonly Block[]>, b: Watched<readonly Block[]>): boolean {
+  return blocksEqual(a.value, b.value) && sameBlockList(a.watch, b.watch);
+}
+
+/**
+ * Fail-closed transcript blocks for the production read-only thread.
+ *
+ * Mirrors the fixture `useTranscriptBlocks` grouping (same shared block
+ * engine, same watch-key protocol) but never throws: a revoked pin fails
+ * `select` synchronously and a dead pin fails `getSnapshot`, both falling
+ * back to the empty reading so the caller paints its disconnected copy. No
+ * admit path, no network fetch, no mutation — only the retained read lease's
+ * projected store. One reader serves one store; a host/thread switch mounts
+ * a fresh reader with no watch keys from the old one.
+ */
+function useProductionBlocks(store: ThreadSource): readonly Block[] {
+  const [held, setHeld] = useState(() => ({ store, read: createBlockReader() }));
+  if (held.store !== store) setHeld({ store, read: createBlockReader() });
+  const read = held.read;
+  let owner: string | undefined;
+  try {
+    owner = store.thread?.rootAgentId;
+  } catch {
+    owner = undefined;
+  }
+  const base = useMemo<readonly ThreadKey[]>(
+    () =>
+      owner ? [...PRODUCTION_BLOCK_BASE_KEYS, `agent:${owner}`] : [...PRODUCTION_BLOCK_BASE_KEYS],
+    [owner],
+  );
+  const [watch, setWatch] = useState<readonly ThreadKey[]>(PRODUCTION_BLOCK_NO_KEYS);
+  const [scoped, setScoped] = useState(store);
+  if (scoped !== store) {
+    setScoped(store);
+    if (watch.length) setWatch(PRODUCTION_BLOCK_NO_KEYS);
+  }
+  const keys = useMemo(() => [...base, ...watch], [base, watch]);
+  const selection = useMemo(() => {
+    try {
+      return store.select(keys, (reader: ThreadReader) => read(reader), sameBlockReading);
+    } catch {
+      return null;
+    }
+  }, [store, keys, read]);
+  const fallbackSelection = useMemo<Selection<Watched<readonly Block[]>>>(
+    () => ({
+      getSnapshot: () => noBlocksReading,
+      subscribe: () => () => {},
+    }),
+    [],
+  );
+  const reading = useFailClosedSelection(selection ?? fallbackSelection, noBlocksReading);
+  const next = reading.watch as readonly ThreadKey[];
+  if (!sameBlockList(next, watch)) setWatch(next);
+  return reading.value;
+}
+
+function itemText(item: Item | undefined): { text: string; detail: string; streaming: boolean } {
+  if (!item) return { text: "", detail: "", streaming: false };
+  const { text, detail } = transcriptRowContent(item);
+  return { text, detail, streaming: !item.complete };
+}
+
+function ProductionQuietLines({ ids, store }: { ids: readonly string[]; store: ThreadSource }) {
+  const theme = useTheme();
+  const selection = useMemo(() => {
+    try {
+      return store.select(
+        ids.map((id) => `item:${id}` as const),
+        (r) => ids.map((id) => r.item(id)),
+      );
+    } catch {
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, ids.join("\0")]);
+  const items = useFailClosedSelection(selection ?? noUndefinedList, undefined);
+  if (!items) return null;
+  const lines = items.flatMap((item) => {
+    if (!item) return [];
+    const { text, detail } = transcriptRowContent(item);
+    if (!text && !detail) return [];
+    return [{ id: item.id, text, detail }];
+  });
+  if (lines.length === 0) return null;
+  return (
+    <View style={{ gap: tokens.spacing.xs }}>
+      {lines.map(({ id, text, detail }) => (
+        <View key={id}>
+          <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+            {text}
+          </Text>
+          {detail ? (
+            <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+              {detail}
+            </Text>
+          ) : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const noUndefinedList: Selection<readonly (Item | undefined)[]> = {
+  getSnapshot: () => [],
+  subscribe: () => () => {},
+};
+
+function ProductionStartedRow({ itemId, store }: { itemId: string; store: ThreadSource }) {
+  const theme = useTheme();
+  const selection = useMemo(() => {
+    try {
+      return store.select([`item:${itemId}`], (r) => r.item(itemId));
+    } catch {
+      return null;
+    }
+  }, [store, itemId]);
+  const item = useFailClosedSelection(selection ?? noUndefined, undefined);
+  const title = startedThreadOf(item)?.title;
+  return (
+    <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
+      <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+        {startedBlockText(title)}
+      </Text>
+    </View>
+  );
+}
+
+function ProductionBlockRow({
+  block,
+  store,
+  shown,
+}: {
+  block: Block;
+  store: ThreadSource;
+  shown: ReadonlySet<string>;
+}) {
+  const theme = useTheme();
+  if (block.kind === "end") {
+    const label = endBlockText(block);
+    return (
+      <View
+        style={{
+          marginHorizontal: tokens.spacing.lg,
+          marginVertical: tokens.spacing.sm,
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          {label}
+        </Text>
+      </View>
+    );
+  }
+  if (block.kind === "forked") {
+    return (
+      <View
+        style={{
+          marginHorizontal: tokens.spacing.lg,
+          marginVertical: tokens.spacing.sm,
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          {forkedBlockText(block.threadId)}
+        </Text>
+      </View>
+    );
+  }
+  if (block.kind === "started") {
+    return <ProductionStartedRow itemId={block.itemId} store={store} />;
+  }
+  if (block.kind === "live") {
+    return null;
+  }
+  if (block.kind === "question") {
+    return (
+      <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          Waiting on your answer
+        </Text>
+      </View>
+    );
+  }
+  if (block.kind === "user") {
+    if (!shown.has(block.itemId)) return null;
+    return <ProductionUserBubble id={block.itemId} store={store} />;
+  }
+  if (block.kind === "message") {
+    if (!shown.has(block.itemId)) return null;
+    return <ProductionMessageBubble id={block.itemId} store={store} />;
+  }
+  const visible = visibleBlockItemIds(block, shown);
+  if (visible.length === 0) return null;
+  return (
+    <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
+      <ProductionQuietLines ids={visible} store={store} />
+    </View>
+  );
+}
+
+function ProductionUserBubble({ id, store }: { id: string; store: ThreadSource }) {
+  const theme = useTheme();
+  const selection = useMemo(() => {
+    try {
+      return store.select([`item:${id}`], (r) => r.item(id));
+    } catch {
+      return null;
+    }
+  }, [store, id]);
+  const item = useFailClosedSelection(selection ?? noUndefined, undefined);
+  const { text, streaming } = itemText(item);
+  if (!text) return null;
+  return (
+    <View
+      style={{
+        marginHorizontal: tokens.spacing.lg,
+        marginVertical: tokens.spacing.sm,
+        alignSelf: "flex-end",
+        maxWidth: "85%",
+        backgroundColor: theme.colours.secondaryBackground,
+        borderRadius: tokens.radii.bubble,
+        padding: tokens.spacing.md,
+      }}
+    >
+      <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>
+        {text}
+        {streaming ? " ▍" : ""}
+      </Text>
+    </View>
+  );
+}
+
+function ProductionMessageBubble({ id, store }: { id: string; store: ThreadSource }) {
+  const theme = useTheme();
+  const selection = useMemo(() => {
+    try {
+      return store.select([`item:${id}`], (r) => r.item(id));
+    } catch {
+      return null;
+    }
+  }, [store, id]);
+  const item = useFailClosedSelection(selection ?? noUndefined, undefined);
+  const { text, detail, streaming } = itemText(item);
+  if (!text && !detail) return null;
+  return (
+    <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
+      {text ? <Markdown text={text} streaming={streaming} /> : null}
+      {detail ? (
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          {detail}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function productionBlockTestId(block: Block): string {
+  switch (block.kind) {
+    case "user":
+      return "transcript.user";
+    case "message":
+      return "transcript.answer";
+    case "event":
+      return "transcript.event";
+    case "item":
+      return "transcript.item";
+    case "end":
+      return `transcript.end.${block.ending}`;
+    case "forked":
+      return "transcript.forked";
+    case "started":
+      return "transcript.started";
+    case "live":
+      return "transcript.live";
+    case "work":
+      return "transcript.work";
+    case "subagents":
+      return "transcript.subagents";
+    case "files":
+      return "transcript.files";
+    case "question":
+      return "transcript.question";
+  }
+}
+
 function ThreadItems({ store }: { store: ThreadSource }) {
   const theme = useTheme();
   const orderSelection = useMemo(() => {
@@ -215,7 +535,10 @@ function ThreadItems({ store }: { store: ThreadSource }) {
     }
   }, [store]);
   const order = useFailClosedSelection(orderSelection ?? noOrder, EMPTY_ORDER);
+  const blocks = useProductionBlocks(store);
   const window = useMemo(() => threadWindowFor(order, PRODUCTION_THREAD_WINDOW), [order]);
+  const shown = useMemo(() => new Set(window.shown), [window]);
+  const visible = useMemo(() => windowBlocksFor(blocks, shown), [blocks, shown]);
   if (window.total === 0) {
     return (
       <Text
@@ -250,9 +573,12 @@ function ThreadItems({ store }: { store: ThreadSource }) {
         </Text>
       ) : null}
       <FlashList
-        data={window.shown}
-        keyExtractor={(itemId: string) => itemId}
-        renderItem={({ item }: { item: string }) => <ThreadItemRow id={item} store={store} />}
+        data={visible}
+        keyExtractor={(block: Block) => blockKey(block)}
+        renderItem={({ item }: { item: Block }) => (
+          <ProductionBlockRow block={item} store={store} shown={shown} />
+        )}
+        getItemType={(item: Block) => `${item.kind}:${productionBlockTestId(item)}`}
         // Single scroll owner per region: the bounded window above owns this
         // region while the Machines screen owns page scroll. `flex:1` fills
         // the measured window (an unstyled list collapses); on Android the
@@ -265,41 +591,6 @@ function ThreadItems({ store }: { store: ThreadSource }) {
           startRenderingFromBottom: true,
         }}
       />
-    </View>
-  );
-}
-
-function ThreadItemRow({ id, store }: { id: string; store: ThreadSource }) {
-  const theme = useTheme();
-  const selection = useMemo(() => {
-    try {
-      return store.select([`item:${id}`], (r) => r.item(id));
-    } catch {
-      return null;
-    }
-  }, [store, id]);
-  const item = useFailClosedSelection(selection ?? noUndefined, undefined);
-  if (!item) return null;
-  const { text, detail, user } = transcriptRowContent(item);
-  if (!text && !detail) return null;
-  return (
-    <View
-      style={{
-        marginHorizontal: tokens.spacing.lg,
-        marginVertical: tokens.spacing.xs,
-        alignSelf: user ? "flex-end" : "stretch",
-        maxWidth: user ? "85%" : "100%",
-        backgroundColor: theme.colours.secondaryBackground,
-        borderRadius: tokens.radii.bubble,
-        padding: tokens.spacing.md,
-      }}
-    >
-      <Text style={{ ...textStyle("body"), color: theme.colours.foreground }}>{text}</Text>
-      {detail ? (
-        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
-          {detail}
-        </Text>
-      ) : null}
     </View>
   );
 }
