@@ -76,6 +76,7 @@ test("a signed-out CLI with a newer release offers sign-in first and says the up
   expect(codex.fix).toEqual({ action: "sign_in", label: "Sign in" });
   expect(codex.status.token).toBe("needsYou");
   expect(codex.update).toBe("0.161.0 available");
+  expect(codex.updateToo).toBe(true);
   expect(codex.terminal).toEqual({ run: "codex login", prompt: null });
   expect(codex.accounts).toBe(true);
   expect(codex.missing).toBe(false);

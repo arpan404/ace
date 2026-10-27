@@ -123,6 +123,10 @@ struct ProviderPageView<Extra: View>: View {
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
             }
             if let fix = page.fix, install?.idle ?? true { fixButton(fix, page) }
+            if page.updateToo, install?.idle ?? true {
+                Button("Update") { plan("update") }.frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .accessibilityIdentifier("provider.update")
+            }
             ServiceProblem(message: editProblem)
         }
         .insetRowBackground()
@@ -138,11 +142,11 @@ struct ProviderPageView<Extra: View>: View {
             .accessibilityIdentifier("provider.fix")
         case "turn_on":
             Button(fix.label) { edit(["kind": "enabled", "on": true]) }
-                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).tint(AceTheme.Colours.accent)
+                .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
                 .frame(minHeight: AceTheme.Dimensions.touchTarget).accessibilityIdentifier("provider.fix")
         default:
             Button(fix.label) { plan(fix.action) }
-                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).tint(AceTheme.Colours.accent)
+                .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
                 .frame(minHeight: AceTheme.Dimensions.touchTarget).accessibilityIdentifier("provider.fix")
         }
     }

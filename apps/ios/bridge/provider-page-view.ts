@@ -65,7 +65,7 @@ export interface ModelRow {
   id: string;
   aliases: string[];
   label: string;
-  /** "Free · Deprecated · Custom": quiet marks beside the name, or null. */
+  /** "Free · Deprecated · Custom": quiet marks under the name, or null. */
   marks: string | null;
   hidden: boolean;
   starred: boolean;
@@ -102,6 +102,8 @@ export interface ProviderPage {
   /** Why it needs attention, or how to get it; null when nothing needs saying. */
   detail: string | null;
   fix: { action: ProviderFix; label: string } | null;
+  /** An update is waiting while the fix is something else (signing in): offered beside it. */
+  updateToo: boolean;
   missing: boolean;
   off: boolean;
   /** The provider keeps ace accounts (its Accounts page applies). */
@@ -224,6 +226,7 @@ export function providerPage(input: ProviderPageInput): ProviderPage {
           ? preview(view.summary, 256)
           : null,
     fix: fix ? { action: fix, label: fixLabels[fix] } : null,
+    updateToo: updateWaiting && !!fix && fix !== "update" && fix !== "turn_on",
     missing,
     off,
     accounts: accountProviders.has(provider) && !missing,
@@ -317,8 +320,8 @@ function modelRow(
   starred: boolean,
 ): ModelRow {
   const label = modelName(model.provider, model.displayName, model.id);
+  // The group header already names the source, so a row never repeats it.
   const marks = [
-    model.source?.label,
     freeModelMarker({ free: model.free, label }) ? "Free" : undefined,
     model.deprecated ? "Deprecated" : undefined,
     model.custom ? "Custom" : undefined,

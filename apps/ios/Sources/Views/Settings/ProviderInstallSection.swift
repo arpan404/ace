@@ -47,7 +47,7 @@ struct ProviderInstallSection: View {
                             .frame(minHeight: AceTheme.Dimensions.touchTarget)
                     } else {
                         Button(confirm.label) { act(["kind": "run"]) }
-                            .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).tint(AceTheme.Colours.accent)
+                            .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
                             .frame(minHeight: AceTheme.Dimensions.touchTarget)
                             .accessibilityIdentifier("install.confirm")
                     }

@@ -26,6 +26,7 @@ struct LoginProgress: Decodable {
 }
 struct ProviderSettingsView: View {
     let model: ClientModel
+    @State private var others: OtherProvidersData?
     var body: some View {
         List {
             Section {
@@ -50,10 +51,11 @@ struct ProviderSettingsView: View {
                 }
             }
             .insetRowBackground()
-            OtherProvidersSections(model: model)
+            OtherProvidersSections(model: model, others: others)
             if let problem = model.providers?.problem { ServiceProblem(message: problem).listRowBackground(Color.clear) }
         }
         .insetGroupedList()
+        .followOtherProviders(model, $others)
         .navigationTitle("Providers").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model) { model.refreshMachine() }.refreshable { model.refreshMachine() }
     }

@@ -22,6 +22,7 @@ struct ProviderPageData: Decodable, Equatable {
     let status: StatusDisplay
     let detail: String?
     let fix: Fix?
+    let updateToo: Bool
     let missing: Bool
     let off: Bool
     let accounts: Bool

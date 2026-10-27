@@ -17,6 +17,7 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["provider.status"].firstMatch.waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["0.161.0 available"].waitForExistence(timeout: 10), "the header says the update")
         XCTAssertTrue(app.descendants(matching: .any)["provider.fix"].firstMatch.exists, "the one fix shows")
+        XCTAssertTrue(app.buttons["provider.update"].exists, "an update waiting behind sign-in stays reachable")
         screenshot("codex-top")
         app.swipeUp()
         screenshot("codex-middle")
