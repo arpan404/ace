@@ -122,7 +122,6 @@ export function ThreadComposer({
   const [pickerRequest, requestPicker] = useState(0);
   const [tuneRequest, requestTune] = useState(0);
   const activityState = useThreadLiveState(props.thread.id);
-  const threadId = ThreadId.parse(props.thread.id);
   // Toasts (a thread elsewhere needs you, Undo) rise above the composer, never over it.
   const box = useRef<HTMLDivElement>(null);
   // Effort and speed picked for the next message: this thread's, for the selection they were
