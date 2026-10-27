@@ -11,12 +11,15 @@ import {
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
 import { FilesScope } from "./checkout-request.ts";
+import { readKept, type KeptRead, type Timers } from "./kept-read.ts";
 import type { KeptValue } from "./kept-value.ts";
 
 /*
  * The phone's stand-in for file tabs: per thread (or project folder), the files opened recently
  * and the files left open, in order, closable, kept on this device between launches
- * (`keptValue("files")`). Each change answers with the scope's `files.memory` patch.
+ * (`keptValue("files")`). Each change answers with the scope's `files.memory` patch. A failed
+ * read is tried again and nothing is saved until one succeeds, so it never wipes the lists;
+ * changes made meanwhile apply at once and are merged in when the read lands.
  */
 
 const path = z.string().min(1).max(4096);
@@ -53,13 +56,16 @@ export function memoryKey(scope: FilesScope): string {
 export class CheckoutMemory {
   readonly #kept: KeptValue;
   readonly #sink: Pick<PatchSink, "put">;
+  readonly #timers: Timers;
   #recent: ScopedLists = [];
   #open: ScopedLists = [];
-  #loaded: Promise<void> | undefined;
-  #saving: Promise<void> = Promise.resolve();
-  constructor(kept: KeptValue, sink: Pick<PatchSink, "put">) {
+  #reading: KeptRead | undefined;
+  #saving: Promise<void> | undefined;
+  #shown: FilesScope | undefined;
+  constructor(kept: KeptValue, sink: Pick<PatchSink, "put">, timers: Timers) {
     this.#kept = kept;
     this.#sink = sink;
+    this.#timers = timers;
   }
 
   /** The scope's recent files, newest first (quick open shows these with nothing typed). */
@@ -120,19 +126,38 @@ export class CheckoutMemory {
     this.#save();
   }
 
+  /** Settles after the first read attempt; a failing read keeps retrying behind it. */
   #load(): Promise<void> {
-    this.#loaded ??= this.#kept.load().then((value) => {
-      const kept = Kept.safeParse(value ?? {});
-      if (!kept.success) return;
-      this.#recent = kept.data.recent.slice(0, recentLimits.scopes);
-      this.#open = kept.data.open.slice(0, openLimits.scopes);
-    });
-    return this.#loaded;
+    if (!this.#reading) {
+      this.#reading = readKept(this.#kept, this.#timers, () => {});
+      this.#saving = this.#reading.read.then((value) => this.#merge(value));
+    }
+    return this.#reading.tried;
   }
 
-  /** Saves in order, each the latest lists; a failed save is tried again with the next change. */
+  /** What was kept, under the lists changed before it read (those are newer). */
+  #merge(value: unknown): void {
+    const kept = Kept.safeParse(value ?? {});
+    if (!kept.success) return;
+    const under = (mine: ScopedLists, theirs: ScopedLists, limit: number) => {
+      const held = new Set(mine.map(([key]) => key));
+      return [...mine, ...theirs.filter(([key]) => !held.has(key))].slice(0, limit);
+    };
+    this.#recent = under(this.#recent, kept.data.recent, recentLimits.scopes);
+    this.#open = under(this.#open, kept.data.open, openLimits.scopes);
+    if (this.#shown) this.#show(this.#shown);
+  }
+
+  /** Saves in order, each the latest lists, never before the kept lists are read. */
   #save() {
-    // The host keeps at most 1 MiB: the least recently used scopes go first.
+    // Each save writes the lists as they are when it runs, so a read landing first is kept.
+    this.#saving = (this.#saving ?? Promise.resolve())
+      .then(() => this.#kept.save(this.#fitted()))
+      .catch(() => {});
+  }
+
+  /** The lists within the host's 1 MiB: the least recently used scopes go first. */
+  #fitted() {
     while (
       JSON.stringify({ recent: this.#recent, open: this.#open }).length > keptBytes &&
       (this.#recent.length || this.#open.length)
@@ -140,11 +165,11 @@ export class CheckoutMemory {
       this.#recent = this.#recent.slice(0, -1);
       this.#open = this.#open.slice(0, -1);
     }
-    const value = { recent: this.#recent, open: this.#open };
-    this.#saving = this.#saving.then(() => this.#kept.save(value)).catch(() => {});
+    return { recent: this.#recent, open: this.#open };
   }
 
   #show(scope: FilesScope) {
+    this.#shown = scope;
     const key = memoryKey(scope);
     const recent = scopedList(this.#recent, key);
     const open = scopedList(this.#open, key);

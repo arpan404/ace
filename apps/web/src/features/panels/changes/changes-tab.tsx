@@ -125,7 +125,7 @@ export function ChangesTab(props: {
   const jump = useDiffJump(files, views, props.path);
 
   const send = (keys: readonly string[]) =>
-    thread ? sendDrafts(client, services.drafts, thread, keys) : Promise.resolve();
+    thread ? sendDrafts(client, services.drafts, thread, keys, newCommandId) : Promise.resolve();
   const handlers = useReviewHandlers({
     setView: views.setView,
     setViewed: (file, next, view) => {
@@ -184,7 +184,7 @@ export function ChangesTab(props: {
     },
     resolve: (key, resolved) => void resolveDraft(client, services.drafts, key, resolved),
     apply: (key) => {
-      if (thread) void applySuggestion(client, services.drafts, thread, key);
+      if (thread) void applySuggestion(client, services.drafts, thread, key, newCommandId);
     },
     discard: (key) => discardDraft(services.drafts, key),
   });
@@ -347,4 +347,5 @@ export function ChangesTab(props: {
 }
 
 const identity = <T,>(value: T) => value;
+const newCommandId = () => crypto.randomUUID();
 const noDrafts: readonly ReviewDraft[] = [];

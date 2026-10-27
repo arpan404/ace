@@ -1,7 +1,7 @@
 import { Command } from "@ace/protocol";
 import { afterEach, describe, expect, test } from "vitest";
 import { changesAction, ChangesAction } from "./changes-actions.ts";
-import { openChanges } from "./changes-fixture.ts";
+import { memoryValue, openChanges } from "./changes-fixture.ts";
 import { plainPreview, until, type RecordingSink } from "./sheet-fixture.ts";
 
 const closers: (() => Promise<void>)[] = [];
@@ -153,5 +153,56 @@ describe("Changes sheet review", () => {
     await act(sheet, { kind: "review.refresh" });
     await until(() => drafts(sheet.sink).length === 1, "remote comment");
     expect(drafts(sheet.sink)[0]).toMatchObject({ text: "From the laptop", start: 4, sent: true });
+  });
+
+  test("a turn's diff takes no comments and says why, while Uncommitted does", async () => {
+    const sheet = await opened();
+    expect(sheet.sink.read("changes:summary")?.review).toEqual({ allowed: true, reason: "" });
+    sheet.session.scope("last");
+    sheet.session.open("src/replay.ts", true);
+    const summary = sheet.sink.read("changes:summary");
+    expect(summary?.review).toMatchObject({ allowed: false, reason: expect.stringContaining("Uncommitted") });
+    const notice = await act(sheet, { ...comment, text: "On the turn" });
+    expect(notice).toMatchObject({ ok: false, message: (summary?.review as { reason: string }).reason });
+    expect(drafts(sheet.sink)).toEqual([]);
+    expect(sheet.daemon.review.comments()).toEqual([]);
+  });
+
+  test("sending again after the daemon's answer was lost records the comment once", async () => {
+    let lose = true;
+    const sheet = await opened({
+      command: (send) => async (payload, options, id) => {
+        const result = await send(payload, options, id);
+        if (payload.type === "review.comment" && lose) {
+          lose = false;
+          throw new Error("The connection dropped before ace answered.");
+        }
+        return result;
+      },
+    });
+    await act(sheet, { ...comment, text: "Only once" });
+    await act(sheet, { kind: "review.send" });
+    expect(drafts(sheet.sink)[0]).toMatchObject({ state: "failed" });
+    expect(sheet.daemon.review.comments()).toHaveLength(1);
+    await act(sheet, { kind: "review.send" });
+    expect(drafts(sheet.sink)).toEqual([
+      expect.objectContaining({ text: "Only once", state: "sent", sent: true }),
+    ]);
+    expect(sheet.daemon.review.comments()).toEqual([
+      expect.objectContaining({ text: "Only once", sent: true }),
+    ]);
+  });
+
+  test("a review this phone can't save shows why on the review patch", async () => {
+    const value = memoryValue();
+    value.save = async () => {
+      throw new Error("storage.value.save failed");
+    };
+    const sheet = await opened({ value });
+    expect(review(sheet.sink)?.storage).toBe("");
+    await act(sheet, { ...comment, text: "Unsaved" });
+    await until(() => String(review(sheet.sink)?.storage).length > 0, "storage message");
+    expect(review(sheet.sink)?.storage).toContain("Couldn't save review comments");
+    expect(drafts(sheet.sink)).toEqual([expect.objectContaining({ text: "Unsaved" })]);
   });
 });

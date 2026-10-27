@@ -26,6 +26,7 @@ export const StoredDraft = z.object({
   anchor: z.optional(z.enum(["active", "outdated", "addressed-pending-review"])),
   fingerprint: z.optional(ReviewFingerprint),
   source: z.optional(ReviewSource),
+  commentCommand: z.optional(z.object({ id: z.string(), sessionId: z.string() })),
   createdAt: z.number(),
 });
 

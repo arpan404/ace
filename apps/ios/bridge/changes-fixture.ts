@@ -2,6 +2,7 @@ import type { Fact } from "@ace/core";
 import { facts } from "@ace/fake-daemon";
 import type { OpenFilesLimits } from "./changes-files.ts";
 import { ChangesKept } from "./changes-kept.ts";
+import type { Timers } from "./kept-read.ts";
 import type { KeptValue } from "./kept-value.ts";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
@@ -52,6 +53,13 @@ export const turnEdits = {
   three: [{ path: "src/replay.ts", oldText: afterOne, newText: afterThree }],
 };
 
+const realTimers: Timers = {
+  set(delay, callback) {
+    const timer = setTimeout(callback, delay);
+    return () => clearTimeout(timer);
+  },
+};
+
 /** A kept value held in memory, like the phone's between launches. */
 export function memoryValue(): KeptValue & { held: unknown } {
   const value = {
@@ -72,6 +80,10 @@ export interface OpenOptions {
   status?: Parameters<ReturnType<typeof sheetFixture>["daemon"]["workspace"]["setGitStatus"]>[1];
   /** What the phone kept, read back by a fresh store as after a relaunch. */
   value?: KeptValue;
+  /** Timers for the kept value's retries; real ones by default. */
+  timers?: Timers;
+  /** Wraps the SDK's commands, to lose a reply. */
+  command?: (send: ChangesOwner["command"]) => ChangesOwner["command"];
   limits?: OpenFilesLimits;
 }
 
@@ -125,13 +137,15 @@ export async function openChanges(options: OpenOptions = {}) {
   const lease = client.thread("changes");
   await until(() => lease.store.thread !== undefined, "thread snapshot");
   if (options.turns !== false) await until(() => lease.store.order.length > 0, "thread items");
+  const send: ChangesOwner["command"] = (payload, requestOptions, id) =>
+    client.command(payload, requestOptions, id);
   const owner: ChangesOwner = {
-    command: (payload) => client.command(payload),
+    command: options.command ? options.command(send) : send,
     request: (input) => client.request(input),
   };
   const sink = new RecordingSink();
   const value = options.value ?? memoryValue();
-  const kept = new ChangesKept(value);
+  const kept = new ChangesKept(value, options.timers ?? realTimers);
   let now = 10_000;
   const session = new ChangesSession(owner, lease.store, "changes", 1, sink, plainPreview, {
     kept,

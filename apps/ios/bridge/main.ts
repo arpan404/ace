@@ -115,8 +115,9 @@ const pump = new PatchPump();
 const ledgers = new LedgerShelf(7, 4 * 1024 * 1024);
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview, {
-  kept: new ChangesKept(keptValue("review")),
+  kept: new ChangesKept(keptValue("review"), scheduler),
   now: () => host.now(),
+  id: () => host.uuid(),
 });
 let openThreadId: string | undefined;
 /** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
@@ -252,7 +253,7 @@ async function start(json: string): Promise<void> {
   compose.newThread.readCatalogFrom((workspaceId, provider) =>
     suggest?.draftEntries(workspaceId, provider),
   );
-  const memory = new CheckoutMemory(keptValue("files"), pump);
+  const memory = new CheckoutMemory(keptValue("files"), pump, scheduler);
   const files = new CheckoutFiles(
     client,
     (workspaceId, query, limit) => search.complete(workspaceId, query, limit),

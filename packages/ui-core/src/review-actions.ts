@@ -25,6 +25,7 @@ export async function applySuggestion(
   store: Drafts,
   thread: Thread,
   key: string,
+  newId: () => string,
 ): Promise<void> {
   const draft = store.get().find((candidate) => candidate.key === key);
   if (!draft || draft.suggestion === undefined) return;
@@ -32,7 +33,7 @@ export async function applySuggestion(
   const before = draft.state;
   patch(store, only, ({ error: _error, ...d }) => ({ ...d, state: "resolving" }));
   try {
-    const { sessionId, commentIds } = await record(client, store, thread, [draft]);
+    const { sessionId, commentIds } = await record(client, store, thread, [draft], newId);
     const commentId = commentIds[0] ?? "";
     await review(client, { type: "review.applySuggestion", sessionId, commentId });
     await review(client, { type: "review.resolve", sessionId, commentId, resolved: true });
