@@ -15,12 +15,14 @@ import { isInstrumentedBuild } from "./native-mode.ts";
 import { ComposerDraft, type DraftStore } from "./composer-draft.ts";
 import { useSelection } from "./selection.ts";
 import { AceButton, Row } from "./components.tsx";
+import { resolveComposerSubmitBehavior, shouldSubmitOnReturn } from "./composer-submit.ts";
 export function Composer({
   threadId,
   draftKey,
   drafts,
   client,
   notify,
+  returnSends = false,
 }: {
   threadId: string;
   /** Where this composer's unsent words are kept; null keeps them only on screen. */
@@ -28,6 +30,7 @@ export function Composer({
   drafts: DraftStore | null;
   client: ClientApi;
   notify(text: string): void;
+  returnSends?: boolean;
 }) {
   const input = useRef<TextInput>(null);
   // Probe and metrics exist only in fixture builds; production fails closed to plain composing.
@@ -148,8 +151,14 @@ export function Composer({
         underlineColorAndroid="transparent"
         placeholderTextColor={theme.colours.mutedForeground}
         multiline
-        submitBehavior={instrumented ? "submit" : "newline"}
-        onSubmitEditing={instrumented ? () => void measure() : undefined}
+        submitBehavior={resolveComposerSubmitBehavior(returnSends, instrumented)}
+        onSubmitEditing={
+          instrumented
+            ? () => void measure()
+            : shouldSubmitOnReturn(returnSends, instrumented)
+              ? () => void send()
+              : undefined
+        }
         value={draft}
         onChangeText={(text) => model.edit(text)}
         style={{

@@ -17,6 +17,7 @@
       ["expo-secure-store", { "configureAndroidBackup": true }],
       "./plugins/with-ace-host.ts",
       "./plugins/with-ace-network.ts",
+      "./plugins/with-ace-secure-screen.ts",
       "./plugins/with-ace-variant.ts",
       "./plugins/with-ace-probe.ts"
     ]

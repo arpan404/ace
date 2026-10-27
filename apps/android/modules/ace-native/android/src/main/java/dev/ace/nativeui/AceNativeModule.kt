@@ -1,5 +1,9 @@
 package dev.ace.nativeui
 
+import android.app.Activity
+import android.app.Application
+import android.os.Bundle
+import android.os.Looper
 import android.util.Base64
 import dev.ace.nativeui.transport.PinnedHttpClient
 import dev.ace.nativeui.transport.PinnedHttpFailure
@@ -19,6 +23,83 @@ class AceNativeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("AceNative")
     Function("getExecutionMode") { BuildConfig.ACE_EXECUTION_MODE }
+    // Recents guard, runtime layer. The first-frame guarantee lives in
+    // MainActivity.onCreate (see plugins/with-ace-secure-screen.ts), which runs
+    // at actual Activity creation before the Expo module exists. These
+    // callbacks re-apply the desired state to every Activity on
+    // creation/start/resume, covering recreation (rotation, process restart)
+    // and Activities other than MainActivity. The desired state survives
+    // Activity turnover in SecureScreenGuard.
+    var secureCallbacks: Application.ActivityLifecycleCallbacks? = null
+    fun registerSecureCallbacks(app: Application?) {
+      if (secureCallbacks != null || app == null) return
+      val listener =
+        object : Application.ActivityLifecycleCallbacks {
+          override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+            SecureScreenGuard.applyTo(activity)
+          }
+          override fun onActivityStarted(activity: Activity) {
+            SecureScreenGuard.applyTo(activity)
+          }
+          override fun onActivityResumed(activity: Activity) {
+            SecureScreenGuard.applyTo(activity)
+          }
+          override fun onActivityPaused(activity: Activity) = Unit
+          override fun onActivityStopped(activity: Activity) = Unit
+          override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+          override fun onActivityDestroyed(activity: Activity) = Unit
+        }
+      try {
+        app.registerActivityLifecycleCallbacks(listener)
+        secureCallbacks = listener
+      } catch (_: Exception) {
+        // Registration failure must not crash the module: the desired state
+        // stays fail-closed (secure) and setSecureScreen retries below, so a
+        // later Activity still picks it up.
+      }
+    }
+    fun currentApplication(): Application? =
+      (appContext.reactContext?.applicationContext as? Application)
+        ?: appContext.currentActivity?.application
+    OnCreate {
+      SecureScreenGuard.desiredSecure = true
+      registerSecureCallbacks(currentApplication())
+      appContext.currentActivity?.let { activity ->
+        activity.runOnUiThread { SecureScreenGuard.applyTo(activity) }
+      }
+    }
+    OnDestroy {
+      secureCallbacks?.let { listener ->
+        try {
+          currentApplication()?.unregisterActivityLifecycleCallbacks(listener)
+        } catch (_: Exception) {
+          // Best-effort teardown only.
+        } finally {
+          secureCallbacks = null
+        }
+      }
+    }
+    // Recents/screenshot guard for the app lock. FLAG_SECURE blanks the window
+    // in the switcher and blocks screenshots while set; it never takes effect
+    // on JS timing because the OS excludes the window at composition time.
+    // Returns true only when an activity existed to apply to (applied inline
+    // when already on the UI thread, otherwise dispatched to it). A null
+    // activity returns false (never a silent success): the fail-closed
+    // defaults above still cover not-yet-created activities, and the desired
+    // state is kept so the next created activity picks it up.
+    Function("setSecureScreen") { enabled: Boolean ->
+      SecureScreenGuard.desiredSecure = enabled
+      // A failed or deferred registration above (null Application at OnCreate)
+      // is retried here, so a later Activity still gets the guard.
+      registerSecureCallbacks(currentApplication())
+      val activity = appContext.currentActivity ?: return@Function false
+      if (Looper.myLooper() == Looper.getMainLooper()) {
+        SecureScreenGuard.applyTo(activity)
+      } else {
+        activity.runOnUiThread { SecureScreenGuard.applyTo(activity) }
+      }
+      true
+    }
     installInputHooks(appContext)
     ExpoUIView<AceThemeProps>("AceTheme") {
       Content { props -> AceThemeContent(props) }

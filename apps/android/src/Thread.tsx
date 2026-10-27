@@ -318,6 +318,7 @@ export function ThreadScreen({
   drafts,
   notify,
   onOpenFiles,
+  returnSends = false,
 }: {
   client: ClientApi;
   id: string;
@@ -327,6 +328,7 @@ export function ThreadScreen({
   drafts: ThreadDraftStore | null;
   notify(text: string): void;
   onOpenFiles?(): void;
+  returnSends?: boolean;
 }) {
   const theme = useTheme();
   const headerHeight = useHeaderHeight();
@@ -568,6 +570,7 @@ export function ThreadScreen({
         drafts={drafts}
         client={client}
         notify={notify}
+        returnSends={returnSends}
       />
       {agents ? (
         <AgentsSheet

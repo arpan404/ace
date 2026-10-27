@@ -333,6 +333,7 @@ export function Inbox({
   client,
   open,
   machines,
+  settings,
   now,
   notify,
   canAct,
@@ -341,6 +342,7 @@ export function Inbox({
   client: ClientApi;
   open(id: string): void;
   machines(): void;
+  settings(): void;
   now(): number;
   notify?(text: string): void;
   /**
@@ -537,6 +539,16 @@ export function Inbox({
         >
           <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
             Machines ›
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={settings}
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+          style={{ minHeight: tokens.dimensions.touchTarget, justifyContent: "center" }}
+        >
+          <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+            Settings ›
           </Text>
         </Pressable>
         {onSearch ? (
