@@ -73,6 +73,10 @@ export interface ModelRow {
 }
 
 export interface ProviderModelsPage {
+  /** Stars, hiding, the default and custom models may be changed from this phone. */
+  editable: boolean;
+  /** Where to change them instead; null when editable. */
+  locked: string | null;
   /** Each problem the provider's model groups report, said once. */
   problems: string[];
   /** The default model row, or null when the provider lists no models. */
@@ -122,6 +126,13 @@ export interface ProviderPage {
   terminal: { run: string; prompt: string | null } | null;
   about: ProviderFact[];
   settings: {
+    /**
+     * This phone may change the preferences below (an administrator device): the computer
+     * refuses `providers.configuration` writes from any other. Native mode is not one of them.
+     */
+    editable: boolean;
+    /** "Change this in ace on studio.", said once under the read-only rows; null when editable. */
+    locked: string | null;
     enabled: boolean;
     /** The CLI path field, or null where there is none (Cursor's SDK, ACP agents). */
     path: string | null;
@@ -155,6 +166,13 @@ export interface ProviderPageInput {
   catalog: ModelCatalog | undefined;
   /** What this computer is called, for "Add an API key in ace on <computer>". */
   machine: string;
+  /** This phone was paired as an administrator of the computer. */
+  admin: boolean;
+}
+
+/** Where to change a preference this phone may only read. */
+export function lockedLine(machine: string): string {
+  return `Change this in ace on ${preview(machine, 64)}.`;
 }
 
 export function providerPage(input: ProviderPageInput): ProviderPage {
@@ -177,7 +195,9 @@ export function providerPage(input: ProviderPageInput): ProviderPage {
       ? undefined
       : "install"
     : off
-      ? "turn_on"
+      ? input.admin
+        ? "turn_on"
+        : undefined
       : view?.primary === "update"
         ? "update"
         : view?.primary === "sign_in" || view?.primary === "reconnect"
@@ -244,6 +264,8 @@ export function providerPage(input: ProviderPageInput): ProviderPage {
     terminal: !missing && steps ? { run: steps.run, prompt: steps.prompt ?? null } : null,
     about: missing ? [] : about,
     settings: {
+      editable: input.admin,
+      locked: input.admin ? null : lockedLine(input.machine),
       enabled: input.configuration?.enabled !== false,
       path:
         provider === "cursor" || provider === "acp"
@@ -287,6 +309,8 @@ function modelsPage(input: ProviderPageInput, catalog: ModelCatalog): ProviderMo
     ({ problem }) => preview(`${problem.message} ${problem.hint}`.trim(), 512),
   );
   return {
+    editable: input.admin,
+    locked: input.admin ? null : lockedLine(input.machine),
     problems,
     defaultModel: choice.choices.length
       ? {

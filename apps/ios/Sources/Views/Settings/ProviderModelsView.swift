@@ -35,9 +35,11 @@ struct ProviderBehaviourSection: View {
             }
             .accessibilityIdentifier("provider.models")
             ServiceProblem(message: problem)
-        } header: { InsetHeader("Behaviour") }
+        } header: { InsetHeader("Behaviour") } footer: {
+            if let locked = models.locked { Text(locked) }
+        }
         .insetRowBackground()
-        .disabled(saving || !model.canOperate)
+        .disabled(saving || !model.canOperate || !models.editable)
     }
 
     private func choose(_ key: String) {
@@ -70,7 +72,7 @@ struct ProviderModelsView: View {
     init(model: ClientModel, provider: String) {
         self.model = model
         self.provider = provider
-        _models = State(initialValue: model.kept(ProviderPageData.read(provider), as: ProviderPageData.self)?.models)
+        _models = State(initialValue: model.kept(ProviderPageData.read(provider, admin: model.canAdmin), as: ProviderPageData.self)?.models)
     }
 
     var body: some View {
@@ -99,15 +101,19 @@ struct ProviderModelsView: View {
                 Section { ForEach(0..<4, id: \.self) { _ in InsetRow("Loading", systemImage: nil) } }
                     .insetRowBackground().redacted(reason: .placeholder)
             }
+            if let locked = models?.locked {
+                Text(locked).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).listRowBackground(Color.clear)
+            }
             if let problem { ServiceProblem(message: problem).listRowBackground(Color.clear) }
         }
         .insetGroupedList()
         .toggleStyle(.systemSwitch)
         .animation(.smooth, value: models)
-        .disabled(!model.canOperate)
+        .disabled(!model.canOperate || models?.editable == false)
         .navigationTitle("Models").navigationBarTitleDisplayMode(.inline)
         .sensoryFeedback(.selection, trigger: changed)
-        .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(ProviderPageData.read(provider))]) {
+        .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(ProviderPageData.read(provider, admin: model.canAdmin))]) {
             if model.connection == "ready" { await read() }
         }
         .refreshable { await read() }
@@ -171,7 +177,7 @@ struct ProviderModelsView: View {
 
     private func read() async {
         do {
-            let page = try await model.read(ProviderPageData.read(provider), as: ProviderPageData.self)
+            let page = try await model.read(ProviderPageData.read(provider, admin: model.canAdmin), as: ProviderPageData.self)
             withAnimation(.smooth) { models = page.models; problem = page.models == nil ? "This provider lists no models yet." : nil }
         } catch { if models == nil { problem = error.localizedDescription } }
     }

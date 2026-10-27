@@ -72,6 +72,7 @@ struct PairingLink: Sendable, Equatable {
 struct Grants: Sendable, Equatable {
     let scopes: [String]
     var canOperate: Bool { scopes.contains("operate") || scopes.contains("admin") }
+    var canAdmin: Bool { scopes.contains("admin") }
     var summary: String {
         if scopes.isEmpty { return "Chosen by your computer" }
         let access = scopes.contains("admin") ? "Administrator" : canOperate ? "View and act" : "View only"

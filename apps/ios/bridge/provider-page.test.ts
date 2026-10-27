@@ -19,7 +19,7 @@ afterEach(async () => {
   client = undefined;
 });
 
-async function open(daemon = fixture()) {
+async function open(daemon = fixture(), admin = true) {
   const owner = new ClientCore({
     deviceId: DeviceId.parse("ios-provider-page-test"),
     expectedHostId: HostId.parse("ios-test-host"),
@@ -51,7 +51,7 @@ async function open(daemon = fixture()) {
     return reply.value;
   };
   return {
-    page: (provider: string) => ask<ProviderPage>({ type: "provider.page", provider }),
+    page: (provider: string) => ask<ProviderPage>({ type: "provider.page", provider, admin }),
     others: () =>
       ask<{ off: OtherProvider[]; missing: OtherProvider[] }>({ type: "providers.others" }),
     edit: (provider: string, change: Record<string, unknown>) =>
@@ -193,4 +193,50 @@ test("a provider that isn't installed is listed apart, with Install", async () =
   const page = await phone.page("antigravity");
   expect(page).toMatchObject({ missing: true, fix: { action: "install", label: "Install" } });
   expect(page.models).toBeNull();
+});
+
+/** A phone paired to view and act, not as an administrator of the computer. */
+function operateOnly(): FakeDaemon {
+  return new FakeDaemon({
+    clock: Date.now,
+    hostId: "ios-test-host",
+    token: "ios-test-token",
+    displayName: "studio",
+    deviceScopes: { "ios-provider-page-test": ["read", "operate"] },
+  });
+}
+
+test("a phone that isn't an administrator sees provider preferences as values and where to change them", async () => {
+  const phone = await open(operateOnly(), false);
+  const codex = await phone.page("codex");
+  expect(codex.settings).toMatchObject({
+    editable: false,
+    locked: "Change this in ace on studio.",
+  });
+  expect(codex.models).toMatchObject({ editable: false, locked: "Change this in ace on studio." });
+  // Native mode isn't admin-only, so it stays a choice.
+  expect(codex.settings.nativeMode?.options.length).toBeGreaterThan(1);
+  const admin = await (await open(fixture(), true)).page("codex");
+  expect(admin.settings).toMatchObject({ editable: true, locked: null });
+});
+
+test("the computer's refusal of an admin-only edit says where to change it", async () => {
+  const phone = await open(operateOnly(), false);
+  const refused = { ok: false, message: "Change this in ace on studio." };
+  expect(await phone.edit("codex", { kind: "path", value: "/opt/homebrew/bin/codex" })).toEqual(
+    refused,
+  );
+  expect(await phone.edit("codex", { kind: "enabled", on: false })).toEqual(refused);
+  expect((await phone.page("codex")).settings.path).toBe("");
+});
+
+test("a turned-off provider offers Turn on only to an administrator phone", async () => {
+  const daemon = operateOnly();
+  daemon.services.settings.seed({
+    "providers.configuration": [{ provider: "claude", enabled: false }],
+  });
+  const phone = await open(daemon, false);
+  const claude = await phone.page("claude");
+  expect(claude.off).toBe(true);
+  expect(claude.fix).toBeNull();
 });

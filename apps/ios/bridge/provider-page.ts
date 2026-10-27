@@ -9,6 +9,7 @@ import {
   binaryPathChange,
   catalogModelIds,
   changeProvider,
+  ConfigurationRefused,
   checkpointChange,
   customModelChange,
   customModelRemoval,
@@ -21,7 +22,12 @@ import {
   type RowChange,
 } from "@ace/ui-core";
 import { z } from "zod";
-import { otherProviders, providerPage, type ProviderPage } from "./provider-page-view.ts";
+import {
+  lockedLine,
+  otherProviders,
+  providerPage,
+  type ProviderPage,
+} from "./provider-page-view.ts";
 
 /*
  * The provider page's reads and edits, answered as native service calls. A read gathers the
@@ -33,6 +39,8 @@ import { otherProviders, providerPage, type ProviderPage } from "./provider-page
 export const ProviderPageRequest = z.object({
   type: z.literal("provider.page"),
   provider: ProviderKind,
+  /** The phone was paired as an administrator (Swift's grants for this machine). */
+  admin: z.boolean(),
 });
 export const OtherProvidersRequest = z.object({ type: z.literal("providers.others") });
 
@@ -142,6 +150,7 @@ export class ProviderPages {
       modes,
       catalog,
       machine,
+      admin: request.admin,
     });
   }
 
@@ -193,7 +202,9 @@ export class ProviderPages {
           return { ok: true };
         }
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof ConfigurationRefused)
+        return { ok: false, message: lockedLine(await this.#machine()) };
       return { ok: false, message: "Couldn't save. Check the connection and try again." };
     }
   }

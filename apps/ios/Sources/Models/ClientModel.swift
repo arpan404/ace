@@ -77,6 +77,9 @@ import QuartzCore
     var machineGlyph: AceIcon.Name?
     /// False for a view-only grant: the phone reads threads but submits no commands.
     var canOperate = true
+    /// The phone was paired as an administrator: it may change admin-only settings, such as
+    /// provider preferences. The spike fixture's host token is one.
+    var canAdmin = true
     /// A thread a tapped notification asked to open.
     var deepLink: String?
     @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?

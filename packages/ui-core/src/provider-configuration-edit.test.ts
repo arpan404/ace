@@ -1,7 +1,9 @@
 import type { ProviderConfigurations } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
 import { changeProvider } from "./model-favorites.ts";
+import { ClientError } from "@ace/client";
 import {
+  ConfigurationRefused,
   binaryPathChange,
   checkpointChange,
   customModelChange,
@@ -29,6 +31,20 @@ function settingsStore(initial: ProviderConfigurations) {
     },
   };
 }
+
+/** A client whose settings writes fail with `error`. */
+const refusing = (error: Error) =>
+  ({
+    request: async (message: { type: string }) => {
+      if (message.type === "settings.get") return { ok: true, entries: [{ value: [] }] };
+      throw error;
+    },
+  }) as unknown as ConfigurationClient;
+/** Turns Codex off through the shared editor. */
+const edit = (client: ConfigurationClient) =>
+  editProviderConfiguration(client, (rows) =>
+    changeProvider(rows, "codex", (row) => ({ ...row, enabled: false })),
+  );
 
 describe("provider preferences", () => {
   it("keeps a field another device saved between two edits from this one", async () => {
@@ -95,5 +111,14 @@ describe("provider preferences", () => {
       { id: "x", displayName: "X" },
       { id: "y", displayName: "Y model" },
     ]);
+  });
+
+  it("tells a refusal by the computer apart from a failed connection", async () => {
+    await expect(edit(refusing(new ClientError("daemon", "forbidden")))).rejects.toBeInstanceOf(
+      ConfigurationRefused,
+    );
+    const offline = edit(refusing(new ClientError("offline")));
+    await expect(offline).rejects.not.toBeInstanceOf(ConfigurationRefused);
+    await expect(offline).rejects.toThrow("offline");
   });
 });

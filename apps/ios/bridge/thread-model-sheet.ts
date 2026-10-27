@@ -18,7 +18,7 @@ import { runsOn, selectionIdentity } from "@ace/ui-core/thread-execution";
 import { z } from "zod";
 import { readAgents, type AgentRead } from "./agent-read.ts";
 import type { Preview } from "./agents.ts";
-import { ModelFavorites } from "./model-favorites.ts";
+import { ModelFavorites, starProblem } from "./model-favorites.ts";
 import { pickerRows } from "./new-thread-agents.ts";
 import {
   shapeScene,
@@ -195,8 +195,8 @@ export class ThreadModelSheet {
       const canonical = catalogModelIds(this.#read.catalog.models);
       this.#read.stars = await this.#favorites.toggle(key, canonical);
       this.#starProblem = null;
-    } catch {
-      this.#starProblem = "Couldn't save this favourite. Reconnect and try again.";
+    } catch (error) {
+      this.#starProblem = starProblem(error);
     }
     if (this.#state === "ready") this.#publish();
   }
