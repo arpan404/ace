@@ -29,7 +29,7 @@ export function certificateErrors(cdp: BrowserCdp, changed: () => void) {
   let warning = false;
   const waiters = new Set<() => void>();
   const wake = () => {
-    for (const waiter of [...waiters]) waiter();
+    for (const waiter of waiters) waiter();
   };
   const documents = new Map<string, string>();
   const stops: (() => void)[] = [];

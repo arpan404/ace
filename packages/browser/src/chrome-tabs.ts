@@ -90,6 +90,19 @@ interface Tab {
  * its own top-level target with its own window and flattened CDP session, so tabs render and
  * take input independently. `active` is only the tab the person is shown.
  */
+/** Presses the warning page's own "proceed" once Chrome has given the page its controller. */
+const proceedOnWarningPage = `new Promise((resolve, reject) => {
+  const until = performance.now() + 5000;
+  const press = () => {
+    if (typeof certificateErrorPageController === "object") {
+      certificateErrorPageController.proceed();
+      resolve(true);
+    } else if (performance.now() > until) reject(new Error("No certificate warning controller"));
+    else setTimeout(press, 25);
+  };
+  press();
+})`;
+
 export class ChromeTabs {
   private tabs = new Map<string, Tab>();
   private starting = 0;
@@ -283,7 +296,9 @@ export class ChromeTabs {
   }
   /**
    * The person proceeds past the certificate error shown for `url`. Chrome's own interstitial
-   * records the exception for that host and certificate until the browser restarts.
+   * records the exception for that host and certificate until the browser restarts. The
+   * warning page commits after the load fails, and Chrome gives it its controller only after
+   * that, so both are waited for.
    */
   async proceedCertificate(id: string, url: string): Promise<void> {
     const tab = this.tabs.get(id);
@@ -291,7 +306,8 @@ export class ChromeTabs {
     await tab.certificates.shown(url);
     const result = z.object({ exceptionDetails: z.unknown().optional() }).parse(
       await tab.cdp.send("Runtime.evaluate", {
-        expression: "certificateErrorPageController.proceed()",
+        expression: proceedOnWarningPage,
+        awaitPromise: true,
       }),
     );
     if (result.exceptionDetails) throw new Error("This certificate error cannot be bypassed");
