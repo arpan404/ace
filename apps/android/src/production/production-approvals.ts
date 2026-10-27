@@ -32,7 +32,11 @@ export type ProductionApprovalsStartup = Pick<
   "runtimeForMutation" | "canOperate"
 >;
 
-/** The `interaction.resolve` payload that answers an approval. */
+/** The `interaction.resolve` payload that answers an approval.
+ *
+ * Throws synchronously on a malformed id (programming error from a
+ * ledger-owned id): callers validate before locking so a bad id never
+ * masquerades as a retryable transport failure. */
 export function buildApprovalResolvePayload(
   interactionId: string,
   optionId: string,
@@ -79,8 +83,11 @@ export async function resolveProductionApproval(
   interactionId: string,
   optionId: string,
 ): Promise<{ ok: boolean; error?: string | undefined }> {
+  // Validate input before resolving admission: a malformed id fails before
+  // the gate is touched, so it never reads as a granted-then-failed send.
+  const payload = buildApprovalResolvePayload(interactionId, optionId);
   const gate = startup.runtimeForMutation(hostId);
-  return gate.command(buildApprovalResolvePayload(interactionId, optionId));
+  return gate.command(payload);
 }
 
 /**
@@ -94,8 +101,11 @@ export async function resolveProductionQuestion(
   answers: Record<string, string[]>,
   dismissed?: true | undefined,
 ): Promise<{ ok: boolean; error?: string | undefined }> {
+  // Same input-before-admission order as approvals: malformed ids fail
+  // before the gate resolves, never as a transport retry.
+  const payload = buildQuestionResolvePayload(interactionId, answers, dismissed);
   const gate = startup.runtimeForMutation(hostId);
-  return gate.command(buildQuestionResolvePayload(interactionId, answers, dismissed));
+  return gate.command(payload);
 }
 
 /**
@@ -133,7 +143,18 @@ export interface CardableInteraction {
   request: { kind: string };
 }
 
-/** True when the strip owns this request: pending approval or question. */
+/**
+ * True when the strip owns this request: pending approval or question.
+ *
+ * Scope note: iOS `requestCard` also answers `plan_review` (approve/reject),
+ * `elicitation` (accept/decline with schema content) and `browser_help`
+ * (done/skipped in a browser tab). Those need dedicated cards plus their
+ * resolution shapes and are out of scope here: Android leaves them as
+ * read-only transcript rows (never suppressed, never answered) until a
+ * matching card exists. Extending without the matching UI would risk
+ * answering the wrong semantics, so the gap is pinned by tests, not papered
+ * over.
+ */
 export function isCardableProductionInteraction(
   interaction: Pick<CardableInteraction, "state" | "request"> | undefined,
 ): boolean {
@@ -173,8 +194,8 @@ export function shouldSuppressProductionReadOnly(
   interaction: Pick<CardableInteraction, "id" | "state" | "request"> | undefined,
   covered: ReadonlySet<string>,
 ): boolean {
-  if (!isCardableProductionInteraction(interaction)) return false;
   if (interaction === undefined) return false;
+  if (!isCardableProductionInteraction(interaction)) return false;
   return covered.has(interaction.id);
 }
 
@@ -182,7 +203,9 @@ export function shouldSuppressProductionReadOnly(
  * Tap-time admission with a freshly read grant. Render-time `acting` drives
  * only the button's enabled state; every tap re-reads `canOperate(hostId)`
  * and checks here so a grant revoked after mount still refuses before
- * touching the lock or the wire.
+ * touching the lock or the wire. Callers must also pass a freshly re-read
+ * interaction state (see `freshProductionInteractionState`): a daemon close
+ * between render and tap must not send even when the grant still holds.
  */
 export function canTapProductionCard(
   state: string,
@@ -190,6 +213,41 @@ export function canTapProductionCard(
   canOperateNow: boolean,
 ): boolean {
   return canResolveInteraction(state, locked, productionMayAct(canOperateNow) && mayAct(true));
+}
+
+/**
+ * Re-read one interaction's state at tap time, fail-closed. Render-time
+ * `interaction.state` goes stale when the daemon closes the request between
+ * render and tap; reading `store.interaction(id)?.state` inside the tap
+ * closes that race so nothing reaches the wire for a resolved/cancelled/
+ * expired/evicted request. A dead pin (throw) or a missing row reads as
+ * undefined so the tap refuses without locking. Only `pending` admits.
+ */
+export function freshProductionInteractionState(
+  store: {
+    interaction(id: string): { state: string } | undefined;
+  },
+  interactionId: string,
+): string | undefined {
+  try {
+    return store.interaction(interactionId)?.state;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a tap may proceed on a freshly re-read interaction. Missing rows
+ * (undefined state) and non-pending states refuse without locking or wire.
+ * Pure so tests pin the stale-render race without a daemon.
+ */
+export function canTapFreshProductionCard(
+  freshState: string | undefined,
+  locked: boolean,
+  canOperateNow: boolean,
+): boolean {
+  if (freshState === undefined) return false;
+  return canTapProductionCard(freshState, locked, canOperateNow);
 }
 
 /** Read the current grant fail-closed: unknown hosts and throws read view-only. */

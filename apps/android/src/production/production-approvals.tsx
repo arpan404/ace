@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { TextInput } from "react-native";
 import type { Selection, ThreadSource } from "@ace/client";
 import type { Interaction } from "@ace/protocol";
@@ -38,8 +38,10 @@ import {
   visibleQuestions,
 } from "../interactions.ts";
 import {
+  canTapFreshProductionCard,
   canTapProductionCard,
   currentProductionGrant,
+  freshProductionInteractionState,
   isCardableProductionInteraction,
   pendingProductionInteractionIds,
   productionAnswerFailureCopy,
@@ -112,7 +114,16 @@ export function ProductionApprovalCard({
   const hasDetails = copy.reason !== undefined || copy.others.length > 0;
   function resolve(optionId: string) {
     if (!interaction) return;
+    // Fresh reads at tap time: the grant may have been revoked and the
+    // daemon may have closed the request since render. Either refuses
+    // before the lock or the wire; a dead pin reads as undefined and fails
+    // closed the same way.
     const freshGrant = currentProductionGrant((id) => startup.canOperate(id), hostId);
+    const freshState = freshProductionInteractionState(store, interaction.id);
+    if (!canTapFreshProductionCard(freshState, isResolutionLocked(interaction.id), freshGrant))
+      return;
+    // Belt and braces: the legacy grant-only check stays true whenever the
+    // fresh-state check passes.
     if (!canTapProductionCard(interaction.state, isResolutionLocked(interaction.id), freshGrant))
       return;
     markResolutionSending(interaction.id);
@@ -286,6 +297,9 @@ export function ProductionQuestionCard({
   ) {
     if (!resolutionValue || !interaction) return;
     const freshGrant = currentProductionGrant((id) => startup.canOperate(id), hostId);
+    const freshState = freshProductionInteractionState(store, interaction.id);
+    if (!canTapFreshProductionCard(freshState, isResolutionLocked(interaction.id), freshGrant))
+      return;
     if (!canTapProductionCard(interaction.state, isResolutionLocked(interaction.id), freshGrant))
       return;
     markResolutionSending(interaction.id);
@@ -435,16 +449,21 @@ export function ProductionQuestionCard({
 }
 
 /**
- * Every pending production interaction above the composer: one approval or
- * question card per open request, mirroring the fixture thread's strip and
- * the iOS request strip above the composer. Read-only rows render while
+ * Every pending production interaction above the composer, in ledger order:
+ * one approval or question card per open request, mirroring the fixture
+ * thread's per-id strip and the iOS request strip above the composer. A
+ * single pass over `interactionIds` keeps ledger order (`[q1,a1]` renders
+ * `[q1,a1]`); each card returns null for the kind it does not own, so no
+ * cardable id renders twice and non-cardable ids render nothing here while
+ * the transcript keeps their read-only row. Read-only rows render while
  * view-only; sending stays behind the per-call mutation gate inside each
- * card plus a fresh grant recheck on every tap. The caller mounts this
- * beside (not inside) the transcript list so transcript rendering stays
- * untouched, and hides the transcript's read-only copy for the same ids so
- * the full card shows once. Mounted in `ProductionThreadView`; a revoked
- * route or host switch unmounts it with the thread view, and view-only
- * phones keep the full card details with answering disabled.
+ * card plus a fresh grant and fresh state recheck on every tap. The caller
+ * mounts this beside (not inside) the transcript list so transcript
+ * rendering stays untouched, and hides the transcript's read-only copy for
+ * the same ids so the full card shows once. Mounted in
+ * `ProductionThreadView`; a revoked route or host switch unmounts it with
+ * the thread view, and view-only phones keep the full card details with
+ * answering disabled.
  */
 const EMPTY_PENDING_IDS: readonly string[] = Object.freeze([]);
 
@@ -590,24 +609,22 @@ export function ProductionInteractionStrip({
   return (
     <>
       {interactionIds.map((id) => (
-        <ProductionApprovalCard
-          key={`approval:${id}`}
-          startup={startup}
-          hostId={hostId}
-          store={store}
-          interactionId={id}
-          notify={notify}
-        />
-      ))}
-      {interactionIds.map((id) => (
-        <ProductionQuestionCard
-          key={`question:${id}`}
-          startup={startup}
-          hostId={hostId}
-          store={store}
-          interactionId={id}
-          notify={notify}
-        />
+        <Fragment key={id}>
+          <ProductionApprovalCard
+            startup={startup}
+            hostId={hostId}
+            store={store}
+            interactionId={id}
+            notify={notify}
+          />
+          <ProductionQuestionCard
+            startup={startup}
+            hostId={hostId}
+            store={store}
+            interactionId={id}
+            notify={notify}
+          />
+        </Fragment>
       ))}
     </>
   );

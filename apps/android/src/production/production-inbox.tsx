@@ -635,7 +635,11 @@ function ProductionBlockRow({
     return null;
   }
   if (block.kind === "question") {
-    if (covered !== undefined && covered.has(block.interactionId)) return null;
+    // No id-only suppression here: the row below owns the covered check
+    // (`isCoveredProductionInteraction` requires pending + cardable kind +
+    // covered id). Suppressing by id alone would hide resolved history for
+    // a frame when `covered` lags `blocks`, and would mask future
+    // non-cardable kinds if an id were reused.
     return (
       <ProductionQuestionRow interactionId={block.interactionId} store={store} covered={covered} />
     );

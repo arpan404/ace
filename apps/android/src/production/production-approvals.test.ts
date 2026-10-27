@@ -13,8 +13,10 @@ import {
 import {
   buildApprovalResolvePayload,
   buildQuestionResolvePayload,
+  canTapFreshProductionCard,
   canTapProductionCard,
   currentProductionGrant,
+  freshProductionInteractionState,
   isCardableProductionInteraction,
   pendingProductionInteractionIds,
   productionAnswerFailureCopy,
@@ -529,4 +531,72 @@ it("a stale render-time grant never admits after revocation: fresh check wins", 
   } finally {
     await produced.disconnectAll();
   }
+});
+
+it("keeps interleaved ledger order so the strip renders [question, approval] as-is", () => {
+  expect(
+    pendingProductionInteractionIds([
+      { id: "q1", state: "pending", request: { kind: "question" } },
+      { id: "a1", state: "pending", request: { kind: "approval" } },
+    ]),
+  ).toEqual(["q1", "a1"]);
+});
+
+it("a daemon close between render and tap refuses on fresh state with no lock side effects", () => {
+  // Render saw pending, but a fresh store read sees resolved: the tap must
+  // refuse even though the grant still holds.
+  const pendingStore = { interaction: () => ({ state: "pending" }) };
+  const resolvedStore = { interaction: () => ({ state: "resolved" }) };
+  const missingStore = { interaction: () => undefined };
+  const deadStore = {
+    interaction: () => {
+      throw new Error("pin failed");
+    },
+  };
+  expect(freshProductionInteractionState(pendingStore, "a1")).toBe("pending");
+  expect(freshProductionInteractionState(resolvedStore, "a1")).toBe("resolved");
+  expect(freshProductionInteractionState(missingStore, "a1")).toBe(undefined);
+  expect(freshProductionInteractionState(deadStore, "a1")).toBe(undefined);
+  // Fresh resolved/missing never admits, even with a live grant and no lock.
+  expect(canTapFreshProductionCard("resolved", false, true)).toBe(false);
+  expect(canTapFreshProductionCard(undefined, false, true)).toBe(false);
+  expect(canTapFreshProductionCard("pending", false, true)).toBe(true);
+  expect(canTapFreshProductionCard("pending", true, true)).toBe(false);
+  expect(canTapFreshProductionCard("cancelled", false, true)).toBe(false);
+  expect(canTapFreshProductionCard("expired", false, true)).toBe(false);
+});
+
+it("leaves plan_review, elicitation and browser_help as read-only: never carded, never suppressed", () => {
+  for (const kind of ["plan_review", "elicitation", "browser_help"] as const) {
+    expect(isCardableProductionInteraction({ state: "pending", request: { kind } })).toBe(false);
+    expect(
+      shouldSuppressProductionReadOnly(
+        { id: "x1", state: "pending", request: { kind } },
+        new Set(["x1"]),
+      ),
+    ).toBe(false);
+  }
+  expect(
+    pendingProductionInteractionIds([
+      { id: "plan", state: "pending", request: { kind: "plan_review" } },
+      { id: "form", state: "pending", request: { kind: "elicitation" } },
+      { id: "help", state: "pending", request: { kind: "browser_help" } },
+      { id: "a1", state: "pending", request: { kind: "approval" } },
+    ]),
+  ).toEqual(["a1"]);
+});
+
+it("a malformed interaction id fails before admission with nothing on the wire", async () => {
+  expect(() => buildApprovalResolvePayload("", "allow")).toThrow();
+  let gates = 0;
+  const stub = {
+    runtimeForMutation: () => {
+      gates += 1;
+      return { command: async () => ({ ok: true }) };
+    },
+    canOperate: () => true,
+  } as unknown as Parameters<typeof resolveProductionApproval>[0];
+  await expect(resolveProductionApproval(stub, "host-1", "", "allow")).rejects.toThrow();
+  await expect(resolveProductionQuestion(stub, "host-1", "", {})).rejects.toThrow();
+  expect(gates).toBe(0);
 });
