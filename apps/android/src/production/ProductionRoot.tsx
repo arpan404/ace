@@ -24,7 +24,12 @@ import {
   type AppLockTimeout,
 } from "./app-lock.ts";
 import { deviceAuthenticate } from "./device-auth.ts";
-import { isSecureWindowApplied } from "./secure-window.ts";
+import { isSecureWindowAppliedAsync } from "./secure-window.ts";
+import {
+  PRODUCTION_FAILURE_COPY,
+  initialPhaseOneState,
+  shouldStartGatedLoad,
+} from "./production-gate.ts";
 import {
   resolveSecureScreenEnabled,
   setSecureScreenEnabledAsync,
@@ -66,8 +71,9 @@ import type { MachineEntry } from "@ace/client/machines";
  * the first frame by the single `with-ace-secure-screen` config plugin (the
  * same guard `ace/android-ios-parity` uses: no competing transforms). The old JS
  * screen-capture call ran after first render and swallowed its own failure,
- * so it is not a guard and is gone: startup verifies
- * `secureWindowApplied` on the native module and fails closed (no directory
+ * so it is not a guard and is gone: startup awaits the async
+ * `secureWindowApplied` verification on the native module (the window is read
+ * on the UI thread, never on the JS thread) and fails closed (no directory
  * read, no socket) when the flag is missing, so a build without the plugin
  * never shows paired content. `SecureScreenGuard` in the native module
  * re-applies the desired state across Activity recreation; the prebuild
@@ -183,10 +189,13 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
     loadOwnerRef.current = owner;
     // A new phase-one generation owns a fresh load: drop the previous
     // generation's gated-load state so a retry never inherits a stale
-    // `loading` latch or a stale `loaded`/`loadError` verdict.
+    // `loading` latch, a stale `loaded`/`loadError` verdict, or a stale
+    // secure-guard banner from the failed attempt.
     loadingRef.current = false;
-    setLoaded(false);
-    setLoadError(null);
+    const reset = initialPhaseOneState();
+    setLoaded(reset.loaded);
+    setLoadError(reset.loadError);
+    setSecureGuardFailed(reset.secureGuardFailed);
     let db: SQLiteDatabase | null = null;
     let seen: ProductionStartup | null = null;
     let storage: { flush(): Promise<void> } | null = null;
@@ -216,14 +225,16 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
         nativeModule = requireNativeModule("AceNative");
         bridge = expoBridgeFromModule(nativeModule);
       } catch {
-        if (!cancelled) setFailure("This build cannot pair yet: the pinned bridge is missing.");
+        if (!cancelled) setFailure(PRODUCTION_FAILURE_COPY.missingBridge);
         return;
       }
       // Native FLAG_SECURE must already be on the window before the first
-      // frame. Fail closed when the guard (or the whole native module entry)
-      // is unavailable: no database, no directory, no socket.
-      if (!isSecureWindowApplied(nativeModule)) {
-        if (!cancelled) setFailure("This build cannot protect the screen, so it stays closed.");
+      // frame. The native entry is async because the window is read on the UI
+      // thread, never on the JS thread. Fail closed when the guard (or the
+      // whole native module entry) is unavailable: no database, no directory,
+      // no socket.
+      if (!(await isSecureWindowAppliedAsync(nativeModule))) {
+        if (!cancelled) setFailure(PRODUCTION_FAILURE_COPY.insecureWindow);
         return;
       }
       try {
@@ -310,7 +321,7 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
           } catch {
             setLockStorageFailed(true);
           }
-          setFailure("The connection could not start.");
+          setFailure(PRODUCTION_FAILURE_COPY.startup);
         }
         // When cancelled the effect cleanup owns the teardown; returning
         // lets it drain and close exactly once.
@@ -353,7 +364,15 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
   // disconnect that closes what it opened.
   const locked = lock?.locked;
   useEffect(() => {
-    if (!startup || !lock || lock.locked || loaded || loadingRef.current) return;
+    if (
+      !shouldStartGatedLoad({
+        hasStartup: startup !== null && lock !== null,
+        locked: lock?.locked ?? true,
+        loaded,
+        loading: loadingRef.current,
+      })
+    )
+      return;
     loadingRef.current = true;
     const owner = loadOwnerRef.current;
     const generation = owner.begin();
@@ -362,7 +381,9 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
     // Track the underlying load, not the timeout race: the race settles
     // early while the orphan still runs, and the terminal drain must wait
     // for the orphan itself.
-    const raw = startup.load();
+    const current = startup;
+    if (current === null) return;
+    const raw = current.load();
     owner.track(raw);
     void (async () => {
       try {
@@ -377,7 +398,7 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
       } catch {
         if (cancelled || !isCurrent()) return;
         loadingRef.current = false;
-        setLoadError("The connection could not start.");
+        setLoadError(PRODUCTION_FAILURE_COPY.startup);
       }
     })();
     return () => {

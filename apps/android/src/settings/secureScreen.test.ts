@@ -85,6 +85,28 @@ describe("secure screen bridge", () => {
     ).resolves.toBe(false);
   });
 
+  it("treats then-only thenables as async, never sync success", () => {
+    const thenOnly = {
+      // eslint-disable-next-line unicorn/no-thenable
+      then(onFulfilled: (value: unknown) => void) {
+        onFulfilled(undefined);
+      },
+    };
+    expect(setSecureScreenEnabled(true, () => ({ setSecureScreen: () => thenOnly }))).toBe(false);
+  });
+
+  it("async helper awaits then-only thenables", async () => {
+    const thenOnly = {
+      // eslint-disable-next-line unicorn/no-thenable
+      then(onFulfilled: (value: unknown) => void) {
+        onFulfilled(undefined);
+      },
+    };
+    await expect(
+      setSecureScreenEnabledAsync(true, () => ({ setSecureScreen: () => thenOnly })),
+    ).resolves.toBe(true);
+  });
+
   it("reports failure when native has no activity to apply to", () => {
     expect(setSecureScreenEnabled(true, () => ({ setSecureScreen: () => false }))).toBe(false);
   });

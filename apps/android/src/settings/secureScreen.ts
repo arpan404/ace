@@ -25,10 +25,11 @@ export interface SecureNative {
 
 /**
  * Best-effort toggle. Returns true only when the native call applied
- * synchronously. A promise-like native result is NOT claimed as success: the
- * outcome is not yet known, and an async rejection must never report success
- * (fail-closed). Callers that need the async outcome must await
- * `setSecureScreenEnabledAsync`. Never throws.
+ * synchronously. A thenable native result (any object or function with a
+ * callable `then`) is NOT claimed as success: the outcome is not yet known,
+ * and an async rejection must never report success (fail-closed). Callers
+ * that need the async outcome must await `setSecureScreenEnabledAsync`.
+ * Never throws.
  *
  * A native `false` (null activity) is propagated, never swallowed.
  *
@@ -39,12 +40,12 @@ export function setSecureScreenEnabled(enabled: boolean, loader?: () => SecureNa
     const native = loader !== undefined ? loader() : loadAceNative();
     const result = native.setSecureScreen(enabled);
     if (result === false) return false;
-    if (isPromiseLike(result)) {
+    if (isThenable(result)) {
       // Async outcome unknown synchronously: report not-yet-applied so the
       // caller keeps the guarded banner until the async helper settles.
-      // Swallow here to avoid an unhandled rejection; the async helper is
-      // the honest path.
-      result.catch(() => undefined);
+      // Adopt the thenable so then-only objects without `.catch` cannot
+      // produce an unhandled rejection; the async helper is the honest path.
+      void Promise.resolve(result).catch(() => undefined);
       return false;
     }
     return true;
@@ -54,9 +55,10 @@ export function setSecureScreenEnabled(enabled: boolean, loader?: () => SecureNa
 }
 
 /**
- * Honest async toggle: awaits promise-like native results and reports the
+ * Honest async toggle: awaits thenable native results and reports the
  * settled outcome. Resolves false when there was no activity, the bridge is
- * missing, or the async application rejects; true only when applied.
+ * missing, or the async application rejects; true only when applied. A
+ * thenable resolving to `false` (null activity) is failure, never success.
  */
 export async function setSecureScreenEnabledAsync(
   enabled: boolean,
@@ -66,14 +68,14 @@ export async function setSecureScreenEnabledAsync(
     const native = loader !== undefined ? loader() : loadAceNative();
     const result = native.setSecureScreen(enabled);
     if (result === false) return false;
-    if (isPromiseLike(result)) {
-      const settled = await result.then(
-        (value) => ({ ok: true as const, value }),
-        () => ({ ok: false as const }),
-      );
-      if (!settled.ok) return false;
-      if (settled.value === false) return false;
-      return true;
+    if (isThenable(result)) {
+      try {
+        const settled = await Promise.resolve(result);
+        if (settled === false) return false;
+        return true;
+      } catch {
+        return false;
+      }
     }
     return true;
   } catch {
@@ -90,11 +92,13 @@ function loadAceNative(): SecureNative {
   return expo.requireNativeModule("AceNative");
 }
 
-function isPromiseLike(value: unknown): value is Promise<unknown> {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "catch" in value &&
-    typeof (value as { catch: unknown }).catch === "function"
-  );
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  if (value === null || value === undefined) return false;
+  const kind = typeof value;
+  if (kind !== "object" && kind !== "function") return false;
+  try {
+    return typeof (value as { then?: unknown }).then === "function";
+  } catch {
+    return false;
+  }
 }

@@ -132,10 +132,52 @@ class AceNativeModule : Module() {
      * recreation. This check only verifies the native flag: false (or a
      * missing Activity) fails the production root closed before any
      * directory read or socket connect.
+     *
+     * Async so the window is always read on the UI thread: `window.attributes`
+     * must never be touched from the JS thread. Resolves false (never rejects)
+     * when the Activity is gone or the read throws.
      */
-    Function("secureWindowApplied") {
-      val flags = appContext.currentActivity?.window?.attributes?.flags ?: return@Function false
-      (flags and WindowManager.LayoutParams.FLAG_SECURE) != 0
+    AsyncFunction("secureWindowApplied") { promise: Promise ->
+      val activity = appContext.currentActivity
+      if (activity == null) {
+        promise.resolve(false)
+        return@AsyncFunction
+      }
+      fun readFlag(): Boolean {
+        return try {
+          val flags = activity.window?.attributes?.flags ?: return false
+          (flags and WindowManager.LayoutParams.FLAG_SECURE) != 0
+        } catch (_: Exception) {
+          false
+        }
+      }
+      try {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+          promise.resolve(readFlag())
+        } else {
+          try {
+            activity.runOnUiThread {
+              try {
+                promise.resolve(readFlag())
+              } catch (_: Exception) {
+                try {
+                  promise.resolve(false)
+                } catch (_: Exception) {
+                  // Promise already settled; nothing left to report.
+                }
+              }
+            }
+          } catch (_: Exception) {
+            promise.resolve(false)
+          }
+        }
+      } catch (_: Exception) {
+        try {
+          promise.resolve(false)
+        } catch (_: Exception) {
+          // Promise already settled; nothing left to report.
+        }
+      }
     }
 
     /**
