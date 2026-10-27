@@ -3,8 +3,8 @@
 #
 # Usage (from the repo root, after `bun install --frozen-lockfile`):
 #   ./scripts/windows-local-ci.ps1 [-Stage native|screen|browser|standalone|desktop|installer|git|all]
-#                                  [-Files <test files>] [-Work C:\ace\ci] [-Install] [-Reports]
-#                                  [-MachineChanges]
+#                                  [-Files <test files>] [-Shard <i>/<n>] [-Work C:\ace\ci]
+#                                  [-Install] [-Reports] [-MachineChanges]
 #
 # Stages (`all` runs every stage but `git`, in this order):
 #   native      descriptor.node + screen helper build and cargo tests, then the bounded native suite
@@ -20,7 +20,8 @@
 #
 # -Files narrows the native, screen, browser or git suite to those test files (the native suite
 # alone takes about half an hour on the ARM64 VM, longer than one locked VM session should). It
-# needs exactly one of those stages: the files belong to one suite's config.
+# needs exactly one of those stages: the files belong to one suite's config. -Shard i/n runs that
+# suite's i-th of n parts (Vitest --shard), e.g. the native suite as 1/2 and 2/2 in two sessions.
 # screen, browser, desktop and installer need the logged-in desktop (not an SSH session 0).
 # Each stage logs to <Work>\<stage>.log; <Work>\summary.txt and summary.json hold pass/fail per
 # stage. The exit code is non-zero when any stage failed.
@@ -28,6 +29,7 @@ param(
   [ValidateSet("native", "screen", "browser", "standalone", "desktop", "installer", "git", "all")]
   [string[]] $Stage = @("all"),
   [string[]] $Files = @(),
+  [ValidatePattern('^\d+/\d+$')] [string] $Shard = "",
   [string] $Work = "C:\ace\ci",
   [switch] $Install,
   [switch] $Reports,
@@ -151,19 +153,19 @@ function Use-Chromium {
 $stages = [ordered]@{
   native = {
     Build-Native
-    Invoke-Vitest (@("--config", "scripts/vitest-windows-native.config.ts") + $Files)
+    Invoke-Vitest (@("--config", "scripts/vitest-windows-native.config.ts") + $narrowed)
   }
   screen = {
     Require-Desktop
     Build-Native
     $env:ACE_WINDOWS_SCREEN_HELPER = $helper
-    try { Invoke-Vitest (@("--config", "scripts/vitest-windows-screen.config.ts") + $Files) }
+    try { Invoke-Vitest (@("--config", "scripts/vitest-windows-screen.config.ts") + $narrowed) }
     finally { Remove-Item Env:ACE_WINDOWS_SCREEN_HELPER -ErrorAction SilentlyContinue }
   }
   browser = {
     Require-Desktop
     Use-Chromium
-    Invoke-Vitest (@("--config", "scripts/vitest-windows-browser.config.ts") + $Files)
+    Invoke-Vitest (@("--config", "scripts/vitest-windows-browser.config.ts") + $narrowed)
     if ($Reports) {
       Invoke-Step "browser video profile (report only)" { node packages/browser/bench/video-profile.ts }
       $env:ACE_VIDEO_LINK_REPORT_ONLY = "1"; $env:ACE_VIDEO_LINK_BASELINE_SECONDS = "10"
@@ -233,13 +235,14 @@ $stages = [ordered]@{
     } finally { Remove-Item Env:ACE_HOME -ErrorAction SilentlyContinue }
   }
   git = {
-    Invoke-Vitest (@("--config", "scripts/vitest-git-native.config.ts") + $Files)
+    Invoke-Vitest (@("--config", "scripts/vitest-git-native.config.ts") + $narrowed)
   }
 }
 
 $selected = if ($Stage -contains "all") { @($stages.Keys | Where-Object { $_ -ne "git" }) } else { $Stage }
-if ($Files.Count -and (@($selected).Count -ne 1 -or @($selected)[0] -notin @("native", "screen", "browser", "git"))) {
-  throw "-Files needs exactly one of the native, screen, browser or git stages"
+$narrowed = @($Files) + @(if ($Shard) { "--shard=$Shard" })
+if (($Files.Count -or $Shard) -and (@($selected).Count -ne 1 -or @($selected)[0] -notin @("native", "screen", "browser", "git"))) {
+  throw "-Files and -Shard need exactly one of the native, screen, browser or git stages"
 }
 
 if ($Install) {
