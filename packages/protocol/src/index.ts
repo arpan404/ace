@@ -30,6 +30,7 @@ export * from "./files.ts";
 export * from "./screen.ts";
 export * from "./diagnostics.ts";
 export * from "./admission.ts";
+export * from "./app-update.ts";
 export * from "./context.ts";
 export * from "./search.ts";
 export * from "./automations.ts";

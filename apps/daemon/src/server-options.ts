@@ -92,6 +92,8 @@ export interface ServerOptions {
   maintenance?: boolean;
   /** The daemon's shared admission gate; the server makes its own when none is given. */
   maintenanceGate?: MaintenanceGate;
+  /** The desktop app's update report; the server makes its own when omitted. */
+  appUpdate?: import("./app-update-board.ts").AppUpdateBoard;
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
   /** Current and maximum event-loop delay for `/v1/status`. */

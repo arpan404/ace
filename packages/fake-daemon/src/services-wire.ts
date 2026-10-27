@@ -1,5 +1,6 @@
 import { FakeStorageWire } from "./storage-wire.ts";
 import { FakeAdmission } from "./admission-wire.ts";
+import { FakeAppUpdate } from "./app-update-wire.ts";
 import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
 import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeSkillLibrary, type SkillSeed } from "./skill-library.ts";
@@ -38,6 +39,8 @@ export interface ServicesSeed extends AutomationSeed {
   storageItems?: readonly import("@ace/core").StorageCandidate[];
   /** Database file bytes and the free pages compaction would release. */
   storageDatabase?: { bytes: number; reclaimable: number };
+  /** What the desktop app last reported about its update; Unknown when never seeded. */
+  appUpdate?: import("@ace/protocol").AppUpdateReport;
   promptFiles?: readonly PromptSeed[];
   /** Native skill folders for the Skills page (ADR 0103). */
   skills?: readonly SkillSeed[];
@@ -78,6 +81,7 @@ export class FakeServicesWire {
   private storage: FakeStorageWire;
   /** "Pause new work", shared by every connection. */
   readonly admission = new FakeAdmission();
+  private readonly appUpdate = new FakeAppUpdate();
   readonly prompts = new FakePromptFiles();
   readonly skills = new FakeSkillLibrary();
   private readonly catalog = new FakeCatalogWire(this.prompts, (provider) =>
@@ -124,6 +128,7 @@ export class FakeServicesWire {
   seed(seed: ServicesSeed): void {
     if (seed.storageItems) this.storage.seed(seed.storageItems);
     if (seed.storageDatabase) this.storage.seedDatabase(seed.storageDatabase);
+    if (seed.appUpdate) this.appUpdate.set(seed.appUpdate);
     if (seed.promptFiles) this.prompts.seed(seed.promptFiles);
     if (seed.skills) this.skills.seed(seed.skills);
     if (seed.extensionCatalogs) this.catalog.seed(seed.extensionCatalogs, seed.catalogLoading);
@@ -166,6 +171,7 @@ export class FakeServicesWire {
     let picker: AbortController | undefined;
     const files = this.files.session(emit);
     const admission = this.admission.session(emit);
+    const appUpdate = this.appUpdate.session(emit);
     const catalog = this.catalog.session(this.host, this.context, emit);
     const skills = skillSession(this.skills, emit);
     const browser = fakeBrowserSession(
@@ -213,6 +219,7 @@ export class FakeServicesWire {
         browser.close();
         files.close();
         admission.close();
+        appUpdate.close();
         for (const stop of subscriptions.values()) stop();
         subscriptions.clear();
         terminalStreams.clear();
@@ -234,6 +241,10 @@ export class FakeServicesWire {
         }
         if (message.type === "admission.request") {
           admission.handle(message);
+          return;
+        }
+        if (message.type === "appUpdate.request") {
+          appUpdate.handle(message.requestId);
           return;
         }
         if (this.history.handle(message, emit)) return;

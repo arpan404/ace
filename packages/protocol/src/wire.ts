@@ -1,6 +1,7 @@
 import { CliRequest, CliResult } from "./cli-control.ts";
 import { StorageRequest, StorageResult } from "./storage.ts";
 import { AdmissionChanged, AdmissionRequest, AdmissionResult } from "./admission.ts";
+import { AppUpdateChanged, AppUpdateRequest, AppUpdateResult } from "./app-update.ts";
 import { UserBrowserSettings, UserBrowserSettingsResult } from "./user-browser.ts";
 import { HostedRepositoriesRequest, HostedRepositoriesResult } from "./hosted-repositories.ts";
 import { SourceControlRequest, SourceControlResult } from "./source-control.ts";
@@ -196,6 +197,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   CliRequest,
   StorageRequest,
   AdmissionRequest,
+  AppUpdateRequest,
   UserBrowserSettings,
   WorktreeCreationRequest,
   TurnsPageRequest,
@@ -287,6 +289,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   StorageResult,
   AdmissionResult,
   AdmissionChanged,
+  AppUpdateResult,
+  AppUpdateChanged,
   UserBrowserSettingsResult,
   WorktreeCreationEvent,
   WorktreeCreationResult,

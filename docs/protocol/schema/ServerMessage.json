@@ -15,6 +15,12 @@
       "$ref": "https://ace.local/protocol/v1/AdmissionChanged.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/AppUpdateResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/AppUpdateChanged.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/UserBrowserSettingsResult.json"
     },
     {

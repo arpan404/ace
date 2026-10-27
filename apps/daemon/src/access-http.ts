@@ -1,6 +1,6 @@
 import type { MaintenanceGate } from "@ace/service";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { PairingRedemption, type Device } from "@ace/protocol";
+import { AppUpdateReport, PairingRedemption, type Device } from "@ace/protocol";
 import { AccessError, RemoteAuth } from "./remote-auth.ts";
 import { allows } from "./devices.ts";
 import { issuePairing } from "./pairing-issue.ts";
@@ -48,6 +48,8 @@ export interface AccessHttpOptions {
   pairingApp?: () => Promise<string | undefined>;
   sourceAddress?: (request: IncomingMessage) => string;
   maintenance?: MaintenanceGate;
+  /** Where the desktop app reports its update status (host token only). */
+  appUpdate?: import("./app-update-board.ts").AppUpdateBoard;
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
   /** Event-loop delay, so a watchdog can tell a busy daemon from a hung one. */
@@ -66,6 +68,7 @@ export function accessHttp({
   pairingApp,
   sourceAddress = (request) => request.socket.remoteAddress ?? "unknown",
   maintenance,
+  appUpdate,
   version = "development",
   serviceStatus,
   eventLoop,
@@ -132,6 +135,11 @@ export function accessHttp({
           else if (request.method === "DELETE") result = maintenance.leave();
           else if (request.method === "GET") result = maintenance.status();
           else throw new AccessError(405, "Unsupported method");
+        } else if (path === "/v1/app-update" && request.method === "PUT" && appUpdate) {
+          if (!auth.local(token)) throw new AccessError(403, "Host token required");
+          const report = AppUpdateReport.safeParse(await body(request));
+          if (!report.success) throw new AccessError(400, "Invalid update report");
+          result = appUpdate.set(report.data);
         } else if (path === "/v1/pairings" && request.method === "POST") {
           // Awaits come first: the address is read again right before the code is issued, since
           // remote access can change or turn off while they wait.

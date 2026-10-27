@@ -5,6 +5,7 @@ import { createSocketRegistry, parseSocketMessage } from "./services/registry.ts
 import type { SocketMessage } from "./services/socket.ts";
 import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
 import { MaintenanceGate } from "@ace/service";
+import { AppUpdateBoard } from "./app-update-board.ts";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { generateSecret, systemCredentials } from "./credential-runtime.ts";
 import { z } from "zod";
@@ -91,6 +92,7 @@ export async function startServer(options: ServerOptions): Promise<{
     ready = true;
   });
   if (options.maintenance) maintenance.enter();
+  const appUpdate = options.appUpdate ?? new AppUpdateBoard();
   const access = {
     auth,
     pairing,
@@ -117,6 +119,7 @@ export async function startServer(options: ServerOptions): Promise<{
       ? { providerProcesses: () => options.engine?.providerProcesses() ?? [] }
       : {}),
     ready: () => ready,
+    appUpdate,
   };
   const { local, remoteHttp } = httpChains(options, auth, access, maintenance, () => preview);
   const remote = options.remote
@@ -248,6 +251,7 @@ export async function startServer(options: ServerOptions): Promise<{
       subscriptions,
       tasks: serviceTasks,
       maintenance,
+      appUpdate,
       device: () => device,
       authorize,
       authorityLease: (scope) => {

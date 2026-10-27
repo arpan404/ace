@@ -3523,6 +3523,127 @@ Example:
 "foreground"
 ```
 
+## AppUpdate
+
+[JSON Schema](schema/AppUpdate.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| report | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AppUpdateReport.json"},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "report": {
+    "available": null,
+    "downloaded": false,
+    "releaseUrl": "https://example.invalid/",
+    "restartRequired": false,
+    "version": "example"
+  }
+}
+```
+
+## AppUpdateChanged
+
+[JSON Schema](schema/AppUpdateChanged.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"appUpdate.changed"` |  |
+| update | yes | [AppUpdate.json](schema/AppUpdate.json) |  |
+
+Example:
+
+```json
+{
+  "type": "appUpdate.changed",
+  "update": {
+    "report": {
+      "available": null,
+      "downloaded": true,
+      "releaseUrl": "https://example.invalid/",
+      "restartRequired": false,
+      "version": "example"
+    }
+  }
+}
+```
+
+## AppUpdateReport
+
+[JSON Schema](schema/AppUpdateReport.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | string | {"minLength":1,"maxLength":80} |
+| available | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":80},{"type":"null"}]} |
+| downloaded | yes | boolean |  |
+| restartRequired | yes | boolean |  |
+| releaseUrl | yes | union | {"anyOf":[{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":400,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "available": "example",
+  "downloaded": false,
+  "releaseUrl": null,
+  "restartRequired": false,
+  "version": "example"
+}
+```
+
+## AppUpdateRequest
+
+[JSON Schema](schema/AppUpdateRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"appUpdate.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "appUpdate.request"
+}
+```
+
+## AppUpdateResult
+
+[JSON Schema](schema/AppUpdateResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"appUpdate.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| ok | yes | boolean |  |
+| update | no | [AppUpdate.json](schema/AppUpdate.json) |  |
+| error | no | ["forbidden"] |  |
+
+Example:
+
+```json
+{
+  "ok": true,
+  "requestId": "example",
+  "type": "appUpdate.result",
+  "update": {
+    "report": {
+      "available": "example",
+      "downloaded": false,
+      "releaseUrl": null,
+      "restartRequired": true,
+      "version": "example"
+    }
+  }
+}
+```
+
 ## Attachment
 
 [JSON Schema](schema/Attachment.json), input validation.
