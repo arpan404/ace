@@ -22,6 +22,8 @@ enum SpikeConfiguration {
         return arguments.firstIndex(of: "--spike-items").flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil }
             .map { min(max($0, 50), 2200) } ?? 2200
     }
+    /// `--spike-view-only`: the phone may only view the fixture machine, as a view-only pairing.
+    static var viewOnly: Bool { ProcessInfo.processInfo.arguments.contains("--spike-view-only") }
     /// The thread `--spike-open ID` asks to open at launch.
     static var openOnLaunch: String? {
         let arguments = ProcessInfo.processInfo.arguments

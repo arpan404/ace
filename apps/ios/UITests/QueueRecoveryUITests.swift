@@ -88,9 +88,35 @@ import XCTest
         screenshot("not-sent-edited")
     }
 
-    private func launch(into thread: String) -> XCUIApplication {
+    func testALongMessageThatWasntSentComesBackWhole() throws {
+        let app = launch(into: "ios-held-long")
+        let edit = app.buttons["notSent.edit"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 15))
+        edit.tap()
+        // The composer gets the whole message, past the transcript's 8,192-character preview.
+        let input = app.textViews["composer.input"]
+        let whole = NSPredicate(format: "value ENDSWITH 'END-OF-MESSAGE'")
+        wait(for: [expectation(for: whole, evaluatedWith: input)], timeout: 15)
+        XCTAssertGreaterThan((input.value as? String)?.count ?? 0, 8_192)
+        screenshot("not-sent-long-edited")
+    }
+
+    func testAViewOnlyPhoneStillReadsWhyTheTurnWaitsWithItsWaysOff() throws {
+        let app = launch(into: "ios-limited", viewOnly: true)
+        let sentence = app.staticTexts["hold.sentence"]
+        XCTAssertTrue(sentence.waitForExistence(timeout: 15))
+        XCTAssertTrue(sentence.label.hasPrefix("Codex is out of usage"))
+        let carryOn = app.buttons["hold.resume_now"]
+        XCTAssertTrue(carryOn.exists)
+        XCTAssertFalse(carryOn.isEnabled)
+        XCTAssertFalse(app.buttons["hold.choose_model"].isEnabled)
+        screenshot("limit-view-only")
+    }
+
+    private func launch(into thread: String, viewOnly: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+            + (viewOnly ? ["--spike-view-only"] : [])
         app.launch()
         app.revealRow("thread.\(thread)").tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))

@@ -53,6 +53,7 @@ import QuartzCore
             // One runtime per fixture machine, as production runs one per paired computer.
             for (index, spike) in targets.enumerated() {
                 let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
+                if SpikeConfiguration.viewOnly { model.canOperate = false }
                 spikeInbox.attach(spike.target.hostId, name: spike.name, client: model)
                 await notificationDelegate.coordinator.attach(model, target: spike.target)
                 await model.connect(target: spike.target, directory: directory, itemLimit: SpikeConfiguration.itemLimit)
