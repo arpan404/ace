@@ -1,6 +1,7 @@
 import { readServerQueue, type ClientCore, type ThreadSource } from "@ace/client";
 import { CommandId, type CommandPayload, type QueuePage, type ThreadId } from "@ace/protocol";
 import {
+  inputWithText,
   queueActionPayload,
   queueMoveAfter,
   queuedInputLine,
@@ -8,7 +9,7 @@ import {
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 import { queueHold, textOf } from "./queue-hold.ts";
-import { queuedFiles } from "./take-back.ts";
+import { queuedFiles } from "./queued-words.ts";
 
 /*
  * Follow-ups waiting in the daemon's queue. A queued send joins the transcript only when it is
@@ -94,12 +95,11 @@ export class QueueFollower {
       return { type: "queue.edit", ...target, input: message.input, delivery: "steer" };
     const text = change.text.trim();
     if (!text) return undefined;
-    // New words replace the text; images, files and mentions stay with the message.
-    const kept = message.input.filter((part) => part.type !== "text");
+    // New words in place: its files, images and picks stay with the message.
     return {
       type: "queue.edit",
       ...target,
-      input: [{ type: "text", text }, ...kept],
+      input: inputWithText(message.input, text),
       ...(message.context ? { context: message.context } : {}),
     };
   }

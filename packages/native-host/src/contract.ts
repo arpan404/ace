@@ -60,9 +60,6 @@ export interface HostOperations {
   /** Failed sends the person took back or discarded (`apps/ios/bridge/dismissed-sends.ts`). */
   "storage.dismissed.load": { input: null; body: never };
   "storage.dismissed.save": { input: null; body: string };
-  /** Words on their way back to a composer (`apps/ios/bridge/take-back-ledger.ts`). */
-  "storage.takebacks.load": { input: null; body: never };
-  "storage.takebacks.save": { input: null; body: string };
   /** What the inbox draws first at the next launch. */
   "inbox.checkpoint": { input: null; body: string };
   /** SDK read snapshots (ADR 0030); "" for a miss. */

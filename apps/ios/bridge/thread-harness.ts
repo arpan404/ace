@@ -5,7 +5,6 @@ import { DeviceId, HostId } from "@ace/protocol";
 import { PatchPump, followThread } from "./patches.ts";
 import { ThreadSession } from "./thread-session.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
-import type { TakeBackLedger } from "./take-back-ledger.ts";
 
 /*
  * The thread screen's bridge over the real SDK and an in-process fake daemon, for behaviour
@@ -25,12 +24,7 @@ export const slowSettings = { ms: 0 };
 /** `thread.fork` commands the daemon refuses, or holds back until `release` (a slow link). */
 export const forks = { refuse: false, hold: false, release: () => {} };
 /** `queue.remove` commands the daemon refuses as if another device moved the queue first. */
-export const queueRemoves = {
-  conflict: false,
-  /** Holds `queue.remove` back from the daemon until `release` (a slow link). */
-  hold: false,
-  release: () => {},
-};
+export const queueRefusals = { remove: false, edit: false };
 /** One account's `models.list`: answered `slowMs` late, or failed `fails` times first. */
 export const accountModels = { instance: "", slowMs: 0, fails: 0 };
 
@@ -49,7 +43,7 @@ export async function reset(): Promise<void> {
   refuseOnce.text = "Refuse this once";
   Object.assign(forks, { refuse: false, hold: false, release: () => {} });
   Object.assign(accountModels, { instance: "", slowMs: 0, fails: 0 });
-  Object.assign(queueRemoves, { conflict: false, hold: false, release: () => {} });
+  Object.assign(queueRefusals, { remove: false, edit: false });
   native.calls.clear();
   sent.length = 0;
 }
@@ -75,7 +69,10 @@ function refusal(text: string): string | undefined {
     });
   }
   const command = message.type === "command" ? message.command : undefined;
-  if (command?.payload?.type === "queue.remove" && queueRemoves.conflict)
+  if (
+    (command?.payload?.type === "queue.remove" && queueRefusals.remove) ||
+    (command?.payload?.type === "queue.edit" && queueRefusals.edit)
+  )
     return JSON.stringify({
       type: "commandResult",
       commandId: command.id,
@@ -114,15 +111,13 @@ export function connect(
     items,
     readSnapshots,
     held,
-    outbox = { value: null },
   }: {
     items?: number;
     readSnapshots?: ReadSnapshotStorage;
     held?: Promise<void>;
-    /** The SDK's saved outbox, shared with a later `connect` to stand for a relaunch. */
-    outbox?: { value: string | null };
   } = {},
 ): ClientCore {
+  let saved: string | null = null;
   client = new ClientCore({
     ...(readSnapshots ? { readSnapshots } : {}),
     deviceId: DeviceId.parse("ios-bridge-test"),
@@ -150,8 +145,6 @@ export function connect(
           if (refused) queueMicrotask(() => deliver?.(refused));
           else if (slowSettings.ms && text.includes('"type":"settings.get"'))
             setTimeout(() => inner.send(text), slowSettings.ms);
-          else if (queueRemoves.hold && text.includes('"type":"queue.remove"'))
-            queueRemoves.release = () => inner.send(text);
           else if (forks.hold && text.includes('"type":"thread.fork"'))
             forks.release = () => inner.send(text);
           else if (
@@ -167,9 +160,9 @@ export function connect(
     },
     credential: async () => ({ token: "ios-test-token" }),
     storage: {
-      load: async () => outbox.value,
+      load: async () => saved,
       save: async (value) => {
-        outbox.value = value;
+        saved = value;
       },
     },
     scheduler: {
@@ -186,15 +179,10 @@ export function connect(
   return client;
 }
 
-export function open(
-  owner: ClientCore,
-  threadId: string,
-  chunks?: ChunkReader,
-  takeBacks?: TakeBackLedger,
-): ThreadSession {
+export function open(owner: ClientCore, threadId: string, chunks?: ChunkReader): ThreadSession {
   lease = owner.thread(threadId);
   stop = followThread(lease.store, threadId, 1, pump);
-  session = new ThreadSession(owner, lease.store, threadId, 1, pump, chunks, undefined, takeBacks);
+  session = new ThreadSession(owner, lease.store, threadId, 1, pump, chunks);
   return session;
 }
 

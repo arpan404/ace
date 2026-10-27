@@ -31,12 +31,6 @@ import { downloadFile } from "@ace/client/files";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { phoneDeviceStorage } from "./browser-device.ts";
 import { followDismissed } from "./dismissed-sends.ts";
-import {
-  followTakeBacks,
-  keepNoTakeBacks,
-  recoverTakeBacks,
-  type TakeBackLedger,
-} from "./take-back-ledger.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks } from "./thread-attachments.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
@@ -102,7 +96,6 @@ let compose: ComposeActions | undefined;
 let suggest: ComposerSuggest | undefined;
 let services: NativeServices | undefined;
 let inbox: InboxFollow | undefined;
-let takeBacks: TakeBackLedger = keepNoTakeBacks;
 let terminal: NativeTerminal | undefined;
 let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
@@ -184,12 +177,6 @@ async function start(json: string): Promise<void> {
       await call("storage.dismissed.save", null, value);
     },
   });
-  takeBacks = followTakeBacks({
-    load: () => call("storage.takebacks.load"),
-    save: async (value) => {
-      await call("storage.takebacks.save", null, value);
-    },
-  });
   inbox = followInbox(
     client,
     config.hostId,
@@ -200,7 +187,6 @@ async function start(json: string): Promise<void> {
     (checkpoint) => void call("inbox.checkpoint", null, checkpoint).catch(() => {}),
     config.inboxSort,
     dismissed,
-    takeBacks,
   );
   // Each project's mark, sent once and referenced by the rows (`project-looks.ts`).
   followProjectLooks(client, pump);
@@ -302,15 +288,6 @@ async function start(json: string): Promise<void> {
     }),
   });
   await client.start();
-  // Words a stopped runtime was handing back to a composer: back into that thread's draft.
-  void recoverTakeBacks(takeBacks, client, dismissed, (entry) =>
-    pump.put(`takeBack:${entry.id}`, () => ({
-      type: "words.recover",
-      id: entry.id,
-      threadId: entry.threadId,
-      text: entry.text,
-    })),
-  );
 }
 function action(json: string): void {
   try {
@@ -375,7 +352,6 @@ function action(json: string): void {
           pump,
           nativeChunks,
           (threadId) => suggest?.entries(threadId),
-          takeBacks,
         );
         browser?.close();
         browser?.probe(value.threadId, epoch);
