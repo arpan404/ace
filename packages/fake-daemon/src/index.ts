@@ -61,7 +61,7 @@ export {
   watchingRelay,
 } from "./scenarios/turn-statuses.ts";
 export { seedPanels } from "./scenarios/panels.ts";
-export { devWorld } from "./scenarios/dev-world.ts";
+export { devWorld, showcaseWorld } from "./scenarios/dev-world.ts";
 export { accountLimit, teamAtLimit } from "./scenarios/account-limit.ts";
 export type { WorldThread } from "./scenarios/dev-world.ts";
 export { FakeReviewDesk } from "./review-desk.ts";

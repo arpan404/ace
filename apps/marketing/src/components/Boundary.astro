@@ -1,0 +1,56 @@
+---
+/* Where ace stops, point by point: the body of the Security page, under its intro. */
+import { boundary } from "../content/product.ts";
+import Icon from "./Icon.astro";
+---
+
+<section class="section page">
+  <ol class="list reveal" data-stagger>
+    {
+      boundary.map((item) => (
+        <li>
+          <span class="tile">
+            <Icon name={item.icon} size={17} />
+          </span>
+          <div>
+            <h2>{item.title}</h2>
+            <p>{item.body}</p>
+          </div>
+        </li>
+      ))
+    }
+  </ol>
+</section>
+
+<style>
+  .list {
+    max-width: 760px;
+  }
+
+  .list li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 20px;
+    padding: 28px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .list li:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  h2 {
+    font-size: 18px;
+    letter-spacing: -0.02em;
+  }
+
+  .list p {
+    margin-top: 8px;
+    max-width: 34em;
+    color: var(--muted);
+    font-size: 14.5px;
+    line-height: 1.65;
+  }
+
+</style>

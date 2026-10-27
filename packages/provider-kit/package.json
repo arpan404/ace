@@ -19,6 +19,7 @@
     "./sse": "./src/sse.ts",
     "./elision": "./src/elision.ts",
     "./binary-elision": "./src/binary-elision.ts",
+    "./data-url": "./src/data-url.ts",
     "./discovery": "./src/discovery/index.ts",
     "./installers": "./src/installers/index.ts",
     "./process-bytes": "./src/process-bytes.ts",

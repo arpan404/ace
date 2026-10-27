@@ -1,0 +1,498 @@
+/*
+ * The site's motion. Text never slides or blurs in: headings rise word by word from behind a
+ * mask and everything else simply fades. The motion that matters is in the product panels, which
+ * act out what the feature does (scripts/stories.ts): subagents finish before their parent, an
+ * agent's tool calls stream in, you take over an app, a device request is allowed, work crosses
+ * machines. Hover answers the pointer with a spotlight. Nothing loops for show.
+ *
+ * scripts/motion.ts drives it. Base.astro tags <html class="motion"> only when scripts run and
+ * reduced motion is off; without it, every panel shows its resting state and nothing is hidden.
+ */
+
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --spot: rgb(255 255 255 / 0.045);
+  --spot-edge: rgb(255 255 255 / 0.22);
+}
+
+html[data-theme="light"] {
+  --spot: rgb(40 30 20 / 0.035);
+  --spot-edge: rgb(40 30 20 / 0.22);
+}
+
+/* ---------- Arrival ---------- */
+
+/* Text blocks: a quiet fade, siblings a beat apart. No travel, no blur. */
+html.motion .reveal {
+  opacity: 0;
+  transition: opacity 900ms var(--ease-out-quint);
+  transition-delay: calc(var(--i, 0) * 90ms);
+}
+
+html.motion .reveal.is-in {
+  opacity: 1;
+}
+
+/*
+ * Product visuals unmask from the top down, as if a screen were switching on. The mask goes on
+ * the visual inside, not the observed element, so the observer still sees it come into view.
+ */
+html.motion .reveal:is(.visual, .frame, .board-reveal) > * {
+  clip-path: inset(0 0 100% 0 round var(--clip-r, 16px));
+  transition: clip-path 1300ms var(--ease-out-expo);
+}
+
+html.motion .reveal.is-in:is(.visual, .frame, .board-reveal) > * {
+  clip-path: inset(0 0 0 0 round var(--clip-r, 16px));
+}
+
+/* Headings rise word by word from behind a mask (motion.ts wraps each word). */
+html.motion .section-title .w {
+  display: inline-block;
+  overflow: hidden;
+  padding-bottom: 0.12em;
+  margin-bottom: -0.12em;
+  vertical-align: top;
+}
+
+html.motion .section-title .w > span {
+  display: inline-block;
+  transform: translate3d(0, 110%, 0);
+  transition: transform 1100ms var(--ease-out-expo);
+  transition-delay: calc(var(--w) * 40ms);
+}
+
+html.motion :is(.reveal.is-in .section-title, .section-title.reveal.is-in) .w > span {
+  transform: none;
+}
+
+/* Lists marked data-stagger deal out their items once their section is in. */
+html.motion :is(.reveal[data-stagger], .reveal [data-stagger]) > * {
+  opacity: 0;
+  transition: opacity 700ms var(--ease-out-quint);
+  transition-delay: calc(200ms + var(--row, 0) * 70ms);
+}
+
+html.motion :is(.reveal.is-in[data-stagger], .reveal.is-in [data-stagger]) > * {
+  opacity: 1;
+}
+
+/* ---------- Hero ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero .word {
+    display: inline-block;
+    animation: word-in 1100ms var(--ease-out-expo) both;
+    animation-delay: calc(100ms + var(--w) * 55ms);
+  }
+
+  /* The ASCII art drifts slower than the page as you leave the hero. */
+  @supports (animation-timeline: scroll()) {
+    .hero > .ascii {
+      animation: drift linear both;
+      animation-timeline: scroll();
+      animation-range: 0 700px;
+    }
+  }
+
+  /* The app window starts tilted back and lies flat as it scrolls up into view. */
+  @supports (animation-timeline: view()) {
+    .hero .stage {
+      transform-origin: 50% 0;
+      animation: lay-flat linear both;
+      animation-timeline: view();
+      animation-range: entry 10% cover 45%;
+    }
+  }
+}
+
+@keyframes word-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 0.5em, 0) rotate(2deg);
+  }
+}
+
+@keyframes drift {
+  to {
+    transform: translate3d(0, 140px, 0);
+    opacity: 0.35;
+  }
+}
+
+@keyframes lay-flat {
+  from {
+    transform: perspective(2000px) rotateX(16deg) scale(0.93);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* ---------- Panel stories (scripts/stories.ts) ---------- */
+
+.status-dot,
+.status-word {
+  transition:
+    background-color 500ms var(--ease-out-quint),
+    color 500ms var(--ease-out-quint);
+}
+
+/* A status word that changes rolls in from below. */
+.status-word.flip {
+  display: inline-block;
+  animation: roll-in 600ms var(--ease-out-expo);
+}
+
+@keyframes roll-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 70%, 0);
+  }
+}
+
+/* A row whose thread just settled glows once in its new status colour. */
+.board li.settled {
+  animation: settle 1400ms var(--ease-out-quint);
+}
+
+@keyframes settle {
+  from {
+    background: color-mix(in srgb, var(--tone) 14%, transparent);
+  }
+}
+
+/* The browser log: a step runs (spinner, no result yet), then shows its result. */
+[data-step] {
+  position: relative;
+  transition: opacity 400ms var(--ease-out-quint);
+}
+
+[data-step].pending {
+  opacity: 0;
+}
+
+[data-step].running .panel-end {
+  opacity: 0;
+}
+
+[data-step] .panel-end {
+  transition: opacity 400ms var(--ease-out-quint);
+}
+
+[data-step].running::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: calc(50% - 6px);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  border-top-color: var(--foreground);
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* A caret while the address types itself. */
+[data-type].typing::after {
+  content: "";
+  display: inline-block;
+  width: 1px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -2px;
+  background: var(--foreground);
+  animation: blink 900ms steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Computer use: a pointer that glides to Take over and presses it. */
+[data-story="computer"] {
+  position: relative;
+}
+
+[data-story="computer"] .pointer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  color: var(--foreground);
+  opacity: 0;
+  transform: translate3d(var(--px, 0), var(--py, 0), 0);
+  filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.35));
+  pointer-events: none;
+  transition:
+    transform 1100ms var(--ease-in-out),
+    opacity 300ms var(--ease-out-quint);
+}
+
+[data-story="computer"] .pointer.shown {
+  opacity: 1;
+}
+
+[data-story="computer"] .pointer svg {
+  transition: transform 160ms var(--ease-out-quint);
+}
+
+[data-story="computer"] .pointer.press svg {
+  transform: scale(0.82);
+}
+
+.panel-action.pressed {
+  animation: press 420ms var(--ease-out-quint);
+}
+
+@keyframes press {
+  30% {
+    opacity: 0.45;
+  }
+}
+
+/* Devices: the request row folds open, then away once allowed. */
+[data-key="ask"] {
+  max-height: 60px;
+  overflow: hidden;
+  transition:
+    max-height 700ms var(--ease-out-expo),
+    min-height 700ms var(--ease-out-expo),
+    padding 700ms var(--ease-out-expo),
+    opacity 500ms var(--ease-out-quint),
+    border-color 500ms var(--ease-out-quint);
+}
+
+[data-key="ask"].folded {
+  max-height: 0;
+  min-height: 0;
+  padding-block: 0;
+  opacity: 0;
+  border-top-color: transparent;
+}
+
+/* Fleet: lines between machines draw themselves, and a spark travels each once. */
+[data-story="fleet"] {
+  position: relative;
+}
+
+.fleet-links {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.fleet-links path {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-dasharray: var(--length);
+  stroke-dashoffset: var(--length);
+  transition:
+    stroke-dashoffset 1100ms var(--ease-out-expo),
+    stroke 600ms var(--ease-out-quint);
+}
+
+/* The ports where a line meets a card: hidden until the line reaches them. */
+.fleet-links circle {
+  fill: var(--stage-bg);
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  opacity: 0;
+  transition: opacity 300ms var(--ease-out-quint);
+}
+
+.fleet-links .drawn path {
+  stroke-dashoffset: 0;
+  stroke: var(--subtle);
+}
+
+.fleet-links .drawn circle {
+  opacity: 1;
+}
+
+.fleet-links .drawn circle:last-child {
+  transition-delay: 700ms;
+}
+
+.fleet-spark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--foreground);
+  box-shadow: 0 0 12px 2px color-mix(in srgb, var(--foreground) 40%, transparent);
+  /* The path places the dot's centre on the line; no margin nudge on top of that. */
+  offset-anchor: 50% 50%;
+  offset-rotate: 0deg;
+  pointer-events: none;
+  animation: spark 1200ms var(--ease-in-out) both;
+}
+
+@keyframes spark {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+/* The approval that reaches the phone rings once. */
+.ring {
+  animation: ring 1400ms var(--ease-out-quint);
+}
+
+@keyframes ring {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-needs-you) 50%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 14px transparent;
+  }
+}
+
+/* ---------- Hover ---------- */
+
+/*
+ * Tiles and cards marked .spot carry a soft light under the pointer, with their edge lit nearest
+ * to it (motion.ts tracks --mx and --my).
+ */
+.spot {
+  position: relative;
+  isolation: isolate;
+}
+
+.spot::before,
+.spot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 500ms var(--ease-out-quint);
+}
+
+.spot::before {
+  background: radial-gradient(
+    560px circle at var(--mx, 50%) var(--my, 0%),
+    var(--spot),
+    transparent 45%
+  );
+}
+
+.spot::after {
+  z-index: 1;
+  padding: 1px;
+  background: radial-gradient(
+    320px circle at var(--mx, 50%) var(--my, 0%),
+    var(--spot-edge),
+    transparent 60%
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+
+@media (hover: hover) {
+  .spot:hover::before,
+  .spot:hover::after {
+    opacity: 1;
+  }
+}
+
+.stage .panel,
+.stage .board,
+.stage .fleet {
+  transition:
+    transform 800ms var(--ease-out-expo),
+    box-shadow 800ms var(--ease-out-expo);
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .button {
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      border-color var(--motion-fast) var(--ease-out),
+      box-shadow 300ms var(--ease-out-expo),
+      transform 300ms var(--ease-out-expo);
+  }
+
+  .button-primary:hover {
+    transform: translate3d(0, -1px, 0);
+  }
+
+  .button:active {
+    transform: scale(0.98);
+    transition-duration: 80ms;
+  }
+
+  .more svg {
+    transition: transform 300ms var(--ease-out-expo);
+  }
+
+  .more:hover svg {
+    transform: translate3d(3px, 0, 0);
+  }
+}
+
+/* ---------- Between pages ---------- */
+
+/* Pages cross-fade into each other; the header stays put. */
+@view-transition {
+  navigation: auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) {
+    animation: 160ms ease-in both page-out;
+  }
+
+  ::view-transition-new(root) {
+    animation: 420ms var(--ease-out-expo) both page-in;
+  }
+}
+
+@keyframes page-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}

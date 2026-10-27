@@ -1,120 +1,226 @@
 ---
 import homeDark from "../assets/shots/home-dark.png";
 import homeLight from "../assets/shots/home-light.png";
+import { acpAgents, builtInAgents } from "../content/agents.ts";
 import { product } from "../content/product.ts";
 import { links } from "../site.ts";
+import AsciiField from "./AsciiField.astro";
+import BrandMark from "./BrandMark.astro";
 import DownloadButton from "./DownloadButton.astro";
-import ThemeShot from "./ThemeShot.astro";
+import Icon from "./Icon.astro";
+import Shot from "./Shot.astro";
+
+/* Built-in agents first, then a few ACP agents, so the row reads as "and more". */
+const marks = [...builtInAgents, ...acpAgents.slice(0, 4)];
+/* The headline arrives word by word (styles/motion.css); --w orders the words. */
+const words = product.headline.split(" ");
 ---
 
 <section class="hero">
+  <AsciiField />
   <div class="page hero-copy">
-    <h1>{product.headline}</h1>
-    <p class="lede">{product.summary}</p>
-    <div class="hero-actions">
-      <DownloadButton withNote />
-      <a class="button button-secondary" href={links.source}>View source</a>
+    <ul class="marks" aria-label="Agents ace runs">
+      {
+        marks.map((agent, index) => (
+          <li class="tile" title={agent.label} style={`--m: ${index}`}>
+            <BrandMark brand={agent.brand} size={18} />
+            <span class="sr-only">{agent.label}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <h1>
+      {
+        words.map((word, index) => (
+          <>
+            <span class="word" style={`--w: ${index}`}>
+              {word}
+            </span>{" "}
+          </>
+        ))
+      }
+    </h1>
+    <p class="summary">{product.summary}</p>
+    <div class="actions">
+      <DownloadButton />
+      <a class="button button-secondary" href={links.source}>
+        <Icon name="github-logo" size={16} />
+        Star on GitHub
+      </a>
     </div>
   </div>
 
-  <div class="stage">
-    <div class="page">
-      <div class="window">
-        <ThemeShot
-          light={homeLight}
-          dark={homeDark}
-          alt="ace with a thread open: the task list on the left shows which threads need an approval or an answer, and the open thread waits on two subagents and a running command."
-          sizes="(min-width: 1280px) 1200px, calc(100vw - 48px)"
-          widths={[720, 1200, 1800, 2400]}
-          eager
-        />
-      </div>
+  <div class="page stage">
+    <div class="window">
+      <Shot
+        dark={homeDark}
+        light={homeLight}
+        alt="ace with a thread open: the task list on the left shows which threads need an approval or an answer, and the open thread waits on two subagents and a running command."
+        sizes="(min-width: 1232px) 1152px, calc(100vw - 40px)"
+        widths={[720, 1152, 1728, 2304]}
+        eager
+      />
     </div>
   </div>
 </section>
 
 <style>
   .hero {
+    position: relative;
     padding-top: 64px;
   }
 
+  /* The ASCII field covers only the copy band, not the screenshot. */
+  .hero > :global(.ascii) {
+    bottom: auto;
+    height: 600px;
+    mask-image: linear-gradient(to bottom, black 65%, transparent);
+  }
+
   .hero-copy {
+    position: relative;
     display: grid;
-    gap: 20px;
     justify-items: start;
-    padding-bottom: 48px;
-  }
-
-  h1 {
-    font-size: clamp(40px, 5.8vw, 68px);
-    max-width: 11em;
-  }
-
-  .hero-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-top: 8px;
-  }
-
-  /* The window sits half on the page, half on a quieter band, so it reads as lifted. */
-  .stage {
-    background: linear-gradient(to bottom, var(--background) 30%, var(--sidebar) 30%);
-    border-bottom: 1px solid var(--border);
     padding-bottom: 72px;
   }
 
-  .window {
-    overflow: hidden;
-    border-radius: 12px;
-    border: 1px solid var(--border-strong);
-    background: var(--background);
-    box-shadow:
-      0 1px 2px rgb(var(--shadow) / 0.06),
-      0 24px 64px -24px rgb(var(--shadow) / 0.28);
+  .marks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
+  h1 {
+    margin-top: 36px;
+    max-width: 11em;
+    font-size: clamp(40px, 5.2vw, 62px);
+    letter-spacing: -0.045em;
+    line-height: 1.02;
+  }
+
+  .summary {
+    margin-top: 20px;
+    max-width: 29em;
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1.6;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 32px;
+  }
+
+  /* A warm light behind the window, so it sits on the page instead of on a void. */
+  .stage {
+    position: relative;
+  }
+
+  .stage::before {
+    content: "";
+    position: absolute;
+    inset: -80px 8% auto;
+    height: 420px;
+    background: radial-gradient(50% 60% at 50% 40%, rgb(255 196 140 / 0.07), transparent 70%);
+    filter: blur(20px);
+    pointer-events: none;
+  }
+
+  .window {
+    position: relative;
+    overflow: hidden;
+    border-radius: 14px;
+    border: 1px solid var(--edge);
+    background: var(--surface);
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      0 50px 120px -40px var(--shadow-deep);
+  }
+
+  /* A faint top sheen across the window's glass. */
+  .window::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, var(--wash), transparent 30%);
+    pointer-events: none;
+  }
+
+  /*
+   * Load-in: the agent marks, then the headline (word by word, styles/motion.css), the summary,
+   * the actions and the window, each settling out of a soft blur.
+   */
   @media (prefers-reduced-motion: no-preference) {
-    .hero-copy > *,
+    .marks,
+    .summary,
+    .actions,
     .window {
-      animation: arrive 640ms var(--ease-out) both;
+      animation: arrive 1000ms var(--ease-out-expo) both;
     }
 
-    .hero-copy > :nth-child(2) {
-      animation-delay: 60ms;
+    .marks {
+      animation-delay: 40ms;
     }
 
-    .hero-copy > :nth-child(3) {
-      animation-delay: 120ms;
+    .summary {
+      animation-delay: 420ms;
+    }
+
+    .actions {
+      animation-delay: 520ms;
     }
 
     .window {
-      animation-delay: 200ms;
+      animation-duration: 1400ms;
+      animation-delay: 650ms;
+    }
+
+    /* The agent marks pop in one after another. */
+    .marks li {
+      animation: mark-in 700ms var(--ease-out-expo) both;
+      animation-delay: calc(60ms + var(--m) * 35ms);
     }
   }
 
   @keyframes arrive {
     from {
       opacity: 0;
-      transform: translateY(12px);
+      transform: translate3d(0, 14px, 0);
+      filter: blur(8px);
+    }
+  }
+
+  @keyframes mark-in {
+    from {
+      opacity: 0;
+      transform: scale(0.85);
+    }
+  }
+
+  /* Narrower screens put the mark under the copy, so it steps back. */
+  @media (max-width: 1100px) {
+    .hero > :global(.ascii) {
+      opacity: 0.35;
     }
   }
 
   @media (max-width: 767px) {
     .hero {
-      padding-top: 40px;
+      padding-top: 32px;
+    }
+
+    .hero > :global(.ascii) {
+      opacity: 0.22;
     }
 
     .hero-copy {
-      padding-bottom: 40px;
-    }
-
-    .stage {
       padding-bottom: 48px;
     }
 
     .window {
-      border-radius: 8px;
+      border-radius: 10px;
     }
   }
 </style>
