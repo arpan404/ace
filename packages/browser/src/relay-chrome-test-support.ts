@@ -303,10 +303,9 @@ export async function chromeDesktop(executablePath: string) {
         child.kill("SIGKILL");
         await exited;
       }
-      // Windows: the killed browser's helpers hold profile files open until they notice and exit.
-      if (process.platform === "win32")
-        await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-      await rm(profile, { recursive: true, force: true });
+      // The killed browser's helpers hold profile files open (Windows) or still write to it
+      // (Linux: ENOTEMPTY) until they notice and exit.
+      await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
     },
   };
 }
