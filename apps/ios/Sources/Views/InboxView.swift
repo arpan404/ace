@@ -14,7 +14,7 @@ struct InboxUndo: Equatable {
 /// Pulls (the web's Pull requests and Issues lists) and the detached New thread button. Grouping
 /// and wording come from each machine's runtime. A row and its thread belong to their machine.
 struct InboxView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Bindable var inbox: MachineInbox

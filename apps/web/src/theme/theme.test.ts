@@ -2,14 +2,23 @@ import { expect, test } from "vitest";
 import { formatKeys } from "@/lib/keymap.ts";
 import { memoryKeyValue } from "@/test/harness.tsx";
 import { defaultAppearance, loadAppearance, resolveAppearance } from "./appearance.ts";
-import { worstContrast } from "./colour.ts";
+import {
+  worstContrast,
+  accentIds,
+  themedPalette,
+  type AccentChoice,
+  nearStatus,
+  statusDistance,
+  statusGap,
+  deltaE,
+  rgbToOklch,
+  sharedStatus,
+  themeIds,
+  themes,
+  paletteSurfaces,
+} from "@ace/themes";
 import { contrastWarnings, parseOpaqueColor } from "./contrast.ts";
 import { themeDeclarations, themeRule } from "./css.ts";
-import { accentIds, themedPalette, type AccentChoice } from "./accent.ts";
-import { nearStatus, statusDistance, statusGap } from "./accent-fit.ts";
-import { deltaE, rgbToOklch } from "./colour.ts";
-import { sharedStatus, themeIds, themes } from "./palettes.ts";
-import { paletteSurfaces } from "./surfaces.ts";
 
 const schemes = ["light", "dark"] as const;
 const rgb = (value: string | undefined) => {

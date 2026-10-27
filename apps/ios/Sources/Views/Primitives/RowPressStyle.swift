@@ -6,7 +6,7 @@ import SwiftUI
 /// Rows stay flat: no shadow, no tint.
 struct RowPressStyle: ButtonStyle {
     var selected = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

@@ -69,7 +69,7 @@ struct BackgroundLine: View {
 /// running lines stay in view, Stop and all; the ended ones open from the group. The rows
 /// update in place as the tasks end; they never move.
 struct BackgroundStep: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let row: BlockRow.LogRow
     let source: LogSource
     private var key: String { "group:\(row.id)" }

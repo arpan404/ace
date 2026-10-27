@@ -63,7 +63,7 @@ private final class TranscriptScrollIntent {
 /// accessibility client attached (VoiceOver, Voice Control, UI automation), a drag against that
 /// standing target re-places the lazy rows on every update and pins the main thread.
 struct ConversationFeed: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let thread: ThreadModel
     let acceptedSend: Int
@@ -133,6 +133,7 @@ struct ConversationFeed: View {
                 // The end of the feed: scrolling to it puts the room above at the bottom.
                 TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving { toEnd(proxy) } }
             }
+            .modifier(TranscriptTextSize())
             .padding(.top, AceTheme.Spacing.sm)
             // A comfortable line on a wide window; the scroll itself stays full width.
             .frame(maxWidth: ReadingColumn.maxWidth)

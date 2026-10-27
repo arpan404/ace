@@ -13,6 +13,7 @@
     "./command-rank": "./src/command-rank.ts",
     "./acp-registry": "./src/acp-registry.ts",
     "./counts": "./src/counts.ts",
+    "./phone-keymap": "./src/phone-keymap.ts",
     "./computer-use": "./src/computer-use.ts",
     "./devices": "./src/device-kit.ts",
     "./browser-devices": "./src/browser-devices.ts",

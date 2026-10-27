@@ -40,6 +40,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
     private(set) var muted: Set<String>
     /// Per-thread snoozes this phone set (`notification.snooze`), host id → thread id → until (ms).
     private(set) var snoozesByMachine: [String: [String: Double]] = [:]
+    /// This phone's banners, system categories and quiet hours, the same for every machine.
+    private(set) var phone: PhoneNotificationPrefs
     /// Attached runtimes by host, in attach order.
     @ObservationIgnored private(set) var machines: [(hostId: String, model: ClientModel, notifier: LocalNotifier)] = []
     /// The first attached machine: settings and the one-time permission ask read it.
@@ -72,6 +74,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         self.makeId = makeId; self.connectInBackground = connectInBackground
         enabled = defaults.bool(forKey: Keys.enabled)
         muted = Set(defaults.stringArray(forKey: Keys.muted) ?? [])
+        phone = PhoneNotificationPrefs.load(defaults)
     }
 
     /// Call before `model.connect`: patches from that runtime reach this coordinator, bound to that
@@ -130,8 +133,10 @@ struct SystemAuthorizer: NotificationAuthorizer {
     /// Every machine's bridge reports presence and catches up whenever this changes or it connects.
     func sync() { for entry in machines { sync(entry.model, ledger: entry.notifier, hostId: entry.hostId) } }
     private func sync(_ model: ClientModel, ledger: LocalNotifier, hostId: String) {
-        model.notificationAction(["type": "notifications.sync", "enabled": delivering(hostId),
-                                  "appState": foreground ? "foreground" : "background", "cursor": ledger.ledger.cursor])
+        var action: [String: Any] = ["type": "notifications.sync", "enabled": delivering(hostId),
+                                     "appState": foreground ? "foreground" : "background", "cursor": ledger.ledger.cursor]
+        action["phone"] = phone.json
+        model.notificationAction(action)
     }
     func scene(active: Bool) {
         guard foreground != active else { return }
@@ -182,6 +187,13 @@ struct SystemAuthorizer: NotificationAuthorizer {
         if on { muted.remove(hostId) } else { muted.insert(hostId) }
         defaults.set(muted.sorted(), forKey: Keys.muted)
         if let entry = machines.first(where: { $0.hostId == hostId }) { sync(entry.model, ledger: entry.notifier, hostId: entry.hostId) }
+    }
+    /// Change this phone's own preferences; every machine's runtime applies them at once.
+    func setPhone(_ next: PhoneNotificationPrefs) {
+        guard next != phone else { return }
+        phone = next
+        next.save(defaults)
+        sync()
     }
     func snoozes(for hostId: String) -> [String: Double] { snoozesByMachine[hostId] ?? [:] }
     func snooze(_ threadId: String, until: Double?, hostId: String? = nil) {

@@ -168,9 +168,11 @@
         "@ace/design-tokens": "workspace:*",
         "@ace/html": "workspace:*",
         "@ace/native-host": "workspace:*",
+        "@ace/notify": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/settings": "workspace:*",
+        "@ace/themes": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "gemoji": "^8.1.0",
         "marked": "^18.0.14",
@@ -227,6 +229,7 @@
         "@ace/protocol": "workspace:*",
         "@ace/secure-channel": "workspace:*",
         "@ace/settings": "workspace:*",
+        "@ace/themes": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "@base-ui/react": "^1.8.0",
         "@noble/hashes": "2.0.1",
@@ -564,6 +567,9 @@
       "dependencies": {
         "zod": "^4.6.5",
       },
+      "devDependencies": {
+        "@ace/themes": "workspace:*",
+      },
     },
     "packages/devices": {
       "name": "@ace/devices",
@@ -900,6 +906,12 @@
         "node-pty": "^1.1.0",
       },
     },
+    "packages/themes": {
+      "name": "@ace/themes",
+      "devDependencies": {
+        "@ace/design-tokens": "workspace:*",
+      },
+    },
     "packages/ui-core": {
       "name": "@ace/ui-core",
       "dependencies": {
@@ -1205,6 +1217,8 @@
     "@ace/settings": ["@ace/settings@workspace:packages/settings"],
 
     "@ace/terminal": ["@ace/terminal@workspace:packages/terminal"],
+
+    "@ace/themes": ["@ace/themes@workspace:packages/themes"],
 
     "@ace/ui-core": ["@ace/ui-core@workspace:packages/ui-core"],
 

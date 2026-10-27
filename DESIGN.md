@@ -1,6 +1,6 @@
 # DESIGN.md
 
-The convention every UI change in ace follows and every UI review checks. It names tokens; raw values live in the token source (`apps/web/src/theme/sources/*.ts`, `apps/web/src/styles/tokens.css`, `motion.css`, `glass.css`) and are documented in [docs/design/visual-language.md](docs/design/visual-language.md). The reasoning behind the current direction is in [docs/design/2026-10-14-ui-quality-proposal.md](docs/design/2026-10-14-ui-quality-proposal.md). When this file and `visual-language.md` disagree, this file wins for _what to do_; `visual-language.md` wins for _what a token is worth_. (`DESIGN-fable.md`, referenced in old comments, lived in the prototype folder and is superseded by this file.)
+The convention every UI change in ace follows and every UI review checks. It names tokens; raw values live in the token source (`packages/themes/src/sources/*.ts`, `apps/web/src/styles/tokens.css`, `motion.css`, `glass.css`) and are documented in [docs/design/visual-language.md](docs/design/visual-language.md). The reasoning behind the current direction is in [docs/design/2026-10-14-ui-quality-proposal.md](docs/design/2026-10-14-ui-quality-proposal.md). When this file and `visual-language.md` disagree, this file wins for _what to do_; `visual-language.md` wins for _what a token is worth_. (`DESIGN-fable.md`, referenced in old comments, lived in the prototype folder and is superseded by this file.)
 
 ## 1. Principles
 

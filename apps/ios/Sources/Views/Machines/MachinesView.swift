@@ -85,7 +85,7 @@ struct MachineRow: View {
 struct ConnectionDot: View {
     let token: String
     let trying: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var dim = false
     var body: some View {
         Circle().fill(colour).frame(width: 8, height: 8)

@@ -165,7 +165,16 @@ async function start(json: string): Promise<void> {
     now: () => host.now(),
   });
   const connection = client.connectionState();
-  notifications = new NotificationBridge(client, (key, read) => pump.put(key, read), scheduler.set);
+  notifications = new NotificationBridge(
+    client,
+    (key, read) => pump.put(key, read),
+    scheduler.set,
+    () => {
+      // The phone's own clock and time zone: quiet hours are local to the phone.
+      const now = new Date(host.now());
+      return now.getHours() * 60 + now.getMinutes();
+    },
+  );
   const owner = client;
   const activityGeneration = makeActivityGeneration();
   connection.subscribe(() => {

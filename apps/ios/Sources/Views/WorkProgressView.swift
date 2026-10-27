@@ -107,7 +107,7 @@ private struct LogStepContent: View {
 /// its steps on a rail, and stays open while it holds a step the reader opened. A long group lays
 /// out its first rows in the frame it opens and the rest just after, so the tap answers at once.
 private struct LogGroupView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let row: BlockRow.LogRow
     let source: LogSource
     let live: Bool

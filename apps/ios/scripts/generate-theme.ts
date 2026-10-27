@@ -1,5 +1,16 @@
 import { DesignTokensSchema } from "@ace/design-tokens";
 import data from "@ace/design-tokens/tokens.json" with { type: "json" };
+import {
+  accentNames,
+  phoneAccentIds,
+  phoneColourRoles,
+  phoneOverrides,
+  themeIds,
+  themes,
+  transcriptScale,
+  transcriptSizeIds,
+  transcriptSizes,
+} from "@ace/themes";
 import { readFile, writeFile } from "node:fs/promises";
 
 // Validate the raw JSON here too. A generator must never silently accept an incompatible schema.
@@ -18,9 +29,10 @@ const editableColours = [
   "accent",
   "onAccent",
 ] as const;
-type EditableColour = (typeof editableColours)[number];
-const isEditable = (key: string): key is EditableColour =>
-  (editableColours as readonly string[]).includes(key);
+// Theme roles (`@ace/themes` phoneColourRoles) resolve live too, so a theme switch redraws them.
+const isDynamic = (key: string): boolean =>
+  (editableColours as readonly string[]).includes(key) ||
+  (phoneColourRoles as readonly string[]).includes(key);
 const hex = (value: string | undefined): string => {
   if (value === undefined) throw new Error("Missing token colour value.");
   return value.slice(1);
@@ -49,6 +61,43 @@ const lines = [
       `        "${key}": .init(light: 0x${hex(lightColours[key])}, dark: 0x${hex(darkColours[key])}),`,
   ),
   "    ]",
+  "    /// Each theme's colours under each accent (`@ace/themes` phoneOverrides): theme id → accent",
+  "    /// id → role → pair. A role a theme leaves out keeps its token colour.",
+  "    static let themeOverrides: [String: [String: [String: NativePalette.Pair]]] = [",
+  ...themeIds.flatMap((theme) => [
+    `        "${theme}": [`,
+    ...phoneAccentIds.flatMap((accent) => {
+      const light = phoneOverrides(theme, accent, "light");
+      const dark = phoneOverrides(theme, accent, "dark");
+      const roles = phoneColourRoles.filter((role) => light[role] || dark[role]);
+      if (roles.length === 0) return [`            "${accent}": [:],`];
+      return [
+        `            "${accent}": [`,
+        ...roles.map(
+          (role) =>
+            `                "${role}": .init(light: 0x${hex(light[role] ?? lightColours[role])}, dark: 0x${hex(dark[role] ?? darkColours[role])}),`,
+        ),
+        "            ],",
+      ];
+    }),
+    "        ],",
+  ]),
+  "    ]",
+  "    /// The themes and accents Settings offers, in order, as (id, name).",
+  `    static let themeChoices: [(id: String, name: String)] = [${themeIds.map((id) => `("${id}", "${themes[id].name}")`).join(", ")}]`,
+  `    static let accentChoices: [(id: String, name: String)] = [${phoneAccentIds.map((id) => `("${id}", "${accentNames[id]}")`).join(", ")}]`,
+  "    /// Transcript sizes as (id, name, scale): the scale multiplies the Dynamic Type size.",
+  `    static let transcriptSizes: [(id: String, name: String, scale: CGFloat)] = [${transcriptSizeIds.map((id) => `("${id}", "${transcriptSizes[id].label}", ${transcriptScale(id).toFixed(4)})`).join(", ")}]`,
+  "    /// A role's colour pair in any theme and accent, for previews of choices not on screen.",
+  "    static func pair(_ role: String, theme: String, accent: String) -> NativePalette.Pair? {",
+  "        themeOverrides[theme]?[accent]?[role] ?? tokenPairs[role]",
+  "    }",
+  "    static let tokenPairs: [String: NativePalette.Pair] = [",
+  ...phoneColourRoles.map(
+    (key) =>
+      `        "${key}": .init(light: 0x${hex(lightColours[key])}, dark: 0x${hex(darkColours[key])}),`,
+  ),
+  "    ]",
   "    /// Editable colours resolve through the injected model so saves and resets",
   "    /// invalidate every active view. Semantic colours below stay fixed.",
 ];
@@ -56,7 +105,7 @@ lines.push("    @MainActor enum Colours {");
 for (const key of Object.keys(tokens.schemes.light.colours)) {
   const lightHex = hex(lightColours[key]);
   const darkHex = hex(darkColours[key]);
-  if (isEditable(key)) {
+  if (isDynamic(key)) {
     lines.push(
       `        static var ${key}: Color {`,
       `            let pair = NativePaletteBridge.pair(for: "${key}", light: 0x${lightHex}, dark: 0x${darkHex})`,
@@ -143,6 +192,7 @@ lines.push(`    }
     @ScaledMetric private var size: CGFloat
     @ScaledMetric private var lineHeight: CGFloat
     @ScaledMetric private var tracking: CGFloat
+    @Environment(\\.transcriptScale) private var scale
 
     init(style: AceTheme.TypeStyle, relativeTo: Font.TextStyle, design: Font.Design) {
         self.style = style
@@ -153,10 +203,16 @@ lines.push(`    }
     }
 
     func body(content: Content) -> some View {
-        content.font(.system(size: size, weight: AceTheme.fontWeight(style.weight), design: design))
-            .tracking(tracking)
-            .lineSpacing(max(AceTheme.Spacing.none, lineHeight - UIFont.systemFont(ofSize: size).lineHeight))
+        let size = size * scale
+        return content.font(.system(size: size, weight: AceTheme.fontWeight(style.weight), design: design))
+            .tracking(tracking * scale)
+            .lineSpacing(max(AceTheme.Spacing.none, lineHeight * scale - UIFont.systemFont(ofSize: size).lineHeight))
     }
+}
+
+extension EnvironmentValues {
+    /// The transcript's size relative to Dynamic Type (Settings › Appearance): 1 everywhere else.
+    @Entry var transcriptScale: CGFloat = 1
 }
 
 extension View {

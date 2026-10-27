@@ -24,6 +24,13 @@ const alert = (id: string) =>
     actions: [],
   });
 
+const categories = (failures: boolean) => ({
+  needsYou: true,
+  failures,
+  finished: true,
+  agentSays: true,
+});
+
 /** The real SDK against the fixture daemon; patches are what Swift would receive. */
 async function phone() {
   const daemon = new FakeDaemon({ clock: () => 1000 });
@@ -81,6 +88,7 @@ async function phone() {
       if (patch) patches.push(patch);
     },
     schedule,
+    () => 23 * 60,
     200,
   );
   closers.push(async () => {
@@ -152,6 +160,37 @@ it("posts the daemon's live alerts only while notifications are on", async () =>
   daemon.notify(alert("n:2"));
   await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(1));
   expect(of("notifications.alert")[0]).toMatchObject({ notification: { id: "n:2" } });
+});
+
+it("each alert says how this phone shows it, by the categories and quiet hours Swift sends", async () => {
+  const { daemon, act, of } = await phone();
+  const sync = (appState: "foreground" | "background", prefs: unknown) =>
+    act({ type: "notifications.sync", enabled: true, appState, cursor: 0, phone: prefs });
+  // Open, with failure banners off but failures still on for the system: a quiet list entry.
+  sync("foreground", { inApp: categories(false), system: categories(true), quietHours: null });
+  daemon.notify({ ...alert("n:1"), status: "failed" });
+  await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(1));
+  expect(of("notifications.alert")[0]).toMatchObject({
+    notification: { id: "n:1", delivery: { post: true, interrupt: false, banner: false } },
+  });
+  // In the background at 23:00, inside 22:00–07:00 quiet hours: posted without interrupting.
+  sync("background", {
+    inApp: categories(true),
+    system: categories(true),
+    quietHours: { start: 1320, end: 420 },
+  });
+  daemon.notify({ ...alert("n:2"), status: "needs_you" });
+  await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(2));
+  expect(of("notifications.alert")[1]).toMatchObject({
+    notification: { id: "n:2", delivery: { post: true, interrupt: false, banner: false } },
+  });
+  // Failures off for the system: not posted at all.
+  sync("background", { inApp: categories(true), system: categories(false), quietHours: null });
+  daemon.notify({ ...alert("n:3"), status: "failed" });
+  await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(3));
+  expect(of("notifications.alert")[2]).toMatchObject({
+    notification: { delivery: { post: false } },
+  });
 });
 
 it("catches up on what the daemon sent while the app wasn't listening, once per cursor", async () => {

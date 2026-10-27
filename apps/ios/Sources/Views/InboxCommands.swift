@@ -29,10 +29,10 @@ private struct InboxCommandKeys: View {
     let commands: InboxCommands
     var body: some View {
         ZStack {
-            if let newThread = commands.newThread { Button("New Thread", action: newThread).keyboardShortcut("n", modifiers: .command) }
-            Button("Search Threads", action: commands.search).keyboardShortcut("f", modifiers: .command)
-            Button("Next Thread", action: commands.next).keyboardShortcut("]", modifiers: .command)
-            Button("Previous Thread", action: commands.previous).keyboardShortcut("[", modifiers: .command)
+            if let newThread = commands.newThread { Button("New Thread", action: newThread).phoneShortcut("newThread") }
+            Button("Search Threads", action: commands.search).phoneShortcut("searchThreads")
+            Button("Next Thread", action: commands.next).phoneShortcut("nextThread")
+            Button("Previous Thread", action: commands.previous).phoneShortcut("previousThread")
         }
         .opacity(0)
         .frame(width: 0, height: 0)
@@ -40,25 +40,31 @@ private struct InboxCommandKeys: View {
     }
 }
 
-/// The Threads menu: in the iPad menu bar and the overlay held ⌘ shows. Send (⌘↩) belongs to the
-/// composer's button and Close (Esc) to each sheet's.
+/// The Threads menu: in the iPad menu bar and the overlay held ⌘ shows, with this phone's keys
+/// (Settings › Keyboard). Send belongs to the composer's button, the sidebar to its button and
+/// Close (Esc) to each sheet's; the overlay lists those while they show.
 struct ThreadCommands: Commands {
     @FocusedValue(\.inboxCommands) private var inbox
+    @FocusedValue(\.recordingShortcut) private var recording
+    @AppStorage(PhoneKeymap.storageKey) private var stored = ""
 
     var body: some Commands {
+        // While Settings › Keyboard records keys, a pressed shortcut is recorded, not run.
+        let keymap = PhoneKeymap(stored: stored)
+        let inbox = recording == true ? nil : inbox
         CommandMenu("Threads") {
             Button("New Thread") { inbox?.newThread?() }
-                .keyboardShortcut("n", modifiers: .command)
+                .keyboardShortcut(keymap.shortcut("newThread"))
                 .disabled(inbox?.newThread == nil)
             Button("Search Threads") { inbox?.search() }
-                .keyboardShortcut("f", modifiers: .command)
+                .keyboardShortcut(keymap.shortcut("searchThreads"))
                 .disabled(inbox == nil)
             Divider()
             Button("Next Thread") { inbox?.next() }
-                .keyboardShortcut("]", modifiers: .command)
+                .keyboardShortcut(keymap.shortcut("nextThread"))
                 .disabled(inbox == nil)
             Button("Previous Thread") { inbox?.previous() }
-                .keyboardShortcut("[", modifiers: .command)
+                .keyboardShortcut(keymap.shortcut("previousThread"))
                 .disabled(inbox == nil)
         }
     }

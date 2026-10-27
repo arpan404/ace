@@ -86,7 +86,7 @@ struct NewThreadComposer: View {
     @State private var place: CaretPlacement?
     @State private var askAttach = false
     @State private var notice: String?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     private var draft: NewThreadDraft { drafts.draft }
 
     private var text: Binding<String> { Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }) }

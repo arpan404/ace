@@ -5,13 +5,8 @@ import SwiftUI
 extension View {
     /// Glass in `shape`: the system's own, untinted, so a floating control reads exactly like
     /// the bar's buttons beside it. `interactive` lets iOS 26 react to touches (buttons, capsules).
-    @ViewBuilder func aceGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
-        if #available(iOS 26, *) {
-            self.glassEffect(.regular.interactive(interactive), in: shape)
-        } else {
-            self.background(.regularMaterial, in: shape)
-                .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
-        }
+    func aceGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
+        modifier(SurfaceGlass(shape: shape, composer: false, interactive: interactive))
     }
     /// Liquid glass for the composer: the system's own, untinted, so the transcript scrolling
     /// behind it shows through as in the system's own apps.
@@ -19,11 +14,27 @@ extension View {
     /// The composer, its strip and the first message's card: glass the transcript scrolls behind
     /// and shows through, softly blurred, like the system's own bars. iOS 18 gets the thin
     /// material with a hairline edge.
-    @ViewBuilder func composerGlass<S: Shape>(in shape: S) -> some View {
-        if #available(iOS 26, *) {
-            self.glassEffect(Self.composerLiquidGlass, in: shape)
+    func composerGlass<S: Shape>(in shape: S) -> some View {
+        modifier(SurfaceGlass(shape: shape, composer: true, interactive: true))
+    }
+}
+
+/// System glass, or the solid card colour with a hairline edge when Translucency is off
+/// (Settings › Appearance). iOS's own Reduce Transparency already turns the system's glass solid.
+private struct SurfaceGlass<S: Shape>: ViewModifier {
+    let shape: S
+    let composer: Bool
+    let interactive: Bool
+    @Environment(\.aceSolidSurfaces) private var solid
+
+    func body(content: Content) -> some View {
+        if solid {
+            content.background(AceTheme.Colours.card, in: shape)
+                .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        } else if #available(iOS 26, *) {
+            content.glassEffect(composer ? Content.composerLiquidGlass : .regular.interactive(interactive), in: shape)
         } else {
-            self.background(.thinMaterial, in: shape)
+            content.background(composer ? .thinMaterial : .regularMaterial, in: shape)
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         }
     }

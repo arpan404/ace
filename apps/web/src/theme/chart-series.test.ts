@@ -1,8 +1,7 @@
 import { expect, test } from "vitest";
 import { themeProperties } from "@ace/html";
-import { contrastRatio, deltaE, parseOpaqueColor } from "./colour.ts";
+import { contrastRatio, deltaE, parseOpaqueColor, themeIds } from "@ace/themes";
 import { themeDeclarations } from "./css.ts";
-import { themeIds } from "./palettes.ts";
 
 const rgb = (value: string | undefined) => {
   const parsed = parseOpaqueColor(value);

@@ -8,9 +8,9 @@ The approved design prototype is the reference for values. The code that owns ea
 
 | Part                      | Owner                                                                             |
 | ------------------------- | --------------------------------------------------------------------------------- |
-| Palettes and neutral ramp | `apps/web/src/theme/palettes.ts`                                                  |
+| Palettes and neutral ramp | `packages/themes/src/palettes.ts`                                                 |
 | Palette → CSS variables   | `apps/web/src/theme/tokens.ts`, `apps/web/src/theme/css.ts`                       |
-| WCAG checks               | `apps/web/src/theme/contrast.ts`, `apps/web/src/theme/surfaces.ts`                |
+| WCAG checks               | `apps/web/src/theme/contrast.ts`, `packages/themes/src/surfaces.ts`               |
 | Settings and resolution   | `apps/web/src/theme/appearance.ts`, `theme-provider.tsx`                          |
 | Pre-paint replay          | `apps/web/index.html` (inline boot script)                                        |
 | Static tokens             | `apps/web/src/styles/tokens.css`                                                  |

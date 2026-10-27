@@ -6,7 +6,7 @@ import SwiftUI
 /// their rows under a hairline. The counts carry the state, so the group never reads done while
 /// any branch works or waits. Every word, state and time is the bridge's.
 struct SubagentGroupView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let agents: BlockRow.Agents
     let thread: ThreadModel
     /// The block this group is, so its open state outlives the row's view.

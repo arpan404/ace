@@ -32,7 +32,7 @@ struct StatusGlyph: View {
     let tone: AceTone
     var live = false
     @ScaledMetric private var size: CGFloat
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var phase = false
 
     init(_ state: GlyphState, tone: AceTone, size: CGFloat = 12, live: Bool = false) {

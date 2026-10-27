@@ -28,6 +28,24 @@ import Testing
         #expect(center.withdrawn == ["n:1"])
     }
 
+    @Test func thePhonesDeliveryChoiceDecidesWhetherAndHowAnAlertIsPosted() async throws {
+        let center = FakeCenter()
+        let notifier = LocalNotifier(center: center)
+        notifier.bind(LedgerStore(scope: "host", defaults: try defaults()))
+        var off = alert("n:1", status: "failed")
+        off.delivery = .init(post: false, interrupt: false, banner: false)
+        var quiet = alert("n:2", status: "needs_you")
+        quiet.delivery = .init(post: true, interrupt: false, banner: false)
+        await notifier.receive(off)
+        await notifier.catchUp(cursor: 2, entries: [off, quiet], retracted: [])
+        #expect(center.posted.map(\.identifier) == ["n:2"])
+        #expect(center.posted.first?.level == .passive)
+        #expect(center.posted.first?.banner == false)
+        // An alert from a runtime that says nothing about delivery shows as before.
+        #expect(AlertContent(alert("n:3", status: "needs_you")).level == .timeSensitive)
+        #expect(AlertContent(alert("n:3")).banner)
+    }
+
     @Test func onlyTheDaemonsFixedApproveDenyPairGetsButtonsAndUnknownStatusesNeverSayDone() {
         let approval = AlertContent(alert("n:1", status: "needs_you", actions: true))
         #expect(approval.category == AlertContent.approvalCategory)

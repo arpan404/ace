@@ -1,9 +1,15 @@
 import { expect, test } from "vitest";
-import { accentIds, type AccentChoice } from "./accent.ts";
-import { statusDistance } from "./accent-fit.ts";
-import { contrastRatio, deltaE, parseOpaqueColor } from "./colour.ts";
+import {
+  accentIds,
+  type AccentChoice,
+  statusDistance,
+  contrastRatio,
+  deltaE,
+  parseOpaqueColor,
+  themeIds,
+  type Scheme,
+} from "@ace/themes";
 import { themeDeclarations } from "./css.ts";
-import { themeIds, type Scheme } from "./palettes.ts";
 
 /*
  * The theme proposal's contrast tables, checked on what the page actually receives: every theme

@@ -38,7 +38,7 @@ struct InboxList: View {
     let compose: (() -> Void)?
     /// Opens pairing while no computer is paired; nil while that isn't known yet.
     var pair: (() -> Void)?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.onSidebarGlass) private var onGlass
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     private static let shelved = ["snoozed", "settled"]
