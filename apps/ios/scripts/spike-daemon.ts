@@ -9,6 +9,7 @@ import { LostReceipt } from "./lost-receipt.ts";
 import { threadScenarios } from "./thread-scenarios.ts";
 import { waitingScenario } from "./waiting-scenario.ts";
 import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
+import { seedAutomations } from "./automations-scenario.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
@@ -218,6 +219,7 @@ const richTimer =
     ? setInterval(() => richRound(daemon, ++rounds, burstPace), richEvery)
     : undefined;
 requestScenarios(daemon, details);
+seedAutomations(daemon, details, Date.now());
 spikeDevices(daemon, details);
 let fresh = 0;
 let naps = 0;

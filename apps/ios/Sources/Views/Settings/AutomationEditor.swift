@@ -1,143 +1,304 @@
 import SwiftUI
 
+/// Create or edit an automation: what it does, where and on which model, and when it runs, with
+/// a bar at the foot saying when it will run next and Save. The form is the web's own
+/// (`bridge/automation-form.ts`): the bridge fills it, words its schedule, checks every field
+/// and saves it; this draws native controls and hands their values over.
 struct AutomationEditor: View {
     let model: ClientModel
-    let saved: () -> Void
+    /// The automation being edited; nil makes a new one.
+    let editing: AutomationListRow?
+    let saved: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var row: AutomationRow
-    @State private var trigger = "keep"
-    @State private var cron = "0 9 * * 1-5"
-    @State private var timezone = TimeZone.current.identifier
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var form: AutomationFormValues?
+    @State private var view: AutomationFormView?
+    @State private var choices: AutomationFormView.Choices?
+    @State private var pick: AutomationPick?
+    @State private var pickChanged = false
+    /// Fields the person changed: their problems show as they type. All show after a Save.
+    @State private var touched: Set<String> = []
+    @State private var attempted = false
     @State private var saving = false
     @State private var problem: String?
-    init(model: ClientModel, initial: AutomationRow, saved: @escaping () -> Void) {
-        self.model = model; self.saved = saved; _row = State(initialValue: initial)
-        // Prefill the cron fields from the saved schedule so opening a cron
-        // automation and saving as cron never overwrites it with the defaults.
-        if let schedule = automationSchedule(initial.trigger), schedule.kind == "cron" {
-            _cron = State(initialValue: schedule.expression)
-            _timezone = State(initialValue: schedule.timezone)
-        }
+    @State private var choosingModel = false
+    @State private var sequence = 0
+    @State private var savedCount = 0
+    private var zone: String { TimeZone.current.identifier }
+    private var motion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : .smooth }
+
+    init(model: ClientModel, editing: AutomationListRow?, saved: @escaping (String) -> Void) {
+        self.model = model
+        self.editing = editing
+        self.saved = saved
     }
+
     var body: some View {
-        Form {
-            Group {
-                TextField("Title", text: $row.title)
-                TextField("Task instructions", text: $row.prompt, axis: .vertical).lineLimit(4...12)
-                Section {
-                    if !model.compose.projects.isEmpty {
-                        Picker("Project", selection: $row.workspace) {
-                            Text(row.workspace.isEmpty ? "Choose a project" : row.workspace).tag(row.workspace)
-                            ForEach(model.compose.projects.filter { $0.path != row.workspace }) { project in Text(project.name).tag(project.path) }
-                        }
-                    } else { TextField("Project folder on your machine", text: $row.workspace).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                    Picker("Coding agent", selection: $row.provider) {
-                        ForEach(Array(Set((model.providers?.providers.map(\.provider) ?? []) + [row.provider])).sorted(), id: \.self) { Text($0.capitalized).tag($0) }
+        Group {
+            if let form = Binding($form) {
+                List {
+                    about(form)
+                    agentSection(form)
+                    if let view, let choices {
+                        AutomationWhenSection(form: form, view: view, choices: choices, error: error,
+                                              touch: { touched.insert($0) }, change: { change in Task { await preview(change) } })
                     }
-                    TextField("Model (optional)", text: Binding(get: { row.model ?? "" }, set: { row.model = $0.isEmpty ? nil : $0 })).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Toggle("Use a worktree", isOn: $row.worktree)
-                } header: { InsetHeader("Project and agent") }
-                Section {
-                    Picker("Run", selection: $trigger) {
-                        Text("Keep configured trigger").tag("keep")
-                        Text("Manually").tag("manual")
-                        Text("Cron schedule").tag("cron")
+                    if !model.canOperate {
+                        Section { ViewOnlyNote(message: "View only. To save automations from this phone, pair it again with View and act.") }
+                            .insetRowBackground()
                     }
-                    if trigger == "keep" {
-                        Text(describeAutomationTrigger(row.trigger))
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        Text("GitHub and file triggers stay as configured. Pick Cron schedule to replace the trigger.")
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    }
-                    if trigger == "cron" {
-                        TextField("Cron expression", text: $cron).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        TextField("Time zone", text: $timezone).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        Picker("Missed runs", selection: $row.missedRun) { Text("Skip").tag("skip"); Text("Run once").tag("run_once") }
-                        if let cronProblem {
-                            Text(cronProblem)
-                                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                                .foregroundStyle(AceTheme.StatusText.failed)
-                        } else if let timezoneProblem {
-                            Text(timezoneProblem)
-                                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                                .foregroundStyle(AceTheme.StatusText.failed)
-                        }
-                    }
-                    Toggle("Enabled", isOn: $row.enabled)
-                    Stepper("Concurrent runs: \(row.concurrency)", value: $row.concurrency, in: 1...32)
-                } header: { InsetHeader("Trigger") }
-                if !model.canOperate {
-                    ViewOnlyNote(message: "View only. To save automations from this phone, pair it again with View and act.")
                 }
-                if let validationProblem, model.canOperate {
-                    Text(validationProblem)
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                .insetGroupedList()
+                .scrollDismissesKeyboard(.interactively)
+                .safeAreaInset(edge: .bottom) { footer }
+                .transition(.opacity)
+            } else {
+                ProgressView().accessibilityLabel("Opening the automation")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
+            }
+        }
+        .animation(motion, value: form == nil)
+        .background(AceTheme.Colours.background)
+        .navigationTitle(editing == nil ? "New automation" : "Edit automation").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.accessibilityIdentifier("automation.cancel") }
+        }
+        .sensoryFeedback(.success, trigger: savedCount)
+        .sheet(isPresented: $choosingModel) {
+            AutomationModelSheet(compose: model.compose, pick: Binding(get: { pick }, set: { pick = $0; pickChanged = true }),
+                                 reload: { model.composeAction(["kind": "agents"]) },
+                                 star: { model.composeAction(["kind": "favorite", "key": $0]) })
+        }
+        .task { await open() }
+        // Typing waits a moment before the bridge reads the form again.
+        .task(id: form) {
+            guard form != nil else { return }
+            try? await Task.sleep(for: .milliseconds(150))
+            if !Task.isCancelled { await preview(nil) }
+        }
+        .onChange(of: accessKey) { _, _ in sendChoice() }
+        // A new automation starts in the first project once the projects arrive.
+        .onChange(of: model.compose.projects.first?.path) { _, path in
+            if let path, form?.workspace.isEmpty == true { form?.workspace = path }
+        }
+        .onDisappear { model.composeAction(["kind": "close"]) }
+    }
+
+    // MARK: Sections
+
+    private func about(_ form: Binding<AutomationFormValues>) -> some View {
+        Section {
+            field("title") {
+                TextField("Name", text: touching(form.title, "title")).aceFont(InsetStyle.label, relativeTo: .body)
+                    .accessibilityIdentifier("automation.title")
+            }
+            field("prompt") {
+                TextField("What should the agent do?", text: touching(form.prompt, "prompt"), axis: .vertical).lineLimit(3...12)
+                    .accessibilityIdentifier("automation.prompt")
+            }
+        }
+        .insetRowBackground()
+    }
+
+    private func agentSection(_ form: Binding<AutomationFormValues>) -> some View {
+        Section {
+            field("workspace") {
+                Picker("Project", selection: touching(form.workspace, "workspace")) {
+                    if form.wrappedValue.workspace.isEmpty { Text("Choose a project").tag("") }
+                    if !model.compose.projects.contains(where: { $0.path == form.wrappedValue.workspace }), !form.wrappedValue.workspace.isEmpty {
+                        Text(form.wrappedValue.workspace).tag(form.wrappedValue.workspace)
+                    }
+                    ForEach(model.compose.projects) { project in Text(project.name).tag(project.path) }
+                }
+                .accessibilityIdentifier("automation.project")
+            }
+            Button { choosingModel = true } label: {
+                HStack {
+                    Text("Model").foregroundStyle(AceTheme.Colours.foreground)
+                    Spacer()
+                    if let pick { ProviderMark(provider: pick.provider, size: 16, quiet: true) }
+                    Text(modelLabel).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                    Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
-                ServiceProblem(message: problem)
-                Button("Save automation") { Task { await save() } }
-                    .disabled(saving || validationProblem != nil || !model.canOperate)
+                .frame(minHeight: 44).contentShape(Rectangle())
             }
-            .insetRowBackground()
-        }
-        .insetGroupedList()
-        .navigationTitle("Automation").navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-        .task { model.composeAction(["kind": "projects"]) }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("automation.model")
+            if let efforts = chosenModel?.efforts, efforts.count > 1 {
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                    Text("Effort").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    GlassChoice(items: efforts.map { GlassChoiceItem(id: $0.id, label: $0.label) },
+                                selection: pick?.effort ?? chosenModel?.defaultEffort, idPrefix: "automation.effort") { effort in
+                        pick?.effort = effort
+                        pickChanged = true
+                    }
+                }
+                .padding(.vertical, AceTheme.Spacing.xs)
+            }
+            if let access = model.compose.access, access.provider == pick?.provider, !access.choices.isEmpty {
+                Picker("Access", selection: Binding(get: { form.wrappedValue.access ?? access.selected ?? "" },
+                                                    set: { form.wrappedValue.access = $0 })) {
+                    ForEach(access.choices) { choice in Text(choice.label).tag(choice.mode) }
+                }
+                .accessibilityIdentifier("automation.access")
+                if let note = access.problem ?? access.stricter ?? access.choices.first(where: { $0.mode == (form.wrappedValue.access ?? access.selected) })?.description {
+                    Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+            }
+            Toggle("Run in a worktree", isOn: form.worktree).toggleStyle(.systemSwitch)
+                .accessibilityIdentifier("automation.worktree")
+        } header: { InsetHeader("Project and model") }
+        .insetRowBackground()
     }
-    private var cronProblem: String? {
-        let expression = cron.trimmingCharacters(in: .whitespacesAndNewlines)
-        if expression.isEmpty { return "Enter a schedule." }
-        if expression.split(whereSeparator: { $0.isWhitespace }).count != 5 {
-            return "Cron needs five fields: minute hour day month weekday."
+
+    /// The bar at the foot: when it runs (or what to fix), and Save.
+    private var footer: some View {
+        HStack(spacing: AceTheme.Spacing.md) {
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                if let shown = shownProblem {
+                    Text(shown).foregroundStyle(attempted || problem != nil ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
+                        .accessibilityIdentifier("automation.problem")
+                } else {
+                    Text(view?.summary ?? "").foregroundStyle(AceTheme.Colours.foreground)
+                        .accessibilityIdentifier("automation.summary")
+                    if let line = view?.line, !line.isEmpty {
+                        Text(line).foregroundStyle(AceTheme.Colours.mutedForeground).accessibilityIdentifier("automation.upcoming")
+                    }
+                }
+            }
+            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+            .lineLimit(2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentTransition(.opacity)
+            .animation(motion, value: shownProblem)
+            Button { Task { await save() } } label: {
+                Text(saving ? "Saving…" : "Save").fontWeight(.semibold)
+                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+            }
+            .modifier(PlainGlassButton())
+            .disabled(saving || !model.canOperate || form == nil)
+            .accessibilityIdentifier("automation.save")
         }
-        return nil
+        .padding(.horizontal, AceTheme.Spacing.lg)
+        .padding(.vertical, AceTheme.Spacing.sm)
     }
-    private var timezoneProblem: String? {
-        let zone = timezone.trimmingCharacters(in: .whitespacesAndNewlines)
-        if zone.isEmpty { return "Choose a time zone." }
-        if TimeZone(identifier: zone) == nil { return "Choose a time zone from the list." }
-        return nil
+
+    @ViewBuilder private func field<Content: View>(_ name: String, @ViewBuilder _ content: () -> Content) -> some View {
+        content()
+        if let message = error(name) {
+            Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.StatusText.failed)
+                .transition(.opacity)
+        }
     }
-    /// What still blocks a save, in the order a person would fix it. Nil when it can go.
-    private var validationProblem: String? {
-        if row.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Give the automation a name."
-        }
-        if row.title.count > 256 { return "Keep the name to 256 characters." }
-        if row.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Say what the agent should do."
-        }
-        if row.workspace.isEmpty { return "Choose a project." }
-        if row.provider.isEmpty { return "Choose a coding agent." }
-        if let model = row.model, model.count > 256 { return "Keep the model to 256 characters." }
-        if trigger == "cron" {
-            return cronProblem ?? timezoneProblem
-        }
-        return nil
+
+    /// A field's binding that marks it changed, so its problem shows from then on.
+    private func touching(_ value: Binding<String>, _ name: String) -> Binding<String> {
+        Binding(get: { value.wrappedValue }, set: { value.wrappedValue = $0; touched.insert(name) })
     }
+
+    // MARK: Derived
+
+    private func error(_ name: String) -> String? {
+        guard attempted || touched.contains(name) else { return nil }
+        return view?.errors?[name]
+    }
+    private var shownProblem: String? {
+        if let problem { return problem }
+        return attempted ? view?.problem : nil
+    }
+    private var chosenModel: ComposeAgent.Model? {
+        guard let pick else { return nil }
+        let models = model.compose.agentsRead.agents.first { $0.provider == pick.provider }?.models ?? []
+        return models.first { $0.key == pick.key && (pick.account == nil || $0.account == pick.account) } ?? models.first { $0.key == pick.key }
+    }
+    private var modelLabel: String {
+        if let chosenModel { return chosenModel.label }
+        if let stored = editing?.model { return stored }
+        return model.compose.agentsState == "ready" ? "Default" : "Reading…"
+    }
+    private var accessKey: String {
+        [form?.workspace, pick?.provider, pick?.key, pick?.account, form?.access].map { $0 ?? "" }.joined(separator: "\u{0}")
+    }
+
+    // MARK: Bridge
+
+    private func open() async {
+        model.composeAction(["kind": "open"])
+        var request: [String: Any] = ["type": "automations.form.open", "zone": zone]
+        if let editing { request["automation"] = editing.automation.any }
+        else if let first = model.compose.projects.first { request["workspace"] = first.path }
+        do {
+            let reply = try await model.service(request, as: AutomationFormView.self)
+            guard reply.ok else { problem = reply.error ?? "Couldn't open this automation."; return }
+            withAnimation(motion) {
+                view = reply
+                choices = reply.choices
+                pick = reply.pick
+                form = reply.form
+            }
+            sendChoice()
+        } catch { problem = error.localizedDescription }
+    }
+
+    /// The form described again, after `change` when a control made one.
+    private func preview(_ change: [String: Any]?) async {
+        guard let form else { return }
+        sequence += 1
+        let mine = sequence
+        var request: [String: Any] = ["type": "automations.form.preview", "form": form.json]
+        if let change { request["change"] = change }
+        guard let reply = try? await model.service(request, as: AutomationFormView.self), reply.ok, mine == sequence else { return }
+        withAnimation(motion) {
+            view = reply
+            if let next = reply.form, next != form, change != nil { self.form = next }
+        }
+    }
+
+    /// New thread's access rules for this project and model, read by the bridge (`compose.access`).
+    private func sendChoice() {
+        var choice: [String: Any] = ["kind": "choice"]
+        if let workspace = form?.workspace, !workspace.isEmpty { choice["workspaceId"] = workspace }
+        if let pick {
+            choice["provider"] = pick.provider; choice["model"] = pick.key
+            if let account = pick.account { choice["account"] = account }
+        }
+        if let access = form?.access { choice["access"] = access }
+        model.composeAction(choice)
+    }
+
     private func save() async {
-        if let validationProblem { problem = validationProblem; return }
+        guard let form else { return }
+        attempted = true
+        problem = nil
+        await preview(nil)
+        if view?.problem != nil { return }
         saving = true
         defer { saving = false }
-        var next = row
-        if trigger == "manual" { next.trigger = .object(["kind": .string("manual")]) }
-        if trigger == "cron" {
-            // Keep the existing DTSTART anchor when editing a schedule so the
-            // recurrence does not restart; new schedules start now, minute-aligned.
-            let anchor = automationSchedule(row.trigger)?.startAt ?? floor(model.now() / 60000) * 60000
-            next.trigger = .object(["kind": .string("schedule"), "schedule": .object([
-                "kind": .string("cron"), "expression": .string(cron.trimmingCharacters(in: .whitespacesAndNewlines)), "timezone": .string(timezone.trimmingCharacters(in: .whitespacesAndNewlines)),
-                "startAt": .number(anchor),
-            ])])
+        var request: [String: Any] = ["type": "automations.save", "form": form.json, "id": "auto-\(UUID().uuidString.lowercased())"]
+        if pickChanged, let pick { request["pick"] = pick.json }
+        if let editing {
+            request["previous"] = editing.automation.any
+            if let revision = editing.revision { request["revision"] = revision }
         }
-        guard let automation = next.payload else { problem = "Couldn't encode automation"; return }
         do {
-            let reply = try await model.service(["type": "automation.put", "automation": automation], as: AutomationReply.self)
-            guard reply.ok else { throw ServiceFailure(message: friendlyAutomationError(reply.error, fallback: "Couldn't save this automation. Check its project and agent, then try again.")) }
-            saved(); dismiss()
+            let reply = try await model.service(request, as: AutomationWrite.self)
+            guard reply.ok, let id = reply.id else { problem = reply.error ?? "Couldn't save this automation. Try again."; return }
+            savedCount += 1
+            dismiss()
+            saved(id)
         } catch { problem = error.localizedDescription }
+    }
+}
+
+/// A capsule button on plain system glass (iOS 26), the bordered capsule before it.
+struct PlainGlassButton: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) { content.buttonStyle(.glass).buttonBorderShape(.capsule) }
+        else { content.buttonStyle(.bordered).buttonBorderShape(.capsule) }
     }
 }

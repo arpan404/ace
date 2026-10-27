@@ -205,7 +205,7 @@ test("a weekly schedule picked with friendly controls saves as an RRULE and open
     workspace: "/Users/me/ace-next",
     zone,
   });
-  let form = {
+  let form: Record<string, unknown> = {
     ...(opened.form as Record<string, unknown>),
     title: "Weekly report",
     prompt: "Summarise the week",
@@ -399,4 +399,37 @@ test("Duplicate makes a paused copy that keeps what it watches", async () => {
   );
   expect(copy).toMatchObject({ title: "Nightly dependency check copy", enabled: false });
   expect(copy?.automation.trigger).toEqual(base.trigger);
+});
+
+test("Run now, Pause and Delete answer in people's words, and a paused automation can't run", async () => {
+  const { ask } = await fixture({ automations: [base] });
+  const run = await ask({
+    type: "automations.write",
+    request: {
+      type: "automation.run",
+      id: "nightly",
+      variables: {},
+      message: "Only check the web app",
+    },
+  });
+  expect(run).toEqual({ ok: true });
+  const paused = await ask({
+    type: "automations.write",
+    request: { type: "automation.setEnabled", id: "nightly", enabled: false },
+  });
+  expect(paused).toEqual({ ok: true });
+  expect(
+    await ask({
+      type: "automations.write",
+      request: { type: "automation.run", id: "nightly", variables: {} },
+    }),
+  ).toEqual({ ok: false, error: "That automation is paused or no longer exists." });
+  // Only these four writes pass; a definition change goes through the form.
+  expect(
+    await ask({ type: "automations.write", request: { type: "automation.put", automation: base } }),
+  ).toMatchObject({ ok: false });
+  expect(
+    await ask({ type: "automations.write", request: { type: "automation.remove", id: "nightly" } }),
+  ).toEqual({ ok: true });
+  expect(rows(await ask({ type: "automations.page", zone }))).toEqual([]);
 });

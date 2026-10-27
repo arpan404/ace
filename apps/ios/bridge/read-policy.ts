@@ -112,6 +112,7 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "automation.manage":
     case "automations.save":
     case "automations.duplicate":
+    case "automations.write":
       return ["automations"];
     case "pluginRequest":
       return pluginLookups.has(pluginType(value) ?? "") ? [] : ["plugins", "catalog"];

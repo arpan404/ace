@@ -6,6 +6,7 @@ enum SettingsRoute: Hashable {
     case notifications, lock, appearance
     case archive, profiles, thread(machine: String, id: String)
     case tool(SettingsTool, machine: String)
+    case automation(machine: String, id: String)
     case licences
 }
 
@@ -119,7 +120,9 @@ struct SettingsSheet: View {
                 }
             }
         case .tool(let tool, let machine):
-            if let client = inbox.client(machine) { tool.destination(client) }
+            if let client = inbox.client(machine) { tool.destination(client).modifier(automationLinks(client, machine)) }
+        case .automation(let machine, let id):
+            if let client = inbox.client(machine) { AutomationDetailView(model: client, id: id).modifier(automationLinks(client, machine)) }
         case .licences: LicencesView()
         }
     }
@@ -136,6 +139,19 @@ struct SettingsSheet: View {
             inbox.client(following)?.closeArchive()
             self.following = nil
         }
+    }
+    /// An automation opens on Settings' own stack, and a run's thread opens on top of it.
+    private func automationLinks(_ client: ClientModel, _ machine: String) -> AutomationLinks {
+        AutomationLinks(
+            open: { id in path.append(.automation(machine: machine, id: id)) },
+            replace: { id in
+                if case .automation = path.last { path.removeLast() }
+                path.append(.automation(machine: machine, id: id))
+            },
+            thread: { id in
+                client.open(id)
+                path.append(.thread(machine: machine, id: id))
+            })
     }
     private func closeMachineViews() {
         if let following { inbox.client(following)?.closeArchive(); self.following = nil }

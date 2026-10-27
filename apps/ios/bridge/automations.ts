@@ -1,5 +1,5 @@
 import type { ClientCore } from "@ace/client";
-import { Automation, AutomationSource, type AutomationRun } from "@ace/protocol";
+import { Automation, AutomationRequest, AutomationSource, type AutomationRun } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
 import {
   automationErrorMessage,
@@ -56,7 +56,19 @@ export const AutomationsDuplicateRequest = z.object({
   /** The copy's id, made on the phone. */
   id,
 });
+/** Run now (with a note), Pause or Resume, Retry a stopped trigger, Delete. */
+export const AutomationsWriteRequest = z.object({
+  type: z.literal("automations.write"),
+  request: z.record(z.string(), z.unknown()),
+});
+const writes = new Set([
+  "automation.run",
+  "automation.setEnabled",
+  "automation.retry",
+  "automation.remove",
+]);
 export const NativeAutomationRequest = z.union([
+  AutomationsWriteRequest,
   AutomationsPageRequest,
   AutomationsHistoryRequest,
   AutomationsDuplicateRequest,
@@ -174,6 +186,17 @@ export class NativeAutomations {
         return this.#history(request, request.zone ?? this.#deps.zone(), signal);
       case "automations.duplicate":
         return this.#duplicate(request, signal);
+      case "automations.write": {
+        const parsed = AutomationRequest.safeParse({ ...request.request, requestId: "native" });
+        if (!parsed.success || !writes.has(parsed.data.type)) return refused(undefined);
+        const { requestId: _requestId, ...body } = parsed.data;
+        const reply = await this.#deps.owner.request(body, { signal, ...timeout });
+        if (!reply.ok) return refused(reply.error);
+        // A run that couldn't start yet says why ("Waiting for the last run to finish").
+        return reply.run && reply.run.status !== "running"
+          ? { ok: true, note: runSummary(reply.run) }
+          : { ok: true };
+      }
       case "automations.form.open":
         return formOpen(request, this.#deps);
       case "automations.form.preview":
