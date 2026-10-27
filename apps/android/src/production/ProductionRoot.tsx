@@ -42,6 +42,7 @@ import { createCoalescingFlight } from "./single-flight.ts";
 import { readStoredLockPrefsWithStatus, sqliteAppLockStorage } from "./lock-storage.ts";
 import { networkChange, snapshotNetworkState, type NetworkSnapshot } from "./network-monitor.ts";
 import { machineCards, routeMessage, selectActiveHost } from "./production-wiring.ts";
+import { ActiveMachineInbox } from "./production-inbox.tsx";
 import { PairingScreen } from "../Pairing.tsx";
 import { PairingFlowError, type ConfirmedPairing } from "../pairing/pairing-flow.ts";
 import type { MachineEntry } from "@ace/client/machines";
@@ -827,10 +828,11 @@ function MachinesView({
       })}
       {error ? <AceText role="caption">{error}</AceText> : null}
       <AceButton label="Pair another machine" onPress={onPairingOpen} kind="secondary" />
+      {activeHost ? <ActiveMachineInbox startup={startup} hostId={activeHost} /> : null}
       <LockSettings lock={lock} notify={notify} />
       <AceText role="caption">
-        Threads for the active machine arrive with the inbox merge. Mutations stay behind the
-        per-machine gate and fail closed while view-only or offline.
+        Threads show the active machine only; the cross-machine merge is later work. Mutations stay
+        behind the per-machine gate and fail closed while view-only or offline.
       </AceText>
     </View>
   );
