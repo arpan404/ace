@@ -133,30 +133,39 @@ export function startOperation(
 ): Drafted<Operation<"start">> {
   const goal = draft.goal.trim();
   if (!goal) return { ok: false, reason: "Add a goal" };
-  const criteria = draft.criteria
-    .map((item) => ({ ...item, description: item.description.trim() }))
-    .filter((item) => item.description);
+  const criteria: { description: string; kinds: readonly OffshiftEvidenceKind[]; independent?: true }[] =
+    [];
+  for (const item of draft.criteria) {
+    const description = item.description.trim();
+    if (!description) continue;
+    if (item.independent) criteria.push({ description, kinds: item.kinds, independent: true });
+    else criteria.push({ description, kinds: item.kinds });
+  }
   if (!criteria.length) return { ok: false, reason: "Add at least one criterion" };
   if (criteria.length > 64) return { ok: false, reason: "A run holds at most 64 criteria" };
   if (criteria.some((item) => !item.kinds.length))
     return { ok: false, reason: "Choose how each criterion is checked" };
   const tooLong = goal.length > 4096 || criteria.some((item) => item.description.length > 4096);
   if (tooLong) return { ok: false, reason: "Keep each line under 4,096 characters" };
+  const built: Operation<"start">["criteria"] = [];
+  for (const [index, item] of criteria.entries()) {
+    const entry = {
+      id: `c${index + 1}`,
+      description: item.description,
+      requiredKinds: [...new Set(item.kinds)],
+    };
+    built.push(item.independent ? Object.assign(entry, { independent: true as const }) : entry);
+  }
+  const op = {
+    action: "start" as const,
+    runId,
+    outcome: goal,
+    endpoint: draft.doneWhen.trim() || "Reported in this thread",
+    criteria: built,
+  };
   return {
     ok: true,
-    op: {
-      action: "start",
-      runId,
-      outcome: goal,
-      endpoint: draft.doneWhen.trim() || "Reported in this thread",
-      criteria: criteria.map((item, index) => ({
-        id: `c${index + 1}`,
-        description: item.description,
-        requiredKinds: [...new Set(item.kinds)],
-        ...(item.independent ? { independent: true } : {}),
-      })),
-      ...(draft.playbook ? { playbook: draft.playbook } : {}),
-    },
+    op: draft.playbook ? Object.assign(op, { playbook: draft.playbook }) : op,
   };
 }
 
@@ -223,6 +232,60 @@ export function nextCriterionId(ids: readonly string[]): string {
   let n = ids.length + 1;
   while (taken.has(`c${n}`)) n++;
   return `c${n}`;
+}
+
+/** Mark a step done (with what was seen) or back to do. */
+export function stepOperation(
+  card: OffshiftRunCard,
+  stepId: string,
+  state: "done" | "todo",
+  note: string,
+): Drafted<Operation<"step">> {
+  const trimmed = note.trim();
+  if (trimmed.length > 1024) return { ok: false, reason: "Keep the note under 1,024 characters" };
+  const op = {
+    action: "step" as const,
+    runId: card.id,
+    expectedVersion: card.version,
+    stepId,
+    state,
+  };
+  return {
+    ok: true,
+    op: state === "done" && trimmed ? Object.assign(op, { note: trimmed }) : op,
+  };
+}
+
+/** Move the run one phase forward or back to an earlier one. */
+export function advanceOperation(
+  card: OffshiftRunCard,
+  phase: OffshiftPhase,
+): Drafted<Operation<"advance">> {
+  return {
+    ok: true,
+    op: { action: "advance", runId: card.id, expectedVersion: card.version, phase },
+  };
+}
+
+/** Clear the agent's blocker with the person's decision. */
+export function resumeOperation(card: OffshiftRunCard, note: string): Drafted<Operation<"resume">> {
+  const trimmed = note.trim();
+  if (!trimmed) return { ok: false, reason: "Say how the blocker is resolved" };
+  if (trimmed.length > 4096)
+    return { ok: false, reason: "Keep each line under 4,096 characters" };
+  return {
+    ok: true,
+    op: { action: "resume", runId: card.id, expectedVersion: card.version, note: trimmed },
+  };
+}
+
+/** End the run for good, with an optional note. */
+export function endOperation(card: OffshiftRunCard, note: string): Drafted<Operation<"end">> {
+  const trimmed = note.trim();
+  if (trimmed.length > 4096)
+    return { ok: false, reason: "Keep each line under 4,096 characters" };
+  const op = { action: "end" as const, runId: card.id, expectedVersion: card.version };
+  return { ok: true, op: trimmed ? Object.assign(op, { note: trimmed }) : op };
 }
 
 /** What a refused change says, in one line with what to do. Undefined when it went through. */

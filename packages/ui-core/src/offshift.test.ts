@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { OffshiftRunCard } from "@ace/protocol/offshift";
-import { offshiftSummary, type OffshiftTree } from "./index.ts";
+import { offshiftAuthor, offshiftSummary, type OffshiftTree } from "./index.ts";
 
 function card(overrides: Partial<OffshiftRunCard> = {}): OffshiftRunCard {
   return {
@@ -224,4 +224,9 @@ test("the status line names the playbook first when the run started from one", (
     "Fix · Verify · 3 of 5",
   );
   expect(offshiftSummary(card({ phase: "verify" }), settled).phase).toBe("Verify · 3 of 5");
+});
+
+test("a person's check shows as You, with the device when paired", () => {
+  expect(offshiftAuthor({ kind: "person", device: null })).toBe("You");
+  expect(offshiftAuthor({ kind: "person", device: "iPhone" })).toBe("You on iPhone");
 });
