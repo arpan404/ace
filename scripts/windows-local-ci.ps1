@@ -18,8 +18,9 @@
 #   installer   install unit tests, two NSIS packages, install/run/update/uninstall smoke
 #   git         the Git, forge and review suites (dispatch-only on GitHub; not part of `all`)
 #
-# -Files narrows the native, screen, browser and git suites to those test files (the native suite
-# alone takes about half an hour on the ARM64 VM, longer than one locked VM session should).
+# -Files narrows the native, screen, browser or git suite to those test files (the native suite
+# alone takes about half an hour on the ARM64 VM, longer than one locked VM session should). It
+# needs exactly one of those stages: the files belong to one suite's config.
 # screen, browser, desktop and installer need the logged-in desktop (not an SSH session 0).
 # Each stage logs to <Work>\<stage>.log; <Work>\summary.txt and summary.json hold pass/fail per
 # stage. The exit code is non-zero when any stage failed.
@@ -45,8 +46,13 @@ $env:CI = "true"
 # GitHub's images have OpenSSL on PATH (the Tailscale HTTPS tests make certificates with it).
 # Elsewhere use the one Git for Windows ships, appended so Windows' own tools still come first.
 if (!(Get-Command openssl -ErrorAction SilentlyContinue)) {
-  $gitOpenssl = Join-Path $env:ProgramFiles "Git\usr\bin\openssl.exe"
-  if (Test-Path $gitOpenssl) { $env:Path = "$env:Path;$(Split-Path $gitOpenssl)" }
+  $gitExe = (Get-Command git -ErrorAction SilentlyContinue).Source
+  $candidates = @()
+  # git.exe sits in <Git>\cmd or <Git>\bin; OpenSSL ships in <Git>\usr\bin.
+  if ($gitExe) { $candidates += Join-Path (Split-Path (Split-Path $gitExe)) "usr\bin\openssl.exe" }
+  $candidates += Join-Path $env:ProgramFiles "Git\usr\bin\openssl.exe"
+  $gitOpenssl = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if ($gitOpenssl) { $env:Path = "$env:Path;$(Split-Path $gitOpenssl)" }
 }
 
 $arch = (node -p "process.arch").Trim()
@@ -231,13 +237,17 @@ $stages = [ordered]@{
   }
 }
 
+$selected = if ($Stage -contains "all") { @($stages.Keys | Where-Object { $_ -ne "git" }) } else { $Stage }
+if ($Files.Count -and (@($selected).Count -ne 1 -or @($selected)[0] -notin @("native", "screen", "browser", "git"))) {
+  throw "-Files needs exactly one of the native, screen, browser or git stages"
+}
+
 if ($Install) {
   Use-Msvc
   Use-NodeHeaders
   Invoke-Step "bun install" { bun install --frozen-lockfile --os=win32 --cpu=$arch }
 }
 
-$selected = if ($Stage -contains "all") { @($stages.Keys | Where-Object { $_ -ne "git" }) } else { $Stage }
 $results = [ordered]@{}
 $summary = Join-Path $Work "summary.txt"
 $commit = (git rev-parse --short HEAD).Trim()
@@ -247,7 +257,8 @@ foreach ($name in $selected) {
   Write-Host "=== $name (log: $log)"
   $status = "pass"; $detail = ""
   # UTF-8, not Windows PowerShell's UTF-16 default, so the logs read anywhere.
-  $writer = New-Object System.IO.StreamWriter($log, $false, (New-Object System.Text.UTF8Encoding $false))
+  try { $writer = New-Object System.IO.StreamWriter($log, $false, (New-Object System.Text.UTF8Encoding $false)) }
+  catch { throw "Cannot write $log (is an earlier run still holding it?): $($_.Exception.Message)" }
   try {
     & $stages[$name] *>&1 | ForEach-Object { $line = "$_"; $writer.WriteLine($line); $writer.Flush(); $line } | Out-Host
   } catch {
