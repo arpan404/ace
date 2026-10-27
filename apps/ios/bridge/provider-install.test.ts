@@ -221,3 +221,64 @@ test("an install that finished while the phone was away shows its result once af
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect((await again.watch("codex", -1)).idle).toBe(true);
 });
+
+test("services replaced by a new runtime stop following installs and answer a waiting screen", async () => {
+  const daemon = fixture();
+  daemon.services.providerInstalls.autoComplete = false;
+  const sent: string[] = [];
+  const owner = new ClientCore({
+    deviceId: DeviceId.parse("ios-provider-install-test"),
+    expectedHostId: HostId.parse("ios-test-host"),
+    transport: () => {
+      const inner = fakeTransport(daemon);
+      return {
+        open: (events) => inner.open(events),
+        send: (text) => {
+          sent.push(text);
+          inner.send(text);
+        },
+        close: () => inner.close(),
+      };
+    },
+    credential: async () => ({ token: "ios-test-token" }),
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: {
+      set: (delay, callback) => {
+        const timer = setTimeout(callback, delay);
+        return () => clearTimeout(timer);
+      },
+    },
+    id: () => crypto.randomUUID(),
+    random: () => 0.5,
+    now: () => Date.now(),
+  });
+  client = owner;
+  await owner.start();
+  await until(() => (owner.state === "ready" ? owner : undefined));
+  const sink = new RecordingSink();
+  const services = new NativeServices(owner, sink);
+  const ask = (id: string, request: Record<string, unknown>) =>
+    services.handle({ type: "service", id, request });
+  ask("plan", {
+    type: "provider.install.act",
+    provider: "codex",
+    step: { kind: "plan", action: "update" },
+  });
+  await until(() => sink.read("service:plan"));
+  ask("run", { type: "provider.install.act", provider: "codex", step: { kind: "run" } });
+  await until(() => sink.read("service:run"));
+  const revision = (sink.read("service:run")?.value as InstallScreen).revision;
+  ask("waiting", { type: "provider.install.watch", provider: "codex", after: revision + 100 });
+
+  services.dispose();
+  // The screen waiting for a change is answered at once, not after its long wait.
+  await until(() => sink.read("service:waiting"));
+
+  // A reconnect no longer sends the old runtime's install polls.
+  sent.length = 0;
+  daemon.disconnectAll();
+  await until(() => owner.state !== "ready");
+  await until(() => (owner.state === "ready" ? owner : undefined));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(sent.filter((text) => text.includes("provider.install."))).toEqual([]);
+});

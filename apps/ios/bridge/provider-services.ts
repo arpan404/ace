@@ -35,4 +35,9 @@ export class ProviderServices {
     if (act.success) return { value: await this.installs.act(act.data) };
     return undefined;
   }
+
+  /** Stops every install controller; this runtime's services are being replaced. */
+  dispose(): void {
+    this.installs.dispose();
+  }
 }
