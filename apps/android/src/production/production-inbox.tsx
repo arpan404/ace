@@ -26,6 +26,7 @@ import { startedThreadOf } from "@ace/ui-core";
 import { Markdown } from "../transcript/Markdown.tsx";
 import { useSelection, sameIds } from "../selection.ts";
 import { shellCommandForApproval } from "../interactions.ts";
+import { browserHelpCardDetail, browserHelpCardTitle } from "./production-approvals.ts";
 import { AceText, AceButton } from "../components.tsx";
 import { tokens, useTheme, textStyle } from "../theme.tsx";
 import { displayAppearance } from "../status.ts";
@@ -532,14 +533,40 @@ function ProductionQuestionRow({
       </View>
     );
   }
+  if (request.kind === "browser_help") {
+    // Historic copy only: pending rows are covered by the live strip card.
+    // Title/detail reuse the shared iOS copy so history reads the same.
+    const title = browserHelpCardTitle(request);
+    const detail = browserHelpCardDetail(request);
+    return (
+      <View
+        style={{
+          marginHorizontal: tokens.spacing.lg,
+          marginVertical: tokens.spacing.sm,
+          gap: tokens.spacing.xs,
+        }}
+      >
+        <Text style={{ ...textStyle("label"), color: theme.colours.foreground }}>{title}</Text>
+        {detail ? (
+          <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+            {detail}
+          </Text>
+        ) : null}
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          {interaction.state === "pending" ? "Waiting on your answer" : "Answered"}
+        </Text>
+        <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
+          View only. Reply on your computer.
+        </Text>
+      </View>
+    );
+  }
   const title =
     request.kind === "plan_review"
       ? (request.title ?? "Plan review")
       : request.kind === "elicitation"
         ? (request.title ?? request.message)
-        : request.kind === "browser_help"
-          ? (request.title ?? request.message)
-          : "Request";
+        : "Request";
   return (
     <View
       style={{

@@ -12,9 +12,15 @@ import {
 } from "../interactions.ts";
 import {
   buildApprovalResolvePayload,
+  buildBrowserHelpResolvePayload,
   buildElicitationResolvePayload,
   buildPlanReviewResolvePayload,
   buildQuestionResolvePayload,
+  browserHelpCardDetail,
+  browserHelpCardTitle,
+  browserHelpLink,
+  browserHelpLinkFailureCopy,
+  browserHelpResolution,
   canTapFreshProductionCard,
   canTapProductionCard,
   consentLink,
@@ -26,21 +32,25 @@ import {
   elicitationUnsupported,
   freshProductionInteractionState,
   isCardableProductionInteraction,
+  openBrowserHelpPage,
   openConsentPage,
   pendingProductionInteractionIds,
   planReviewResolution,
   productionAnswerFailureCopy,
   productionApprovalRefusalCopy,
+  productionBrowserHelpRefusalCopy,
   productionElicitationRefusalCopy,
   productionMayAct,
   productionPlanRefusalCopy,
   productionQuestionRefusalCopy,
   resolveProductionApproval,
+  resolveProductionBrowserHelp,
   resolveProductionElicitation,
   resolveProductionPlanReview,
   resolveProductionQuestion,
   shouldSuppressProductionReadOnly,
   submittedElicitationValues,
+  type BrowserHelpRequest,
   type ElicitationRequest,
 } from "./production-approvals.ts";
 import {
@@ -422,7 +432,7 @@ it("keeps only pending cardable ids for the strip, in order and deduped", () => 
       { id: "browser", state: "pending", request: { kind: "browser_help" } },
       undefined,
     ]),
-  ).toEqual(["a1", "q1", "p1", "f1"]);
+  ).toEqual(["a1", "q1", "p1", "f1", "browser"]);
   expect(isCardableProductionInteraction(undefined)).toBe(false);
   expect(
     isCardableProductionInteraction({ state: "pending", request: { kind: "elicitation" } }),
@@ -432,7 +442,7 @@ it("keeps only pending cardable ids for the strip, in order and deduped", () => 
   ).toBe(true);
   expect(
     isCardableProductionInteraction({ state: "pending", request: { kind: "browser_help" } }),
-  ).toBe(false);
+  ).toBe(true);
   expect(
     isCardableProductionInteraction({ state: "resolved", request: { kind: "approval" } }),
   ).toBe(false);
@@ -601,13 +611,19 @@ it("a daemon close between render and tap refuses on fresh state with no lock si
   expect(canTapFreshProductionCard("expired", false, true)).toBe(false);
 });
 
-it("leaves browser_help as read-only: never carded, never suppressed", () => {
+it("cards browser_help and suppresses only its covered read-only copy", () => {
   expect(
     isCardableProductionInteraction({ state: "pending", request: { kind: "browser_help" } }),
-  ).toBe(false);
+  ).toBe(true);
   expect(
     shouldSuppressProductionReadOnly(
       { id: "x1", state: "pending", request: { kind: "browser_help" } },
+      new Set(["x1"]),
+    ),
+  ).toBe(true);
+  expect(
+    shouldSuppressProductionReadOnly(
+      { id: "x1", state: "resolved", request: { kind: "browser_help" } },
       new Set(["x1"]),
     ),
   ).toBe(false);
@@ -618,7 +634,7 @@ it("leaves browser_help as read-only: never carded, never suppressed", () => {
       { id: "help", state: "pending", request: { kind: "browser_help" } },
       { id: "a1", state: "pending", request: { kind: "approval" } },
     ]),
-  ).toEqual(["plan", "form", "a1"]);
+  ).toEqual(["plan", "form", "help", "a1"]);
 });
 
 it("a malformed interaction id fails before admission with nothing on the wire", async () => {
@@ -634,6 +650,9 @@ it("a malformed interaction id fails before admission with nothing on the wire",
   await expect(resolveProductionApproval(stub, "host-1", "", "allow")).rejects.toThrow();
   await expect(resolveProductionQuestion(stub, "host-1", "", {})).rejects.toThrow();
   await expect(resolveProductionPlanReview(stub, "host-1", "", "approve")).rejects.toThrow();
+  await expect(
+    resolveProductionBrowserHelp(stub, "host-1", "", { kind: "browser_help" }, "done"),
+  ).rejects.toThrow();
   expect(gates).toBe(0);
 });
 
@@ -959,6 +978,169 @@ it("an invalid elicitation accept names the problem and never reaches the wire",
     } finally {
       check.release();
     }
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+function seedBrowserHelp(daemon: FakeDaemon): string {
+  daemon.apply(THREAD, [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "help-1",
+      blocking: true,
+      request: {
+        kind: "browser_help",
+        tabId: "tab-1",
+        reason: "login",
+        message: "Sign in with the team account",
+        url: "https://github.com/login",
+      },
+    },
+  ]);
+  const view = daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(THREAD) });
+  if (view?.kind !== "thread") throw new Error("Thread snapshot unavailable.");
+  const id = Object.values(view.interactions)[0]?.id;
+  if (typeof id !== "string" || id.length === 0) throw new Error("Seeded browser help missing.");
+  return id;
+}
+
+it("builds the existing interaction.resolve contract for browser help", () => {
+  const request = {
+    kind: "browser_help",
+    tabId: "tab-1",
+    reason: "login",
+    message: "Sign in",
+    url: "https://github.com/login",
+  } as const;
+  expect(browserHelpResolution(request, "done")).toEqual({
+    kind: "browser_help",
+    outcome: "done",
+  });
+  expect(browserHelpResolution(request, "skipped")).toEqual({
+    kind: "browser_help",
+    outcome: "skipped",
+  });
+  expect(browserHelpResolution({ kind: "approval" }, "done")).toBe(undefined);
+  expect(buildBrowserHelpResolvePayload("help-1", request, "done")).toEqual({
+    type: "interaction.resolve",
+    interactionId: "help-1",
+    resolution: { kind: "browser_help", outcome: "done" },
+  });
+  expect(() => buildBrowserHelpResolvePayload("help-1", { kind: "approval" }, "done")).toThrow();
+  expect(productionBrowserHelpRefusalCopy("already_resolved")).toBe(
+    "Already answered on another device.",
+  );
+  expect(productionBrowserHelpRefusalCopy("not_found")).toBe("This request no longer exists.");
+  expect(productionBrowserHelpRefusalCopy(undefined)).toBe(
+    "This browser request could not be answered",
+  );
+});
+
+it("titles browser help like iOS and gates the page link to safe addresses", () => {
+  const request: BrowserHelpRequest = {
+    kind: "browser_help",
+    tabId: "tab-1",
+    reason: "login",
+    message: "Sign in with the team account",
+    url: "https://github.com/login",
+  };
+  expect(browserHelpCardTitle(request)).toBe("Sign in to github.com in the Browser");
+  expect(browserHelpCardDetail(request)).toBe("Sign in with the team account");
+  expect(browserHelpLink({ url: "https://github.com/login" })).toBe("https://github.com/login");
+  expect(browserHelpLink({ url: undefined })).toBe(undefined);
+  expect(browserHelpLink({ url: "javascript:alert(1)" })).toBe(undefined);
+  expect(browserHelpLink({ url: "https://user:pass@example.com/" })).toBe(undefined);
+});
+
+it("opens the help page safely and fails visibly without throwing", async () => {
+  const opened: string[] = [];
+  const notices: string[] = [];
+  const notify = (text: string): void => {
+    notices.push(text);
+  };
+  expect(
+    await openBrowserHelpPage(
+      { url: "https://github.com/login" },
+      async (url) => {
+        opened.push(url);
+        return true;
+      },
+      notify,
+    ),
+  ).toBe(true);
+  expect(opened).toEqual(["https://github.com/login"]);
+  expect(notices).toEqual([]);
+  const before = opened.length;
+  expect(await openBrowserHelpPage({ url: "javascript:alert(1)" }, async () => true, notify)).toBe(
+    false,
+  );
+  expect(opened.length).toBe(before);
+  expect(notices).toEqual([]);
+  expect(await openBrowserHelpPage({ url: undefined }, async () => true, notify)).toBe(false);
+  expect(opened.length).toBe(before);
+  expect(
+    await openBrowserHelpPage({ url: "https://github.com/login" }, async () => false, notify),
+  ).toBe(false);
+  expect(notices).toEqual([browserHelpLinkFailureCopy]);
+  expect(
+    await openBrowserHelpPage(
+      { url: "https://github.com/login" },
+      async () => {
+        throw new Error("no browser");
+      },
+      notify,
+    ),
+  ).toBe(false);
+  expect(notices).toEqual([browserHelpLinkFailureCopy, browserHelpLinkFailureCopy]);
+});
+
+it("admits a real browser-help answer through a fresh gate and closes the daemon request", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    const helpId = seedBrowserHelp(daemon);
+    const lease = produced.runtimeForReading("host-1").thread(THREAD);
+    let request: BrowserHelpRequest | undefined;
+    try {
+      await until(() => lease.store.interaction(helpId) !== undefined);
+      const row = lease.store.interaction(helpId);
+      if (row?.request.kind !== "browser_help") throw new Error("Seeded help missing.");
+      request = row.request;
+    } finally {
+      lease.release();
+    }
+    if (!request) throw new Error("Seeded help missing.");
+    const receipt = await resolveProductionBrowserHelp(produced, "host-1", helpId, request, "done");
+    expect(receipt.ok).toBe(true);
+    expect(sent.some((text) => text.includes("interaction.resolve"))).toBe(true);
+    const check = produced.runtimeForReading("host-1").thread(THREAD);
+    try {
+      await until(() => check.store.interaction(helpId)?.state === "resolved");
+    } finally {
+      check.release();
+    }
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("refuses a view-only browser-help answer before touching the wire", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const produced = await pairLive(daemon, sent);
+  try {
+    const helpId = seedBrowserHelp(daemon);
+    await produced.grants.setScopes("device-1", ["read"]);
+    const before = sent.length;
+    await expect(
+      resolveProductionBrowserHelp(produced, "host-1", helpId, { kind: "browser_help" }, "done"),
+    ).rejects.toBeInstanceOf(ViewOnlyError);
+    expect(sent.length).toBe(before);
   } finally {
     await produced.disconnectAll();
   }

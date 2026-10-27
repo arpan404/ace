@@ -40,6 +40,9 @@ import {
   visibleQuestions,
 } from "../interactions.ts";
 import {
+  browserHelpCardDetail,
+  browserHelpCardTitle,
+  browserHelpLink,
   canTapFreshProductionCard,
   canTapProductionCard,
   consentLink,
@@ -50,22 +53,26 @@ import {
   elicitationUnsupported,
   freshProductionInteractionState,
   isCardableProductionInteraction,
+  openBrowserHelpPage,
   openConsentPage,
   pendingProductionInteractionIds,
   planReviewResolution,
   productionAnswerFailureCopy,
   productionApprovalRefusalCopy,
+  productionBrowserHelpRefusalCopy,
   productionElicitationRefusalCopy,
   productionMayAct,
   productionPlanRefusalCopy,
   productionQuestionRefusalCopy,
   resolveProductionApproval,
+  resolveProductionBrowserHelp,
   resolveProductionElicitation,
   resolveProductionPlanReview,
   resolveProductionQuestion,
   submittedElicitationValues,
   PLAN_MARKDOWN_LIMIT,
   PLAN_TODO_LIMIT,
+  type BrowserHelpOutcome,
   type ElicitationAction,
   type PlanReviewDecision,
   type ProductionApprovalsStartup,
@@ -891,8 +898,174 @@ export function ProductionElicitationCard({
 }
 
 /**
+ * Production browser-help card: what the agent needs in a browser tab, with
+ * Done/Skipped over the existing `interaction.resolve` contract. Mirrors the
+ * iOS `BrowserHelpCard` read and resolution shape (`kind: "help"` with
+ * done/skipped → `browser_help`), over the read-only lease store with answers
+ * admitted through the per-machine mutation gate.
+ *
+ * Navigation: Android has no live in-app browser surface, so the card opens
+ * the request's page in the system browser through the transcript's
+ * `openWebLink` gate (http(s) only, bounded), when the request carries a safe
+ * address. Otherwise it says the tab is open on the machine. Opening is a
+ * read: it holds no lock and needs no grant, so view-only phones open it too.
+ *
+ * Limitation: unlike iOS `BrowserScreen`, this never shows the live page,
+ * tabs, navigation bar, agent cursor, dialogs or take-over inside the app,
+ * and never sends browser input. Finish the step in the system browser or on
+ * the machine, then answer here.
+ */
+export function ProductionBrowserHelpCard({
+  startup,
+  hostId,
+  store,
+  interactionId,
+  notify,
+}: {
+  startup: ProductionApprovalsStartup;
+  hostId: string;
+  /** Read-only thread view from the reading lease; never a mutating handle. */
+  store: ThreadSource;
+  interactionId: string;
+  notify(text: string): void;
+}) {
+  const theme = useTheme();
+  const selection = useMemo(
+    () => store.select([`interaction:${interactionId}`], (r) => r.interaction(interactionId)),
+    [store, interactionId],
+  );
+  const interaction = useSelection(selection);
+  const resolution = useResolutionEntry(interactionId);
+  const state = interaction?.state;
+  useEffect(() => {
+    if (interaction && state !== "pending") clearClosedResolution(interaction.id);
+  }, [interaction, state]);
+  if (!interaction || state !== "pending" || interaction.request.kind !== "browser_help")
+    return null;
+  const request = interaction.request;
+  const title = browserHelpCardTitle(request);
+  const detail = browserHelpCardDetail(request);
+  const link = browserHelpLink(request);
+  const acting = productionMayAct(startup.canOperate(hostId)) && mayAct(true);
+  const locked = isResolutionLocked(interaction.id);
+  const answerable = canResolveInteraction(state, locked, acting);
+  const refusal = resolution?.phase === "refused" ? resolution.message : undefined;
+  const sending = resolution?.phase === "sending" || resolution?.phase === "sent";
+  function send(outcome: BrowserHelpOutcome) {
+    if (!interaction) return;
+    const freshGrant = currentProductionGrant((id) => startup.canOperate(id), hostId);
+    const freshState = freshProductionInteractionState(store, interaction.id);
+    if (!canTapFreshProductionCard(freshState, isResolutionLocked(interaction.id), freshGrant))
+      return;
+    if (!canTapProductionCard(interaction.state, isResolutionLocked(interaction.id), freshGrant))
+      return;
+    markResolutionSending(interaction.id);
+    void resolveProductionBrowserHelp(startup, hostId, interaction.id, request, outcome)
+      .then((receipt) => {
+        if (!interaction) return;
+        if (receipt.ok) {
+          markResolutionSent(interaction.id);
+          notify(outcome === "done" ? "Marked done" : "Skipped");
+          // Keep locked until the daemon closes the interaction (first answer wins).
+        } else {
+          // A daemon refusal is final: stay shut instead of inviting a retry.
+          const message = productionBrowserHelpRefusalCopy(receipt.error);
+          markResolutionRefused(interaction.id, message);
+          notify(message);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!interaction) return;
+        clearResolutionSending(interaction.id);
+        notify(productionAnswerFailureCopy(error));
+      });
+  }
+  return (
+    <AceHost style={{ width: "100%" }}>
+      <Column
+        modifiers={[
+          fillMaxWidth(),
+          clip({ type: "roundedCorner", radius: tokens.radii.approval }),
+          background(theme.colours.card),
+          padding(tokens.spacing.lg, tokens.spacing.lg, tokens.spacing.lg, tokens.spacing.lg),
+        ]}
+        verticalArrangement={{ spacedBy: tokens.spacing.md }}
+      >
+        <AceText role="label" colour={theme.statusText.needsYou}>
+          Browser
+        </AceText>
+        <AceText role="title">{title}</AceText>
+        {detail ? (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            {detail}
+          </AceText>
+        ) : null}
+        {link ? (
+          <Column verticalArrangement={{ spacedBy: tokens.spacing.xs }}>
+            <Text
+              accessibilityRole="link"
+              style={{
+                ...textStyle("label"),
+                color: theme.colours.accent,
+                textDecorationLine: "underline",
+              }}
+              onPress={() => {
+                // A read, never a resolution: no grant or lock check, so
+                // view-only phones open the page too.
+                void openBrowserHelpPage(request, (url) => openWebLink(url), notify);
+              }}
+            >
+              Open page
+            </Text>
+            <AceText role="caption" colour={theme.colours.mutedForeground}>
+              {link}
+            </AceText>
+          </Column>
+        ) : (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            The tab is open on your machine.
+          </AceText>
+        )}
+        <AceText role="caption" colour={theme.colours.mutedForeground}>
+          No live browser here: finish in the system browser or on your machine, then answer.
+        </AceText>
+        {!acting ? (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            View only. Pair with View and act to answer.
+          </AceText>
+        ) : null}
+        {refusal ? (
+          <AceText role="caption" colour={theme.statusText.failed}>
+            {refusal}
+          </AceText>
+        ) : null}
+        <Row horizontalArrangement={{ spacedBy: tokens.spacing.sm }}>
+          <AceButton
+            label="Skip"
+            onPress={() => send("skipped")}
+            enabled={answerable}
+            kind="secondary"
+          />
+          <AceButton
+            label="Done"
+            onPress={() => send("done")}
+            enabled={answerable}
+            kind="primary"
+          />
+        </Row>
+        {sending ? (
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            Sending…
+          </AceText>
+        ) : null}
+      </Column>
+    </AceHost>
+  );
+}
+
+/**
  * Every pending production interaction above the composer, in ledger order:
- * one approval, question, plan or form card per open request, mirroring the fixture
+ * one approval, question, plan, form or browser card per open request, mirroring the fixture
  * thread's per-id strip and the iOS request strip above the composer. A
  * single pass over `interactionIds` keeps ledger order (`[q1,a1]` renders
  * `[q1,a1]`); each card returns null for the kind it does not own, so no
@@ -924,7 +1097,7 @@ function emptyPendingInteractions(): Selection<readonly (Interaction | undefined
 }
 
 /**
- * Live pending approval/question/plan/form ids for the strip, in ledger order.
+ * Live pending approval/question/plan/form/browser ids for the strip, in ledger order.
  * Two selections (membership plus one N-key read) mirror `useOpenQuestionIds`
  * but keep only the kinds the strip can answer; any pin failure, dead lease
  * or non-cardable request fails closed to empty so the strip unmounts instead
@@ -1074,6 +1247,13 @@ export function ProductionInteractionStrip({
             notify={notify}
           />
           <ProductionElicitationCard
+            startup={startup}
+            hostId={hostId}
+            store={store}
+            interactionId={id}
+            notify={notify}
+          />
+          <ProductionBrowserHelpCard
             startup={startup}
             hostId={hostId}
             store={store}

@@ -1,5 +1,11 @@
 import { InteractionId } from "@ace/protocol";
-import { consentUrl, elicitationContent, elicitationForm } from "@ace/ui-core";
+import {
+  browserHelpDetail,
+  browserHelpTitle,
+  consentUrl,
+  elicitationContent,
+  elicitationForm,
+} from "@ace/ui-core";
 import { ViewOnlyError, type ProductionStartup } from "../runtime/production-startup.ts";
 import { canResolveInteraction, mayAct, refusalMessage } from "../interactions.ts";
 
@@ -167,6 +173,16 @@ export async function resolveProductionPlanReview(
 }
 
 export type ElicitationAction = "accept" | "decline" | "cancel";
+export type BrowserHelpOutcome = "done" | "skipped";
+/** Browser-help request shape the card answers; url/title stay optional like the protocol. */
+export interface BrowserHelpRequest {
+  kind: "browser_help";
+  tabId: string;
+  reason: "login" | "captcha" | "two_factor" | "dialog" | "other";
+  message: string;
+  url?: string | undefined;
+  title?: string | undefined;
+}
 /** Elicitation request shape the cards answer; optionals admit `undefined` under exact optionals. */
 export interface ElicitationRequest {
   kind: "elicitation";
@@ -313,6 +329,104 @@ export async function resolveProductionElicitation(
 }
 
 /**
+ * The tappable page address for a browser-help request, when it is safe to
+ * open: http(s) with no credentials (shared `consentUrl`, like the iOS card's
+ * consent link and the transcript's safe web links). Anything else stays
+ * undefined so the card never hands an unsafe address to the system browser.
+ * Opening is a read: the person finishes in the tab on the machine, or in the
+ * system browser when the agent gave a page address.
+ */
+export function browserHelpLink(request: Pick<BrowserHelpRequest, "url">): string | undefined {
+  return consentUrl(request.url);
+}
+
+/** Screen copy when the help page cannot be opened; opening never throws. */
+export const browserHelpLinkFailureCopy = "That page could not be opened.";
+
+/**
+ * Open a browser-help page through the transcript's web-link opener, failing
+ * visibly. Unsafe or missing addresses never reach the opener (the card
+ * already says the tab is on the machine); a refused open notifies instead
+ * of throwing. Opening is a read, never a resolution: it holds no lock and
+ * needs no grant, so view-only phones open it too. Pure apart from the
+ * injected opener/notify, so tests pin it without a browser.
+ */
+export async function openBrowserHelpPage(
+  request: Pick<BrowserHelpRequest, "url">,
+  open: (url: string) => Promise<boolean>,
+  notify: (text: string) => void,
+): Promise<boolean> {
+  const url = browserHelpLink(request);
+  if (!url) return false;
+  try {
+    const opened = await open(url);
+    if (!opened) notify(browserHelpLinkFailureCopy);
+    return opened;
+  } catch {
+    notify(browserHelpLinkFailureCopy);
+    return false;
+  }
+}
+
+/**
+ * The canonical `browser_help` resolution for a card choice. Done and skipped
+ * always fit a browser-help request (mirrors iOS `requestResolution` for
+ * `kind: "help"`); any other request kind fits nothing. State is checked by
+ * the caller (fresh re-read at tap) and the daemon, not here.
+ */
+export function browserHelpResolution(
+  request: { kind: string },
+  outcome: BrowserHelpOutcome,
+): { kind: "browser_help"; outcome: BrowserHelpOutcome } | undefined {
+  if (request.kind !== "browser_help") return undefined;
+  return { kind: "browser_help", outcome };
+}
+
+/** The `interaction.resolve` payload that answers a browser-help request. */
+export function buildBrowserHelpResolvePayload(
+  interactionId: string,
+  request: { kind: string },
+  outcome: BrowserHelpOutcome,
+): {
+  type: "interaction.resolve";
+  interactionId: ReturnType<typeof InteractionId.parse>;
+  resolution: { kind: "browser_help"; outcome: BrowserHelpOutcome };
+} {
+  const resolution = browserHelpResolution(request, outcome);
+  if (!resolution) throw new Error("This browser request cannot be answered here.");
+  return {
+    type: "interaction.resolve",
+    interactionId: InteractionId.parse(interactionId),
+    resolution,
+  };
+}
+
+/**
+ * Admit one browser-help answer through a freshly resolved gate. Same
+ * per-call admission as approvals: input validated before the gate resolves.
+ */
+export async function resolveProductionBrowserHelp(
+  startup: ProductionApprovalsStartup,
+  hostId: string,
+  interactionId: string,
+  request: { kind: string },
+  outcome: BrowserHelpOutcome,
+): Promise<{ ok: boolean; error?: string | undefined }> {
+  const payload = buildBrowserHelpResolvePayload(interactionId, request, outcome);
+  const gate = startup.runtimeForMutation(hostId);
+  return gate.command(payload);
+}
+
+/** Title/detail helpers for the card and the read-only row (shared iOS copy). */
+export function browserHelpCardTitle(request: BrowserHelpRequest): string {
+  return browserHelpTitle(request);
+}
+
+export function browserHelpCardDetail(request: BrowserHelpRequest): string | undefined {
+  return browserHelpDetail(request);
+}
+
+/**
  * Whether this device may answer production cards now. Unknown or
  * view-only grants fail closed: the card reads view-only until a pairing
  * records operate. Never default true; mirrors `mayAct`.
@@ -350,6 +464,11 @@ export function productionQuestionRefusalCopy(error: string | undefined): string
   return refusalMessage(error, "These questions could not be answered");
 }
 
+/** Name a daemon refusal for a browser-help answer; never invite a retry. */
+export function productionBrowserHelpRefusalCopy(error: string | undefined): string {
+  return refusalMessage(error, "This browser request could not be answered");
+}
+
 /** Minimal interaction shape the strip needs: pending plus its request kind. */
 export interface CardableInteraction {
   id: string;
@@ -359,14 +478,13 @@ export interface CardableInteraction {
 
 /**
  * True when the strip owns this request: pending approval, question,
- * plan review or elicitation.
+ * plan review, elicitation or browser help.
  *
- * Scope note: iOS `requestCard` also answers `browser_help` (done/skipped
- * in a browser tab). That needs a live browser surface plus its resolution
- * shape and stays out of scope: Android leaves it as a read-only
- * transcript row (never suppressed, never answered) until a matching card
- * exists. Extending without the matching UI would risk answering the wrong
- * semantics, so the gap stays pinned by tests.
+ * Browser help answers done/skipped over the existing `interaction.resolve`
+ * contract, like iOS `requestCard` (`kind: "help"` → `browser_help`). There
+ * is no live in-app browser surface on Android: navigation is the safe
+ * system-browser link (http(s) only) plus finishing in the tab on the
+ * machine. See the card's limitation note.
  */
 export function isCardableProductionInteraction(
   interaction: Pick<CardableInteraction, "state" | "request"> | undefined,
@@ -377,7 +495,8 @@ export function isCardableProductionInteraction(
     interaction.request.kind === "approval" ||
     interaction.request.kind === "question" ||
     interaction.request.kind === "plan_review" ||
-    interaction.request.kind === "elicitation"
+    interaction.request.kind === "elicitation" ||
+    interaction.request.kind === "browser_help"
   );
 }
 
