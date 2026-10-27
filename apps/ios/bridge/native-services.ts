@@ -33,6 +33,7 @@ import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
+import { answerSettingsManage, SettingsManageRequest } from "./settings-manage.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
@@ -195,6 +196,16 @@ export class NativeServices {
       const limits = UsageLimitsRequest.safeParse(raw);
       if (limits.success) {
         this.#answer(id, raw, await readUsageLimits(this.owner, controller.signal), read);
+        return;
+      }
+      const manage = SettingsManageRequest.safeParse(raw);
+      if (manage.success) {
+        this.#reply(
+          id,
+          true,
+          await answerSettingsManage(this.owner, manage.data, controller.signal),
+          "",
+        );
         return;
       }
       const transcript = NativeTranscriptRequest.safeParse(raw);
