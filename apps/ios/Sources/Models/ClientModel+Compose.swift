@@ -23,6 +23,7 @@ extension ClientModel {
         if let speed = draft.speed { create["speed"] = speed }
         if let access = draft.access { create["access"] = access }
         if let issue = draft.issue { create["issue"] = issue.json }
+        if let pull = draft.pullRequest { create["pullRequest"] = pull.json }
         if !references.isEmpty { create["references"] = references }
         if draft.worktree, let base = draft.base {
             create["base"] = base.remote.map { ["ref": base.ref, "remote": $0] } ?? ["ref": base.ref]

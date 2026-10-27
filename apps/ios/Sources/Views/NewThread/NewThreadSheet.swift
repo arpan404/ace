@@ -198,7 +198,20 @@ struct NewThreadSheet: View {
                 .padding(.horizontal, AceTheme.Spacing.sm)
                 .accessibilityIdentifier("newThread.issue")
             }
-            if draft.projectId != nil, !draft.isChat {
+            if let pull = draft.pullRequest {
+                HStack(spacing: AceTheme.Spacing.sm) {
+                    Text(verbatim: "On pull request #\(pull.number) \(pull.title)").lineLimit(1)
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    Button("Unlink") { drafts.edit { $0.pullRequest = nil } }
+                        .accessibilityIdentifier("newThread.unlinkPull")
+                }
+                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .padding(.horizontal, AceTheme.Spacing.sm)
+                .transition(.opacity)
+                .accessibilityIdentifier("newThread.pull")
+            }
+            if draft.projectId != nil, !draft.isChat, draft.pullRequest == nil {
                 NewThreadWorktreeChips(drafts: drafts, branches: branches)
             }
             NewThreadComposer(drafts: drafts, client: client, files: files, choice: choice, agentsState: compose?.agentsState,

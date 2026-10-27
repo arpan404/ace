@@ -40,6 +40,9 @@ import XCTest
         XCTAssertTrue(conversation.exists)
         screenshot("code")
         app.buttons["forge.line.RIGHT.6"].tap()
+        // A tap picks the line; Comment opens the comment on it.
+        XCTAssertTrue(app.buttons["forge.pick.comment"].waitForExistence(timeout: 10))
+        app.buttons["forge.pick.comment"].tap()
         XCTAssertTrue(app.buttons["forge.write.suggest"].waitForExistence(timeout: 10))
         app.buttons["forge.write.suggest"].tap()
         screenshot("line-comment")

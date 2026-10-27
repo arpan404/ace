@@ -320,6 +320,8 @@ function pendingRow(send: PendingSend, connection: string) {
       (send.payload.context?.attachments?.length ?? 0),
     label: status.label,
     token: status.token,
+    /** Git's cleanup fence stopped it: a stale lock the person may clear. */
+    fenced: send.error === "git_quarantined",
   };
 }
 

@@ -1,7 +1,7 @@
 import type { ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { readForge } from "@/lib/forge-read.ts";
-import { readCommitHistory, type CommitHistory } from "./pr-history-pages.ts";
+import { readCommitHistory, type CommitHistory } from "@ace/ui-core";
 import { useHistoryQuery } from "./pr-history-query.ts";
 
 /** Every commit of a PR, read newest page first, oldest first in the list. */

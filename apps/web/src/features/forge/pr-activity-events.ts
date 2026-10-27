@@ -1,6 +1,6 @@
 import type { ForgePrDetail } from "@ace/protocol";
 import { readForge } from "@/lib/forge-read.ts";
-import { readActivityHistory, type ActivityHistory } from "./pr-history-pages.ts";
+import { readActivityHistory, type ActivityHistory } from "@ace/ui-core";
 import { useHistoryQuery } from "./pr-history-query.ts";
 
 /**

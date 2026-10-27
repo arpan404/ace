@@ -11,7 +11,7 @@ import { PrFileReview } from "./pr-file-review.tsx";
 import { hostedFileStatus } from "./pr-code-model.ts";
 import type { DiffMode } from "./pr-code-toolbar.tsx";
 import { prFileBody } from "./pr-file-body.tsx";
-import type { HostedFileShow } from "./pr-file-kind.ts";
+import type { HostedFileShow } from "@ace/ui-core";
 import type { FileSides } from "./pr-file-sides.ts";
 import type { PrViewedMark } from "./pr-viewed-marks.ts";
 

@@ -161,6 +161,8 @@ enum ScreenPatch: Sendable {
     case continued(String)
     /// A move sent without the question it needs (the rows were older than the thread): ask it.
     case switchAsk(SwitchAsk)
+    /// What stops the checkout, or nil when nothing does.
+    case work(WorkLine?)
     /// What the thread's menu and messages offer: Retry's answer, the last turn, the parent.
     case transitions(TransitionsRow)
     /// The fork written in the composer; nil once it is closed or started.
@@ -168,7 +170,7 @@ enum ScreenPatch: Sendable {
     /// What bringing this fork back to its parent starts with.
     case mergeDraft(MergeDraftRow)
 
-    static let types: Set<String> = ["thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
+    static let types: Set<String> = ["thread.work", "thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
     private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal, opened, draft }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
@@ -178,6 +180,7 @@ enum ScreenPatch: Sendable {
             self = .stepsPage(ordinal: try box.decode(Int.self, forKey: .ordinal), page: try box.decode(Int.self, forKey: .page), rows: try box.decode([TranscriptRow].self, forKey: .rows))
         case "thread.continued": self = .continued(try box.decode(String.self, forKey: .opened))
         case "thread.switchAsk": self = .switchAsk(try SwitchAsk(from: decoder))
+        case "thread.work": self = .work(try box.decodeIfPresent(WorkLine.self, forKey: .row))
         case "thread.stepsReleased": self = .stepsReleased(ordinal: try box.decode(Int.self, forKey: .ordinal))
         case "thread.tune": self = .tune(try TuneRow(from: decoder))
         case "thread.access": self = .access(try ThreadAccessRow(from: decoder))

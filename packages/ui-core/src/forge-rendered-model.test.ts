@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { blockDiff, markdownBlocks, notebookCells } from "./pr-rendered-model.ts";
+import { blockDiff, markdownBlocks, notebookCells } from "./forge-rendered-model.ts";
 
 test("a fenced code block with blank lines inside stays one markdown block", () => {
   const text = "Intro\n\n```ts\nconst a = 1;\n\nconst b = 2;\n```\n\nOutro\n";

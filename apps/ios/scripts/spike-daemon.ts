@@ -1,4 +1,4 @@
-import { FakeDaemon, facts, seedForgeBrowse } from "@ace/fake-daemon";
+import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
 import { z } from "zod";
@@ -11,6 +11,7 @@ import { waitingScenario } from "./waiting-scenario.ts";
 import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
+import { seedWork, WorkScenario } from "./work-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
@@ -197,6 +198,8 @@ seedProjects(daemon);
 seedProjectMarks(daemon, { host: hostId, name: machineName });
 // GitHub pull requests, issues and notifications for the Pulls tab.
 seedForgeBrowse(daemon, Date.now());
+// PR page work: #229's check runs, #226's linked thread with conflicts and its stack (`pr-work.ts`).
+seedPrWork(daemon, Date.now());
 seedNativeMedia(daemon);
 seedMessageAttachments(daemon);
 seedBrowser(daemon, details);
@@ -225,6 +228,7 @@ const richTimer =
 requestScenarios(daemon, details);
 spikeDevices(daemon, details);
 let fresh = 0;
+let works = 0;
 let naps = 0;
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
@@ -312,6 +316,24 @@ const server = Bun.serve<undefined>({
       const threadId = `ios-fresh-${scenario}-${++fresh}`;
       seedRequest(daemon, scenario, threadId, details);
       return Response.json({ threadId });
+    }
+    // A new thread for one Work test: its checkout moves, links and recoveries stay its own.
+    if (path === "/review/work" && request.method === "POST") {
+      const scenario = WorkScenario.parse(
+        z.object({ scenario: z.string() }).parse(await request.json()).scenario,
+      );
+      const threadId = `ios-work-${scenario}-${++works}`;
+      seedWork(daemon, scenario, threadId, details);
+      return Response.json({ threadId });
+    }
+    // GitHub's branch moves on (`remoteHead`), so a plain push from the thread's checkout is
+    // rejected; an empty one lets pushes through again. Drives a merge whose push failed.
+    if (path === "/review/push-rejects" && request.method === "POST") {
+      const { threadId, remoteHead } = z
+        .object({ threadId: z.string().min(1), remoteHead: z.string() })
+        .parse(await request.json());
+      daemon.workspace.git.setRemoteDiverged(threadId, remoteHead);
+      return Response.json({ ok: true });
     }
     // Restarts ios-nap's snooze from now, so the offline-snooze test never depends on how long
     // the fixture has been running.

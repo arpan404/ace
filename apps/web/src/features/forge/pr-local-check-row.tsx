@@ -13,17 +13,18 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { isSettled, useVerifyActions, useVerifyLog, VerifyRefused } from "@/lib/verify.ts";
 import { PrCheckLog } from "./pr-check-log.tsx";
+import { localCheckAction, localCheckLook } from "@ace/ui-core";
 
-type Look = { icon: typeof CircleIcon; word: string; tone: string };
+type Look = { icon: typeof CircleIcon; tone: string };
 const looks: Partial<Record<VerifyRun["state"], Look>> = {
-  queued: { icon: ClockIcon, word: "Queued", tone: "text-status-working" },
-  running: { icon: ClockIcon, word: "Running", tone: "text-status-working" },
-  passed: { icon: CheckCircleIcon, word: "Passed", tone: "text-status-done" },
-  failed: { icon: XCircleIcon, word: "Failed", tone: "text-status-failed" },
-  cancelled: { icon: MinusCircleIcon, word: "Stopped", tone: "text-subtle-foreground" },
-  interrupted: { icon: MinusCircleIcon, word: "Interrupted", tone: "text-subtle-foreground" },
+  queued: { icon: ClockIcon, tone: "text-status-working" },
+  running: { icon: ClockIcon, tone: "text-status-working" },
+  passed: { icon: CheckCircleIcon, tone: "text-status-done" },
+  failed: { icon: XCircleIcon, tone: "text-status-failed" },
+  cancelled: { icon: MinusCircleIcon, tone: "text-subtle-foreground" },
+  interrupted: { icon: MinusCircleIcon, tone: "text-subtle-foreground" },
 };
-const notRun: Look = { icon: CircleIcon, word: "Not run", tone: "text-faint-foreground" };
+const notRun: Look = { icon: CircleIcon, tone: "text-faint-foreground" };
 
 const row =
   "flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-ui transition-colors duration-(--motion-fast)";
@@ -68,7 +69,8 @@ export function LocalCheckRow(props: {
       </li>
     );
   const name = `Local · ${run?.command ?? command ?? ""}`;
-  const look = (run && looks[run.state]) ?? notRun;
+  const look = { ...((run && looks[run.state]) ?? notRun), word: localCheckLook(run).word };
+  const control = localCheckAction(run);
   const Glyph = look.icon;
   const act = async () => {
     try {
@@ -117,10 +119,10 @@ export function LocalCheckRow(props: {
             variant="ghost"
             size="xs"
             className="-ml-1.5"
-            disabled={verify.pending || run?.state === "merging"}
+            disabled={verify.pending || control.disabled}
             onClick={() => void act()}
           >
-            {live ? "Stop" : run ? "Run again" : "Run checks"}
+            {control.label}
           </Button>
           {run && <LocalLog run={run} name={name} />}
         </div>

@@ -2,6 +2,7 @@ import type { ClientCore } from "@ace/client";
 import {
   AccessMode,
   ForgeIssueRef,
+  ForgePrWorktree,
   KnownSpeed,
   WorkspaceId,
   type CatalogEntry,
@@ -82,6 +83,8 @@ export const CreateAction = z.object({
   text: z.string().max(100_000),
   /** The GitHub issue the thread works on, linked as the web's New thread from an issue does. */
   issue: ForgeIssueRef.optional(),
+  /** The pull request the thread works on, in a worktree of the head the person saw. */
+  pullRequest: ForgePrWorktree.optional(),
   /** Rows picked from `@` and `/`, as inserted (`composer-references.ts`). */
   references: References.optional(),
 });
@@ -347,6 +350,7 @@ export class NewThread {
       input: content.input,
       context: joinContext(files.context, content.references),
       ...(action.issue ? { issue: action.issue } : {}),
+      ...(action.pullRequest ? { pullRequest: action.pullRequest } : {}),
     });
     const draftId = files.context?.draftId;
     try {

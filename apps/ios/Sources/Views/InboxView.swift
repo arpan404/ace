@@ -224,6 +224,9 @@ struct InboxView: View {
                 ThreadPage(client: client, id: key.id) { child in
                     client.open(child); path.wrappedValue.append(.thread(InboxKey(machineId: key.machineId, id: child)))
                 }
+                .environment(\.openPullRequest) { project, number, repository in
+                    path.wrappedValue.append(.forge(ForgeRoute(kind: .pull, machineId: key.machineId, project: project, number: number, repository: repository)))
+                }
             }
         }
     }

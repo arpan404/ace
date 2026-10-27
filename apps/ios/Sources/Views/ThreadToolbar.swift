@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
-enum ThreadDestination { case changes, search, files, terminal, scripts, browser, devices, computer, tools, agents, rename, forkLast, merge, turns, attachments }
+enum ThreadDestination { case work, changes, search, files, terminal, scripts, browser, devices, computer, tools, agents, rename, forkLast, merge, turns, attachments }
 
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
 /// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title centred
-/// with a small "project · branch" line under it, then ⋯. Agents are secondary: the agent tree is one entry in ⋯, never its own control.
+/// with a small "project · branch" line under it (a button that opens Work), then ⋯. Agents are secondary: the agent tree is one entry in ⋯, never its own control.
 struct ThreadToolbar: ToolbarContent {
     let title: String
     /// "project · branch" (or the machine where there is no branch).
@@ -15,6 +15,8 @@ struct ThreadToolbar: ToolbarContent {
     var rename: (() -> Void)? = nil
     var retitle: (() -> Void)? = nil
     let menu: ThreadMenu
+    /// Opens the thread's Work sheet from the "project · branch" line.
+    let openWork: () -> Void
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
@@ -27,42 +29,53 @@ struct ThreadToolbar: ToolbarContent {
         }
     }
     /// The title opens its own menu, Rename first, as the system's documents do; a small chevron
-    /// beside it says so.
-    @ViewBuilder private var heading: some View {
+    /// beside it says so. The "project · branch" line under it opens Work.
+    private var heading: some View {
+        VStack(spacing: AceTheme.Spacing.none) {
+            titleRow
+            if !subtitle.isEmpty {
+                // The checkout's line opens Work: where the thread runs and what can move it.
+                Button(action: openWork) {
+                    Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
+                        .frame(minHeight: AceTheme.Spacing.lg).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(subtitle)
+                .accessibilityHint("Opens Work")
+                .accessibilityIdentifier("thread.subtitle")
+            }
+        }
+        .frame(maxWidth: AceTheme.Dimensions.touchTarget * 5)
+        .accessibilityElement(children: .contain)
+    }
+    @ViewBuilder private var titleRow: some View {
         if let rename {
             Menu {
                 Button("Rename…", ace: .pencilSimple, action: rename).accessibilityIdentifier("thread.rename")
                 if let retitle { Button("Name from first message", ace: .sparkle, action: retitle).accessibilityIdentifier("thread.retitle") }
-            } label: { titleStack(chevron: true) }
+            } label: { titleText(chevron: true) }
             .accessibilityIdentifier("thread.title")
             .accessibilityHint("Rename this thread")
         } else {
-            titleStack(chevron: false).accessibilityIdentifier("thread.title")
+            titleText(chevron: false).accessibilityIdentifier("thread.title")
         }
     }
-    private func titleStack(chevron: Bool) -> some View {
-        VStack(spacing: AceTheme.Spacing.none) {
-            HStack(spacing: AceTheme.Spacing.xxs) {
-                Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
-                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                if chevron {
-                    Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
-                        .foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
-                }
-            }
-            if !subtitle.isEmpty {
-                Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
+    private func titleText(chevron: Bool) -> some View {
+        HStack(spacing: AceTheme.Spacing.xxs) {
+            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
+                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+            if chevron {
+                Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+                    .foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
             }
         }
-        .frame(maxWidth: AceTheme.Dimensions.touchTarget * 5)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
         .accessibilityValue(status?.label ?? "")
     }
 }
 
-/// The ⋯ menu: the thread's other places and what can be done to it.
 struct ThreadMenu: View {
     let model: ClientModel
     let thread: ThreadModel
@@ -108,6 +121,7 @@ struct ThreadMenu: View {
                     }
                 }
                 Button("Run and preview…", ace: .play) { open(.scripts) }.accessibilityIdentifier("thread.scripts")
+                Button("Work", ace: .gitBranch) { open(.work) }.accessibilityIdentifier("thread.work")
             }
             // Everything the thread's row offers, in the same words and order (`threadMenu`).
             if let organizer, let row, let hostId = model.hostId, model.canOperate {

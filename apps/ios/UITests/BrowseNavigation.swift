@@ -27,6 +27,27 @@ extension XCUIApplication {
                       "thread.terminal": "Terminal", "thread.tools": "Skills and tools"]
         return buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, labels[identifier] ?? identifier)).firstMatch
     }
+    /// Pull requests and Issues: the tab bar's Pulls on a phone, the sidebar's on a wide window
+    /// (iPad, an opened foldable), whichever the layout shows.
+    @MainActor func openPulls() {
+        // Some runtimes (iOS 27, the folded Duo) show the tab bar's items without a TabBar
+        // around them, so the tab is found by its label too.
+        let tab = tabBars.buttons["Pulls"].firstMatch, side = buttons["sidebar.pulls"]
+        let labelled = buttons.matching(NSPredicate(format: "label == 'Pulls'")).firstMatch
+        if tab.waitForExistence(timeout: 3) { tab.tap(); return }
+        if side.exists { side.tap(); return }
+        XCTAssertTrue(labelled.waitForExistence(timeout: 10), "no Pulls tab or sidebar entry showed")
+        labelled.tap()
+    }
+    /// The system back button of a pushed page. Some runtimes (iOS 27, the folded Duo) show it
+    /// without a NavigationBar around it, so it is found by its usual identifier or label too.
+    @MainActor func tapBack() {
+        let inBar = navigationBars.buttons.firstMatch
+        if inBar.waitForExistence(timeout: 2) { inBar.tap(); return }
+        let back = buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Back'")).firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button showed")
+        back.tap()
+    }
     /// The inbox's New thread button, the round tab at the tab bar's trailing end.
     var newThreadButton: XCUIElement { tabBars.buttons["New thread"].firstMatch }
     /// Waits for an inbox row and scrolls until it shows: the fixture lists more threads than fit.

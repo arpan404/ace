@@ -353,30 +353,48 @@ export type SplitRow =
   | { kind: "fold"; row: Extract<DiffRow, { kind: "fold" }> }
   | { kind: "pair"; left?: DiffLine; right?: DiffLine };
 export function pairRows(rows: readonly DiffRow[]): SplitRow[] {
-  const out: SplitRow[] = [];
-  let dels: DiffLine[] = [];
-  let adds: DiffLine[] = [];
+  return splitPairs(rows.map((row) => row.kind)).map(({ left, right }): SplitRow => {
+    const row = rows[left ?? right ?? 0];
+    if (row?.kind === "fold") return { kind: "fold", row };
+    const at = (index: number | null) => {
+      const line = index === null ? undefined : rows[index];
+      return line && line.kind !== "fold" ? line : undefined;
+    };
+    const pair: SplitRow = { kind: "pair" };
+    const l = at(left);
+    const r = at(right);
+    if (l) pair.left = l;
+    if (r) pair.right = r;
+    return pair;
+  });
+}
+
+/**
+ * Side-by-side pairing by row index: a change's deletions and additions line up row by row,
+ * and any other row (context, a fold, a hunk header) stands on both sides at once.
+ */
+export function splitPairs(
+  kinds: readonly string[],
+): { left: number | null; right: number | null }[] {
+  const out: { left: number | null; right: number | null }[] = [];
+  let dels: number[] = [];
+  let adds: number[] = [];
   const flush = () => {
-    for (let i = 0; i < Math.max(dels.length, adds.length); i++) {
-      const left = dels[i];
-      const right = adds[i];
-      out.push({ kind: "pair", ...(left ? { left } : {}), ...(right ? { right } : {}) });
-    }
+    for (let i = 0; i < Math.max(dels.length, adds.length); i++)
+      out.push({ left: dels[i] ?? null, right: adds[i] ?? null });
     dels = [];
     adds = [];
   };
-  for (const row of rows) {
-    if (row.kind === "del") {
+  kinds.forEach((kind, index) => {
+    if (kind === "del") {
       if (adds.length) flush();
-      dels.push(row);
-    } else if (row.kind === "add") adds.push(row);
+      dels.push(index);
+    } else if (kind === "add") adds.push(index);
     else {
       flush();
-      out.push(
-        row.kind === "fold" ? { kind: "fold", row } : { kind: "pair", left: row, right: row },
-      );
+      out.push({ left: index, right: index });
     }
-  }
+  });
   flush();
   return out;
 }

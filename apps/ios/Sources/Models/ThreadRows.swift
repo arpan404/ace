@@ -198,6 +198,8 @@ struct EventRow: Codable, Sendable, Equatable {
     let at: Double
     /// How many identical rows this one stands for.
     let count: Int
+    /// A stale Git lock an earlier daemon left stopped this send: Clear stale lock is offered.
+    var fenced: Bool? = nil
 }
 
 /// The composer's canonical choices: delivery while busy, the alternate, and Stop.

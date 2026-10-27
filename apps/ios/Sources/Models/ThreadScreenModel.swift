@@ -62,6 +62,8 @@ import Observation
     var fork: ForkDraftRow?
     /// Bring back to parent's starting summary, once read.
     var mergeDraft: MergeDraftRow?
+    /// What stops the checkout, shown above the composer.
+    var work: WorkLine?
     @ObservationIgnored private var positions: [String: Int] = [:]
     @ObservationIgnored private var reorder = false
 
@@ -80,6 +82,7 @@ import Observation
         transitions = nil
         fork = nil
         mergeDraft = nil
+        work = nil
         hasOlder = false
     }
     /// Opening a kept thread again: what belonged to the last visit's bridge session goes (its

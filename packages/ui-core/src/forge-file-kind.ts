@@ -1,5 +1,5 @@
 import { ForgeImageType, type ForgeFile } from "@ace/protocol";
-import { imageType, isMarkdownPath } from "@ace/ui-core";
+import { imageType, isMarkdownPath } from "./checkout-files.ts";
 
 /**
  * How the Code tab draws a hosted file:

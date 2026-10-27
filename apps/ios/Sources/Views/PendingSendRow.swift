@@ -22,7 +22,8 @@ struct PendingSendRow: View {
                            } } },
                            remove: discard,
                            // One at a time: Retry waits for an edit being saved, Edit for a retry.
-                           retryDisabled: row.busy == "editing", editDisabled: row.busy == "retrying")
+                           retryDisabled: row.busy == "editing", editDisabled: row.busy == "retrying",
+                           staleLock: row.fenced == true)
                 .sheet(item: $editor) { MessageEditSheet(editor: $0) }
         } else {
             VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
@@ -83,6 +84,8 @@ struct NotSentMessage: View {
     /// Greyed while the other of the two runs on this send (`bridge/send-ops.ts`).
     var retryDisabled = false
     var editDisabled = false
+    /// A stale Git lock an earlier daemon left stopped the send: Clear stale lock is offered.
+    var staleLock = false
     @State private var busy = false
     @State private var details = false
     @State private var confirming = false
@@ -97,7 +100,7 @@ struct NotSentMessage: View {
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
             }
             NotSentLine(reason: reason).accessibilityIdentifier("notSent.reason")
-            if canAct || !detail.isEmpty {
+            if canAct || !detail.isEmpty || staleLock {
                 HStack(spacing: AceTheme.Spacing.none) {
                     if !detail.isEmpty {
                         Button(details ? "Hide details" : "Details") { withAnimation(reduceMotion ? nil : .smooth) { details.toggle() } }
@@ -119,6 +122,7 @@ struct NotSentMessage: View {
                                 .accessibilityIdentifier("notSent.remove")
                         }
                     }
+                    if staleLock { ClearStaleLockWord() }
                 }
                 .disabled(busy)
                 .padding(.trailing, -AceTheme.Spacing.sm)

@@ -36,6 +36,7 @@ export type ForgeErrorKind =
   | "pr_exists"
   | "unprocessable"
   | "head_moved"
+  | "run_attempt_moved"
   | "fork_deleted"
   | "outcome_uncertain"
   | "preferences_changed"

@@ -305,13 +305,22 @@ struct InboxStack<Destination: View>: View {
             }
         }
     }
-    @ViewBuilder private func forgePage(_ route: ForgeRoute) -> some View {
+    private func forgePage(_ route: ForgeRoute) -> some View {
+        forgeContent(route).modifier(ProjectDefaultsHook(inbox: inbox))
+    }
+    @ViewBuilder private func forgeContent(_ route: ForgeRoute) -> some View {
         if let client = inbox.client(route.machineId) {
             switch route.kind {
-            case .pull: ForgePullPageView(client: client, route: route, open: { path.append(.forge($0)) }, openThread: forge.openThread)
+            case .pull: ForgePullPageView(client: client, route: route, open: { path.append(.forge($0)) }, openThread: forge.openThread,
+                                          startThread: inbox.canStartThreads ? forge.startThread : nil)
             case .timeline: ForgeTimelineView(client: client, route: route)
             case .file: ForgeFileView(client: client, route: route)
             case .files: ForgeFilesView(client: client, route: route, open: { path.append(.forge($0)) })
+            case .check: ForgeCheckPageView(client: client, route: route, openThread: forge.openThread,
+                                            startThread: inbox.canStartThreads ? forge.startThread : nil)
+            case .conflicts: ForgeConflictsPageView(client: client, route: route, openThread: forge.openThread)
+            case .stack: ForgeStackPageView(client: client, route: route, open: { path.append(.forge($0)) })
+            case .commits: ForgeCommitsView(client: client, route: route, open: { path.append(.forge($0)) })
             case .issue:
                 ForgeIssuePageView(client: client, route: route,
                                    actions: ForgeTabActions(open: { path.append(.forge($0)) }, openThread: forge.openThread, startThread: forge.startThread))
@@ -359,7 +368,7 @@ private struct InboxSearchField: ViewModifier {
             .onAppear { if searching { shown = true } }
             .onChange(of: searching) { _, now in
                 // The field joins the bar in the same animation the system uses to focus it.
-                if now { withAnimation(.smooth) { shown = true } } else { query = ""; shown = false }
+                if now { withAnimation(AceMotion.smooth) { shown = true } } else { query = ""; shown = false }
             }
     }
 }

@@ -1,4 +1,4 @@
-import type { ForgeCheck, ForgeCheckRun } from "@ace/protocol";
+import { verifySettled, type ForgeCheck, type ForgeCheckRun, type VerifyRun } from "@ace/protocol";
 
 /*
  * What the PR panel shows for one check, worked out without rendering: which run it reads,
@@ -91,4 +91,84 @@ export function checkFixRequest(
   else if (run.output.summary) parts.push(`Summary:\n${run.output.summary.slice(0, 4_000)}`);
   parts.push("Find the cause and push a fix to the PR branch.");
   return parts.join("\n\n");
+}
+
+/** What can be done to one check from its page, decided once for every client. */
+export interface CheckControls {
+  /** Re-run only the workflow run's failed jobs: a finished run that failed or was cancelled. */
+  rerunFailed: boolean;
+  /** Re-run every job of a finished workflow run. */
+  rerunAll: boolean;
+  /** Stop a workflow run that is still going. */
+  cancel: boolean;
+  /** Hand the failure to an agent: an open PR's failing check. */
+  fix: boolean;
+}
+
+export function checkControls(
+  check: Pick<ForgeCheck, "status">,
+  run: Pick<ForgeCheckRun, "workflow"> | undefined,
+  prOpen: boolean,
+): CheckControls {
+  const workflow = run?.workflow ?? null;
+  const failed = check.status === "failure" || check.status === "cancelled";
+  return {
+    rerunFailed: workflow !== null && failed,
+    rerunAll: workflow !== null && check.status !== "pending",
+    cancel: workflow !== null && check.status === "pending",
+    fix: prOpen && check.status === "failure",
+  };
+}
+
+/** Why a workflow job shows no log, when it has none. */
+export function checkLogNote(
+  check: Pick<ForgeCheck, "status">,
+  run: Pick<ForgeCheckRun, "log" | "workflow" | "logUnavailable">,
+): string | undefined {
+  if (run.log || !run.workflow) return undefined;
+  if (check.status === "pending") return "The log shows once this job finishes.";
+  return run.logUnavailable ? "GitHub has no log for this job any more." : undefined;
+}
+
+/** A check's state in words and the status tone it takes. */
+export const checkLook: Record<ForgeCheck["status"], { word: string; tone: string }> = {
+  success: { word: "Passed", tone: "done" },
+  failure: { word: "Failed", tone: "failed" },
+  pending: { word: "Running", tone: "working" },
+  cancelled: { word: "Cancelled", tone: "idle" },
+  unknown: { word: "Unknown", tone: "idle" },
+};
+
+/** A local check run's state (ADR 0094) in words; a PR head with no run says "Not run". */
+export function localCheckLook(run: Pick<VerifyRun, "state"> | undefined): {
+  word: string;
+  tone: string;
+} {
+  switch (run?.state) {
+    case "queued":
+      return { word: "Queued", tone: "working" };
+    case "running":
+      return { word: "Running", tone: "working" };
+    case "passed":
+      return { word: "Passed", tone: "done" };
+    case "failed":
+      return { word: "Failed", tone: "failed" };
+    case "cancelled":
+      return { word: "Stopped", tone: "idle" };
+    case "interrupted":
+      return { word: "Interrupted", tone: "idle" };
+    default:
+      return { word: "Not run", tone: "idle" };
+  }
+}
+
+/** The one control a PR's local check offers now: start it, start it again, or stop it. */
+export function localCheckAction(run: Pick<VerifyRun, "state"> | undefined): {
+  kind: "start" | "cancel";
+  label: string;
+  disabled: boolean;
+} {
+  if (run && !verifySettled.includes(run.state))
+    return { kind: "cancel", label: "Stop", disabled: run.state === "merging" };
+  return { kind: "start", label: run ? "Run again" : "Run checks", disabled: false };
 }

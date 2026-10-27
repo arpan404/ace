@@ -30,6 +30,10 @@ struct ThreadView: View {
     @State private var activityProblem: String?
     @State private var showAgents = false
     @State private var showChanges = false
+    @State private var showWork = false
+    /// The problem line's and Not sent's ways out: one at a time, with their questions.
+    @State private var workRunner = WorkRunner()
+    @State private var confirmingLock = false
     @State private var showTerminal = false
     @State private var showBrowser = false
     @State private var showSearch = false
@@ -105,7 +109,8 @@ struct ThreadView: View {
                               rename: model.canOperate && !archived ? { renaming = true } : nil,
                               retitle: model.canOperate && !archived ? { Task { _ = await model.retitle(thread.id) } } : nil,
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
-                                               open: open, problem: { activityProblem = $0 }, leave: leave))
+                                               open: open, problem: { activityProblem = $0 }, leave: leave),
+                              openWork: { showWork = true })
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
@@ -120,7 +125,7 @@ struct ThreadView: View {
                         .background(AceTheme.Colours.background)
                 }
             }
-            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal)
+            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal, work: $showWork)
             .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet,
                                openThread: openThread)
             .environment(\.markdownRich, rich)
@@ -141,6 +146,8 @@ struct ThreadView: View {
                 forkKey = kept
                 composerFocus += 1
             }
+            .workQuestions(runner: workRunner, model: model, confirmingLock: $confirmingLock)
+            .environment(\.clearStaleLock, model.canOperate ? { confirmingLock = true } : nil)
             .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
                 Button("OK") { activityProblem = nil }
             } message: { Text(activityProblem ?? "") }
@@ -260,6 +267,10 @@ struct ThreadView: View {
                     }
                     // A request needs the person first; the transfer's line waits under it.
                     else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
+                    // What stops the checkout waits under a request and a transfer.
+                    else if let line = screen.work {
+                        WorkProblemLine(model: model, line: line, runner: workRunner, openWork: { showWork = true }, confirmLock: { confirmingLock = true })
+                    }
                 }
                 // A strip rises out of the composer and fades; with Reduce Motion it only fades.
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
@@ -325,6 +336,7 @@ struct ThreadView: View {
         .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.queue?.strip)
         // The fork strip rises out of the composer as it opens, or fades under Reduce Motion.
         .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.fork?.key)
+        .animation(reduceMotion ? .easeInOut(duration: AceTheme.Motion.fast) : .smooth, value: screen.work)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
@@ -378,6 +390,7 @@ struct ThreadView: View {
         case .merge: transitionSheet = .merge
         case .turns: transitionSheet = .turns
         case .attachments: transitionSheet = .files
+        case .work: showWork = true
         case .changes: showChanges = true
         case .search: showSearch = true
         case .files: showFiles = true

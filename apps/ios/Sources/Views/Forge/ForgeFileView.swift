@@ -1,9 +1,13 @@
 import SwiftUI
 
 /// One changed file of a pull request (the web's Code tab, for the phone): its diff in SF Mono,
-/// each line's conversations and pending review comments under it. Pressing a line opens a line
-/// comment: Add single comment, or Start a review (Add review comment once one is pending), with
-/// Suggest changes on lines of the new side. Conversations no shown line holds follow the diff.
+/// each line's conversations and pending review comments under it. Tapping a line picks it;
+/// Select more then a later line of the same change picks a span; Comment opens the comment:
+/// Add single comment, or Start a review (Add review comment once one is pending), with
+/// Suggest changes on lines of the new side. The row under its name sets Wrap, Side by side
+/// (where it fits), Rendered for Markdown, and marks the file Viewed. An image shows both
+/// versions. Conversations no shown line holds follow the diff. A range of commits shows its
+/// own diff alone: conversations and new comments belong to All commits.
 struct ForgeFileView: View {
     let client: ClientModel
     let route: ForgeRoute
@@ -11,20 +15,35 @@ struct ForgeFileView: View {
     @State private var failure: String?
     @State private var desk: ForgeReviewDesk?
     @State private var composing: ForgeCompose?
+    @State private var pick: ForgeLinePick?
+    @State private var pickNote: String?
+    @State private var refused = 0
+    @State private var marked = 0
+    @State private var renderedOn = true
+    /// The commits the rendered or image view has on screen; nil until it has drawn.
+    @State private var shownRevisions: ForgeFileRevisions?
+    @AppStorage("forge.code.wrap") private var wrap = true
+    @AppStorage("forge.code.split") private var split = false
+    @Environment(\.horizontalSizeClass) private var width
+    @Environment(\.verticalSizeClass) private var height
     private var path: String { route.path ?? "" }
-    private var request: [String: Any] { ClientModel.forgeFileRead(project: route.project, number: route.number, repository: route.repository, path: path, index: route.index) }
+    private var wide: Bool { width == .regular || height == .compact }
+    private var request: [String: Any] {
+        ClientModel.forgeFileRead(project: route.project, number: route.number, repository: route.repository, path: path, index: route.index, range: route.range)
+    }
 
     init(client: ClientModel, route: ForgeRoute) {
         self.client = client
         self.route = route
-        let kept = client.kept(ClientModel.forgeFileRead(project: route.project, number: route.number, repository: route.repository, path: route.path ?? "", index: route.index), as: ForgeFileDiff.self)
+        let kept = client.kept(ClientModel.forgeFileRead(project: route.project, number: route.number, repository: route.repository,
+                                                         path: route.path ?? "", index: route.index, range: route.range), as: ForgeFileDiff.self)
         _file = State(initialValue: kept)
         _desk = State(initialValue: kept.map { ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: $0.number, repository: $0.repository)) })
     }
 
     var body: some View {
         ScrollView {
-            if let file, let desk { content(file, desk) }
+            if let file, let desk { content(file, desk).transition(.opacity) }
             else if let failure {
                 EmptyState(icon: nil, title: "Couldn't load this file", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
@@ -34,25 +53,39 @@ struct ForgeFileView: View {
                 ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
             }
         }
+        .animation(AceMotion.smooth, value: file == nil)
         .background(AceTheme.Colours.background)
         .refreshable { await load() }
-        .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
-            if let message = desk?.message, composing == nil {
-                Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
-                    .background(AceTheme.Colours.background)
-            }
-        }
+        .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { bottom }
         .navigationTitle(Text(verbatim: (path as NSString).lastPathComponent))
         .navigationBarTitleDisplayMode(.inline)
         .task(id: client.readGeneration(request)) { await load() }
         .sheet(item: $composing) { compose in
             if let desk { ForgeWriteSheet(compose: compose, desk: desk) }
         }
+        .sensoryFeedback(.selection, trigger: pick)
+        .sensoryFeedback(.error, trigger: refused)
+        .sensoryFeedback(.success, trigger: marked)
+    }
+
+    @ViewBuilder private var bottom: some View {
+        if let pick, composing == nil {
+            ForgeLinePickStrip(pick: pick, note: pickNote, extend: {
+                withAnimation(AceMotion.smooth) { self.pick?.extending.toggle(); pickNote = nil }
+            }, comment: { if let file, let desk { comment(file, desk) } }, clear: {
+                withAnimation(AceMotion.smooth) { self.pick = nil; pickNote = nil }
+            })
+            .transition(.opacity)
+        } else if let message = desk?.message, composing == nil {
+            Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
+                .background(AceTheme.Colours.background)
+        }
     }
 
     @ViewBuilder private func content(_ file: ForgeFileDiff, _ desk: ForgeReviewDesk) -> some View {
+        let showsRendered = file.rendered && renderedOn
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             HStack(spacing: AceTheme.Spacing.sm) {
                 Text(file.previousPath.map { "\($0) → \(file.path)" } ?? file.path)
@@ -61,26 +94,28 @@ struct ForgeFileView: View {
                 Spacer(minLength: AceTheme.Spacing.sm)
                 ForgeDiffStat(additions: file.additions, deletions: file.deletions)
             }
-            .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
+            .padding(.horizontal, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.sm)
+            ForgeCodeToolbar(wrap: $wrap, split: $split,
+                             rendered: file.rendered ? $renderedOn.animation(AceMotion.smooth) : nil,
+                             wide: wide && file.show == "patch", viewed: file.viewed, lines: file.show != "image",
+                             canMark: client.canOperate, marking: !desk.ready || !showsCurrent(file)) { markViewed(file, desk) }
             Divider().overlay(AceTheme.Colours.separator)
-            if file.empty {
-                Text("GitHub shows no lines for this file.").meta()
-                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
-            }
-            LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                ForEach(Array(file.lines.enumerated()), id: \.offset) { _, line in
-                    lineRow(line, file, desk)
-                    ForEach(line.drafts) { draft in pendingRow(draft) }
-                    ForEach(line.threads) { thread in
-                        ForgeThreadBlock(thread: thread, showsPlace: false, desk: desk, compose: { composing = $0 })
-                            .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
-                            .background(AceTheme.Colours.background)
-                    }
+            if showsRendered {
+                ForgeRenderedDiffView(client: client, route: route, scope: desk.scope, revisions: file.revisions) { shownRevisions = $0 }
+            } else if file.show == "image" {
+                ForgeImageDiffView(client: client, route: route, revisions: file.revisions) { shownRevisions = $0 }
+            } else {
+                if file.empty {
+                    Text(file.show == "patch" ? "GitHub shows no lines for this file." : "GitHub sent no patch for this file; open it on GitHub.").meta()
+                        .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
                 }
-            }
-            if file.truncated {
-                Text(file.hiddenLines > 0 ? "\(file.hiddenLines) more lines on GitHub" : "The rest of this file is on GitHub").meta()
-                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
+                ForgeDiffLines(file: file, desk: desk, wrap: wrap, split: split && wide, pick: pick,
+                               pickable: file.commenting != nil && client.canOperate,
+                               tap: { tap($0, in: file) }, compose: { composing = $0 })
+                if file.truncated {
+                    Text(file.hiddenLines > 0 ? "\(file.hiddenLines) more lines on GitHub" : "The rest of this file is on GitHub").meta()
+                        .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
+                }
             }
             if !file.outside.isEmpty {
                 ForgeSection(title: "Conversations outside the diff") {
@@ -92,77 +127,85 @@ struct ForgeFileView: View {
                 .padding(.top, AceTheme.Spacing.lg)
             }
         }
+        .animation(AceMotion.smooth, value: wrap)
+        .animation(AceMotion.smooth, value: split)
     }
 
-    @ViewBuilder private func lineRow(_ line: ForgeFileDiff.Line, _ file: ForgeFileDiff, _ desk: ForgeReviewDesk) -> some View {
-        let row = HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-            Text(verbatim: line.kind == "hunk" ? "" : String(line.new ?? line.old ?? 0))
-                .monospacedDigit().foregroundStyle(AceTheme.Colours.subtleForeground)
-                .frame(minWidth: 32, alignment: .trailing)
-            Text(verbatim: marker(line) + line.text)
-                .foregroundStyle(line.kind == "hunk" ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-        .padding(.horizontal, AceTheme.Spacing.sm)
-        .padding(.vertical, AceTheme.Spacing.xxs)
-        .background(background(line))
-        if let anchor = line.anchor, let commenting = file.commenting, client.canOperate {
-            Button { comment(on: line, anchor: anchor, file: file, off: commenting.off, desk: desk) } label: { row.contentShape(Rectangle()) }
-                .buttonStyle(.row)
-                .accessibilityHint("Comment on this line")
-                .accessibilityIdentifier("forge.line.\(anchor.side).\(anchor.line)")
-        } else {
-            row
+    /// A tap on a line: it extends the span while Select more is on, else picks that line.
+    private func tap(_ index: Int, in file: ForgeFileDiff) {
+        let line = file.lines[index]
+        guard let anchor = line.anchor else { return }
+        withAnimation(AceMotion.smooth) {
+            if var current = pick, current.extending {
+                if current.extend(to: anchor, hunk: line.hunk) {
+                    pick = current
+                    pickNote = nil
+                } else {
+                    pickNote = "Pick a line on the same side of this change"
+                    refused += 1
+                }
+            } else if pick?.holds(line) == true, pick?.start == pick?.end {
+                pick = nil
+            } else {
+                pick = ForgeLinePick(hunk: line.hunk, anchor: anchor)
+                pickNote = nil
+            }
         }
     }
 
-    private func pendingRow(_ draft: ForgeFileDiff.Draft) -> some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            Text("Pending").meta(AceTone.needsYou.text)
-            MarkdownView(text: draft.body)
-        }
-        .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
+    /// The rendered Markdown or the images are drawn, from both sides read whole.
+    private func drawsSides(_ file: ForgeFileDiff) -> Bool { (file.rendered && renderedOn) || file.show == "image" }
+
+    /// Whether what is on screen is the version the page read: the patch always is; a rendered
+    /// or image view is once it has drawn this diff's commits.
+    private func showsCurrent(_ file: ForgeFileDiff) -> Bool { viewedHead(file) != nil }
+    private func viewedHead(_ file: ForgeFileDiff) -> String? {
+        ForgeViewedVersion.head(patchHead: file.headSha, current: file.revisions, drawsSides: drawsSides(file), shown: shownRevisions)
     }
 
-    private func marker(_ line: ForgeFileDiff.Line) -> String {
-        switch line.kind { case "add": "+"; case "del": "-"; case "hunk": ""; default: " " }
-    }
-
-    private func background(_ line: ForgeFileDiff.Line) -> Color {
-        switch line.kind {
-        case "add": AceTheme.Colours.diffAdd
-        case "del": AceTheme.Colours.diffDelete
-        case "hunk": AceTheme.Colours.fill
-        default: .clear
-        }
+    /// Viewed names the pull request head of the version on screen; the daemon refuses it once
+    /// GitHub's head has moved on, so a mark never lands on code the person didn't see.
+    private func markViewed(_ file: ForgeFileDiff, _ desk: ForgeReviewDesk) {
+        guard let head = viewedHead(file) else { return }
+        let action: [String: Any] = ["kind": file.viewed == "viewed" ? "file.unview" : "file.view", "path": file.path, "headSha": head]
+        Task { if await desk.run(action) { marked += 1 } }
     }
 
     private func load() async {
         do {
-            let read = try await client.forgeFile(project: route.project, number: route.number, repository: route.repository, path: path, index: route.index)
+            let read = try await client.forgeFile(project: route.project, number: route.number, repository: route.repository,
+                                                  path: path, index: route.index, range: route.range)
             if desk == nil { desk = ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: read.number, repository: read.repository)) }
+            // A pick names lines of the version it was made on; another head names other code.
+            if read.headSha != file?.headSha { pick = nil }
             file = read
             failure = nil
         } catch is CancellationError {
         } catch { failure = error.localizedDescription }
     }
 
-    /// A new comment on one line: alone at once, or into the pending review.
-    private func comment(on line: ForgeFileDiff.Line, anchor: ForgeFileDiff.Anchor, file: ForgeFileDiff, off: String?, desk: ForgeReviewDesk) {
-        let place: [String: Any] = ["commit": file.headSha, "path": file.path, "line": anchor.line, "side": anchor.side]
+    /// A new comment on the picked lines: alone at once, or into the pending review.
+    private func comment(_ file: ForgeFileDiff, _ desk: ForgeReviewDesk) {
+        guard let pick, let off = file.commenting.map({ $0.off }) else { return }
+        let place = pick.anchor(path: file.path, commit: file.headSha)
         let head = file.headSha
+        let picked = file.lines.filter { pick.holds($0) }
+        // A suggestion replaces lines of the new side; deleted lines have none to change.
+        let suggestion = pick.side == "RIGHT" ? picked.map(\.text).joined(separator: "\n") : nil
+        let done: (Bool) -> Bool = { ok in
+            if ok { withAnimation(AceMotion.smooth) { self.pick = nil } }
+            return ok
+        }
         composing = ForgeCompose(
-            title: anchor.side == "LEFT" ? "Comment on old line \(anchor.line)" : "Comment on line \(anchor.line)",
+            title: "Comment on \(pick.label.prefix(1).lowercased() + pick.label.dropFirst())",
             text: "",
             primary: .init(label: file.pending > 0 ? "Add review comment" : "Start a review") { body in
-                await desk.run(["kind": "draft.save", "draft": ["body": body, "anchor": place]])
+                done(await desk.run(["kind": "draft.save", "draft": ["body": body, "anchor": place]]))
             },
             secondary: .init(label: "Add single comment") { body in
-                await desk.run(["kind": "line.comment", "headSha": head, "anchor": place, "body": body])
+                done(await desk.run(["kind": "line.comment", "headSha": head, "anchor": place, "body": body]))
             },
-            // A suggestion replaces lines of the new side; a deleted line has none to change.
-            suggestion: line.kind == "del" ? nil : line.text,
+            suggestion: suggestion,
             off: off)
     }
 }

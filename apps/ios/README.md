@@ -340,6 +340,28 @@ phone showed, a lifecycle change names the version shown, and an answer that nev
 shown as unconfirmed with Reconcile (review and lifecycle writes) or Send again (inbox writes,
 which set a state). `@` and `#` complete through `forge.complete` in every editor.
 
+Working on a pull request from its page (`bridge/forge-checks.ts`, `forge-log-pages.ts`,
+`forge-worktree.ts`, `forge-conflicts.ts`, `forge-stack.ts`; rules in `@ace/ui-core`'s
+`pr-check-model`, `pr-conflicts-model`, `pr-stack-controls`, `pr-revert`, shared with the web):
+each check opens a page with its summary, annotations, steps and a log read 200 lines at a
+time from the failure, with Re-run failed jobs, Re-run all jobs, Cancel run (asked first) and
+Fix with agent, which drafts the request in the linked thread's composer or, with none, opens
+New thread on the PR. The project's local check runs, stops and shows its log beside them. The
+Work section checks the PR's head out in a linked thread or starts a thread on it (a worktree
+of the head shown, `thread.create`'s `pullRequest`); Merge conflicts resolves hunk by hunk
+(ours, theirs, both, or edited), hands a file to the agent, then finishes and pushes or aborts;
+Stack shows the layers and every stack change the web offers, each confirmed in words naming
+it. A merged PR offers Revert, an editable draft. `bridge/forge-pr-work.test.ts` covers these on
+the fake daemon, and `ForgePrWorkUITests` drives them on the fixture.
+
+Files changed reads one commit, a span of two, or the commits since the signed-in reviewer's
+last review (`forge.pr.files` with `since`, the reviewers' `viewer` and each review's
+`commitSha`; `sinceLastReview` in `@ace/ui-core`). Commits lists them. A file's toolbar has Wrap,
+Side by side (landscape and iPad), Rendered for Markdown and Viewed, version-aware: a mark from
+an older head reads "Changed since viewed". Images compare side by side or by swipe, bytes read
+through the daemon. A tapped line, extended with Select more, takes one comment across the span.
+`bridge/forge-code-review.test.ts` and `ForgeCodeReviewUITests` cover them.
+
 Pull request and issue text draws natively from blocks `bridge/forge-rich.ts` builds with the
 web's rules (`@ace/ui-core/forge-rich`): GitHub's HTML subset through the web's allowlist,
 alerts, emoji, mentions, references, footnotes, tables, details, light and dark pictures and
@@ -435,6 +457,25 @@ follows each only while its sheet is shown (`bridge/sheets.ts`), and navigation 
 tree, a running background command, usage, and a three-file diff. The diff includes a
 3,000-line file and a long line. Set `ACE_IOS_SPIKE_PORT` and launch with
 `--spike-port N` to run a fixture beside another agent's.
+
+## Work sheet
+
+The thread header's "project · branch" line, and Work in ⋯, open the thread's Work
+(`Views/Work`, `bridge/work.ts`), followed only while shown like the sheets above. It shows where
+the checkout lives (machine, project, folder; local or a worktree, with a move to the other), the
+branch (a searchable switch, branches read only when the picker opens), linked pull requests (each
+opens on GitHub; Link a PR by number or address; Unlink is a red word, asked first) and what stops
+the checkout. The rules are `@ace/ui-core/work-checkout`, shared with the web's Work card: whether
+the checkout may move (never under live agents), the failed or unconfirmed move with Retry and a
+confirmed Clear, a missing worktree, a failed setup script with Retry and Continue without setup,
+and the question when a move meets uncommitted changes. Writes go through `thread.workspace.*`,
+`forge.pr.link`/`unlink` and `git.lock.clear` once each (`bridge/work-actions.ts`); an answer that
+never came is shown as unconfirmed. The same problems, and a stale Git lock an earlier daemon left,
+show as one line above the composer (`bridge/work-line.ts`) with their ways out as words, and a Not
+sent row stopped by the lock offers Clear stale lock. The daemon already retires such locks by
+itself once their daemon and Git processes are gone; the button is the last resort.
+`POST /review/work {"scenario": "clean" | "stuck" | "locked"}` seeds a fresh thread per
+`WorkUITests` test (`scripts/work-scenario.ts`).
 
 ## New thread, projects and files
 

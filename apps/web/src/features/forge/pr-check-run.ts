@@ -13,7 +13,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge, writeFailure } from "@/lib/forge-read.ts";
 import { runCommand } from "@/lib/daemon-command.ts";
 import { useToast } from "@/components/ui/toast.tsx";
-import { checkRunId } from "./pr-check-model.ts";
+import { checkRunId } from "@ace/ui-core";
 
 /*
  * One check run, read only when the panel opens it. Its key names the PR (so the panel's
@@ -101,7 +101,14 @@ export function useCheckRerun(input: {
     } catch (error) {
       const failure = writeFailure(error);
       toast.error({
-        title: failure.uncertain ? "Couldn't confirm the re-run" : "Couldn't re-run the checks",
+        title:
+          action.kind === "cancel"
+            ? failure.uncertain
+              ? "Couldn't confirm the cancel"
+              : "Couldn't cancel the run"
+            : failure.uncertain
+              ? "Couldn't confirm the re-run"
+              : "Couldn't re-run the checks",
         description: failure.text,
       });
     } finally {

@@ -2,7 +2,7 @@ import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import type { PrActions } from "./pr-actions.ts";
-import { humanize } from "./pr-stack-labels.ts";
+import { stateWords } from "@ace/ui-core";
 
 function eta(seconds: number): string {
   return seconds < 60 ? "under a minute" : `~${Math.round(seconds / 60)}m`;
@@ -27,7 +27,7 @@ export function PrMergeLines(props: { actions: PrActions }) {
     <div className="space-y-0.5 px-[var(--forge-gutter,1rem)] pb-2 text-xs text-muted-foreground tabular-nums">
       {state.queue && (
         <p>
-          Merge queue · {humanize(state.queue.state)}
+          Merge queue · {stateWords(state.queue.state)}
           {typeof estimate === "number" && ` · ${eta(estimate)}`}
         </p>
       )}
@@ -35,7 +35,7 @@ export function PrMergeLines(props: { actions: PrActions }) {
         <p key={rule}>{rule}</p>
       ))}
       {deployments.map((deployment) => {
-        const label = `${deployment.environment} · ${humanize(deployment.state)}`;
+        const label = `${deployment.environment} · ${stateWords(deployment.state)}`;
         const url = deployment.url;
         // Stacked rows: on touch each row is a 44px target of its own. An area spilling past
         // the row (touch-hit) would cover its neighbours and open the wrong environment.
