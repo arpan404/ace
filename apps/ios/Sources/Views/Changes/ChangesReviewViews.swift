@@ -274,9 +274,10 @@ struct ReviewBar: View {
                 HStack(spacing: AceTheme.Spacing.md) {
                     Button(action: list) {
                         Text(summary(review)).fontWeight(.medium).lineLimit(1)
+                            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityIdentifier("review.list")
-                    Spacer(minLength: AceTheme.Spacing.sm)
                     if review.pending > 0 {
                         Button("Send \(review.pending)") {
                             model.reviewAction("review.send")
@@ -293,7 +294,7 @@ struct ReviewBar: View {
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
         .padding(.horizontal, AceTheme.Spacing.xl)
         .frame(minHeight: 48)
-        .aceGlass(in: AceShape.capsule, interactive: true)
+        .aceGlass(in: AceShape.capsule)
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.bottom, AceTheme.Spacing.sm)
         .opacity(selection == nil && (review?.drafts.isEmpty ?? true) && review?.session == nil ? 0 : 1)
@@ -313,9 +314,9 @@ struct ReviewBar: View {
 struct ReviewCommentsSheet: View {
     @Bindable var model: ClientModel
     let reveal: (ChangesReview.Draft) -> Void
-    let edit: (ChangesReview.Draft) -> Void
-    let replies: (ChangesReview.Draft) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var editing: ChangesReview.Draft?
+    @State private var replying: ChangesReview.Draft?
     private var review: ChangesReview? { model.sheets.review }
 
     var body: some View {
@@ -338,7 +339,7 @@ struct ReviewCommentsSheet: View {
                         .buttonStyle(.plain)
                         .padding(.horizontal, AceTheme.Spacing.lg)
                         ForEach(drafts) { draft in
-                            ReviewCommentCard(model: model, draft: draft, edit: edit, replies: replies)
+                            ReviewCommentCard(model: model, draft: draft, edit: { editing = $0 }, replies: { replying = $0 })
                         }
                     }
                 }
@@ -372,6 +373,11 @@ struct ReviewCommentsSheet: View {
                 }
             }
             .onAppear { model.sheet(["kind": "review.refresh"]) }
+            .sheet(item: $replying) { draft in ReviewRepliesSheet(model: model, draft: draft) }
+            .sheet(item: $editing) { draft in
+                ReviewComposer(model: model, path: draft.path, side: draft.side, start: draft.start, end: draft.end,
+                               current: draft.suggestion ?? "", editing: draft)
+            }
         }
     }
 

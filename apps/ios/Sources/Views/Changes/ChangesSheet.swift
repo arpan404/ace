@@ -15,16 +15,26 @@ struct ChangesSheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var wrap = true
     @State private var selection: LineSelection?
-    @State private var composing: Composing?
-    @State private var replying: ChangesReview.Draft?
-    @State private var listing = false
-    @State private var showingTree = false
+    /// One layer at a time over the sheet: a comment being written, replies, the review, the tree.
+    @State private var presented: Presented?
     @State private var opened = false
     @State private var target: String?
     private var summary: ChangesSummary? { model.sheets.changes }
     private var openPaths: Set<String> { Set(summary?.open ?? []) }
     /// Split needs room for two columns of code: iPad and wide windows.
     private var split: Bool { summary?.layout == "split" && sizeClass == .regular }
+
+    enum Presented: Identifiable {
+        case compose(Composing), replies(ChangesReview.Draft), review, tree
+        var id: String {
+            switch self {
+            case .compose(let item): "compose:\(item.id)"
+            case .replies(let draft): "replies:\(draft.key)"
+            case .review: "review"
+            case .tree: "tree"
+            }
+        }
+    }
 
     struct Composing: Identifiable {
         let path: String; let side: String; let start: Int; let end: Int; let current: String
@@ -67,20 +77,22 @@ struct ChangesSheet: View {
                 if let summary, summary.state != "error" { toolbarRow(summary).background(AceTheme.Colours.background) }
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
-                ReviewBar(model: model, selection: $selection, comment: compose, list: { listing = true })
+                ReviewBar(model: model, selection: $selection, comment: compose, list: { presented = .review })
             }
-            .sheet(item: $composing) { item in
-                ReviewComposer(model: model, path: item.path, side: item.side, start: item.start, end: item.end,
-                               current: item.current, editing: item.editing)
-                    .onDisappear { selection = nil }
-            }
-            .sheet(item: $replying) { draft in ReviewRepliesSheet(model: model, draft: draft) }
-            .sheet(isPresented: $listing) {
-                ReviewCommentsSheet(model: model, reveal: { reveal($0.path) }, edit: edit, replies: { replying = $0 })
-            }
-            .sheet(isPresented: $showingTree) {
-                ChangesTreeSheet(model: model) { path in reveal(path) }
-                    .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+            .sheet(item: $presented) { layer in
+                switch layer {
+                case .compose(let item):
+                    ReviewComposer(model: model, path: item.path, side: item.side, start: item.start, end: item.end,
+                                   current: item.current, editing: item.editing)
+                        .onDisappear { selection = nil }
+                case .replies(let draft):
+                    ReviewRepliesSheet(model: model, draft: draft)
+                case .review:
+                    ReviewCommentsSheet(model: model, reveal: { reveal($0.path) })
+                case .tree:
+                    ChangesTreeSheet(model: model) { path in reveal(path) }
+                        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+                }
             }
         }
         .tint(AceTheme.Colours.foreground)
@@ -115,7 +127,7 @@ struct ChangesSheet: View {
                     Section {
                         if isOpen {
                             ChangesFileBody(model: model, path: file.path, wrap: wrap, split: split, selection: $selection) { draft in
-                                AnyView(ReviewCommentCard(model: model, draft: draft, edit: edit, replies: { replying = $0 }))
+                                AnyView(ReviewCommentCard(model: model, draft: draft, edit: edit, replies: { presented = .replies($0) }))
                             }
                             .transition(.opacity)
                         }
@@ -140,8 +152,12 @@ struct ChangesSheet: View {
                 .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
             if let review = model.sheets.review, review.refreshing { ProgressView().controlSize(.mini) }
             Spacer(minLength: AceTheme.Spacing.sm)
+            if summary.scope?.workingTree != false {
+                Button("Review") { presented = .review }
+                    .accessibilityIdentifier("changes.review")
+            }
             if summary.files.count > 1 {
-                Button("Files") { showingTree = true }
+                Button("Files") { presented = .tree }
                     .accessibilityIdentifier("changes.tree")
             }
             if !summary.files.isEmpty {
@@ -234,10 +250,10 @@ struct ChangesSheet: View {
         guard let selection else { return }
         let rows = model.sheets.files[selection.path].map { model.sheets.rows($0) } ?? []
         let current = rows.filter { selection.contains($0, in: selection.path) }.map(\.text).joined(separator: "\n")
-        composing = Composing(path: selection.path, side: selection.side, start: selection.start, end: selection.end, current: current)
+        presented = .compose(Composing(path: selection.path, side: selection.side, start: selection.start, end: selection.end, current: current))
     }
     private func edit(_ draft: ChangesReview.Draft) {
-        composing = Composing(path: draft.path, side: draft.side, start: draft.start, end: draft.end, current: draft.suggestion ?? "", editing: draft)
+        presented = .compose(Composing(path: draft.path, side: draft.side, start: draft.start, end: draft.end, current: draft.suggestion ?? "", editing: draft))
     }
 }
 

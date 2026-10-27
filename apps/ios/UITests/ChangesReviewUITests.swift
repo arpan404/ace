@@ -65,18 +65,21 @@ import XCTest
         app.buttons["review.compose"].tap()
         let text = app.textFields["review.text"].exists ? app.textFields["review.text"] : app.textViews["review.text"]
         XCTAssertTrue(text.waitForExistence(timeout: 5))
-        text.typeText("Keep the window bounded by bytes, not entries.")
+        // The phone keeps comments between launches, so this run's comment is told apart by its text.
+        let words = "Keep the window bounded by bytes \(UUID().uuidString.prefix(6))."
+        text.typeText(words)
         capture("composer")
         app.buttons["review.save"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["review.comment"].waitForExistence(timeout: 15))
         capture("draft")
         app.buttons["review.sendAll"].tap()
-        let sent = app.staticTexts["Sent"].waitForExistence(timeout: 20)
+        let sent = app.staticTexts["Sent"].firstMatch.waitForExistence(timeout: 20)
         capture("sent")
         XCTAssertTrue(sent)
 
-        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "review.comment").count, 1, "a sent comment shows once")
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", words)).count, 1, "a sent comment shows once")
         app.buttons["review.list"].tap()
+        if !app.buttons["review.approve"].waitForExistence(timeout: 5) { app.buttons["changes.review"].tap() }
         let approve = app.buttons["review.approve"].waitForExistence(timeout: 10)
         capture("comments")
         XCTAssertTrue(approve)
