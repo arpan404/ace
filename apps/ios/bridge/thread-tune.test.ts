@@ -1,6 +1,15 @@
 import { afterEach, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
-import { commands, connect, fixture, latest, open, reset, until } from "./thread-harness.ts";
+import {
+  accountModels,
+  commands,
+  connect,
+  fixture,
+  latest,
+  open,
+  reset,
+  until,
+} from "./thread-harness.ts";
 
 /*
  * Effort and speed on the phone's composer, over the real SDK and the fake daemon's catalog: the
@@ -78,4 +87,46 @@ test("an effort outside the model's levels is refused on a provider that takes e
   thread.handle({ type: "effort", effort: "extreme", requestId: "e1" });
   await until(() => latest("admission", "e1"), "a refusal");
   expect(latest("admission", "e1")?.ok).toBe(false);
+});
+
+function onPersonal(running = "gpt-6") {
+  const fake = fixture();
+  fake.createThread({
+    id: "tune",
+    workspaceId: "ace",
+    title: "Tune",
+    provider: "codex",
+    execution: { provider: "codex", model: running, instanceId: "codex-personal", options: {} },
+  });
+  fake.apply("tune", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+  return fake;
+}
+
+test("a catalog read that failed is asked again when the thread next changes", async () => {
+  Object.assign(accountModels, { instance: "codex-personal", fails: 1 });
+  const fake = onPersonal();
+  open(connect(fake), "tune");
+  await until(() => latest("thread.tune"), "the composer");
+  fake.apply("tune", [facts.turn("root")]);
+  await until(() => tune()?.efforts.length, "the levels after a second read");
+  expect(tune()?.efforts.map((effort) => effort.id)).toContain("high");
+});
+
+test("a late catalog read for the account the thread left doesn't replace the new account's", async () => {
+  Object.assign(accountModels, { instance: "codex-personal", slowMs: 400 });
+  const thread = open(connect(onPersonal()), "tune");
+  await until(() => latest("thread.tune"), "the composer");
+  thread.handle({ type: "models" });
+  await until(() => latest("thread.models")?.state === "ready", "the model sheet");
+  thread.handle({
+    type: "switchModel",
+    key: "codex\u0000gpt-6.2-sol",
+    account: "codex-team",
+    confirmed: false,
+    requestId: "team",
+  });
+  await until(() => tune()?.efforts.length, "the team model's levels");
+  // The first account's read lands after the switch: the team catalog stays.
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  expect(tune()?.efforts.map((effort) => effort.id)).toContain("high");
 });

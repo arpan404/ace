@@ -163,3 +163,182 @@ test("paced to the display, a burst draws only its newest picture at the refresh
   expect(shown).toEqual([5, 6]);
   renderer.close();
 });
+
+interface TurnedPicture extends LivePicture {
+  rotation: number;
+  scale: number;
+}
+
+/** A renderer whose decoder holds every chunk until the test releases its picture. */
+function delayedSetup() {
+  const shown: Pick<TurnedPicture, "sequence" | "timestamp" | "rotation" | "scale">[] = [];
+  const acks: { sequence: number; timestamp: number; keyframe: boolean }[] = [];
+  const decoders: { output: (sequence: number) => void }[] = [];
+  const renderer = pictureRenderer<TurnedPicture>({
+    decoder: (handlers) => {
+      decoders.push({
+        output: (sequence) => handlers.output({ sequence, draw: () => {}, close: () => {} }),
+      });
+      return { configure: () => {}, decode: () => {}, close: () => {} };
+    },
+    show: (_image, target) =>
+      shown.push({
+        sequence: target.sequence,
+        timestamp: target.timestamp,
+        rotation: target.rotation,
+        scale: target.scale,
+      }),
+    ack: (target, keyframe) =>
+      acks.push({ sequence: target.sequence, timestamp: target.timestamp, keyframe }),
+    fallback: () => {},
+    pressure: () => {},
+  });
+  return { renderer, shown, acks, decoders };
+}
+
+const turned = (
+  sequence: number,
+  rotation: number,
+  options: { key?: boolean; streamId?: string; timestamp?: number; scale?: number } = {},
+): TurnedPicture => ({
+  ...picture(sequence, { key: options.key ?? false, streamId: options.streamId ?? "capture-1" }),
+  timestamp: options.timestamp ?? sequence * 1000,
+  rotation,
+  scale: options.scale ?? 1,
+});
+
+test("a picture the decoder hands back late is shown with its own time, rotation and scale", async () => {
+  const view = delayedSetup();
+  await view.renderer.render(turned(1, 0, { key: true, scale: 3 }));
+  await view.renderer.render(turned(2, 90, { scale: 2 }));
+  view.decoders[0]?.output(1);
+  expect(view.shown).toEqual([{ sequence: 1, timestamp: 1000, rotation: 0, scale: 3 }]);
+  expect(view.acks).toEqual([{ sequence: 1, timestamp: 1000, keyframe: false }]);
+  view.decoders[0]?.output(2);
+  expect(view.shown.at(-1)).toEqual({ sequence: 2, timestamp: 2000, rotation: 90, scale: 2 });
+});
+
+test("a late picture from before a new capture is never shown with the new capture's details", async () => {
+  const view = delayedSetup();
+  await view.renderer.render(turned(1, 0, { key: true }));
+  await view.renderer.render(turned(1, 270, { key: true, streamId: "capture-2" }));
+  // The first capture's decoder answers after the switch: dropped, not drawn as capture 2's.
+  view.decoders[0]?.output(1);
+  expect(view.shown).toEqual([]);
+  view.decoders.at(-1)?.output(1);
+  expect(view.shown).toEqual([{ sequence: 1, timestamp: 1000, rotation: 270, scale: 1 }]);
+});
+
+/** Timers the test runs by hand: `fire` runs every one still pending. */
+function manualTimers() {
+  let live: { run: () => void; ms: number }[] = [];
+  return {
+    after: (ms: number, run: () => void) => {
+      const timer = { run, ms };
+      live.push(timer);
+      return () => {
+        live = live.filter((candidate) => candidate !== timer);
+      };
+    },
+    fire() {
+      const due = live;
+      live = [];
+      for (const timer of due) timer.run();
+    },
+    get pending() {
+      return live.length;
+    },
+  };
+}
+
+/** A renderer whose decoder takes every chunk and never answers: no picture, no error. */
+function silentSetup() {
+  const timers = manualTimers();
+  const acks: { sequence: number; keyframe: boolean }[] = [];
+  const events: string[] = [];
+  let answers = false;
+  const renderer = pictureRenderer<LivePicture>({
+    decoder: (handlers) => ({
+      configure: () => {},
+      decode: (chunk) => {
+        if (answers) handlers.output({ sequence: chunk.sequence, draw: () => {}, close: () => {} });
+      },
+      close: () => {},
+    }),
+    show: () => events.push("shown"),
+    ack: (target, keyframe) => acks.push({ sequence: target.sequence, keyframe }),
+    fallback: () => events.push("fallback"),
+    stalled: () => events.push("stalled"),
+    pressure: () => {},
+    after: timers.after,
+  });
+  return {
+    renderer,
+    timers,
+    acks,
+    events,
+    answer: () => {
+      answers = true;
+    },
+  };
+}
+
+test("a decoder that takes a picture but never answers is restarted from a fresh keyframe, without new pictures", async () => {
+  const view = silentSetup();
+  await view.renderer.render(picture(1, { key: true }));
+  await view.renderer.render(picture(2));
+  expect(view.acks).toEqual([]);
+  // The source goes still: nothing else arrives. The deadline alone asks for a keyframe.
+  view.timers.fire();
+  expect(view.acks).toEqual([{ sequence: 2, keyframe: true }]);
+  // The keyframe decodes this time.
+  view.answer();
+  await view.renderer.render(picture(3, { key: true }));
+  expect(view.events).toEqual(["shown"]);
+});
+
+test("a decoder that stays silent through every retry says the live view stopped", async () => {
+  const view = silentSetup();
+  for (let sequence = 1; sequence <= 3; sequence++) {
+    await view.renderer.render(picture(sequence, { key: true }));
+    view.timers.fire();
+  }
+  expect(view.events).toEqual(["stalled"]);
+  expect(view.timers.pending).toBe(0);
+});
+
+test("a keyframe request on a still source is asked again after a while, not only after more deltas", async () => {
+  const view = silentSetup();
+  view.answer();
+  await view.renderer.render(picture(1, { key: true }));
+  await view.renderer.render(picture(3));
+  expect(view.acks.at(-1)).toEqual({ sequence: 3, keyframe: true });
+  view.timers.fire();
+  expect(view.acks.at(-1)).toEqual({ sequence: 3, keyframe: true });
+  expect(view.acks.filter((ack) => ack.keyframe)).toHaveLength(2);
+  // The keyframe comes: nothing more is asked.
+  await view.renderer.render(picture(4, { key: true }));
+  view.timers.fire();
+  expect(view.acks.filter((ack) => ack.keyframe)).toHaveLength(2);
+});
+
+test("a hidden, reset or closed view never asks for recovery later", async () => {
+  const view = silentSetup();
+  await view.renderer.render(picture(1, { key: true }));
+  view.renderer.reset();
+  view.timers.fire();
+  await view.renderer.render(picture(2, { key: true }));
+  view.renderer.close();
+  view.timers.fire();
+  expect(view.acks).toEqual([]);
+  expect(view.events).toEqual([]);
+});
+
+test("a decoder that keeps answering is never interrupted by the deadline", async () => {
+  const view = silentSetup();
+  view.answer();
+  await view.renderer.render(picture(1, { key: true }));
+  await view.renderer.render(picture(2));
+  view.timers.fire();
+  expect(view.acks.filter((ack) => ack.keyframe)).toEqual([]);
+});

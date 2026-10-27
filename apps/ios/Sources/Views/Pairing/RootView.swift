@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Production root: app lock, then onboarding or the inbox across every paired computer.
+/// Production root: app lock, then the inbox across every paired computer.
 struct RootView: View {
     @Bindable var machines: MachinesModel
     @Bindable var lock: AppLock
@@ -28,23 +28,10 @@ struct RootView: View {
             }
         }
     }
-    @ViewBuilder private var content: some View {
-        if !machines.loaded {
-            AceTheme.Colours.background.ignoresSafeArea()
-        } else if machines.machines.isEmpty {
-            NavigationStack {
-                VStack(spacing: AceTheme.Spacing.none) {
-                    ContentUnavailableView("Your agents, with you", systemImage: "point.3.connected.trianglepath.dotted",
-                                           description: Text("Pair this phone with ace on your own computer, over your network or Tailscale."))
-                        .frame(maxHeight: 260)
-                    PairingView(machines: machines)
-                }
-                .background(AceTheme.Colours.background)
-            }
-            .tint(AceTheme.Colours.foreground)
-        } else {
-            InboxView(inbox: machines.inbox, machines: machines, lock: lock)
-        }
+    /// The inbox from the first frame: with no computer paired it offers Add device, and
+    /// while the phone is still reading its machines the list shows its loading rows.
+    private var content: some View {
+        InboxView(inbox: machines.inbox, machines: machines, lock: lock)
     }
 }
 

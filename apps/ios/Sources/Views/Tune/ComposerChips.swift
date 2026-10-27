@@ -20,6 +20,8 @@ struct ModelEffortChip: View {
     let effort: String?
     var loading = false
     var queued = false
+    /// Why the model named isn't in effect yet, read out with it.
+    var note: String? = nil
     let modelID: String
     let effortID: String
     let openModel: () -> Void
@@ -40,7 +42,7 @@ struct ModelEffortChip: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Model").accessibilityValue(model)
+            .accessibilityLabel("Model").accessibilityValue(model).accessibilityHint(note ?? "")
             .accessibilityIdentifier(modelID)
             if let effort {
                 Button(action: openEffort) {

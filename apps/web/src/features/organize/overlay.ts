@@ -1,17 +1,10 @@
-import type { ClientApi, Lease, SidebarSource } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type { CommandPayload, ThreadListEntry } from "@ace/protocol";
-import { patchedEntry, reflects, type OrganizePatch, type Timers } from "@ace/ui-core";
+import { patchedEntry, runOrganize, type OrganizePatch, type Timers } from "@ace/ui-core";
 import { useMemo, useSyncExternalStore } from "react";
 import { runCommand } from "@/lib/daemon-command.ts";
-import {
-  pendingActionsOf,
-  type PendingAction,
-  type PendingActions,
-} from "@/lib/pending-actions.ts";
-
-/** After its receipt, how long an action waits at most for the list to show it. */
-const settleMs = 5_000;
+import { pendingActionsOf, type PendingActions } from "@/lib/pending-actions.ts";
 
 /**
  * Organize actions applied at once (UX audit SY-10). Each runs as a durable command, saved
@@ -25,7 +18,6 @@ export class OrganizeOverlay {
   /** Titles the daemon refused, kept so the rename field can open again with them. */
   private refused = new Map<string, string>();
   private listeners = new Set<() => void>();
-  private count = 0;
   private client: ClientApi;
   private timers: Timers;
   constructor(client: ClientApi, timers: Timers) {
@@ -35,8 +27,7 @@ export class OrganizeOverlay {
   }
   /** `entry` as it shows here, with its pending actions applied. */
   apply(entry: ThreadListEntry): ThreadListEntry {
-    const pending = this.pending.forThread(entry.id);
-    return pending.length ? patchedEntry(entry, pending) : entry;
+    return this.pending.apply(entry);
   }
   /** Hear when a refused title is kept or taken back. */
   subscribe = (listener: () => void): (() => void) => {
@@ -66,47 +57,17 @@ export class OrganizeOverlay {
     at: number,
   ): Promise<void> {
     const lease = this.client.threads();
-    const before = lease.store.thread(threadId);
-    const action: PendingAction = { key: ++this.count, threadId, patch, at, label, waiting: true };
-    this.pending.add(action);
     try {
-      await runCommand(this.client, payload);
-    } catch (error) {
-      this.pending.remove(action);
-      lease.release();
-      throw error;
-    }
-    this.pending.replace({ ...action, waiting: false });
-    await this.shown(lease, threadId, patch, before);
-    this.pending.remove(action);
-    lease.release();
-  }
-  /** Resolves when the list shows `patch`, or after `settleMs` regardless. */
-  private shown(
-    lease: Lease<SidebarSource>,
-    threadId: string,
-    patch: OrganizePatch,
-    before: ThreadListEntry | undefined,
-  ): Promise<void> {
-    return new Promise((resolve) => {
-      const selection = lease.store.select([`thread:${threadId}`, "ids"], (reader) =>
-        reflects(reader.thread(threadId), patch, before),
+      await runOrganize(
+        this.pending,
+        lease.store,
+        this.timers,
+        { key: this.pending.nextKey(), threadId, patch, at, label, waiting: true },
+        () => runCommand(this.client, payload),
       );
-      let finished = false;
-      let unsubscribe: (() => void) | undefined;
-      const finish = () => {
-        if (finished) return;
-        finished = true;
-        unsubscribe?.();
-        cancel();
-        resolve();
-      };
-      const cancel = this.timers.set(settleMs, finish);
-      unsubscribe = selection.subscribe(() => {
-        if (selection.getSnapshot()) finish();
-      });
-      if (selection.getSnapshot()) finish();
-    });
+    } finally {
+      lease.release();
+    }
   }
   private emit(): void {
     for (const listener of this.listeners) listener();

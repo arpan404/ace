@@ -64,7 +64,18 @@ export function targetMachine(
 export interface NewThreadMachines {
   machines: readonly Machine[];
   current: Machine;
-  choose(machine: Machine): void;
+  /** Move New thread to `machine`, taking the project and the message along. */
+  choose(machine: Machine, leaving?: Leaving): void;
+}
+
+/** What New thread takes along to another machine. */
+export interface Leaving {
+  /** The project: that machine's own copy, `chatChoice` for a chat, or the one to copy there. */
+  project: string;
+  /** The machine `project` is on, when that machine doesn't have it: sending copies it. */
+  from?: string | undefined;
+  /** The draft whose message goes along. */
+  draft: { host: string; key: string };
 }
 
 export const NewThreadMachineContext = createContext<NewThreadMachines | undefined>(undefined);

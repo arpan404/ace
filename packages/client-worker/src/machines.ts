@@ -47,11 +47,17 @@ interface Live {
   client?: RemoteClient;
   stop?: () => void;
   stopFailure?: () => void;
+  /** Cancels the scheduled automatic reconnect, while one waits. */
+  retry?: () => void;
   verification: number;
   attached: boolean;
   enabled: boolean;
   removing: boolean;
 }
+/** Automatic reconnects back off from 1s to 30s and start over once the machine is online. */
+const retryBaseMs = 1_000;
+const retryCapMs = 30_000;
+
 type ThreadCommand = Exclude<CommandPayload, { type: "thread.create" | "thread.prepare" }>;
 type CreateCommand = Extract<CommandPayload, { type: "thread.create" | "thread.prepare" }>;
 /** Keep all routed controls on the reference's thread before they reach any worker. */
@@ -76,6 +82,8 @@ export class MachinePool {
   private live = new Map<string, Live>();
   private notifications = new Notifications(4096);
   private order: readonly string[] = [];
+  /** Failed connections in a row per machine, for the reconnect backoff. */
+  private failures = new Map<string, number>();
   private closed = false;
   private starting: Promise<void> | undefined;
   constructor(options: MachinePoolOptions) {
@@ -158,6 +166,7 @@ export class MachinePool {
     }
     if (!live || this.closed) return;
     this.live.delete(hostId);
+    this.failures.delete(hostId);
     this.order = this.order.filter((id) => id !== hostId);
     this.dispose(live);
     this.notifications.emit(["ids", `machine:${hostId}`]);
@@ -238,7 +247,28 @@ export class MachinePool {
   }
   private publish(live: Live, state: MachineState): void {
     live.state = state;
+    if (state.status === "online") this.failures.delete(state.entry.hostId);
     this.notifications.emit([`machine:${state.entry.hostId}`]);
+  }
+  /**
+   * The connection ended where nothing inside it will try again (its worker died, its client
+   * gave up, or its identity check failed): start a fresh one after a backoff, so a machine
+   * that comes back shows online without reloading the window. A refused authorization waits
+   * for pairing again instead.
+   */
+  private recover(live: Live): void {
+    if (!this.current(live) || live.retry || live.state.status === "auth_failed") return;
+    const hostId = live.state.entry.hostId;
+    const failures = this.failures.get(hostId) ?? 0;
+    this.failures.set(hostId, failures + 1);
+    const delay = Math.min(retryCapMs, retryBaseMs * 2 ** failures);
+    live.retry = this.options.remote.scheduler.set(delay, () => {
+      delete live.retry;
+      if (!this.current(live) || live.removing) return;
+      if (live.state.status === "online" || live.state.status === "auth_failed") return;
+      this.stopWorker(live);
+      this.connect(live.state.entry);
+    });
   }
   private connect(entry: MachineEntry): void {
     const live: Live = {
@@ -263,6 +293,7 @@ export class MachinePool {
             : "offline",
         error: error instanceof ClientError ? error : new ClientError("daemon"),
       });
+      this.recover(live);
     });
   }
   private current(live: Live): boolean {
@@ -277,6 +308,7 @@ export class MachinePool {
       if (!this.current(live)) return;
       this.publish(live, { entry: live.state.entry, status: "offline", error });
       this.stopWorker(live);
+      this.recover(live);
     });
     const client = new RemoteClient(worker.port, worker.config, this.options.remote);
     live.client = client;
@@ -295,6 +327,8 @@ export class MachinePool {
                 : "offline",
           ...(client.error ? { error: client.error } : {}),
         });
+        // A client that is connecting or offline retries by itself; a fatal one never does.
+        if (client.state === "fatal") this.recover(live);
         return;
       }
       void client
@@ -336,15 +370,17 @@ export class MachinePool {
               status: "offline",
               error: error instanceof ClientError ? error : new ClientError("daemon"),
             });
+            this.recover(live);
           },
         )
         .catch((error: unknown) => {
-          if (this.current(live))
-            this.publish(live, {
-              entry: live.state.entry,
-              status: "offline",
-              error: error instanceof ClientError ? error : new ClientError("storage"),
-            });
+          if (!this.current(live)) return;
+          this.publish(live, {
+            entry: live.state.entry,
+            status: "offline",
+            error: error instanceof ClientError ? error : new ClientError("storage"),
+          });
+          this.recover(live);
         });
     };
     live.stop = client.connectionState().subscribe(changed);
@@ -357,6 +393,8 @@ export class MachinePool {
   }
   private stopWorker(live: Live): void {
     ++live.verification;
+    live.retry?.();
+    delete live.retry;
     live.stop?.();
     live.stopFailure?.();
     if (live.client) void live.client.close().catch(() => {});

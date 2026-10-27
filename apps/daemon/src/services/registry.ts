@@ -24,7 +24,9 @@ import { createPiSocketSession } from "./pi.ts";
 
 import { createAgentRegistrySession } from "./agent-registry.ts";
 import { createScreenSession } from "./screen.ts";
-import { Simulators } from "@ace/screen";
+import { createLockedUseSession } from "./locked-use.ts";
+import { Simulators, placeholderLockedUseInstaller, type LockedUseInstaller } from "@ace/screen";
+import { LockedUseState } from "../locked-use-state.ts";
 import { createSearchSession } from "./search.ts";
 import { createCursorAuthSession } from "./cursor-auth.ts";
 import { createAccountsSession } from "./accounts.ts";
@@ -112,9 +114,19 @@ export const socketServiceFactories = [
 ];
 export function createSocketRegistry() {
   const simulators = new Simulators(process.platform);
+  // Until the native installer lands, a placeholder that reports state and refuses changes.
+  const placeholder = placeholderLockedUseInstaller(process.platform);
+  // One state per installer for the whole daemon, so every socket sees the same ordered state.
+  const lockedUse = new WeakMap<LockedUseInstaller, LockedUseState>();
+  const lockedUseState = (installer: LockedUseInstaller) => {
+    let state = lockedUse.get(installer);
+    if (!state) lockedUse.set(installer, (state = new LockedUseState(installer)));
+    return state;
+  };
   return (context: SocketContext) => [
     ...socketServiceFactories.map((factory) => factory(context)),
     createScreenSession(context, simulators),
+    createLockedUseSession(context, lockedUseState(context.options.lockedUse ?? placeholder)),
   ];
 }
 export function parseSocketMessage(input: unknown): SocketMessage {

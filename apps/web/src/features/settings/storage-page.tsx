@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
-import { useQuery } from "@tanstack/react-query";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { StorageApply, StorageCompaction, StoragePlan, StorageRequest } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -12,7 +12,9 @@ import {
 import { StorageRetentionControls } from "./storage-retention.tsx";
 import { DataRetentionSettings } from "./data-retention.tsx";
 import { StorageCompactAction, StoragePlanPreview } from "./storage-plan.tsx";
-import { storageBytes, storageLabels } from "./storage-copy.ts";
+import { itemCount, storageBytes, storageLabels } from "./storage-copy.ts";
+import { FailedBackups, WorktreeStorageSettings } from "./worktree-storage.tsx";
+import { StorageRetention } from "@ace/protocol";
 
 /**
  * Settings › Storage for the machine Settings edits: what its data takes, a reviewed cleanup,
@@ -32,20 +34,25 @@ export function StorageSettings() {
     if (response.result.kind === "error") throw new Error(response.result.message);
     return response.result;
   };
-  const usage = useQuery({
-    queryKey: [client, "storage", "usage"],
-    enabled: ready,
-    queryFn: async () => {
-      const response = await request({ op: "storage.usage" });
+  const usage = useDaemonQuery({
+    queryKey: ["storage", "usage"],
+    read: async (daemon, signal) => {
+      const reply = await daemon.request(
+        { type: "storage.request", operation: { op: "storage.usage" } },
+        { signal },
+      );
+      const response = reply.result;
       if (response.kind !== "usage") throw new Error("Unexpected storage response.");
       return response.usage;
     },
   });
-  const preview = async () => {
+  const preview = async (
+    operation: Extract<StorageRequest["operation"], { op: "cleanup.plan" }>,
+  ) => {
     setBusy(true);
     setError(undefined);
     try {
-      const response = await request({ op: "cleanup.plan", forceItems });
+      const response = await request(operation);
       if (response.kind !== "plan") throw new Error("Unexpected cleanup response.");
       setPlan(response.plan);
       setResult(undefined);
@@ -56,6 +63,17 @@ export function StorageSettings() {
       setBusy(false);
     }
   };
+  const previewWorktrees = () =>
+    preview({
+      op: "cleanup.plan",
+      kinds: ["worktrees"],
+      retention: StorageRetention.parse({ worktreeMode: "all_settled" }),
+      forceItems,
+    });
+  const previewCleanup = () =>
+    forceItems.length && plan?.retention.worktreeMode === "all_settled"
+      ? previewWorktrees()
+      : preview({ op: "cleanup.plan", forceItems });
   const apply = async () => {
     if (!plan) return;
     setBusy(true);
@@ -99,7 +117,12 @@ export function StorageSettings() {
         {usage.data ? (
           <>
             {usage.data.categories.map((category) => (
-              <SettingRow key={category.kind} title={storageLabels[category.kind]} inline>
+              <SettingRow
+                key={category.kind}
+                title={storageLabels[category.kind]}
+                description={itemCount(category.items)}
+                inline
+              >
                 <span className="text-sm tabular-nums text-muted-foreground">
                   {storageBytes(category.bytes)}
                 </span>
@@ -127,6 +150,7 @@ export function StorageSettings() {
             {!usage.data.complete && (
               <SettingNote>Measured in a bounded batch; refresh for more.</SettingNote>
             )}
+            <FailedBackups backups={usage.data.backups} />
           </>
         ) : (
           <SettingNote role={usage.isError ? "alert" : "status"}>
@@ -146,7 +170,7 @@ export function StorageSettings() {
           >
             Refresh usage
           </Button>
-          <Button size="sm" disabled={!ready || busy} onClick={() => void preview()}>
+          <Button size="sm" disabled={!ready || busy} onClick={() => void previewCleanup()}>
             {busy
               ? "Working…"
               : forceItems.length
@@ -175,6 +199,15 @@ export function StorageSettings() {
           onApply={() => void apply()}
         />
       )}
+      <WorktreeStorageSettings
+        busy={busy}
+        onPreviewAll={() => void previewWorktrees()}
+        onSaved={() => {
+          setPlan(undefined);
+          setResult(undefined);
+          setForceItems([]);
+        }}
+      />
       <DataRetentionSettings />
       <StorageRetentionControls
         onSaved={() => {

@@ -1,10 +1,15 @@
-import { ManagedWorktrees } from "../managed-worktrees.ts";
+import { ManagedWorktrees, type ManagedWorktree } from "../managed-worktrees.ts";
 import { createHash } from "node:crypto";
 import { ThreadId, type StorageKind, type StorageReason } from "@ace/protocol";
 import type { OwnedStorageCandidate, StorageOwner, StorageTarget } from "./types.ts";
 import { StorageFiles, storageId } from "./files.ts";
 import { storageProtections, storageTree } from "./ownership.ts";
 import { transcriptBytes, transcriptQueries } from "./transcript.ts";
+
+export interface StorageScan {
+  candidates: OwnedStorageCandidate[];
+  complete: boolean;
+}
 
 const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -95,14 +100,14 @@ export class StorageInventory {
     const workspace = services.workspaceActions;
     if (!workspace) throw new Error("storage_git_unavailable");
     if (!this.managed.verify(repo, path)) return undefined;
-    const state = await workspace.git.inspectWorktreeCleanup(repo, path);
+    const state = await (this.owner.worktrees ?? workspace.git).inspectWorktreeCleanup(repo, path);
     // Git inspection awaits I/O. Ownership is read afterwards, and apply holds root admission.
     if (!this.managed.verify(repo, path)) return undefined;
-    const { ids, protections, threads } = this.worktreeOwnership(path);
+    const { ids, protections, threads, settledAt, open } = this.worktreeOwnership(path);
     if (state.main) protections.push("main_worktree");
     if (state.locked) protections.push("locked_worktree");
     if (state.dirty) protections.push("uncommitted");
-    if (state.unpushed) protections.push("unpushed");
+    if (state.unpushed && !state.mergedIntoMain) protections.push("unpushed");
     const prs = threads.flatMap((thread) => thread.details?.linkedPrs ?? []);
     const merged =
       prs.length > 0 && prs.every((pr) => pr.state === "merged" && !pr.unverified && !pr.deleted);
@@ -128,7 +133,10 @@ export class StorageInventory {
         ...threads.map((thread) => thread.activityAt ?? thread.updatedAt),
       ),
       threadIds: ids,
-      fingerprint: fingerprint({ state, owners: ids, prs }),
+      ...(settledAt === undefined ? {} : { settledAt }),
+      mergedIntoMain: state.mergedIntoMain,
+      openThreads: open,
+      fingerprint: fingerprint({ state, owners: ids, prs, settledAt, open }),
       protections,
       branch: state.branch,
       removeBranch: merged,
@@ -140,6 +148,8 @@ export class StorageInventory {
         gitFingerprint: state.fingerprint,
         head: state.head,
         branch: state.branch,
+        ...(settledAt === undefined ? {} : { settledAt }),
+        openThreads: open,
       },
     };
   }
@@ -161,7 +171,12 @@ export class StorageInventory {
       return thread ? [thread] : [];
     });
     if (
-      threads.some((thread) => thread.deletedAt === undefined && thread.archivedAt === undefined) ||
+      threads.some(
+        (thread) =>
+          thread.deletedAt === undefined &&
+          thread.archivedAt === undefined &&
+          thread.settledAt === undefined,
+      ) ||
       store
         .statement(`SELECT 1 FROM workspace_canonical_roots w WHERE w.root=? AND NOT EXISTS
         (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.workspace_id) LIMIT 1`)
@@ -172,7 +187,17 @@ export class StorageInventory {
       .statement("SELECT 1 FROM workspace_root_reservations WHERE root=? AND command_id<>?")
       .get(path, `storage:${this.owner.cleanupPlanId ?? ""}`);
     if (reservation) protections.push("cleanup_in_progress");
-    return { ids, protections, threads };
+    // Settled but unarchived threads only free their worktree in the settled cleanup modes.
+    const open = threads.some(
+      (thread) => thread.deletedAt === undefined && thread.archivedAt === undefined,
+    );
+    const settledAt =
+      threads.length && threads.every((thread) => thread.settledAt !== undefined)
+        ? Math.max(
+            ...threads.map((thread) => Math.max(thread.settledAt ?? 0, thread.activityAt ?? 0)),
+          )
+        : undefined;
+    return { ids, protections, threads, settledAt, open };
   }
   async inspect(
     target: StorageTarget,
@@ -231,33 +256,46 @@ export class StorageInventory {
     if (kinds.has("worktrees") && services.workspaceActions) {
       const records = this.managed.list();
       if (records.length > 256) complete = false;
-      for (const record of records.slice(0, 256)) {
-        if (!going()) return { candidates, complete: false };
-        try {
-          const candidate = await this.worktree(record.repo, record.path);
-          if (candidate) candidates.push(candidate);
-        } catch {
-          complete = false;
-          candidates.push({
-            id: storageId("worktrees", `${record.repo}:${record.path}`),
-            kind: "worktrees",
-            label: record.path,
-            bytes: 0,
-            modifiedAt: record.created_at,
-            threadIds: [],
-            fingerprint: "unavailable",
-            protections: ["unknown_git_state"],
-            eligibleReason: "orphaned",
-            target: {
-              type: "worktree",
-              repo: record.repo,
-              path: record.path,
-              gitFingerprint: "unavailable",
-              head: null,
-              branch: null,
-            },
-          });
-        }
+      const scan = await this.scanWorktrees(records.slice(0, 256), going);
+      candidates.push(...scan.candidates);
+      complete &&= scan.complete;
+    }
+    return { candidates, complete };
+  }
+
+  /** Inspect only the selected page; ownership and Git checks match reviewed cleanup. */
+  async scanWorktrees(
+    records: readonly ManagedWorktree[],
+    going: () => boolean,
+  ): Promise<StorageScan> {
+    const candidates: OwnedStorageCandidate[] = [];
+    let complete = true;
+    for (const record of records) {
+      if (!going()) return { candidates, complete: false };
+      try {
+        const candidate = await this.worktree(record.repo, record.path);
+        if (candidate) candidates.push(candidate);
+      } catch {
+        complete = false;
+        candidates.push({
+          id: storageId("worktrees", `${record.repo}:${record.path}`),
+          kind: "worktrees",
+          label: record.path,
+          bytes: 0,
+          modifiedAt: record.created_at,
+          threadIds: [],
+          fingerprint: "unavailable",
+          protections: ["unknown_git_state"],
+          eligibleReason: "orphaned",
+          target: {
+            type: "worktree",
+            repo: record.repo,
+            path: record.path,
+            gitFingerprint: "unavailable",
+            head: null,
+            branch: null,
+          },
+        });
       }
     }
     return { candidates, complete };

@@ -2,15 +2,16 @@ import { visibleSessions } from "@ace/ui-core/computer-use";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { BlockedAppsRow } from "./blocked-apps.tsx";
 import { EmulatorWindowRow } from "./emulator-window.tsx";
+import { LockedUseRow } from "./locked-use-row.tsx";
 import { EnableRow, LiveSessions, Permissions } from "./sections.tsx";
 import { useComputerUse } from "./use-computer-use.ts";
 import { ToolchainSection } from "./toolchain-section.tsx";
 import { UseMyChromeSettings } from "./use-my-chrome.tsx";
 
 /**
- * Settings › Computer use: on or off, the apps agents can't use, every live session,
- * the screen helper's permissions, how Android emulators open, Use my Chrome and the
- * machine's device tools. The daemon decides; this page shows and asks.
+ * Settings › Computer use: on or off, working while this Mac is locked, the apps agents can't
+ * use, every live session, the screen helper's permissions, how Android emulators open, Use my
+ * Chrome and the machine's device tools. The daemon decides; this page shows and asks.
  */
 export function ComputerUseSettings(props: {
   /** Set when Settings edits another machine: its name. Its screen helper isn't reachable here. */
@@ -52,6 +53,7 @@ function LocalComputerUse() {
     <>
       <SettingSection label="Access">
         <EnableRow use={use} />
+        <LockedUseRow use={use} />
         {!use.snapshot.unavailable && <BlockedAppsRow />}
       </SettingSection>
       {active && (

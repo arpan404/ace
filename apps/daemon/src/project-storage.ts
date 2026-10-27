@@ -280,7 +280,35 @@ export class ProjectStorage {
     this.emit({ type: "workspace.changed", change, workspaceId: id, workspace });
     return workspace;
   }
-  remove(id: WorkspaceId, archiveThreads: boolean, hasOwnedWork: (id: ThreadId) => boolean): void {
+  /**
+   * The project's threads that removal deletes. Refuses while one still runs, unless the person
+   * chose to stop them, and while a worktree change holds the project's folder.
+   */
+  threadsToDelete(
+    id: WorkspaceId,
+    stopRunning: boolean,
+    hasOwnedWork: (id: ThreadId) => boolean,
+  ): ThreadId[] {
+    const workspace = this.get(id);
+    this.store.workspaceReservations.assertAvailable(
+      this.store.workspaceReservations.workspaceRoot(id, workspace.path),
+    );
+    const threads: ThreadId[] = [];
+    this.forThreads(id, (threadId) => {
+      const thread = this.store.getThread(threadId);
+      if (!thread || thread.deletedAt !== undefined) return;
+      if (!stopRunning && running(thread.status.state, hasOwnedWork(threadId)))
+        throw new ProjectError("workspace_threads_running");
+      threads.push(threadId);
+    });
+    return threads;
+  }
+  /**
+   * Stop listing the project and delete what is left of its threads, so none of them keeps it
+   * on screen. Its threads were already deleted through the thread lifecycle where it runs; one
+   * that started since is refused while it runs unless the person chose to stop running ones.
+   */
+  remove(id: WorkspaceId, stopRunning: boolean, hasOwnedWork: (id: ThreadId) => boolean): void {
     this.store.atomic((db) => {
       const workspace = this.get(id);
       this.store.workspaceReservations.assertAvailable(
@@ -289,23 +317,61 @@ export class ProjectStorage {
       this.forThreads(id, (threadId) => {
         const thread = this.store.getThread(threadId);
         if (!thread || thread.deletedAt !== undefined) return;
-        if (
-          !archiveThreads &&
-          (!["new", "done", "failed"].includes(thread.status.state) || hasOwnedWork(threadId))
-        )
+        if (!stopRunning && running(thread.status.state, hasOwnedWork(threadId)))
           throw new ProjectError("workspace_threads_running");
-        if (archiveThreads && thread.archivedAt === undefined)
-          this.store.appendEvents(
-            threadId,
-            [{ type: "thread.updated", archivedAt: this.now() }],
-            this.now(),
-          );
+        this.store.appendEvents(
+          threadId,
+          [
+            {
+              type: "thread.client.updated",
+              changes: { deletedAt: this.now(), autoSettleAt: null },
+            },
+          ],
+          this.now(),
+        );
       });
       db.prepare(
         "INSERT INTO workspace_unregistered VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET removed_at=excluded.removed_at",
       ).run(id, this.now());
     });
     this.emit({ type: "workspace.changed", change: "removed", workspaceId: id });
+  }
+  /**
+   * Delete threads left in removed projects, which removal once kept (archived). They kept a
+   * removed project in the task list's project filter with nothing to manage it from. One that
+   * still runs is left until a later start finds it settled. Returns the next page's cursor.
+   */
+  deleteLeftoverThreads(
+    after: string,
+    hasOwnedWork: (id: ThreadId) => boolean,
+  ): string | undefined {
+    const rows = this.store
+      .statement(
+        `SELECT t.id FROM threads t JOIN workspace_unregistered u ON u.workspace_id=t.workspace_id
+        LEFT JOIN workspace_metadata m ON m.workspace_id=t.workspace_id
+        WHERE t.id>? AND coalesce(m.kind,'')<>'chat'
+        AND json_extract(t.client,'$.deletedAt') IS NULL ORDER BY t.id LIMIT 64`,
+      )
+      .all(after)
+      .map((row) => ThreadId.parse(row.id));
+    this.store.atomic(() => {
+      for (const threadId of rows) {
+        const thread = this.store.getThread(threadId);
+        if (!thread || thread.deletedAt !== undefined) continue;
+        if (running(thread.status.state, hasOwnedWork(threadId))) continue;
+        this.store.appendEvents(
+          threadId,
+          [
+            {
+              type: "thread.client.updated",
+              changes: { deletedAt: this.now(), autoSettleAt: null },
+            },
+          ],
+          this.now(),
+        );
+      }
+    });
+    return rows.length === 64 ? rows[63] : undefined;
   }
   private forThreads(id: WorkspaceId, visit: (id: ThreadId) => void): void {
     let after = "";
@@ -322,6 +388,10 @@ export class ProjectStorage {
     }
   }
 }
+
+/** A thread still working, or one whose terminals or previews still run. */
+const running = (state: string, ownsWork: boolean) =>
+  ownsWork || !["new", "done", "failed"].includes(state);
 
 const storedRow = Project.extend({
   kind: Project.shape.kind.nullable().catch(null),

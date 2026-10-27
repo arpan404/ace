@@ -24,6 +24,8 @@ export interface DeviceSession {
   activitySequence: number;
   /** A foldable device's posture, when ace can fold it. */
   posture?: DevicePosture;
+  /** The posture read in flight, so overlapping refreshes share one. */
+  readingPosture?: Promise<void>;
   capture?: DeviceCapture;
   streamControl?: DeviceStreamControl;
   latest?: Frame;

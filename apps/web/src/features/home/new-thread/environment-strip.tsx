@@ -26,6 +26,11 @@ export function NewThreadEnvironment(props: {
   onMode(mode: WorkMode): void;
   /** Why this project can't have a worktree ("Not a Git repository"), when it can't. */
   noWorktree?: string | undefined;
+  /**
+   * The machine the project is copied from on send, when this one doesn't have it yet: its
+   * branches aren't here to choose from, so it starts from the default branch.
+   */
+  copyFrom?: string | undefined;
   branches: BaseRefs;
   base: WorktreeBase | undefined;
   onBase(base: WorktreeBase): void;
@@ -73,7 +78,13 @@ export function NewThreadEnvironment(props: {
               />
             </label>
           </Tip>
-          {worktree && (
+          {props.copyFrom !== undefined && (
+            <>
+              {divider}
+              <span className="min-w-0 truncate px-2">Copied from {props.copyFrom} when sent</span>
+            </>
+          )}
+          {worktree && props.copyFrom === undefined && (
             <>
               {divider}
               <Popover open={choosing} onOpenChange={setChoosing}>

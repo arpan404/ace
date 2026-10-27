@@ -1,17 +1,22 @@
 import { StorageService } from "../storage/service.ts";
 import { ScheduledStorageCleanup, storageSchedule } from "../storage/schedule.ts";
 import { DataRetention } from "../storage/data-retention.ts";
+import { WorktreeIO } from "../storage/worktree-io.ts";
+import { WorktreeMaintenance } from "../storage/worktree-maintenance.ts";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 export async function startStorage(context: ServiceContext): Promise<void> {
+  const worktrees = new WorktreeIO();
+  context.resources.own(() => worktrees.close());
   const owner = {
     store: context.store,
     services: context.services,
     now: context.now,
     id: context.id,
     root: context.config.dataDir,
+    worktrees,
   };
   const storage = new StorageService(owner);
   context.resources.own(() => storage.close());
@@ -19,7 +24,13 @@ export async function startStorage(context: ServiceContext): Promise<void> {
   // Recovery finishes after the other listener-phase services have recovered their ownership.
   const scheduled =
     (await context.services.settings?.get("storage.scheduledCleanup"))?.value === true;
-  await storage.resume((reviewer) => reviewer !== "storage:scheduler" || scheduled);
+  const worktreeDays = (await context.services.settings?.get("storage.worktreeRetentionDays"))
+    ?.value;
+  await storage.resume((reviewer) =>
+    reviewer === "storage:worktrees"
+      ? typeof worktreeDays === "number"
+      : reviewer !== "storage:scheduler" || scheduled,
+  );
   context.services.storage = storage;
   const schedule = new ScheduledStorageCleanup(
     owner,
@@ -38,6 +49,14 @@ export async function startStorage(context: ServiceContext): Promise<void> {
   );
   context.resources.own(() => retention.close());
   await retention.start();
+  const worktreeMaintenance = new WorktreeMaintenance(
+    owner,
+    storage,
+    context.options.storageSchedule ?? storageSchedule,
+    backgroundFailure(context, "Worktree maintenance failed"),
+  );
+  context.resources.own(() => worktreeMaintenance.close());
+  await worktreeMaintenance.start();
 }
 
 export function createStorageSession(context: SocketContext): SocketService {

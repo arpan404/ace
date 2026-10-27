@@ -28,11 +28,13 @@ export function staysBehind(member: {
   names?: readonly string[];
 }): boolean {
   if (member.kind !== "directory") return false;
-  const parts = member.path.split("/");
-  const name = parts.at(-1) ?? "";
-  if (rebuiltNames.has(name)) return true;
-  if (rebuiltPairs.has(parts.slice(-2).join("/"))) return true;
-  return member.names?.includes(".git") ?? false;
+  return rebuiltFolder(member.path) || (member.names?.includes(".git") ?? false);
+}
+
+/** True when the folder at `path` holds dependencies or caches, rebuilt wherever it lands. */
+export function rebuiltFolder(path: string): boolean {
+  const parts = path.split("/");
+  return rebuiltNames.has(parts.at(-1) ?? "") || rebuiltPairs.has(parts.slice(-2).join("/"));
 }
 
 /**

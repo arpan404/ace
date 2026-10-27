@@ -22,7 +22,7 @@ function useProject(projectId: string) {
 
 const settledStates = new Set(["new", "done", "failed"]);
 
-/** Threads in a project that are still going: removal waits for them or archives them. */
+/** Threads in a project that are still going: removal waits for them or stops them. */
 function useRunningThreads(projectId: string): number {
   return (
     useSidebarAll(
@@ -41,9 +41,9 @@ function useRunningThreads(projectId: string): number {
 }
 
 /**
- * Remove: ace stops listing the project; nothing on disk is deleted. While its threads still
- * run, the daemon refuses, and the person can archive them and remove it anyway (archived
- * threads finish their work).
+ * Remove: ace deletes the project's threads and stops listing it; nothing on disk is deleted.
+ * While its threads still run, the daemon refuses, and the person can stop them and remove it
+ * anyway.
  */
 export function RemoveProjectDialog(props: {
   projectId: string;
@@ -66,12 +66,12 @@ export function RemoveProjectDialog(props: {
   }, []);
   const name = project?.name ?? "this project";
 
-  const remove = async (archiveThreads: boolean) => {
+  const remove = async (stopRunning: boolean) => {
     if (!project) return;
     setBusy(true);
     setProblem(undefined);
     try {
-      await commands.remove(project.id, archiveThreads);
+      await commands.remove(project.id, stopRunning);
       if (!current.current) return;
       props.onOpenChange(false);
     } catch (error) {
@@ -90,10 +90,9 @@ export function RemoveProjectDialog(props: {
         <DialogHeader>
           <DialogTitle>Remove {name}?</DialogTitle>
           <DialogDescription>
-            This won't delete any files.{" "}
+            Its threads are deleted. No files are.{" "}
             {project ? (
               <>
-                ace stops listing the project;{" "}
                 <span className="font-mono text-[12.5px]">
                   {displayPath(project.path, home?.path)}
                 </span>{" "}
@@ -110,23 +109,18 @@ export function RemoveProjectDialog(props: {
               : running > 1
                 ? `${running} threads in ${name} are still running.`
                 : `Threads in ${name} are still running.`}{" "}
-            Archive its threads to remove it now: they keep running until they finish, and stay in
-            Archived.
+            Stop them to remove it now.
           </Problem>
         ) : (
           problem && <Problem>{problem}</Problem>
         )}
         <Footer>
           {refusedRunning ? (
-            <Button variant="primary" disabled={busy} onClick={() => void remove(true)}>
-              {busy ? "Removing…" : "Archive threads and remove"}
+            <Button variant="danger" disabled={busy} onClick={() => void remove(true)}>
+              {busy ? "Removing…" : "Stop threads and remove"}
             </Button>
           ) : (
-            <Button
-              variant="primary"
-              disabled={busy || !project}
-              onClick={() => void remove(false)}
-            >
+            <Button variant="danger" disabled={busy || !project} onClick={() => void remove(false)}>
               {busy ? "Removing…" : "Remove project"}
             </Button>
           )}

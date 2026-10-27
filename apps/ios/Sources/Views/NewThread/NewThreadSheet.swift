@@ -24,6 +24,8 @@ struct NewThreadSheet: View {
     @State private var choosingProject = false
     @State private var attachProblem: String?
     @State private var profiles: [TaskProfile] = []
+    /// The first message's `@`, `/` and + lists, in the chosen project with the chosen agent.
+    @State private var suggester = ComposerSuggester()
     private var draft: NewThreadDraft { drafts.draft }
     /// The first message's files, in the chosen project's draft scope.
     private var files: [AttachmentFile] {
@@ -201,7 +203,13 @@ struct NewThreadSheet: View {
             }
             NewThreadComposer(drafts: drafts, client: client, files: files, choice: choice, agentsState: compose?.agentsState,
                               sending: sending, blocker: blocker, attachProblem: $attachProblem,
-                              chooseModel: { choosingModel = true }, chooseTune: { choosingTune = true }, send: send)
+                              chooseModel: { choosingModel = true }, chooseTune: { choosingTune = true }, send: send,
+                              suggester: suggester, run: runComposerAction)
+                .task(id: suggestKey) {
+                    suggester.attach(client)
+                    suggester.scope = draft.projectId.flatMap { $0 == NewThreadDraft.chat ? nil : .draft(workspaceId: $0, provider: choice.agent?.provider) }
+                    suggester.readAhead()
+                }
         }
         .padding(.horizontal, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
         .padding(.bottom, AceTheme.Spacing.sm)
@@ -224,7 +232,7 @@ struct NewThreadSheet: View {
         if let client, let project = draft.projectId {
             NavigationStack {
                 FilesScreen(model: client, scope: .project(project), subtitle: self.project?.name ?? "",
-                            mention: { file in drafts.edit { $0.text = Mention.insert(file, into: $0.text) }; browsing = false })
+                            mention: { file in mentionFile(file); browsing = false })
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button { browsing = false } label: { Image(systemName: "xmark") }
@@ -242,12 +250,28 @@ struct NewThreadSheet: View {
                 MentionSearchView(compose: client.compose, workspaceId: draft.projectId ?? "", search: { query in
                     client.composeAction(["kind": "mentions", "workspaceId": draft.projectId ?? "", "query": query])
                 }) { file in
-                    drafts.edit { $0.text = Mention.insert(file, into: $0.text) }
+                    mentionFile(file)
                     path = []
                 }
             case .instructions:
                 NewThreadInstructionsView(drafts: drafts, profiles: profiles) { profiles = TaskProfileStore(defaults: .standard).load() }
             }
+        }
+    }
+    /// `@path` at the end of the words, sent as a mention of the file.
+    private func mentionFile(_ path: String) {
+        drafts.edit { $0.text = Mention.insert(path, into: $0.text) }
+        drafts.add(.file(path, endingAt: draft.text))
+    }
+    /// Where the lists come from: the machine, project and agent.
+    private var suggestKey: [String] { [machineId ?? "", draft.projectId ?? "", choice.agent?.provider ?? ""] }
+    /// A builtin from the composer's `/` or + list (the bridge lists only these before a thread exists).
+    private func runComposerAction(_ action: String) {
+        switch action {
+        case "plan": drafts.edit { $0.access = "read-only" }
+        case "model": choosingModel = true
+        case "project": choosingProject = true
+        default: break
         }
     }
     private func send() {
@@ -265,9 +289,10 @@ struct NewThreadSheet: View {
         let sending = draft
         self.sending = true
         Task {
-            let admitted = await client.startThread(sending, commandId: commandId)
+            let admitted = await client.startThread(sending, commandId: commandId, references: sending.picks?.payload ?? [])
             self.sending = false
             if admitted {
+                suggester.sent()
                 drafts.admitted()
                 saved(machineId, commandId)
                 dismiss()

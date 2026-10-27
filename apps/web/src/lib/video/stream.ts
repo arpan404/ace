@@ -33,6 +33,22 @@ export interface VideoStreamHandlers {
   present(picture: VideoPicture): void;
   /** Free the daemon's window up to `sequence`; `keyframe`: the decoder needs a fresh start. */
   ack(sequence: number, keyframe?: boolean): void;
+  /**
+   * The decoder held chunks up to `sequence` past the deadline without answering; it has been
+   * dropped. Absent, that is acked as a decode error: up to `sequence`, asking for a keyframe.
+   */
+  stalled?(sequence: number): void;
+}
+
+/** How long the decoder may hold chunks without handing any back before it is dropped. */
+export const decodeDeadlineMs = 1000;
+
+export interface VideoStreamOptions {
+  /**
+   * Runs `run` after `ms`; the result cancels it. Given, a decoder that takes chunks but answers
+   * none of them within `decodeDeadlineMs` is dropped, even when no new chunk comes.
+   */
+  after?(ms: number, run: () => void): () => void;
 }
 
 const sameBytes = (a: Uint8Array | undefined, b: Uint8Array | undefined) =>
@@ -63,9 +79,17 @@ export class VideoStream {
   #pending = new Map<number, Sizes>();
   #latest = -1;
   #closed = false;
-  constructor(factory: VideoDecoderFactory, handlers: VideoStreamHandlers) {
+  #options: VideoStreamOptions;
+  /** Cancels the deadline for the decoder's next picture, while it holds chunks. */
+  #deadline: (() => void) | undefined;
+  constructor(
+    factory: VideoDecoderFactory,
+    handlers: VideoStreamHandlers,
+    options: VideoStreamOptions = {},
+  ) {
     this.#factory = factory;
     this.#handlers = handlers;
+    this.#options = options;
   }
   receive(chunk: VideoChunk): void {
     if (this.#closed) return;
@@ -103,10 +127,14 @@ export class VideoStream {
       this.#decoder?.decode({ key: chunk.key, sequence: chunk.sequence, bytes: chunk.bytes });
     } catch {
       this.#failed();
+      return;
     }
+    // New chunks don't move a running deadline: only an answer from the decoder does.
+    if (this.#pending.size && !this.#deadline) this.#arm();
   }
   /** Forget the decoder's place (a new subscription, a tab switch): wait for a keyframe. */
   reset(): void {
+    this.#disarm();
     this.#decoder?.close();
     this.#decoder = undefined;
     this.#config = undefined;
@@ -125,6 +153,9 @@ export class VideoStream {
         if (this.#decoder !== decoder || !sizes || this.#closed) return picture.close();
         for (const sequence of this.#pending.keys())
           if (sequence <= picture.sequence) this.#pending.delete(sequence);
+        // An answer: a fresh deadline for what the decoder still holds, or none.
+        this.#disarm();
+        if (this.#pending.size) this.#arm();
         this.#handlers.present({ picture, ...sizes });
       },
       error: () => {
@@ -132,6 +163,23 @@ export class VideoStream {
       },
     });
     return decoder;
+  }
+  #arm(): void {
+    const after = this.#options.after;
+    if (!after) return;
+    this.#deadline = after(decodeDeadlineMs, () => {
+      this.#deadline = undefined;
+      if (this.#closed || !this.#pending.size) return;
+      const latest = this.#latest;
+      this.reset();
+      this.#latest = latest;
+      if (this.#handlers.stalled) this.#handlers.stalled(latest);
+      else this.#handlers.ack(latest, true);
+    });
+  }
+  #disarm(): void {
+    this.#deadline?.();
+    this.#deadline = undefined;
   }
   #failed(): void {
     const latest = this.#latest;

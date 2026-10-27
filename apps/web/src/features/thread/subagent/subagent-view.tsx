@@ -113,17 +113,18 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
               className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
             >
               <WorkSide threadId={threadId} />
-              <div className="col-start-1 row-start-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain">
-                <div
-                  className={`${readingColumn} pt-6 pb-[calc(var(--composer-clearance,0px)+2rem)]`}
-                >
-                  {agent.spawnedBy && (
-                    <SubagentPrompt threadId={threadId} spawnedBy={agent.spawnedBy} />
-                  )}
-                  {/* As in a thread, the live line heads the work in progress. */}
-                  <SubagentLive threadId={threadId} agent={agent} />
-                  <AgentTranscript threadId={threadId} agentId={agentId} />
-                </div>
+              <div className="col-start-1 row-start-1 min-h-0 min-w-0">
+                <AgentTranscript
+                  threadId={threadId}
+                  agentId={agentId}
+                  prompt={
+                    agent.spawnedBy && (
+                      <SubagentPrompt threadId={threadId} spawnedBy={agent.spawnedBy} />
+                    )
+                  }
+                  // As in a thread, the live line heads the work in progress.
+                  live={<SubagentLive threadId={threadId} agent={agent} />}
+                />
               </div>
               <SubagentBottom threadId={threadId} agent={agent} root={root} />
             </div>

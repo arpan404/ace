@@ -9,6 +9,8 @@ import { tarHeaders } from "./tar.ts";
 
 export interface PackOptions {
   signal?: AbortSignal;
+  /** Keeps a member, and everything under it, out of the archive. */
+  prune?: FolderPrune;
   /** Refuse with `TOO_LARGE` once the archive would grow past this many bytes. */
   maxBytes?: number;
 }
@@ -47,12 +49,15 @@ function padding(size: number): number {
   return (512 - (size % 512)) % 512;
 }
 
-/** Counts what packFolder would write for the folder as it is now, without reading files. */
+/**
+ * Counts what packFolder would write for the folder as it is now, with the same `prune`, without
+ * reading files.
+ */
 export async function measureFolder(
   root: string,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; prune?: FolderPrune } = {},
 ): Promise<FolderMeasure> {
-  const walk = await walkFolder(root, options.signal);
+  const walk = await walkFolder(root, options.signal, options.prune);
   let bytes = END;
   let entries = 0;
   for await (const member of walk.members) {
@@ -128,9 +133,9 @@ async function copyFile(member: FolderMember, sink: Sink, scratch: Buffer, signa
 }
 
 /**
- * Writes an uncompressed tar of the whole folder to `file`, which must not exist.
- * Dotfiles and ignored files are included; links are stored as text, never followed.
- * The partial file is removed on any failure.
+ * Writes an uncompressed tar of the folder to `file`, which must not exist: everything but what
+ * `prune` keeps out, dotfiles included. Links are stored as text, never followed. The partial
+ * file is removed on any failure.
  */
 export async function packFolder(
   root: string,
@@ -138,7 +143,7 @@ export async function packFolder(
   options: PackOptions = {},
 ): Promise<PackResult> {
   checkAborted(options.signal);
-  return packWalk(await walkFolder(root, options.signal), file, options);
+  return packWalk(await walkFolder(root, options.signal, options.prune), file, options);
 }
 
 /**
@@ -150,7 +155,7 @@ export async function packFiles(
   root: string,
   paths: readonly string[],
   file: string,
-  options: PackOptions & { prune?: FolderPrune } = {},
+  options: PackOptions = {},
 ): Promise<PackResult> {
   checkAborted(options.signal);
   const walk = await walkSelected(root, paths, {

@@ -78,6 +78,7 @@ async function watching(options: {
   decoder?: ReturnType<typeof fakeDecoder> | null;
   codecs?: readonly string[];
   visible?: () => boolean;
+  schedule?: (callback: () => void, ms: number) => () => void;
 }) {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   new ScenarioPlayer(daemon, failingSubagent()).step();
@@ -88,7 +89,7 @@ async function watching(options: {
   const wire = streamingClient(client);
   const shown = { visible: options.visible ?? (() => true), listeners: new Set<() => void>() };
   const preview = daemonPreview(wire.api, {
-    schedule: () => () => {},
+    schedule: options.schedule ?? (() => () => {}),
     visibility: {
       visible: () => shown.visible(),
       watch: (listener) => {
@@ -336,4 +337,31 @@ test("a keyframe reconfigures the decoder only when its codec, size or descripti
     chunk: { ...chunk(3, true), codedWidth: 780, codedHeight: 1600 },
   });
   expect(decoder.configs.map((config) => config.codedWidth)).toEqual([1170, 780]);
+});
+
+test("a decoder that takes the page's video but never answers is dropped and a keyframe asked for", async () => {
+  const decoder = fakeDecoder();
+  let timers: { callback: () => void; ms: number }[] = [];
+  const { preview, video, videoAcks } = await watching({
+    decoder,
+    schedule: (callback, ms) => {
+      const timer = { callback, ms };
+      timers.push(timer);
+      return () => {
+        timers = timers.filter((candidate) => candidate !== timer);
+      };
+    },
+  });
+  video(1, true);
+  video(2, false);
+  expect(videoAcks()).toEqual([]);
+  // The page goes still: nothing else arrives. The decoder's deadline alone frees the window.
+  for (const timer of timers.filter((candidate) => candidate.ms === 1000)) timer.callback();
+  expect(videoAcks().at(-1)).toEqual(
+    expect.objectContaining({ sequence: 2, video: true, keyframe: true }),
+  );
+  // The asked-for keyframe starts a fresh decoder, which answers.
+  video(3, true);
+  decoder.flush();
+  expect(preview.frame(thread)?.sequence).toBe(3);
 });

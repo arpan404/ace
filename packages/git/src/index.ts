@@ -1,4 +1,5 @@
 export { WorktreeRemovalRefused } from "./worktree-cleanup.ts";
+import { backupWorktree } from "./worktree-backup.ts";
 import {
   inspectWorktreeCleanup,
   worktreeMetadata,
@@ -94,6 +95,8 @@ export { landingBranchName, machineSlug } from "./transfer-branch-name.ts";
 export type { LandingBranch } from "./transfer-branch-name.ts";
 export type { BundleCloneOptions } from "./transfer-clone.ts";
 export type { BundleRefs } from "./transfer-refs.ts";
+export { gitAbove } from "./transfer-source.ts";
+export type { SourceCheckout } from "./transfer-source.ts";
 export type { CheckoutState } from "./transfer-checkout.ts";
 
 export class GitService {
@@ -430,6 +433,9 @@ export class GitService {
   }
   inspectWorktreeCleanup(repo: string, path: string) {
     return inspectWorktreeCleanup(this.repository, repo, path);
+  }
+  backupWorktree(repo: string, path: string, check: () => void = () => {}) {
+    return backupWorktree(this.repository, repo, path, check);
   }
   cleanupWorktree(input: WorktreeCleanupInput, beforeRemove?: () => void) {
     return cleanupWorktree(this.repository, input, beforeRemove);

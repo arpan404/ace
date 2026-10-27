@@ -5,8 +5,9 @@ import {
   useThreadStore,
   type HistoryPager,
 } from "@ace/client-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useThreadNav, useJumpState, useWatched } from "../long/nav.tsx";
+import { AgentFeed } from "./agent-feed.tsx";
 import { Feed } from "./feed.tsx";
 
 const none: readonly string[] = [];
@@ -34,7 +35,11 @@ function useNewSince(order: readonly string[], away: boolean): { count: number; 
  * Older turns fold into digest rows; the reader follows the live end until they scroll away,
  * and Scroll to end says how much arrived meanwhile.
  */
-export function Transcript(props: { threadId: string }) {
+export function Transcript(props: {
+  threadId: string;
+  /** One provider subagent's lane instead of the thread's, led by its prompt and live line. */
+  lane?: { agentId: string; prompt?: ReactNode; live?: ReactNode } | undefined;
+}) {
   const nav = useThreadNav();
   const jump = useJumpState(nav.jump);
   const live = useThreadStore(props.threadId);
@@ -65,14 +70,28 @@ export function Transcript(props: { threadId: string }) {
   };
   return (
     <ThreadWindowProvider threadId={props.threadId} source={source}>
-      <Feed
-        threadId={props.threadId}
-        nav={nav}
-        jump={jump}
-        pager={pager}
-        seqTurns={jump.turns}
-        fresh={fresh}
-      />
+      {props.lane ? (
+        <AgentFeed
+          threadId={props.threadId}
+          agentId={props.lane.agentId}
+          prompt={props.lane.prompt}
+          live={props.lane.live}
+          nav={nav}
+          jump={jump}
+          pager={pager}
+          seqTurns={undefined}
+          fresh={fresh}
+        />
+      ) : (
+        <Feed
+          threadId={props.threadId}
+          nav={nav}
+          jump={jump}
+          pager={pager}
+          seqTurns={jump.turns}
+          fresh={fresh}
+        />
+      )}
     </ThreadWindowProvider>
   );
 }

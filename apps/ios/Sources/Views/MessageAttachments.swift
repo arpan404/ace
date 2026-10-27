@@ -1,4 +1,3 @@
-import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -181,20 +180,6 @@ struct AttachmentBytes: Decodable, Sendable {
     }
 }
 
-/// `data` as an image no larger than `pixels` on its long side, decoded off the main thread's
-/// budget: only the downsampled bitmap is ever held.
-nonisolated func downsampledImage(_ data: Data, pixels: CGFloat) -> UIImage? {
-    guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
-    let options = [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceShouldCacheImmediately: true,
-        kCGImageSourceCreateThumbnailWithTransform: true,
-        kCGImageSourceThumbnailMaxPixelSize: max(1, pixels),
-    ] as CFDictionary
-    guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
-    return UIImage(cgImage: image)
-}
-
 /// Where a thread's message attachments open: an image in the full-screen viewer, any other file
 /// fetched because that message carries it and shown in Quick Look (which can share it).
 struct MessageAttachmentRoutes: ViewModifier {
@@ -208,9 +193,8 @@ struct MessageAttachmentRoutes: ViewModifier {
     func body(content: Content) -> some View {
         content
             .environment(\.messageAttachments, access)
-            .sheet(item: $viewing) { target in
-                NavigationStack { NativeMediaView(model: model, threadId: threadId, item: target.row, attachment: target.line) }
-                    .presentationDetents([.large]).presentationDragIndicator(.visible)
+            .fullScreenCover(item: $viewing) { target in
+                MediaViewer(title: target.line.name.isEmpty ? "Image" : target.line.name) { await original(target) }
             }
             .quickLookPreview($preview)
             .overlay(alignment: .top) {
@@ -240,7 +224,7 @@ struct MessageAttachmentRoutes: ViewModifier {
                 let payload: [String: Any] = ["type": "native.attachment", "threadId": threadId, "itemId": itemId, "ref": ref, "variant": "thumbnail"]
                 guard let reply = try? await model.service(payload, as: AttachmentBytes.self) else { return nil }
                 let image = await Task.detached(priority: .userInitiated) {
-                    Data(base64Encoded: reply.data).flatMap { downsampledImage($0, pixels: pixels) }
+                    Data(base64Encoded: reply.data).flatMap(ImageDecoding.source).flatMap { ImageDecoding.preview($0, pixels: pixels) }
                 }.value
                 if let image {
                     let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
@@ -250,6 +234,17 @@ struct MessageAttachmentRoutes: ViewModifier {
             },
             open: { row, line in open(row, line) }
         )
+    }
+
+    /// The image itself, read because its message carries it, for the full-screen viewer.
+    private func original(_ target: AttachmentTarget) async -> UIImage? {
+        guard let reply = try? await model.service(originalRequest(target.row.id, target.line.ref ?? ""), as: AttachmentBytes.self) else { return nil }
+        return await MediaViewer.image(base64: reply.data)
+    }
+
+    /// The file itself (not its preview), asked for because message `itemId` carries it.
+    private func originalRequest(_ itemId: String, _ ref: String) -> [String: Any] {
+        ["type": "native.attachment", "threadId": threadId, "itemId": itemId, "ref": ref, "variant": "original"]
     }
 
     private func open(_ row: TranscriptRow, _ line: AttachmentLine) {
@@ -262,7 +257,7 @@ struct MessageAttachmentRoutes: ViewModifier {
         Task {
             defer { opening = nil }
             do {
-                let reply = try await model.service(["type": "native.attachment", "threadId": threadId, "itemId": row.id, "ref": ref, "variant": "original"], as: AttachmentBytes.self)
+                let reply = try await model.service(originalRequest(row.id, ref), as: AttachmentBytes.self)
                 guard let data = Data(base64Encoded: reply.data) else { throw ServiceFailure(message: "The file couldn't be decoded.") }
                 preview = try Self.keep(data, named: reply.name)
             } catch {

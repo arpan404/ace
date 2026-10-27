@@ -19,6 +19,8 @@ import {
   selectionInputs,
   choiceSelection,
   switchUnsupportedNote,
+  continuationAttachmentProblem,
+  continuationNote,
   threadSwitchRoute,
   threadForkSwitchRoute,
   threadAccessSummary,
@@ -49,7 +51,6 @@ import { useComposerCompact } from "./composer-compact.ts";
 import { chipControl } from "./composer-styles.ts";
 import { selectionIdentity, type PendingTurn } from "./execution.ts";
 import { useModelSwitch } from "./use-model-switch.ts";
-import { continuationAttachmentProblem, continuationNote } from "./continue-in-thread.ts";
 import { readDraft } from "./draft-store.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useModelCatalog } from "@/lib/model-catalog.ts";

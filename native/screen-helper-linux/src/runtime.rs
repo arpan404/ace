@@ -1,10 +1,9 @@
 use crate::{
     accessibility::Accessibility,
-    policy::{Backend, backend},
+    policy::wayland_session,
     portal::{Choice, Portal},
     protocol::{Fault, Request, Result, internal, reply, valid_id},
     writer::Writer,
-    x11::{Window, X11},
 };
 use serde_json::{Value, json};
 use std::{
@@ -24,6 +23,7 @@ pub(crate) struct Capture {
     stop: Arc<AtomicBool>,
     wake: UnixStream,
     worker: Option<JoinHandle<()>>,
+    control: Arc<crate::pipewire::Control>,
 }
 impl Drop for Capture {
     fn drop(&mut self) {
@@ -35,10 +35,8 @@ impl Drop for Capture {
     }
 }
 pub(crate) struct Runtime {
-    pub(crate) x: Option<X11>,
-    pub(crate) portal: Option<Portal>,
+    pub(crate) portal: Portal,
     pub(crate) ui: Option<Accessibility>,
-    pub(crate) window: Option<Window>,
     pub(crate) ui_active: bool,
     pub(crate) view_only: bool,
     target: Option<crate::protocol::Target>,
@@ -47,24 +45,36 @@ pub(crate) struct Runtime {
 }
 impl Runtime {
     fn capabilities(&self) -> Value {
-        if let Some(portal) = &self.portal {
-            return portal.capabilities(self.ui.is_some());
-        }
-        let ui = self.ui.is_some();
-        json!({"version":2,"platform":"linux-x11","capture":{"windows":true,"displays":false,"changeDriven":true},"input":{"pointer":true,"keyboard":true,"scroll":true,"text":ui},"uiTree":ui,"semanticActions":if ui {vec!["press","focus","setValue","scroll","expand","select"]} else {vec![]},"codecs":["jpeg"],"permissions":{"screen":"granted","input":"granted"}})
+        self.portal.capabilities(self.ui.is_some())
     }
     async fn stop(&mut self) -> Result<Value> {
         self.capture.take();
-        self.window = None;
         self.target = None;
         self.ui_active = false;
         self.view_only = false;
         if let Some(ui) = &mut self.ui {
             ui.clear();
         }
-        if let Some(p) = &mut self.portal {
-            p.stop().await?;
+        self.portal.stop().await?;
+        Ok(json!({}))
+    }
+    /// Whether anyone watches: nobody, and new pictures wait unencoded; someone again, and the
+    /// current picture is published at once under the new generation.
+    fn watch(&mut self, r: &Request) -> Result<Value> {
+        let active = r.active.ok_or_else(|| Fault::new("bounds", "Missing active"))?;
+        let capture = self
+            .capture
+            .as_mut()
+            .ok_or_else(|| Fault::new("target_gone", "No capture session"))?;
+        if let Some(generation) = r.capture_generation {
+            capture.control.generation.store(generation, Ordering::Release);
         }
+        capture.control.watching.store(active, Ordering::Release);
+        if active {
+            capture.control.refresh.store(true, Ordering::Release);
+        }
+        // Wakes the capture loop, which may be waiting for the desktop's next buffer.
+        let _ = capture.wake.write_all(&[1]);
         Ok(json!({}))
     }
     async fn start(&mut self, r: &Request) -> Result<Value> {
@@ -81,37 +91,14 @@ impl Runtime {
             .filter(|s| valid_id(s))
             .ok_or_else(|| Fault::new("bounds", "Invalid session id"))?;
         let fps = r.fps.unwrap_or(10);
+        let control = Arc::new(crate::pipewire::Control::new(r.capture_generation.unwrap_or(0)));
+        let capture_control = control.clone();
         let (read, wake) = UnixStream::pair().map_err(internal)?;
         let stop = Arc::new(AtomicBool::new(false));
         let cancelled = stop.clone();
         let socket = self.writer.abort_socket()?;
-        let worker = if let Some(x) = &self.x {
-            let window = x.target(target, &r.allowlist)?;
-            // Focus remains an asynchronous WM decision; each input verifies the active window.
-            x.focus(&window)?;
-            if let Some(ui) = &mut self.ui {
-                match ui.scope(window.pid, &window.bounds).await {
-                    Ok(()) => self.ui_active = true,
-                    Err(e) => eprintln!("AT-SPI target: {e}"),
-                }
-            }
-            let publisher = self.writer.publisher(session);
-            self.window = Some(window.clone());
-            std::thread::spawn(move || {
-                let _read = read;
-                if let Err(e) = crate::x11_capture::capture(
-                    window,
-                    fps,
-                    cancelled,
-                    _read.as_raw_fd(),
-                    |jpeg, w, h, scale| publisher.frame(jpeg, w, h, scale),
-                ) {
-                    eprintln!("capture: {e}");
-                    let _ = socket.shutdown(std::net::Shutdown::Both);
-                }
-            })
-        } else {
-            let p = self.portal.as_mut().ok_or_else(|| internal("No backend"))?;
+        let worker = {
+            let p = &mut self.portal;
             let choice = match target.kind.as_str() {
                 "chooser" => Choice::Any,
                 "window" => Choice::Window,
@@ -152,7 +139,7 @@ impl Runtime {
                 }
             }
             let publisher = self.writer.publisher(session);
-            let p = self.portal.as_ref().ok_or_else(|| internal("No backend"))?;
+            let p = &self.portal;
             let node = p.node;
             let logical_width = p.size.0;
             let shown = p.shown.clone();
@@ -167,6 +154,7 @@ impl Runtime {
                     cancelled,
                     publisher,
                     shown,
+                    capture_control,
                 ) {
                     eprintln!("capture: {e}");
                     let _ = socket.shutdown(std::net::Shutdown::Both);
@@ -178,30 +166,29 @@ impl Runtime {
             stop,
             wake,
             worker: Some(worker),
+            control,
         });
         let picked = self
             .portal
+            .picked
             .as_ref()
-            .and_then(|p| p.picked.as_ref().map(crate::portal_choice::Picked::json));
+            .map(crate::portal_choice::Picked::json);
         Ok(json!({"capabilities":self.capabilities(),"picked":picked}))
     }
     async fn command(&mut self, r: &Request) -> Result<Value> {
         match r.op.as_str() {
             "hello" => Ok(self.capabilities()),
             "permissions" => Ok(
-                json!({"screenRecording":self.x.is_some() || self.portal.is_some(),"accessibility":self.x.is_some() || self.portal.as_ref().is_some_and(|p|p.session.is_some())}),
+                json!({"screenRecording":true,"accessibility":self.portal.session.is_some()}),
             ),
             "targets" => {
-                if let Some(x) = &self.x {
-                    x.inventory()
-                } else {
-                    // Nothing to list: the sharing dialog on this desktop picks the source.
-                    let p = self.portal.as_ref().ok_or_else(|| internal("No backend"))?;
-                    let policy = crate::policy::portal_policy(&p.offer, p.route());
-                    Ok(json!({"windows":[],"displays":[],"chooser":{"windows":policy.windows,"displays":policy.displays}}))
-                }
+                // Nothing to list: the sharing dialog on this desktop picks the source.
+                let p = &self.portal;
+                let policy = crate::policy::portal_policy(&p.offer, p.route());
+                Ok(json!({"windows":[],"displays":[],"chooser":{"windows":policy.windows,"displays":policy.displays}}))
             }
             "start" => self.start(r).await,
+            "watch" => self.watch(r),
             "stop" => self.stop().await,
             "ui.tree" => {
                 crate::policy::scoped_target(r.target.as_ref(), self.target.as_ref())?;
@@ -233,8 +220,7 @@ impl Runtime {
                     .as_ref()
                     .and_then(Value::as_str)
                     .ok_or_else(|| Fault::new("bounds", "Missing action"))?;
-                let bounds = self
-                    .ui
+                self.ui
                     .as_mut()
                     .ok_or_else(|| Fault::new("not_supported", "AT-SPI unavailable"))?
                     .act(
@@ -245,22 +231,7 @@ impl Runtime {
                         r.value.as_deref(),
                     )
                     .await?;
-                if let Some(b) = bounds {
-                    let w = self
-                        .window
-                        .as_ref()
-                        .ok_or_else(|| Fault::new("not_supported", "No safe fallback target"))?;
-                    let live = self
-                        .x
-                        .as_ref()
-                        .ok_or_else(|| internal("No X11 target"))?
-                        .check(w)?;
-                    let (x, y) = crate::policy::element_center(&b, &live.bounds)?;
-                    self.click(x, y, "left", r.person).await?;
-                    Ok(json!({"fallback":true,"method":"pointer.click"}))
-                } else {
-                    Ok(json!({"fallback":false,"method":"atspi"}))
-                }
+                Ok(json!({"fallback":false,"method":"atspi"}))
             }
             "action" => self.legacy(r).await,
             "pointer.move" | "pointer.click" | "pointer.drag" | "key.press" | "text.type"
@@ -274,8 +245,7 @@ impl Runtime {
         }
     }
     /// Input may go to the session. A shared screen takes only the person's input: they chose
-    /// it in the sharing dialog, which grants control of the desktop. On X11 a person's
-    /// pointer input brings its window forward itself, so only agents need it active already.
+    /// it in the sharing dialog, which grants control of the desktop.
     pub(crate) fn check_input(&self, person: bool) -> Result<()> {
         if self.capture.is_none() {
             return Err(Fault::new("target_gone", "No capture session"));
@@ -286,9 +256,6 @@ impl Runtime {
                 "A shared screen takes only the person's input",
             ));
         }
-        if let (Some(x), Some(w), false) = (&self.x, &self.window, person) {
-            x.check(w)?;
-        }
         Ok(())
     }
     pub(crate) fn check_ui(&self) -> Result<()> {
@@ -298,12 +265,6 @@ impl Runtime {
                 "No unambiguous approved accessibility target",
             ));
         }
-        if let (Some(x), Some(w)) = (&self.x, &self.window) {
-            let live = x.window(w.id)?;
-            if !w.same_as(&live) {
-                return Err(Fault::new("target_gone", "Accessibility target replaced"));
-            }
-        }
         Ok(())
     }
 }
@@ -311,7 +272,6 @@ impl Runtime {
 pub async fn run() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let mut endpoint = None;
-    let mut selection = None;
     let mut token_path = None;
     let mut i = 0;
     while i < args.len() {
@@ -321,14 +281,12 @@ pub async fn run() -> Result<()> {
         match args[i].as_str() {
             "--endpoint" => endpoint = Some(value.clone()),
             "--socket" => endpoint = Some(format!("unix:{value}")),
-            "--backend" => selection = Some(value.clone()),
             "--restore-token" => token_path = Some(PathBuf::from(value)),
             _ => return Err(Fault::new("bounds", "Unknown argument")),
         }
         i += 2;
     }
-    let selected = backend(
-        selection.as_deref(),
+    wayland_session(
         std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
         std::env::var("DISPLAY").ok().as_deref(),
     )?;
@@ -344,23 +302,16 @@ pub async fn run() -> Result<()> {
             None
         }
     };
-    let (x, portal) = match selected {
-        Backend::X11 => (Some(X11::connect()?), None),
-        Backend::Wayland => {
-            let path = token_path.ok_or_else(|| {
-                Fault::new(
-                    "bounds",
-                    "Wayland requires --restore-token in the ace data directory",
-                )
-            })?;
-            (None, Some(Portal::connect(path).await?))
-        }
-    };
+    let path = token_path.ok_or_else(|| {
+        Fault::new(
+            "bounds",
+            "Wayland requires --restore-token in the ace data directory",
+        )
+    })?;
+    let portal = Portal::connect(path).await?;
     let mut runtime = Runtime {
-        x,
         portal,
         ui,
-        window: None,
         ui_active: false,
         view_only: false,
         target: None,

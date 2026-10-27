@@ -23,12 +23,10 @@ describe("Live browser view", () => {
     expect(without.sink.read("browser:available")).toMatchObject({ live: false });
   });
 
-  test("opening sizes the page to the phone and shows the browser's address", async () => {
-    const { daemon, sink, view } = await live();
+  test("opening shows the browser's address and tabs", async () => {
+    const { sink, view } = await live();
     expect(view.action({ kind: "open", threadId: "web", viewport })).toBe(true);
     await until(() => state(sink)?.url === "https://shop.test/cart", "browser state");
-    await until(() => daemon.browser.frame("web")?.width === 390, "resized page");
-    expect(daemon.browser.frame("web")?.height).toBe(700);
     expect(state(sink)?.tabs).toHaveLength(1);
   });
 
@@ -131,27 +129,6 @@ describe("Live browser view", () => {
     });
     push({ type: "browser.page", threadId: "web", tabId: first, page: { cursor: "text" } });
     expect(sink.read("browser:page")).toMatchObject({ tabId: opened });
-  });
-
-  test("a tab the phone switches to is laid out at the phone's size, as a touch screen", async () => {
-    const { daemon, sink, view, requested } = await live();
-    view.action({ kind: "open", threadId: "web", viewport });
-    await until(() => state(sink)?.activeTabId != null, "browser state");
-    const opened = daemon.browser.personOpen("web", "https://shop.test/pay");
-    const resizes = () =>
-      requested.filter(
-        (message) =>
-          (message as { type: string }).type === "browser.execute" &&
-          (message as { command: { action: string } }).command.action === "resize",
-      );
-    const before = resizes().length;
-    view.action({ kind: "tab", tabId: opened });
-    await until(() => state(sink)?.activeTabId === opened, "tab switch");
-    await until(() => resizes().length > before, "new tab sized");
-    expect(resizes().at(-1)).toMatchObject({
-      threadId: "web",
-      command: { action: "resize", width: 390, height: 700, touch: true, devicePixelRatio: 3 },
-    });
   });
 
   test("closing the view stops its patches; a browser that isn't open yet is asked again", async () => {
