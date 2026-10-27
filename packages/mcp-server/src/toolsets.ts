@@ -70,15 +70,31 @@ export function toolListingHeader(
  * - claude-agent-acp runs the Claude Agent SDK, which defers MCP tools behind its own tool
  *   search and honours `anthropic/alwaysLoad`, as Claude Code does. The daemon narrows it to
  *   core where its launch env or settings turn tool search off (`claudeToolListing`).
- * - Antigravity (checked live on 1.4.2) loads only tools marked `antigravity/alwaysLoad` in full;
- *   it writes every other tool's definition to a file its agent reads, then calls the tool
- *   through its own `call_mcp_tool`. So it lists every tool, as Claude does.
+ * - Antigravity (checked live on 1.4.2; agy 1.4.8 and agy_acp_server 1.4.3 read the same way)
+ *   loads only tools marked `antigravity/alwaysLoad` in full; it writes every other tool's
+ *   definition to a file its agent reads, then calls the tool through its own `call_mcp_tool`.
+ *   So it lists every tool, as Claude does. It also refreshes on `tools/list_changed`.
  * - Every other agent stays static: a conservative default for agents not verified to reload,
  *   not a claim that they never refresh.
  */
 export function acpToolListing(cli: string | undefined): ToolListing {
   if (cli === "gemini") return "core";
   return cli === "claude-acp" || cli === "antigravity" ? "all" : "static";
+}
+
+/**
+ * Whether an ACP agent puts MCP server instructions in its model's context, by the reviewed
+ * CLI behind it. Where it doesn't, ace's shared guidance travels in the agent's own channel
+ * (system-prompt text, else the first prompt):
+ * - Gemini CLI (0.43) adds each server's instructions to its project context.
+ * - claude-agent-acp runs Claude Code, which shows them.
+ * - Antigravity (agy 1.4.8, agy_acp_server 1.4.3) writes them to `instructions.md` beside the
+ *   server's tool definition files, which its model reads only when it opens that file.
+ * - Qwen Code 0.0.14 never reads them, and an agent not reviewed is not assumed to: a second
+ *   copy costs a few hundred tokens, a missing one leaves the agent without ace's guidance.
+ */
+export function acpShowsServerInstructions(cli: string | undefined): boolean {
+  return cli === "gemini" || cli === "claude-acp";
 }
 
 /**

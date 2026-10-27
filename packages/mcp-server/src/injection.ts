@@ -118,8 +118,14 @@ export function openCodeInjection(input: Injected) {
     developerInstructions: developerInstructions("opencode", input.session?.()),
   };
 }
-/** An ACP lease, with the listing its agent's tool refresh supports (`acpToolListing`). */
-type AcpInjected = Injected & { listing?: ToolListing | undefined };
+/**
+ * An ACP lease, with the listing its agent's tool refresh supports (`acpToolListing`) and
+ * whether the agent shows server instructions (`acpShowsServerInstructions`).
+ */
+type AcpInjected = Injected & {
+  listing?: ToolListing | undefined;
+  serverInstructions?: boolean | undefined;
+};
 export function acpInjection(
   input: AcpInjected,
   provider: "cursor" | "antigravity" | "acp" = "acp",
@@ -143,7 +149,13 @@ export function acpInjection(
         ],
       },
     ],
-    developerInstructions: developerInstructions(provider, { ...input.session?.(), listing }),
+    developerInstructions: developerInstructions(provider, {
+      ...input.session?.(),
+      listing,
+      ...(input.serverInstructions === undefined
+        ? {}
+        : { serverInstructions: input.serverInstructions }),
+    }),
   };
 }
 
