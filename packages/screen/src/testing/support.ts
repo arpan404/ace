@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ScreenManager, type ScreenOptions } from "../index.ts";
 import { framePacket, type Frame } from "../frames.ts";
 export const target = { kind: "window", bundleId: "dev.ace.test", windowId: 1 } as const;
@@ -58,3 +59,46 @@ export function deferred<T>() {
 }
 
 function ignore() {}
+/**
+ * Windows only: the protocol-v2 fake must listen on a named pipe (Node cannot bind a file path
+ * there) and be launched by file path. Spread after the fixture's POSIX endpoint and args.
+ */
+export function windowsFakeOverrides(directory: string): { args?: string[]; endpoint?: string } {
+  if (process.platform !== "win32") return {};
+  return {
+    args: [fileURLToPath(new URL("./fake-helper-v2.ts", import.meta.url))],
+    endpoint: `unix:\\\\.\\pipe\\ace-screen-test-${directory.split(/[\\/]/).at(-1)}`,
+  };
+}
+
+/**
+ * A screen manager over the protocol-v2 fake helper, as the given platform's host sees it.
+ * Only Windows speaks v2 today.
+ */
+export async function helperFixture(platform: "win32", overrides: Partial<ScreenOptions> = {}) {
+  const directory = await mkdtemp(join(tmpdir(), "screen-review-"));
+  const screen = new ScreenManager({
+    command: process.execPath,
+    args: [new URL("./fake-helper-v2.ts", import.meta.url).pathname],
+    nextId: ids(),
+    platform,
+    endpoint: `unix:${join(directory, "pipe")}`,
+    recordingDirectory: directory,
+    publishArtifact: async () => {},
+    ...windowsFakeOverrides(directory),
+    ...overrides,
+  });
+  await screen.enable(true);
+  return {
+    manager: screen,
+    directory,
+    start: () => screen.start(target),
+    async close() {
+      try {
+        await screen.close();
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  };
+}

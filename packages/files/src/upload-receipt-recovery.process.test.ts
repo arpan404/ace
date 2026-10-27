@@ -112,3 +112,95 @@ for (const restart of [false, true]) {
     });
   }
 }
+
+// Windows: the receipt settles the read-only attribute instead of POSIX mode bits.
+const readOnly = async (path: string) => ((await lstat(path)).mode & 0o200) === 0;
+for (const restart of [false, true]) {
+  for (const alteration of ["moved", "replaced", "permissions"] as const) {
+    test.runIf(process.platform === "win32")(
+      `Windows: a pending receipt with a ${alteration} read-only destination settles without blocking ${restart ? "startup" : "other uploads"}`,
+      async () => {
+        let now = 1;
+        const notices: { uploadId: string; path: string; reason: string }[] = [];
+        const f = await fixture({
+          now: () => now,
+          maxReservedBytes: 8,
+          retentionMs: 10,
+          onUploadRecovery: (notice) => notices.push(notice),
+        });
+        const db = new DatabaseSync(join(f.home, "data", "files.sqlite"));
+        const final = join(f.root, "final");
+        const saved = join(f.root, "saved");
+        try {
+          await writeFile(final, "old");
+          await chmod(final, 0o444);
+          const expected = Stat.parse(
+            await f.service.request("writer", { op: "stat", path: "final" }),
+          ).version;
+          const first = Upload.parse(
+            await f.service.request("writer", {
+              op: "upload.begin",
+              path: "final",
+              expected,
+              size: 4,
+            }),
+          );
+          const other = Upload.parse(
+            await f.service.request("writer", {
+              op: "upload.begin",
+              path: "other",
+              expected: null,
+              size: 4,
+            }),
+          );
+          await f.service.append("writer", first.uploadId, 0, Buffer.from("data"));
+          db.exec(`CREATE TRIGGER lose_permission_settlement BEFORE UPDATE ON resources
+          WHEN OLD.kind='upload.completed' AND json_type(OLD.body,'$.permissions')='object'
+          AND json_type(NEW.body,'$.permissions') IS NULL
+          BEGIN SELECT RAISE(ABORT,'lost permission settlement'); END`);
+          await expect(
+            f.service.request("writer", { op: "upload.commit", uploadId: first.uploadId, sha256 }),
+          ).rejects.toThrow("lost permission settlement");
+          db.exec("DROP TRIGGER lose_permission_settlement");
+          if (alteration === "moved" || alteration === "replaced") await rename(final, saved);
+          if (alteration === "replaced") await writeFile(final, "unrelated");
+          if (alteration === "permissions") await chmod(final, 0o666);
+          if (restart) await f.restart();
+          await f.service.append("writer", other.uploadId, 0, Buffer.from("data"));
+          await expect(
+            f.service.request("writer", { op: "upload.commit", uploadId: other.uploadId, sha256 }),
+          ).resolves.toMatchObject({ path: "other" });
+          await expect(
+            f.service.request("writer", { op: "upload.commit", uploadId: first.uploadId, sha256 }),
+          ).resolves.toMatchObject({ path: "final" });
+          expect(notices).toContainEqual({
+            uploadId: first.uploadId,
+            path: "final",
+            reason: alteration === "moved" ? "NOT_FOUND" : "destination_changed",
+          });
+          if (alteration === "replaced") {
+            expect(await readFile(final, "utf8")).toBe("unrelated");
+            expect(await readOnly(final)).toBe(false);
+          }
+          if (alteration === "permissions") {
+            expect(await readFile(final, "utf8")).toBe("data");
+            expect(await readOnly(final)).toBe(false);
+          }
+          if (alteration !== "permissions") {
+            expect(await readOnly(saved)).toBe(true);
+            expect(await readFile(saved, "utf8")).toBe("data");
+          }
+          now = 86400_020;
+          await f.service.sweep();
+          await expect(
+            f.service.request("writer", { op: "upload.commit", uploadId: first.uploadId, sha256 }),
+          ).rejects.toMatchObject({ code: "NOT_FOUND" });
+        } finally {
+          db.close();
+          for (const path of [final, saved]) await chmod(path, 0o666).catch(() => {});
+          await f.close();
+        }
+      },
+    );
+  }
+}

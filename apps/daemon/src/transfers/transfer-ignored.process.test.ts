@@ -1,6 +1,7 @@
 import { chmod, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
+import { test } from "vitest";
 import type { WorkspaceId } from "@ace/protocol";
 import { git, repositoryWithOrigin, transferMachines } from "./transfer-test-support.ts";
 
@@ -219,3 +220,35 @@ it("clears payloads a crash left behind when the daemon starts again", async () 
   await m.restartSource();
   await vi.waitFor(async () => expect(await readdir(outgoingDir(m))).toEqual([]));
 });
+
+test.runIf(process.platform === "win32")(
+  "on Windows, brings .env and ignored local config, but not node_modules",
+  async () => {
+    const m = await transferMachines();
+    const { path } = await projectWithIgnoredFiles(m.sourceRoot, "app");
+    // A commit origin lacks, so the code travels as a bundle beside the ignored files.
+    await writeFile(join(path, "feature.txt"), "here only\n");
+    await git(path, "add", "feature.txt");
+    await git(path, "commit", "-m", "feature");
+    const workspaceId = await m.addProject(m.source, path);
+
+    const transfer = await openOn(m, workspaceId);
+    expect(transfer).toMatchObject({
+      phase: "completed",
+      ignoredFiles: { files: 4 },
+      result: { ignoredSkipped: 0 },
+    });
+    const there = transfer.result?.path ?? "";
+    expect(await readFile(join(there, ".env"), "utf8")).toBe("TOKEN=here\n");
+    expect(await readFile(join(there, secretName), "utf8")).toBe("key\n");
+    expect(await readFile(join(there, "config", "local.json"), "utf8")).toBe('{"port":4000}\n');
+    expect(await readFile(join(there, "tools", "dev.sh"), "utf8")).toBe("#!/bin/sh\necho dev\n");
+    await expect(stat(join(there, "node_modules"))).rejects.toThrow();
+    // Ignored files arrive ignored there: the checkout reads as clean.
+    expect(await git(there, "status", "--porcelain")).toBe("");
+    expect(transfer.sentBytes).toBe(transfer.totalBytes);
+    expect(transfer.totalBytes).toBeGreaterThan(transfer.ignoredFiles?.bytes ?? 0);
+    expect(await readdir(outgoingDir(m))).toEqual([]);
+    expect(await readdir(incomingDir(m))).toEqual([]);
+  },
+);

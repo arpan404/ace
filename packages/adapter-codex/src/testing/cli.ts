@@ -1,5 +1,6 @@
 // Offline provider boundary. This process never imports or starts a real Codex binary.
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -7,6 +8,23 @@ import { list, obj, str } from "../native.ts";
 import { aceMcpApprovals } from "./mcp-approvals.ts";
 import { historyStore, longHistory } from "./history-store.ts";
 if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
+// Windows delivers no SIGTERM; there, ignoring termination means outliving stdin closing.
+if (process.env["ACE_FAKE_RESUME"] === "ignore-term" && process.platform === "win32") {
+  setInterval(() => {}, 60_000);
+  // The test checks that this survivor is really gone, not just detached from.
+  writeFileSync(join(process.env["USERPROFILE"] ?? ".", "fake-codex.pid"), String(process.pid));
+}
+// Windows: a descendant outside any job that would outlive this fake's own exit on EOF.
+if (process.env["ACE_FAKE_RESUME"] === "orphan-child" && process.platform === "win32") {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], {
+    stdio: "ignore",
+    windowsHide: true,
+    // Outside the job libuv gives non-detached children, so only ace can end it.
+    detached: true,
+  });
+  child.unref();
+  writeFileSync(join(process.env["USERPROFILE"] ?? ".", "fake-codex-child.pid"), String(child.pid));
+}
 const args: string[] = [];
 const overrides = new Map<string, string>();
 for (let index = 2; index < process.argv.length; index++) {

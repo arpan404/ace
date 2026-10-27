@@ -188,3 +188,30 @@ it("large trace batches cross the real desktop socket without losing target fram
     data: "AA==",
   });
 });
+
+it.runIf(process.platform === "win32")(
+  "Windows: a slow command fails alone without losing the page",
+  async () => {
+    // Windows timers fire at about 15.6 ms granularity, so deadlines shrink 50 times, not 1000.
+    const windowsFastClock: RelayClock = {
+      now: () => performance.now(),
+      set(delayMs: number, work: () => void) {
+        const timer = setTimeout(work, delayMs / 50);
+        return () => clearTimeout(timer);
+      },
+    };
+    const { session, page, lost } = await setup(windowsFastClock);
+    page.hung.add("Runtime.evaluate");
+    await expect(
+      session.cdp.send("Runtime.evaluate", { expression: "while(true){}" }),
+    ).rejects.toThrow("Desktop browser command timed out");
+    await eventually(() =>
+      expect(page.calls.filter((call) => call.method === "ace.ping")).toHaveLength(1),
+    );
+    expect(await session.cdp.send("Page.captureScreenshot", { format: "png" })).toEqual({
+      data: "AA==",
+    });
+    expect(lost).toEqual([]);
+    expect(page.closed).toBe(false);
+  },
+);

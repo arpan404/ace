@@ -4,7 +4,7 @@ import { expect, it } from "vitest";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { Helper } from "./index.ts";
 import { deferred, ids } from "./testing/support.ts";
-import { windowsFixture } from "./testing/windows-fixture.ts";
+import { helperFixture } from "./testing/support.ts";
 
 it("an unterminated oversized POSIX helper reply kills the process before readline grows further", async () => {
   const exited = deferred<unknown>();
@@ -51,7 +51,7 @@ it("spawn failure removes the private Unix frame socket directory", async () => 
 });
 it("the injected snapshot deadline rejects a missing frame and releases capture demand", async () => {
   const deadlines = new Set<() => void>();
-  const f = await windowsFixture({
+  const f = await helperFixture("win32", {
     env: { NO_FRAMES: "1" },
     scheduler: {
       schedule(run, _ms) {

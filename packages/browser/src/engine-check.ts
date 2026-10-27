@@ -242,6 +242,7 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
   const arch = options.arch ?? process.arch;
   const timeoutMs = options.timeoutMs ?? 10_000;
   const machine = options.machine ?? linuxMachine;
+  if (platform === "win32") return checkWindowsEngine(options, arch, timeoutMs);
   let engine: { path: string; pinned?: string };
   try {
     engine = engineExecutable({ dataDir: options.dataDir, env: options.env, platform, arch });
@@ -321,6 +322,110 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
   } finally {
     await rm(profile, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/**
+ * Windows: the engine is the pinned Chrome for Testing, or on ARM64 (which has no such build) the
+ * installed Chrome or Edge, else the x64 build under emulation. Windows Chrome ignores
+ * `--version` and opens a normal window, so its name and version come from its install folder.
+ */
+async function checkWindowsEngine(
+  options: EngineCheckOptions,
+  arch: string,
+  timeoutMs: number,
+): Promise<EngineVerdict> {
+  const { detectChromium } = await import("./discovery.ts");
+  const installed =
+    arch === "arm64" && !options.env.ACE_CHROMIUM_PATH
+      ? await detectChromium({ platform: "win32", env: options.env, dataDir: options.dataDir })
+      : undefined;
+  let engine: { path: string; pinned?: string };
+  try {
+    engine = installed
+      ? { path: installed }
+      : engineExecutable({
+          dataDir: options.dataDir,
+          env: options.env,
+          platform: "win32",
+          arch: arch === "arm64" ? "x64" : arch,
+        });
+  } catch {
+    return {
+      status: "fail",
+      message: `ace has no browser engine for win32-${arch}`,
+      fix: "Set ACE_CHROMIUM_PATH to a Chromium or Chrome executable for this machine.",
+    };
+  }
+  try {
+    await access(engine.path);
+  } catch {
+    return engine.pinned
+      ? {
+          status: "ok",
+          message: `ace's Chrome ${engine.pinned} downloads on first browser use`,
+          fix: "Run ace doctor again after the first browser use to check that it starts.",
+        }
+      : {
+          status: "fail",
+          message: "ACE_CHROMIUM_PATH is not an executable file",
+          fix: "Point ACE_CHROMIUM_PATH at a Chromium or Chrome executable, or unset it to use ace's Chrome.",
+        };
+  }
+  const sandbox = options.env.ACE_CHROMIUM_NO_SANDBOX !== "1";
+  const name = await windowsBrowserName(engine.path);
+  const profile = await mkdtemp(join(tmpdir(), "ace-doctor-chrome-"));
+  try {
+    const started = await startHeadless(
+      engine.path,
+      [
+        "--headless=new",
+        `--user-data-dir=${profile}`,
+        "--no-first-run",
+        "--no-default-browser-check",
+        // Started elevated, Chrome would relaunch unelevated and drop the pipe.
+        "--do-not-de-elevate",
+        ...(sandbox ? [] : ["--no-sandbox"]),
+      ],
+      timeoutMs,
+      options.signal,
+    );
+    if (!started.pageOpened && started.timedOut)
+      return {
+        status: "warn",
+        message: `${name} did not finish a headless start within ${timeoutMs / 1000} s`,
+        fix: "The machine may be busy; run ace doctor again. If it persists, check the daemon log when an agent opens the browser.",
+      };
+    if (!started.pageOpened) return problemVerdict({ kind: "unknown" }, started.stderr);
+    return sandbox
+      ? {
+          status: "ok",
+          message: `${name} starts headless with its sandbox`,
+          fix: "No action needed.",
+        }
+      : {
+          status: "warn",
+          message: `${name} starts headless without its sandbox (ACE_CHROMIUM_NO_SANDBOX=1)`,
+          fix: "Pages run without Chrome's sandbox, and nothing on this machine blocks it: unset ACE_CHROMIUM_NO_SANDBOX.",
+        };
+  } finally {
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(
+      () => {},
+    );
+  }
+}
+
+/** Windows: "chrome 156.0.4314.42" from the version folder or manifest beside the executable. */
+async function windowsBrowserName(executable: string): Promise<string> {
+  const { readdir } = await import("node:fs/promises");
+  const { basename, dirname } = await import("node:path");
+  const entries = await readdir(dirname(executable)).catch(() => []);
+  const versions = entries
+    .map((entry) => /^(\d+\.\d+\.\d+\.\d+)(?:\.manifest)?$/.exec(entry)?.[1])
+    .filter((found): found is string => found !== undefined)
+    .toSorted((a, b) => a.localeCompare(b, "en", { numeric: true }));
+  const product = basename(executable).replace(/\.exe$/i, "");
+  const newest = versions.at(-1);
+  return newest ? `${product} ${newest}` : product;
 }
 
 /** What `ace doctor --fix` can change on this machine so ace's browser starts. */

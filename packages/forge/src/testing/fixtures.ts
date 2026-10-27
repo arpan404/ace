@@ -1,6 +1,8 @@
 import recorded from "./__fixtures__/github.json" with { type: "json" };
 import { watch } from "node:fs";
 import { mkdtemp, writeFile, readFile, rm, copyFile, chmod } from "node:fs/promises";
+import { link } from "node:fs/promises";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -15,6 +17,24 @@ if (process.env.VITEST === "true") {
 }
 
 export { repository, sha, nextSha } from "./identities.ts";
+
+let windowsNode: Promise<string> | undefined;
+/**
+ * Windows can't run a script by its shebang. Beside the fake sits `gh.exe`, a link to this Node,
+ * which a preload turns back into fake-gh.mjs with gh's own arguments.
+ */
+async function windowsFakeGh(executable: string): Promise<void> {
+  windowsNode ??= mkdtemp(join(tmpdir(), "ace-forge-node-")).then(async (dir) => {
+    const node = join(dir, "node.exe");
+    await copyFile(process.execPath, node);
+    return node;
+  });
+  // Node looks up an extensionless command as `gh.com`, then `gh.exe`.
+  const linked = `${executable}.exe`;
+  await link(await windowsNode, linked).catch(() => copyFile(process.execPath, linked));
+  const preload = pathToFileURL(fileURLToPath(new URL("./fake-gh-preload.mjs", import.meta.url)));
+  process.env.NODE_OPTIONS = `--import=${preload.href}`;
+}
 export const pr = {
   number: 7,
   node_id: "PR_7",
@@ -110,6 +130,7 @@ export async function fakeGh(
   const state = join(dir, "state.json");
   await copyFile(new URL("./fake-gh.mjs", import.meta.url), executable);
   await chmod(executable, 0o755);
+  if (process.platform === "win32") await windowsFakeGh(executable);
   await writeFile(config, JSON.stringify(fixtures));
   const runner = createCommandRunner({
     cwd: dir,

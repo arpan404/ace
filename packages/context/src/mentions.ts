@@ -1,4 +1,5 @@
 import { normalize } from "node:path";
+import { posix } from "node:path";
 import { Mention, type ContextDiagnostic, type ResolvedMention } from "@ace/protocol";
 import { ContextError, requireContext } from "./errors.ts";
 import type { WorkspaceFiles } from "./git-workspace.ts";
@@ -131,6 +132,20 @@ export async function resolveWorkspaceMentions(
           "Context limit reached",
         );
         count++;
+        if (process.platform === "win32") {
+          // Mention and index paths use "/" on every OS; win32 normalize would use backslashes.
+          const folder = posix.normalize(mention.path).replace(/\/$/, "");
+          const listing = await folderListing(workspace, folder, remaining);
+          remaining -= Buffer.byteLength(listing.text);
+          entries.push({ path: folder, ...listing, scope: "folder" });
+          if (listing.truncated)
+            diagnostics.push({
+              code: "truncated",
+              path: mention.path,
+              message: "Folder listing limit reached",
+            });
+          continue;
+        }
         const folder = normalize(mention.path).replace(/\/$/, "");
         const listing = await folderListing(workspace, folder, remaining);
         remaining -= Buffer.byteLength(listing.text);

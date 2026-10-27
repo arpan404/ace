@@ -24034,7 +24034,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"releases/76590.3292.0-vw8lngobg9r-linux-arm64"
+"releases/76590.3292.0-vw8lngobg9r-linux-x64"
 ```
 
 ## ReleaseManifest
@@ -24067,12 +24067,12 @@ Example:
 
 [JSON Schema](schema/ReleaseTarget.json), input validation.
 
-Type: ["darwin-arm64","darwin-x64","linux-arm64","linux-x64"]. See JSON Schema for constraints.
+Type: ["darwin-arm64","darwin-x64","linux-arm64","linux-x64","win32-x64","win32-arm64"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"linux-x64"
+"win32-x64"
 ```
 
 ## ReleaseVersion

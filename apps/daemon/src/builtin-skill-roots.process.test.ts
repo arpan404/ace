@@ -164,6 +164,7 @@ test("changed UID or group retains a live provider, while a recycled PID does no
     if (!provider.pid) throw new Error("Provider was not spawned");
     const identity = processIdentity(provider.pid);
     if (!identity) throw new Error("Provider identity unavailable");
+    if (!numericOwner(identity)) throw new Error("Windows owners are SIDs, not numeric UIDs");
     lease.close();
     const changed = await builtinSkillRecovery(dataDir, {
       ...skillProcessRuntime,
@@ -194,6 +195,11 @@ test("changed UID or group retains a live provider, while a recycled PID does no
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+/** POSIX owners are numeric UIDs; Windows owners are SIDs. */
+function numericOwner<T extends { uid: unknown }>(identity: T): identity is T & { uid: number } {
+  return typeof identity.uid === "number";
+}
 
 /** An adopted projection whose providers have all exited. */
 async function released(root: string) {

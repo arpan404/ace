@@ -2,9 +2,15 @@ import { cp, mkdir, stat, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { ReleaseTarget } from "@ace/protocol";
 import { copyRuntimePackage } from "./copy-runtime-package.ts";
+import { isWindowsTarget, type WindowsTarget } from "./node-runtime.ts";
 
 /** The bundler owns runtime dependencies, including the native PTY now used at startup. */
 export async function stagePtyRuntime(repo: string, root: string, target: string): Promise<string> {
+  if (isWindowsTarget(target)) {
+    const installed = join(repo, "tools/release/node_modules/node-pty");
+    await stageWindowsPty(installed, join(root, "node_modules/node-pty"), target);
+    return join(installed, "package.json");
+  }
   const platform = ReleaseTarget.parse(target);
   const installed = join(repo, "tools/release/node_modules/node-pty");
   const destination = join(root, "node_modules/node-pty");
@@ -40,4 +46,53 @@ async function regularFile(path: string): Promise<boolean> {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
     throw error;
   }
+}
+
+// Windows uses node-pty's `useConptyDll` backend: conpty.node, conpty/conpty.dll beside it, the
+// OpenConsole.exe that dll hosts (without it conpty.dll falls back to the system conhost) and the
+// conout worker. winpty and the other fallback files are never staged.
+const windowsNatives = [
+  "conpty.node",
+  join("conpty", "conpty.dll"),
+  join("conpty", "OpenConsole.exe"),
+];
+const windowsWorkers = [
+  join("lib", "worker", "conoutSocketWorker.js"),
+  join("lib", "shared", "conout.js"),
+];
+
+/** Stages node-pty for a Windows target from the installed package at `source`. */
+export async function stageWindowsPty(
+  source: string,
+  destination: string,
+  target: WindowsTarget,
+): Promise<void> {
+  for (const file of windowsWorkers)
+    if (!(await regularFile(join(source, file))))
+      throw new Error(`Installed node-pty is missing its ConPTY worker ${file}; run bun install`);
+  await mkdir(destination, { recursive: true });
+  await copyRuntimePackage(join(source, "lib"), join(destination, "lib"));
+  for (const name of ["package.json", "LICENSE"])
+    await cp(join(source, name), join(destination, name), { recursive: true });
+  const native = join(destination, "prebuilds", target);
+  // Full releases stage checksum-verified native inputs before bundling. Keep them.
+  if (await allFiles(native)) return;
+  // Windows prebuilds are portable copies, so any host can stage them.
+  const candidates =
+    target === `${process.platform}-${process.arch}`
+      ? ["build/Release", "build/Debug", `prebuilds/${target}`]
+      : [`prebuilds/${target}`];
+  for (const candidate of candidates) {
+    if (!(await allFiles(join(source, candidate)))) continue;
+    await mkdir(join(native, "conpty"), { recursive: true });
+    for (const file of windowsNatives) await cp(join(source, candidate, file), join(native, file));
+    return;
+  }
+  throw new Error(
+    `Installed node-pty is missing the ConPTY module, dll or OpenConsole.exe for ${target}`,
+  );
+}
+async function allFiles(root: string): Promise<boolean> {
+  for (const file of windowsNatives) if (!(await regularFile(join(root, file)))) return false;
+  return true;
 }

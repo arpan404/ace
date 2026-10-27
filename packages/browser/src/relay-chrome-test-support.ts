@@ -113,6 +113,8 @@ export async function chromeDesktop(executablePath: string) {
       "--no-default-browser-check",
       // Tests run with a temporary HOME; the real keychain would block Chrome's network stack.
       "--use-mock-keychain",
+      // Windows: an elevated test would otherwise see Chrome relaunch unelevated and exit.
+      ...(process.platform === "win32" ? ["--do-not-de-elevate"] : []),
       "--password-store=basic",
       "--window-size=1280,720",
       "about:blank",
@@ -296,6 +298,9 @@ export async function chromeDesktop(executablePath: string) {
         child.kill("SIGKILL");
         await exited;
       }
+      // Windows: the killed browser's helpers hold profile files open until they notice and exit.
+      if (process.platform === "win32")
+        await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
       await rm(profile, { recursive: true, force: true });
     },
   };

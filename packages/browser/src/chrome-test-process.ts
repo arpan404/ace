@@ -7,6 +7,7 @@ const Row = z.tuple([z.coerce.number().int().positive(), z.coerce.number().int()
 
 /** ace's Chrome under `home` as the OS sees it: its browser process and that browser's renderers. */
 export async function chromeProcesses(home: string) {
+  if (process.platform === "win32") return chromeTree(await windowsProcesses(), home);
   const { stdout } = await exec("ps", ["-axo", "pid=,ppid=,command="], {
     maxBuffer: 16 * 1024 * 1024,
   });
@@ -30,6 +31,51 @@ export async function chromeProcesses(home: string) {
   };
   const renderers = rows
     .filter((row) => row.command.includes("--type=renderer") && descends(row.ids[0]))
+    .map((row) => row.ids[0]);
+  return { browser, renderers, commandLine: rows.find((row) => row.ids[0] === browser)?.command };
+}
+
+/** Windows: every process with its parent and command line, from CIM (there is no `ps`). */
+async function windowsProcesses() {
+  const WindowsProcess = z.object({
+    // The System Idle Process is pid 0.
+    ProcessId: z.number().int().nonnegative(),
+    ParentProcessId: z.number().int().nonnegative(),
+    CommandLine: z.string().nullable(),
+  });
+  const { stdout } = await exec(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress",
+    ],
+    { maxBuffer: 64 * 1024 * 1024, windowsHide: true },
+  );
+  return z
+    .array(WindowsProcess)
+    .parse([JSON.parse(stdout)].flat())
+    .filter((row) => row.ProcessId > 0)
+    .map((row) => ({
+      ids: Row.parse([row.ProcessId, row.ParentProcessId]),
+      command: row.CommandLine ?? "",
+    }));
+}
+
+/**
+ * Windows: Chrome starts its renderers itself, so each one's parent is the browser. The Node gate
+ * that starts Chrome inside its job (`chrome-job.ts`) carries the same flags and is not it.
+ */
+function chromeTree(rows: { ids: z.infer<typeof Row>; command: string }[], home: string) {
+  const browser = rows.find(
+    (row) =>
+      row.command.includes(`--user-data-dir=${home}`) &&
+      !row.command.includes("--type=") &&
+      !row.command.includes("ace-chrome-gate-"),
+  )?.ids[0];
+  const renderers = rows
+    .filter((row) => row.command.includes("--type=renderer") && row.ids[1] === browser)
     .map((row) => row.ids[0]);
   return { browser, renderers, commandLine: rows.find((row) => row.ids[0] === browser)?.command };
 }

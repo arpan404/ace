@@ -45,6 +45,19 @@ export interface LeaseProbe {
         processes: GitProcessScan;
         groupAlive: (pid: number) => boolean;
         now: () => Date | Promise<Date>;
+        /**
+         * Windows only: whether `process` was already running when this service first found
+         * the stopped daemon that owns `lease` gone, given each listing taken since. That
+         * daemon's Git ran in kill-on-close jobs that ended with it, so Git started later is
+         * someone else's. Identity, not clocks: process start times and the daemon's clock can
+         * drift apart.
+         */
+        runningWhenGone?:
+          | ((
+              lease: MutationLease,
+              listing: readonly GitProcess[],
+            ) => (process: GitProcess) => boolean)
+          | undefined;
       }
     | undefined;
   /** How long admission waits for leases that clear on their own before refusing. */
@@ -89,6 +102,13 @@ async function busy(
   const listing = await scan();
   if (!listing) return;
   const roots = await Promise.all(record.roots.map(canonical));
+  const earlier = owner === "gone" ? evidence.runningWhenGone?.(record, listing) : undefined;
+  if (earlier)
+    return listing
+      .filter((entry) => touches(entry, roots) && earlier(entry))
+      .map(
+        (entry) => `a running Git process (pid ${entry.pid}${entry.cwd ? ` in ${entry.cwd}` : ""})`,
+      );
   // Every Git call ace starts leads its own process group, so Git in a group a live non-Git
   // program leads (an agent's shell) is never this lease's work.
   return listing
