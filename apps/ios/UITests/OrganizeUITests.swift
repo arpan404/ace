@@ -158,6 +158,20 @@ import XCTest
         screenshot("archived-hit-opened")
     }
 
+    /// The link itself starts the app: it arrives before any machine is read, waits, and opens
+    /// once the machine's list is in. Opened directly on arrival, it would find no machine.
+    func testALinkThatColdLaunchesTheAppOpensOnceItsMachineIsReady() throws {
+        let app = launch()
+        app.terminate()
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
+        // As a real cold start: the inbox is up before its machines are read.
+        app.launchArguments.append("--spike-late-machines")
+        app.open(URL(string: "ace://thread/ios-done")!)
+        XCTAssertTrue(pageTitle(app, "Tighten the composer spacing").waitForExistence(timeout: 40))
+        XCTAssertFalse(app.alerts.firstMatch.exists, "the link was refused instead of waiting")
+        screenshot("link-cold-launch")
+    }
+
     func testAnAceLinkOpensItsThread() throws {
         let app = launch()
         reveal(app, "thread.ios-done")

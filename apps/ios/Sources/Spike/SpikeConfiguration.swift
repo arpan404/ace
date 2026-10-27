@@ -16,6 +16,9 @@ enum SpikeConfiguration {
         false
         #endif
     }
+    /// `--spike-late-machines`: the inbox shows from the first frame and its machines attach a few
+    /// seconds later, as a production cold start reads its paired machines after launch.
+    static var lateMachines: Bool { enabled && ProcessInfo.processInfo.arguments.contains("--spike-late-machines") }
     /// The fixture's benchmark window (2,200 items), or the paired app's 200 with `--spike-items 200`.
     static var itemLimit: Int {
         let arguments = ProcessInfo.processInfo.arguments
