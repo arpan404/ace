@@ -39,6 +39,7 @@ struct ForgePullRowView: View {
             }
             Text(row.title)
                 .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
+                .openRowTitle()
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .lineLimit(2)
             HStack(spacing: AceTheme.Spacing.sm) {
@@ -87,6 +88,7 @@ struct ForgeIssueRowView: View {
             }
             Text(row.title)
                 .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
+                .openRowTitle()
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .lineLimit(2)
             HStack(spacing: AceTheme.Spacing.sm) {
