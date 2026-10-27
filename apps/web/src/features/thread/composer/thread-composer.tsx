@@ -247,6 +247,8 @@ export function ThreadComposer({
       finishQueueEdit(editing);
       return true;
     }
+    // Changed on another device: the strip shows what it says now; the composer keeps the edit.
+    if (outcome === "changed") return false;
     if (outcome === "gone") {
       toast.add({
         title: "That message already left the queue",

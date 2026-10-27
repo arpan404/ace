@@ -101,7 +101,7 @@ export function PendingThreadView(props: {
   const code = entry?.error ?? intent?.error;
   const returning = isWorktreeCreate(payload) && failed && worktreeUnmade(code);
   const receipt = intent?.result;
-  const { returnStart } = useSendActions(props.threadId);
+  const { returnStart } = useSendActions();
   const returned = useRef(false);
   useEffect(() => {
     if (!returning || !payload || returned.current) return;

@@ -1,5 +1,6 @@
 import { useClient, useConnectionState, useInteractions, useThreadMeta } from "@ace/client-react";
-import type { QueuedMessage, ThreadStatus } from "@ace/protocol";
+import { readServerQueue } from "@ace/client";
+import { ThreadId, type QueuedMessage, type ThreadStatus } from "@ace/protocol";
 import { Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useClaimConnectionNotice } from "@/features/shell/index.ts";
@@ -29,7 +30,7 @@ import { StripSurface } from "./strip-surface.tsx";
 import { ConfirmStopStrip, useStoppedCommands } from "./stop-strips.tsx";
 import { StoppedStrip, WaitingStrip } from "./waiting-strip.tsx";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
-import { registerQueueEditSaver, useQueueEdit } from "./queue-edit.ts";
+import { markQueueEditChanged, registerQueueEditSaver, useQueueEdit } from "./queue-edit.ts";
 import { useQueue } from "./use-queue.ts";
 
 const noRequests: readonly string[] = [];
@@ -104,13 +105,28 @@ export function ComposerStrip(props: {
   // A queued message edited in the composer keeps the queue in the slot, with its Cancel.
   const editing = useQueueEdit(props.threadId);
   // The composer saves an edit through these controls, so the pill shows it at once.
-  const saveEdit = useEffectEvent(async (message: QueuedMessage, text: string) => {
-    const current = all.allMessages.find((entry) => entry.id === message.id);
-    if (!current || current.state === "uncertain") return "gone" as const;
-    return (await all.edit(current, text)) ? ("saved" as const) : ("failed" as const);
-  });
+  const saveEdit = useEffectEvent(
+    async (message: QueuedMessage, text: string, read: number | undefined) => {
+      const current = all.allMessages.find((entry) => entry.id === message.id) ?? message;
+      if (current.state === "uncertain") return "gone" as const;
+      const outcome = await all.edit(current, text, read);
+      if (outcome !== "conflict") return outcome;
+      // Changed on another device since it was read: show what it says now, keep the edit.
+      const page = await readServerQueue(
+        ThreadId.parse(props.threadId),
+        async (request) => (await client.request({ type: "queue.get", ...request })).queue,
+      ).catch(() => undefined);
+      const newer = page?.messages.find((entry) => entry.id === message.id);
+      if (!page || !newer) return "gone" as const;
+      markQueueEditChanged(props.threadId, newer, page.revision);
+      return "changed" as const;
+    },
+  );
   useEffect(
-    () => registerQueueEditSaver(props.threadId, (message, text) => saveEdit(message, text)),
+    () =>
+      registerQueueEditSaver(props.threadId, (message, text, read) =>
+        saveEdit(message, text, read),
+      ),
     [props.threadId],
   );
   const transfer = useThreadTransferState(props.threadId);

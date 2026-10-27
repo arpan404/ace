@@ -11,11 +11,10 @@ import {
 import { queueActionPayload, type QueueAction } from "@ace/ui-core";
 import { useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
+import { CommandRefused, failureMessage, runCommand } from "@/lib/daemon-command.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissSend } from "./dismissed-sends.ts";
-import { draftOf, restoreReturnedDraft } from "./returned-draft.ts";
 
 /** The text of a queued message, as the person wrote it. */
 export const queuedText = (message: Pick<QueuedMessage, "input">) =>
@@ -80,14 +79,20 @@ export interface QueueControls {
   loadingMore?: boolean;
   loadMore?(): void;
   remove(message: QueuedMessage): void;
-  /** Remove on the daemon first, then restore the message alongside the person's draft. */
-  takeBack(message: QueuedMessage): void;
   resend(message: QueuedMessage): void;
   move(index: number, step: -1 | 1): void;
   moveTo(index: number, destination: number): void;
   /** Deliver into the running turn now instead of waiting. */
   sendNow(message: QueuedMessage): void;
-  edit(message: QueuedMessage, text: string): Promise<boolean>;
+  /**
+   * New words in place, fenced to the queue revision they were read at (`read`, the page's own
+   * when absent): "conflict" when the message changed since, so nothing was overwritten.
+   */
+  edit(
+    message: QueuedMessage,
+    text: string,
+    read?: number,
+  ): Promise<"saved" | "failed" | "conflict">;
   act(action: QueueAction): void;
 }
 
@@ -125,6 +130,8 @@ export function useQueue(threadId: string): QueueControls {
     edit: QueueEdit,
     payload: CommandPayload | undefined,
     failure: string,
+    /** A refusal the caller says itself, with no toast. */
+    quiet: (error: unknown) => boolean = () => false,
   ) => {
     if (!payload || inFlight.current.has(id)) return false;
     inFlight.current.add(id);
@@ -137,7 +144,8 @@ export function useQueue(threadId: string): QueueControls {
       })
       .catch((error: unknown) => {
         put(id, undefined);
-        toast.error({ title: `Couldn't ${failure}`, description: failureMessage(error) });
+        if (!quiet(error))
+          toast.error({ title: `Couldn't ${failure}`, description: failureMessage(error) });
         refresh();
         return false;
       })
@@ -204,26 +212,6 @@ export function useQueue(threadId: string): QueueControls {
         // daemon has removed it; a refused removal leaves it to be delivered and shown.
         if (removed) dismissSend(storage, message.id);
       }),
-    takeBack: (message) =>
-      void change(
-        message.id,
-        { kind: "delivering", revision, settled: false },
-        target && { type: "queue.remove", ...target, messageId: message.id },
-        "take back the message",
-      ).then((removed) => {
-        if (!removed) return;
-        dismissSend(storage, message.id);
-        restoreReturnedDraft(
-          storage,
-          `thread:${threadId}`,
-          draftOf({
-            type: "thread.send",
-            threadId: ThreadId.parse(threadId),
-            input: message.input,
-            ...(message.context ? { context: message.context } : {}),
-          }),
-        );
-      }),
     move: (index, step) => moveTo(index, index + step),
     moveTo,
     sendNow: (message) => {
@@ -241,19 +229,28 @@ export function useQueue(threadId: string): QueueControls {
         "send it now",
       );
     },
-    edit: (message, text) =>
-      change(
+    edit: async (message, text, read) => {
+      let conflict = false;
+      const saved = await change(
         message.id,
         { kind: "text", text, revision, settled: false },
         target && {
           type: "queue.edit",
           ...target,
+          ...(read === undefined ? {} : { expectedRevision: read }),
           messageId: message.id,
           input: inputWithText(message.input, text),
           ...(message.context ? { context: message.context } : {}),
         },
         "save the message",
-      ),
+        (error) =>
+          (conflict =
+            read !== undefined &&
+            error instanceof CommandRefused &&
+            error.code === "queue_conflict"),
+      );
+      return saved ? "saved" : conflict ? "conflict" : "failed";
+    },
     act: (action) => {
       if (action.id === "choose_model" || inFlight.current.has("queue")) return;
       inFlight.current.add("queue");
