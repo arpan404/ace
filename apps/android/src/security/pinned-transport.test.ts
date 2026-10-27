@@ -222,14 +222,16 @@ it("validates WSS endpoints with a pin and no fixture exception", () => {
   );
 });
 
-it("tracks and clears pin refusals for the UI", () => {
+it("tracks pin refusals for the UI without a reset", () => {
   const trust = new TrustMonitor();
   expect(trust.failure).toBeUndefined();
   trust.report("offline");
   expect(trust.failure).toBeUndefined();
   trust.report("pin");
   expect(trust.failure).toBe("pin");
-  trust.clear();
-  expect(trust.failure).toBeUndefined();
+  // No clear: a mismatch sticks until the binding changes (fresh monitor),
+  // since success cannot prove the pin matched (ADR 0097 `*.ts.net`).
+  trust.report("offline");
+  expect(trust.failure).toBe("pin");
   expect(new ClientError("auth", "x").code).toBe("auth");
 });

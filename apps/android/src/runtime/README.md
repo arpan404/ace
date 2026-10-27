@@ -41,31 +41,72 @@ lifecycle: which machines run, when they stop, and whose callbacks count.
   machine cannot block connectivity or wake delivery to the others.
 - **Fail-closed production.** `failClosedRuntime` throws
   `ProductionTransportError` before any socket, fetch or credential is
-  touched. Pass it as `makeRuntime` until the production runtime wiring
-  below lands (native pinned WSS behind `makeRuntime`, Keystore store
-  behind the directory, app startup). The React Native default
+  touched. Pass it as `makeRuntime` until the native bridge is available;
+  once it is, pass `createProductionMakeRuntime`
+  (`./production-runtime.ts`). The React Native default
   WebSocket/fetch must never carry pairing material, and
-  `index.production.tsx` stays unpaired.
+  `index.production.tsx` stays unpaired until its UI wiring lands.
 
-## Integration needs (open)
+## Integration needs
 
-1. Production `makeRuntime`: one SDK `Client` per entry over the native
-   pinned WSS adapter (`../security/pinned-transport.ts` policy plus the
-   `pinnedSocketOpen/Send/Close` bridge in `modules/ace-native`), with
-   `expectedHostId`/`deviceId` pinned to the entry, per-entry
-   `sqliteOutbox` namespaces, and a credential closure that re-reads the
+Production wiring has landed; UI consumption is later work:
+
+1. Production `makeRuntime`: `createProductionMakeRuntime`
+   (`./production-runtime.ts`) builds one SDK `Client` per entry over the
+   native pinned WSS adapter (`bridgeSocketTransport` in
+   `../security/expo-bridge.ts` plus the `pinnedSocketOpen/Send/Close`
+   bridge in `modules/ace-native`), with `expectedHostId`/`deviceId` pinned
+   to the entry, per-entry `sqliteNamespace` outboxes
+   (`../storage.ts`, scope `JSON.stringify([hostId, deviceId])`, tables
+   ensured once at startup), and a credential closure that re-reads the
    device token on every attempt and exchanges a fresh single-use ticket
-   (`../pairing/tickets.ts`) per connection. Nothing here creates that
-   wiring.
+   (`../pairing/tickets.ts`) per connection over `ticketFetch` with the
+   machine's `TrustMonitor`: a native pin refusal reports to that monitor
+   and surfaces as `auth` so routing still sees the pin mismatch instead
+   of generic offline. The monitor is scoped by machine identity (host
+   confirmed pin plus device): a re-pair with a new pin or device mints a
+   fresh monitor, and removal plus directory prune drop it. Neither a ticket
+   success nor a socket `open` ever clears a failure: on a `*.ts.net` host
+   the native layer may accept the Tailscale system certificate with a
+   mismatched pin (ADR 0097), and the bridge reports no which-path signal,
+   so success cannot prove the pin matched. This is stricter than iOS, which
+   clears its monitor when the SDK connection reaches `ready`. Ticket abort
+   stops waiting but cannot cancel the native request: the abort maps to
+   `offline` downstream, so the SDK keeps retrying with backoff like any
+   offline failure, and a late native success after the abort leaves the
+   failure untouched. `Client.close` stops those retries (the epoch guard
+   drops the late credential and the closed flag blocks reconnect and wake).
+   A late socket `open` after close or replacement delivers nothing.
+   Relay targets and malformed pins throw before any
+   socket, fetch or credential is touched.
 2. Keystore adapter (`../pairing/keystore.ts`, production entry
-   `../pairing/secure-store.ts`) wired behind the directory, so revocation
+   `../pairing/secure-store.ts`) is taken as a dependency, so revocation
    and re-pairing take effect through the shared removal ordering.
-3. App startup wiring (A02.08): load the directory, build this manager,
-   route `setOnline`/`wake` from app lifecycle and network state, and keep
-   the fixture runtime debug-only.
-4. Inbox merging across machines (M04), per-machine grant guards (A03.05)
-   and pending-read bounds (A03.06) are later work that consumes this
-   manager; they are not implemented here.
+   `createProductionStartup` (`./production-startup.ts`) assembles it with
+   the directory; production passes the Keystore-backed store.
+3. App startup wiring (A02.08): `createProductionStartup` loads the
+   directory, builds the manager with epoch-bound `beforeConnect` and
+   namespace/grant cleanup on removal, routes `setOnline`/`wake` from app
+   lifecycle and network state, and keeps the fixture runtime debug-only.
+   The pairing/inbox screens that drive `startup.pair`/`startup.route` are
+   still open, so `index.production.tsx` stays unpaired.
+4. Inbox merging across machines (M04) and pending-read bounds (A03.06) are
+   later work that consumes this manager. Grant admission helpers exist at
+   this boundary (`GrantStore` / `assertCanOperate` / `ViewOnlyError` plus
+   `startup.canOperate(hostId)` / `startup.assertCanOperateFor(hostId)` /
+   `startup.runtimeForMutation(hostId)`): unknown hosts, known hosts with no
+   recorded grant row, and every host when the persisted file is malformed
+   read as view-only, mirroring the iOS `ClientModel.canOperate` rule except
+   unknown/missing grants stay view-only where iOS defaults them to operate.
+   `runtimeForMutation` returns a fresh short-lived lifecycle gate per call,
+   never the shared runtime: every gate method re-resolves the grant and the
+   live runtime, so a cached gate fails after revocation, disconnect or
+   removal. This is not an enforced content-mutation boundary: the app's real
+   inbox/composer mutations are not yet routed through the gate and
+   `manager.client` remains directly reachable, so view-only enforcement is
+   not demonstrable end to end. No production UI is wired through these
+   helpers, so `index.production.tsx` stays an unpaired shell and production
+   stays unwired and fail-closed.
 
 ## Verification
 

@@ -3,11 +3,14 @@ import type { SQLiteDatabase } from "expo-sqlite";
 import { z } from "zod";
 import type { ThreadDraftPersistence } from "./thread-drafts.ts";
 const Row = z.object({ value: z.string() });
-/** One owner per daemon/device namespace. Every resolved write is committed to disk. */
-export async function sqliteOutbox(db: SQLiteDatabase, namespace: string): Promise<Storage> {
+/** Create the shared outbox/metadata tables once per database. Idempotent. */
+export async function ensureOutboxTables(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(`PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;
     CREATE TABLE IF NOT EXISTS outbox (namespace TEXT NOT NULL, id TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(namespace,id));
     CREATE TABLE IF NOT EXISTS metadata (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(namespace,key));`);
+}
+/** One owner's view of the shared tables. Construction is synchronous; every resolved write commits to disk. */
+export function sqliteNamespace(db: SQLiteDatabase, namespace: string): Storage {
   async function read(key: string) {
     const row: unknown = await db.getFirstAsync(
       "SELECT value FROM metadata WHERE namespace=? AND key=?",
@@ -46,6 +49,18 @@ export async function sqliteOutbox(db: SQLiteDatabase, namespace: string): Promi
       },
     },
   };
+}
+/** Forget one machine's outbox and metadata rows, leaving other namespaces alone. */
+export async function deleteOutboxNamespace(db: SQLiteDatabase, namespace: string): Promise<void> {
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    await tx.runAsync("DELETE FROM outbox WHERE namespace=?", namespace);
+    await tx.runAsync("DELETE FROM metadata WHERE namespace=?", namespace);
+  });
+}
+/** One owner per daemon/device namespace. Every resolved write is committed to disk. */
+export async function sqliteOutbox(db: SQLiteDatabase, namespace: string): Promise<Storage> {
+  await ensureOutboxTables(db);
+  return sqliteNamespace(db, namespace);
 }
 /**
  * Unsent composer words per machine+thread, kept in the same database but

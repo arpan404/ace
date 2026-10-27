@@ -206,7 +206,7 @@ export function createPinnedHttp(
         token: request.token,
       });
     } catch (error) {
-      throw toPinnedError(error);
+      throw refusal(error);
     }
     if (typeof response?.status !== "number" || typeof response?.body !== "string") {
       throw new PinnedTransportError("invalid");
@@ -218,7 +218,7 @@ export function createPinnedHttp(
 
 const REFUSALS: readonly PinnedRefusal[] = ["pin", "redirect", "offline", "limit", "invalid"];
 
-function toPinnedError(error: unknown): PinnedTransportError {
+function refusal(error: unknown): PinnedTransportError {
   const reason = error instanceof Error ? error.message : error;
   if (typeof reason === "string" && (REFUSALS as readonly string[]).includes(reason)) {
     return new PinnedTransportError(reason as PinnedRefusal);
@@ -229,7 +229,9 @@ function toPinnedError(error: unknown): PinnedTransportError {
 /**
  * Remembers that the native layer refused this computer's TLS key. The SDK
  * folds every non-network credential failure into `auth`, so the reason is
- * kept beside it for the UI.
+ * kept beside it for the UI. A pin failure sticks for the life of this
+ * monitor: success can never clear it (ADR 0097 `*.ts.net` fallback), so a
+ * new pin or device mints a fresh monitor instead.
  */
 export class TrustMonitor {
   #failure: "pin" | undefined;
@@ -238,9 +240,6 @@ export class TrustMonitor {
   }
   report(reason: string): void {
     if (reason === "pin") this.#failure = "pin";
-  }
-  clear(): void {
-    this.#failure = undefined;
   }
 }
 

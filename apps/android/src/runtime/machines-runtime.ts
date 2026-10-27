@@ -43,13 +43,13 @@ export class ProductionTransportError extends Error {
 }
 
 /**
- * Fail-closed runtime factory for production wiring. It throws before any
- * socket, fetch or credential is touched, so the React Native default
- * WebSocket/fetch can never carry pairing material. Pass it as `makeRuntime`
- * until the production runtime wiring lands: a `makeRuntime` over the native
- * pinned WSS adapter, the Keystore adapter behind the directory, and app
- * startup (integration items 1-3 below). The production entry point
- * (`apps/android/index.production.tsx`) stays unpaired for the same reason.
+ * Fail-closed runtime factory for builds without the pinned native bridge.
+ * It throws before any socket, fetch or credential is touched, so the React
+ * Native default WebSocket/fetch can never carry pairing material. Pass it as
+ * `makeRuntime` until the bridge is available; then pass
+ * `createProductionMakeRuntime` (`./production-runtime.ts`), which builds one
+ * isolated SDK `Client` per entry over the pinned transport with the
+ * Keystore store behind the directory.
  */
 export function failClosedRuntime(_entry: MachineEntry): MachineRuntime {
   throw new ProductionTransportError();

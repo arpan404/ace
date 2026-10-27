@@ -34,6 +34,12 @@ contract and implies no security the native transport does not yet provide.
   material, plus the Pair-action gate, the mapped failure copy (safe
   `PairingFlowError` text verbatim, static fallback otherwise — raw
   scanner or transport text is never shown) and fail-closed copy.
+- `pinned-pairing.ts` — production `PairingTransport` over the Expo pinned
+  bridge (`../security/expo-bridge.ts`): `redeem` POSTs the code once to
+  `origin/v1/pair` with the link pin validated before anything is sent, then
+  a short-lived pinned identity connection reads `host.identity` on the same
+  pin. Unreadable replies return raw so the flow reports `consumed`. Inactive
+  until the pairing screen wires it: no production UI calls it yet.
 - `../Pairing.tsx` — the entry/confirm screen mirroring iOS
   `PairingView`/`ConfirmPairingView` (paste field, scan affordance,
   address/grant/fingerprint confirmation, device name, Pair action).
@@ -57,6 +63,13 @@ contract and implies no security the native transport does not yet provide.
   refused, and refusals map to `pin`/`redirect`/`offline`/`limit`/`invalid`.
   `createPinnedHttp` binds one origin plus its confirmed pin to the
   `NativePinnedHttp` bridge; `validateSocketTarget` gates WSS endpoints.
+  `TrustMonitor` records a pin refusal with no reset: success never clears it
+  (ADR 0097 `*.ts.net` fallback).
+- `../security/expo-bridge.ts` — Expo-module adapter for the pinned bridge
+  (inactive until wired): `expoBridgeFromModule` fail-closed construction,
+  `bridgePinnedHttp` plus `ticketFetch` for the per-attempt ticket exchange,
+  and `bridgeSocketTransport` for pinned WSS with per-socket trust reporting
+  and epoch guards. No production UI imports it yet.
 - `transport/` in `modules/ace-native` — the Kotlin TLS boundary: a pinning
   trust manager (SPKI pin plus validity window during the handshake, single
   ADR 0097 `*.ts.net` exception), bounded HTTPS with redirect refusal, a
@@ -107,9 +120,15 @@ the network.
    `keychainAccessible` is iOS-only and ignored by the Android native
    module, so the adapter never sends it. Fail-closed reads, single-key
    deletes and malformed-token handling are covered in `keystore.test.ts`.
-3. Production startup that routes empty, removed and revoked pairings to
-   pairing again, requests a fresh ticket per connection, and keeps the
-   fixture transport debug-only.
+3. Production startup (`../runtime/production-startup.ts`) routes empty,
+   removed and revoked pairings back to pairing (`startupRoute`: missing,
+   revoked, pin mismatch and unsupported relay entries; offline/storage
+   failures stay paired while the SDK retries), requests a fresh ticket per
+   connection, and keeps the fixture transport debug-only. The grant helpers
+   (`GrantStore`/`canOperate`) are admission checks only: the app's real
+   mutations are not yet routed through `runtimeForMutation`, so view-only
+   enforcement is not demonstrable end to end and the production entry point
+   (`index.production.tsx`) stays unwired.
 4. Camera capture for the screen's scan affordance (A02.06): grant/denial,
    cancel and malformed QR must all funnel into the screen's single
    `acceptPairingText` path without a second redemption path and without
