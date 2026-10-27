@@ -77,7 +77,13 @@ While the Mac is locked, only controls still exposed through accessibility can w
 
 - Password managers, system authentication prompts (polkit, pinentry), terminals, Script Editor, Automator, Shortcuts, ace itself and any app the person has listed are refused. Ask the person to do those steps, use your shell for commands, and never look for another way into a refused app.
 - Ask the person before anything irreversible they did not ask for in so many words: sending a message or email, posting, buying, deleting, changing system settings. Read back what you will send.
-- On Windows, or when this machine has no screen helper for the background tools, ace offers the older session tools instead (`screen_open_app`, `screen_ui_tree`, `screen_ui_act`, `screen_input`); their descriptions say how to use them.
+- When this machine has no screen helper for the background tools, ace offers the older session tools instead: `screen_open_app {bundleId}` returns a `sessionId` (omit it later while you control one app) and the app's windows (`screen_windows` lists them; pass `windowId` to switch). Read with `screen_ui_tree`, act with `screen_ui_act` on a ref or a `menu` path, and fall back to `screen_input` (points are screenshot pixels divided by the screenshot's scale). `mode: "foreground"` takes the real cursor and keyboard: use it only when the app ignores background input; without `mode` a session keeps its current one. `screen_measure` reports latency, settle time, FPS and hitch time per second, at most 10 s per run.
+
+### On Windows
+
+- Clicks by id, `set_value`, `select_text`, typing into fields, menus, menu shortcuts and `window` steps work with the window in the background.
+- Other shortcuts, x,y clicks on things missing from the outline, hover and drags need the window in front: start the batch with `activate`, which interrupts the person.
+- Shortcuts use `ctrl` (`ctrl+s`); `cmd` means `ctrl`.
 
 ## Simulators and emulators (sim_*)
 
@@ -85,7 +91,9 @@ sim_* drives the iOS simulators and Android emulators on this machine. Paired ma
 
 1. `sim_list` shows simIds and status.
 2. `sim_start` takes one for this thread, boots it if needed and starts capture. It is refused while a person or another agent holds it.
-3. Read with `sim_ui` (pass `role`, `name` or `text` to find). Actionable elements carry refs like `@e3`. Act on a ref: `sim_act` with `action: "tap"` and `ref`, `"type"` with `ref` and `text`, or `"ui"` with a `uiAction`. Points (`x`, `y`), `swipe` and `key` are the fallbacks; `open_app`, `open_url`, `install` and `record_start` / `record_stop` cover apps and recordings; `clipboard_get` / `clipboard_set` read and set the clipboard.
+3. Read with `sim_ui` (pass `role`, `name` or `text` to find). Actionable elements carry refs like `@e3`. Act on a ref: `sim_act` with `action: "tap"` and `ref`, `"type"` with `ref` and `text`, or `"ui"` with a `uiAction`. Points (`x`, `y`, in screen points: screenshot pixels divided by its scale), `swipe` and `key` are the fallbacks; `type` without a ref types into the focused field. `open_app` (a bundle id or Android package), `open_url`, `install` (a Simulator-built `.app` or an `.apk`) and `record_start` / `record_stop` (a recording attached to the thread) cover apps and recordings; `clipboard_get` / `clipboard_set` read and set the clipboard without pasting.
+   - Keys: `recents` is Android's app overview; `action` is the iPhone Action button (iPhone 15 Pro and later); `side` is Apple Watch's side button and `home` presses its Digital Crown; `keyboard` brings back the on-screen keyboard (iOS toggles it; Android shows Gboard).
+   - `posture` folds a foldable simulator or emulator (iPhone Duo, Pixel Fold): `closed` (cover screen), `partiallyOpen` (half open, like a book) or `open` (flat, inner screen). `sim_start` reports the current posture.
 4. `sim_screenshot` for a visual check, with or without the live view; `sim_logs` for a log tail.
 5. `sim_stop` when you finish, so the person and other threads can use it.
 
