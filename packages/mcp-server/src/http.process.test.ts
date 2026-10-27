@@ -1,10 +1,9 @@
 import { z } from "zod";
-import type { Transport as LegacyWire } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { Client as LegacyClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport as LegacyTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, expect, it } from "vitest";
 import { registerBuiltins } from "./index.ts";
-import { deferred, harness, scope } from "./test-support.ts";
+import { deferred, harness, legacyWire, scope } from "./test-support.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -85,20 +84,7 @@ it("negotiates the legacy handshake with the monolithic SDK client", async () =>
   const transport = new LegacyTransport(new URL(h.server.url), {
     requestInit: { headers: { Authorization: `Bearer ${lease.bearer}` } },
   });
-  // v1's own optional sessionId declaration is incompatible with exactOptionalPropertyTypes.
-  const wire: LegacyWire = {
-    start: () => transport.start(),
-    close: () => transport.close(),
-    send: (message, options) => transport.send(message, options),
-  };
-  // SDK Transport uses callback properties, not DOM events.
-  // oxlint-disable-next-line unicorn/prefer-add-event-listener
-  transport.onmessage = (message) => wire.onmessage?.(message);
-  // oxlint-disable-next-line unicorn/prefer-add-event-listener
-  transport.onerror = (error) => wire.onerror?.(error);
-  // oxlint-disable-next-line unicorn/prefer-add-event-listener
-  transport.onclose = () => wire.onclose?.();
-  await client.connect(wire);
+  await client.connect(legacyWire(transport));
   expect(client.getServerVersion()?.name).toBe("ace");
   expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
     "context",

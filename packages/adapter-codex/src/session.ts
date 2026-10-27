@@ -618,6 +618,9 @@ export async function openCodexSession(
     async configure(selection) {
       const executionOptions = CodexSelectionOptions.parse(selection.options);
       assertOpen();
+      // MCP headers and the tool guidance are fixed at connection startup. The engine resumes
+      // this native thread with fresh discovery before sending another turn.
+      if (ctx.aceMcp && selection.model !== ctx.model) return "reopen" as const;
       await request("thread/settings/update", {
         threadId: nativeSessionId,
         model: selection.model ?? null,

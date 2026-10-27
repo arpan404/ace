@@ -9,6 +9,7 @@ import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { AgentId } from "@ace/protocol";
 import { withDaemonMcp, withShippedSkills } from "./provider-mcp.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
+import { ManagedWorktrees } from "../managed-worktrees.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { registerAntigravity } from "./antigravity.ts";
 import { registerPi } from "./pi.ts";
@@ -62,6 +63,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   if (!engineOptions.registry) resources.own(() => registry.close(), "provider registry");
   context.signal.throwIfAborted();
   const capabilities = daemonMcpCapabilities(services);
+  const worktrees = new ManagedWorktrees(store, config.dataDir);
   const acp =
     services.agentRegistry && services.models && services.mcp
       ? acpEngineOptions({
@@ -74,6 +76,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           options,
           accounts: services.accounts,
           accountRegistry: services.accountRegistry,
+          worktreeSource: (path) => {
+            const record = worktrees.get(path);
+            return record && worktrees.verify(record.repo, path)?.repo;
+          },
           report: (error) => log.log("error", "ACP metadata failure", logError(error)),
         })
       : {};

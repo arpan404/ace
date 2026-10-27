@@ -40,7 +40,7 @@ const usualListing: Record<ProviderKind, ToolListing> = {
   pi: "core",
   // Cursor's SDK keeps its MCP meta tool on: names only, every listed tool callable.
   cursor: cursorToolListing(true),
-  antigravity: "all",
+  antigravity: "core",
   acp: "static",
 };
 /** The listing a provider's sessions use unless the daemon knows better (an ACP agent's CLI). */
@@ -118,6 +118,9 @@ export function developerInstructions(
       : listing === "all"
         ? (deferredReach[provider] ?? reach.all)
         : reach[listing],
+    provider === "antigravity" && listing !== "all"
+      ? 'Read a listed tool\'s definition file if needed, then use call_mcp_tool (ServerName "ace", ToolName, Arguments).'
+      : undefined,
     provider === "claude" ? claudeSkills : undefined,
     session.access === "read-only" ? readOnly : undefined,
     session.roles,
@@ -125,4 +128,12 @@ export function developerInstructions(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** An actionable startup error when Gemini's native folder trust blocks the session. */
+export function geminiUntrustedGuidance(folder: string, denied: boolean): string {
+  const fix = denied
+    ? "Change the earlier Don't trust choice with /permissions in an interactive gemini session there."
+    : 'Run gemini in that folder once and choose "Trust folder".';
+  return `Gemini CLI does not trust ${folder}, so ace cannot start a session with its tools there. ${fix} Then retry this turn in ace.`;
 }

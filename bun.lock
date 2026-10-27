@@ -135,7 +135,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.11",
+      "version": "0.0.12",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -412,6 +412,7 @@
       "dependencies": {
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "jsonc-parser": "^3.3.1",
         "tar-stream": "3.2.1",
         "unbzip2-stream": "1.4.3",
         "yauzl": "3.4.0",
