@@ -81,16 +81,16 @@ test("the project menu edits the name of a project without threads", async () =>
   ).toBeUndefined();
 });
 
-test("removing a project keeps its files and stops listing it", async () => {
+test("removing a project keeps its files, deletes its threads and stops listing it", async () => {
   const made = withProjects(false);
   await made.open("/new");
   await filterTo("docs");
   await userEvent.click(await screen.findByRole("menuitem", { name: "Remove…" }));
   const dialog = await screen.findByRole("dialog", { name: "Remove docs?" });
-  expect(within(dialog).getByText(/This won't delete any files/)).toBeTruthy();
+  expect(within(dialog).getByText(/Its threads are deleted. No files are./)).toBeTruthy();
   const remove = within(dialog).getByRole("button", { name: "Remove project" });
-  // Nothing is deleted, so it isn't a red, destructive confirmation.
-  expect(remove.dataset.variant).toBe("primary");
+  // Its threads are deleted, so it is a destructive confirmation.
+  expect(remove.dataset.variant).toBe("danger");
   await userEvent.click(remove);
 
   // With the last project gone, Add project stands in for the project filter.
@@ -101,7 +101,7 @@ test("removing a project keeps its files and stops listing it", async () => {
   expect(listed(made)).not.toContain("docs");
 });
 
-test("a project with running threads is removed only by archiving them", async () => {
+test("a project with running threads is removed only by stopping and deleting them", async () => {
   const made = withProjects(true);
   await made.open("/new");
   await filterTo("docs");
@@ -113,11 +113,15 @@ test("a project with running threads is removed only by archiving them", async (
     "A thread in docs is still running.",
   );
   expect(listed(made)).toContain("docs");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Archive threads and remove" }));
+  const thread = () => {
+    const view = made.daemon.snapshot({ kind: "threads" });
+    return view?.kind === "threads" ? view.threads["thread-docs"] : undefined;
+  };
+  expect(thread()).toBeDefined();
+  await userEvent.click(within(dialog).getByRole("button", { name: "Stop threads and remove" }));
   await waitFor(() => expect(listed(made)).not.toContain("docs"));
-  const view = made.daemon.snapshot({ kind: "threads" });
-  const entry = view?.kind === "threads" ? view.threads["thread-docs"] : undefined;
-  expect(entry?.archivedAt).toBeDefined();
+  // Deleted threads leave the thread list, so nothing keeps the project on screen.
+  expect(thread()).toBeUndefined();
 });
 
 test("cancelling a refused removal gives another project and a reopened project a fresh attempt", async () => {

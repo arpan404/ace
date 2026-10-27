@@ -214,9 +214,13 @@ export const ProjectCommands = [
    * a hidden `chat` project. The result's `workspace` is where the chat's `thread.create` goes.
    */
   z.object({ type: z.literal("workspace.chat.create") }),
+  /**
+   * Remove a project: ace deletes its threads and stops listing it; nothing on disk is touched.
+   * Refused with `workspace_threads_running` while a thread still runs, unless `stopRunning`.
+   */
   z.object({
     type: z.literal("workspace.remove"),
     workspaceId: WorkspaceId,
-    archiveThreads: z.boolean().default(false),
+    stopRunning: z.boolean().default(false),
   }),
 ] as const;

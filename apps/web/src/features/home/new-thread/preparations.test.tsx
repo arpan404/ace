@@ -259,7 +259,7 @@ test("a removed project's draft opens its saved content and recovery guidance in
   await made.client.enqueue({
     type: "workspace.remove",
     workspaceId: WorkspaceId.parse("relay"),
-    archiveThreads: true,
+    stopRunning: true,
   });
   await waitFor(async () => {
     const reply = await made.client.request({

@@ -510,19 +510,18 @@ export class FakeProjects {
         return { ok: true, workspace };
       }
       if (
-        !p.archiveThreads &&
+        !p.stopRunning &&
         threads.some(
           (t) => !["new", "done", "failed"].includes(t.status.state) || this.hasOwnedWork(t.id),
         )
       )
         throw new Error("workspace_threads_running");
-      if (p.archiveThreads)
-        for (const thread of threads)
-          if (thread.archivedAt === undefined)
-            this.context.update(thread.id, {
-              type: "thread.updated",
-              archivedAt: this.context.now(),
-            });
+      // Removing a project deletes its threads.
+      for (const thread of threads)
+        this.context.update(thread.id, {
+          type: "thread.client.updated",
+          changes: { deletedAt: this.context.now(), autoSettleAt: null },
+        });
       this.projects.delete(project.id);
       this.retained.set(project.id, project);
       this.removed.add(project.id);

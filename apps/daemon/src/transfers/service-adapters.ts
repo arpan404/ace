@@ -103,7 +103,7 @@ export function targetProjects(context: ServiceContext): TargetProjects {
       await run(`transfer-remove:${workspaceId}:${context.id()}`, {
         type: "workspace.remove",
         workspaceId,
-        archiveThreads: true,
+        stopRunning: true,
       });
     },
   };
