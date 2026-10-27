@@ -136,7 +136,17 @@ export interface CheckReply {
   workflow: { runId: number; attempt: number } | null;
   controls: { rerunFailed: boolean; rerunAll: boolean; cancel: boolean; fix: boolean };
   /** What "Fix with agent" asks, and the thread it goes to (null starts a new one). */
-  fix: { request: string; threadId: string | null } | null;
+  fix: {
+    request: string;
+    threadId: string | null;
+    /** With no linked thread, the pull request a new thread starts on, at the head shown. */
+    pullRequest: {
+      repository: ForgeRepository;
+      number: number;
+      headSha: string;
+      title: string;
+    };
+  } | null;
 }
 
 export interface ChecksWriteReply {
@@ -321,6 +331,12 @@ export async function readCheck(
             run,
           ),
           threadId: linked?.id ?? null,
+          pullRequest: {
+            repository: detail.status.ref.repository,
+            number: detail.status.ref.number,
+            headSha: detail.status.headSha,
+            title: preview(detail.status.title, 512),
+          },
         }
       : null,
   };

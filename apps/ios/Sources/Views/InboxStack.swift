@@ -193,7 +193,8 @@ struct InboxStack<Destination: View>: View {
             case .timeline: ForgeTimelineView(client: client, route: route)
             case .file: ForgeFileView(client: client, route: route)
             case .files: ForgeFilesView(client: client, route: route, open: { path.append(.forge($0)) })
-            case .check: ForgeCheckPageView(client: client, route: route, openThread: forge.openThread)
+            case .check: ForgeCheckPageView(client: client, route: route, openThread: forge.openThread,
+                                            startThread: inbox.canStartThreads ? forge.startThread : nil)
             case .conflicts: ForgeConflictsPageView(client: client, route: route, openThread: forge.openThread)
             case .stack: ForgeStackPageView(client: client, route: route, open: { path.append(.forge($0)) })
             case .commits: ForgeCommitsView(client: client, route: route, open: { path.append(.forge($0)) })

@@ -46,6 +46,8 @@ test("a failing check opens on its annotations and a log read page by page, with
   ]);
   expect(page.controls).toEqual({ rerunFailed: true, rerunAll: true, cancel: false, fix: true });
   expect(page.fix?.request).toContain("Error: expected the model chip to stay in the toolbar");
+  // A fix can always start a thread of its own on the PR, at the head the page showed.
+  expect(page.fix?.pullRequest).toMatchObject({ number: 229, headSha: listed.headSha });
   expect(page.log?.lines).toBeGreaterThan(1_400);
   // The log is drawn from its failing step, a page at a time.
   const lines = (await ask({

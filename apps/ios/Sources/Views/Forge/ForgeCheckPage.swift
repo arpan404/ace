@@ -9,6 +9,8 @@ struct ForgeCheckPageView: View {
     let client: ClientModel
     let route: ForgeRoute
     let openThread: (InboxKey) -> Void
+    /// Opens New thread, already drafted; nil where threads can't start.
+    var startThread: (() -> Void)?
     @State private var page: ForgeCheckPage?
     @State private var failure: String?
     @State private var writing: String?
@@ -20,7 +22,8 @@ struct ForgeCheckPageView: View {
 
     private var request: [String: Any] { ClientModel.forgeCheckRead(route, checkId: route.checkId ?? "") }
 
-    init(client: ClientModel, route: ForgeRoute, openThread: @escaping (InboxKey) -> Void) {
+    init(client: ClientModel, route: ForgeRoute, openThread: @escaping (InboxKey) -> Void, startThread: (() -> Void)? = nil) {
+        self.startThread = startThread
         self.client = client
         self.route = route
         self.openThread = openThread
@@ -125,7 +128,7 @@ struct ForgeCheckPageView: View {
                     ForgeTextAction(label: "Cancel run", destructive: true, busy: writing == "cancel", identifier: "forge.check.cancel") { cancelling = true }
                 }
                 if let fix = page.fix {
-                    ForgeTextAction(label: "Fix with agent", reason: fix.threadId == nil ? "Link a thread to this pull request to hand it the failure." : nil,
+                    ForgeTextAction(label: "Fix with agent", reason: fix.threadId == nil && (fix.pullRequest == nil || startThread == nil) ? "Link a thread to this pull request to hand it the failure." : nil,
                                     identifier: "forge.check.fix") { handOff(fix) }
                 }
             }
@@ -171,7 +174,16 @@ struct ForgeCheckPageView: View {
     }
 
     private func handOff(_ fix: ForgeCheckPage.Fix) {
-        guard let threadId = fix.threadId else { return }
+        guard let threadId = fix.threadId else {
+            // No thread works on it yet: a new one starts on the PR with the request written in.
+            guard let pull = fix.pullRequest, let startThread else { return }
+            NewThreadDraftStore.standard().seed(
+                machineId: route.machineId, projectId: route.project,
+                pullRequest: NewThreadPull(repository: pull.repository, number: pull.number, headSha: pull.headSha, title: pull.title),
+                text: fix.request)
+            startThread()
+            return
+        }
         if client.handOff(fix.request, to: threadId, drafts: drafts) { openThread(InboxKey(machineId: route.machineId, id: threadId)) }
         else { outcome = ForgeWorkOutcome(ok: false, message: "Couldn't add the request. Open the thread and try again.", uncertain: false) }
     }

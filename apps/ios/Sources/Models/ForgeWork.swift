@@ -19,7 +19,13 @@ struct ForgeCheckPage: Decodable, Sendable, Equatable {
     struct Log: Decodable, Sendable, Equatable { let lines: Int; let truncated: Bool; let focus: Int?; let errors: [Int] }
     struct Workflow: Decodable, Sendable, Equatable { let runId: Int; let attempt: Int }
     struct Controls: Decodable, Sendable, Equatable { let rerunFailed: Bool; let rerunAll: Bool; let cancel: Bool; let fix: Bool }
-    struct Fix: Decodable, Sendable, Equatable { let request: String; let threadId: String? }
+    struct Fix: Decodable, Sendable, Equatable {
+        struct Pull: Decodable, Sendable, Equatable { let repository: ForgeRepository; let number: Int; let headSha: String; let title: String }
+        let request: String
+        let threadId: String?
+        /// With no linked thread, the pull request a new thread starts on.
+        let pullRequest: Pull?
+    }
     let name: String
     let word: String
     let tone: String
