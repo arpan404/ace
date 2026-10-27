@@ -133,6 +133,7 @@ export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
 export * from "./checkout-errors.ts";
 export * from "./projects.ts";
+export * from "./project-edit.ts";
 export * from "./folder-search.ts";
 export * from "./path-picker.ts";
 export * from "./usage-cost.ts";

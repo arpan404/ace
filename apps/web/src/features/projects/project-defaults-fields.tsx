@@ -1,5 +1,5 @@
 import { ProviderKind, type ProjectDefaults } from "@ace/protocol";
-import { providerNames } from "@ace/ui-core";
+import { projectDefaultModels, providerNames } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
@@ -13,25 +13,17 @@ import { useVerifyRuns } from "@/lib/verify.ts";
 const inherit = "inherit";
 const separator = "\n";
 
-/** The models a project can default to: each provider's model once, whatever account serves it. */
+/** The models a project can default to (`projectDefaultModels`), with their marks. */
 function useModelOptions(current: ProjectDefaults): SelectOption<string>[] {
   const models = useNewThreadOptions()?.models ?? [];
-  const seen = new Set<string>();
-  const options: SelectOption<string>[] = [{ value: inherit, label: "Inherit" }];
-  const add = (provider: ProviderKind, id: string, label: string) => {
-    const value = `${provider}${separator}${id}`;
-    if (seen.has(value)) return;
-    seen.add(value);
-    options.push({
-      value,
-      label: `${label} · ${providerNames[provider]}`,
-      icon: <ProviderIcon provider={provider} model={id} size={14} decorative />,
-    });
-  };
-  for (const model of models) if (!model.legacy) add(model.provider, model.id, model.label);
-  // A saved default the catalog doesn't list right now stays shown rather than silently lost.
-  if (current.provider && current.model) add(current.provider, current.model, current.model);
-  return options;
+  return [
+    { value: inherit, label: "Inherit" },
+    ...projectDefaultModels(models, current).map((model) => ({
+      value: `${model.provider}${separator}${model.id}`,
+      label: `${model.label} · ${providerNames[model.provider]}`,
+      icon: <ProviderIcon provider={model.provider} model={model.id} size={14} decorative />,
+    })),
+  ];
 }
 
 function useBranchOptions(projectId: string, current: string | undefined) {

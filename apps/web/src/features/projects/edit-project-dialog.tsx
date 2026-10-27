@@ -1,5 +1,10 @@
 import type { ProjectDefaults, ProjectNoteEdit } from "@ace/protocol";
-import { projectNameProblem } from "@ace/ui-core";
+import {
+  projectEdit,
+  projectIconChoice,
+  projectNameProblem,
+  savedProjectNotes,
+} from "@ace/ui-core";
 import { TrashIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -9,7 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { verifyRunsKey } from "@/lib/verify.ts";
 import { Footer, Problem, TextField } from "./form-parts.tsx";
-import { iconChoiceOf, iconEdit, type IconChoice } from "./icon-choice.ts";
+import type { IconChoice } from "./icon-choice.ts";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
 import { ProjectBrowserProfile } from "./project-browser-profile.tsx";
 import { ProjectDefaultsFields } from "./project-defaults-fields.tsx";
@@ -17,8 +22,6 @@ import { ProjectIconChooser } from "./project-icon-chooser.tsx";
 import { ProjectNotesFields } from "./project-notes-fields.tsx";
 import { ProjectPathRow } from "./project-path-row.tsx";
 import type { ProjectRequest } from "./requests.ts";
-
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
  * A project's name, icon and new-thread defaults, saved together through the daemon so every
@@ -37,28 +40,19 @@ export function EditProjectDialog(props: {
   const [icon, setIcon] = useState<IconChoice>();
   const [defaults, setDefaults] = useState<ProjectDefaults>();
   const [notes, setNotes] = useState<ProjectNoteEdit[]>();
-  const savedNotes = (project?.notes ?? []).map(({ id, text }) => ({ id, text }));
-  const noteEdits: ProjectNoteEdit[] = (notes ?? savedNotes).flatMap((note) => {
-    const text = note.text.trim();
-    if (!text) return [];
-    return note.id ? [{ id: note.id, text }] : [{ text }];
-  });
+  const savedNotes = savedProjectNotes(project);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   const value = name ?? project?.name ?? "";
   const nameProblem = projectNameProblem(value.trim());
-  const choice = icon ?? iconChoiceOf(project);
+  const choice = icon ?? projectIconChoice(project);
 
   const save = async () => {
     if (!project || nameProblem || saving) return;
-    const edit = {
-      name: value.trim(),
-      ...(icon ? iconEdit(icon) : {}),
-      ...(defaults && !same(defaults, project.defaults ?? {}) ? { defaults } : {}),
-      ...(notes && !same(noteEdits, savedNotes) ? { notes: noteEdits } : {}),
-    };
-    if (Object.keys(edit).length === 1 && edit.name === project.name)
-      return props.onOpenChange(false);
+    const result = projectEdit(project, { name: value, icon, defaults, notes });
+    if (result.kind === "invalid") return;
+    if (result.kind === "unchanged") return props.onOpenChange(false);
+    const edit = result.edit;
     setSaving(true);
     setProblem(undefined);
     try {

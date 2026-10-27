@@ -4,6 +4,7 @@ import { z } from "zod";
 import { DeviceId, HostId, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
+import { ProjectManage } from "./project-manage.ts";
 import { PatchPump, followThread } from "./patches.ts";
 import { LedgerShelf } from "./native-ledger.ts";
 import { followInbox, inboxAction, makeActivityGeneration, type InboxFollow } from "./inbox.ts";
@@ -262,6 +263,7 @@ async function start(json: string): Promise<void> {
       (input, signal) => downloadFile(forgeClient, input, { signal, timeoutMs: 60_000 }),
     ),
     reads,
+    new ProjectManage(client, scheduler.set),
   );
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);
