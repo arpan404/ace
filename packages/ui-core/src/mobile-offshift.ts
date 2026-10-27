@@ -1,5 +1,4 @@
 import type { ThreadReader } from "@ace/client";
-import { isRunning } from "./agents.ts";
 import { toneToken, type StatusToken } from "./mobile-status.ts";
 import { offshiftSummary, type OffshiftSummary } from "./offshift.ts";
 
@@ -36,7 +35,9 @@ export function mobileOffshift(
   let runningAgents = 0;
   for (const id of reader.agentIds()) {
     const agent = reader.agent(id);
-    if (agent && isRunning(agent)) runningAgents++;
+    // Only an agent at work makes the run read Working; one held by a limit or blocked waits.
+    const state = agent?.status.state;
+    if (state === "starting" || state === "working") runningAgents++;
   }
   let request: "approval" | "question" | undefined;
   for (const id of reader.interactionIds()) {

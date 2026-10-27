@@ -50,3 +50,21 @@ test("a blocked run shows its blocker, steps and each criterion's checks and who
   expect(held.pending).toBe(2);
   expect(held.next).toContain("Resolve the blocker");
 });
+
+test("a delivered run whose tree only waits on a usage limit reads Waiting, not Working or Done", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "limit", workspaceId: "ace", title: "Limit", provider: "claude" });
+  fake.apply("limit", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.subagent("claude", "checker", "Checker", "spawn"),
+    facts.turn("checker", "spawn"),
+    facts.endTurn("checker", "failed", { kind: "quota", message: "Usage limit reached" }),
+    facts.endTurn("root"),
+  ]);
+  fake.updateOffshift("limit", deliveredCard(1000));
+  open(connect(fake), "limit");
+  const waiting = await until(() => run() ?? undefined, "the run");
+  expect(waiting.word).toBe("Waiting");
+  expect(waiting.done).toBe(false);
+});
