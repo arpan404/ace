@@ -282,6 +282,45 @@ const WindowsBinding = z.object({
     output: z.array(z.string()).max(DIRECTORY_CAP),
   }),
 });
+/** The Windows add-on's link and no-replace calls, which have no POSIX counterpart here. */
+const WindowsLinkBinding = z.object({
+  renameAt: z.function({
+    input: [z.number().int(), z.string(), z.string(), z.literal(false)],
+    output: z.void(),
+  }),
+  junctionAt: z.function({ input: [z.number().int(), z.string(), z.string()], output: z.void() }),
+});
+let windowsLinksLoaded: z.infer<typeof WindowsLinkBinding> | undefined;
+function windowsLinks(): z.infer<typeof WindowsLinkBinding> {
+  windowsLinksLoaded ??= WindowsLinkBinding.parse(require("../dist/descriptor.node"));
+  return windowsLinksLoaded;
+}
+/** Windows: moves `from` to `to` in `parent`, failing with EEXIST rather than replacing `to`. */
+export function renameAtNoReplace(parent: number, from: string, to: string): void {
+  if (process.platform !== "win32") throw failed("Only the Windows add-on has this", "ENOTSUP");
+  windowsCall(() => windowsLinks().renameAt(parent, windowsName(from), windowsName(to), false));
+}
+/**
+ * Windows: makes `name` in the pinned `parent` a junction to `target`, a normalized
+ * drive-absolute path. The junction is created through the parent's handle, never its path.
+ */
+export function junctionAt(parent: number, name: string, target: string): void {
+  if (process.platform !== "win32") throw failed("Only the Windows add-on has this", "ENOTSUP");
+  if (
+    !/^[A-Za-z]:\\/.test(target) ||
+    target.includes("/") ||
+    target.includes("\0") ||
+    !target
+      .slice(3)
+      .split("\\")
+      .every(
+        (part, index, parts) =>
+          windowsNameAllowed(part) || (part === "" && index === parts.length - 1),
+      )
+  )
+    throw failed(`Refusing junction target: ${target}`, "EINVAL");
+  windowsCall(() => windowsLinks().junctionAt(parent, windowsName(name), target));
+}
 let windowsLoaded: z.infer<typeof WindowsBinding> | undefined;
 function windows(): z.infer<typeof WindowsBinding> {
   windowsLoaded ??= WindowsBinding.parse(require("../dist/descriptor.node"));

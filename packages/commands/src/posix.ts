@@ -1,7 +1,7 @@
 import * as koffi from "koffi";
 import { z } from "zod";
 import { close as closeDescriptor, constants } from "node:fs";
-import { closeSync, fstatSync, readlinkSync, symlinkSync } from "node:fs";
+import { closeSync, fstatSync, readlinkSync } from "node:fs";
 import {
   isAbsolute,
   join as joinPath,
@@ -20,6 +20,8 @@ import {
   statWindowsFd,
   unlinkAt,
 } from "@ace/workspace/descriptor";
+import { junctionAt, renameAtNoReplace } from "@ace/workspace/descriptor";
+import type { Stats } from "node:fs";
 export type OpenCommandChild = (directory: number, name: string, flags: number) => Promise<number>;
 export interface DirectoryReader {
   read(): Promise<string | undefined>;
@@ -125,7 +127,7 @@ export async function createCommandDirectory(directory: number, name: string): P
 }
 export async function createCommandFile(directory: number, name: string): Promise<number> {
   if (process.platform === "win32") {
-    const parent = windowsPaths.get(directory) ?? "";
+    const parent = windowsKnownPath(directory) ?? "";
     try {
       return windowsAdopt(openAt(directory, name, windowsCreate).fd, joinPath(parent, name));
     } catch {
@@ -268,9 +270,9 @@ export async function renameCommandEntryAs(
   to: string,
 ): Promise<boolean> {
   if (process.platform === "win32") {
-    // Moving onto an existing folder already fails on Windows; a file is checked for first.
-    if (mode === "exchange" || windowsExists(toDirectory, to)) return false;
-    return windowsRename(fromDirectory, from, toDirectory, to);
+    // The add-on refuses an existing `to` in the same rename call, with no separate check.
+    if (mode === "exchange") return false;
+    return windowsRename(fromDirectory, from, toDirectory, to, false);
   }
   const flags = renameModes[mode];
   return (
@@ -291,7 +293,9 @@ export async function linkCommandEntry(
 // and every open refuses a junction or symlink the way O_NOFOLLOW does. Windows has no
 // openat(".") and no readlinkat, so each handle's path is remembered; any use of that path first
 // re-opens it without following links and checks it is still the handle's own file.
-const windowsPaths = new Map<number, string>();
+// Fds are closed in many places, so each path also keeps its file's identity: a reused fd
+// number never inherits a closed handle's path.
+const windowsPaths = new Map<number, { path: string; file: Stats }>();
 const windowsCreate = constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY;
 const windowsQuiet = (operation: () => void): boolean => {
   try {
@@ -302,17 +306,38 @@ const windowsQuiet = (operation: () => void): boolean => {
   }
 };
 function windowsAdopt(fd: number, path: string): number {
-  windowsPaths.set(fd, path);
+  try {
+    windowsPaths.set(fd, { path, file: statWindowsFd(fd) });
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
   return fd;
 }
+const sameWindowsStats = (a: Stats, b: Stats) =>
+  a.dev === b.dev && a.ino === b.ino && sameWindowsFile(a, b);
 function sameWindowsHandle(left: number, right: number): boolean {
-  const a = statWindowsFd(left);
-  const b = statWindowsFd(right);
-  return a.dev === b.dev && a.ino === b.ino && sameWindowsFile(a, b);
+  return sameWindowsStats(statWindowsFd(left), statWindowsFd(right));
+}
+/** The path remembered for `fd`, while `fd` is still the handle it was remembered for. */
+function windowsKnownPath(fd: number): string | undefined {
+  const known = windowsPaths.get(fd);
+  if (known === undefined) return undefined;
+  const same = windowsQuiet(() => {
+    if (!sameWindowsStats(known.file, statWindowsFd(fd))) throw new Error("Reused handle");
+  });
+  if (same) return known.path;
+  windowsPaths.delete(fd);
+  return undefined;
+}
+/** Closes a Windows command handle and forgets its path. */
+function windowsCloseQuietly(fd: number): Promise<void> {
+  windowsPaths.delete(fd);
+  return closeQuietly(fd);
 }
 /** The remembered path of a handle, confirmed to still name that same directory. */
 function windowsPath(fd: number): string {
-  const path = windowsPaths.get(fd);
+  const path = windowsKnownPath(fd);
   if (path === undefined) throw new Error("Unknown command directory handle");
   const again = openRoot(path).fd;
   try {
@@ -326,7 +351,7 @@ function windowsOpenChild(directory: number, name: string): number {
   try {
     // -100 is AT_FDCWD on POSIX; on Windows the name is a drive root such as `C:\`.
     if (directory === -100) return windowsAdopt(openRoot(name).fd, name);
-    const parent = windowsPaths.get(directory);
+    const parent = windowsKnownPath(directory);
     if (parent === undefined) throw new Error("Unknown command directory handle");
     if (name === ".") {
       const again = openRoot(parent).fd;
@@ -353,8 +378,7 @@ function windowsDirectoryReader(fd: number): DirectoryReader {
     async close() {
       if (closed) return;
       closed = true;
-      windowsPaths.delete(fd);
-      await closeQuietly(fd);
+      await windowsCloseQuietly(fd);
     },
   };
 }
@@ -400,8 +424,15 @@ function windowsRemove(directory: number, name: string, folder: boolean): boolea
   return link && windowsQuiet(() => removeDirectoryAt(directory, name));
 }
 /** Rename within one pinned directory; Windows renames only inside a handle's own folder. */
-function windowsRename(fromDirectory: number, from: string, toDirectory: number, to: string) {
+function windowsRename(
+  fromDirectory: number,
+  from: string,
+  toDirectory: number,
+  to: string,
+  replace = true,
+) {
   if (fromDirectory !== toDirectory && !sameWindowsHandle(fromDirectory, toDirectory)) return false;
+  if (!replace) return windowsQuiet(() => renameAtNoReplace(fromDirectory, from, to));
   return windowsQuiet(() => renameAt(fromDirectory, from, to));
 }
 /**
@@ -433,23 +464,28 @@ async function windowsOpenResolved(openChild: OpenCommandChild, path: string): P
     if (parts.length > 128) throw new Error("Trusted root depth limit");
     for (const name of parts) {
       const child = await openChild(fd, name, directoryFlags);
-      await closeQuietly(fd);
+      await windowsCloseQuietly(fd);
       fd = child;
     }
     // Windows has no O_DIRECTORY, so the type is checked on the handle itself.
     if (!fstatSync(fd).isDirectory()) throw new EntryUnavailable("Not a command directory");
     return fd;
   } catch (error) {
-    await closeQuietly(fd);
+    await windowsCloseQuietly(fd);
     throw error;
   }
 }
-/** A junction to `target` (resolved against the pinned directory): Windows symlinks need a privilege. */
+/**
+ * A junction to `target`, resolved against the path the pinned directory was opened at (Windows
+ * symlinks need a privilege). It is made through the directory's handle like symlinkat, so a
+ * folder whose path was swapped for a junction can't place it anywhere else; an existing `name`
+ * fails the create itself.
+ */
 function windowsJunction(target: string, directory: number, name: string): boolean {
   try {
-    if (windowsExists(directory, name)) return false;
-    const parent = windowsPath(directory);
-    symlinkSync(resolvePath(parent, target), joinPath(parent, name), "junction");
+    const parent = windowsKnownPath(directory);
+    if (parent === undefined) return false;
+    junctionAt(directory, name, resolvePath(parent, target));
     return true;
   } catch {
     return false;
