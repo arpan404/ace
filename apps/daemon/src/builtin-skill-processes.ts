@@ -13,6 +13,7 @@ import { z } from "zod";
 import {
   ProcessIdentity,
   processIdentity,
+  childHasExited,
   processGroupIsGone,
 } from "@ace/provider-kit/process-identity";
 import {
@@ -38,6 +39,8 @@ export interface SkillProcessRuntime {
   /** undefined means confirmed absent; unavailable inspection must throw. */
   identity(pid: number): ProcessIdentity | undefined;
   groupGone(group: number): boolean;
+  /** Non-consuming proof of a child exit before Node reaps it. */
+  childExited?(pid: number): boolean;
   /**
    * Windows only: no process groups exist. A leader's tree holds the projection while the
    * process journal still records it or any process may still belong to it.
@@ -49,6 +52,7 @@ export interface SkillProcessRuntime {
 export const skillProcessRuntime: SkillProcessRuntime = {
   ownerPid: process.pid,
   identity: processIdentity,
+  childExited: childHasExited,
   groupGone: processGroupIsGone,
   ...(process.platform === "win32" ? { windowsTree: { held: windowsTreeHeld } } : {}),
 };
@@ -157,6 +161,9 @@ export function builtinSkillProcessLease(
     spawned(pid) {
       if (record.closed || !record.launching) throw new Error("No pending skill process launch");
       const identity = runtime.identity(pid);
+      // No identity can be recorded for an unreaped fast exit. Keep the launch evidence
+      // unresolved so projection cleanup still refuses any unproven surviving descendants.
+      if (!identity && runtime.childExited?.(pid)) return;
       if (!identity || identity.pid !== pid || identity.uid !== owner.uid || identity.group !== pid)
         throw new Error("Cannot identify owned provider process");
       record = { ...record, processes: [...record.processes, identity], launching: false };
