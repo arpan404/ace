@@ -623,7 +623,22 @@ export class FakeWorkspaceWire {
       if (printed.done) this.terminals.prompt(terminal.id);
       return { ok: true, terminalId: terminal.id };
     }
-    if (payload.type === "git.conflicts") return this.conflicts.command(payload);
+    if (payload.type === "git.conflicts") {
+      const result = this.conflicts.command(payload);
+      // A finished merge is a commit the remote doesn't have yet, as Git counts it.
+      if (result.ok && "commit" in result && result.commit)
+        this.context.update(payload.threadId, {
+          type: "thread.client.updated",
+          changes: {
+            details: {
+              ...thread?.details,
+              head: result.commit,
+              ahead: (thread?.details?.ahead ?? 0) + 1,
+            },
+          },
+        });
+      return result;
+    }
     if (payload.type === "git.commit") {
       if ((thread?.details?.head ?? null) !== payload.expectedHead)
         return { ok: false, error: "git_head_moved" };

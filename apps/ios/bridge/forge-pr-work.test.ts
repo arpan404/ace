@@ -218,6 +218,42 @@ test("conflicts resolve hunk by hunk in the linked thread's checkout, then commi
   expect(sent.map((each) => each.type).slice(-2)).toEqual(["git.conflicts", "git.push"]);
 });
 
+test("a merge committed whose push failed reads as not pushed, and Push sends it again", async () => {
+  const { ask, daemon, sent } = await work();
+  const conflicts = async () =>
+    (await ask({
+      type: "forge.pull.conflicts",
+      project: "ace",
+      number: 226,
+      fresh: true,
+    })) as ConflictsReply;
+  const step = (value: Record<string, unknown>) =>
+    ask({
+      type: "forge.conflicts",
+      project: "ace",
+      number: 226,
+      repository: ace,
+      threadId: "pr-work-226",
+      step: value,
+    });
+  const before = await conflicts();
+  await step({ action: "start", head: before.checkout?.head });
+  for (const file of (await conflicts()).checkout?.files ?? [])
+    await step({ action: "take", path: file.path, side: "ours" });
+  // GitHub's branch moved on meanwhile: the merge commits here, its push is rejected.
+  daemon.workspace.git.setRemoteDiverged("pr-work-226", "d".repeat(40));
+  expect(await step({ action: "finish", head: before.checkout?.head })).toMatchObject({
+    ok: false,
+  });
+  const after = await conflicts();
+  expect(after.checkout).toMatchObject({ merging: false, files: [], unpushed: true });
+  // Once the branch can take it, Push alone sends it; no second merge.
+  daemon.workspace.git.setRemoteDiverged("pr-work-226", "");
+  expect(await step({ action: "push" })).toMatchObject({ ok: true });
+  expect((await conflicts()).checkout).toMatchObject({ unpushed: false });
+  expect(sent.map((each) => each.type).slice(-1)).toEqual(["git.push"]);
+});
+
 test("a stack rebases locally from the phone, then offers to publish what it rebased", async () => {
   const { ask, daemon } = await work();
   const stack = async () =>

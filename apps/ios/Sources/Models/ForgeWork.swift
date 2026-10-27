@@ -4,7 +4,11 @@ import Foundation
 struct ForgeChecks: Decodable, Sendable, Equatable {
     struct Row: Decodable, Sendable, Equatable, Hashable { let id: String; let name: String; let word: String; let tone: String; let opens: Bool; let url: String? }
     struct Control: Decodable, Sendable, Equatable { let kind: String; let label: String; let disabled: Bool }
-    struct Local: Decodable, Sendable, Equatable { let name: String; let word: String; let tone: String; let runId: String?; let action: Control?; let note: String? }
+    struct Local: Decodable, Sendable, Equatable {
+        let name: String; let word: String; let tone: String; let runId: String?; let action: Control?; let note: String?
+        /// The project has no check command yet.
+        var needsCommand: Bool?
+    }
     let headSha: String
     let checks: [Row]
     let local: Local?
@@ -51,7 +55,15 @@ struct ForgeLogPage: Decodable, Sendable, Equatable { let from: Int; let lines: 
 struct ForgeConflicts: Decodable, Sendable, Equatable {
     struct Hunk: Decodable, Sendable, Equatable, Hashable { let ours: String; let theirs: String; let base: String?; let draft: String }
     struct File: Decodable, Sendable, Equatable, Hashable { let path: String; let unavailable: String?; let revision: String?; let hunks: [Hunk]; let request: String }
-    struct Checkout: Decodable, Sendable, Equatable { let head: String?; let merging: Bool; let dirty: Bool; let files: [File]; let truncated: Bool }
+    struct Checkout: Decodable, Sendable, Equatable {
+        let head: String?
+        let merging: Bool
+        let dirty: Bool
+        /// A finished merge whose push failed: Push sends it, never another merge.
+        var unpushed: Bool?
+        let files: [File]
+        let truncated: Bool
+    }
     let threads: [ForgeThreadChoice]
     let threadId: String?
     let baseBranch: String

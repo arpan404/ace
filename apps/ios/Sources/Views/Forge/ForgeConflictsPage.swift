@@ -65,7 +65,20 @@ struct ForgeConflictsPageView: View {
 
     @ViewBuilder private func checkoutView(_ checkout: ForgeConflicts.Checkout, _ page: ForgeConflicts) -> some View {
         let ready = client.canOperate && writing == nil
-        if !checkout.merging {
+        if !checkout.merging, checkout.unpushed == true {
+            // The merge is committed here but never reached GitHub: push it, don't merge again.
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                Text("Merged locally, not pushed").aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                    .foregroundStyle(AceTone.failed.text)
+                    .accessibilityIdentifier("forge.conflicts.unpushed")
+                Text("The merge is committed in this checkout. Push it to \(page.headBranch).").meta()
+            }
+            .padding(.horizontal, AceTheme.Spacing.lg)
+            .transition(.opacity)
+            if client.canOperate {
+                ForgeTextAction(label: "Push", busy: writing == "push", identifier: "forge.conflicts.push") { step(["action": "push"], key: "push") }
+            }
+        } else if !checkout.merging {
             Text(checkout.dirty ? "The checkout has uncommitted changes. Commit or move them before merging." : "Merge \(page.baseBranch) into this checkout to see its conflicts.")
                 .meta().padding(.horizontal, AceTheme.Spacing.lg)
             if client.canOperate, let head = checkout.head {

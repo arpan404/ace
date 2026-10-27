@@ -91,6 +91,11 @@ export interface ConflictsReply {
     head: string | null;
     merging: boolean;
     dirty: boolean;
+    /**
+     * No merge is going and the branch has commits GitHub doesn't: a finished merge whose push
+     * failed. The page offers Push, never another merge.
+     */
+    unpushed: boolean;
     files: ConflictFile[];
     truncated: boolean;
   } | null;
@@ -130,6 +135,21 @@ async function readConflicts(
   return reply.result.conflicts;
 }
 
+/** Commits the thread's branch has that its upstream doesn't, read fresh; 0 when unknown. */
+async function commitsAhead(owner: ForgeOwner, threadId: string): Promise<number> {
+  const reply = await owner
+    .request(
+      WorkspaceActionRequest.parse({
+        type: "workspace.request",
+        requestId: "forge-conflicts-ahead",
+        operation: { op: "thread.details", threadId: ThreadId.parse(threadId) },
+      }),
+      { timeoutMs: 15_000 },
+    )
+    .catch(() => undefined);
+  return reply?.result.kind === "details" ? (reply.result.details.ahead ?? 0) : 0;
+}
+
 const linkedThreads = (detail: ForgePrDetail) =>
   detail.relatedThreads.filter((thread) => !thread.archived);
 
@@ -156,8 +176,12 @@ export async function readPullConflicts(
       note: "Link a thread to this pull request to resolve its conflicts.",
     };
   let conflicts: GitConflicts | null;
+  let ahead = 0;
   try {
-    conflicts = await readConflicts(owner, threadId, detail.status.ref);
+    [conflicts, ahead] = await Promise.all([
+      readConflicts(owner, threadId, detail.status.ref),
+      commitsAhead(owner, threadId),
+    ]);
   } catch (error) {
     const code =
       error instanceof ForgeRefusal || error instanceof ClientError ? error.code : undefined;
@@ -175,6 +199,7 @@ export async function readPullConflicts(
       head: conflicts.head,
       merging: conflicts.merging,
       dirty: conflicts.dirty,
+      unpushed: !conflicts.merging && conflicts.files.length === 0 && ahead > 0,
       truncated: conflicts.truncated,
       files: conflicts.files.map((file) => ({
         path: file.path,
