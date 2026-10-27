@@ -166,6 +166,10 @@ function descendantCounts(
   return result;
 }
 
+/** Tasks' order: running and lost-track work, then failures, then the rest. */
+const taskRank = (task: BackgroundTask) =>
+  task.status === "running" || task.status === "unknown" ? 2 : task.status === "failed" ? 1 : 0;
+
 const troubled = (agent: Agent) =>
   agent.status.state === "failed" || agent.status.state === "unresponsive";
 
@@ -263,10 +267,8 @@ export function agentSheet(
   // Running work (and work ace lost track of) first, then failures, then the newest that
   // ended; ace's bookkeeping is never listed.
   const listed = tasks.filter((task) => !isInternalTask(task));
-  const rank = (task: BackgroundTask) =>
-    task.status === "running" || task.status === "unknown" ? 2 : task.status === "failed" ? 1 : 0;
   const shownTasks = listed
-    .toSorted((a, b) => rank(b) - rank(a) || b.startedAt - a.startedAt)
+    .toSorted((a, b) => taskRank(b) - taskRank(a) || b.startedAt - a.startedAt)
     .slice(0, limits.tasks);
   const meter = reader.context;
   return {

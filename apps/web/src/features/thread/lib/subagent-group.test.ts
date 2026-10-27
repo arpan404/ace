@@ -67,12 +67,13 @@ function store(agents: Agent[], items: Item[], tasks: BackgroundTask[] = []) {
 const line = (reader: ThreadStore, ids = ["spawn-review"]) =>
   subagentStatusLine(readSubagentGroup(reader, ids).value.map((entry) => entry.state));
 
+const blocked = (child: string): AgentStatus => ({
+  state: "blocked",
+  on: "subagents",
+  refs: [child],
+});
+
 test("a subagent blocked only on its children takes their word: a limit-held child makes it wait, never work", () => {
-  const blocked = (child: string): AgentStatus => ({
-    state: "blocked",
-    on: "subagents",
-    refs: [child],
-  });
   const limited = store(
     [
       agent("review", blocked("nested")),

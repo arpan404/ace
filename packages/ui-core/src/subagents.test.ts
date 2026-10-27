@@ -6,6 +6,7 @@ import {
   subagentStatusCounts,
   subagentStatusLine,
 } from "./index.ts";
+import { AgentId, ItemId } from "@ace/protocol";
 import type { RunAgent } from "./agent-runs.ts";
 import { subagentBranchStates } from "./subagents.ts";
 
@@ -54,27 +55,28 @@ it("a launch says it ran only once every child has ended, and then counts only w
   expect(subagentGroupTitle([])).toBe("0 subagents");
 });
 
+const runAgent = (id: string, parentId: string | null, status: RunAgent["status"]): RunAgent => ({
+  id: AgentId.parse(id),
+  origin: parentId === null ? "root" : "provider_subagent",
+  parentId: parentId === null ? null : AgentId.parse(parentId),
+  native: { provider: "claude", nativeId: id },
+  status,
+  createdAt: 1,
+  spawnedBy: parentId === null ? undefined : ItemId.parse(`spawn-${id}`),
+});
+
+const liveTree = (nested: RunAgent["status"]) => [
+  runAgent("root", null, { state: "blocked", on: "subagents", refs: ["review"] }),
+  runAgent("review", "root", { state: "blocked", on: "subagents", refs: ["nested"] }),
+  runAgent("nested", "review", nested),
+];
+
 it("the live line never counts a subagent working while it only waits on a limit-held child", () => {
-  const agent = (id: string, parentId: string | null, status: RunAgent["status"]): RunAgent => ({
-    id,
-    origin: parentId === null ? "root" : "provider_subagent",
-    parentId,
-    native: { provider: "claude", nativeId: id },
-    status,
-    createdAt: 1,
-    spawnedBy: parentId === null ? undefined : `spawn-${id}`,
-  });
-  const agents = [
-    agent("root", null, { state: "blocked", on: "subagents", refs: ["review"] }),
-    agent("review", "root", { state: "blocked", on: "subagents", refs: ["nested"] }),
-    agent("nested", "review", { state: "blocked", on: "rate_limit", refs: [] }),
-  ];
   const work = { running: new Set(["root", "review", "nested"]), needsYou: new Set<string>() };
-  expect(subagentBranchStates(agents, work)).toEqual(["waiting"]);
-  const busy = agents.map((entry) =>
-    entry.id === "nested"
-      ? { ...entry, status: { state: "working", activity: "tool" } as const }
-      : entry,
-  );
-  expect(subagentBranchStates(busy, work)).toEqual(["working"]);
+  expect(
+    subagentBranchStates(liveTree({ state: "blocked", on: "rate_limit", refs: [] }), work),
+  ).toEqual(["waiting"]);
+  expect(subagentBranchStates(liveTree({ state: "working", activity: "tool" }), work)).toEqual([
+    "working",
+  ]);
 });
