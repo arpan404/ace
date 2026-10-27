@@ -68,7 +68,7 @@ import XCTest
         let done = expectation(for: NSPredicate(format: "value == 'Viewed'"), evaluatedWith: viewed)
         wait(for: [done], timeout: 20)
         screenshot("marked-viewed")
-        app.navigationBars.buttons.firstMatch.tap()
+        app.tapBack()
         let again = expectation(for: NSPredicate(format: "label == 'Viewed'"), evaluatedWith: element(app, "forge.files.viewed.2"))
         wait(for: [again], timeout: 20)
     }
@@ -130,7 +130,7 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
         XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
-        app.tabBars.buttons["Pulls"].firstMatch.tap()
+        app.openPulls()
         let row = app.buttons["forge.pull.245"]
         XCTAssertTrue(row.waitForExistence(timeout: 25))
         row.tap()

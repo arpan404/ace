@@ -16,6 +16,7 @@ import XCTest
         XCTAssertTrue(state.waitForExistence(timeout: 20))
         XCTAssertEqual(state.label, "Failed")
         XCTAssertTrue(app.descendants(matching: .any)["forge.log"].firstMatch.waitForExistence(timeout: 20))
+        screenshot("check-opened")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Error: expected the model chip'")).firstMatch.waitForExistence(timeout: 20))
         screenshot("check-failing")
         app.swipeDown()
@@ -164,7 +165,7 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
         XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
-        app.tabBars.buttons["Pulls"].firstMatch.tap()
+        app.openPulls()
         return app
     }
     private func open(_ app: XCUIApplication, _ row: String) {
