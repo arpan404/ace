@@ -48,8 +48,8 @@ export interface SnapshotRows {
   /** A record's text, or "" for a miss. */
   record(key: string): Promise<string>;
   setRecord(key: string, text: string): Promise<void>;
-  /** A thread's head and item texts, or undefined for a miss. */
-  thread(key: string): Promise<{ head: string; items: string[] } | undefined>;
+  /** A thread's head and items, already parsed, or undefined for a miss. */
+  thread(key: string): Promise<{ head: unknown; items: unknown[] } | undefined>;
   putThread(write: ThreadWrite): Promise<void>;
   /** Everything kept, with its last use and size. */
   index(): Promise<KeptSnapshot[]>;
@@ -240,22 +240,17 @@ function settled(thread: unknown): boolean {
   }
 }
 
-/** A record put back together from its head and item rows; an unreadable row is left out. */
+/** A record put back together from its head and item rows; a row without an id is left out. */
 function joinThread(
-  headText: string,
-  texts: readonly string[],
+  rawHead: unknown,
+  rows: readonly unknown[],
 ): { record: Record<string, unknown>; items: Record<string, unknown> } | undefined {
-  const head = objectOf(JSON.parse(headText));
+  const head = objectOf(rawHead);
   const view = objectOf(head?.view);
   if (!head || !view) return undefined;
   const items: Record<string, unknown> = {};
-  for (const text of texts) {
-    let item: Record<string, unknown> | undefined;
-    try {
-      item = objectOf(JSON.parse(text));
-    } catch {
-      continue;
-    }
+  for (const row of rows) {
+    const item = objectOf(row);
     if (typeof item?.id !== "string") continue;
     Object.defineProperty(items, item.id, {
       value: item,

@@ -87,7 +87,10 @@ final class NativeHost: @unchecked Sendable {
         }
     }
     private func snapshot(_ request: HostRequest, callback: Callback) {
+        // With `-ace-host-trace`, each read snapshot call from asked to answered, queue wait included.
+        let tracing = HostTrace.enabled ? LaunchTrace.begin("snapshot", request.operation) : nil
         snapshotQueue.async { [self] in
+            defer { tracing?.end() }
             let result: Result<String, Error> = Result {
                 guard let storageURL else { throw HostError.storage }
                 if snapshots == nil { snapshots = try SnapshotStore(database: storageURL, now: services.now) }

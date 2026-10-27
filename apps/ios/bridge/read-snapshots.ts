@@ -35,7 +35,10 @@ export function nativeSnapshotRows(call: HostRequest): SnapshotRows {
     async thread(key) {
       const text = await call("snapshot.thread.get", key);
       if (text === "") return undefined;
-      const [head = "", ...items] = text.split("\n");
+      // One parse for the whole thread: each line is one JSON value and none holds a raw newline.
+      const [head, ...items] = z
+        .array(z.unknown())
+        .parse(JSON.parse(`[${text.replaceAll("\n", ",")}]`));
       return { head, items };
     },
     async putThread(write) {

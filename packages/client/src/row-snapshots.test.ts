@@ -32,7 +32,8 @@ class MemoryRows implements SnapshotRows {
     const thread = this.threads.get(key);
     if (!thread) return undefined;
     thread.used = this.clock.at;
-    return { head: thread.head, items: [...(this.items.get(key)?.values() ?? [])] };
+    const texts = [...(this.items.get(key)?.values() ?? [])];
+    return { head: JSON.parse(thread.head), items: texts.map((text) => JSON.parse(text)) };
   }
   async putThread(write: ThreadWrite) {
     if (this.failNext) {
