@@ -114,10 +114,11 @@ test("a send still on its way can't be discarded", async () => {
 });
 
 test("a discard made while the kept list still loads keeps what was kept before", async () => {
-  let finish: (text: string) => void = () => {};
+  const loading = Promise.withResolvers<string>();
+  const finish = loading.resolve;
   const saves: string[] = [];
   const kept = followDismissed({
-    load: () => new Promise<string>((resolve) => (finish = resolve)),
+    load: () => loading.promise,
     save: async (value) => {
       saves.push(value);
     },
