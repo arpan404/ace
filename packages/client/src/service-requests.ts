@@ -230,6 +230,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "provider.install.plan": ["provider.install.result"],
   "provider.install.run": ["provider.install.result"],
   "provider.install.poll": ["provider.install.result"],
+  "provider.install.active": ["provider.install.result"],
   "provider.install.cancel": ["provider.install.result"],
   "provider.login.start": ["provider.login.result"],
   "provider.login.poll": ["provider.login.result"],

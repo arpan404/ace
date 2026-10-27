@@ -22910,6 +22910,26 @@ Example:
 }
 ```
 
+### provider.install.active
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"provider.install.active"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| agent | no | [InstallAgent.json](schema/InstallAgent.json) |  |
+| acpAgentId | no | string | {"maxLength":256,"pattern":"^official:[a-z0-9-]+$"} |
+
+Example:
+
+```json
+{
+  "provider": "cursor",
+  "requestId": "example",
+  "type": "provider.install.active"
+}
+```
+
 ### provider.install.cancel
 
 | Field | Required | Type | Constraints |

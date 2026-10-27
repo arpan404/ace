@@ -116,6 +116,21 @@ export class ProviderInstalls {
       job.done = this.run(job);
       return reply({ ok: true, progress: job.progress });
     }
+    if (request.type === "provider.install.active") {
+      const running = [...this.jobs.values()]
+        .toReversed()
+        .find(
+          (entry) =>
+            entry.owner === owner &&
+            !terminal(entry.progress.state) &&
+            entry.progress.provider === request.provider &&
+            entry.progress.agent === request.agent &&
+            entry.progress.acpAgentId === request.acpAgentId,
+        );
+      return reply(
+        running ? { ok: true, progress: running.progress } : { ok: false, error: "not_found" },
+      );
+    }
     const job = this.jobs.get(request.session);
     if (!job) return reply({ ok: false, error: "not_found" });
     if (job.owner !== owner) return reply({ ok: false, error: "forbidden" });

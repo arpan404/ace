@@ -79,7 +79,10 @@ export class FakeProviderInstalls {
     });
   }
   private plan(
-    input: Extract<ProviderInstallRequest, { provider: ProviderKind }>,
+    input: Extract<
+      ProviderInstallRequest,
+      { type: "provider.install.plan" | "provider.install.run" }
+    >,
   ): ProviderInstallPlan {
     const row = this.rows().find((entry) => entry.provider === input.provider);
     const listed = input.acpAgentId ? this.catalog(input.acpAgentId) : undefined;
@@ -242,6 +245,20 @@ export class FakeProviderInstalls {
       reply({ ok: true, progress: job.progress });
       this.advance(job.progress.session);
       if (this.autoComplete) void Promise.resolve().then(() => this.complete(job.progress.session));
+      return true;
+    }
+    if (input.type === "provider.install.active") {
+      const running = [...this.jobs.values()]
+        .toReversed()
+        .find(
+          (entry) =>
+            entry.owner === owner &&
+            !done(entry.progress.state) &&
+            entry.progress.provider === input.provider &&
+            entry.progress.agent === input.agent &&
+            entry.progress.acpAgentId === input.acpAgentId,
+        );
+      reply(running ? { ok: true, progress: running.progress } : { ok: false, error: "not_found" });
       return true;
     }
     const job = this.jobs.get(input.session);

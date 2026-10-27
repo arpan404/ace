@@ -66,6 +66,11 @@ export const ProviderInstallRequest = z.discriminatedUnion("type", [
     method: InstallMethod,
   }),
   z.strictObject({ type: z.literal("provider.install.poll"), requestId: id, session: id }),
+  /**
+   * This device's installation still running for the target, if any: how a client that lost
+   * its session id (an app relaunch) reattaches. Finished or unknown jobs answer `not_found`.
+   */
+  z.strictObject({ type: z.literal("provider.install.active"), requestId: id, ...target }),
   z.strictObject({ type: z.literal("provider.install.cancel"), requestId: id, session: id }),
 ]);
 export type ProviderInstallRequest = z.infer<typeof ProviderInstallRequest>;
