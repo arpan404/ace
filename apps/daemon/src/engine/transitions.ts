@@ -1,3 +1,9 @@
+import {
+  limitedChildren,
+  recoverLimitedChildren,
+  type RecoveryDispatch,
+} from "./recover-limited-children.ts";
+import { switchWorkContext, usageBlocked } from "./switch-recovery.ts";
 import type { EngineModels } from "./models.ts";
 import { handoffSources, renderHandoff } from "@ace/handoff";
 import type { MigrationResult } from "@ace/protocol/accounts";
@@ -39,6 +45,7 @@ export class ThreadTransitions {
   private io: TransitionIO;
   private now: () => number;
   private models: EngineModels;
+  private dispatch: RecoveryDispatch;
   private closeThread: (id: ThreadId) => Promise<void>;
   constructor(
     repo: EngineRepository,
@@ -48,7 +55,9 @@ export class ThreadTransitions {
     now: () => number,
     models: EngineModels,
     closeThread: (id: ThreadId) => Promise<void>,
+    dispatch: RecoveryDispatch,
   ) {
+    this.dispatch = dispatch;
     this.repo = repo;
     this.registry = registry;
     this.sessions = sessions;
@@ -144,6 +153,7 @@ export class ThreadTransitions {
       thread?.instanceId !== acpAgent.instanceId;
     const crossProvider = selection.provider !== current.provider || otherAgent;
     const crossAccount = !crossProvider && selection.instanceId !== current.instanceId;
+    const changesLimitBinding = crossProvider || crossAccount || selection.model !== current.model;
     const backend = this.repo.backend(actor.id);
     const entry = this.registry.get(selection.provider, crossProvider ? undefined : backend);
     const capabilities = entry.capabilities;
@@ -170,6 +180,13 @@ export class ThreadTransitions {
         : undefined;
     if (unusable) throw new Error(unusable);
     this.repo.transitions.admitModel(actor.id, selection);
+    const children = limitedChildren(this.repo, state);
+    const recoveryContext = usageBlocked(state) ? switchWorkContext(state, this.now()) : undefined;
+    const context = recoveryContext ? [...previous.context, recoveryContext] : previous.context;
+    // Admission must succeed before stopping a source whose private state cannot be restored.
+    const prepared = admitTransitionMetadata({ ...previous, context });
+    if (recoveryContext) this.repo.transitions.set(actor.id, prepared);
+    if (usageBlocked(state) && changesLimitBinding) await this.sessions.close(actor, "user");
     let nativeSessionId = metadata.nativeSessionId;
     let migratedFork: z.infer<typeof NativeFork> | undefined;
     let plan: CrossProviderPlan | undefined;
@@ -211,8 +228,9 @@ export class ThreadTransitions {
         late = lateHistory;
       }
     } else if (!crossProvider && actor.session?.configure) {
+      let reopen: boolean;
       try {
-        await actor.session.configure(selection);
+        reopen = (await actor.session.configure(selection)) === "reopen";
       } catch (error) {
         try {
           await actor.session.configure(current);
@@ -224,6 +242,7 @@ export class ThreadTransitions {
         }
         throw error;
       }
+      if (reopen) await this.sessions.close(actor, "idle");
     } else {
       await this.sessions.close(actor, "idle");
     }
@@ -269,7 +288,7 @@ export class ThreadTransitions {
         const marker = portable ? `handoff:${intent.command.id}` : previous.marker;
         this.repo.transitions.set(actor.id, {
           selection,
-          context: previous.context,
+          context,
           ...(migratedFork ? { fork: migratedFork } : {}),
           ...(waitingHandoff ? { handoff: waitingHandoff } : {}),
           ...(marker && waitingHandoff ? { marker } : {}),
@@ -353,12 +372,14 @@ export class ThreadTransitions {
             ...(selection.model ? { model: selection.model } : {}),
           },
         ]);
-        if (crossProvider || crossAccount)
+        if (changesLimitBinding)
           actor.apply(
             Object.entries(currentState.agents)
               .filter(([, record]) => record.limited)
               .map(([agent]) => ({ type: "limit.cleared" as const, agent })),
           );
+        if (changesLimitBinding)
+          recoverLimitedChildren(this.repo, children, selection, intent.command, this.dispatch);
         // The provider or account leaving keeps its session for a return; it holds everything
         // written so far, this switch's own marker included.
         if ((crossProvider || crossAccount) && metadata.nativeSessionId)

@@ -191,7 +191,8 @@ export interface ProviderSession {
   /** False until the provider confirms a resumable transcript exists. */
   readonly sessionConfirmed?: boolean;
   readonly backend?: ProviderBackend;
-  configure?(selection: ExecutionSelection): Promise<void>;
+  /** Return reopen before changing anything when the selection needs a fresh native connection. */
+  configure?(selection: ExecutionSelection): Promise<void | "reopen">;
   readonly effectiveCapabilities?: Capabilities | undefined;
   readonly acpSupport?: AcpSessionSupport | undefined;
   setModel?(model: string): Promise<void>;

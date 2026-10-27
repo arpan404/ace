@@ -203,6 +203,20 @@ export function reconcileStoppedThread(repo: EngineRepository, id: ThreadId, at:
   const state = repo.state(id);
   if (!state) return false;
   return repo.store.atomic(() => {
+    // Repair older stopped threads whose queue stopped but whose quota badge never did.
+    if (repo.queue.get(id).reason === "stopped") {
+      const cleared: Fact[] = Object.entries(state.agents)
+        .filter(([, record]) => record.limited && !record.externalStatus)
+        .map(([agent]) => ({ type: "limit.cleared", agent }));
+      if (cleared.length) {
+        repo.queue.set(
+          id,
+          { limited: false, resetAt: null, resumeAt: null, timerAction: null },
+          at,
+        );
+        repo.apply(id, cleared, at);
+      }
+    }
     const interrupted = !state.processExit && lostWork(state, 0, undefined, at) !== undefined;
     if (interrupted) {
       repo.apply(

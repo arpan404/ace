@@ -14,13 +14,15 @@ function neverStarted(record: AgentRecord): boolean {
   );
 }
 function agentReady(record: AgentRecord, now: number): boolean {
+  if (record.externalStatus) return true;
   return (
     !record.activeRun &&
     (record.wakeUntil === undefined || record.wakeUntil <= now) &&
     record.disconnectedAt === undefined &&
     (neverStarted(record) ||
       ["idle", "interrupted", "failed"].includes(record.agent.status.state) ||
-      (record.agent.status.state === "blocked" && record.agent.status.on === "rate_limit") ||
+      (record.agent.status.state === "blocked" &&
+        ["rate_limit", "background_task", "subagents"].includes(record.agent.status.on)) ||
       (record.agent.status.state === "working" &&
         record.agent.status.activity === "starting_turn" &&
         record.wakeUntil !== undefined &&

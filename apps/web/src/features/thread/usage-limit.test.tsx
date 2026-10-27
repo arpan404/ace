@@ -1,4 +1,4 @@
-import { accountLimit } from "@ace/fake-daemon";
+import { accountLimit, facts } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -107,4 +107,46 @@ test("Resume at reset schedules the turn, and the strip says when it resumes", a
   );
   expect(screen.queryByRole("button", { name: "Resume at reset" })).toBeNull();
   expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+});
+
+test("a Claude child's limit does not label the Codex parent as exhausted or offer root quota recovery", async () => {
+  const app = harness();
+  app.daemon.createThread({
+    id: "mixed-quota",
+    workspaceId: "relay",
+    provider: "codex",
+    title: "Continue on Codex",
+  });
+  app.daemon.apply("mixed-quota", [
+    facts.rootAgent("codex"),
+    { type: "turn.started", agent: "root", nativeTurnId: "codex-turn", trigger: "user" },
+    { type: "turn.ended", agent: "root", nativeTurnId: "codex-turn", outcome: "completed" },
+    {
+      type: "agent.seen",
+      agent: "claude-child",
+      parent: "root",
+      origin: "provider_subagent",
+      fidelity: "full",
+      cwd: "/repo",
+      native: { provider: "claude", nativeId: "claude-child-session" },
+    },
+    { type: "turn.started", agent: "claude-child", nativeTurnId: "child-turn", trigger: "user" },
+    {
+      type: "turn.ended",
+      agent: "claude-child",
+      nativeTurnId: "child-turn",
+      outcome: "failed",
+      error: { kind: "quota", message: "Claude allowance exhausted" },
+    },
+    { type: "retry", agent: "claude-child", on: "rate_limit", until: now + hour },
+  ]);
+  await app.open("/t/mixed-quota");
+  expect(await screen.findByRole("combobox", { name: "Message" })).toBeTruthy();
+  expect(screen.queryByRole("region", { name: /Codex is (out of usage|rate limited)/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Resume at reset" })).toBeNull();
+  await userEvent.type(
+    screen.getByRole("combobox", { name: "Message" }),
+    "recover the Claude child",
+  );
+  expect(await screen.findByRole("button", { name: "Send" })).toBeTruthy();
 });

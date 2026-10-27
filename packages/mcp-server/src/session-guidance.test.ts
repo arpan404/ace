@@ -60,7 +60,7 @@ it("an ACP agent's guidance follows the listing its tool refresh supports", () =
     "antigravity",
   ).developerInstructions;
   expect(antigravity).toContain("call_mcp_tool");
-  expect(antigravity).not.toContain("tools_call");
+  expect(antigravity).toContain("tools_call");
 });
 
 /** What the daemon hands an ACP agent's own channel (system prompt or first prompt). */

@@ -277,12 +277,18 @@ test("a limited thread's notice uses its account's reset and names where Move se
 });
 
 test("with no other account of the provider that has room, the notice offers no move", () => {
-  const notice = queueNotice({ state: "limited" }, undefined, now, "en-US", {
-    name: "Claude Code · Personal",
-    providerLabel: "Claude Code",
-    resetsAt: undefined,
-    target: null,
-  });
+  const notice = queueNotice(
+    { state: "limited" },
+    { paused: true, reason: "limit", resumeAt: null },
+    now,
+    "en-US",
+    {
+      name: "Claude Code · Personal",
+      providerLabel: "Claude Code",
+      resetsAt: undefined,
+      target: null,
+    },
+  );
   expect(notice?.detail).toBe(
     "The provider didn't say when it resets. No other Claude Code account has room. Your next message tries again.",
   );

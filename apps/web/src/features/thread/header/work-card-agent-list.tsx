@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { arrayEqual, useAgent, useThread } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
-import { agentName, agentWorkState } from "@ace/ui-core";
+import { agentName, agentWorkState, isActivelyRunning } from "@ace/ui-core";
 import { useCallback, useState, type ReactNode } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useTreeWork } from "@/features/panels/index.ts";
@@ -50,7 +50,12 @@ export function AgentListSection(props: {
   const [allRunning, setAllRunning] = useState(false);
   const [allSettled, setAllSettled] = useState(false);
   if (running.length + settled.length === 0 && !props.children) return null;
-  const title = running.length > 0 ? `Agents · ${running.length} running` : "Agents";
+  const active = running.filter(isActivelyRunning).length;
+  const waiting = running.length - active;
+  const counts = [active ? `${active} running` : "", waiting ? `${waiting} waiting` : ""].filter(
+    Boolean,
+  );
+  const title = counts.length ? `Agents · ${counts.join(" · ")}` : "Agents";
   const shownRunning = allRunning ? running : running.slice(0, page);
   const shownSettled = allSettled ? settled : settled.slice(0, page);
   return (

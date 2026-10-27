@@ -61,8 +61,8 @@ test("queued switch waits for the turn and its background work without interrupt
   expect(h.store.getThread(id)?.provider).toBe("claude");
   expect(sourceSession?.closed).toBe(true);
 });
-test("same-provider model changes preserve the native session and private history", async () => {
-  const h = setup();
+test("model changes requesting a reopen preserve native history", async () => {
+  const h = setup({ reopenOnModelChange: true });
   const id = await h.create();
   const session = h.sessions[0];
   expect(
@@ -89,7 +89,8 @@ test("same-provider model changes preserve the native session and private histor
       expect.objectContaining({ text: expect.stringContaining("source history") }),
     ]),
   );
-  expect(session?.closed).toBe(false);
+  expect(session?.closed).toBe(true);
+  expect(h.sessions.at(-1)?.context.resume?.nativeSessionId).toBe(session?.nativeId);
   await h.restart();
   follow(h, id);
   await h.engine.flush();

@@ -40,7 +40,7 @@ const usualListing: Record<ProviderKind, ToolListing> = {
   pi: "core",
   // Cursor's SDK keeps its MCP meta tool on: names only, every listed tool callable.
   cursor: cursorToolListing(true),
-  antigravity: "all",
+  antigravity: "core",
   acp: "static",
 };
 /** The listing a provider's sessions use unless the daemon knows better (an ACP agent's CLI). */
@@ -56,7 +56,8 @@ const naming: Record<ProviderKind, string> = {
   claude: "",
   opencode: `OpenCode names ace tools ace_<tool> (ace_guide, ace_delegate). ${skills} Load them with your skill tool.`,
   cursor: `ace tools come from the ace MCP server. ${skills}`,
-  antigravity: "ace tools come from the ace MCP server.",
+  antigravity:
+    'Read a definition file if needed; call ace tools with call_mcp_tool (ServerName "ace", ToolName, Arguments).',
   acp: "ace tools come from the ace MCP server.",
   pi: `ace tools are your ace_<tool> extension tools: guide is ace_guide and delegate is ace_delegate. ${skills}`,
 };
@@ -115,9 +116,11 @@ export function developerInstructions(
     provider === "codex" ? codexPrefix(session.tools, skills, listing) : naming[provider],
     provider === "codex"
       ? undefined
-      : listing === "all"
-        ? (deferredReach[provider] ?? reach.all)
-        : reach[listing],
+      : provider === "antigravity" && listing === "core"
+        ? "guide or tools_find grows your tool list; tools_call {name, arguments} reaches unlisted tools."
+        : listing === "all"
+          ? (deferredReach[provider] ?? reach.all)
+          : reach[listing],
     provider === "claude" ? claudeSkills : undefined,
     session.access === "read-only" ? readOnly : undefined,
     session.roles,
@@ -125,4 +128,12 @@ export function developerInstructions(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** An actionable startup error when Gemini's native folder trust blocks the session. */
+export function geminiUntrustedGuidance(folder: string, denied: boolean): string {
+  const fix = denied
+    ? "Change the earlier Don't trust choice with /permissions in an interactive gemini session there."
+    : 'Run gemini in that folder once and choose "Trust folder".';
+  return `Gemini CLI does not trust ${folder}, so ace cannot start a session with its tools there. ${fix} Then retry this turn in ace.`;
 }
