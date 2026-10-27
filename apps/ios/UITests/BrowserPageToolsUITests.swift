@@ -26,8 +26,16 @@ final class BrowserPageToolsUITests: XCTestCase {
         request.httpBody = try JSONEncoder().encode(["action": action])
         _ = try await URLSession.shared.data(for: request)
     }
+    /// A menu row by its identifier or label. A menu taller than the screen lists only the rows
+    /// on screen, so it is scrolled toward its top (where the tab's rows are) until the row shows.
     private func item(_ app: XCUIApplication, _ identifier: String, _ label: String) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, label)).firstMatch
+        let row = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, label)).firstMatch
+        for _ in 0..<4 where !row.waitForExistence(timeout: 1) {
+            let menu = app.collectionViews.firstMatch
+            guard menu.exists else { break }
+            menu.swipeDown()
+        }
+        return row
     }
 
     @MainActor func testAskingAboutThePageAndAnnotatingItFillTheMessage() async throws {

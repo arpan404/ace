@@ -110,7 +110,10 @@ struct RemoteScreenView: View {
                 Text("Use my Chrome").aceFont(AceTheme.Typography.body, relativeTo: .body)
                     .foregroundStyle(AceTheme.Colours.foreground)
                 Spacer()
-                if let chrome = model.computerAccess.state?.chrome {
+                if !model.mayAdminister {
+                    Text("Owner only").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                } else if let chrome = model.computerAccess.state?.chrome {
                     Text(chrome.installed ? (chrome.connections.isEmpty ? "Installed" : "\(chrome.connections.count) connected") : "Not set up")
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)

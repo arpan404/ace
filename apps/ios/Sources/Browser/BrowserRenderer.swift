@@ -8,6 +8,8 @@ struct BrowserPicture: @unchecked Sendable {
     let sequence: Int
     /// The page's size in CSS pixels: input coordinates map to it.
     let page: CGSize
+    /// The tab this picture shows, as its stream's last keyframe said; nil before one did.
+    var tabId: String? = nil
 }
 
 /// A cumulative video acknowledgement (`browser.ack` with `video`, ADR 0088).
@@ -29,6 +31,8 @@ final class BrowserRenderer: @unchecked Sendable {
     private var gate = VideoChunkGate()
     private var decoder: H264Decoder?
     private var closed = false
+    /// The tab the stream shows, from its keyframes (deltas don't repeat it).
+    private var tabId: String?
 
     init(threadId: String, present: @escaping @Sendable (BrowserPicture) -> Void, ack: @escaping @Sendable (BrowserAck) -> Void) {
         self.threadId = threadId
@@ -47,6 +51,7 @@ final class BrowserRenderer: @unchecked Sendable {
     private func forget() {
         gate.reset()
         decoder = nil
+        tabId = nil
     }
     private func handle(_ chunk: BrowserVideoChunk) {
         guard !closed else { return }
@@ -58,8 +63,9 @@ final class BrowserRenderer: @unchecked Sendable {
                 decoder = nil
                 decoder = try? H264Decoder(config: configure)
             }
+            if chunk.key { tabId = chunk.tabId }
             guard let decoder, let image = try? decoder.decode(chunk.bytes) else { return failed() }
-            present(BrowserPicture(image: image, sequence: chunk.sequence, page: CGSize(width: chunk.width, height: chunk.height)))
+            present(BrowserPicture(image: image, sequence: chunk.sequence, page: CGSize(width: chunk.width, height: chunk.height), tabId: tabId))
             ack(BrowserAck(sequence: chunk.sequence))
         }
     }

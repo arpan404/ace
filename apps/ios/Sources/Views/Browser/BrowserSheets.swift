@@ -165,11 +165,14 @@ struct BrowserDownloadsSheet: View {
         .tint(AceTheme.Colours.foreground)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
-    private func saving(_ download: BrowserViewInfo.Download) -> BrowserSaving? { model.browser.saving[download.id] }
+    private func saving(_ download: BrowserViewInfo.Download) -> BrowserSaving? {
+        model.browser.threadId.flatMap { model.browser.saving[BrowserSaving.key(threadId: $0, downloadId: download.id)] }
+    }
     /// Save, then its progress, then Share once the file is on the phone.
     @ViewBuilder private func save(_ download: BrowserViewInfo.Download) -> some View {
         let saving = saving(download)
-        if saving?.phase == "ready", let file = SavedFiles().file(id: download.id, name: download.filename) {
+        if saving?.phase == "ready", let saving,
+           let file = SavedFiles(scope: model.hostId ?? "").file(id: saving.key, name: download.filename) {
             ShareLink(item: file) { Text("Share") }
                 .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                 .frame(minHeight: AceTheme.Dimensions.touchTarget)

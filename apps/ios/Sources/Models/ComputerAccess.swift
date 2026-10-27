@@ -31,6 +31,8 @@ import Observation
         let chrome: Chrome?
         /// darwin, linux or win32, as the daemon says; nil from an older daemon.
         var platform: String? = nil
+        /// Only the machine's owner can change these: the pairing isn't an admin one.
+        var ownerOnly: Bool? = nil
         /// The change running now ("locked.install", "chrome.revoke"), if any.
         let busy: String?
         let error: String?
@@ -55,6 +57,7 @@ extension ClientModel {
         guard computerAccess.followers > 0 else { return }
         var action: [String: Any] = ["kind": "open"]
         if let mac { action["mac"] = mac }
+        if let canAdmin { action["admin"] = canAdmin }
         computerAccessAction(action)
     }
     func unfollowComputerAccess() {
@@ -67,6 +70,9 @@ extension ClientModel {
     func lockedUse(_ op: String) { computerAccessAction(["kind": "locked", "op": op]) }
     /// install, stop or revoke.
     func useMyChrome(_ op: String) { computerAccessAction(["kind": "chrome", "op": op]) }
+    /// This phone may change locked use and Use my Chrome: an admin pairing, or one not known
+    /// to be otherwise until the daemon refuses it.
+    var mayAdminister: Bool { canAdmin != false && computerAccess.state?.ownerOnly != true }
     private func computerAccessAction(_ action: [String: Any]) {
         guard canOperate || action["kind"] as? String == "open" || action["kind"] as? String == "close" else { return }
         self.action(["type": "computer.access", "action": action])

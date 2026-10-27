@@ -73,6 +73,9 @@ import QuartzCore
     var machineGlyph: AceIcon.Name?
     /// False for a view-only grant: the phone reads threads but submits no commands.
     var canOperate = true
+    /// The pairing grants admin (the machine's owner); nil when this phone doesn't know its
+    /// scopes, and the daemon's refusal says so instead.
+    var canAdmin: Bool?
     /// A thread a tapped notification asked to open.
     var deepLink: String?
     @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
@@ -130,6 +133,8 @@ import QuartzCore
         let closing = retireRuntime()
         hostId = target.hostId
         inbox.removeAll(); pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
+        // Another machine's runtime: this one's saves and computer access no longer apply.
+        browser.forgetSaves(); computerAccess.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil; projectLooks = [:]; machineGlyph = nil
         connection = "connecting"; error = nil; problem = nil

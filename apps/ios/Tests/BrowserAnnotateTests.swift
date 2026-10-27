@@ -49,21 +49,64 @@ import Testing
         #expect(stroke.ended().isEmpty)
     }
 
-    @Test func aSavedDownloadIsWrittenSliceBySliceAndAnOutOfOrderSliceIsRefused() throws {
+    @Test func aSavedDownloadIsOfferedOnlyOnceWholeAndAnOutOfOrderSliceIsRefused() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("saved-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
-        let files = SavedFiles(root: root)
+        let files = SavedFiles(root: root, scope: "host-a")
         let bytes = Data((0..<3000).map { UInt8($0 % 251) })
-        try files.write(id: "dl-1", name: "../report.csv", offset: 0, base64: bytes.prefix(1000).base64EncodedString())
-        try files.write(id: "dl-1", name: "../report.csv", offset: 1000, base64: bytes.dropFirst(1000).base64EncodedString())
-        let url = try #require(files.file(id: "dl-1", name: "../report.csv"))
+        try files.write(id: "web/dl-1", name: "../report.csv", offset: 0, base64: bytes.prefix(1000).base64EncodedString(), done: false)
+        // Part of it is here, but nothing is offered until the last slice.
+        #expect(files.file(id: "web/dl-1", name: "../report.csv") == nil)
+        #expect(throws: (any Error).self) { try files.write(id: "web/dl-1", name: "../report.csv", offset: 10, base64: "AAAA", done: false) }
+        try files.write(id: "web/dl-1", name: "../report.csv", offset: 1000, base64: bytes.dropFirst(1000).base64EncodedString(), done: true)
+        let url = try #require(files.file(id: "web/dl-1", name: "../report.csv"))
         #expect(url.lastPathComponent == "report.csv")
         #expect(url.path.hasPrefix(root.path))
         #expect(try Data(contentsOf: url) == bytes)
-        #expect(throws: (any Error).self) { try files.write(id: "dl-1", name: "../report.csv", offset: 10, base64: "AAAA") }
         // Starting again replaces the copy.
-        try files.write(id: "dl-1", name: "../report.csv", offset: 0, base64: Data([1, 2]).base64EncodedString())
+        try files.write(id: "web/dl-1", name: "../report.csv", offset: 0, base64: Data([1, 2]).base64EncodedString(), done: true)
         #expect(try Data(contentsOf: url) == Data([1, 2]))
+    }
+
+    @Test func aSaveThatWouldPassTheLimitIsRefusedAndWhatArrivedGoes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("saved-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = SavedFiles(root: root, scope: "host-a")
+        try files.write(id: "web/big", name: "big.zip", offset: 0, base64: Data([1]).base64EncodedString(), done: false)
+        #expect(throws: (any Error).self) {
+            try files.write(id: "web/big", name: "big.zip", offset: SavedFiles.maxBytes, base64: Data([2, 3]).base64EncodedString(), done: true)
+        }
+        #expect((try? FileManager.default.contentsOfDirectory(atPath: root.path))?.isEmpty ?? true)
+    }
+
+    @Test func aDiscardedSaveLeavesNothingAndMachinesKeepTheirOwnCopies() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("saved-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = SavedFiles(root: root, scope: "host-a"), second = SavedFiles(root: root, scope: "host-b")
+        try first.write(id: "web/dl", name: "a.txt", offset: 0, base64: Data([1]).base64EncodedString(), done: true)
+        try second.write(id: "web/dl", name: "a.txt", offset: 0, base64: Data([2]).base64EncodedString(), done: true)
+        #expect(try Data(contentsOf: try #require(first.file(id: "web/dl", name: "a.txt"))) == Data([1]))
+        #expect(try Data(contentsOf: try #require(second.file(id: "web/dl", name: "a.txt"))) == Data([2]))
+        try first.write(id: "web/part", name: "b.txt", offset: 0, base64: Data([1]).base64EncodedString(), done: false)
+        first.discard(id: "web/part")
+        first.discard(id: "web/dl")
+        #expect(first.file(id: "web/dl", name: "a.txt") == nil)
+        #expect(second.file(id: "web/dl", name: "a.txt") != nil)
+    }
+
+    @Test func eachPictureSaysTheTabItsStreamShowsSoAStillIsNeverAnotherTabs() async throws {
+        let (description, encoded) = try H264DecodeTests.encode(width: 320, height: 240, frames: 3)
+        let shown = TabLog()
+        let renderer = BrowserRenderer(threadId: "thread", present: { shown.add($0.tabId) }, ack: { _ in })
+        defer { renderer.close() }
+        for (index, bytes) in encoded.enumerated() {
+            // Only the keyframe names its tab; the deltas after it show the same one.
+            renderer.receive(BrowserVideoChunk(threadId: "thread", sequence: index + 1, timestamp: 0, width: 400, height: 300,
+                                               codedWidth: 320, codedHeight: 240, codec: "avc1.42E033", key: index == 0,
+                                               description: index == 0 ? description : nil, tabId: index == 0 ? "tab-2" : nil, bytes: bytes))
+        }
+        for _ in 0..<400 where shown.values.count < 3 { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(shown.values == ["tab-2", "tab-2", "tab-2"])
     }
 
     @Test func fileNamesFromTheMachineBecomePlainNamesHere() {
@@ -71,4 +114,11 @@ import Testing
         #expect(SavedFiles.safeName("") == "download")
         #expect(SavedFiles.safeName("..") == "download")
     }
+}
+
+private final class TabLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String?] = []
+    func add(_ value: String?) { lock.withLock { recorded.append(value) } }
+    var values: [String?] { lock.withLock { recorded } }
 }

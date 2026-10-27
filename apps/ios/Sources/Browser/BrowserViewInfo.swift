@@ -203,12 +203,17 @@ struct BrowserExtensions: Codable, Sendable, Equatable {
 }
 /// A download being copied onto this phone (`browser.saving`).
 struct BrowserSaving: Codable, Sendable, Equatable {
+    /// A download id is its thread's own: the same id in another thread is another file.
+    let threadId: String
     let downloadId: String
     let name: String
     /// saving, ready or failed.
     let phase: String
     let progress: Double
     let message: String?
+    /// The bridge's id for the phone's copy (`SavedFiles`), and the key saves are kept under.
+    var key: String { Self.key(threadId: threadId, downloadId: downloadId) }
+    static func key(threadId: String, downloadId: String) -> String { "\(threadId)/\(downloadId)" }
 }
 struct BrowserVisit: Codable, Sendable, Equatable, Identifiable {
     let url: String

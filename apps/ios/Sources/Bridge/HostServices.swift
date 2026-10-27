@@ -20,6 +20,8 @@ struct HostServices: Sendable {
     static func connection(_ target: ConnectionTarget) -> HostServices {
         var services = HostServices()
         if let key = target.secretKey { services.secretAccess = .read(key) }
+        // Saved downloads are this machine's: another machine's same ids are other files.
+        services.saved.scope = target.hostId
         return services
     }
 
@@ -55,7 +57,10 @@ struct HostServices: Sendable {
             return try staging.chunk(read.localId, offset: read.offset, limit: read.limit)
         case "file.write":
             let write = try JSONDecoder().decode(FileWrite.self, from: input)
-            try saved.write(id: write.id, name: write.name, offset: write.offset, base64: try request.requireBody())
+            try saved.write(id: write.id, name: write.name, offset: write.offset, base64: try request.requireBody(), done: write.done)
+            return ""
+        case "file.discard":
+            saved.discard(id: try JSONDecoder().decode(FileDiscard.self, from: input).id)
             return ""
         case "capture.stage":
             // An annotation's crop or page screenshot, staged as a message file like a photo.
@@ -75,4 +80,5 @@ struct HostServices: Sendable {
 private struct SecretWrite: Decodable { let key: String; let token: String }
 private struct ChunkRead: Decodable { let localId: String; let offset: Int; let limit: Int }
 private struct FileWrite: Decodable { let id: String; let name: String; let offset: Int; let done: Bool }
+private struct FileDiscard: Decodable { let id: String }
 private struct CaptureStage: Decodable { let name: String; let mimeType: String }

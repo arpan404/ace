@@ -56,6 +56,12 @@ struct BrowserMenu: View {
                     .disabled(!page)
                     .accessibilityIdentifier("browser.menu.device")
                 }
+                // Watching the page float needs no control of it: view-only phones have it too.
+                if model.browser.canPictureInPicture {
+                    Button(model.browser.pictureInPicture ? "Exit Picture in Picture" : "Picture in Picture", ace: .pictureInPicture, action: pip)
+                        .disabled(!page)
+                        .accessibilityIdentifier("browser.menu.pip")
+                }
                 if let url {
                     ShareLink(item: url) { Label("Share address", ace: .export) }
                     Button("Copy address", ace: .copy) { UIPasteboard.general.url = url }
@@ -95,11 +101,6 @@ struct BrowserMenu: View {
                         Button("Record the page", ace: .record) { model.browserRecord(true) }
                             .disabled(kept)
                             .accessibilityIdentifier("browser.menu.record")
-                    }
-                    if model.browser.canPictureInPicture {
-                        Button(model.browser.pictureInPicture ? "Exit Picture in Picture" : "Picture in Picture", ace: .pictureInPicture, action: pip)
-                            .disabled(!page)
-                            .accessibilityIdentifier("browser.menu.pip")
                     }
                     if let split {
                         if split.wrappedValue != nil {

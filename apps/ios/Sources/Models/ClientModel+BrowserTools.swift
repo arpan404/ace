@@ -60,7 +60,7 @@ extension ClientModel {
     func browserSave(_ downloadId: String) { browserTool(["kind": "save", "downloadId": downloadId]) }
     func browserSaveCancel(_ downloadId: String) {
         browserTool(["kind": "saveCancel", "downloadId": downloadId])
-        browser.forgetSaving(downloadId)
+        if let threadId = browser.threadId { browser.forgetSaving(BrowserSaving.key(threadId: threadId, downloadId: downloadId)) }
     }
     /// Annotate mode on the shown page; `dark` draws the page's overlay to match the app.
     func browserAnnotate(_ on: Bool, dark: Bool) { browserTool(["kind": "annotate", "on": on, "theme": dark ? "dark" : "light"]) }

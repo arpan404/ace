@@ -25,7 +25,7 @@ struct LockedUseRow: View {
                 Spacer(minLength: AceTheme.Spacing.sm)
                 Toggle("Let agents work while this Mac is locked", isOn: Binding(get: { locked.on }, set: { model.lockedUse($0 ? "install" : "remove") }))
                     .labelsHidden()
-                    .disabled(busy || locked.busy || !model.canOperate)
+                    .disabled(busy || locked.busy || !model.canOperate || !model.mayAdminister)
                     .accessibilityIdentifier("computer.locked.switch")
             }
             if let note = locked.note {
@@ -34,7 +34,10 @@ struct LockedUseRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .transition(.opacity)
             }
-            if model.canOperate, locked.repair || locked.note != nil {
+            if !model.mayAdminister {
+                // A read pairing sees the Mac's state; only its owner turns locked use on or off.
+                OwnerOnlyNote().transition(.opacity)
+            } else if model.canOperate, locked.repair || locked.note != nil {
                 HStack(spacing: AceTheme.Spacing.xl) {
                     if locked.repair { Button("Repair") { model.lockedUse("repair") }.accessibilityIdentifier("computer.locked.repair") }
                     Button("Check again") { model.lockedUse("recheck") }.accessibilityIdentifier("computer.locked.recheck")
@@ -84,7 +87,7 @@ struct UseMyChromeView: View {
                             Button(access?.busy == "chrome.install" ? "Installing…" : chrome.installed ? "Reinstall" : "Install") { model.useMyChrome("install") }
                                 .buttonStyle(.borderless)
                                 .fontWeight(chrome.installed ? .regular : .semibold)
-                                .disabled(busy || !model.canOperate)
+                                .disabled(busy || !model.canOperate || !model.mayAdminister)
                                 .accessibilityIdentifier("computer.chrome.install")
                         }
                         .insetRowBackground()
@@ -126,7 +129,7 @@ struct UseMyChromeView: View {
                                 }
                             } label: { InsetRow("Cookies and site storage", systemImage: nil) }
                             .insetRowBackground()
-                            if model.canOperate {
+                            if model.canOperate, model.mayAdminister {
                                 Button("Stop agents in my Chrome") { model.useMyChrome("stop") }
                                     .disabled(busy || !chrome.controlled)
                                     .insetRowBackground()
@@ -142,6 +145,9 @@ struct UseMyChromeView: View {
                 if let error = access?.error {
                     ServiceProblem(message: error).listRowBackground(Color.clear)
                 }
+            } else if !model.mayAdminister {
+                // Use my Chrome is the owner's; it isn't read for anyone else, so nothing spins.
+                OwnerOnlyNote().insetRowBackground().transition(.opacity)
             } else {
                 ForEach(0..<2, id: \.self) { _ in
                     Capsule().fill(AceTheme.Colours.fill).frame(width: 180, height: 12)
@@ -160,5 +166,16 @@ struct UseMyChromeView: View {
         }
         .onAppear { model.followComputerAccess() }
         .onDisappear { model.unfollowComputerAccess() }
+    }
+}
+
+/// Said where a change is the machine owner's alone (an admin pairing).
+struct OwnerOnlyNote: View {
+    var body: some View {
+        Text("Only the machine's owner can change this.")
+            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+            .accessibilityIdentifier("computer.ownerOnly")
     }
 }

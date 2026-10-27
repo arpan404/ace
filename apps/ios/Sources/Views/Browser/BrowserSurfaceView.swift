@@ -53,8 +53,9 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         }
     }
     private var stroke = AnnotateStroke()
-    /// The picture last drawn, for the still an iPad's split keeps of a tab once another shows.
-    private(set) var lastImage: CVPixelBuffer?
+    /// The picture last drawn and the tab it showed, for the still an iPad's split keeps of a
+    /// tab once another shows.
+    private(set) var lastPicture: (image: CVPixelBuffer, tabId: String)?
     /// Picture in Picture of this layer; nil where the system has none.
     private(set) lazy var pictureInPicture: BrowserPictureInPicture? =
         BrowserPictureInPicture.supported ? BrowserPictureInPicture(layer: videoLayer) { [weak self] in self?.drawNewest() } : nil
@@ -124,7 +125,7 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         let renderer = videoLayer.sampleBufferRenderer
         if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sample)
-        lastImage = picture.image
+        if let tabId = picture.tabId { lastPicture = (picture.image, tabId) }
         if pageSize != picture.page {
             // Another device or size: the picture starts at the fit again.
             pageSize = picture.page
@@ -289,7 +290,7 @@ struct BrowserSurface: UIViewRepresentable {
         coordinator.keyboardRequest = keyboardRequest
         coordinator.pipRequest = pipRequest
         view.pictureInPicture?.changed = { model.browser.pictureInPicture = $0 }
-        model.browser.currentPicture = { [weak view] in view?.lastImage }
+        model.browser.currentPicture = { [weak view] in view?.lastPicture }
         model.browser.canPictureInPicture = view.pictureInPicture != nil
         return view
     }

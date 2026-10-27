@@ -45,7 +45,8 @@ import UIKit
     var canPictureInPicture = false
     /// Each tab's last picture once another tab shows, for an iPad's split (newest eight).
     private(set) var stills: [String: UIImage] = [:]
-    @ObservationIgnored var currentPicture: () -> CVPixelBuffer? = { nil }
+    /// The picture on screen now and the tab it came from.
+    @ObservationIgnored var currentPicture: () -> (image: CVPixelBuffer, tabId: String)? = { nil }
     @ObservationIgnored private var stillOrder: [String] = []
 
     @ObservationIgnored private var renderer: BrowserRenderer?
@@ -84,13 +85,16 @@ import UIKit
         stills = [:]; stillOrder = []; pictureInPicture = false
     }
     func clearSource() { source = nil }
-    /// The picture on screen now, kept as `tabId`'s still: made into an image off the main thread.
-    private func keepStill(of tabId: String) {
-        guard let buffer = currentPicture() else { return }
-        let held = HeldPicture(buffer: buffer)
+    /// The picture on screen now, kept as the still of the tab it came from (never assumed to be
+    /// the tab shown before), made into an image off the main thread; dropped if the view moved
+    /// to another thread meanwhile.
+    private func keepStill() {
+        guard let picture = currentPicture(), let threadId else { return }
+        let held = HeldPicture(buffer: picture.image)
+        let tabId = picture.tabId
         Task { [weak self] in
             let image = await Task.detached(priority: .utility) { held.image() }.value
-            guard let self, let image else { return }
+            guard let self, let image, self.threadId == threadId else { return }
             self.stills[tabId] = image
             self.stillOrder.removeAll { $0 == tabId }
             self.stillOrder.append(tabId)
@@ -98,7 +102,9 @@ import UIKit
         }
     }
     func clearExtensions() { extensions = nil }
-    func forgetSaving(_ downloadId: String) { saving[downloadId] = nil }
+    func forgetSaving(_ key: String) { saving[key] = nil }
+    /// The machine's runtime was replaced: its saves no longer report here.
+    func forgetSaves() { saving = [:] }
     func movePicture(zoom: CGFloat, offset: CGPoint) {
         if pictureZoom != zoom { pictureZoom = zoom }
         if pictureOffset != offset { pictureOffset = offset }
@@ -133,7 +139,7 @@ import UIKit
                 renderer?.reset()
             }
             generation = info.generation
-            if let before = view?.state?.activeTabId, before != info.state?.activeTabId { keepStill(of: before) }
+            if let before = view?.state?.activeTabId, before != info.state?.activeTabId { keepStill() }
             if view != info { view = info }
         case .page(let threadId, _, let info):
             guard threadId == self.threadId else { return }
@@ -154,7 +160,7 @@ import UIKit
         case .sizes(let result): if threadId != nil { sizes = result }
         case .extensions(let result): if threadId != nil { extensions = result }
         // A save outlives the view: the file is the person's once it is on the phone.
-        case .saving(let result): saving[result.downloadId] = result
+        case .saving(let result): saving[result.key] = result
         case .annotateSend: if threadId != nil { annotateSends += 1 }
         }
     }

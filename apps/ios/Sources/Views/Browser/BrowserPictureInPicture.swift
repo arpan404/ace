@@ -57,6 +57,16 @@ import UIKit
             changed(false)
         }
     }
+    /// The system refused to float the page (another app's Picture in Picture, a call): the
+    /// audio session asked for it is let go, and the menu reads as before.
+    nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController,
+                                                failedToStartPictureInPictureWithError error: any Error) {
+        MainActor.assumeIsolated {
+            timer?.invalidate(); timer = nil
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            changed(false)
+        }
+    }
     nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController,
                                                 restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completion: @escaping (Bool) -> Void) {
         completion(true)

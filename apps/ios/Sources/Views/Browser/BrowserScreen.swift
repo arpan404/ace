@@ -145,23 +145,28 @@ struct BrowserScreen: View {
         return picker
     }
 
-    /// The live page, and on an iPad's split the other tab's last picture beside it.
-    @ViewBuilder private var page: some View {
-        if sizeClass == .regular, let splitTab, splitTab != state?.activeTabId,
-           let other = state?.tabs.first(where: { $0.id == splitTab }) {
-            HStack(spacing: AceTheme.Spacing.none) {
-                livePage
+    /// The live page, and on an iPad's split the other tab's last picture beside it. The live
+    /// page keeps one place in the layout either way, so opening or closing the split never
+    /// rebuilds it (its stream and Picture in Picture carry on).
+    private var page: some View {
+        HStack(spacing: AceTheme.Spacing.none) {
+            livePage
+            if let other = splitOther {
                 Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Dimensions.border)
+                    .transition(.opacity)
                 BrowserSplitPane(tab: other, still: browser.stills[other.id]) {
                     // The other half becomes the live page; this one keeps its picture.
                     self.splitTab = state?.activeTabId
                     model.browserSelectTab(other.id)
                 }
+                .transition(.opacity)
             }
-            .transition(.opacity)
-        } else {
-            livePage
         }
+    }
+    /// The tab beside the live one on an iPad's split, while it is still open and not the one shown.
+    private var splitOther: BrowserViewInfo.Tab? {
+        guard sizeClass == .regular, let splitTab, splitTab != state?.activeTabId else { return nil }
+        return state?.tabs.first { $0.id == splitTab }
     }
 
     /// The live page, with whatever stands in front of it.
