@@ -11,6 +11,8 @@ struct QueueHoldStrip: View {
     let chooseModel: () -> Void
     let openQueue: () -> Void
     @State private var acting = false
+    /// Bumped when a way on was taken: a light confirmation under the finger.
+    @State private var taken = 0
     var body: some View {
         StripSurface {
             ViewThatFits(in: .horizontal) {
@@ -24,6 +26,7 @@ struct QueueHoldStrip: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("thread.hold")
+        .sensoryFeedback(.success, trigger: taken)
     }
     private var words: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
@@ -32,6 +35,7 @@ struct QueueHoldStrip: View {
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .monospacedDigit()
                 .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.numericText())
                 .accessibilityIdentifier("hold.sentence")
             if !strip.detail.isEmpty {
                 Text(strip.detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -57,7 +61,10 @@ struct QueueHoldStrip: View {
         case "queue": openQueue()
         default:
             acting = true
-            Task { _ = await act(action); acting = false }
+            Task {
+                if await act(action) { taken += 1 }
+                acting = false
+            }
         }
     }
 }

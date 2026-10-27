@@ -76,13 +76,17 @@ struct GroupedValue: View {
 /// `prominent` is the strip's way on that carries the work on ("Continue"): full ink, a step bolder.
 struct StripTextButtonStyle: ButtonStyle {
     var prominent = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(prominent ? .semibold : .medium)
             .foregroundStyle(configuration.isPressed || prominent ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceTheme.Spacing.sm)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+            // 44pt: the smallest comfortable tap.
+            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(.smooth(duration: 0.12), value: configuration.isPressed)
             .contentShape(Rectangle())
     }
 }

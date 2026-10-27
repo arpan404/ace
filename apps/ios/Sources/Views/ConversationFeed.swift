@@ -136,6 +136,7 @@ struct ConversationFeed: View {
                         HeldSendRow(message: held, canAct: model.canOperate, act: { await model.actOnQueue($0) },
                                     edit: { message, change in await model.editQueued(message, change: change) }, restore: restore)
                             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+                            .transition(.opacity)
                     }
                 }
                 // Room for the composer, its strip and the keyboard, and under the last row so it
@@ -147,6 +148,8 @@ struct ConversationFeed: View {
                 TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving { toEnd(proxy) } }
             }
             .padding(.top, AceTheme.Spacing.sm)
+            // A message that wasn't sent fades in and out where it was written.
+            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: thread.screen.queue?.notSent?.id)
             // A comfortable line on a wide window; the scroll itself stays full width.
             .frame(maxWidth: ReadingColumn.maxWidth)
             .frame(maxWidth: .infinity)

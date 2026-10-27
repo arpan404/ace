@@ -12,6 +12,8 @@ struct QueueList: View {
     var act: (QueueRow.Action) async -> Bool = { _ in false }
     var showMore: () -> Void = {}
     @State private var acting = false
+    @State private var toggled = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var editing: QueueRow.Message?
     @State private var words = ""
     @State private var busy: String?
@@ -24,7 +26,10 @@ struct QueueList: View {
                 if canAct, let control = queue.control {
                     Button(control.label) {
                         acting = true
-                        Task { _ = await act(control); acting = false }
+                        Task {
+                            if await act(control) { toggled += 1 }
+                            acting = false
+                        }
                     }
                     .buttonStyle(StripTextButtonStyle())
                     .disabled(acting)
@@ -70,14 +75,18 @@ struct QueueList: View {
                 .accessibilityElement(children: .contain)
             }
             if queue.more > 0 {
-                Button("Show \(queue.more) more") { showMore() }
+                Button("Show \(queue.more) more") { withAnimation(reduceMotion ? nil : .smooth) { showMore() } }
                     .buttonStyle(StripTextButtonStyle())
                     .monospacedDigit()
                     .padding(.leading, -AceTheme.Spacing.sm)
                     .accessibilityIdentifier("queue.more")
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("queue.strip")
+        .animation(reduceMotion ? nil : .smooth, value: queue.messages.map(\.id))
+        .animation(reduceMotion ? nil : .smooth, value: queue.control)
+        .sensoryFeedback(.impact(weight: .light), trigger: toggled)
         .alert("Edit queued message", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
             TextField("Message", text: $words, axis: .vertical)
             Button("Save") { if let message = editing { run(message, ["kind": "words", "text": words]) } }

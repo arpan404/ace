@@ -23,6 +23,7 @@ import { seedLongSteps } from "./long-steps-scenario.ts";
 import { seedMessages } from "./message-scenario.ts";
 import { seedReading } from "./reading-scenario.ts";
 import { seedGoal } from "./goal-scenario.ts";
+import { seedQueues } from "./queue-scenario.ts";
 import { busyInbox } from "./busy-inbox-scenario.ts";
 import { seedSettled } from "./settled-scenario.ts";
 import { servePeer, transferPace } from "./transfer-peer.ts";
@@ -181,6 +182,7 @@ threadScenarios(daemon, details);
 seedForks(daemon, details);
 waitingScenario(daemon, details);
 seedGoal(daemon, details);
+seedQueues(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
 const busy = Number(process.env.ACE_IOS_SPIKE_INBOX ?? 0);
 const busyTimer =

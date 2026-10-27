@@ -63,6 +63,7 @@ struct HeldSendRow: View {
                     .disabled(words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Cancel", role: .cancel) {}
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("heldSend")
     }
 }
@@ -83,6 +84,8 @@ struct NotSentMessage: View {
     @State private var busy = false
     @State private var details = false
     @State private var confirming = false
+    @State private var recovered = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
             if !text.isEmpty { UserBubble(text: text) }
@@ -95,7 +98,7 @@ struct NotSentMessage: View {
             if canAct || !detail.isEmpty {
                 HStack(spacing: AceTheme.Spacing.none) {
                     if !detail.isEmpty {
-                        Button(details ? "Hide details" : "Details") { details.toggle() }
+                        Button(details ? "Hide details" : "Details") { withAnimation(reduceMotion ? nil : .smooth) { details.toggle() } }
                             .buttonStyle(StripTextButtonStyle())
                             .accessibilityIdentifier("notSent.details")
                     }
@@ -124,9 +127,11 @@ struct NotSentMessage: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.leading, UserBubble.inset)
                     .accessibilityIdentifier("notSent.detail")
+                    .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+        .sensoryFeedback(.success, trigger: recovered)
         .confirmationDialog("\(removeLabel) this message?", isPresented: $confirming, titleVisibility: .visible) {
             Button("\(removeLabel) message", role: .destructive) { if let remove { run(remove) } }
             Button("Cancel", role: .cancel) {}
@@ -134,6 +139,9 @@ struct NotSentMessage: View {
     }
     private func run(_ action: @escaping () async -> Bool) {
         busy = true
-        Task { _ = await action(); busy = false }
+        Task {
+            if await action() { recovered += 1 }
+            busy = false
+        }
     }
 }
