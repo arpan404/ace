@@ -24,7 +24,7 @@ export interface SessionGuidance {
 const skills = "ace's guides except offshift are also installed as skills.";
 /** Claude loads `guide` on demand only: its skills are the same text (`registry.ts`). */
 const claudeSkills =
-  "ace's guides except offshift are also installed as skills; use them for guide <topic>.";
+  "ace's guides except offshift are installed as skills; use them for guide <topic>.";
 /** How each provider lists ace tools unless the session says otherwise (`injection.ts`). */
 const usualListing: Record<ProviderKind, ToolListing> = {
   codex: "all",
@@ -57,7 +57,9 @@ const naming: Record<ProviderKind, string> = {
  * (thread_start and thread_control live in the ace-threads family).
  */
 const reach: Record<ToolListing, string> = {
-  all: "Most ace tools are deferred, wait, guide and tools_find too: load one with your tool search first, by task or exact name (select:mcp__ace__thread_start).",
+  // Claude's list can narrow to core mid-session (ADR 0086), dropping its tool search; the
+  // prompt cannot change then, so the line also names the way that works on the core list.
+  all: "Most ace tools are deferred, wait, guide and tools_find too: load one with your tool search (select:mcp__ace__thread_start); with none, call it via tools_call {name, arguments}.",
   core: "Your ace list starts small: guide or tools_find adds a family (thread_start and thread_control come with ace-threads); call one not listed yet with tools_call {name, arguments}.",
   static:
     "Your ace list is fixed: call other ace tools, such as thread_start or thread_control, with tools_call {name, arguments}; tools_find or guide gives the schema.",

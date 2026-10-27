@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { AgentModelRoster, type AgentModelsProvider } from "@ace/protocol";
 import { modelRoster, type RosterInput } from "./model-roster.ts";
 import { account, codex346, realisticInstall, row } from "./model-roster.fixture.ts";
+import { accountForName } from "./account-names.ts";
 
 const caller = { access: "full-access", provider: "claude", model: "claude-opus-5-5" } as const;
 const roster = (input: Partial<RosterInput> = {}) =>
@@ -70,6 +71,58 @@ describe("default roster", () => {
     expect(ids(provider(roster(install), "opencode"))).toContain("openrouter/minimax-m3");
   });
 
+  test("a pinned superseded release never hides its line's current release", () => {
+    const install = realisticInstall();
+    for (const entry of install.rows)
+      if (entry.model.id === "opencode/gpt-6-sol") entry.model.favourite = true;
+    const listed = ids(provider(roster(install), "opencode"));
+    expect(listed).toContain("opencode/gpt-6-sol");
+    expect(listed).toContain("opencode/gpt-6.1-sol");
+  });
+
+  test("a line's newest release shows even when an account with an older one sorts first", () => {
+    const filler = Array.from({ length: 7 }, (_, index) =>
+      row("codex", "codex-a", `line-${index}`, `Line ${index}`, { family: `line-${index}` }),
+    );
+    const result = modelRoster({
+      rows: [
+        row("codex", "codex-a", "sol-1", "Sol 1", { family: "sol", version: "1" }),
+        ...filler,
+        row("codex", "codex-b", "sol-2", "Sol 2", { family: "sol", version: "2" }),
+      ],
+      accounts: [account("codex", "codex-a"), account("codex", "codex-b")],
+      caller,
+    });
+    const listed = ids(provider(result, "codex"));
+    expect(listed).toContain("sol-2");
+    expect(listed).not.toContain("sol-1");
+  });
+
+  test("pinned legacy models never crowd current model lines out of a large catalogue", () => {
+    const lines = Array.from({ length: 10 }, (_, index) =>
+      row("codex", "codex-a", `line-${index}`, `Line ${index}`, {
+        family: `line-${index}`,
+        isDefault: index === 0,
+      }),
+    );
+    const favourites = Array.from({ length: 7 }, (_, index) =>
+      row("codex", "codex-a", `old-${index}`, `Old ${index}`, {
+        family: `old-${index}`,
+        tier: "legacy",
+        favourite: true,
+      }),
+    );
+    const result = modelRoster({
+      rows: [...favourites, ...lines],
+      accounts: [account("codex", "codex-a")],
+      caller,
+    });
+    const listed = ids(provider(result, "codex"));
+    for (const entry of [...favourites, ...lines.slice(0, 8)])
+      expect(listed).toContain(entry.model.id);
+    expect(listed).not.toContain("line-8");
+  });
+
   test("hidden models are neither listed nor counted", () => {
     const install = realisticInstall();
     for (const entry of install.rows)
@@ -96,6 +149,35 @@ describe("efforts", () => {
       efforts: "low,medium,high,xhigh,max,ultra",
       defaultEffort: "low",
     });
+  });
+
+  test("each account a shared model is listed on is offered only the efforts it accepts", () => {
+    const accounts = [account("codex", "codex-a"), account("codex", "codex-b")];
+    const result = modelRoster({
+      rows: [
+        row("codex", "codex-a", "gpt-6-luna", "GPT-6 Luna", { effortIds: ["high"] }),
+        // The same id added by hand on the second login, with no efforts.
+        row("codex", "codex-b", "gpt-6-luna", "GPT-6 Luna", { effortIds: [] }),
+        row("codex", "codex-a", "gpt-6-sol", "GPT-6 Sol"),
+        row("codex", "codex-b", "gpt-6-sol", "GPT-6 Sol"),
+      ],
+      accounts,
+      caller,
+    });
+    const codex = provider(result, "codex");
+    const offered = (id: string, accountId: string) =>
+      codex.sets
+        .filter(
+          (set) => set.ids.includes(id) && (!set.accounts || set.accounts.includes(accountId)),
+        )
+        .map((set) => ({
+          efforts: set.efforts ?? result.efforts,
+          defaultEffort: set.defaultEffort,
+        }));
+    expect(offered("gpt-6-luna", "codex-a")).toEqual([{ efforts: "high", defaultEffort: "high" }]);
+    expect(offered("gpt-6-luna", "codex-b")).toEqual([{ efforts: "", defaultEffort: undefined }]);
+    // Accounts that agree stay in one set naming no account.
+    expect(codex.sets.filter((set) => set.ids.includes("gpt-6-sol"))).toHaveLength(1);
   });
 
   test("a model that takes no effort says so", () => {
@@ -134,6 +216,35 @@ describe("accounts", () => {
     expect(provider(readOnly, "claude").accounts[0]).toHaveProperty("access");
   });
 
+  test("a serving account's name selects that account when passed to delegate", () => {
+    const accounts = [
+      account("claude", "claude-cli-default"),
+      // A label that is another account's id: delegate takes the id first.
+      account("claude", "claude-b", { accountLabel: "claude-cli-default" }),
+      account("claude", "claude-c", { accountLabel: "Work" }),
+    ];
+    const result = modelRoster({
+      rows: [
+        row("claude", "claude-cli-default", "claude-opus-5-5", "Opus 5.5"),
+        row("claude", "claude-b", "claude-sonnet-5-5", "Sonnet 5.5"),
+        row("claude", "claude-c", "claude-haiku-5-5", "Haiku 5.5"),
+      ],
+      accounts,
+      caller,
+    });
+    const claude = provider(result, "claude");
+    const named = accounts.map((entry) => ({
+      id: entry.accountId,
+      label: entry.accountLabel ?? "",
+      provider: entry.provider,
+    }));
+    const selected = (id: string) =>
+      setOf(claude, id)?.accounts?.map((name) => accountForName(named, "claude", name)?.id);
+    expect(selected("claude-sonnet-5-5")).toEqual(["claude-b"]);
+    expect(selected("claude-haiku-5-5")).toEqual(["claude-c"]);
+    expect(setOf(claude, "claude-haiku-5-5")?.accounts).toEqual(["Work"]);
+  });
+
   test("an account label two accounts share is never used to name a serving account", () => {
     const result = modelRoster({
       rows: [
@@ -167,5 +278,11 @@ describe("query", () => {
     expect(ids(provider(result, "codex"))[0]).toBe("gpt-6.1-sol");
     expect(result.providers.every((group) => group.omitted === undefined)).toBe(true);
     expect(result).not.toHaveProperty("noModels");
+  });
+
+  test("a query that finds one account's default keeps each account's own default", () => {
+    const codex = provider(roster({ query: "gpt 6.1 sol" }), "codex");
+    expect(codex).not.toHaveProperty("default");
+    expect(codex.accounts.map((entry) => entry.default)).toEqual(["gpt-6-luna", "gpt-6.1-sol"]);
   });
 });

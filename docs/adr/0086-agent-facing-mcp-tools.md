@@ -166,13 +166,21 @@ Settings `env` applies over the launch env. Claude Code refreshes its tool list 
 settings files it loads and the model (`claudeToolSearchFacts`), and `claudeToolListing` gives the
 session the core listing whenever tool search is off or only settled at run time; the core list
 works under tool search as well. A model switch is checked again and can only narrow the listing:
-ace's server is reconnected with the core header and every later MCP replacement keeps it.
+ace's server is reconnected with the core header and every later MCP replacement keeps it. The
+narrowing counts only once Claude Code accepts the new MCP set; a failed reconnect is retried on
+the next model switch, turn or MCP replacement until one succeeds. Every replacement, a
+caller's or ace's reconnect, runs one at a time and is built when it runs from the latest intended
+set, so a reconnect never drops a server a caller has just added. The system prompt cannot
+change mid-session, so Claude's guidance line names both ways in: its tool search, or with none,
+`tools_call {name, arguments}`, which the core list offers.
 
 claude-agent-acp (0.97.0) runs the same CLI through the Agent SDK, with the person's settings,
 its own `env` and, after `providers/set`, a gateway's base URL; it can also drop the built-in
 tools (`disableBuiltInTools`), which removes `ToolSearch`. It does not defer in every config, so
-the daemon decides its listing with the same rules from its launch env and settings. Its model
-is picked later over ACP, so a Claude 3 model chosen there is not seen.
+the daemon decides its listing with the same rules from its launch env, settings and the
+thread's model (`engine_sessions.model`, `acpClaudeToolListing`). ACP fixes a session's MCP
+servers when it opens, so a later model switch cannot narrow the list; a session with no model
+known at launch starts on core.
 
 **Antigravity loads on demand (2026-10-20).** Checked live on the Antigravity CLI (`agy`) 1.4.2:
 it loads in full only the MCP tools whose `_meta` carries `"antigravity/alwaysLoad": true`. Every
@@ -263,10 +271,17 @@ retry fixes it.
 **`models` returns one compact roster.** The default call lists every provider's current models
 in one result (about 1,500 characters on a realistic install, down from 5,400 for the first of
 five pages): models sharing efforts and serving accounts are one set, each account is listed
-once with only its unusual fields, and superseded releases are counted in `omitted`. A model is
-superseded only when every account that serves it says so, so an account's newest release stays
-listed even when another account has a newer one. Large catalogues keep favourites, the default
-and the newest release of each line, up to eight. `query` searches every account and every
+once with only its unusual fields, and superseded releases are counted in `omitted`. When the
+accounts serving one model offer different efforts or default efforts, each group of accounts
+gets its own set naming them, so every advertised effort is one `delegate` accepts on that
+account. A model is superseded only when every account that serves it says so, so an account's
+newest release stays listed even when another account has a newer one. Large catalogues show
+the newest current release of up to eight lines across all accounts, in catalogue order, plus
+every favourite, default and the caller's model on top of those eight; a pinned older release
+never takes its line's place or one of the eight. A provider states one `default` only
+when every account agrees, judged on the whole catalogue even for a query, else each account
+states its own. A set names a serving account by its label only when `delegate` would resolve
+that label to the same account, else by its id. `query` searches every account and every
 release; `delegate` still takes any catalogue model. The roster reads every page of every
 account (`agents.models`), so a second account's models are never cut off by paging.
 
