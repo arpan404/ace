@@ -1,10 +1,17 @@
-import { toolFamilies } from "./product.ts";
-
 /*
- * The full MCP tool reference for /mcp/: every tool in each family with one line on what it does.
- * Families and their order come from product.ts (the home page shows the short version), so the
- * two never list different families.
+ * The MCP tool reference for /mcp/: ace's tools by family, each with one line on what it does.
  */
+
+/* Families in the order agents meet them, each with what it is for. */
+const families: { family: string; purpose: string }[] = [
+  { family: "Agents", purpose: "Start agents on any provider or machine and wait for them" },
+  { family: "Browser", purpose: "Open, read and drive pages you can watch" },
+  { family: "Computer", purpose: "Use desktop apps in the background" },
+  { family: "Devices", purpose: "Drive iOS Simulators and Android emulators" },
+  { family: "Threads", purpose: "Find work, start threads and keep project notes" },
+  { family: "Show", purpose: "Put pages, images and alerts in front of you" },
+  { family: "Automations", purpose: "Schedule prompts and run them on demand" },
+];
 
 const describe: Record<string, Record<string, string>> = {
   Agents: {
@@ -69,7 +76,7 @@ export interface ToolFamily {
   tools: { name: string; does: string }[];
 }
 
-export const toolReference: ToolFamily[] = toolFamilies.map(({ family, purpose }) => {
+export const toolReference: ToolFamily[] = families.map(({ family, purpose }) => {
   const tools = describe[family];
   if (!tools) throw new Error(`Describe the ${family} tools in mcp.ts`);
   return {

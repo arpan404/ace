@@ -3,8 +3,9 @@ import Faq from "../components/Faq.astro";
 import Icon, { type IconName } from "../components/Icon.astro";
 import { faq } from "../content/product.ts";
 import {
+  buildText,
+  defaultArch,
   downloads,
-  formatSize,
   platformInfo,
   platforms,
   type Platform,
@@ -57,7 +58,14 @@ const questions = faq.filter((entry) =>
     <p class="lead">
       Free and open source. Install the desktop app on every computer you run agents on, then pair
       your phone and tablet to follow them from anywhere.
-      {downloads.version && <> The latest release is ace {downloads.version}.</>}
+      {
+        downloads.version && (
+          <>
+            {" "}
+            The latest release is ace <span data-release-version>{downloads.version}</span>.
+          </>
+        )
+      }
     </p>
   </header>
 
@@ -74,12 +82,11 @@ const questions = faq.filter((entry) =>
                 <Icon name={desktop[platform].mark} size={20} />
               </span>
               <h3>{info.name}</h3>
-              <p class="build">
-                {info.build}
-                {file.bytes ? `, ${formatSize(file.bytes)}` : ""}
+              <p class="build" data-download-build={platform}>
+                {buildText(platform, defaultArch[platform], file.bytes)}
               </p>
               <p class="install">{desktop[platform].install}</p>
-              <a class="button button-primary" href={file.url}>
+              <a class="button button-primary" href={file.url} data-download={platform} data-download-text>
                 {file.bytes ? `Download for ${info.name}` : `Get ${info.name} builds`}
               </a>
             </li>

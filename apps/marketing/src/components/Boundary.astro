@@ -1,49 +1,30 @@
 ---
+/* Where ace stops, point by point: the body of the Security page, under its intro. */
 import { boundary } from "../content/product.ts";
 import Icon from "./Icon.astro";
-import MoreLink from "./site/MoreLink.astro";
 ---
 
-<section id="privacy" class="section page">
-  <div class="split">
-    <div class="head reveal">
-      <h2 class="section-title">Know where your code goes.</h2>
-      <p class="lede">
-        ace sits around your agents, not between you and your providers. Here is what it holds, and
-        what it never touches.
-      </p>
-      <MoreLink href="/security/" label="Security and privacy" />
-    </div>
-    <ol class="list reveal">
-      {
-        boundary.map((item) => (
-          <li>
-            <span class="tile">
-              <Icon name={item.icon} size={17} />
-            </span>
-            <div>
-              <h3>{item.title}</h3>
-              <p>{item.body}</p>
-            </div>
-          </li>
-        ))
-      }
-    </ol>
-  </div>
+<section class="section page">
+  <ol class="list reveal">
+    {
+      boundary.map((item) => (
+        <li>
+          <span class="tile">
+            <Icon name={item.icon} size={17} />
+          </span>
+          <div>
+            <h2>{item.title}</h2>
+            <p>{item.body}</p>
+          </div>
+        </li>
+      ))
+    }
+  </ol>
 </section>
 
 <style>
-  .split {
-    display: grid;
-    grid-template-columns: 1fr 1.25fr;
-    gap: 72px;
-    align-items: start;
-  }
-
-  /* The heading stays in view while the list scrolls past it. */
-  .head {
-    position: sticky;
-    top: 112px;
+  .list {
+    max-width: 760px;
   }
 
   .list li {
@@ -59,7 +40,7 @@ import MoreLink from "./site/MoreLink.astro";
     border-top: 0;
   }
 
-  h3 {
+  h2 {
     font-size: 18px;
     letter-spacing: -0.02em;
   }
@@ -72,14 +53,4 @@ import MoreLink from "./site/MoreLink.astro";
     line-height: 1.65;
   }
 
-  @media (max-width: 900px) {
-    .split {
-      grid-template-columns: 1fr;
-      gap: 40px;
-    }
-
-    .head {
-      position: static;
-    }
-  }
 </style>

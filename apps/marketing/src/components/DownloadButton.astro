@@ -2,9 +2,19 @@
 /*
  * "Download for <platform>": one link per desktop platform, of which only the visitor's shows.
  * Base.astro tags <html data-os> before first paint, so the right one appears without a flash;
- * anyone the tag doesn't match (phones, unknown systems, no script) sees the Mac link.
+ * anyone the tag doesn't match (phones, unknown systems, no script) sees the Mac link. The build
+ * bakes in each system's usual installer; scripts/latest-release.ts re-points the links at the
+ * newest release and the visitor's own chip.
  */
-import { downloads, formatSize, platformInfo, platforms, type Platform } from "../content/release.ts";
+import {
+  defaultArch,
+  downloads,
+  labelText,
+  noteText,
+  platformInfo,
+  platforms,
+  type Platform,
+} from "../content/release.ts";
 import Icon, { type IconName } from "./Icon.astro";
 
 interface Props {
@@ -19,22 +29,11 @@ const marks: Record<Platform, IconName> = {
   windows: "windows-logo",
   linux: "linux-logo",
 };
-const version = downloads.version;
-
-/* "v0.0.11 for macOS on Apple silicon, 228 MB." */
-function note(platform: Platform): string {
-  const { build } = platformInfo[platform];
-  const { bytes } = downloads.byPlatform[platform];
-  return `${version ? `v${version} for ` : ""}${build}${bytes ? `, ${formatSize(bytes)}` : ""}. `;
-}
-
-/* The spoken name starts with the visible words, then adds what sighted readers get from the note. */
-function label(platform: Platform): string {
-  const { name, build } = platformInfo[platform];
-  const { bytes } = downloads.byPlatform[platform];
-  if (!bytes) return `Download for ${name} (latest release page)`;
-  return `Download for ${name} (ace ${version}, ${build}, ${formatSize(bytes)})`;
-}
+const { version } = downloads;
+const note = (platform: Platform) =>
+  noteText(version, platform, defaultArch[platform], downloads.byPlatform[platform].bytes);
+const label = (platform: Platform) =>
+  labelText(version, platform, defaultArch[platform], downloads.byPlatform[platform].bytes);
 ---
 
 {
@@ -42,6 +41,7 @@ function label(platform: Platform): string {
     <a
       class:list={["button", "button-primary", "for-os", { "button-small": small }]}
       data-os-match={platform}
+      data-download={platform}
       href={downloads.byPlatform[platform].url}
       aria-label={label(platform)}
     >
@@ -54,11 +54,13 @@ function label(platform: Platform): string {
   withNote && (
     <p class="download-note">
       {platforms.map((platform) => (
-        <span class="for-os" data-os-match={platform}>
+        <span class="for-os" data-os-match={platform} data-download-note={platform}>
           {note(platform)}
         </span>
       ))}
-      <a href={downloads.notesUrl}>Release notes</a>
+      <a href={downloads.notesUrl} data-release-notes>
+        Release notes
+      </a>
     </p>
   )
 }

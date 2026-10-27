@@ -4,15 +4,15 @@ import reviewLight from "../assets/shots/review-light.png";
 import Shot from "./Shot.astro";
 import MoreLink from "./site/MoreLink.astro";
 import Stage from "./Stage.astro";
+import { feature } from "../content/features.ts";
+
+const { headline, intro } = feature("review");
 ---
 
 <section id="review" class="section page">
   <div class="head reveal">
-    <h2 class="section-title">Review the diff next to the conversation.</h2>
-    <p class="lede">
-      Give a thread its own git worktree and its changes stay apart. Comment on a line, send it to
-      the agent, then commit and push from the same panel.
-    </p>
+    <h2 class="section-title">{headline}</h2>
+    <p class="lede">{intro}</p>
     <MoreLink href="/features/review/" label="More on worktrees and review" />
   </div>
   <div class="frame reveal">

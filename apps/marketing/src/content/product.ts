@@ -14,7 +14,7 @@ export const product = {
     "ace is a free, open-source app for Mac, Windows and Linux that runs Claude Code, Codex and Cursor side by side, with computer use and phone apps.",
   /** The fuller paragraph for structured data and llms.txt. */
   about:
-    "ace is a free, open-source app for running coding agents on Mac, Windows and Linux, with ace for iPhone, iPad and Android to follow and steer them. It drives the agent CLIs you already have logged in (Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any ACP agent) and shows which thread is working, waiting or needs you. Agents get one MCP toolset in every CLI: they can delegate to other agents, use a real browser, operate desktop apps through computer use, and test on iOS Simulators and Android emulators from the devices hub. Fleet links your machines so agents on one can start threads and use browsers on another, and pairs your phones and tablets. Each thread can work in its own git worktree with a built-in diff review.",
+    "ace is a free, open-source app for running coding agents on Mac, Windows and Linux, with ace for iPhone, iPad and Android to follow and steer them. It drives the agent CLIs you already have logged in (Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any ACP agent) and shows which thread is working, waiting or needs you. Agents get one MCP toolset in every CLI: they can delegate to other agents, use a real browser, operate desktop apps through computer use, and test on iOS Simulators and Android emulators from the devices hub. Fleet links your machines so agents on one can start threads and use browsers, simulators and emulators on another, and pairs your phones and tablets. Each thread can work in its own git worktree with a built-in diff review.",
   category: "DeveloperApplication",
   operatingSystem: "macOS, Windows, Linux, iOS, iPadOS, Android",
   license: "Apache-2.0",
@@ -81,106 +81,6 @@ export const workbench: { icon: FeatureIcon; title: string; body: string }[] = [
   },
 ];
 
-export type CapabilityIcon = "browser" | "cursor-click" | "device-mobile";
-
-/** What agents can operate besides code, each through ace's own tools. */
-export const capabilities: {
-  icon: CapabilityIcon;
-  title: string;
-  body: string;
-  details: string[];
-  tools: string[];
-}[] = [
-  {
-    icon: "browser",
-    title: "Browser use",
-    body: "Agents open your dev server in ace's browser, click through it and read the console and network log. You watch the same tab and can take over at any moment.",
-    details: [
-      "Several tabs per agent, Chrome extensions included",
-      "Mark up a page and send the notes to the agent",
-      "Optionally let agents use your own Chrome and its logins",
-    ],
-    tools: ["browser_open", "browser_snapshot", "browser_act", "browser_logs"],
-  },
-  {
-    icon: "cursor-click",
-    title: "Computer use",
-    body: "Agents work in your desktop apps in the background, without taking your mouse or keyboard. Each session shows who is in control, with Take over and Stop beside it.",
-    details: [
-      "Reads apps through accessibility, then clicks and types",
-      "One switch turns it on; you choose apps agents can't use",
-      "Live view of every app an agent is driving",
-    ],
-    tools: ["screen_apps", "screen_state", "screen_act"],
-  },
-  {
-    icon: "device-mobile",
-    title: "Devices hub",
-    body: "Run iOS Simulators and Android emulators inside ace. Tap, type and rotate them yourself, or hand a device to an agent to test your app.",
-    details: [
-      "Live screen, UI tree, logs and recordings",
-      "Approve a device before an agent can use it",
-      "Delegate a device to any agent in the thread",
-    ],
-    tools: ["sim_list", "sim_start", "sim_ui", "sim_act"],
-  },
-];
-
-/** What a fleet gives you, beside the Fleet settings screenshot. */
-export const fleetPoints: { title: string; body: string }[] = [
-  {
-    title: "Link machines",
-    body: "Agents on your laptop can start threads and open browsers on your build server, and every thread shows in one list.",
-  },
-  {
-    title: "Pair devices",
-    body: "Pair ace for iPhone, iPad or Android, or a browser, with a link or QR code. Choose view only or view and act, and how long access lasts.",
-  },
-  {
-    title: "Reach them anywhere",
-    body: "Connect over your local network, Tailscale, or an end-to-end encrypted relay you can host yourself.",
-  },
-];
-
-/** ace's MCP tools, grouped as agents find them. Every provider gets the same set. */
-export const toolFamilies: { family: string; purpose: string; tools: string[] }[] = [
-  {
-    family: "Agents",
-    purpose: "Start agents on any provider or machine and wait for them",
-    tools: ["delegate", "wait", "agents_status", "agent_message"],
-  },
-  {
-    family: "Browser",
-    purpose: "Open, read and drive pages you can watch",
-    tools: ["browser_open", "browser_snapshot", "browser_act", "browser_logs"],
-  },
-  {
-    family: "Computer",
-    purpose: "Use desktop apps in the background",
-    tools: ["screen_apps", "screen_state", "screen_act"],
-  },
-  {
-    family: "Devices",
-    purpose: "Drive iOS Simulators and Android emulators",
-    tools: ["sim_list", "sim_start", "sim_ui", "sim_act"],
-  },
-  {
-    family: "Threads",
-    purpose: "Find work, start threads and keep project notes",
-    tools: ["context", "thread_start", "threads_find", "note_add"],
-  },
-  {
-    family: "Show",
-    purpose: "Put pages, images and alerts in front of you",
-    tools: ["html_render", "image_show", "notify"],
-  },
-  {
-    family: "Automations",
-    purpose: "Schedule prompts and run them on demand",
-    tools: ["automation_put", "automation_run"],
-  },
-];
-
 /** Questions people ask before trying ace. Shown on the page and published as FAQPage data. */
 export const faq: { question: string; answer: string }[] = [
   {
@@ -211,7 +111,7 @@ export const faq: { question: string; answer: string }[] = [
   {
     question: "What is Fleet?",
     answer:
-      "Fleet links your machines and devices. Linked machines let agents start threads and use browsers on each other, and paired devices (ace for iPhone, iPad and Android, or a browser) can follow and steer agents. Machines connect over your local network, Tailscale, or an end-to-end encrypted relay.",
+      "Fleet links your machines and devices. Linked machines let agents start threads and use each other's browsers, simulators and emulators, and paired devices (ace for iPhone, iPad and Android, or a browser) can follow and steer agents. Machines connect over your local network, Tailscale, or an end-to-end encrypted relay.",
   },
   {
     question: "Where does my code go?",

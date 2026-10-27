@@ -1,13 +1,17 @@
 import { links, repository } from "../site.ts";
 import { downloadsFromRelease, releasePageDownloads, type Downloads } from "./release-download.ts";
 
+export type { Downloads } from "./release-download.ts";
 export {
+  buildText,
+  defaultArch,
   formatSize,
+  labelText,
+  noteText,
   platformInfo,
   platforms,
-  type Downloads,
   type Platform,
-} from "./release-download.ts";
+} from "./release-pick.ts";
 
 /*
  * The downloads the site offers, one per desktop platform, looked up from GitHub when the site builds. Rebuild after

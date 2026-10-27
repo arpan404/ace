@@ -1,13 +1,14 @@
 ---
-import { capabilities } from "../content/product.ts";
+import { feature } from "../content/features.ts";
 import BrowserPanel from "./panels/BrowserPanel.astro";
 import ComputerPanel from "./panels/ComputerPanel.astro";
 import DevicesPanel from "./panels/DevicesPanel.astro";
 import MoreLink from "./site/MoreLink.astro";
 import Stage from "./Stage.astro";
 
-const [browser, computer, devices] = capabilities;
-if (!browser || !computer || !devices) throw new Error("The page expects three capabilities.");
+const computer = feature("computer-use");
+const browser = feature("browser");
+const devices = feature("devices");
 ---
 
 <section id="work" class="section page">
@@ -22,9 +23,9 @@ if (!browser || !computer || !devices) throw new Error("The page expects three c
   <div class="bento">
     <article id="machine" class="cell wide reveal">
       <div class="copy">
-        <h3>Computer use: agents work your apps, not just your terminal</h3>
-        <p>{computer.body}</p>
-        <ul class="details">{computer.details.map((detail) => <li>{detail}</li>)}</ul>
+        <h3>{computer.headline}</h3>
+        <p>{computer.intro}</p>
+        <ul class="details">{computer.points.map((point) => <li>{point}</li>)}</ul>
         <p class="tools">{computer.tools.map((tool) => <code>{tool}</code>)}</p>
         <MoreLink href="/features/computer-use/" label="More on computer use" />
       </div>
@@ -38,8 +39,8 @@ if (!browser || !computer || !devices) throw new Error("The page expects three c
         <BrowserPanel />
       </Stage>
       <div class="copy">
-        <h3>A real browser they can drive</h3>
-        <p>{browser.body}</p>
+        <h3>{browser.headline}</h3>
+        <p>{browser.intro}</p>
         <p class="tools">{browser.tools.map((tool) => <code>{tool}</code>)}</p>
         <MoreLink href="/features/browser/" label="More on browser use" />
       </div>
@@ -50,8 +51,8 @@ if (!browser || !computer || !devices) throw new Error("The page expects three c
         <DevicesPanel />
       </Stage>
       <div class="copy">
-        <h3>Simulators and emulators in one hub</h3>
-        <p>{devices.body}</p>
+        <h3>{devices.headline}</h3>
+        <p>{devices.intro}</p>
         <p class="tools">{devices.tools.map((tool) => <code>{tool}</code>)}</p>
         <MoreLink href="/features/devices/" label="More on devices" />
       </div>

@@ -38,3 +38,10 @@ const data = graph([
   </main>
   <Footer />
 </Base>
+
+<script>
+  /* Every page's download links follow the newest release and the visitor's chip. */
+  import { keepDownloadsCurrent } from "../scripts/latest-release.ts";
+
+  void keepDownloadsCurrent();
+</script>

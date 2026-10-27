@@ -1,18 +1,17 @@
 ---
+import { feature } from "../content/features.ts";
 import { statuses as states } from "../content/product.ts";
 import StatusBoard from "./panels/StatusBoard.astro";
 import MoreLink from "./site/MoreLink.astro";
 
+const { headline, intro } = feature("status");
 ---
 
 <section id="status" class="section page">
   <div class="split">
     <div class="copy reveal">
-      <h2 class="section-title">Done means the whole tree is done.</h2>
-      <p class="lede">
-        A thread's status covers every subagent and background command it started. While a
-        subagent still runs, the thread says Waiting, never Done.
-      </p>
+      <h2 class="section-title">{headline}</h2>
+      <p class="lede">{intro}</p>
       <dl class="states">
         {
           states.map((state) => (

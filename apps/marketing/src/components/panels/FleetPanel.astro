@@ -1,7 +1,8 @@
 ---
 /*
- * Agents working across linked machines: each machine's threads with their status, work handed
- * from one machine to another, and a phone answering the approval one of them waits on.
+ * Agents working across linked machines: each machine's threads with their status, one using a
+ * simulator on another machine, one using a browser opened from another, and a phone answering
+ * the approval one of them waits on.
  */
 import type { StatusTone } from "../../content/product.ts";
 import Icon, { type IconName } from "../Icon.astro";
@@ -24,10 +25,10 @@ const machines: {
     mark: "linux-logo",
     threads: [
       {
-        title: "Run the full test suite",
+        title: "Test sign-in on iPhone 17 Pro",
         tone: "working",
         word: "Working",
-        note: "Started by an agent on MacBook Pro",
+        note: "Simulator on MacBook Pro",
       },
       { title: "Migrate orders table", tone: "needs-you", word: "Approve" },
     ],

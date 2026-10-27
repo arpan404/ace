@@ -3,16 +3,27 @@ import { agentGuides as providers } from "../content/agent-guides.ts";
 import { acpAgents as acp } from "../content/agents.ts";
 import Icon from "./Icon.astro";
 import BrandMark from "./BrandMark.astro";
+
+interface Props {
+  /** The section's own heading and intro; off where the page's intro already says it. */
+  intro?: boolean;
+}
+
+const { intro = true } = Astro.props;
 ---
 
 <section id="agents" class="section page">
-  <div class="reveal">
-    <h2 class="section-title">Keep the agents you already pay for.</h2>
-    <p class="lede">
-      ace starts each CLI the way you would in a terminal. Logins, models and subscriptions stay
-      with the CLI; ace never asks for or stores a key.
-    </p>
-  </div>
+  {
+    intro && (
+      <div class="reveal">
+        <h2 class="section-title">Keep the agents you already pay for.</h2>
+        <p class="lede">
+          ace starts each CLI the way you would in a terminal. Logins, models and subscriptions stay
+          with the CLI; ace never asks for or stores a key.
+        </p>
+      </div>
+    )
+  }
 
   <ul class="rule-grid providers reveal" aria-label="Built-in agents">
     {

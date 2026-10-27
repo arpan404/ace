@@ -95,21 +95,22 @@ export const features: Feature[] = [
     name: "Fleet",
     title: "Run coding agents across all your machines: ace Fleet",
     description:
-      "Link your laptop, build server and workstation so agents hand work across machines, and follow or approve every thread from iPhone, iPad or Android.",
+      "Link your machines so agents share each other's threads, browsers, simulators and emulators, then follow and approve every thread from iPhone, iPad or Android.",
     headline: "Orchestrate agents across every machine you own",
     intro:
-      "Fleet links the computers you run agents on and the phones and tablets you check them from. An agent on one machine can start threads and open browsers on another, and every thread shows in one list.",
+      "Link your laptop, a Linux build server and a Windows workstation. Agents on one start threads, open browsers and use simulators on another, and you approve it all from your phone.",
     points: [
-      "Agents start threads and use browsers on linked machines",
+      "Agents start threads and open browsers on linked machines",
+      "Simulators and emulators on one machine, used from any other",
       "Every thread from every machine in one list",
       "Pair iPhone, iPad, Android or a browser with a link or QR code",
-      "Local network, Tailscale or an end-to-end encrypted relay",
     ],
     sections: [
       {
         heading: "One fleet, many machines",
         body: [
           "Run ace on your laptop, a Linux build server and a Windows workstation, then link them. Linked machines can use each other: an agent on your laptop can delegate a long test run to the build server, or open a browser on the workstation to check a page there.",
+          "Devices travel across the fleet too. An agent on the Linux build server can test your app on the iOS Simulator running on your Mac, and an agent on your laptop can use the Android emulator on your workstation, each with the device approval you'd give locally.",
           "Each machine sets how much other machines may do on it: nothing, read, or read and act. Every thread, wherever it runs, shows in the same list with its live status.",
         ],
       },
@@ -127,8 +128,21 @@ export const features: Feature[] = [
         ],
       },
     ],
-    tools: ["delegate", "wait", "agents_status", "browser_open", "thread_start"],
+    tools: [
+      "delegate",
+      "wait",
+      "agents_status",
+      "browser_open",
+      "sim_list",
+      "sim_act",
+      "thread_start",
+    ],
     questions: [
+      {
+        question: "Can an agent use a simulator on another machine?",
+        answer:
+          "Yes. Simulators, emulators and browsers on a linked machine are available to agents on the others, as far as that machine's access setting allows, and you approve each device the same way as locally.",
+      },
       {
         question: "Can an agent on one computer start work on another?",
         answer:
@@ -147,6 +161,7 @@ export const features: Feature[] = [
     ],
     keywords: [
       "multi-machine coding agents",
+      "remote iOS simulator for agents",
       "agent orchestration",
       "remote coding agent",
       "Claude Code on phone",
