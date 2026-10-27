@@ -18,8 +18,6 @@ import {
   buildQuestionResolvePayload,
   browserHelpCardDetail,
   browserHelpCardTitle,
-  browserHelpLink,
-  browserHelpLinkFailureCopy,
   browserHelpResolution,
   canTapFreshProductionCard,
   canTapProductionCard,
@@ -32,12 +30,12 @@ import {
   elicitationUnsupported,
   freshProductionInteractionState,
   isCardableProductionInteraction,
-  openBrowserHelpPage,
   openConsentPage,
   pendingProductionInteractionIds,
   planReviewResolution,
   productionAnswerFailureCopy,
   productionApprovalRefusalCopy,
+  productionBrowserHelpInstructionCopy,
   productionBrowserHelpRefusalCopy,
   productionElicitationRefusalCopy,
   productionMayAct,
@@ -1040,7 +1038,7 @@ it("builds the existing interaction.resolve contract for browser help", () => {
   );
 });
 
-it("titles browser help like iOS and gates the page link to safe addresses", () => {
+it("titles browser help like iOS and directs the step to the machine tab", () => {
   const request: BrowserHelpRequest = {
     kind: "browser_help",
     tabId: "tab-1",
@@ -1050,52 +1048,19 @@ it("titles browser help like iOS and gates the page link to safe addresses", () 
   };
   expect(browserHelpCardTitle(request)).toBe("Sign in to github.com in the Browser");
   expect(browserHelpCardDetail(request)).toBe("Sign in with the team account");
-  expect(browserHelpLink({ url: "https://github.com/login" })).toBe("https://github.com/login");
-  expect(browserHelpLink({ url: undefined })).toBe(undefined);
-  expect(browserHelpLink({ url: "javascript:alert(1)" })).toBe(undefined);
-  expect(browserHelpLink({ url: "https://user:pass@example.com/" })).toBe(undefined);
+  expect(productionBrowserHelpInstructionCopy).toBe(
+    "Complete this step in the browser tab on your machine, then tap Done.",
+  );
 });
 
-it("opens the help page safely and fails visibly without throwing", async () => {
-  const opened: string[] = [];
-  const notices: string[] = [];
-  const notify = (text: string): void => {
-    notices.push(text);
-  };
-  expect(
-    await openBrowserHelpPage(
-      { url: "https://github.com/login" },
-      async (url) => {
-        opened.push(url);
-        return true;
-      },
-      notify,
-    ),
-  ).toBe(true);
-  expect(opened).toEqual(["https://github.com/login"]);
-  expect(notices).toEqual([]);
-  const before = opened.length;
-  expect(await openBrowserHelpPage({ url: "javascript:alert(1)" }, async () => true, notify)).toBe(
-    false,
-  );
-  expect(opened.length).toBe(before);
-  expect(notices).toEqual([]);
-  expect(await openBrowserHelpPage({ url: undefined }, async () => true, notify)).toBe(false);
-  expect(opened.length).toBe(before);
-  expect(
-    await openBrowserHelpPage({ url: "https://github.com/login" }, async () => false, notify),
-  ).toBe(false);
-  expect(notices).toEqual([browserHelpLinkFailureCopy]);
-  expect(
-    await openBrowserHelpPage(
-      { url: "https://github.com/login" },
-      async () => {
-        throw new Error("no browser");
-      },
-      notify,
-    ),
-  ).toBe(false);
-  expect(notices).toEqual([browserHelpLinkFailureCopy, browserHelpLinkFailureCopy]);
+it("offers no phone-browser route for browser help", async () => {
+  const module = await import("./production-approvals.ts");
+  expect("browserHelpLink" in module).toBe(false);
+  expect("openBrowserHelpPage" in module).toBe(false);
+  expect("browserHelpLinkFailureCopy" in module).toBe(false);
+  expect(productionBrowserHelpInstructionCopy.toLowerCase()).toContain("machine");
+  expect(productionBrowserHelpInstructionCopy.toLowerCase()).not.toContain("system browser");
+  expect(productionBrowserHelpInstructionCopy.toLowerCase()).not.toContain("open page");
 });
 
 it("admits a real browser-help answer through a fresh gate and closes the daemon request", async () => {

@@ -329,44 +329,13 @@ export async function resolveProductionElicitation(
 }
 
 /**
- * The tappable page address for a browser-help request, when it is safe to
- * open: http(s) with no credentials (shared `consentUrl`, like the iOS card's
- * consent link and the transcript's safe web links). Anything else stays
- * undefined so the card never hands an unsafe address to the system browser.
- * Opening is a read: the person finishes in the tab on the machine, or in the
- * system browser when the agent gave a page address.
+ * The browser-help instruction shown on the card. The phone never opens the
+ * page: there is no live in-app browser surface and the system browser is a
+ * different browser without the tab's session, so the step must be finished
+ * in the browser tab on the machine before tapping Done.
  */
-export function browserHelpLink(request: Pick<BrowserHelpRequest, "url">): string | undefined {
-  return consentUrl(request.url);
-}
-
-/** Screen copy when the help page cannot be opened; opening never throws. */
-export const browserHelpLinkFailureCopy = "That page could not be opened.";
-
-/**
- * Open a browser-help page through the transcript's web-link opener, failing
- * visibly. Unsafe or missing addresses never reach the opener (the card
- * already says the tab is on the machine); a refused open notifies instead
- * of throwing. Opening is a read, never a resolution: it holds no lock and
- * needs no grant, so view-only phones open it too. Pure apart from the
- * injected opener/notify, so tests pin it without a browser.
- */
-export async function openBrowserHelpPage(
-  request: Pick<BrowserHelpRequest, "url">,
-  open: (url: string) => Promise<boolean>,
-  notify: (text: string) => void,
-): Promise<boolean> {
-  const url = browserHelpLink(request);
-  if (!url) return false;
-  try {
-    const opened = await open(url);
-    if (!opened) notify(browserHelpLinkFailureCopy);
-    return opened;
-  } catch {
-    notify(browserHelpLinkFailureCopy);
-    return false;
-  }
-}
+export const productionBrowserHelpInstructionCopy =
+  "Complete this step in the browser tab on your machine, then tap Done.";
 
 /**
  * The canonical `browser_help` resolution for a card choice. Done and skipped
@@ -482,9 +451,9 @@ export interface CardableInteraction {
  *
  * Browser help answers done/skipped over the existing `interaction.resolve`
  * contract, like iOS `requestCard` (`kind: "help"` → `browser_help`). There
- * is no live in-app browser surface on Android: navigation is the safe
- * system-browser link (http(s) only) plus finishing in the tab on the
- * machine. See the card's limitation note.
+ * is no live in-app browser surface and no phone-browser route on Android:
+ * the person finishes the step in the tab on the machine, then answers.
+ * See the card's instruction note.
  */
 export function isCardableProductionInteraction(
   interaction: Pick<CardableInteraction, "state" | "request"> | undefined,

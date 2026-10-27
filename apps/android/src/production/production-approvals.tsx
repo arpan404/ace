@@ -42,7 +42,6 @@ import {
 import {
   browserHelpCardDetail,
   browserHelpCardTitle,
-  browserHelpLink,
   canTapFreshProductionCard,
   canTapProductionCard,
   consentLink,
@@ -53,12 +52,12 @@ import {
   elicitationUnsupported,
   freshProductionInteractionState,
   isCardableProductionInteraction,
-  openBrowserHelpPage,
   openConsentPage,
   pendingProductionInteractionIds,
   planReviewResolution,
   productionAnswerFailureCopy,
   productionApprovalRefusalCopy,
+  productionBrowserHelpInstructionCopy,
   productionBrowserHelpRefusalCopy,
   productionElicitationRefusalCopy,
   productionMayAct,
@@ -898,22 +897,19 @@ export function ProductionElicitationCard({
 }
 
 /**
- * Production browser-help card: what the agent needs in a browser tab, with
+ * Production browser-help card: what the agent needs in the browser tab, with
  * Done/Skipped over the existing `interaction.resolve` contract. Mirrors the
- * iOS `BrowserHelpCard` read and resolution shape (`kind: "help"` with
+ * iOS `BrowserHelpCard` resolution shape (`kind: "help"` with
  * done/skipped → `browser_help`), over the read-only lease store with answers
  * admitted through the per-machine mutation gate.
  *
- * Navigation: Android has no live in-app browser surface, so the card opens
- * the request's page in the system browser through the transcript's
- * `openWebLink` gate (http(s) only, bounded), when the request carries a safe
- * address. Otherwise it says the tab is open on the machine. Opening is a
- * read: it holds no lock and needs no grant, so view-only phones open it too.
- *
- * Limitation: unlike iOS `BrowserScreen`, this never shows the live page,
- * tabs, navigation bar, agent cursor, dialogs or take-over inside the app,
- * and never sends browser input. Finish the step in the system browser or on
- * the machine, then answer here.
+ * No phone-browser route: Android has no live in-app browser surface, and the
+ * phone's system browser is a different browser without the machine tab's
+ * session (login, two-factor, captcha, dialog, localhost, private tabs), so
+ * opening the request's page on the phone cannot complete the request. The
+ * card names the machine tab and asks the person to finish there before
+ * tapping Done; Done only attests the machine-tab step is finished. The card
+ * never claims a remote tab was opened.
  */
 export function ProductionBrowserHelpCard({
   startup,
@@ -945,7 +941,6 @@ export function ProductionBrowserHelpCard({
   const request = interaction.request;
   const title = browserHelpCardTitle(request);
   const detail = browserHelpCardDetail(request);
-  const link = browserHelpLink(request);
   const acting = productionMayAct(startup.canOperate(hostId)) && mayAct(true);
   const locked = isResolutionLocked(interaction.id);
   const answerable = canResolveInteraction(state, locked, acting);
@@ -1000,34 +995,11 @@ export function ProductionBrowserHelpCard({
             {detail}
           </AceText>
         ) : null}
-        {link ? (
-          <Column verticalArrangement={{ spacedBy: tokens.spacing.xs }}>
-            <Text
-              accessibilityRole="link"
-              style={{
-                ...textStyle("label"),
-                color: theme.colours.accent,
-                textDecorationLine: "underline",
-              }}
-              onPress={() => {
-                // A read, never a resolution: no grant or lock check, so
-                // view-only phones open the page too.
-                void openBrowserHelpPage(request, (url) => openWebLink(url), notify);
-              }}
-            >
-              Open page
-            </Text>
-            <AceText role="caption" colour={theme.colours.mutedForeground}>
-              {link}
-            </AceText>
-          </Column>
-        ) : (
-          <AceText role="caption" colour={theme.colours.mutedForeground}>
-            The tab is open on your machine.
-          </AceText>
-        )}
         <AceText role="caption" colour={theme.colours.mutedForeground}>
-          No live browser here: finish in the system browser or on your machine, then answer.
+          The tab is open on your machine.
+        </AceText>
+        <AceText role="caption" colour={theme.colours.mutedForeground}>
+          {productionBrowserHelpInstructionCopy}
         </AceText>
         {!acting ? (
           <AceText role="caption" colour={theme.colours.mutedForeground}>
