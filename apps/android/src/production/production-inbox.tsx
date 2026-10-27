@@ -9,13 +9,19 @@ import { AceText, AceButton } from "../components.tsx";
 import { tokens, useTheme, textStyle } from "../theme.tsx";
 import { displayAppearance } from "../status.ts";
 import {
+  INBOX_LIST_MAX_HEIGHT,
+  INBOX_LIST_MIN_HEIGHT,
   PRODUCTION_THREAD_WINDOW,
+  THREAD_LIST_MAX_HEIGHT,
+  THREAD_LIST_MIN_HEIGHT,
   inboxEntriesFor,
   openIdForRoute,
   readingFailureCopy,
   resolveOpenIdForHost,
   retryReading,
+  routeKeyFor,
   shouldAutoRecoverReads,
+  shouldResolveLease,
   shouldShowInbox,
   threadHeadlineFor,
   threadWindowFor,
@@ -221,7 +227,12 @@ function ThreadItems({ store }: { store: ThreadSource }) {
     );
   }
   return (
-    <View style={{ flex: 1 }}>
+    <View
+      style={{
+        minHeight: THREAD_LIST_MIN_HEIGHT,
+        maxHeight: THREAD_LIST_MAX_HEIGHT,
+      }}
+    >
       {window.truncated > 0 ? (
         <Text
           style={{
@@ -297,9 +308,14 @@ export function ProductionThreadView({
   const theme = useTheme();
   const threadLiveness = useLivenessTick();
   const [retryTick, setRetryTick] = useState(0);
+  const [autoRecoveries, setAutoRecoveries] = useState(0);
   const threadRoute = startup.route(hostId);
   const routeBlocked = !shouldShowInbox(threadRoute);
   const resolvedLease = useMemo(() => {
+    // Direct mount with a revoked route must not resolve (or keep) a lease:
+    // returning null here releases any retained lease through the cleanup
+    // below instead of holding revoked state until unmount.
+    if (!shouldResolveLease(threadRoute)) return { lease: null, problem: null as string | null };
     try {
       return {
         lease: startup.runtimeForReading(hostId).thread(threadId),
@@ -308,9 +324,9 @@ export function ProductionThreadView({
     } catch (error) {
       return { lease: null, problem: readingFailureCopy(error) };
     }
-    // Re-resolve on explicit retry or auto-recovery; liveness ticks only re-render.
+    // Re-resolve on explicit retry, auto-recovery, or route flip; liveness ticks only re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startup, hostId, threadId, retryTick]);
+  }, [startup, hostId, threadId, retryTick, routeBlocked]);
   const lease = resolvedLease.lease;
   const problem = resolvedLease.problem;
   useEffect(() => () => lease?.release(), [lease]);
@@ -335,6 +351,7 @@ export function ProductionThreadView({
   }, [lease]);
   const statusValue = useFailClosedSelection(statusSelection ?? noUndefined, undefined);
   const connectionSelection = useMemo(() => {
+    if (routeBlocked) return null;
     try {
       return startup.runtimeForReading(hostId).connectionState();
     } catch {
@@ -342,7 +359,7 @@ export function ProductionThreadView({
     }
     // Re-resolve on explicit retry or auto-recovery; liveness ticks only re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startup, hostId, retryTick]);
+  }, [startup, hostId, retryTick, routeBlocked]);
   // Subscribed (not just read): a disconnect notifies through the projection
   // and this view re-renders into the fail-closed copy immediately.
   const connection = useFailClosedSelection(connectionSelection ?? noConnection, "connecting");
@@ -355,20 +372,32 @@ export function ProductionThreadView({
   // Auto-recovery where safe: when this view is fail-closed but a fresh read
   // handle already reports `ready`, re-resolve the lease. Revoked routes
   // never reach here (gated above); disconnect/removal still needs Retry.
+  // Bounded: a persistently dead lease stops after the budget and waits for
+  // manual Retry instead of churning leases every tick.
   useEffect(() => {
     if (!dead || routeBlocked) return;
+    if (!shouldAutoRecoverReads(true, null, autoRecoveries)) return;
     let fresh: string | null = null;
     try {
       fresh = startup.runtimeForReading(hostId).connectionState().getSnapshot();
     } catch {
       return;
     }
-    if (shouldAutoRecoverReads(true, fresh)) setRetryTick((value) => value + 1);
+    if (shouldAutoRecoverReads(true, fresh, autoRecoveries)) {
+      setAutoRecoveries((value) => value + 1);
+      setRetryTick((value) => value + 1);
+    }
     // Poll on the liveness tick so a transient blip recovers without Retry.
+    // `threadRoute` is a fresh object per read, so deps keep the stable
+    // `routeBlocked` boolean only — never the route itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startup, hostId, dead, routeBlocked, threadLiveness, retryTick]);
+  }, [startup, hostId, dead, routeBlocked, threadLiveness, retryTick, autoRecoveries]);
+  useEffect(() => {
+    if (!dead) setAutoRecoveries(0);
+  }, [dead]);
   function retry(): void {
     retryReading(startup, hostId);
+    setAutoRecoveries(0);
     setRetryTick((value) => value + 1);
   }
   if (routeBlocked) {
@@ -394,7 +423,7 @@ export function ProductionThreadView({
     );
   }
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, minHeight: THREAD_LIST_MIN_HEIGHT }}>
       <View
         style={{
           flexDirection: "row",
@@ -440,7 +469,7 @@ export function ProductionThreadView({
         </View>
       ) : null}
       {lease === null ? null : (
-        <View style={{ flex: 1 }}>
+        <View>
           <ThreadItems store={lease.store} />
         </View>
       )}
@@ -473,12 +502,17 @@ export function ActiveMachineInbox({
   const effectiveOpenId = resolveOpenIdForHost(prevHostId, hostId, openId);
   const liveness = useLivenessTick();
   const [retryTick, setRetryTick] = useState(0);
+  const [autoRecoveries, setAutoRecoveries] = useState(0);
   const route = startup.route(hostId);
-  const routeKey = `${route.route}:${route.route === "pairing" ? route.reason : ""}`;
+  // `startup.route()` mints a fresh object per read, so effects and memos
+  // below depend on the stable string key and the paired boolean — never the
+  // route object itself, which would re-fire every render into a retry loop.
+  const routeKey = routeKeyFor(route);
+  const inboxVisible = shouldShowInbox(route);
   // A revoked/pin route must not keep the cached thread mounted: clear the
   // open id during render (same derived-state pattern as the host switch)
   // so the next branch below can never paint a stale thread.
-  if (!shouldShowInbox(route) && openId !== null) {
+  if (!inboxVisible && openId !== null) {
     setOpenId(null);
   }
   const gatedOpenId = openIdForRoute(effectiveOpenId, route);
@@ -486,7 +520,7 @@ export function ActiveMachineInbox({
   const now = useNowTick(gatedOpenId === null);
 
   const resolved = useMemo(() => {
-    if (!shouldShowInbox(route)) return { lease: null, problem: null as string | null };
+    if (!inboxVisible) return { lease: null, problem: null as string | null };
     try {
       return { lease: startup.runtimeForReading(hostId).threads(), problem: null as string | null };
     } catch (error) {
@@ -495,7 +529,7 @@ export function ActiveMachineInbox({
     // Route identity re-resolves (and releases) the lease; the liveness tick
     // only re-renders so the route flip above is noticed. Retry re-resolves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startup, hostId, routeKey, retryTick]);
+  }, [startup, hostId, routeKey, retryTick, inboxVisible]);
   const lease = resolved.lease;
   const problem = resolved.problem;
   // Keyed on the lease object: a route flip or retry mints a new lease and
@@ -504,14 +538,14 @@ export function ActiveMachineInbox({
   useEffect(() => () => lease?.release(), [lease]);
 
   const connectionSelection = useMemo(() => {
-    if (!shouldShowInbox(route)) return null;
+    if (!inboxVisible) return null;
     try {
       return startup.runtimeForReading(hostId).connectionState();
     } catch {
       return null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startup, hostId, routeKey, retryTick]);
+  }, [startup, hostId, routeKey, retryTick, inboxVisible]);
   const connection = useFailClosedSelection(connectionSelection ?? noConnection, "connecting");
 
   const entriesSelection = useMemo(() => {
@@ -539,25 +573,36 @@ export function ActiveMachineInbox({
   const leaseDead = lease === null || invalidated;
   // Auto-recovery where safe: when fail-closed but a fresh read handle
   // already reports `ready`, re-resolve. Revoked routes never reach here;
-  // disconnect/removal still needs Retry.
+  // disconnect/removal still needs Retry. Bounded: a persistently dead lease
+  // stops after the budget and waits for manual Retry.
   useEffect(() => {
-    if (!leaseDead || !shouldShowInbox(route)) return;
+    if (!leaseDead || !inboxVisible) return;
+    if (!shouldAutoRecoverReads(true, null, autoRecoveries)) return;
     let fresh: string | null = null;
     try {
       fresh = startup.runtimeForReading(hostId).connectionState().getSnapshot();
     } catch {
       return;
     }
-    if (shouldAutoRecoverReads(true, fresh)) setRetryTick((value) => value + 1);
+    if (shouldAutoRecoverReads(true, fresh, autoRecoveries)) {
+      setAutoRecoveries((value) => value + 1);
+      setRetryTick((value) => value + 1);
+    }
     // Poll on the liveness tick so a transient blip recovers without Retry.
+    // Deps keep the stable `routeKey`/`inboxVisible`, never the fresh-per-read
+    // route object, so this fires on the 2s tick — not every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startup, hostId, route, routeKey, liveness, retryTick, leaseDead]);
+  }, [startup, hostId, inboxVisible, routeKey, liveness, retryTick, leaseDead, autoRecoveries]);
+  useEffect(() => {
+    if (!leaseDead) setAutoRecoveries(0);
+  }, [leaseDead]);
   function retry(): void {
     retryReading(startup, hostId);
+    setAutoRecoveries(0);
     setRetryTick((value) => value + 1);
   }
 
-  if (!shouldShowInbox(route)) {
+  if (!inboxVisible) {
     return (
       <View style={{ paddingHorizontal: tokens.spacing.xl, gap: tokens.spacing.sm }}>
         <AceText role="caption">{route.route === "paired" ? null : route.message}</AceText>
@@ -590,7 +635,13 @@ export function ActiveMachineInbox({
   }
   const entries = data ?? [];
   return (
-    <View style={{ flex: 1 }}>
+    <View
+      style={{
+        minHeight: INBOX_LIST_MIN_HEIGHT,
+        maxHeight: INBOX_LIST_MAX_HEIGHT,
+        flexShrink: 0,
+      }}
+    >
       <View
         style={{
           flexDirection: "row",

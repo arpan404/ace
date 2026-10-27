@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AppState, View, type AppStateStatus } from "react-native";
+import { AppState, ScrollView, View, type AppStateStatus } from "react-native";
 import { requireNativeModule } from "expo";
 import * as LocalAuthentication from "expo-local-authentication";
 import { SecurityLevel } from "expo-local-authentication";
@@ -786,7 +786,14 @@ function MachinesView({
   }
 
   return (
-    <View style={{ flex: 1, padding: tokens.spacing.xl, gap: tokens.spacing.lg }}>
+    // Outer scrolls on short screens (same ScrollView pattern as Settings /
+    // Pairing): the inbox below keeps a bounded min/max window instead of a
+    // bare `flex:1` between variable siblings, so cards, the list, lock
+    // settings and the footer never starve or clip each other.
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ padding: tokens.spacing.xl, gap: tokens.spacing.lg }}
+    >
       <AceText role="title">Machines</AceText>
       {secureGuardFailed ? (
         <AceText role="caption">
@@ -834,7 +841,7 @@ function MachinesView({
         Threads show the active machine only; the cross-machine merge is later work. Mutations stay
         behind the per-machine gate and fail closed while view-only or offline.
       </AceText>
-    </View>
+    </ScrollView>
   );
 }
 

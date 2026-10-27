@@ -65,6 +65,25 @@ export function threadHeadlineFor(store: ThreadReader): { title: string; count: 
 /** Latest-N thread window. The read handle offers no paging, so the cap is stated, never silent. */
 export const PRODUCTION_THREAD_WINDOW = 50;
 
+export const MAX_AUTO_RECOVER_ATTEMPTS = 5;
+
+/**
+ * Bounded inbox list height for small screens. The machines screen stacks
+ * cards, the inbox, lock settings and a footer; a bare `flex:1` inbox
+ * between those siblings starves on short screens or pushes settings
+ * off-screen with no scroll. The outer screen scrolls and the list keeps a
+ * bounded window instead.
+ */
+export const INBOX_LIST_MIN_HEIGHT = 280;
+export const INBOX_LIST_MAX_HEIGHT = 480;
+export const THREAD_LIST_MIN_HEIGHT = 240;
+export const THREAD_LIST_MAX_HEIGHT = 480;
+
+/** Stable string identity for a startup route (fresh object per read). */
+export function routeKeyFor(route: StartupRoute): string {
+  return `${route.route}:${route.route === "pairing" ? route.reason : ""}`;
+}
+
 export function threadWindowFor(
   order: readonly string[],
   limit: number = PRODUCTION_THREAD_WINDOW,
@@ -97,17 +116,28 @@ export function openIdForRoute(openId: string | null, route: StartupRoute): stri
   return shouldShowInbox(route) ? openId : null;
 }
 
+/** True when the route permits resolving (and retaining) a read lease. */
+export function shouldResolveLease(route: StartupRoute): boolean {
+  return shouldShowInbox(route);
+}
+
 /**
  * Safe auto-recovery condition: re-resolve only when the retained lease is
  * dead and a fresh read handle already reports `ready`. A stale snapshot
  * never triggers it, and a revoked route never reaches it (callers gate on
  * the route first), so recovery cannot follow a new owner or bypass pairing.
+ * Bounded by `MAX_AUTO_RECOVER_ATTEMPTS`: a persistently dead lease (fresh
+ * `ready` but `threads()` keeps throwing) stops after the budget and waits
+ * for manual Retry instead of churning leases every liveness tick.
  */
 export function shouldAutoRecoverReads(
   leaseDead: boolean,
   freshConnection: string | null,
+  autoAttempts = 0,
 ): boolean {
-  return leaseDead && freshConnection === "ready";
+  if (!leaseDead) return false;
+  if (freshConnection !== "ready") return false;
+  return autoAttempts < MAX_AUTO_RECOVER_ATTEMPTS;
 }
 
 export interface RetryableReads {

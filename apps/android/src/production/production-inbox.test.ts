@@ -7,14 +7,21 @@ import { preparePairing } from "../pairing/pairing-flow.ts";
 import type { Storage } from "@ace/client";
 import { createProductionStartup, type StartupDatabase } from "../runtime/production-startup.ts";
 import {
+  INBOX_LIST_MAX_HEIGHT,
+  INBOX_LIST_MIN_HEIGHT,
+  MAX_AUTO_RECOVER_ATTEMPTS,
   PRODUCTION_THREAD_WINDOW,
+  THREAD_LIST_MAX_HEIGHT,
+  THREAD_LIST_MIN_HEIGHT,
   inboxEntriesFor,
   inboxThreadsFor,
   openIdForRoute,
   readingFailureCopy,
   resolveOpenIdForHost,
   retryReading,
+  routeKeyFor,
   shouldAutoRecoverReads,
+  shouldResolveLease,
   shouldShowInbox,
   threadHeadlineFor,
   threadWindowFor,
@@ -316,6 +323,61 @@ it("auto-recovers only when the lease is dead and a fresh handle is ready", () =
   expect(shouldAutoRecoverReads(true, "connecting")).toBe(false);
   expect(shouldAutoRecoverReads(true, null)).toBe(false);
   expect(shouldAutoRecoverReads(false, "ready")).toBe(false);
+});
+
+it("bounds auto-recovery so a persistently dead lease waits for Retry", () => {
+  expect(MAX_AUTO_RECOVER_ATTEMPTS).toBeGreaterThan(0);
+  expect(shouldAutoRecoverReads(true, "ready", 0)).toBe(true);
+  expect(shouldAutoRecoverReads(true, "ready", MAX_AUTO_RECOVER_ATTEMPTS - 1)).toBe(true);
+  expect(shouldAutoRecoverReads(true, "ready", MAX_AUTO_RECOVER_ATTEMPTS)).toBe(false);
+  expect(shouldAutoRecoverReads(true, "ready", MAX_AUTO_RECOVER_ATTEMPTS + 10)).toBe(false);
+  // A manual Retry resets the budget by passing 0 again.
+  expect(shouldAutoRecoverReads(true, "ready", 0)).toBe(true);
+});
+
+it("keeps route identity stable across fresh-per-read route objects", () => {
+  const first = routeKeyFor({ route: "paired" });
+  const second = routeKeyFor({ route: "paired" });
+  expect(first).toBe(second);
+  const revokedA = routeKeyFor({
+    route: "pairing",
+    reason: "revoked",
+    message: "This machine needs pairing again.",
+  });
+  const revokedB = routeKeyFor({
+    route: "pairing",
+    reason: "revoked",
+    message: "This machine needs pairing again.",
+  });
+  expect(revokedA).toBe(revokedB);
+  expect(routeKeyFor({ route: "paired" })).not.toBe(revokedA);
+});
+
+it("never resolves or retains a lease for a revoked route, even on direct mount", () => {
+  expect(shouldResolveLease({ route: "paired" })).toBe(true);
+  expect(
+    shouldResolveLease({
+      route: "pairing",
+      reason: "revoked",
+      message: "This machine needs pairing again.",
+    }),
+  ).toBe(false);
+  expect(
+    shouldResolveLease({
+      route: "pairing",
+      reason: "pin",
+      message: "This computer's identity doesn't match the pairing link. Nothing was sent.",
+    }),
+  ).toBe(false);
+});
+
+it("bounds the inbox and thread lists so small screens scroll instead of clipping", () => {
+  expect(INBOX_LIST_MIN_HEIGHT).toBeGreaterThan(0);
+  expect(INBOX_LIST_MAX_HEIGHT).toBeGreaterThanOrEqual(INBOX_LIST_MIN_HEIGHT);
+  expect(INBOX_LIST_MAX_HEIGHT).toBeLessThanOrEqual(640);
+  expect(THREAD_LIST_MIN_HEIGHT).toBeGreaterThan(0);
+  expect(THREAD_LIST_MAX_HEIGHT).toBeGreaterThanOrEqual(THREAD_LIST_MIN_HEIGHT);
+  expect(THREAD_LIST_MAX_HEIGHT).toBeLessThanOrEqual(640);
 });
 
 it("retries through reconnectNow with a wake fallback and never throws", () => {
