@@ -15,10 +15,14 @@ struct ComposerAccessories: View {
         return note
     }
     var body: some View {
-        if !screen.attachments.isEmpty || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
+        if !screen.attachments.isEmpty || !screen.annotations.isEmpty || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                 if !screen.attachments.isEmpty {
                     ComposerMediaStrip(files: screen.attachments) { model.detach($0) }
+                }
+                if !screen.annotations.isEmpty {
+                    AnnotationChips(items: screen.annotations, remove: { model.removeAnnotation($0) }, clear: { model.clearAnnotations() })
+                        .transition(.opacity)
                 }
                 if let locked = screen.attachmentsLocked {
                     Text(locked).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)

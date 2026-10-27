@@ -55,6 +55,38 @@ describe("fetching a download in chunks", () => {
     expect(progress).toEqual([300, 600, 900, 1000]);
   });
 
+  it("hands each verified chunk on as it arrives, holding no more than the chunk", async () => {
+    const { io } = daemon(file, { failAt: [2] });
+    const written: { offset: number; length: number; done: boolean }[] = [];
+    const copy = new Uint8Array(file.length);
+    const bytes = await fetchChunked(io, new ChunkedFile(10_000, 300, { keep: false }), {
+      onChunk: ({ bytes: chunk, offset, done }) => {
+        copy.set(chunk, offset);
+        written.push({ offset, length: chunk.length, done });
+      },
+    });
+    // The file was written whole, a chunk at a time, and nothing was kept to return.
+    expect(copy).toEqual(file);
+    expect(written).toEqual([
+      { offset: 0, length: 300, done: false },
+      { offset: 300, length: 300, done: false },
+      { offset: 600, length: 300, done: false },
+      { offset: 900, length: 100, done: true },
+    ]);
+    expect(bytes).toHaveLength(0);
+  });
+
+  it("stops at a chunk the device couldn't write, asking for nothing after it", async () => {
+    const { io, asks } = daemon(file);
+    const fetched = fetchChunked(io, new ChunkedFile(10_000, 300, { keep: false }), {
+      onChunk: ({ offset }) => {
+        if (offset === 300) throw new Error("The phone is full");
+      },
+    });
+    await expect(fetched).rejects.toThrow("The phone is full");
+    expect(asks.map((ask) => ask.offset)).toEqual([0, 300]);
+  });
+
   it("resumes from where it stopped after the connection drops, never from the start", async () => {
     const { io, asks, waits } = daemon(file, { failAt: [3, 4] });
     const bytes = await fetchChunked(io, new ChunkedFile(10_000, 300));

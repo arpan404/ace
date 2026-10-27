@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The sheets the browser screen opens from its bar and menu.
 enum BrowserSheet: String, Identifiable {
-    case tabs, console, history, downloads, settings
+    case tabs, console, history, downloads, settings, source, sizes, extensions
     var id: String { rawValue }
 }
 
@@ -14,19 +14,30 @@ struct BrowserScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @Bindable var model: ClientModel
     /// The thread's open browser request, if the agent asked the person for help.
     let help: ApprovalRow?
+    /// Back to the thread's message; with a page, it goes into the message ("Ask agent about this page").
+    var toMessage: (BrowserViewInfo.Mention?) -> Void = { _ in }
     let answerHelp: ([String: Any]) -> Void
     @State private var keyboardRequest = 0
     @State private var answeredPicker: String?
     @State private var editingAddress = false
     @State private var finding = false
     @State private var sheet: BrowserSheet?
+    @State private var clearing = false
+    @State private var pipRequest = 0
+    /// iPad: the tab shown beside the live one, as its last picture.
+    @State private var splitTab: String?
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @AppStorage("ace.browser.extensionsInBar") private var extensionsInBar = false
 
     private var browser: BrowserLiveModel { model.browser }
     private var state: BrowserViewInfo.State? { browser.view?.state }
     private var shownTab: BrowserViewInfo.Tab? { state?.tabs.first { $0.id == state?.activeTabId } }
+    private var annotate: BrowserViewInfo.Annotate? { state?.annotate }
+    private var annotating: Bool { annotate.map { $0.mode != "off" } ?? false }
     private var title: String {
         guard let state, state.blank != true, !state.closed else { return "Browser" }
         return shownTab?.title ?? "Browser"
@@ -39,7 +50,8 @@ struct BrowserScreen: View {
                 page
                 if !finding {
                     strips
-                    BrowserBar(model: model, editing: $editingAddress, sheet: $sheet, finding: $finding,
+                    BrowserBar(model: model, editing: $editingAddress, sheet: $sheet, finding: $finding, clearing: $clearing,
+                               split: sizeClass == .regular ? $splitTab : nil, pip: { pipRequest += 1 },
                                screenshot: { model.browserScreenshot(fullPage: $0) })
                 }
             }
@@ -53,18 +65,30 @@ struct BrowserScreen: View {
                     .transition(.opacity)
             }
         }
+        .overlay(alignment: .top) { BrowserDoneNote(model: model) }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: editingAddress)
+        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: annotating)
+        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: splitTab)
+        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: state?.recording)
         .background(AceTheme.Colours.background)
         .threadTitle(title, subtitle: shownTab?.host ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if model.canOperate, browser.page?.focus != nil, !editingAddress {
+            if model.canOperate, browser.page?.focus != nil || annotate?.mode == "on", !editingAddress {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Keyboard", ace: .keyboard) { keyboardRequest += 1 }
                         .accessibilityIdentifier("browser.keyboard")
                 }
             }
+            ToolbarItemGroup(placement: .topBarTrailing) { pageActions }
         }
+        .confirmationDialog("Clear browsing data?", isPresented: $clearing, titleVisibility: .visible) {
+            Button("Clear browsing data", role: .destructive) { model.browserClearData() }
+        } message: {
+            Text("Cookies, the cache and site storage of this browser go. Sites sign you out.")
+        }
+        .sensoryFeedback(.selection, trigger: annotating)
+        .onChange(of: browser.annotateSends) { toMessage(nil) }
         .browserPrompts(model: model)
         .sheet(item: $sheet) { which in BrowserSheets(model: model, sheet: which) }
         .sheet(item: Binding(get: { openPicker }, set: { _ in })) { picker in
@@ -85,8 +109,35 @@ struct BrowserScreen: View {
         .alert("Browser", isPresented: Binding(get: { browser.problem != nil }, set: { if !$0 { browser.problem = nil } })) {
             Button("OK") { browser.problem = nil }
         } message: { Text(browser.problem?.message ?? "") }
-        .onChange(of: scenePhase, initial: true) { _, phase in browser.setVisible(phase == .active) }
+        // Floating in Picture in Picture, the page stays watched in the background.
+        .onChange(of: scenePhase, initial: true) { _, phase in browser.setVisible(phase == .active || browser.pictureInPicture) }
+        .onChange(of: browser.pictureInPicture) { _, floating in browser.setVisible(scenePhase == .active || floating) }
+        .onChange(of: state?.tabs.map(\.id)) { _, ids in if let splitTab, !(ids ?? []).contains(splitTab) { self.splitTab = nil } }
         .onDisappear { model.closeBrowser() }
+    }
+
+    /// The page's two actions that matter most, always in reach: ask the agent about the page,
+    /// and annotate it. The engine's extensions join them when the person pins them here.
+    @ViewBuilder private var pageActions: some View {
+        if extensionsInBar, state?.closed == false {
+            Button("Extensions", ace: .puzzlePiece) { sheet = .extensions }
+                .accessibilityIdentifier("browser.extensions")
+        }
+        if model.canOperate, let mention = state?.shown?.mention {
+            Button("Ask agent about this page", ace: .chatCircleText) {
+                toMessage(mention)
+            }
+            .accessibilityIdentifier("browser.ask")
+        }
+        if model.canOperate, let annotate {
+            Button(annotating ? "Stop annotating" : "Annotate", ace: .pencilSimpleLine) {
+                model.browserAnnotate(!annotating, dark: colorScheme == .dark)
+            }
+            .disabled(!annotating && annotate.unavailable != nil)
+            .accessibilityValue(annotating ? "On" : "Off")
+            .accessibilityHint(annotate.unavailable ?? "")
+            .accessibilityIdentifier("browser.annotate")
+        }
     }
 
     private var openPicker: BrowserPageInfo.Picker? {
@@ -94,11 +145,35 @@ struct BrowserScreen: View {
         return picker
     }
 
-    /// The live page, with whatever stands in front of it.
+    /// The live page, and on an iPad's split the other tab's last picture beside it. The live
+    /// page keeps one place in the layout either way, so opening or closing the split never
+    /// rebuilds it (its stream and Picture in Picture carry on).
     private var page: some View {
+        HStack(spacing: AceTheme.Spacing.none) {
+            livePage
+            if let other = splitOther {
+                Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Dimensions.border)
+                    .transition(.opacity)
+                BrowserSplitPane(tab: other, still: browser.stills[other.id]) {
+                    // The other half becomes the live page; this one keeps its picture.
+                    self.splitTab = state?.activeTabId
+                    model.browserSelectTab(other.id)
+                }
+                .transition(.opacity)
+            }
+        }
+    }
+    /// The tab beside the live one on an iPad's split, while it is still open and not the one shown.
+    private var splitOther: BrowserViewInfo.Tab? {
+        guard sizeClass == .regular, let splitTab, splitTab != state?.activeTabId else { return nil }
+        return state?.tabs.first { $0.id == splitTab }
+    }
+
+    /// The live page, with whatever stands in front of it.
+    private var livePage: some View {
         GeometryReader { proxy in
             ZStack {
-                BrowserSurface(model: model, keyboardRequest: keyboardRequest)
+                BrowserSurface(model: model, keyboardRequest: keyboardRequest, annotating: annotate?.mode == "on", pipRequest: pipRequest)
                 if let geometry = browser.geometry(view: proxy.size) {
                     if let tooltip = browser.page?.tooltip {
                         let box = geometry.viewRect(PageRect(x: tooltip.x, y: tooltip.y, width: 0, height: 0))
@@ -152,12 +227,80 @@ struct BrowserScreen: View {
                 }
             }
         }
+        if let annotate, annotate.mode != "off" {
+            BrowserStrip(sentence: annotationSentence) {
+                Button("Done") { model.browserAnnotate(false, dark: colorScheme == .dark) }
+                    .accessibilityIdentifier("browser.annotate.done")
+                Button("Write message") {
+                    model.browserAnnotate(false, dark: colorScheme == .dark)
+                    toMessage(nil)
+                }
+                .fontWeight(.semibold)
+                .accessibilityIdentifier("browser.annotate.message")
+            }
+            .transition(.opacity)
+        }
+        if let recording = state?.recording {
+            BrowserStrip(sentence: recording.byPerson ? "Recording this page" : "An agent is recording this page") {
+                if model.canOperate, recording.byPerson {
+                    Button("Stop") { model.browserRecord(false) }.accessibilityIdentifier("browser.record.stop")
+                }
+            }
+            .transition(.opacity)
+        }
         if let permission = state?.permission {
             BrowserStrip(sentence: permission) { EmptyView() }
         }
         if let device = browser.view?.device, device.toolbar, state?.activeTabId != nil, state?.closed == false {
             BrowserDeviceBar(model: model, device: device)
         }
+    }
+}
+
+extension BrowserScreen {
+    /// The annotate strip's one sentence: how many comments are pinned, or that it starts.
+    fileprivate var annotationSentence: String {
+        if annotate?.mode == "starting" { return "Starting to annotate…" }
+        let count = model.thread?.screen.annotations.count ?? 0
+        return count == 0 ? "Annotating this page" : count == 1 ? "1 annotation on the message" : "\(count) annotations on the message"
+    }
+}
+
+/// The other half of an iPad's split: the tab's title over its last picture. Tap to show it live.
+struct BrowserSplitPane: View {
+    let tab: BrowserViewInfo.Tab
+    let still: UIImage?
+    let show: () -> Void
+    var body: some View {
+        Button(action: show) {
+            VStack(spacing: AceTheme.Spacing.none) {
+                HStack {
+                    Text(tab.title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                        .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    Text(tab.host ?? "").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                }
+                .padding(.horizontal, AceTheme.Spacing.md)
+                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                ZStack(alignment: .top) {
+                    AceTheme.Colours.secondaryBackground
+                    if let still {
+                        Image(uiImage: still).resizable().scaledToFit().transition(.opacity)
+                    } else {
+                        Text("Shows here once you've looked at it").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground).padding(.top, AceTheme.Spacing.xxl)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(tab.title), split view")
+        .accessibilityHint("Shows this tab live")
+        .accessibilityIdentifier("browser.split.other")
     }
 }
 

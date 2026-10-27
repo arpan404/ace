@@ -309,3 +309,9 @@ export * from "./forge-history-pages.ts";
 export * from "./forge-rendered-model.ts";
 export * from "./forge-file-kind.ts";
 export * from "./diff-scope.ts";
+export {
+  lockedUseLabel,
+  lockedUseRefusal,
+  lockedUseShown,
+  lockedUseSwitchOn,
+} from "./locked-use.ts";

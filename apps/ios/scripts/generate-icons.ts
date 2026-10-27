@@ -214,6 +214,20 @@ const extra = [
   "sidebar-simple",
   "tree-structure",
   "user",
+  // The browser's page commands and annotate mode, as the web's browser menu draws them.
+  "speaker-high",
+  "speaker-slash",
+  "broom",
+  "file-code",
+  "printer",
+  "puzzle-piece",
+  "chat-circle-text",
+  "picture-in-picture",
+  "square-split-horizontal",
+  "pencil-simple-line",
+  // Device viewing and stream stats.
+  "frame-corners",
+  "gauge",
   // Reactions and comment actions on pull requests and issues, as the web draws them.
   "thumbs-up",
   "thumbs-down",

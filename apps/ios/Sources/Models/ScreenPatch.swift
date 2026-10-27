@@ -81,6 +81,19 @@ struct AttachmentFile: Codable, Sendable, Equatable, Identifiable {
     var carried: Carried? = nil
     struct Carried: Codable, Sendable, Equatable { let itemId: String; let ref: String; let thumbnail: Bool }
 }
+/// One browser annotation on the next message (`bridge/thread-annotations.ts`): its marker's
+/// number, the comment, what was pinned, and its crop's upload.
+struct AnnotationChip: Codable, Sendable, Equatable, Identifiable {
+    let id: String
+    let number: Int
+    let comment: String
+    let region: Bool
+    let label: String
+    /// The crop staged on the phone, for its thumbnail.
+    let image: String?
+    /// uploading, ready or failed.
+    let state: String
+}
 /// The live pill over the composer (`bridge/thread-pill.ts`, worded by `livePill` in
 /// `@ace/ui-core`): what the thread does now, and what else is live, each part naming the sheet it
 /// opens (`agents`, `queue`, `goal`; empty opens nothing).
@@ -155,6 +168,7 @@ enum ScreenPatch: Sendable {
     case access(ThreadAccessRow)
     /// `locked`: why no file can be added now (a new thread is starting from this message).
     case attachments([AttachmentFile], locked: String?)
+    case annotations([AnnotationChip])
     case laneBlock(lane: String, id: String, row: BlockRow?)
     case laneBlockPosition(lane: String, id: String, index: Int?)
     case pill(PillRow?, GoalRow?)
@@ -171,8 +185,8 @@ enum ScreenPatch: Sendable {
     /// What bringing this fork back to its parent starts with.
     case mergeDraft(MergeDraftRow)
 
-    static let types: Set<String> = ["thread.work", "thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, opened, draft }
+    static let types: Set<String> = ["thread.work", "thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.annotations", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, opened, draft, items }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {
@@ -191,6 +205,7 @@ enum ScreenPatch: Sendable {
         case "thread.transitions": self = .transitions(try TransitionsRow(from: decoder))
         case "thread.fork": self = .fork(try box.decodeIfPresent(ForkDraftRow.self, forKey: .draft))
         case "thread.mergeDraft": self = .mergeDraft(try MergeDraftRow(from: decoder))
+        case "thread.annotations": self = .annotations(try box.decode([AnnotationChip].self, forKey: .items))
         case "thread.laneBlock":
             self = .laneBlock(lane: try box.decode(String.self, forKey: .lane), id: try box.decode(String.self, forKey: .id), row: try box.decodeIfPresent(BlockRow.self, forKey: .row))
         default:

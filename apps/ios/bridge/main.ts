@@ -39,7 +39,9 @@ import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { phoneDeviceStorage } from "./browser-device.ts";
 import { followDismissed } from "./dismissed-sends.ts";
 import { BrowserLive } from "./browser-live.ts";
-import { nativeChunks } from "./thread-attachments.ts";
+import { nativeChunks, Picked } from "./thread-attachments.ts";
+import { ComputerAccess, ComputerAccessControl } from "./computer-access.ts";
+import { DeviceStats, DeviceStatsControl } from "./device-stats.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
@@ -107,7 +109,9 @@ let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
 let transfers: NativeTransfers | undefined;
 let filesActions: FilesActions | undefined;
+let access: ComputerAccess | undefined;
 const pump = new PatchPump();
+const deviceStats = new DeviceStats(pump);
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview, {
   kept: new ChangesKept(keptValue("review"), scheduler),
@@ -311,6 +315,7 @@ async function start(json: string): Promise<void> {
     threadId === visit.threadId ? (visit.session?.carriedFiles() ?? new Set()) : new Set();
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);
+  access = new ComputerAccess(client, pump, preview, scheduler.set, () => host.uuid());
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
     agentName: (threadId, agentId) =>
       threadId === visit.threadId && agentId ? agentName(visit.store?.agent(agentId)) : "An agent",
@@ -318,6 +323,14 @@ async function start(json: string): Promise<void> {
       threadId === visit.threadId ? visit.store?.thread?.workspaceId : undefined,
     now: () => host.now(),
     read: nativeChunks,
+    files: {
+      write: (input, body) => call("file.write", input, body),
+      discard: (input) => call("file.discard", input),
+    },
+    stage: async (name, mimeType, data) =>
+      Picked.parse(JSON.parse(await call("capture.stage", { name, mimeType }, data))),
+    annotations: (threadId) =>
+      threadId === visit.threadId ? visit.session?.annotations : undefined,
     devices: phoneDeviceStorage({
       load: () => call("storage.devices.load"),
       save: async (value) => {
@@ -333,6 +346,17 @@ function action(json: string): void {
     const deviceControl = NativeDeviceControl.safeParse(raw);
     if (deviceControl.success) {
       devices?.handle(deviceControl.data);
+      return;
+    }
+    const statsControl = DeviceStatsControl.safeParse(raw);
+    if (statsControl.success) {
+      deviceStats.handle(statsControl.data);
+      return;
+    }
+    const accessControl = ComputerAccessControl.safeParse(raw);
+    if (accessControl.success) {
+      if (access) access.handle(accessControl.data);
+      else error();
       return;
     }
     const screenControl = NativeScreenControl.safeParse(raw);

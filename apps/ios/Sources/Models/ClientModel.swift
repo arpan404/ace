@@ -78,6 +78,9 @@ import QuartzCore
     var machineGlyph: AceIcon.Name?
     /// False for a view-only grant: the phone reads threads but submits no commands.
     var canOperate = true
+    /// The pairing grants admin (the machine's owner); nil when this phone doesn't know its
+    /// scopes, and the daemon's refusal says so instead.
+    var canAdmin: Bool?
     /// A thread a tapped notification asked to open.
     var deepLink: String?
     @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
@@ -93,6 +96,7 @@ import QuartzCore
     /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
     let browser = BrowserLiveModel()
     let devices = DevicesModel()
+    let computerAccess = ComputerAccessModel()
     /// Continue on… and Open on… from this machine (`bridge/transfers.ts`).
     let transfers = TransfersModel()
     /// The daemon reads the bridge keeps, for each screen's first frame (`ReadMirror`).
@@ -137,6 +141,8 @@ import QuartzCore
         let closing = retireRuntime()
         hostId = target.hostId
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
+        // Another machine's runtime: this one's saves and computer access no longer apply.
+        browser.forgetSaves(); computerAccess.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
         connection = "connecting"; error = nil; problem = nil
@@ -465,6 +471,7 @@ import QuartzCore
                 if let thread, thread.id == id, thread.epoch == epoch { thread.screen.apply(screen) }
             case .browser(let patch): browser.apply(patch)
             case .devices(let patch): devices.apply(patch)
+            case .computerAccess(let state): computerAccess.apply(state)
             }
         }
         thread?.screen.commit()

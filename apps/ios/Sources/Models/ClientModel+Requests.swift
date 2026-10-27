@@ -42,6 +42,9 @@ extension ClientModel {
         guard canOperate else { return }
         threadAction(["type": "attach", "file": file.json])
     }
+    /// Take a browser annotation off the next message; the rest close ranks, on the page too.
+    func removeAnnotation(_ id: String) { threadAction(["type": "annotation.remove", "id": id]) }
+    func clearAnnotations() { threadAction(["type": "annotation.clear"]) }
     func detach(_ localId: String) {
         threadAction(["type": "detach", "localId": localId])
         AttachmentStaging().discard(localId)

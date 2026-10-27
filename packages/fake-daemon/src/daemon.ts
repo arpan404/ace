@@ -1,7 +1,8 @@
+import { FakeComputerAccess } from "./computer-access.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
-import { MachineIcon } from "@ace/protocol";
+import { MachineIcon, type HostPlatform } from "@ace/protocol";
 import { regeneratedTitle } from "./title-regenerate.ts";
 import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
@@ -114,6 +115,8 @@ export class FakeDaemon implements Host {
     return MachineIcon.parse(this.services.settings.get("host.icon"));
   }
   readonly version: string;
+  /** The OS host.identity reports; tests change it, undefined reads as an older daemon. */
+  platform: HostPlatform | undefined;
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
   private options: FakeDaemonOptions;
@@ -145,6 +148,8 @@ export class FakeDaemon implements Host {
   readonly commandFlights = new CommandFlights();
   /** Transfers to other fake machines (ADR 0101); `linkTo` makes a machine reachable. */
   readonly transfers: FakeTransfers;
+  /** Locked computer use and Use my Chrome (`computer-access.ts`). */
+  readonly computerAccess = new FakeComputerAccess();
   constructor(options: FakeDaemonOptions) {
     this.options = options;
     this.worktreeCreations = new FakeWorktreeCreations(
@@ -178,6 +183,7 @@ export class FakeDaemon implements Host {
     );
     this.hostId = HostId.parse(options.hostId ?? "fake-host");
     this.version = options.version ?? "fake";
+    this.platform = options.platform;
     this.longThreads = new FakeLongThreadWire({
       head: () => this.seq,
       thread: (id) => this.threads.get(id),
@@ -869,6 +875,7 @@ export class FakeDaemon implements Host {
       return true;
     }
     if (this.transfers.handle(message, connection.push)) return true;
+    if (this.computerAccess.handle(message, connection.push)) return true;
     return this.services.handle(message, connection.push, connection.deviceId);
   }
   /** Link this machine to `other` so it can send work there (`FakeTransfers.link`). */

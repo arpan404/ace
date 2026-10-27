@@ -60,5 +60,29 @@ export function scopeRefusal(
       return { type: "onboarding.result", requestId, result };
     return { type: "provider.login.result", requestId, result };
   }
+  // As the daemon: Use my Chrome (status included) and changing locked use are the owner's.
+  if (message.type === "user_browser.settings" && !scopes?.includes("admin"))
+    return {
+      type: "user_browser.settings.result",
+      requestId: message.requestId,
+      result: {
+        kind: "error",
+        code: "forbidden",
+        message: "Host administrator access is required.",
+      },
+    };
+  if (
+    (message.type === "lockedUse.install" ||
+      message.type === "lockedUse.remove" ||
+      message.type === "lockedUse.repair") &&
+    !scopes?.includes("admin")
+  )
+    return {
+      type: "lockedUse.result",
+      requestId: message.requestId,
+      ok: false,
+      code: "forbidden",
+      reason: "Only this Mac's owner can change this.",
+    };
   return undefined;
 }

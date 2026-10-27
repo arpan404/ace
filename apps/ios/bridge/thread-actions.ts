@@ -167,6 +167,9 @@ export const ThreadAction = z.discriminatedUnion("type", [
     requestId,
   }),
   z.object({ type: z.literal("detach"), localId: z.string().min(1).max(64) }),
+  /** The next message's browser annotations: remove one (the rest close ranks) or all. */
+  z.object({ type: z.literal("annotation.remove"), id: z.string().min(1).max(128) }),
+  z.object({ type: z.literal("annotation.clear") }),
 ]);
 export type ThreadAction = z.infer<typeof ThreadAction>;
 

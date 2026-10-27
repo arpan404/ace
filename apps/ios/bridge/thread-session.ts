@@ -34,6 +34,7 @@ import {
   type ChunkReader,
   type TrayRow,
 } from "./thread-attachments.ts";
+import { ThreadAnnotations, withAnnotations } from "./thread-annotations.ts";
 import { followBlocks } from "./thread-blocks.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
@@ -83,6 +84,8 @@ export class ThreadSession {
   readonly #tune: TuneFollower;
   readonly #tray: AttachmentTray;
   readonly #transitions: ThreadTransitions;
+  /** The next message's browser annotations (ADR 0082). */
+  readonly annotations: ThreadAnnotations;
   #lane: { agentId: string; tap: ChangeTap } | undefined;
   #setting: FollowUpBehavior | undefined;
   /**
@@ -168,6 +171,14 @@ export class ThreadSession {
     this.#tray =
       kept ?? new AttachmentTray(client, { threadId: this.#threadId }, signal, trayRows, chunks);
     const workLine = followWorkLine(store, put, preview);
+    this.annotations = new ThreadAnnotations(
+      client,
+      this.#threadId,
+      signal,
+      (patch) => put("annotations", () => patch),
+      chunks,
+      preview,
+    );
     this.#stop = store.observe((keys) => {
       this.#blocks.tap(keys);
       workLine(keys);
@@ -259,6 +270,7 @@ export class ThreadSession {
     this.#stop();
     this.#steps.dispose();
     if (!this.#trayKept) this.#tray.dispose();
+    this.annotations.dispose();
   }
 
   handle(raw: unknown): void {
@@ -440,6 +452,12 @@ export class ThreadSession {
           (id, ok, message) => this.#admission(id, ok, message),
         );
         break;
+      case "annotation.remove":
+        this.annotations.remove(action.id);
+        break;
+      case "annotation.clear":
+        this.annotations.clear();
+        break;
     }
   }
 
@@ -511,13 +529,18 @@ export class ThreadSession {
       return;
     }
     const content = messageContent(text, references, this.#catalog(this.#threadId));
-    if (!messageHasContent(text, this.#tray.size)) {
+    if (!messageHasContent(text, this.#tray.size + this.annotations.count)) {
       this.#admission(id, false, "Write a message or attach a file.");
       return;
     }
     const files = this.#tray.context();
     if ("refused" in files) {
       this.#admission(id, false, files.refused);
+      return;
+    }
+    const marked = this.annotations.handOff();
+    if (marked && "refused" in marked) {
+      this.#admission(id, false, marked.refused);
       return;
     }
     const payload = sendPayload(this.#store, this.#threadId, text, {
@@ -529,16 +552,23 @@ export class ThreadSession {
       isBusy(this.#store.thread?.status),
       payload.delivery,
     );
-    const context = joinContext(files.context, content.references);
+    const joined = withAnnotations(
+      content.input,
+      joinContext(files.context, content.references),
+      marked,
+    );
     const message: CommandPayload = {
       ...payload,
-      input: content.input,
+      input: joined.input,
       ...(options ? { options } : {}),
-      ...(context ? { context } : {}),
+      ...(joined.context ? { context: joined.context } : {}),
     };
     const tray = this.#tray;
     void dispatchCommand(this.#client, message, id, this.#pump, {
-      saved: () => tray.sent(files.ids),
+      saved: () => {
+        tray.sent(files.ids);
+        if (marked) this.annotations.sent();
+      },
       receipt: ({ ok }) => {
         if (ok && spends) this.#tune.spent(spends);
       },

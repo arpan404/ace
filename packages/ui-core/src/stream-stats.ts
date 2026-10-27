@@ -134,8 +134,14 @@ export function streamSummary(stats: StreamStats | undefined): string[] {
   ];
 }
 
-/** The stats overlay's lines: what arrived, what was drawn, and the stalls between. */
-export function streamDetails(stats: StreamStats | undefined): string[] {
+/**
+ * The stats overlay's lines: what arrived, what was drawn, and the stalls between. A client that
+ * knows where its decoder runs says so with `decoderLabel` (the phone's VideoToolbox does).
+ */
+export function streamDetails(
+  stats: StreamStats | undefined,
+  options: { decoderLabel?: string } = {},
+): string[] {
   if (!stats) return ["Waiting for the first picture"];
   return [
     `Received ${stats.receivedFps}/s · drawn ${stats.fps ?? "–"}/s`,
@@ -143,10 +149,12 @@ export function streamDetails(stats: StreamStats | undefined): string[] {
     `Longest stall ${stats.longestGapMs} ms (5 s)`,
     `Keyframes asked ${stats.keyframesAsked} (5 s)`,
     // WebCodecs takes a hardware hint but never says where a decode ran.
-    stats.decoder?.preference === "hardware"
-      ? "Decoder: hardware asked for (unconfirmed)"
-      : stats.decoder
-        ? `Decoder: browser default${stats.decoder.reason ? ` (hardware failed: ${stats.decoder.reason})` : ""}`
-        : "Decoder: not started",
+    options.decoderLabel
+      ? `Decoder: ${options.decoderLabel}`
+      : stats.decoder?.preference === "hardware"
+        ? "Decoder: hardware asked for (unconfirmed)"
+        : stats.decoder
+          ? `Decoder: browser default${stats.decoder.reason ? ` (hardware failed: ${stats.decoder.reason})` : ""}`
+          : "Decoder: not started",
   ];
 }
