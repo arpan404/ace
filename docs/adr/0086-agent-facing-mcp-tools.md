@@ -288,3 +288,32 @@ account (`agents.models`), so a second account's models are never cut off by pag
 **Budgets.** `mcp-agent-budget.process.test.ts` holds each provider's per-request cost and
 `mcp-catalogue-budget.process.test.ts` the whole catalogue, any single tool and a Claude session
 without tool search, each at the measured cost rounded up to the next 50 tokens.
+
+**ACP agents re-read (2026-10-27).** Read from the installed agy 1.4.8 binary and its changelog,
+the registry's agy_acp_server 1.4.3 (its Python sources and bundled harness), Gemini CLI 0.43.0's
+bundle and Qwen Code 0.0.14's package, without starting a session:
+
+- Antigravity's on-demand loading is unchanged: `antigravity/alwaysLoad` (added in agy 1.3.3)
+  marks a tool eager, every other tool's definition goes to `<server>/<tool>.json` and is called
+  through `call_mcp_tool`, and the harness handles `tools/list_changed`. Two flags the backend
+  serves gate it, `supports_deferred_tool_loading` per model and `enable_lazy_load` in its MCP
+  tool config; which models carry the first is not in the binary, so a model without it may load
+  every listed tool in full. A client can force a server eager with
+  `_meta.antigravity.forceAllToolsEager` on the server entry or
+  `_meta.antigravity.eagerMcpServers`; ace sets neither.
+- Antigravity never shows MCP server instructions to its model: it writes them to
+  `instructions.md` beside the tool definitions (seen in the files agy wrote), and its prompt only
+  says the file may exist. ace's shared guidance therefore now travels in Antigravity's
+  system-prompt text with the rest of its session guidance.
+- Gemini CLI loads every MCP tool upfront with its raw input schema, has no tool search, reloads
+  on `tools/list_changed` even without the capability, and adds server instructions to its
+  project context. With folder trust on (the default) it starts no MCP server, ace's included, in
+  a folder not in `trustedFolders.json`, unless `GEMINI_CLI_TRUST_WORKSPACE=true` or `--skip-trust`
+  is given; ace passes neither.
+- Qwen Code 0.0.14 neither reloads nor reads server instructions.
+
+So whether an ACP agent shows server instructions is a per-agent rule
+(`acpShowsServerInstructions`): Gemini CLI and claude-agent-acp do; Antigravity, Qwen Code and
+every agent not reviewed get the guidance in their own channel (system-prompt text where offered,
+else the first prompt). Antigravity's model now receives the shared guidance it lacked, about 235
+tokens; its per-request budget is unchanged because the test already counted that text.
