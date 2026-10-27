@@ -20,6 +20,8 @@ struct LoginProgress: Decodable {
     let choices: [Choice]?
     let codeEntry: Bool?
     let returnUrlEntry: Bool?
+    /// The CLI finishes this sign-in in its own terminal (`SignInTerminalRows`).
+    var manual: LoginManual? = nil
     var finished: Bool { ["succeeded", "failed", "cancelled"].contains(state) }
 }
 struct ProviderSettingsView: View {
@@ -28,7 +30,7 @@ struct ProviderSettingsView: View {
         List {
             Section {
                 ForEach(model.providers?.providers ?? []) { provider in
-                    NavigationLink { ProviderSignInView(model: model, provider: provider.provider, name: provider.name) } label: {
+                    NavigationLink { ProviderPageView(model: model, provider: provider.provider, name: provider.name) } label: {
                         HStack(spacing: AceTheme.Spacing.md + AceTheme.Spacing.xxs) {
                             ProviderMark(provider: provider.provider, size: 20).frame(width: 24)
                             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
@@ -46,10 +48,9 @@ struct ProviderSettingsView: View {
                         .accessibilityElement(children: .combine)
                     }
                 }
-            } footer: {
-                if let absent = model.providers?.absent, !absent.isEmpty { Text("Not installed or disabled: \(absent.joined(separator: ", "))") }
             }
             .insetRowBackground()
+            OtherProvidersSections(model: model)
             if let problem = model.providers?.problem { ServiceProblem(message: problem).listRowBackground(Color.clear) }
         }
         .insetGroupedList()
@@ -84,6 +85,7 @@ struct ProviderSignInView: View {
                         Text(progress.message ?? progress.prompt ?? progress.state.replacingOccurrences(of: "_", with: " ").capitalized)
                         if let hint = progress.hint { Text(hint) }
                         if let words = progress.userCode { Text(words).textSelection(.enabled).monospaced() }
+                        if let manual = progress.manual { SignInTerminalRows(model: model, session: progress.session, manual: manual) }
                         if let raw = progress.url, let url = URL(string: raw), url.scheme == "https" {
                             Link("Open provider sign-in", destination: url)
                         }

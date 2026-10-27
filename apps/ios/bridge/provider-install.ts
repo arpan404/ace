@@ -345,7 +345,7 @@ export class ProviderInstalls {
     const flow: Flow = { controller, revision: 0, wanted: "install", waiters: new Set() };
     controller.subscribe(() => {
       flow.revision++;
-      for (const wake of [...flow.waiters]) wake();
+      for (const wake of flow.waiters) wake();
     });
     controller.start();
     this.#flows.set(provider, flow);
