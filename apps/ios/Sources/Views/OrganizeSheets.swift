@@ -44,21 +44,29 @@ struct MoveThreadSheet: View {
                                         Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                                             .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
                                     }
-                                    .padding(.vertical, AceTheme.Spacing.xs)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, AceTheme.Spacing.md)
+                                    .padding(.vertical, AceTheme.Spacing.sm)
+                                    .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
                                     .contentShape(Rectangle())
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.row)
                                 .accessibilityIdentifier("move.project.\(project.id)")
+                                .inboxRowChrome()
                             }
-                        } header: { InsetHeader("Projects") }
-                        .insetRowBackground()
+                        } header: {
+                            Text("Projects").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).textCase(nil)
+                                .foregroundStyle(AceTheme.Colours.subtleForeground)
+                        }
                     }
                 default:
                     HStack { Spacer(); ProgressView().accessibilityLabel("Loading projects"); Spacer() }.listRowBackground(Color.clear)
                 }
             }
-            .insetGroupedList()
+            // Heading and rows, as the inbox draws them: no card around the list.
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(AceTheme.Colours.background)
+            .environment(\.defaultMinListRowHeight, 0)
             .searchable(text: $query, prompt: "Search projects")
             .navigationTitle("Move \(subject) to…").navigationBarTitleDisplayMode(.inline)
             .escapeCloses { dismiss() }

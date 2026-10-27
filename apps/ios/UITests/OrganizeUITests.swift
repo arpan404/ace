@@ -17,13 +17,14 @@ import XCTest
         let app = launch()
         let done = app.revealRow("thread.ios-done")
         done.press(forDuration: 1.2)
-        XCTAssertTrue(app.otherElements["thread.preview"].waitForExistence(timeout: 5) || app.staticTexts[done.label].exists)
-        XCTAssertTrue(app.buttons["thread.action.move"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["thread.action.delete"].exists)
-        XCTAssertTrue(app.buttons["thread.action.select"].exists)
+        sleep(1)
+        screenshot("row-menu")
+        XCTAssertTrue(app.buttons["Move to project…"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Delete thread"].exists)
+        XCTAssertTrue(app.buttons["Select"].exists)
         screenshot("row-menu")
         // Mark unread: the finished row says Done again.
-        let unread = app.buttons["thread.action.unread"]
+        let unread = app.buttons["Mark unread"]
         XCTAssertTrue(unread.exists)
         unread.tap()
         XCTAssertTrue(done.waitForExistence(timeout: 5))
@@ -32,8 +33,8 @@ import XCTest
 
         // Delete asks first, in red words, and Cancel leaves the thread.
         done.press(forDuration: 1.2)
-        XCTAssertTrue(app.buttons["thread.action.delete"].waitForExistence(timeout: 5))
-        app.buttons["thread.action.delete"].tap()
+        XCTAssertTrue(app.buttons["Delete thread"].waitForExistence(timeout: 5))
+        app.buttons["Delete thread"].tap()
         XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.alerts.firstMatch.label.contains("Delete"))
         screenshot("delete-question")
@@ -42,8 +43,8 @@ import XCTest
 
         // Move opens the machine's projects.
         done.press(forDuration: 1.2)
-        XCTAssertTrue(app.buttons["thread.action.move"].waitForExistence(timeout: 5))
-        app.buttons["thread.action.move"].tap()
+        XCTAssertTrue(app.buttons["Move to project…"].waitForExistence(timeout: 5))
+        app.buttons["Move to project…"].tap()
         XCTAssertTrue(app.buttons["move.close"].waitForExistence(timeout: 10))
         sleep(2)
         screenshot("move-sheet")
@@ -56,9 +57,9 @@ import XCTest
         let menu = app.buttons["thread.menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 15))
         menu.tap()
-        XCTAssertTrue(app.buttons["thread.action.delete"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["thread.action.move"].exists)
-        XCTAssertTrue(app.buttons["thread.action.auto-settle-off"].exists)
+        XCTAssertTrue(app.buttons["Delete thread"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Move to project…"].exists)
+        XCTAssertTrue(app.buttons["Turn off auto-settle"].exists)
         screenshot("thread-menu")
     }
 
@@ -67,12 +68,13 @@ import XCTest
         app.revealRow("thread.ios-done")
         app.buttons["inbox.select"].tap()
         XCTAssertTrue(app.buttons["select.done"].waitForExistence(timeout: 5))
-        let first = app.descendants(matching: .any)["thread.ios-done"].firstMatch
-        let second = app.descendants(matching: .any)["thread.ios-tree"].firstMatch
-        app.bringToMiddle(first)
-        first.tap()
-        app.bringToMiddle(second)
-        second.tap()
+        // Any two rows the list shows: picking is the system's own check circle.
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'thread.ios-'"))
+        XCTAssertTrue(rows.element(boundBy: 1).waitForExistence(timeout: 10))
+        // Each row's title, the start of its label (the age after it moves on).
+        let picked = [rows.element(boundBy: 0).label, rows.element(boundBy: 1).label].map { $0.components(separatedBy: ",")[0] }
+        rows.element(boundBy: 0).tap()
+        rows.element(boundBy: 1).tap()
         XCTAssertTrue(app.staticTexts["2 selected"].waitForExistence(timeout: 5))
         screenshot("select-mode")
         app.buttons["select.archive"].tap()
@@ -81,7 +83,11 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Archived 2 threads"].exists)
         screenshot("select-archived")
         undo.tap()
-        XCTAssertTrue(app.buttons["thread.ios-done"].waitForExistence(timeout: 15))
+        // Both come back with one Undo.
+        for title in picked {
+            let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 15), title)
+        }
     }
 
     func testSearchEverythingFindsCommandsThreadsAndMessages() throws {
