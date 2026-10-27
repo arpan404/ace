@@ -57,7 +57,10 @@ export async function externalMcp(context: ServiceContext) {
         case "mcp.list":
           return { ok: true, data: { enrollments: enrollments.list() } };
         case "mcp.revoke":
-          return { ok: enrollments.revoke(operation.id) };
+          // Name what was revoked, so the CLI has something to confirm.
+          return enrollments.revoke(operation.id)
+            ? { ok: true, data: { revoked: operation.id } }
+            : { ok: false, code: "not_found" };
         case "mcp.enroll": {
           if (
             operation.project &&
