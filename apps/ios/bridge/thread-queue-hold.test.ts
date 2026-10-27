@@ -93,6 +93,37 @@ test("a message that wasn't sent leaves the queue's list for the transcript, wit
   await until(() => commands("queue.resume").length === 1, "Try again on the wire");
 });
 
+test.each(["remove", "words"] as const)(
+  "after the not-sent message is dealt with (%s), the ones behind it read queued, never not sent",
+  async (kind) => {
+    const fake = busyThread(`released-${kind}`);
+    const thread = open(connect(fake), `released-${kind}`);
+    await until(() => (latest("thread.controls")?.row as { busy?: boolean })?.busy, "busy");
+    for (const [at, text] of ["Ship it", "Then tag it", "Then announce it"].entries())
+      thread.handle({ type: "send", text, opposite: false, requestId: `q${at}` });
+    await until(() => queue()?.messages.length === 3, "three queued");
+    fake.holdQueue(`released-${kind}`, "not_sent", {
+      title: "Codex couldn't start. The CLI exited with code 1.",
+      code: "session_start_failed",
+    });
+    await until(() => queue()?.notSent, "the message that wasn't sent");
+    thread.handle({
+      type: "queue",
+      messageId: String(queue()?.notSent?.id),
+      change: kind === "remove" ? { kind } : { kind, text: "Ship it, fixed" },
+      requestId: "act",
+    });
+    await until(() => queue()?.notSent === null, "the hold released");
+    expect(queue()?.strip).toBeNull();
+    expect(queue()?.messages.map((message) => message.text)).toEqual([
+      ...(kind === "words" ? ["Ship it, fixed"] : []),
+      "Then tag it",
+      "Then announce it",
+    ]);
+    expect(commands("queue.resume")).toHaveLength(0);
+  },
+);
+
 test("a usage limit holds the turn with Switch, Resume at reset and Continue", async () => {
   const resetsAt = Date.now() + 3 * 60 * 60 * 1000;
   const fake = busyThread("limited");
