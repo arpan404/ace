@@ -17,6 +17,8 @@ export function createAdmissionSession({
 }: SocketContext): SocketService {
   let stopWatching: (() => void) | undefined;
   let last = "";
+  /** One recount waits at most, however many events arrive before it runs. */
+  let recounting = false;
   const admission = (): Admission => {
     const status = maintenance.status();
     return { holds: status.holds, busy: status.blockers, waiting: status.waiting };
@@ -33,9 +35,18 @@ export function createAdmissionSession({
   const watch = () => {
     if (stopWatching) return;
     const stopGate = maintenance.onChange(tell);
-    // While paused, the count of threads still finishing moves as they settle; open, it isn't shown.
-    const stopStore = options.store.subscribe(() => {
-      if (!maintenance.admit()) queueMicrotask(tell);
+    // While admission is closed, the count of threads still finishing moves as they settle. Only
+    // a thread's status changes it, so deltas and other events never recount, and a burst of
+    // status changes recounts once.
+    const stopStore = options.store.subscribe((events) => {
+      if (recounting || maintenance.admit()) return;
+      if (!events.some((event) => event.payload.type === "thread.updated" && event.payload.status))
+        return;
+      recounting = true;
+      queueMicrotask(() => {
+        recounting = false;
+        tell();
+      });
     });
     stopWatching = () => {
       stopGate();

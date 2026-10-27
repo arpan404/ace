@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
-import { Command, CommandId, type ServerMessage } from "@ace/protocol";
+import { AgentId, Command, CommandId, ItemId, type ServerMessage } from "@ace/protocol";
 import { accessRequest } from "./client-access.ts";
-import { token } from "./socket-test-support.ts";
+import { fixture, token } from "./socket-test-support.ts";
+import { MaintenanceGate } from "@ace/service";
 import { setup } from "./remote-test-support.ts";
 import { killAll } from "./services/kill-all.ts";
 
@@ -205,4 +206,44 @@ test("while paused, a watching phone hears what is still finishing and what wait
   expect(await next(phone, "admission.changed")).toMatchObject({
     admission: { busy: 1, waiting: 1 },
   });
+});
+
+test("while paused, a burst of deltas and title changes never recounts, and a status change recounts once", async () => {
+  let recounts = 0;
+  const f = await fixture({}, (store) => ({
+    maintenanceGate: new MaintenanceGate(
+      () => {
+        recounts++;
+        return store.updateBlockers();
+      },
+      () => store.waitingBlockers(),
+    ),
+  }));
+  try {
+    const desk = await f.connect();
+    await desk.next();
+    desk.send({ type: "admission.request", requestId: "pause", operation: "pause" });
+    await next(desk, "admission.result");
+    recounts = 0;
+    for (let index = 0; index < 50; index++)
+      f.store.appendEvents(f.thread.id, [
+        {
+          type: "item.delta",
+          itemId: ItemId.parse("streaming"),
+          agentId: AgentId.parse("root"),
+          field: "text",
+          append: ` word ${index}`,
+        },
+        { type: "thread.updated", title: `Title ${index}` },
+      ]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(recounts).toBe(0);
+    f.store.appendEvents(f.thread.id, [
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
+    ]);
+    expect(await next(desk, "admission.changed")).toMatchObject({ admission: { busy: 1 } });
+    expect(recounts).toBe(1);
+  } finally {
+    await f.close();
+  }
 });
