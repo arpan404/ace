@@ -28,6 +28,8 @@ struct ForgeHome: View {
     let actions: ForgeTabActions
     /// Opens Machines from the connection problem under the title.
     var openMachines: () -> Void = {}
+    /// Opens pairing while no computer is paired; nil while that isn't known yet.
+    var pair: (() -> Void)?
     @State private var projects: [ForgeProject] = []
     @State private var projectsFailed: String?
     @State private var pullsFilter = PullsFilter()
@@ -41,9 +43,10 @@ struct ForgeHome: View {
     /// Opens on the projects and lists this phone last saw on the machine, read again behind
     /// them, so coming back to Pulls never starts from a spinner.
     init(inbox: MachineInbox, machine: Binding<String>, project: Binding<String>, query: String, kind: Binding<ForgeKind>, actions: ForgeTabActions,
-         openMachines: @escaping () -> Void = {}) {
+         openMachines: @escaping () -> Void = {}, pair: (() -> Void)? = nil) {
         self.inbox = inbox
         self.openMachines = openMachines
+        self.pair = pair
         _machine = machine
         _project = project
         self.query = query
@@ -120,6 +123,8 @@ struct ForgeHome: View {
                 ForgeNotificationsList(client: session.client, machineId: session.hostId, project: chosen, filter: notificationsFilter, query: query, open: actions.open)
                     .id("\(session.hostId)|\(chosen)|\(notificationsFilter)")
             }
+        } else if inbox.sessions.isEmpty, let pair {
+            ForgeEmpty { NoComputerPaired(pair: pair) }
         } else if let projectsFailed {
             ForgeEmpty { EmptyState(icon: nil, title: "Couldn't load projects", line: projectsFailed, failed: true) { Button("Try again") { Task { await loadProjects() } } } }
         } else if session != nil, projects.isEmpty, session?.client.connection == "ready" {

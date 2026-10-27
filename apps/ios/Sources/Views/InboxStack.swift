@@ -4,6 +4,8 @@ import SwiftUI
 struct InboxHeaderActions {
     let settings: () -> Void
     let machines: () -> Void
+    /// Pairs a first computer; nil until the phone knows it has none (and in the debug fixture).
+    var pair: (() -> Void)?
 }
 
 /// One tab's list and the page it opens (`InboxSplit`): the compact wordmark (or a connection
@@ -84,13 +86,13 @@ struct InboxStack<Destination: View>: View {
                           // The list's row is the open page, in place of the one open before.
                           actions: ForgeTabActions(open: { route in pick { path = [.forge(route)] } }, openThread: { key in pick { forge.openThread(key) } },
                                                    startThread: forge.startThread),
-                          openMachines: header.machines)
+                          openMachines: header.machines, pair: header.pair)
             } else {
                 // The list stays mounted under the results, so it keeps its place while the
                 // person searches and is back where it was when they cancel.
                 ZStack {
                     let results = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, reveal: $reveal, actions: picking, compose: nil)
+                    InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, reveal: $reveal, actions: picking, compose: nil, pair: header.pair)
                         .refreshable { await refresh() }
                         .opacity(results ? 0 : 1)
                         .allowsHitTesting(!results)

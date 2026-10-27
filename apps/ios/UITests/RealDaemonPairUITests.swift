@@ -9,6 +9,10 @@ import XCTest
                                  "Set TEST_RUNNER_ACE_PAIR_LINK to a link from `ace pair`")
         let app = XCUIApplication()
         app.launch()
+        // With nothing paired the inbox opens on Add device.
+        let add = app.buttons["inbox.empty.pair"]
+        XCTAssertTrue(add.waitForExistence(timeout: 20))
+        add.tap()
         let field = app.textFields["pairing.link"]
         XCTAssertTrue(field.waitForExistence(timeout: 20))
         field.tap()
