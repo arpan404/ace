@@ -19,15 +19,19 @@ extension XCUIApplication {
         XCTAssertTrue(control.waitForExistence(timeout: timeout), "\(identifier) never showed in the composer")
         return control
     }
-    /// An item of the thread's ⋯ menu. iOS 27 drops a menu item's identifier and keeps its label,
-    /// so the item is found by either.
-    /// The menu is longer than the screen, so a lower item is scrolled to first.
+    /// An item of the thread's ⋯ panel. iOS 27 drops a menu item's identifier and keeps its label,
+    /// so the item is found by either. The panel fits without scrolling; a sheet that needs it
+    /// scrolls to the item first.
     @MainActor func threadMenuItem(_ identifier: String) -> XCUIElement {
         let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
                       "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
                       "thread.terminal": "Terminal", "thread.tools": "Skills and tools",
-                      "thread.reload": "Reload from machine",
-                      "thread.logs": "Logs", "thread.offshift": "Offshift run"]
+                      "thread.reload": "Reload from machine", "thread.scripts": "Run and preview",
+                      "thread.work": "Work", "thread.attachments": "Attachments",
+                      "thread.computer": "Computer use", "thread.openIn": "Open in",
+                      "thread.turns": "Turns", "thread.logs": "Logs", "thread.offshift": "Offshift run",
+                      "thread.menu.rename": "Rename", "thread.forkLast": "Fork from the last turn",
+                      "thread.merge": "Bring back to parent", "thread.continueOn": "Continue on"]
         // A menu item with a second line reads both in its label: match its first words.
         let item = buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
                                                 labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch

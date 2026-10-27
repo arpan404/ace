@@ -75,7 +75,7 @@ import XCTest
         let menu = app.buttons["thread.menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 15))
         menu.tap()
-        // A short screen scrolls the menu to its organize section.
+        // The panel fits without scrolling; a short screen may still need one drag.
         for _ in 0..<4 where !app.buttons["Delete thread"].exists {
             let low = app.buttons["Skills and tools"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             low.press(forDuration: 0.05, thenDragTo: app.buttons["Changes"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
