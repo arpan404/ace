@@ -67,6 +67,8 @@ export interface ServerOptions {
   icons?: import("./icons/icon-service.ts").IconService;
   projects?: import("./projects.ts").Projects;
   threadLifecycle?: import("./thread-lifecycle.ts").ThreadLifecycle;
+  /** The utility model and thread titles (`thread.title.regenerate`). */
+  utility?: Pick<import("./services/utility.ts").UtilityService, "titles">;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
   engine?: import("./engine/index.ts").Engine;
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;

@@ -119,6 +119,16 @@ export class ThreadTitles {
       this.branchAttempted.add(id);
     }
   }
+  /**
+   * The person asked for the thread to be named again: generate from its opening request once
+   * more, inside the admission transaction like `namingPrompt`. Lands only while the thread still
+   * carries the provisional title that request set.
+   */
+  regenerate(id: ThreadId, input: readonly ContentPart[]): void {
+    if (this.closed) return;
+    const parts = [...input];
+    queueMicrotask(() => void this.generate(id, parts));
+  }
   private async generate(id: ThreadId, parts: readonly ContentPart[]): Promise<void> {
     if (this.closed) return;
     const controller = new AbortController();

@@ -238,6 +238,11 @@ export const ThreadOrganizationCommands = [
           "Must contain a non-whitespace title. The daemon trims surrounding whitespace.",
       }),
   }),
+  /**
+   * Name the thread again from its opening request, as a new thread is named: its first words at
+   * once, then the utility model's title when one is set up. A title set by hand is replaced.
+   */
+  z.object({ type: z.literal("thread.title.regenerate"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.unarchive"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.delete"), threadId: ThreadId, force: z.boolean().optional() }),
   z.object({

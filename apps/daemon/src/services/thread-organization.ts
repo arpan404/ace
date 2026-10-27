@@ -51,6 +51,7 @@ export function createThreadOrganizationSession({
             command,
             (options.now ?? Date.now)(),
             (id) => options.workspaceActions?.hasOwnedWork(id) ?? false,
+            (id, opening) => options.utility?.titles.regenerate(id, opening),
           ),
         );
         send({ type: "commandResult", ...result });
