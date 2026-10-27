@@ -36,7 +36,8 @@ struct PublishRepositoryView: View {
                         .insetRowBackground()
                 }
                 if let publication = status.publication { record(publication) }
-                if draft != nil { form(status) }
+                // Once published, the record says it all; the form only starts or resumes one.
+                if draft != nil, !["empty", "pushed"].contains(status.publication?.phase ?? "") { form(status) }
             } else if problem == nil {
                 Section {
                     ForEach(["Owner", "Name", "Description", "Visibility"], id: \.self) { LabeledContent($0) { Text("placeholder") }.redacted(reason: .placeholder) }
@@ -90,8 +91,12 @@ struct PublishRepositoryView: View {
                 Picker("Host", selection: binding(\.host)) { ForEach(hosts, id: \.self) { Text($0).tag($0) } }
             }
             LabeledContent("Account") { Text(draft?.account ?? "").foregroundStyle(AceTheme.Colours.mutedForeground) }
-            TextField("Owner", text: binding(\.owner)).accessibilityIdentifier("publish.owner")
-            TextField("Repository name", text: binding(\.name)).accessibilityIdentifier("publish.name")
+            LabeledContent("Owner") {
+                TextField("Owner", text: binding(\.owner)).multilineTextAlignment(.trailing).accessibilityIdentifier("publish.owner")
+            }
+            LabeledContent("Name") {
+                TextField("Repository name", text: binding(\.name)).multilineTextAlignment(.trailing).accessibilityIdentifier("publish.name")
+            }
             TextField("Description (optional)", text: binding(\.description), axis: .vertical).lineLimit(1...4)
             Picker("Visibility", selection: binding(\.visibility)) {
                 Text("Private").tag("private"); Text("Public").tag("public")

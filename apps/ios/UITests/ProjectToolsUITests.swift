@@ -26,7 +26,9 @@ import XCTest
         openProject(app)
         app.buttons["project.publish"].tap()
         let publish = app.buttons["publish.submit"]
-        XCTAssertTrue(publish.waitForExistence(timeout: 20))
+        let shown = publish.waitForExistence(timeout: 20)
+        shot("project-publish-opened", app)
+        XCTAssertTrue(shown)
         XCTAssertTrue(app.textFields["publish.name"].exists)
         shot("project-publish", app)
         publish.tap()

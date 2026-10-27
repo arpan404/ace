@@ -26,13 +26,22 @@ struct FleetRulesView: View {
     @State private var saving: String?
     @State private var pending: (rule: FleetRulesReply.Rule, value: ServiceValue)?
     @State private var saved = 0
+    /// Every machine's values have been read once: until then the rows keep their shape, never a wrong value.
+    @State private var loaded = false
 
     private var connected: [MachineSession] { inbox.sessions.filter { $0.client.connection == "ready" && $0.client.canOperate } }
 
     var body: some View {
         Form {
             Section {
-                ForEach(rules) { rule in row(rule) }
+                if loaded {
+                    ForEach(rules) { rule in row(rule) }
+                } else {
+                    ForEach(["Remote access", "Reached over", "Pairing links open app.acehq.dev", "Agents from other machines", "Agents can move projects and threads", "Bring ignored files"], id: \.self) { title in
+                        LabeledContent(title) { Text("Off") }.redacted(reason: .placeholder)
+                    }
+                    .accessibilityHidden(true)
+                }
             } footer: {
                 Text(connected.count > 1 ? "Set on \(connected.count) connected machines. A machine's own settings can set it apart." : "Set on every connected machine.")
             }
@@ -40,7 +49,7 @@ struct FleetRulesView: View {
             if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
         }
         .insetGroupedList()
-        .smoothChange(rules.map(\.key))
+        .smoothChange(loaded)
         .smoothChange(problem)
         .sensoryFeedback(.success, trigger: saved)
         .navigationTitle("Fleet rules").navigationBarTitleDisplayMode(.inline)
@@ -99,13 +108,18 @@ struct FleetRulesView: View {
         do {
             rules = try await first.client.service(["type": "native.fleet", "machine": inbox.name(first.hostId), "request": ["op": "rules"]], as: FleetRulesReply.self).rules
             var next: [String: [String: ServiceValue]] = [:]
-            for session in connected {
-                for rule in rules {
-                    let reply = try? await session.client.service(["type": "settings.get", "key": rule.key, "scope": [:] as [String: Any]], as: RuleSettingReply.self)
-                    if let value = reply?.entries.first(where: { $0.key == rule.key })?.value { next[rule.key, default: [:]][session.hostId] = value }
+            let keys = rules.map(\.key)
+            // Every machine's every rule is asked at once; each answer lands as it comes.
+            let reads = connected.flatMap { session in
+                keys.map { key in
+                    (key, session.hostId, Task { try? await session.client.service(["type": "settings.get", "key": key, "scope": [:] as [String: Any]], as: RuleSettingReply.self) })
                 }
             }
+            for (key, host, read) in reads {
+                if let value = await read.value?.entries.first(where: { $0.key == key })?.value { next[key, default: [:]][host] = value }
+            }
             values = next
+            loaded = true
             problem = nil
         } catch { problem = error.localizedDescription }
     }

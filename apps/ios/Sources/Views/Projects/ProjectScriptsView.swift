@@ -40,7 +40,7 @@ struct ProjectScriptsView: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                                     Text(preview.title).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                                    Text("localhost:\(preview.port)").aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                                    Text(verbatim: "localhost:\(preview.port)").aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
                                 }
                                 Spacer()
                                 Text("Open").foregroundStyle(AceTheme.Colours.foreground)
@@ -72,7 +72,6 @@ struct ProjectScriptsView: View {
                                     .accessibilityIdentifier("scripts.run.\(script.name)")
                             }
                         }
-                        .accessibilityElement(children: .combine)
                     }
                 } else if problem == nil {
                     ForEach(0..<4, id: \.self) { _ in

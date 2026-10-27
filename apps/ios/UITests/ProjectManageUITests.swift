@@ -23,7 +23,10 @@ import XCTest
         name.press(forDuration: 1.0)
         if app.menuItems["Select All"].waitForExistence(timeout: 2) { app.menuItems["Select All"].tap() }
         name.typeText("ace-mobile")
-        app.segmentedControls["project.edit.iconMode"].buttons["Icon"].tap()
+        let icon = app.segmentedControls["project.edit.iconMode"].buttons["Icon"]
+        icon.tap()
+        // A tap that only closed the text menu above it is made again.
+        if !app.buttons["Rocket"].waitForExistence(timeout: 3) { icon.tap() }
         XCTAssertTrue(app.buttons["Rocket"].waitForExistence(timeout: 5))
         app.buttons["Rocket"].tap()
         shot("project-edit-icon", app)
