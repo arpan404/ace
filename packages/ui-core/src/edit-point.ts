@@ -142,3 +142,24 @@ export function mergeSummaryOf(
       .slice(0, limit) ?? ""
   );
 }
+
+/** Why a fork's work can't go back to its parent yet, in the words the bring-back form shows. */
+export const bringBackWaits = {
+  working: "Wait for every agent in this fork to finish before bringing its work back.",
+  answer: "Wait for an answer in this fork before bringing results back.",
+} as const;
+
+/**
+ * Whether this fork's work can go back to its parent now: only once its whole tree has finished
+ * (the daemon refuses a live one) and it has an answer of its own to send. `state` is the fork's
+ * whole-tree status.
+ */
+export function bringBackOf(
+  reader: Reader,
+  rootAgentId: string | undefined,
+  state: string | undefined,
+): { answer: Extract<Item, { type: "message" }> } | { refused: string } {
+  if (state !== "done" && state !== "failed") return { refused: bringBackWaits.working };
+  const answer = mergeAnswerOf(reader, rootAgentId);
+  return answer ? { answer } : { refused: bringBackWaits.answer };
+}

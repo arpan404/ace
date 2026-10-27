@@ -3,8 +3,8 @@ import { RunId, type Attachment, type ForkPoint, type Item } from "@ace/protocol
 import {
   editPointOf,
   forkPointOf,
+  bringBackOf,
   latestForkPoint,
-  mergeAnswerOf,
   resendInput,
   retryPointOf,
   type RetryPoint,
@@ -134,7 +134,9 @@ export function transitionsRow(store: ThreadSource) {
     settled,
     retry: retry ? { answerId: retry.answerId, askId: retry.point.askId } : null,
     lastTurn: latestForkPoint(store, root) !== undefined,
-    parent: parent ? { threadId: parent, ready: mergeAnswerOf(store, root) !== undefined } : null,
+    parent: parent
+      ? { threadId: parent, ready: "answer" in bringBackOf(store, root, state) }
+      : null,
   };
 }
 

@@ -1,6 +1,13 @@
 import { Item, Run } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { editPointOf, mergeAnswerOf, mergeSummaryOf, retryPointOf } from "./edit-point.ts";
+import {
+  bringBackOf,
+  bringBackWaits,
+  editPointOf,
+  mergeAnswerOf,
+  mergeSummaryOf,
+  retryPointOf,
+} from "./edit-point.ts";
 
 const message = (
   id: string,
@@ -110,4 +117,16 @@ test("a fork brings back its own newest answer, never what it copied from its pa
   expect(mergeSummaryOf(mergeAnswerOf(fork, "root"), 2)).toBe("ow");
   const fresh = reader([copied], []);
   expect(mergeAnswerOf(fresh, "root")).toBeUndefined();
+});
+
+test("a fork whose tree still works can't be brought back; a finished one with its own answer can", () => {
+  const fork = reader(
+    [message("ask", "user", "r1"), message("own", "assistant", "r1")],
+    [run("r1", "completed")],
+  );
+  expect(bringBackOf(fork, "root", "working")).toEqual({ refused: bringBackWaits.working });
+  expect(bringBackOf(fork, "root", "needs_you")).toEqual({ refused: bringBackWaits.working });
+  expect(bringBackOf(fork, "root", "done")).toMatchObject({ answer: { id: "own" } });
+  const empty = reader([message("ask", "user", "r1")], [run("r1", "completed")]);
+  expect(bringBackOf(empty, "root", "done")).toEqual({ refused: bringBackWaits.answer });
 });

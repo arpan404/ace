@@ -1,6 +1,6 @@
 import { useClient, useThread, useThreadMeta } from "@ace/client-react";
 import { ItemId, ThreadId, maxMessageBytes } from "@ace/protocol";
-import { mergeAnswerOf, mergeSummaryOf } from "@ace/ui-core";
+import { bringBackOf, mergeAnswerOf, mergeSummaryOf } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -31,6 +31,19 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
     [meta?.rootAgentId],
   );
   const answer = useThread(props.thread.id, ["thread", "order"], read);
+  // Only a fork whose whole tree has finished goes back; the daemon refuses a live one.
+  const readiness = useThread(
+    props.thread.id,
+    ["thread", "order"],
+    useCallback(
+      (reader: import("@ace/client").ThreadReader) => {
+        const ready = bringBackOf(reader, meta?.rootAgentId, reader.thread?.status.state);
+        return "refused" in ready ? ready.refused : undefined;
+      },
+      [meta?.rootAgentId],
+    ),
+  );
+  const ready = answer !== undefined && readiness === undefined;
   const [draft, setSummary] = useState<string>();
   const summary = draft ?? mergeSummaryOf(answer, maxMessageBytes);
   const [includeCode, setIncludeCode] = useState(false);
@@ -38,7 +51,7 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
   const [error, setError] = useState<string>();
   const parent = meta?.lineage?.parentThreadId;
   const bringBack = async () => {
-    if (!parent || !answer || !summary.trim() || sending) return;
+    if (!parent || !answer || !ready || !summary.trim() || sending) return;
     setSending(true);
     setError(undefined);
     try {
@@ -96,9 +109,9 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
             Includes uncommitted tracked changes only. Both threads must finish before code changes
             can be applied.
           </p>
-          {!answer && (
+          {readiness && (
             <p role="status" className="text-ui text-muted-foreground">
-              Wait for an answer in this fork before bringing results back.
+              {readiness}
             </p>
           )}
           {error && (
@@ -110,11 +123,7 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
             <Button type="button" variant="ghost" disabled={sending} onClick={props.onClose}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={sending || !answer || !summary.trim()}
-            >
+            <Button type="submit" variant="primary" disabled={sending || !ready || !summary.trim()}>
               {sending ? "Sending…" : "Bring back"}
             </Button>
           </DialogFooter>

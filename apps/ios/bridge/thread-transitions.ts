@@ -8,6 +8,7 @@ import {
   type MessageContext,
 } from "@ace/protocol";
 import {
+  bringBackOf,
   choiceSelection,
   continuationAttachmentProblem,
   forkBudgetBytes,
@@ -244,12 +245,17 @@ export class ThreadTransitions {
     admit(id, ok, ok ? "" : "Couldn't rewind. Try again.");
   }
 
-  /** What bringing this fork back starts with: its newest own answer, as the summary. */
+  /**
+   * What bringing this fork back starts with: its newest own answer as the summary, and why it
+   * can't go yet when it can't (`bringBackOf`).
+   */
   mergeDraft(): void {
-    const answer = mergeAnswerOf(this.#store, this.#store.thread?.rootAgentId);
+    const ready = this.#bringBack();
+    const answer = "answer" in ready ? ready.answer : mergeAnswerOf(this.#store, this.#root());
     this.#put("mergeDraft", () => ({
       type: "thread.mergeDraft",
-      ready: answer !== undefined,
+      ready: "answer" in ready,
+      waits: "refused" in ready ? ready.refused : "",
       summary: mergeSummaryOf(answer, maxMessageBytes),
     }));
   }
@@ -262,10 +268,18 @@ export class ThreadTransitions {
     dispatch: Dispatch,
     admit: Admit,
   ): Promise<void> {
-    const answer = mergeAnswerOf(this.#store, this.#store.thread?.rootAgentId);
+    // Refused here, before the diff is read, while any of the fork's agents still works.
+    const ready = this.#bringBack();
+    if ("refused" in ready) return admit(id, false, ready.refused);
+    const { answer } = ready;
     const words = summary.trim();
-    if (!this.#store.thread?.lineage?.parentThreadId || !answer || !words)
-      return admit(id, false, "Wait for an answer in this fork before bringing results back.");
+    if (!this.#store.thread?.lineage?.parentThreadId)
+      return admit(
+        id,
+        false,
+        "This thread isn't a fork, so it has no parent to bring work back to.",
+      );
+    if (!words) return admit(id, false, "Write a summary to bring back.");
     let patch: string | undefined;
     if (includeCode) {
       const read = await this.#patch();
@@ -285,6 +299,12 @@ export class ThreadTransitions {
     );
   }
 
+  #root(): string | undefined {
+    return this.#store.thread?.rootAgentId;
+  }
+  #bringBack() {
+    return bringBackOf(this.#store, this.#root(), this.#store.thread?.status.state);
+  }
   #piReady(): boolean {
     const row = transitionsRow(this.#store);
     return row.pi && row.settled;

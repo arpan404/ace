@@ -12,6 +12,8 @@ import {
   sent,
   until,
 } from "./thread-harness.ts";
+import { bringBackWaits } from "@ace/ui-core";
+import { ThreadTransitions } from "./thread-transitions.ts";
 
 /*
  * A thread's transitions from its messages and menu, over the real SDK and the fake daemon: a
@@ -193,7 +195,8 @@ test("other providers offer no Retry; Pi offers none while an agent still works"
   expect(latest("thread.transitions")).toMatchObject({ retry: null, settled: false });
 });
 
-test("a fork brings its newest answer back to its parent as the summary", async () => {
+/** A fork of "parent" with one finished turn of its own. */
+function forkOfParent(): FakeDaemon {
   const fake = fixture();
   fake.createThread({ id: "parent", workspaceId: "ace", title: "Parent", provider: "codex" });
   fake.createThread({
@@ -216,7 +219,11 @@ test("a fork brings its newest answer back to its parent as the summary", async 
     facts.message("root", "found", "assistant", "The cache halves the load."),
     facts.endTurn("root"),
   ]);
-  const thread = open(connect(fake), "t");
+  return fake;
+}
+
+test("a fork brings its newest answer back to its parent as the summary", async () => {
+  const thread = open(connect(forkOfParent()), "t");
   await until(() => latest("thread.transitions")?.parent, "the parent");
   expect(latest("thread.transitions")?.parent).toEqual({ threadId: "parent", ready: true });
   thread.handle({ type: "merge.draft" });
@@ -234,6 +241,63 @@ test("a fork brings its newest answer back to its parent as the summary", async 
     summary: "Cache halves load.",
     citations: [{ threadId: "t" }],
   });
+});
+
+test("a fork whose tree still works can't be brought back, and is refused before its changes are read", async () => {
+  const fake = forkOfParent();
+  const thread = open(connect(fake), "t");
+  await until(() => latest("thread.transitions")?.parent, "the parent");
+  fake.apply("t", [{ type: "turn.started", agent: "root", nativeTurnId: "more", trigger: "user" }]);
+  await until(() => latest("thread.transitions")?.settled === false, "the fork working again");
+  expect(latest("thread.transitions")?.parent).toEqual({ threadId: "parent", ready: false });
+  thread.handle({ type: "merge.draft" });
+  expect(await until(() => latest("thread.mergeDraft"), "the summary")).toMatchObject({
+    ready: false,
+    waits: bringBackWaits.working,
+  });
+  thread.handle({ type: "merge", summary: "Too soon", includeCode: true, requestId: "m" });
+  await until(() => admission("m"), "the refusal");
+  expect(admission("m")).toEqual(
+    expect.objectContaining({ ok: false, message: bringBackWaits.working }),
+  );
+  expect(sent.some((text) => text.includes('"git.diff"'))).toBe(false);
+  expect(commands("thread.merge")).toHaveLength(0);
+});
+
+test("on Pi, Rewind isn't offered while an agent still works", async () => {
+  const fake = twoTurns("pi");
+  const thread = await opened(fake);
+  await until(() => latest("thread.transitions")?.settled === true, "the thread settled");
+  fake.apply("t", [
+    { type: "turn.started", agent: "root", nativeTurnId: "again", trigger: "user" },
+  ]);
+  await until(() => latest("thread.transitions")?.settled === false, "an agent working");
+  const answerId = String(item("Here is the plan.")?.id);
+  thread.handle({ type: "rewind", itemId: answerId, requestId: "r" });
+  await until(() => admission("r"), "the refusal");
+  expect(admission("r")).toMatchObject({ ok: false });
+  expect(sent.some((text) => text.includes('"pi.control"'))).toBe(false);
+});
+
+test("after a fresh snapshot Retry and Bring back are sent again, though nothing changed", async () => {
+  const owner = connect(forkOfParent());
+  await until(() => owner.state === "ready", "the connection");
+  const lease = owner.thread("t");
+  await until(() => lease.store.thread?.lineage !== undefined, "the fork");
+  const puts: string[] = [];
+  const transitions = new ThreadTransitions(owner, lease.store, ThreadId.parse("t"), {
+    put: (key) => puts.push(key),
+    reading: () => undefined,
+    changed: () => {},
+  });
+  transitions.update();
+  transitions.update();
+  // Unchanged, the row goes once.
+  expect(puts.filter((key) => key === "transitions")).toHaveLength(1);
+  // A fresh snapshot resets what the phone held: the row goes again.
+  transitions.resend();
+  expect(puts.filter((key) => key === "transitions")).toHaveLength(2);
+  lease.release();
 });
 
 test("a model picked while forking starts the fork there and leaves this thread where it is", async () => {
