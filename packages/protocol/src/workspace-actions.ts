@@ -19,7 +19,10 @@ import { Run } from "./thread.ts";
 import { ThreadDetails } from "./thread-client.ts";
 import { BranchRef } from "./worktree-base.ts";
 import { GitConflictsCommand, GitConflictsOperation, GitConflictsResult } from "./git-conflicts.ts";
+import { ReviewPath } from "./review.ts";
 const id = z.string().min(1).max(128);
+/** How far into one file's patch `git.diff` pages reach (UTF-16 code units). */
+export const gitDiffFileLimit = 32 * 1024 * 1024;
 export const WorkspaceScript = z.object({
   id,
   name: z.string().max(256),
@@ -77,7 +80,18 @@ export const WorkspaceActionRequest = z.object({
     z.object({ op: z.literal("pr.status"), threadId: ThreadId }),
     /** The files a commit of the thread's checkout would take, as `git status` reports them. */
     z.object({ op: z.literal("git.status"), threadId: ThreadId }),
-    z.object({ op: z.literal("git.diff"), threadId: ThreadId }),
+    /**
+     * The working tree against HEAD, capped at 256 KiB. With `path`, only that file (and `from`,
+     * a rename's old path), read in pages from `offset` (UTF-16 code units into the file's patch):
+     * a page past which more remains answers `truncated` with the `nextOffset` to ask for.
+     */
+    z.object({
+      op: z.literal("git.diff"),
+      threadId: ThreadId,
+      path: ReviewPath.optional(),
+      from: ReviewPath.optional(),
+      offset: z.number().int().min(0).max(gitDiffFileLimit).optional(),
+    }),
     GitConflictsOperation,
     z.object({
       op: z.literal("git.draft.context"),
@@ -152,6 +166,8 @@ export const WorkspaceActionResult = z.object({
       kind: z.literal("gitDiff"),
       patch: z.string().max(262144),
       truncated: z.boolean(),
+      /** A one-file read's next page; absent on the last page or past `gitDiffFileLimit`. */
+      nextOffset: z.number().int().positive().max(gitDiffFileLimit).optional(),
     }),
     z.object({
       kind: z.literal("runs"),

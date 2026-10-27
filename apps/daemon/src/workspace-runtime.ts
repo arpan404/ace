@@ -1,4 +1,5 @@
 import { ForgeMediaCache, forgeMediaRoot } from "./forge-media/media-cache.ts";
+import { diffPage, diffPageBytes } from "./git-diff-page.ts";
 import { ForgeMediaService } from "./forge-media/media-service.ts";
 import type { ForgeMediaGrants } from "./forge-media/media-grants.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
@@ -639,14 +640,18 @@ export class WorkspaceRuntime {
     }
     if (op.op === "git.diff") {
       const root = this.root(op.threadId);
+      const paths = op.path === undefined ? undefined : [op.path, ...(op.from ? [op.from] : [])];
+      const offset = op.offset ?? 0;
       const diff = await this.git.diff({
         worktree: root,
         from: { kind: "commit", ref: "HEAD" },
         to: { kind: "working-tree" },
-        maxPatchBytes: 262144,
+        maxPatchBytes: paths ? diffPageBytes(offset) : 262144,
+        ...(paths ? { paths } : {}),
       });
       if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
-      return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
+      if (!paths) return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
+      return wrap({ kind: "gitDiff", ...diffPage(diff.patch, diff.truncated, offset) });
     }
     if (op.op === "git.status") {
       const root = this.root(op.threadId);

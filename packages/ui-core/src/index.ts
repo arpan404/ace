@@ -41,7 +41,7 @@ export * from "./counts.ts";
 export * from "./devices.ts";
 export * from "./diff.ts";
 export { diffBytes } from "./diff-weight.ts";
-export { gitPatchFiles } from "./git-patch.ts";
+export { gitPatchFiles, patchSections, type PatchSection } from "./git-patch.ts";
 export * from "./line-marks.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";
