@@ -12,6 +12,7 @@ import { useTheme, tokens, textStyle, AceHost } from "./theme.tsx";
 import { Approval } from "./Approval.tsx";
 import { Questions } from "./Questions.tsx";
 import { Composer } from "./Composer.tsx";
+import { canActInbox, runInboxAction } from "./inbox-actions.ts";
 import { AceText, AceButton, Row, StatusPill } from "./components.tsx";
 import { statusAppearance } from "./status.ts";
 import { draftKey } from "./thread-drafts.ts";
@@ -310,6 +311,78 @@ function isHistoryAbort(error: unknown): boolean {
     : error instanceof Error && error.name === "AbortError";
 }
 
+/**
+ * Where the composer would be for an archived thread: read-only until it is
+ * unarchived, mirroring iOS `ArchivedNote`. A view-only phone offers no button
+ * and admits nothing (fail closed).
+ */
+function ArchivedNote({
+  client,
+  id,
+  now,
+  canAct,
+  notify,
+}: {
+  client: ClientApi;
+  id: string;
+  now(): number;
+  canAct?: boolean | undefined;
+  notify(text: string): void;
+}) {
+  const theme = useTheme();
+  const operate = canActInbox(canAct);
+  const [working, setWorking] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  async function unarchive() {
+    if (working) return;
+    setWorking(true);
+    setProblem(null);
+    try {
+      const outcome = await runInboxAction(client, "unarchive", id, now(), undefined, operate);
+      if (!outcome.admitted) setProblem(outcome.error ?? "The request failed.");
+      else notify("Unarchived. The row returns once your machine confirms it.");
+    } finally {
+      setWorking(false);
+    }
+  }
+  return (
+    <View
+      testID="thread.archived"
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: tokens.spacing.sm,
+        paddingHorizontal: tokens.spacing.lg,
+        paddingVertical: tokens.spacing.md,
+      }}
+    >
+      <AceText role="caption" colour={theme.colours.mutedForeground}>
+        Archived
+      </AceText>
+      <View style={{ flex: 1 }} />
+      {operate ? (
+        <AceHost style={{ width: "auto" }}>
+          <AceButton
+            label="Unarchive"
+            kind="secondary"
+            enabled={!working}
+            onPress={() => void unarchive()}
+          />
+        </AceHost>
+      ) : (
+        <AceText role="caption" colour={theme.colours.mutedForeground}>
+          View only
+        </AceText>
+      )}
+      {problem ? (
+        <AceText role="caption" colour={theme.statusText.failed}>
+          {problem}
+        </AceText>
+      ) : null}
+    </View>
+  );
+}
+
 export function ThreadScreen({
   client,
   id,
@@ -319,6 +392,8 @@ export function ThreadScreen({
   notify,
   onOpenFiles,
   returnSends = false,
+  canAct,
+  now = Date.now,
 }: {
   client: ClientApi;
   id: string;
@@ -329,6 +404,12 @@ export function ThreadScreen({
   notify(text: string): void;
   onOpenFiles?(): void;
   returnSends?: boolean;
+  /**
+   * Whether this phone may unarchive an archived thread. Fail closed: anything
+   * but an explicit `true` offers no Unarchive, matching iOS (`canOperate`).
+   */
+  canAct?: boolean | undefined;
+  now?(): number;
 }) {
   const theme = useTheme();
   const headerHeight = useHeaderHeight();
@@ -349,6 +430,9 @@ export function ThreadScreen({
   const ids = useSelection(orderSelection);
   const blocks = useTranscriptBlocks(lease.store);
   const thread = useSelection(threadSelection);
+  // An archived thread opens read-only: the composer gives way to the
+  // ArchivedNote until the thread is unarchived, mirroring iOS.
+  const archived = thread?.archivedAt !== undefined;
   const interactions = useSelection(interactionsSelection);
   const pending = useSelection(pendingSelection);
   const status = thread ? statusAppearance(thread.status, theme) : undefined;
@@ -566,14 +650,18 @@ export function ThreadScreen({
           <Questions id={interaction} store={lease.store} client={client} notify={notify} />
         </View>
       ))}
-      <Composer
-        threadId={id}
-        draftKey={hostId === null ? null : draftKey(hostId, id)}
-        drafts={drafts}
-        client={client}
-        notify={notify}
-        returnSends={returnSends}
-      />
+      {archived ? (
+        <ArchivedNote client={client} id={id} now={now} canAct={canAct} notify={notify} />
+      ) : (
+        <Composer
+          threadId={id}
+          draftKey={hostId === null ? null : draftKey(hostId, id)}
+          drafts={drafts}
+          client={client}
+          notify={notify}
+          returnSends={returnSends}
+        />
+      )}
       {agents ? (
         <AgentsSheet
           store={lease.store}

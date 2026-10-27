@@ -138,9 +138,9 @@ function ToggleRow({
 
 /**
  * Phone-local settings matching the practical iOS Settings slice: Interface
- * (appearance, Send with Return), app lock preference and timeout, and a
- * redacted diagnostics export. Machines, notifications, archive, profiles,
- * and provider sign-in stay on the daemon-backed roadmap and are not shown.
+ * (appearance, Send with Return), app lock preference and timeout, the Archived
+ * browser entry, and a redacted diagnostics export. Machines, notifications,
+ * profiles, and provider sign-in stay on the daemon-backed roadmap and are not shown.
  *
  * The lock toggle is enforced by the host app: turning it on takes effect on
  * the next backgrounding, turning it off asks for the device credentials
@@ -154,6 +154,7 @@ export function SettingsScreen({
   notify,
   dismiss,
   authenticate,
+  onArchived,
 }: {
   initial: SettingsState;
   storage: SettingsKeyValue;
@@ -161,6 +162,8 @@ export function SettingsScreen({
   notify?(text: string): void;
   dismiss(): void;
   authenticate?(reason: string): Promise<AuthOutcome>;
+  /** Opens the archived-thread browser, mirroring iOS Settings › Archived. */
+  onArchived?(): void;
 }) {
   const theme = useTheme();
   const [state, setState] = useState<SettingsState>(initial);
@@ -296,6 +299,20 @@ export function SettingsScreen({
           testID="settings.returnSends"
           last
         />
+      </Section>
+
+      <Section title="Threads">
+        {onArchived ? (
+          <Row
+            label="Archived"
+            value="This machine"
+            testID="settings.archived"
+            onPress={onArchived}
+            last
+          />
+        ) : (
+          <Row label="Archived" value="Pair a machine first" testID="settings.archived" last />
+        )}
       </Section>
 
       <Section title="App lock">

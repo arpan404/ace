@@ -20,6 +20,7 @@ import { isFixtureMode } from "./execution-mode.ts";
 import { readExecutionMode } from "./native-mode.ts";
 import { ThemeContext, tokens, useTheme, textStyle, AceHost } from "./theme.tsx";
 import { Inbox } from "./Inbox.tsx";
+import { ArchiveScreen } from "./Archive.tsx";
 import { ThreadScreen } from "./Thread.tsx";
 import { ConversationSearchView } from "./ConversationSearch.tsx";
 import { FileScreen, FilesScreen } from "./Files.tsx";
@@ -55,6 +56,7 @@ type RootStack = {
   File: { id: string; title: string; path: string; line?: number };
   Search: { threadId?: string } | undefined;
   Settings: undefined;
+  Archived: undefined;
 };
 const Stack = createNativeStackNavigator<RootStack>();
 function ThreadSearchAction() {
@@ -281,6 +283,7 @@ function Ready({
                     navigation.push("Files", { id: route.params.id, title: route.params.title })
                   }
                   returnSends={phoneSettings.state.returnSends}
+                  canAct
                 />
               )}
             </Stack.Screen>
@@ -325,8 +328,22 @@ function Ready({
                     notify={notify}
                     dismiss={() => navigation.goBack()}
                     authenticate={authenticate}
+                    onArchived={() => navigation.push("Archived")}
                   />
                 </View>
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="Archived" options={{ title: "Archived" }}>
+              {({ navigation }) => (
+                <ArchiveScreen
+                  client={runtime.client}
+                  now={Date.now}
+                  notify={notify}
+                  // Same grant as the inbox: the fixture loopback is full-access;
+                  // real pairing leaves this absent (fail closed) until scopes say otherwise.
+                  canAct
+                  open={(id) => navigation.push("Thread", { id, title: "Thread" })}
+                />
               )}
             </Stack.Screen>
           </Stack.Navigator>
