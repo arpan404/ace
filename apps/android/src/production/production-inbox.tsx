@@ -27,6 +27,9 @@ import {
   threadWindowFor,
   type ProductionInboxEntry,
 } from "./production-inbox.ts";
+import { canShowProductionComposer } from "./production-composer.ts";
+import { ProductionComposer } from "./production-composer.tsx";
+import type { ThreadDraftStore } from "../thread-drafts.ts";
 import type { ProductionStartup } from "../runtime/production-startup.ts";
 
 /**
@@ -305,11 +308,15 @@ export function ProductionThreadView({
   startup,
   hostId,
   threadId,
+  drafts,
+  notify,
   onBack,
 }: {
   startup: ProductionStartup;
   hostId: string;
   threadId: string;
+  drafts: ThreadDraftStore | null;
+  notify(text: string): void;
   onBack(): void;
 }) {
   const theme = useTheme();
@@ -478,11 +485,25 @@ export function ProductionThreadView({
           <ThreadItems store={lease.store} />
         </View>
       )}
-      <View style={{ padding: tokens.spacing.lg }}>
-        <AceText role="caption" colour={theme.colours.mutedForeground}>
-          View only. Reply on your computer.
-        </AceText>
-      </View>
+      {canShowProductionComposer({
+        canOperate: startup.canOperate(hostId),
+        // Revoked/pin routes return above, so reaching here means paired.
+        routePaired: true,
+      }) ? (
+        <ProductionComposer
+          startup={startup}
+          hostId={hostId}
+          threadId={threadId}
+          drafts={drafts}
+          notify={notify}
+        />
+      ) : (
+        <View style={{ padding: tokens.spacing.lg }}>
+          <AceText role="caption" colour={theme.colours.mutedForeground}>
+            View only. Reply on your computer.
+          </AceText>
+        </View>
+      )}
     </View>
   );
 }
@@ -490,9 +511,13 @@ export function ProductionThreadView({
 export function ActiveMachineInbox({
   startup,
   hostId,
+  drafts,
+  notify,
 }: {
   startup: ProductionStartup;
   hostId: string;
+  drafts: ThreadDraftStore | null;
+  notify(text: string): void;
 }) {
   const theme = useTheme();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -622,6 +647,8 @@ export function ActiveMachineInbox({
         startup={startup}
         hostId={hostId}
         threadId={gatedOpenId}
+        drafts={drafts}
+        notify={notify}
         onBack={() => setOpenId(null)}
       />
     );

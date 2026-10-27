@@ -9,7 +9,7 @@ import { AceText, AceButton, Column, Group } from "../components.tsx";
 import { tokens, useTheme } from "../theme.tsx";
 import { expoBridgeFromModule } from "../security/expo-bridge.ts";
 import { createProductionCredentialStore } from "../pairing/secure-store.ts";
-import { ensureOutboxTables, sqliteNamespace } from "../storage.ts";
+import { ensureOutboxTables, sqliteDraftPersistence, sqliteNamespace } from "../storage.ts";
 import {
   createProductionStartup,
   sqliteStartupDatabase,
@@ -41,6 +41,7 @@ import { createStartupTeardown } from "./startup-teardown.ts";
 import { createCoalescingFlight } from "./single-flight.ts";
 import { readStoredLockPrefsWithStatus, sqliteAppLockStorage } from "./lock-storage.ts";
 import { networkChange, snapshotNetworkState, type NetworkSnapshot } from "./network-monitor.ts";
+import { ThreadDraftStore, memoryDraftPersistence } from "../thread-drafts.ts";
 import { machineCards, routeMessage, selectActiveHost } from "./production-wiring.ts";
 import { ActiveMachineInbox } from "./production-inbox.tsx";
 import { PairingScreen } from "../Pairing.tsx";
@@ -147,6 +148,7 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
   const theme = useTheme();
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   const [startup, setStartup] = useState<ProductionStartup | null>(null);
+  const [drafts, setDrafts] = useState<ThreadDraftStore | null>(null);
   const [lock, setLock] = useState<AppLock | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -197,6 +199,7 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
     setLoaded(reset.loaded);
     setLoadError(reset.loadError);
     setSecureGuardFailed(reset.secureGuardFailed);
+    setDrafts(null);
     let db: SQLiteDatabase | null = null;
     let seen: ProductionStartup | null = null;
     let storage: { flush(): Promise<void> } | null = null;
@@ -292,8 +295,32 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
         startupRef.current = produced;
         lockRef.current = appLock;
         if (cancelled) return;
+        // Unsent composer words: durable per machine+thread in the same
+        // database, outside the outbox. Drafts are never load-bearing: a hung
+        // or failed backing falls back to memory (exact across navigation,
+        // best-effort across kills) instead of failing phase one.
+        let draftStore: ThreadDraftStore;
+        try {
+          const draftPersistRaw = sqliteDraftPersistence(db, "ace-drafts");
+          owner.track(draftPersistRaw);
+          const persist = await withLoadTimeout(draftPersistRaw, PRODUCTION_LOAD_TIMEOUT_MS);
+          if (cancelled) return;
+          const store = new ThreadDraftStore(persist);
+          const draftOpenRaw = store.open();
+          owner.track(draftOpenRaw);
+          await withLoadTimeout(draftOpenRaw, PRODUCTION_LOAD_TIMEOUT_MS);
+          if (cancelled) return;
+          draftStore = store;
+        } catch {
+          if (cancelled) return;
+          const fallback = new ThreadDraftStore(memoryDraftPersistence());
+          await fallback.open().catch(() => undefined);
+          if (cancelled) return;
+          draftStore = fallback;
+        }
         setLockStorageFailed(storageFailed);
         setStartup(produced);
+        setDrafts(draftStore);
         setLock(appLock);
         // The initial snapshot only establishes the baseline (first sighting
         // propagates nothing), so a hung or failing read must never stall
@@ -488,7 +515,7 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
       </Center>
     );
   }
-  if (!startup || !lock) {
+  if (!startup || !lock || !drafts) {
     // Opaque before the lock resolves: no paired content can flash, even on
     // a first frame that reports `active`.
     return (
@@ -532,6 +559,7 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
     <MachinesView
       startup={startup}
       lock={lock}
+      drafts={drafts}
       activeHost={activeHost}
       pairingOpen={pairingOpen}
       secureGuardFailed={secureGuardFailed}
@@ -598,6 +626,7 @@ function LockScreen({ lock, refresh }: { lock: AppLock; refresh(): void }) {
 function MachinesView({
   startup,
   lock,
+  drafts,
   activeHost,
   pairingOpen,
   secureGuardFailed,
@@ -610,6 +639,7 @@ function MachinesView({
 }: {
   startup: ProductionStartup;
   lock: AppLock;
+  drafts: ThreadDraftStore;
   activeHost: string | undefined;
   pairingOpen: boolean;
   secureGuardFailed: boolean;
@@ -841,11 +871,14 @@ function MachinesView({
       })}
       {error ? <AceText role="caption">{error}</AceText> : null}
       <AceButton label="Pair another machine" onPress={onPairingOpen} kind="secondary" />
-      {activeHost ? <ActiveMachineInbox startup={startup} hostId={activeHost} /> : null}
+      {activeHost ? (
+        <ActiveMachineInbox startup={startup} hostId={activeHost} drafts={drafts} notify={notify} />
+      ) : null}
       <LockSettings lock={lock} notify={notify} />
       <AceText role="caption">
-        Threads show the active machine only; the cross-machine merge is later work. Mutations stay
-        behind the per-machine gate and fail closed while view-only or offline.
+        Threads show the active machine only; the cross-machine merge is later work. The open thread
+        keeps a composer while this phone may operate; sends admit through the per-machine gate and
+        fail closed while view-only or offline.
       </AceText>
     </ScrollView>
   );
