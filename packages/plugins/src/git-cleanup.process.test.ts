@@ -1,4 +1,7 @@
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { setImmediate } from "node:timers/promises";
 import { expect, test } from "vitest";
 import { nodeBinary } from "@ace/provider-kit/testing";
@@ -112,6 +115,35 @@ test.runIf(process.platform === "win32")(
     } finally {
       process.removeListener("unhandledRejection", observed);
       manager?.close();
+      await f.close();
+    }
+  },
+);
+
+test.runIf(process.platform === "win32")(
+  "on Windows releasing a plugin Git folder waits out a handle another process still holds",
+  async () => {
+    const f = await fixture();
+    try {
+      const folder = join(f.root, "private-git");
+      await mkdir(folder);
+      await writeFile(join(folder, "held"), "x");
+      // A process keeps the file open without delete sharing for a moment, as a just-ended
+      // Git helper's handles can.
+      const holder = spawn(
+        process.execPath,
+        [
+          "-e",
+          "const fs=require('node:fs');const fd=fs.openSync(process.argv[1],'r');process.stdout.write('held');setTimeout(()=>fs.closeSync(fd),400);",
+          join(folder, "held"),
+        ],
+        { stdio: ["ignore", "pipe", "inherit"] },
+      );
+      await once(holder.stdout, "data");
+      await gitRuntime().release(folder);
+      await expect(access(folder)).rejects.toMatchObject({ code: "ENOENT" });
+      await once(holder, "exit");
+    } finally {
       await f.close();
     }
   },
