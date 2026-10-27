@@ -31,7 +31,9 @@ struct SettingsModelSheet: View {
     private var tab: String {
         if let shown, tabs.contains(where: { $0.id == shown }) { return shown }
         let starred = read.tabs.first { $0.favorites }?.models.isEmpty == false
-        return ModelPickerStart.tab(tabs, hasFavorites: starred, current: current.map { "\($0.provider):\($0.account)" })
+        // With nothing set yet, it opens on the first account that lists models.
+        let first = read.tabs.first { !$0.favorites && !$0.models.isEmpty }?.id
+        return ModelPickerStart.tab(tabs, hasFavorites: starred, current: current.map { "\($0.provider):\($0.account)" } ?? first)
     }
     private var hasMore: Bool {
         guard let entry = read.tabs.first(where: { $0.id == tab }) else { return false }

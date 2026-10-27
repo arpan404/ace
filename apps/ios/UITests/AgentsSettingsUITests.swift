@@ -40,9 +40,10 @@ import XCTest
         XCTAssertTrue(roleModel.waitForExistence(timeout: 15))
         screenshot("role-unset")
         roleModel.tap()
-        let firstModel = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'settingsModel.'")).firstMatch
-        XCTAssertTrue(firstModel.waitForExistence(timeout: 20))
+        let firstModel = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "settingsModel.")).firstMatch
+        let listed = firstModel.waitForExistence(timeout: 20)
         screenshot("role-model-sheet")
+        XCTAssertTrue(listed, "the sheet lists the machine's models")
         firstModel.tap()
         app.buttons["modelSheet.done"].tap()
         XCTAssertTrue(element("setting.role.effort", in: app).waitForExistence(timeout: 20), "a set role offers its efforts")

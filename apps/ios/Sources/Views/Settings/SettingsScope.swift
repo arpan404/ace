@@ -56,8 +56,8 @@ struct SettingsScopeSection: View {
     }
     private func footer(send: [SettingsScope.Machine], skipped: [SettingsScope.Machine]) -> String {
         let names = ListFormatter.localizedString(byJoining: send.map(\.name))
-        guard scope.all else { return "Only \(names)." }
-        let reached = send.isEmpty ? "No machine is connected." : "\(names)."
+        guard scope.all else { return "Saved on \(names) only." }
+        let reached = send.isEmpty ? "No machine is connected." : "Saved on \(names)."
         guard !skipped.isEmpty else { return reached }
         let away = ListFormatter.localizedString(byJoining: skipped.map(\.name))
         return "\(reached) \(away) \(skipped.count == 1 ? "isn't" : "aren't") connected and keep\(skipped.count == 1 ? "s its" : " their") own."

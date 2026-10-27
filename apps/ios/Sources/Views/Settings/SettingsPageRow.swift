@@ -55,7 +55,7 @@ struct SettingsPageRowView: View {
                     picker(choices).pickerStyle(.segmented)
                 }
             } else {
-                picker(choices).pickerStyle(.menu)
+                menu(choices)
             }
         case .text(let placeholder):
             field(placeholder, keyboard: .default)
@@ -121,6 +121,32 @@ struct SettingsPageRowView: View {
             ForEach(choices) { Text($0.label).tag($0.id) }
         } label: { label }
         .accessibilityIdentifier("setting.\(row.id)")
+    }
+    /// Title on the left, the chosen value on the right; the menu lists every choice.
+    private func menu(_ choices: [SettingsPageData.Choice]) -> some View {
+        let selected = if case .choice(let id)? = pending { id } else { row.value.text }
+        let shown = choices.first { $0.id == selected }?.label ?? selected
+        return HStack(spacing: AceTheme.Spacing.sm) {
+            label
+            Spacer(minLength: AceTheme.Spacing.sm)
+            Menu {
+                Picker(row.title, selection: Binding(get: { selected }, set: { change(.choice($0)) })) {
+                    ForEach(choices) { Text($0.label).tag($0.id) }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                HStack(spacing: AceTheme.Spacing.xxs) {
+                    Text(shown).multilineTextAlignment(.trailing).lineLimit(2).contentTransition(.opacity)
+                    Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.medium))
+                }
+                .aceFont(InsetStyle.value, relativeTo: .body)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            }
+            .accessibilityIdentifier("setting.\(row.id)")
+            .accessibilityLabel(row.title)
+            .accessibilityValue(shown)
+        }
     }
 
     private func field(_ placeholder: String, keyboard: UIKeyboardType) -> some View {
