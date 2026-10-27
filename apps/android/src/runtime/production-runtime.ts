@@ -1,4 +1,13 @@
-import { Client, type Scheduler, type Storage, type Transport } from "@ace/client";
+import {
+  Client,
+  type ClientApi,
+  type ClientError,
+  type ConnectionState,
+  type Scheduler,
+  type Selection,
+  type Storage,
+  type Transport,
+} from "@ace/client";
 import { DeviceId, HostId } from "@ace/protocol";
 import { PinnedTransportError, TrustMonitor } from "../security/pinned-transport.ts";
 import {
@@ -69,8 +78,28 @@ export interface ProductionRuntimeDeps {
         context: { trust: TrustMonitor; isCurrent: () => boolean },
       ) => Transport)
     | undefined;
-  /** Observes each built client; tests use it to await readiness. */
-  readonly observe?: ((entry: MachineEntry, client: Client) => void) | undefined;
+  /**
+   * Per-call admission guard. Production startup supplies a closure that
+   * throws when the entry's recorded grant is view-only; the guarded
+   * admission below runs it on every mutating call, so even a leaked
+   * admission object fails closed after revocation.
+   */
+  readonly assertAdmission?: ((entry: MachineEntry) => void) | undefined;
+  /**
+   * Observes connection readiness only. Receives a read-only signals view
+   * (`connectionState`/`error`); the SDK `Client` itself never escapes, so
+   * an observer cannot cache a mutation handle around the grant.
+   */
+  readonly observe?: ((entry: MachineEntry, signals: ProductionRuntimeSignals) => void) | undefined;
+}
+
+/**
+ * Read-only connection signals for tests. Deliberately omits every command
+ * admission method: polling readiness must never hand out a mutation handle.
+ */
+export interface ProductionRuntimeSignals {
+  connectionState(): Selection<ConnectionState>;
+  readonly error: ClientError | undefined;
 }
 
 /**
@@ -119,14 +148,38 @@ export function createProductionCredential(
   });
 }
 
+export interface ProductionMutations extends Pick<
+  ClientApi,
+  "enqueue" | "command" | "submitNew" | "intent"
+> {}
+
 export interface ProductionMachineRuntime extends MachineRuntime {
   /** Binds the manager epoch captured after this runtime attached. */
   bindEpoch(epoch: number): void;
 }
 
-export function createProductionMakeRuntime(
-  deps: ProductionRuntimeDeps,
-): (entry: MachineEntry) => ProductionMachineRuntime {
+/**
+ * Per-factory admission registry. The callable builds lifecycle-only
+ * runtimes for the manager (`manager.client` never sees command admission
+ * at runtime, not just in the types); `admissionFor` resolves the guarded
+ * admission for one connected host, or `undefined` once its runtime closed.
+ * Every admission object is pinned to the exact runtime record observed at
+ * lookup: every method re-runs `assertAdmission` against the current entry
+ * and re-checks the binding identity plus the epoch guard, so a cached
+ * admission fails closed after revocation, same-host replacement or re-pair,
+ * disconnect or removal instead of forwarding to the new owner. `intent`
+ * checks binding liveness only.
+ */
+export interface ProductionMakeRuntime {
+  (entry: MachineEntry): ProductionMachineRuntime;
+  admissionFor(hostId: string): ProductionMutations | undefined;
+}
+
+function notConnected(): Error {
+  return new Error("This machine is not connected.");
+}
+
+export function createProductionMakeRuntime(deps: ProductionRuntimeDeps): ProductionMakeRuntime {
   let ids = 0;
   const scheduler: Scheduler = deps.scheduler ?? {
     set(delayMs, callback) {
@@ -136,7 +189,16 @@ export function createProductionMakeRuntime(
   };
   const id = deps.id ?? (() => `client-${Date.now()}-${(ids += 1)}`);
   const random = deps.random ?? (() => Math.random());
-  return (entry) => {
+  const live = new Map<string, { client: Client; entry: MachineEntry; isCurrent: () => boolean }>();
+  const resolveCurrent = (hostId: string): { client: Client; entry: MachineEntry } => {
+    const current = live.get(hostId);
+    if (current === undefined || !current.isCurrent()) {
+      if (current !== undefined) live.delete(hostId);
+      throw notConnected();
+    }
+    return current;
+  };
+  const makeRuntime = ((entry: MachineEntry): ProductionMachineRuntime => {
     if (entry.target.kind !== "direct") throw new ProductionTransportError();
     const fingerprint = entry.target.kind === "direct" ? (entry.target.fingerprint ?? "") : "";
     if (!isPin(fingerprint)) throw new PinnedTransportError("invalid");
@@ -169,7 +231,14 @@ export function createProductionMakeRuntime(
       // spike cap must never leak into this configuration.
       limits: { items: 200 },
     });
-    deps.observe?.(entry, client);
+    // Read-only readiness view: no mutation handle escapes to observers.
+    deps.observe?.(entry, {
+      connectionState: client.connectionState.bind(client),
+      get error() {
+        return client.error;
+      },
+    });
+    live.set(entry.hostId, { client, entry, isCurrent });
     return {
       bindEpoch(next: number) {
         epoch = next;
@@ -178,7 +247,10 @@ export function createProductionMakeRuntime(
         await client.start();
       },
       async close() {
+        // A failed close keeps the single owner attached (the manager retries
+        // it): only a successful close detaches the guarded admission below.
         await client.close();
+        if (live.get(entry.hostId)?.client === client) live.delete(entry.hostId);
       },
       networkOnline(online: boolean) {
         client.networkOnline(online);
@@ -190,5 +262,55 @@ export function createProductionMakeRuntime(
         client.wake();
       },
     };
+  }) as ProductionMakeRuntime;
+  makeRuntime.admissionFor = (hostId: string): ProductionMutations | undefined => {
+    const bound = live.get(hostId);
+    if (bound === undefined || !bound.isCurrent()) {
+      if (bound !== undefined) live.delete(hostId);
+      return undefined;
+    }
+    const boundRecord = bound;
+    const boundClient = bound.client;
+    // Pinned to the exact runtime record observed here. A same-host
+    // replacement or re-pair mints a new record, so a cached admission must
+    // fail instead of forwarding to the new owner; the grant below is always
+    // read from the current record, never the stale capture.
+    const checkBound = (): { client: Client; entry: MachineEntry } => {
+      const current = resolveCurrent(hostId);
+      if (current !== boundRecord || current.client !== boundClient) {
+        throw notConnected();
+      }
+      return current;
+    };
+    // Fresh guarded admission per lookup, and every method re-checks: a
+    // previously returned admission object still fails closed after
+    // revocation (assertAdmission on the current entry), replacement or
+    // re-pair (binding identity above), or close/removal (registry delete in
+    // `close`).
+    return {
+      enqueue: async (payload, commandId) => {
+        const current = checkBound();
+        deps.assertAdmission?.(current.entry);
+        if (live.get(hostId) !== boundRecord) throw notConnected();
+        return current.client.enqueue(payload, commandId);
+      },
+      command: async (payload, options, commandId) => {
+        const current = checkBound();
+        deps.assertAdmission?.(current.entry);
+        if (live.get(hostId) !== boundRecord) throw notConnected();
+        return current.client.command(payload, options, commandId);
+      },
+      submitNew: async (payload, record, options) => {
+        const current = checkBound();
+        deps.assertAdmission?.(current.entry);
+        if (live.get(hostId) !== boundRecord) throw notConnected();
+        return current.client.submitNew(payload, record, options);
+      },
+      intent: (commandId) => {
+        const current = checkBound();
+        return current.client.intent(commandId);
+      },
+    };
   };
+  return makeRuntime;
 }

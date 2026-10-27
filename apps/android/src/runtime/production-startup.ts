@@ -1,5 +1,6 @@
 import { ClientError } from "@ace/client";
-import type { Storage } from "@ace/client";
+import type { Intent, RequestOptions, Selection, Storage } from "@ace/client";
+import type { CommandPayload, CommandResult } from "@ace/protocol";
 import type { SQLiteDatabase } from "expo-sqlite";
 import { z } from "zod";
 import { TrustMonitor } from "../security/pinned-transport.ts";
@@ -19,6 +20,9 @@ import {
   namespaceFor,
   type ProductionEpochs,
   type ProductionMachineRuntime,
+  type ProductionMakeRuntime,
+  type ProductionMutations,
+  type ProductionRuntimeDeps,
 } from "./production-runtime.ts";
 import type { MachineEntry } from "@ace/client/machines";
 
@@ -114,6 +118,15 @@ export class ViewOnlyError extends Error {
 /** Throw when a view-only pairing is asked to mutate. Read-only rows stay readable. */
 export function assertCanOperate(grants: GrantStore, entry: { deviceId: string }): void {
   if (!grants.canOperateFor(entry.deviceId)) throw new ViewOnlyError();
+}
+
+function mutationNotConnected(): Error {
+  return new Error("This machine is not connected.");
+}
+
+function bindingFingerprint(candidate: MachineEntry | undefined): string | undefined {
+  if (candidate === undefined) return undefined;
+  return candidate.target.kind === "direct" ? (candidate.target.fingerprint ?? "") : undefined;
 }
 
 /** expo-sqlite metadata backing for the grant store, beside the outbox tables. */
@@ -233,6 +246,12 @@ export interface ProductionStartupDeps {
    */
   readonly identityReader?: IdentityReader | undefined;
   /**
+   * Test seam for the socket transport. Production always uses the pinned
+   * native bridge; tests substitute a loopback transport to exercise real
+   * command admission against a fake daemon with no device.
+   */
+  readonly transportFor?: ProductionRuntimeDeps["transportFor"] | undefined;
+  /**
    * Deterministic clocks for tests (a never-firing scheduler keeps unstarted
    * runtimes from retrying in the background). Production omits this.
    */
@@ -248,15 +267,22 @@ export interface ProductionStartupDeps {
 }
 
 /**
- * A short-lived admission check for one machine's lifecycle operations.
- * Unlike the raw `MachineRuntime` behind `manager.client` (the read path),
- * a gate never hands out a cachable handle: every method re-resolves the
- * grant and the live runtime at call time, so revocation, disconnect or
- * removal takes effect even on a gate the caller kept. `start`/`close` are
- * absent on purpose: lifecycle stays with the manager and is not a mutation.
- * This gate covers only `reconnectNow`/`wake`/`networkOnline`/`check` today:
- * the app's real content mutations are not yet routed through it, so it is
- * an admission helper for tests, not an enforced mutation boundary.
+ * A short-lived admission gate for one machine's mutations. Unlike the raw
+ * `MachineRuntime` behind `manager.client` (lifecycle only, never command
+ * admission), a gate never hands out a cachable handle: every method
+ * re-resolves the grant and the live runtime at call time, so revocation,
+ * disconnect or removal takes effect even on a gate the caller kept. The
+ * underlying SDK `Client` is reachable only through the gate's per-call
+ * resolver; `manager.client` exposes no `enqueue`/`command`/`submitNew`, so
+ * mutations cannot bypass the grant. `start`/`close` are absent on purpose:
+ * lifecycle stays with the manager and is not a mutation.
+ *
+ * Mirrors the iOS `ClientModel` per-operation guard (`guard canOperate` on
+ * every command submission): `enqueue`, `command` and `submitNew` throw
+ * `ViewOnlyError` for view-only grants (or unknown hosts, or missing grant
+ * rows) before touching the outbox or the network, so a refused call admits
+ * nothing and a `submitNew` refusal never runs its `record` callback. `intent`
+ * is the read-only receipt view and needs no grant, only a live runtime.
  */
 export interface MutationGate {
   readonly hostId: string;
@@ -265,6 +291,21 @@ export interface MutationGate {
   reconnectNow(): void;
   wake(): void;
   networkOnline(online: boolean): void;
+  /** Durably admit one command; throws `ViewOnlyError` or `not connected`. */
+  enqueue(payload: CommandPayload, id?: string): Promise<string>;
+  /** Admit one command and wait for its receipt; throws `ViewOnlyError` or `not connected`. */
+  command(payload: CommandPayload, options?: RequestOptions, id?: string): Promise<CommandResult>;
+  /**
+   * Admit one command under a caller-recorded id. The grant and liveness are
+   * checked before `record` runs, so a refused call records nothing.
+   */
+  submitNew(
+    payload: CommandPayload,
+    record: (id: string) => void | Promise<void>,
+    options?: RequestOptions,
+  ): Promise<CommandResult>;
+  /** The durable receipt for one admitted command; read-only, needs only liveness. */
+  intent(id: string): Selection<Intent | undefined>;
 }
 export interface ProductionStartup {
   readonly manager: MachinesRuntime;
@@ -278,32 +319,37 @@ export interface ProductionStartup {
    * to the recorded grant; unknown hosts, and known hosts with no recorded
    * grant row, fail closed (view-only). This is stricter than the iOS
    * `MachinesModel.canOperate` unknown-device default; see the grants note
-   * above. Future screens must resolve this (or call `assertCanOperateFor`)
-   * before admitting inbox, approval, question, composer or screen actions;
-   * the daemon re-enforces the grant. No production UI is wired through this
-   * helper yet.
+   * above. Screens must resolve this (or call `assertCanOperateFor`) before
+   * admitting inbox, approval, question, composer or screen actions; the
+   * daemon re-enforces the grant.
    */
   canOperate(hostId: string): boolean;
   /**
-   * Throw `ViewOnlyError` when `canOperate(hostId)` is false. Future call
-   * sites use this before mutations bound to a machine; read-only rows stay
-   * readable. Not yet wired to any production mutation path.
+   * Throw `ViewOnlyError` when `canOperate(hostId)` is false. Call before
+   * every mutation bound to a machine until UI wiring lands; read-only rows
+   * stay readable.
    */
   assertCanOperateFor(hostId: string): void;
   /**
-   * A short-lived admission helper bound to one machine for lifecycle
-   * operations (`reconnectNow`/`wake`/`networkOnline`/`check`). Each call
-   * returns a fresh gate (never the shared live runtime), and every gate
-   * method re-resolves the grant and the live runtime at call time: a cached
-   * gate stops working when the grant is revoked, the runtime disconnects,
-   * or the machine is removed. Throws `ViewOnlyError` when the recorded
-   * grant is view-only (or the host is unknown, or its grant row is missing)
-   * and throws when the machine has no live runtime. This is not an enforced
-   * content-mutation boundary: the app's real inbox/composer mutations are
-   * not yet routed through it, and `manager.client` remains directly
-   * reachable, so view-only enforcement is not demonstrable end to end.
-   * Read-only rows stay readable through `manager.client` and `route`.
-   * `start`/`close` stay with the manager: lifecycle is not a mutation.
+   * A short-lived mutation gate bound to one machine: the single admission
+   * point for every future inbox, approval, question, composer or screen
+   * mutation. Each call returns a fresh gate (never the shared live
+   * runtime), and every gate method re-resolves the grant and the live
+   * runtime at call time: a cached gate stops working when the grant is
+   * revoked, the runtime disconnects, the machine is removed, or the binding
+   * is replaced or re-paired (epoch plus device and pin pin the gate to the
+   * exact owner observed at creation, so it never forwards to the new owner). `enqueue`,
+   * `command` and `submitNew` throw `ViewOnlyError` when the recorded grant
+   * is view-only (or the host is unknown, or its grant row is missing) before
+   * touching the outbox or the network, and throw when the machine has no
+   * live runtime or the binding changed since the gate was issued, so a view-only phone cannot reach a mutating path through
+   * this boundary and a cached raw handle can never outlive revocation.
+   * `intent` is the read-only receipt view and needs only liveness.
+   * Read-only receipts stay readable through the gate's `intent` and `route`;
+   * `manager.client` exposes lifecycle only (no reads and no `enqueue`/
+   * `command`/`submitNew`), so mutating call sites must go through the gate and must
+   * never cache a gate past one flow. `start`/`close` stay with the manager:
+   * lifecycle is not a mutation.
    */
   runtimeForMutation(hostId: string): MutationGate;
   route(hostId: string): StartupRoute;
@@ -357,12 +403,18 @@ export function createProductionStartup(deps: ProductionStartupDeps): Production
     isCurrent: (hostId, epoch) => manager?.isCurrent(hostId, epoch) ?? true,
     epochOf: (hostId) => manager?.epochOf(hostId),
   };
-  const makeRuntime = createProductionMakeRuntime({
+  const makeRuntime: ProductionMakeRuntime = createProductionMakeRuntime({
     bridge: deps.bridge,
     credentials: deps.credentials,
     storageFor: (entry) => deps.database.storageFor(namespaceFor(entry)),
     epochs,
     trustFor: trustOf,
+    // Grant re-check inside the admission itself: even a leaked admission
+    // object throws `ViewOnlyError` after revocation instead of admitting.
+    assertAdmission: (candidate) => {
+      if (!grants.canOperateFor(candidate.deviceId)) throw new ViewOnlyError();
+    },
+    ...(deps.transportFor === undefined ? {} : { transportFor: deps.transportFor }),
     ...(deps.clocks?.scheduler === undefined ? {} : { scheduler: deps.clocks.scheduler }),
     ...(deps.clocks?.id === undefined ? {} : { id: deps.clocks.id }),
     ...(deps.clocks?.random === undefined ? {} : { random: deps.clocks.random }),
@@ -392,14 +444,46 @@ export function createProductionStartup(deps: ProductionStartupDeps): Production
     if (!canOperate(hostId)) throw new ViewOnlyError();
   };
   const runtimeForMutation = (hostId: string): MutationGate => {
+    // Pin to the exact binding observed here (manager epoch plus device and
+    // pin). A same-host replacement or re-pair bumps the epoch and swaps the
+    // binding, so a cached gate must fail instead of admitting through the
+    // new owner; removal and disconnect already fail in the resolvers below,
+    // before this check.
+    const boundEpoch = manager.epochOf(hostId);
+    const boundDevice = manager.entry(hostId)?.deviceId;
+    const boundFingerprint = bindingFingerprint(manager.entry(hostId));
+    const assertGateBinding = (): void => {
+      if (boundEpoch === undefined) throw mutationNotConnected();
+      if (manager.epochOf(hostId) !== boundEpoch) throw mutationNotConnected();
+      const current = manager.entry(hostId);
+      if (current?.deviceId !== boundDevice) throw mutationNotConnected();
+      if (bindingFingerprint(current) !== boundFingerprint) throw mutationNotConnected();
+    };
+    const resolveMutations = (): ProductionMutations => {
+      assertCanOperateFor(hostId);
+      if (manager.client(hostId) === undefined) throw mutationNotConnected();
+      assertGateBinding();
+      const admission = makeRuntime.admissionFor(hostId);
+      if (admission === undefined) throw mutationNotConnected();
+      return admission;
+    };
+    const resolveForRead = (): ProductionMutations => {
+      if (manager.client(hostId) === undefined) throw mutationNotConnected();
+      assertGateBinding();
+      const admission = makeRuntime.admissionFor(hostId);
+      if (admission === undefined) throw mutationNotConnected();
+      return admission;
+    };
     const resolve = (): MachineRuntime => {
       assertCanOperateFor(hostId);
       const runtime = manager.client(hostId);
-      if (runtime === undefined) throw new Error("This machine is not connected.");
+      if (runtime === undefined) throw mutationNotConnected();
+      assertGateBinding();
       return runtime;
     };
     // Fresh gate per call, no shared handle: every method re-resolves, so a
-    // gate cached past revocation, disconnect or removal fails at use.
+    // gate cached past revocation, disconnect, removal or replacement fails
+    // at use. The raw SDK client never escapes: only per-call bound methods do.
     resolve();
     const gate: MutationGate = {
       hostId,
@@ -415,6 +499,11 @@ export function createProductionStartup(deps: ProductionStartupDeps): Production
       networkOnline: (online: boolean) => {
         resolve().networkOnline(online);
       },
+      enqueue: async (payload, id) => resolveMutations().enqueue(payload, id),
+      command: async (payload, options, id) => resolveMutations().command(payload, options, id),
+      submitNew: async (payload, record, options) =>
+        resolveMutations().submitNew(payload, record, options),
+      intent: (id) => resolveForRead().intent(id),
     };
     return gate;
   };

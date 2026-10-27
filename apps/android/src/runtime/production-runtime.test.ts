@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from "vitest";
-import { Client, type Storage } from "@ace/client";
+import type { Storage } from "@ace/client";
 import { MachineEntry } from "@ace/client/machines";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import type { ExpoPinnedBridge } from "../security/expo-bridge.ts";
@@ -11,6 +11,7 @@ import {
   createProductionCredential,
   createProductionMakeRuntime,
   namespaceFor,
+  type ProductionRuntimeSignals,
 } from "./production-runtime.ts";
 import type { MachineRuntime } from "./machines-runtime.ts";
 
@@ -191,7 +192,7 @@ it("connects one isolated runtime per machine over fresh tickets", async () => {
   await saveCredential(credentials, first, TOKEN);
   await saveCredential(credentials, second, TOKEN);
   const namespaces: string[] = [];
-  const observed = new Map<string, Client>();
+  const observed = new Map<string, ProductionRuntimeSignals>();
   const makeRuntime = createProductionMakeRuntime({
     bridge: ticketBridge(seen),
     credentials,
@@ -200,8 +201,8 @@ it("connects one isolated runtime per machine over fresh tickets", async () => {
       return memoryStorage();
     },
     transportFor: () => fakeTransport(daemon),
-    observe: (candidate, client) => {
-      observed.set(candidate.deviceId, client);
+    observe: (candidate, signals) => {
+      observed.set(candidate.deviceId, signals);
     },
   });
   const one = makeRuntime(first);
@@ -227,14 +228,14 @@ it("fails a runtime whose daemon answers with another host identity", async () =
   const daemon = new TicketDaemon({ clock: Date.now, hostId: HOST, token: "unused" });
   const wrong = entry("other-host", "phone-1");
   await saveCredential(credentials, wrong, TOKEN);
-  let observed: Client | undefined;
+  let observed: ProductionRuntimeSignals | undefined;
   const makeRuntime = createProductionMakeRuntime({
     bridge: ticketBridge(seen),
     credentials,
     storageFor: () => memoryStorage(),
     transportFor: () => fakeTransport(daemon),
-    observe: (_entry, client) => {
-      observed = client;
+    observe: (_entry, signals) => {
+      observed = signals;
     },
   });
   const runtime = makeRuntime(wrong);
@@ -274,7 +275,7 @@ it("close during a hanging ticket exchange stops retries", async () => {
     },
   };
   let opened = 0;
-  let observed: Client | undefined;
+  let observed: ProductionRuntimeSignals | undefined;
   const makeRuntime = createProductionMakeRuntime({
     bridge: hanging,
     credentials,
@@ -289,8 +290,8 @@ it("close during a hanging ticket exchange stops retries", async () => {
       send: () => {},
       close: () => {},
     }),
-    observe: (_entry, client) => {
-      observed = client;
+    observe: (_entry, signals) => {
+      observed = signals;
     },
   });
   const runtime = makeRuntime(same);
@@ -374,4 +375,183 @@ it("opens and closes the pinned socket through the bridge", async () => {
   expect(opened).toEqual([{ id: "socket-1", url: SOCKET_URL, fingerprint: PIN }]);
   await runtime.close();
   expect(closed).toEqual(["socket-1"]);
+});
+
+it("lifecycle runtimes and observers expose no unguarded admission", async () => {
+  const seen: string[] = [];
+  const credentials = createMemoryCredentialStore();
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: HOST, token: "unused" });
+  const same = entry();
+  await saveCredential(credentials, same, TOKEN);
+  let allowed = true;
+  let observed: ProductionRuntimeSignals | undefined;
+  const makeRuntime = createProductionMakeRuntime({
+    bridge: ticketBridge(seen),
+    credentials,
+    storageFor: () => memoryStorage(),
+    transportFor: () => fakeTransport(daemon),
+    assertAdmission: () => {
+      if (!allowed) throw new Error("View only.");
+    },
+    observe: (_candidate, signals) => {
+      observed = signals;
+    },
+  });
+  const runtime = makeRuntime(same);
+  runtimes.push(runtime);
+  // Runtime-level boundary: lifecycle only, even through a cast.
+  const raw = runtime as unknown as Record<string, unknown>;
+  expect(raw["mutations"]).toBeUndefined();
+  expect(raw["enqueue"]).toBeUndefined();
+  expect(raw["command"]).toBeUndefined();
+  expect(raw["submitNew"]).toBeUndefined();
+  expect("mutations" in raw).toBe(false);
+  expect("enqueue" in raw).toBe(false);
+  // The readiness observer is read-only as well.
+  await runtime.start();
+  await until(() => observed?.connectionState().getSnapshot() === "ready");
+  const seenSignals = observed as unknown as Record<string, unknown>;
+  expect(seenSignals["enqueue"]).toBeUndefined();
+  expect(seenSignals["command"]).toBeUndefined();
+  expect(seenSignals["submitNew"]).toBeUndefined();
+  expect(seenSignals["mutations"]).toBeUndefined();
+  expect("enqueue" in (observed as object)).toBe(false);
+  // Guarded admission admits while allowed, then fails closed on the same
+  // cached object after revocation, before touching the client.
+  const cached = makeRuntime.admissionFor(same.hostId);
+  expect(cached).toBeDefined();
+  await cached?.enqueue({ type: "thread.archive", threadId: "t" } as never);
+  allowed = false;
+  await expect(cached?.enqueue({ type: "thread.archive", threadId: "t" } as never)).rejects.toThrow(
+    "View only.",
+  );
+  // Close detaches: no admission remains.
+  await runtime.close();
+  expect(makeRuntime.admissionFor(same.hostId)).toBeUndefined();
+});
+
+it("a stale admission fails after same-host replacement instead of forwarding", async () => {
+  const seen: string[] = [];
+  const credentials = createMemoryCredentialStore();
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: HOST, token: "unused" });
+  const first = entry(HOST, "phone-1");
+  await saveCredential(credentials, first, TOKEN);
+  const seenDevices: string[] = [];
+  let observed: ProductionRuntimeSignals | undefined;
+  const makeRuntime = createProductionMakeRuntime({
+    bridge: ticketBridge(seen),
+    credentials,
+    storageFor: () => memoryStorage(),
+    transportFor: () => fakeTransport(daemon),
+    assertAdmission: (candidate) => {
+      seenDevices.push(candidate.deviceId);
+    },
+    observe: (_candidate, signals) => {
+      observed = signals;
+    },
+  });
+  const one = makeRuntime(first);
+  runtimes.push(one);
+  await one.start();
+  await until(() => observed?.connectionState().getSnapshot() === "ready");
+  const stale = makeRuntime.admissionFor(HOST);
+  expect(stale).toBeDefined();
+  await stale?.enqueue({ type: "thread.archive", threadId: "t" } as never);
+
+  // Same-host replacement (re-pair): new device binding overwrites the live record.
+  const second = entry(HOST, "phone-2");
+  await saveCredential(credentials, second, TOKEN);
+  const two = makeRuntime(second);
+  runtimes.push(two);
+  await two.start();
+
+  // The stale handle is pinned to the old record: it must not forward to the
+  // new owner, even though the new owner is live and admitted.
+  await expect(stale?.enqueue({ type: "thread.archive", threadId: "t" } as never)).rejects.toThrow(
+    "not connected",
+  );
+  await expect(stale?.command({ type: "thread.archive", threadId: "t" } as never)).rejects.toThrow(
+    "not connected",
+  );
+  const recorded: string[] = [];
+  await expect(
+    stale?.submitNew({ type: "thread.archive", threadId: "t" } as never, (next) => {
+      recorded.push(next);
+    }),
+  ).rejects.toThrow("not connected");
+  expect(recorded).toEqual([]);
+  expect(() => stale?.intent("anything")).toThrow("not connected");
+
+  // The fresh admission resolves the current grant (phone-2) and admits.
+  seenDevices.length = 0;
+  const fresh = makeRuntime.admissionFor(HOST);
+  expect(fresh).toBeDefined();
+  await fresh?.enqueue({ type: "thread.archive", threadId: "t" } as never);
+  expect(seenDevices).toEqual(["phone-2"]);
+});
+
+it("runtime and real signals expose no other client mutation APIs", async () => {
+  const seen: string[] = [];
+  const credentials = createMemoryCredentialStore();
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: HOST, token: "unused" });
+  const same = entry();
+  await saveCredential(credentials, same, TOKEN);
+  let observed: ProductionRuntimeSignals | undefined;
+  const makeRuntime = createProductionMakeRuntime({
+    bridge: ticketBridge(seen),
+    credentials,
+    storageFor: () => memoryStorage(),
+    transportFor: () => fakeTransport(daemon),
+    observe: (_candidate, signals) => {
+      observed = signals;
+    },
+  });
+  const runtime = makeRuntime(same);
+  runtimes.push(runtime);
+  await runtime.start();
+  await until(() => observed?.connectionState().getSnapshot() === "ready");
+  // Every mutating or outbox-touching ClientApi surface must stay unreachable
+  // through the lifecycle runtime and the readiness signals.
+  const denied = [
+    "enqueue",
+    "command",
+    "submitNew",
+    "intent",
+    "mutations",
+    "request",
+    "send",
+    "registry",
+    "markThreadRead",
+    "attachmentBytes",
+    "uploadFile",
+    "downloadFile",
+    "transfers",
+    "projects",
+    "cursorAuth",
+    "settingsSet",
+    "onMessage",
+    "onStream",
+  ];
+  const raw = runtime as unknown as Record<string, unknown>;
+  for (const key of denied) {
+    expect(raw[key], `runtime[${key}]`).toBeUndefined();
+    expect(key in raw, `runtime has ${key}`).toBe(false);
+  }
+  expect(Object.keys(raw).toSorted()).toEqual(
+    ["bindEpoch", "close", "networkOnline", "reconnectNow", "start", "wake"].toSorted(),
+  );
+  const signals = observed as unknown as Record<string, unknown>;
+  for (const key of denied) {
+    expect(signals[key], `signals[${key}]`).toBeUndefined();
+    expect(key in (observed as object), `signals has ${key}`).toBe(false);
+  }
+  expect(Object.keys(signals).toSorted()).toEqual(["connectionState", "error"].toSorted());
+  // The real observable selection is data only: no admission rides along.
+  const selection = observed?.connectionState() as unknown as Record<string, unknown>;
+  for (const key of denied) {
+    expect(selection[key], `selection[${key}]`).toBeUndefined();
+    expect(key in (selection as object), `selection has ${key}`).toBe(false);
+  }
+  expect(typeof selection["getSnapshot"]).toBe("function");
+  expect(typeof selection["subscribe"]).toBe("function");
 });

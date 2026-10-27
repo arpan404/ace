@@ -91,22 +91,26 @@ Production wiring has landed; UI consumption is later work:
    The pairing/inbox screens that drive `startup.pair`/`startup.route` are
    still open, so `index.production.tsx` stays unpaired.
 4. Inbox merging across machines (M04) and pending-read bounds (A03.06) are
-   later work that consumes this manager. Grant admission helpers exist at
-   this boundary (`GrantStore` / `assertCanOperate` / `ViewOnlyError` plus
+   later work that consumes this manager. Grant admission is enforced at
+   this boundary: `GrantStore` / `assertCanOperate` / `ViewOnlyError` plus
    `startup.canOperate(hostId)` / `startup.assertCanOperateFor(hostId)` /
-   `startup.runtimeForMutation(hostId)`): unknown hosts, known hosts with no
-   recorded grant row, and every host when the persisted file is malformed
-   read as view-only, mirroring the iOS `ClientModel.canOperate` rule except
-   unknown/missing grants stay view-only where iOS defaults them to operate.
-   `runtimeForMutation` returns a fresh short-lived lifecycle gate per call,
-   never the shared runtime: every gate method re-resolves the grant and the
-   live runtime, so a cached gate fails after revocation, disconnect or
-   removal. This is not an enforced content-mutation boundary: the app's real
-   inbox/composer mutations are not yet routed through the gate and
-   `manager.client` remains directly reachable, so view-only enforcement is
-   not demonstrable end to end. No production UI is wired through these
-   helpers, so `index.production.tsx` stays an unpaired shell and production
-   stays unwired and fail-closed.
+   `startup.runtimeForMutation(hostId)` (fail closed; unknown hosts, known
+   hosts with no recorded grant row, and every host when the persisted file
+   is malformed cannot operate) mirror the iOS `ClientModel.canOperate`
+   per-operation rule (`guard canOperate` on every command submission),
+   except unknown/missing grants stay view-only where iOS defaults
+   them to operate. `runtimeForMutation` returns a fresh short-lived gate
+   per call, never the shared runtime: every gate method re-resolves the
+   grant and the live runtime, so a cached gate fails after revocation,
+   disconnect or removal, and the raw SDK client never escapes (only
+   per-call bound `enqueue`/`command`/`submitNew` do). `manager.client`
+   stays lifecycle-only (no reads and no command admission), so mutations cannot bypass
+   the grant through it; `intent` is the read-only receipt view and needs
+   only liveness. Read-only receipts stay readable through the gate's
+   `intent` and `route`. No production UI is wired to mutations until gate
+   enforcement is demonstrable in tests, so `index.production.tsx` stays
+   an unpaired shell and no view-only phone can reach a mutating path
+   from this boundary alone.
 
 ## Verification
 
