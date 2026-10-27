@@ -122,6 +122,7 @@ export {
 } from "./claude-tool-search.ts";
 export {
   acpToolListing,
+  cursorToolListing,
   codexClientHeader,
   coreTools,
   coreToolsHeader,

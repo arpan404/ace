@@ -114,13 +114,14 @@ below). In core mode a search also opens the families it returned, the way readi
 
 **Listing per client.** `X-Ace-Tools` now takes three values:
 
-- no header (Claude Code, Codex on a model with tool search, claude-agent-acp, Antigravity): every tool, with `tools_find`
-  beside their own tool search. `tools_call` would only duplicate a direct call there, so it is not offered.
+- no header (Claude Code, Codex on a model with tool search, claude-agent-acp, Antigravity, and
+  Cursor since 2026-10-27): every tool, with `tools_find` beside their own tool search.
+  `tools_call` would only duplicate a direct call there, so it is not offered.
 - `core` (OpenCode, Pi, Gemini CLI over ACP): the core tools plus `tools_find` and `tools_call`,
   growing on `guide`, entry points and searches. These clients reload, so a found tool becomes a
   listed tool with its own annotations. The reload can land a model step late (OpenCode
   debounces it, then lists again), so `tools_call` reaches a found tool until it is listed.
-- `static` (Cursor's SDK, other ACP agents over HTTP and the stdio bridge): the core
+- `static` (other ACP agents over HTTP and the stdio bridge; Cursor's SDK until 2026-10-27): the core
   tools, `tools_find` and `tools_call` (12 tools with the browser and computer use on), and the
   list never grows. Static is the conservative default for an ACP agent not known to reload,
   not a claim that it never refreshes.
@@ -261,6 +262,34 @@ bundled source and Pi 1.4.0's package (`dist/core/agent-session.js`, `dist/exten
 Per-request ace context is unchanged by these fixes as measured (OpenCode about 2,650, Pi about
 2,880 tokens); a Pi session with codemode active no longer pays about 15 tokens of script-call
 note per declared ace tool.
+
+**Cursor lists names only (2026-10-27).** The 2026-10-17 reading that Cursor loads MCP tools
+upfront was wrong. Read from `@cursor/sdk` 1.0.35 (what ace pins) and 1.1.0 (`dist/esm`,
+`McpSdkClient`, the request-context builder and `McpMetaToolOptions`), cursor-agent 2026.10.01,
+the recorded SDK fixture `fixtures/cursor-sdk/1.0.35/composer-2.5/nested-task.jsonl` and
+Cursor's own transcripts on this machine:
+
+- The local runtime turns Cursor's MCP meta tool on (`mcpMetaToolEnabled ?? true`; no public
+  option changes it). The model then sees, per server, `<mcp_meta_tool_server name tools="a, b"
+serverUseInstructions>`, with names and the server's instructions but no descriptions or schemas.
+  It reads schemas with `GetMcpTools` (a whole server, one `toolName`, a name `pattern`, or the
+  catalogue) and calls with `CallMcpTool {server, toolName, arguments}`. Every recorded MCP call
+  went through these two. Nothing in the SDK or CLI varies this by model; Cursor's servers build
+  the prompt, so a server-side exception for some model can't be ruled out from shipped code.
+- Schemas reach the model as JSON text in a `GetMcpTools` result, never as function
+  definitions, so no model's function-schema subset applies to ace's schemas.
+- Each server's list is fetched once per connection and cached. A `CallMcpTool` for a name that
+  list lacks fails with `McpToolNotFoundError`. 1.1.0 notes `tools/list_changed` but nothing acts
+  on it; it also keeps a server's valid tools when one is invalid, where 1.0.35 loses the list.
+
+So Cursor gets every tool (`cursorToolListing`): each costs its name, and each is called directly
+with its own annotations instead of through `CallMcpTool` wrapping `tools_call`. Its guidance
+line names `GetMcpTools` and `CallMcpTool`. Measured per request, Cursor's ace context is about
+1,140 tokens (185 of them the 52 names). The old budget of 2,900 counted the static list's 12
+schemas (about 1,900 tokens), which Cursor never loaded; its real cost was about 980. ace keeps
+its guidance in Cursor's always-applied rule rather than as server instructions: the same text
+at the same cost. A group turned on mid-session stays out of Cursor's cached list until the next
+session, as for Antigravity.
 
 **Guidance per session.** The shared server text stays the same for everyone and under 315
 tokens. What differs goes in the provider's own channel, rendered once per session so its

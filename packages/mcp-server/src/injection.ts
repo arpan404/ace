@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   codexClientHeader,
   coreToolsHeader,
-  staticToolsHeader,
   callBudgetHeader,
   dispatches,
   toolListingHeader,
@@ -141,8 +140,8 @@ export function acpInjection(
 ) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
   // ACP leaves tools/list_changed to each agent. Without a known agent the provider's usual
-  // listing applies: Antigravity defers like Claude; the rest keep the core tools, tools_find
-  // and tools_call, the one listing every agent can use.
+  // listing applies: Antigravity and Cursor defer like Claude; the rest keep the core tools,
+  // tools_find and tools_call, the one listing every agent can use.
   const listing = input.listing ?? usualToolListing(provider);
   const header = toolListingHeader(listing);
   return {
@@ -168,25 +167,27 @@ export const cursorCallBudgetSeconds = 50;
 /** Cursor's public SDK HTTP MCP transport, never local.customTools. */
 export function cursorSdkInjection(input: Injected) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
+  // Cursor's model sees only the names of the tools its connection listed and calls none it did
+  // not list (`cursorToolListing`), so ace lists every tool.
+  const listing = usualToolListing("cursor");
+  const header = toolListingHeader(listing);
   return {
     mcpServers: {
       ace: {
         type: "http" as const,
         url,
-        // Guidance travels once, in Cursor's always-applied rule. Cursor's SDK caches the tool
-        // list per connection and never handles tools/list_changed, so it keeps the core tools
-        // plus tools_find and reaches the rest through tools_call.
+        // Guidance travels once, in Cursor's always-applied rule.
         headers: {
           Authorization: `Bearer ${bearer}`,
           "X-Ace-Instructions": "native",
           "X-Ace-Notifications": "stream",
-          [staticToolsHeader.name]: staticToolsHeader.value,
+          ...(header ? { [header.name]: header.value } : {}),
           // Cursor's SDK cancels any MCP call after 60 seconds; waiting tools end before that.
           [callBudgetHeader.name]: String(cursorCallBudgetSeconds),
         },
       },
     },
-    developerInstructions: developerInstructions("cursor", input.session?.()),
+    developerInstructions: developerInstructions("cursor", { ...input.session?.(), listing }),
   };
 }
 
