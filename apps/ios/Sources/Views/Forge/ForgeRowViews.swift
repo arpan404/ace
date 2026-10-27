@@ -2,8 +2,8 @@ import SwiftUI
 
 /// A pull request or issue page pushed on the second tab's stack (`InboxRoute.forge`).
 struct ForgeRoute: Hashable {
-    /// A pull request or issue page, a pull request's Timeline, or one of its changed files.
-    enum Kind: String { case pull, issue, timeline, files, file }
+    /// A pull request or issue page, a pull request's Timeline, its commits, or its changed files.
+    enum Kind: String { case pull, issue, timeline, files, file, commits }
     let kind: Kind
     let machineId: String
     let project: String
@@ -13,6 +13,8 @@ struct ForgeRoute: Hashable {
     var index: Int?
     /// Another repository than the project's own (a notification's), named in every read.
     var repository: ForgeRepository?
+    /// The commits Files changed and a file show; nil for All commits.
+    var range: ForgeRange?
 }
 
 /// One pull request, in the thread row's shape (`InboxThreadRow`): its state glyph beside the

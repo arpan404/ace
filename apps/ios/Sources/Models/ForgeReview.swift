@@ -122,6 +122,9 @@ struct ForgeFileDiff: Decodable, Sendable, Equatable {
         let text: String
         let clipped: Bool
         let anchor: Anchor?
+        /// Which change of the patch it is in: a span of lines on one side of one change is a
+        /// range GitHub takes a comment on.
+        let hunk: Int
         let threads: [ForgeLineThread]
         let drafts: [Draft]
     }
@@ -140,6 +143,14 @@ struct ForgeFileDiff: Decodable, Sendable, Equatable {
     let commenting: ForgeBox?
     let pending: Int
     let headSha: String
+    /// `patch`, `image` (both versions drawn), `content` or `large` (both sides read whole).
+    let show: String
+    /// A Markdown file that can also be drawn as it reads.
+    let rendered: Bool
+    /// Side by side: each row's line index on the left and on the right.
+    let pairs: [[Int?]]
+    /// `viewed`, `changed` (pushed to since) or `unviewed`; nil where the range has no marks.
+    let viewed: String?
 }
 
 /// What a review write did: done, refused with why, or unconfirmed (to reconcile, never resend).
@@ -160,16 +171,17 @@ extension ClientModel {
     static func forgeTimelineRead(project: String, number: Int, repository: ForgeRepository? = nil) -> [String: Any] {
         on(repository, ["type": "forge.pull.timeline", "project": project, "number": number])
     }
-    static func forgeFileRead(project: String, number: Int, repository: ForgeRepository? = nil, path: String, index: Int?) -> [String: Any] {
+    static func forgeFileRead(project: String, number: Int, repository: ForgeRepository? = nil, path: String, index: Int?, range: ForgeRange? = nil) -> [String: Any] {
         var read: [String: Any] = ["type": "forge.pull.file", "project": project, "number": number, "path": path]
         if let index { read["index"] = index }
+        if let range { read["range"] = range.json }
         return on(repository, read)
     }
     func forgeTimeline(project: String, number: Int, repository: ForgeRepository? = nil) async throws -> ForgeTimeline {
         try await read(Self.forgeTimelineRead(project: project, number: number, repository: repository), as: ForgeTimeline.self)
     }
-    func forgeFile(project: String, number: Int, repository: ForgeRepository? = nil, path: String, index: Int?) async throws -> ForgeFileDiff {
-        try await read(Self.forgeFileRead(project: project, number: number, repository: repository, path: path, index: index), as: ForgeFileDiff.self)
+    func forgeFile(project: String, number: Int, repository: ForgeRepository? = nil, path: String, index: Int?, range: ForgeRange? = nil) async throws -> ForgeFileDiff {
+        try await read(Self.forgeFileRead(project: project, number: number, repository: repository, path: path, index: index, range: range), as: ForgeFileDiff.self)
     }
     /// One review write, sent once. A view-only phone never sends it.
     func forgeReview(_ target: ForgePullTarget, _ action: [String: Any]) async -> ForgeReviewOutcome {
@@ -183,10 +195,24 @@ extension ClientModel {
     }
 }
 
-/// A pull request's changed files (`forge.pull.files`), each with its open conversations.
+/// A pull request's changed files (`forge.pull.files`) for All commits or a range, each with its
+/// open conversations and its Viewed mark.
 struct ForgeFilesList: Decodable, Sendable, Equatable {
-    struct File: Decodable, Sendable, Equatable, Hashable { let path: String; let status: String; let additions: Int; let deletions: Int; let conversations: Int }
+    struct File: Decodable, Sendable, Equatable, Hashable {
+        let path: String
+        let status: String
+        let additions: Int
+        let deletions: Int
+        let conversations: Int
+        /// `viewed`, `changed` or `unviewed`; nil where the range shown has no marks.
+        let viewed: String?
+    }
+    struct Range: Decodable, Sendable, Equatable { let commit: String; let since: String?; let label: String }
+    let headSha: String
+    let range: Range?
     let files: [File]
+    let viewedCount: Int?
+    let caveats: [String]
     let more: Bool
 }
 
@@ -236,14 +262,16 @@ struct ForgeCompleter {
 }
 
 extension ClientModel {
-    static func forgeFilesRead(project: String, number: Int, repository: ForgeRepository? = nil) -> [String: Any] {
-        on(repository, ["type": "forge.pull.files", "project": project, "number": number])
+    static func forgeFilesRead(project: String, number: Int, repository: ForgeRepository? = nil, range: ForgeRange? = nil) -> [String: Any] {
+        var read: [String: Any] = ["type": "forge.pull.files", "project": project, "number": number]
+        if let range { read["range"] = range.json }
+        return on(repository, read)
     }
     static func forgeReviewersRead(project: String, number: Int, repository: ForgeRepository? = nil) -> [String: Any] {
         on(repository, ["type": "forge.pull.reviewers", "project": project, "number": number])
     }
-    func forgeFiles(project: String, number: Int, repository: ForgeRepository? = nil) async throws -> ForgeFilesList {
-        try await read(Self.forgeFilesRead(project: project, number: number, repository: repository), as: ForgeFilesList.self)
+    func forgeFiles(project: String, number: Int, repository: ForgeRepository? = nil, range: ForgeRange? = nil) async throws -> ForgeFilesList {
+        try await read(Self.forgeFilesRead(project: project, number: number, repository: repository, range: range), as: ForgeFilesList.self)
     }
     func forgeReviewers(project: String, number: Int, repository: ForgeRepository? = nil) async throws -> ForgeReviewers {
         try await read(Self.forgeReviewersRead(project: project, number: number, repository: repository), as: ForgeReviewers.self)
