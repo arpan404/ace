@@ -20,6 +20,8 @@ import { Background } from "./background.ts";
 import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
+import { reportAppUpdate } from "./daemon/probe.ts";
+import { UpdateReporter } from "./daemon/update-report.ts";
 import { startFailed } from "./daemon/status.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
 import { createDesktopLog, type Log } from "./log/desktop-log.ts";
@@ -228,6 +230,13 @@ function main(target: DaemonTarget, crashDumps: string): void {
     await background.stop();
     await runtime.stop();
   };
+  // Paired clients read the app's update status from its daemon (read-only there).
+  const updateReport = new UpdateReporter({
+    send: async (report) => reportAppUpdate(await runtime.local(), report),
+    log: (message) => log("warn", message),
+  });
+  runtime.onStatus((status) => updateReport.connected(status.state === "running"));
+  updateReport.connected(runtime.current().state === "running");
   const updates = appUpdates({
     version: info.version,
     packaged: app.isPackaged,
@@ -238,7 +247,10 @@ function main(target: DaemonTarget, crashDumps: string): void {
     timers,
     random: Math.random,
     now: Date.now,
-    report: (status) => emit(contents(), "updates.status", status),
+    report: (status) => {
+      emit(contents(), "updates.status", status);
+      updateReport.status(status);
+    },
     drain: (deadlineMs, waiting) => runtime.drainForUpdate(deadlineMs, waiting),
     busy: () => runtime.busyForUpdate(),
     // Quit's own question is skipped: the person already confirmed Restart.
@@ -249,6 +261,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     quit: () => app.quit(),
     log: logger("updates"),
   });
+  updateReport.status(updates.current());
 
   // Chromium's sandbox on an AppImage or tar.gz under Ubuntu's AppArmor restriction.
   const install = linuxInstall(process.env, process.execPath);
