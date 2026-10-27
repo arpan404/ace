@@ -226,8 +226,7 @@ test("a file still uploading when the thread is read again from its machine stay
   const photo = Buffer.alloc(120 * 1024, 9);
   staged.set("photo-0002", photo);
   // The second chunk waits until the transcript has been read again.
-  let release: () => void = () => {};
-  const gate = new Promise<void>((resolve) => (release = resolve));
+  const { promise: gate, resolve: release } = Promise.withResolvers<void>();
   const slow: ChunkReader = async (localId, offset, limit) => {
     if (offset > 0) await gate;
     return chunks(localId, offset, limit);
