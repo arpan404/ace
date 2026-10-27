@@ -10,6 +10,8 @@ import { sessionLifetime } from "./session-lifetime.ts";
 import { RecentSet } from "./retention.ts";
 import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
+import { readCodexToolFacts } from "./tool-facts.ts";
+import { codexToolListing } from "./tool-search.ts";
 import { configuredTurnPolicy } from "./default-permissions.ts";
 import { codexThreadPolicy, codexTurnPolicy } from "./permission-policy.ts";
 import { CodexSelectionOptions } from "./selection.ts";
@@ -52,7 +54,7 @@ export async function openCodexSession(
   const scope = io.sessionId();
   const interactionKey = (id: unknown) => requestKey(id, scope);
   const seenQuestions = new Set<string>();
-  const injection = ctx.aceMcp ? codexInjection(ctx.aceMcp) : undefined;
+  let injection: ReturnType<typeof codexInjection> | undefined;
   let link: CodexChannel | undefined;
   const started = io.now();
   let sequence = 0;
@@ -487,6 +489,14 @@ export async function openCodexSession(
       // Older experimental servers lack the profile catalog; preserve native startup policy.
       if (ctx.signal.aborted) throw error;
     }
+    // Whether Codex will defer ace's tools on this thread's model decides how ace lists them.
+    if (ctx.aceMcp)
+      injection = codexInjection({
+        ...ctx.aceMcp,
+        listing: codexToolListing(
+          await readCodexToolFacts(request, ctx.cwd, ctx.model, ctx.signal),
+        ),
+      });
     const threadPolicy: Pick<
       ThreadStartParams,
       "permissions" | "approvalPolicy" | "approvalsReviewer" | "config"

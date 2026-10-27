@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
-import { bareToolName, codexInjection } from "@ace/mcp-server";
+import { bareToolName, codexInjection, type ToolListing } from "@ace/mcp-server";
 import { EvalAgent } from "./evals/agent.ts";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
 
@@ -16,10 +16,10 @@ afterEach(async () => {
 });
 const tokens = (text: string) => Math.ceil(text.length / 4);
 
-async function codexSession() {
+async function codexSession(listing?: ToolListing) {
   world = await evalWorld({ browser: false });
   const { agent: claude, connection } = await world.agent({});
-  const injected = codexInjection(connection);
+  const injected = codexInjection({ ...connection, listing });
   const { Authorization: _credential, ...headers } =
     injected.config["mcp_servers.ace"].http_headers;
   const codex = await EvalAgent.connect({
@@ -99,5 +99,31 @@ it("Codex's developer instructions say how to reach ace from exec and name what 
   // Upfront, Codex pays only for these instructions: no schemas, no listed names.
   expect(tokens(list)).toBeLessThanOrEqual(300);
   expect(tokens(instructions)).toBeLessThanOrEqual(900);
+  await codex.close();
+});
+
+it("a Codex session on the fixed list reaches the rest through tools_call, from exec or directly", async () => {
+  // Where Codex would load every tool upfront (a model outside its catalog), ace lists few.
+  const { codex, instructions } = await codexSession("static");
+  expect(codex.has("tools_call")).toBe(true);
+  expect(codex.has("thread_start")).toBe(false);
+  const read = Guide.parse((await codex.call("guide", { topic: "ace-threads" })).data);
+  expect(read.schemas?.map((schema) => schema.name)).toContain("thread_start");
+  expect(read.how).toContain("tools.mcp__ace__tools_call({name, arguments})");
+  const found = await codex.call("tools_call", {
+    name: "threads_find",
+    arguments: { query: "anything" },
+  });
+  expect(found.failed).toBe(false);
+  expect(instructions).toContain("call any other ace tool with tools_call {name, arguments}");
+  expect(tokens(instructions)).toBeLessThanOrEqual(900);
+  await codex.close();
+});
+
+it("Codex's guidance names the way in for a model without exec: its tool_search, then the tool", async () => {
+  const { codex, instructions } = await codexSession();
+  expect(instructions).toContain("Without exec, load one with your tool_search, then call mcp__ace__<name>");
+  const read = Guide.parse((await codex.call("guide", { topic: "ace-threads" })).data);
+  expect(read.how).toContain("without exec, load them with your tool_search");
   await codex.close();
 });

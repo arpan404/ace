@@ -218,7 +218,20 @@ for await (const line of createInterface({ input: process.stdin })) {
           process.env["ACE_FAKE_RESUME"] === "unknown-default" ? null : ":workspace",
         approval_policy: "on-request",
         approvals_reviewer: "user",
+        // A local model Codex's catalog lacks, as `--oss` configures one.
+        ...(process.env["ACE_FAKE_RESUME"] === "oss-model"
+          ? { model: "gpt-oss:20b", model_provider: "ollama" }
+          : process.env["ACE_FAKE_RESUME"] === "late-catalog-model"
+            ? { model: "gpt-5.5-2026-09-01" }
+            : {}),
       },
+    });
+  } else if (method === "model/list") {
+    // Two pages, as Codex pages its catalog.
+    const page = p["cursor"] === "next" ? ["gpt-5.5"] : ["gpt-6.1-sol", "gpt-5.6-sol"];
+    respond({
+      data: page.map((model) => ({ id: model, model, hidden: false })),
+      nextCursor: p["cursor"] === "next" ? null : "next",
     });
   } else if (method === "thread/start" || method === "thread/resume") {
     aceTools?.configure(p["config"]);

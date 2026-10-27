@@ -36,8 +36,9 @@ const deferring = new Map<ProviderKind, string>([
   ["antigravity", "antigravity/alwaysLoad"],
 ]);
 /**
- * Codex defers every ace tool and its code-mode models see no MCP schema or name: it pays only
- * for its developer instructions, which carry the names this session can call.
+ * Codex defers every ace tool on a model with tool search (every model in its catalog) and its
+ * code-mode models see no MCP schema or name: it pays only for its developer instructions, which
+ * carry the names this session can call. Models without search are budgeted below.
  */
 const instructionsOnly = new Set<ProviderKind>(["codex"]);
 /** These load every listed tool upfront and reload on tools/list_changed: core mode. */
@@ -280,6 +281,25 @@ it.runIf(process.platform === "win32")(
     }
   },
 );
+
+/**
+ * Codex loads every listed tool upfront where the model has no tool search (a model outside its
+ * catalog, Bedrock Runtime) and never reloads, so those sessions connect with the fixed list.
+ * Listing every tool there cost the whole catalogue, about 10,050 tokens, on every request.
+ */
+const codexWithoutToolSearchCap = 3_100;
+
+it(`a Codex session without tool search pays at most ${codexWithoutToolSearchCap} tokens of ace context per request`, async () => {
+  const agents = await session();
+  const text = guidance("codex", { ...agents.facts, listing: "static" });
+  const always = [
+    text,
+    ...agents.fixed.tools.map(descriptor),
+    text.includes("installed as skills") ? await skillListing() : "",
+  ].join("\n");
+  expect(text).toContain("tools_call {name, arguments}");
+  expect(tokens(always)).toBeLessThanOrEqual(codexWithoutToolSearchCap);
+});
 
 it("Claude's per-request ace context stays under 1,550 tokens", async () => {
   const agents = await session();

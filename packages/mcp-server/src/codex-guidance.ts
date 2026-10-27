@@ -1,4 +1,5 @@
 import { bareToolName } from "./tool-names.ts";
+import type { ToolListing } from "./toolsets.ts";
 
 /**
  * Codex defers every ace tool, and its code-mode models see only `exec` and Codex's own `wait`:
@@ -46,12 +47,26 @@ export function compactToolNames(names: readonly string[], maxChars = maxToolNam
   return text;
 }
 
-/** Codex's line in the developer prefix; `tools` are the names this session can call. */
-export function codexPrefix(tools: readonly string[] | undefined, skills: string): string {
+/**
+ * Codex's line in the developer prefix; `tools` are the names this session can call. A turn's
+ * model decides whether it has `exec` (code mode) and whether ace's tools are deferred behind
+ * Codex's tool search, and the model can change between turns while this text cannot, so it
+ * names both ways in. On the fixed list (`static`, where Codex would load every tool upfront)
+ * the rest are reached through `tools_call`.
+ */
+export function codexPrefix(
+  tools: readonly string[] | undefined,
+  skills: string,
+  listing: ToolListing = "all",
+): string {
   return [
     "Codex: ace tools are mcp__ace__<name>. With exec, call them inside it: await tools.mcp__ace__<name>(args).",
     "ace's wait is tools.mcp__ace__wait, not your own wait.",
     'Find one with ALL_TOOLS.filter(t => t.name.startsWith("mcp__ace__")), or get names and input schemas from tools.mcp__ace__tools_find({query}); guide({topic}) returns its family\'s schemas.',
+    "Without exec, load one with your tool_search, then call mcp__ace__<name>.",
+    listing === "static"
+      ? "Your ace list is fixed: call any other ace tool with tools_call {name, arguments}."
+      : undefined,
     tools?.length ? `ace tools here: ${compactToolNames(tools)}.` : undefined,
     skills,
   ]
