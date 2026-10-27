@@ -1,28 +1,56 @@
 ---
-/* A screenshot of the app, served as responsive WebP. */
+/*
+ * A screenshot of the app, served as responsive WebP, in the page's theme. Both captures are in
+ * the HTML and CSS shows the one matching <html data-theme>. The dark one (the default theme)
+ * carries the loading priority; the light one loads lazily, so a visitor who never sees it never
+ * downloads it.
+ */
 import type { ImageMetadata } from "astro";
 import { getImage } from "astro:assets";
 
 interface Props {
-  image: ImageMetadata;
+  dark: ImageMetadata;
+  light: ImageMetadata;
   alt: string;
   sizes: string;
   widths: number[];
   eager?: boolean;
 }
 
-const { image, alt, sizes, widths, eager = false } = Astro.props;
-const set = await getImage({ src: image, widths, format: "webp", quality: 82 });
+const { dark, light, alt, sizes, widths, eager = false } = Astro.props;
+const [darkSet, lightSet] = await Promise.all(
+  [dark, light].map((src) => getImage({ src, widths, format: "webp", quality: 82 })),
+);
+if (!darkSet || !lightSet) throw new Error("Couldn't build the screenshot.");
 ---
 
 <img
-  src={set.src}
-  srcset={set.srcSet.attribute}
+  class="shot shot-dark"
+  src={darkSet.src}
+  srcset={darkSet.srcSet.attribute}
   sizes={sizes}
   alt={alt}
-  width={image.width}
-  height={image.height}
+  width={dark.width}
+  height={dark.height}
   loading={eager ? "eager" : "lazy"}
   fetchpriority={eager ? "high" : "auto"}
   decoding="async"
 />
+<img
+  class="shot shot-light"
+  src={lightSet.src}
+  srcset={lightSet.srcSet.attribute}
+  sizes={sizes}
+  alt={alt}
+  width={light.width}
+  height={light.height}
+  loading="lazy"
+  decoding="async"
+/>
+
+<style>
+  :global(html[data-theme="light"]) .shot-dark,
+  :global(html:not([data-theme="light"])) .shot-light {
+    display: none;
+  }
+</style>

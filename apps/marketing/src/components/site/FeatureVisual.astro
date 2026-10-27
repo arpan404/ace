@@ -1,6 +1,7 @@
 ---
 /* The picture for each feature page: the same panels and screenshots the home page uses. */
 import reviewDark from "../../assets/shots/review-dark.png";
+import reviewLight from "../../assets/shots/review-light.png";
 import type { FeatureSlug } from "../../content/features.ts";
 import BrowserPanel from "../panels/BrowserPanel.astro";
 import ComputerPanel from "../panels/ComputerPanel.astro";
@@ -60,7 +61,8 @@ const { slug } = Astro.props;
       <Stage mood="rose" bleed>
         <div class="crop">
           <Shot
-            image={reviewDark}
+            dark={reviewDark}
+        light={reviewLight}
             alt="A thread with its Changes panel open: a file tree with added and removed line counts, a diff, and a line comment ready to send to the agent."
             sizes="(min-width: 1232px) 1430px, 125vw"
             widths={[1440, 2880]}
@@ -91,7 +93,7 @@ const { slug } = Astro.props;
     max-height: 560px;
     overflow: hidden;
     border-top-left-radius: 10px;
-    border: 1px solid rgb(255 255 255 / 0.1);
+    border: 1px solid var(--edge);
     border-right: 0;
     border-bottom: 0;
   }

@@ -57,8 +57,9 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
 
     <meta name="application-name" content={product.name} />
     <meta name="apple-mobile-web-app-title" content={product.name} />
-    <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#11100f" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#11100f" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#faf8f5" media="(prefers-color-scheme: light)" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-64.png" type="image/png" sizes="64x64" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -66,8 +67,29 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     <link rel="alternate" type="text/plain" title="ace for language models" href="/llms.txt" />
     {site && <link rel="sitemap" type="application/xml" href="/sitemap.xml" />}
 
-    <!-- Tag the visitor's desktop OS before paint, so the matching download button shows. -->
+    <!--
+      Before paint: the theme (the visitor's saved choice, else their system setting, followed
+      live until they choose), and their desktop OS so the matching download button shows.
+    -->
     <script is:inline>
+      (() => {
+        const root = document.documentElement;
+        const system = matchMedia("(prefers-color-scheme: light)");
+        const saved = () => {
+          try {
+            return localStorage.getItem("ace-theme");
+          } catch {
+            return null;
+          }
+        };
+        const apply = () => {
+          root.dataset.theme = saved() ?? (system.matches ? "light" : "dark");
+        };
+        apply();
+        system.addEventListener("change", () => {
+          if (!saved()) apply();
+        });
+      })();
       (() => {
         const ua = navigator.userAgent;
         if (/Android|iPhone|iPad|iPod/.test(ua)) return;

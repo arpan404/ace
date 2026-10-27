@@ -62,8 +62,15 @@ pages, plus what the page adds (`SoftwareApplication` on home and download, `FAQ
 questions are shown, `ItemList` on index pages). Node builders live in `src/seo/schema.ts`.
 `llms.txt` indexes every page; `llms-full.txt` carries all of their content in one file.
 
+## Themes
+
+The site has a dark and a light theme. A script in Base.astro's head sets `<html data-theme>`
+before paint: the visitor's saved choice (the nav toggle, stored as `ace-theme`), else their system
+setting, followed live until they choose. Colours are tokens in `src/styles/global.css`; the light
+theme overrides them under `html[data-theme="light"]`.
+
 ## Screenshots
 
-`src/assets/shots/` holds dark captures of the web app running against the fake daemon
-(`bun run dev:fake`), at 1440×900 and 2× scale: `home` (the hero) and `review`. The site is
-dark only, so there are no light captures. `public/og.png` is the 1200×630 social card.
+`src/assets/shots/` holds light and dark captures of the web app running against the fake daemon
+(`bun run dev:fake`), at 1440×900 and 2× scale: `home` (the hero) and `review`. Replace both modes
+together; `Shot.astro` shows the one matching the theme. `public/og.png` is the 1200×630 social card.

@@ -1,5 +1,6 @@
 ---
 import reviewDark from "../assets/shots/review-dark.png";
+import reviewLight from "../assets/shots/review-light.png";
 import Shot from "./Shot.astro";
 import MoreLink from "./site/MoreLink.astro";
 import Stage from "./Stage.astro";
@@ -18,7 +19,8 @@ import Stage from "./Stage.astro";
     <Stage mood="rose" bleed>
       <div class="crop">
         <Shot
-          image={reviewDark}
+          dark={reviewDark}
+        light={reviewLight}
           alt="A thread with its Changes panel open: a file tree with added and removed line counts, a diff, and a line comment ready to send to the agent."
           sizes="(min-width: 1232px) 1700px, 150vw"
           widths={[1440, 2880]}
@@ -49,10 +51,10 @@ import Stage from "./Stage.astro";
     max-height: 620px;
     overflow: hidden;
     border-top-left-radius: 10px;
-    border: 1px solid rgb(255 255 255 / 0.1);
+    border: 1px solid var(--edge);
     border-right: 0;
     border-bottom: 0;
-    box-shadow: 0 30px 80px -30px rgb(0 0 0 / 0.85);
+    box-shadow: 0 30px 80px -30px var(--shadow-deep);
   }
 
   .crop :global(img) {

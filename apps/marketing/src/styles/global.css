@@ -2,9 +2,10 @@
 @import "@fontsource-variable/geist-mono";
 
 /*
- * The site is dark only: a warm near-black page, ink-white type, hairline grids instead of
- * boxed cards. Status hues (from the app's status theme) are the only colour on the page, and
- * appear only where they mean a status.
+ * Two themes, dark by default: a warm near-black page or a warm paper-white one, ink type,
+ * hairline grids instead of boxed cards. Status hues (from the app's status theme) are the only
+ * colour on the page, and appear only where they mean a status. Base.astro sets
+ * <html data-theme> before paint from the visitor's choice or their system setting.
  */
 :root {
   color-scheme: dark;
@@ -30,6 +31,18 @@
   --status-failed: #e4697d;
   --status-done: #57bd9b;
 
+  /* Materials: card fill, hairline edges on floating things, the lit top edge, deep shadow. */
+  --card: linear-gradient(to bottom, #181715, #131211);
+  --edge: rgb(255 255 255 / 0.08);
+  --sheen: rgb(255 255 255 / 0.05);
+  --wash: rgb(255 255 255 / 0.025);
+  --shadow-deep: rgb(0 0 0 / 0.85);
+  --button-glow: rgb(255 240 220 / 0.1);
+  /* The ASCII art's ink, as an RGB triplet the canvas reads. */
+  --ascii-ink: 236 232 224;
+  /* Stage washes (dark theme): the near-black their lit corners fade into. */
+  --stage-base: #15110f;
+
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
 
@@ -40,6 +53,39 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --motion-fast: 120ms;
   --motion-base: 200ms;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+
+  --background: #faf8f5;
+  --surface: #ffffff;
+  --raised: #f3f0ec;
+  --active: #ebe7e2;
+  --border: #e7e2db;
+  --border-strong: #d5cfc6;
+  --faint: #b3ada4;
+  --subtle: #86807a;
+  --muted: #5c5750;
+  --foreground: #1c1a17;
+  --ink: #1c1a17;
+  --ink-foreground: #faf8f5;
+  --ink-hover: #34302b;
+  --focus: #1c1a17;
+
+  --status-working: #2a55b0;
+  --status-needs-you: #9a5900;
+  --status-waiting: #7a5bd6;
+  --status-failed: #a3233a;
+  --status-done: #007856;
+
+  --card: linear-gradient(to bottom, #ffffff, #f8f6f3);
+  --edge: rgb(40 30 20 / 0.1);
+  --sheen: rgb(255 255 255 / 0.9);
+  --wash: rgb(40 30 20 / 0.03);
+  --shadow-deep: rgb(70 50 30 / 0.16);
+  --button-glow: rgb(0 0 0 / 0.08);
+  --ascii-ink: 60 50 40;
 }
 
 @media (min-width: 768px) {
@@ -283,8 +329,8 @@ code {
   color: var(--ink-foreground);
   box-shadow:
     inset 0 -1px 0 rgb(0 0 0 / 0.12),
-    0 1px 2px rgb(0 0 0 / 0.4),
-    0 6px 20px -8px rgb(255 240 220 / 0.1);
+    0 1px 2px rgb(0 0 0 / 0.2),
+    0 6px 20px -8px var(--button-glow);
 }
 
 .button-primary:hover {
@@ -293,7 +339,7 @@ code {
 
 .button-secondary {
   border-color: var(--border-strong);
-  background: rgb(255 255 255 / 0.025);
+  background: var(--wash);
   color: var(--foreground);
 }
 
@@ -347,7 +393,7 @@ code {
   border-radius: 12px;
   border: 1px solid var(--border-strong);
   background: color-mix(in srgb, var(--surface) 94%, transparent);
-  box-shadow: 0 30px 80px -30px rgb(0 0 0 / 0.85);
+  box-shadow: 0 30px 80px -30px var(--shadow-deep);
   font-size: 13px;
   line-height: 1.4;
 }

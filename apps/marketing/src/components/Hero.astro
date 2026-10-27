@@ -1,5 +1,6 @@
 ---
 import homeDark from "../assets/shots/home-dark.png";
+import homeLight from "../assets/shots/home-light.png";
 import { acpAgents, builtInAgents } from "../content/agents.ts";
 import { product } from "../content/product.ts";
 import { links } from "../site.ts";
@@ -40,7 +41,8 @@ const marks = [...builtInAgents, ...acpAgents.slice(0, 4)];
   <div class="page stage">
     <div class="window">
       <Shot
-        image={homeDark}
+        dark={homeDark}
+        light={homeLight}
         alt="ace with a thread open: the task list on the left shows which threads need an approval or an answer, and the open thread waits on two subagents and a running command."
         sizes="(min-width: 1232px) 1152px, calc(100vw - 40px)"
         widths={[720, 1152, 1728, 2304]}
@@ -118,12 +120,11 @@ const marks = [...builtInAgents, ...acpAgents.slice(0, 4)];
     position: relative;
     overflow: hidden;
     border-radius: 14px;
-    border: 1px solid rgb(255 255 255 / 0.09);
+    border: 1px solid var(--edge);
     background: var(--surface);
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.06),
-      0 1px 0 rgb(255 255 255 / 0.04),
-      0 50px 120px -40px rgb(0 0 0 / 0.9);
+      inset 0 1px 0 var(--sheen),
+      0 50px 120px -40px var(--shadow-deep);
   }
 
   /* A faint top sheen across the window's glass. */
@@ -131,7 +132,7 @@ const marks = [...builtInAgents, ...acpAgents.slice(0, 4)];
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(to bottom, rgb(255 255 255 / 0.03), transparent 30%);
+    background: linear-gradient(to bottom, var(--wash), transparent 30%);
     pointer-events: none;
   }
 
