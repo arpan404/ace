@@ -13,6 +13,7 @@ import { connectedDoctorReport, fixDoctorReport } from "./diagnostics-report.ts"
 import { daemonToolchains, daemonServeSim } from "./toolchains.ts";
 export { runDaemonProcess } from "./process-daemon.ts";
 export { NewerDataError, HOME_FORMAT_VERSION } from "@ace/service";
+export { DaemonLockHeldError } from "./local-files.ts";
 export type { StopReason } from "./stop-reason.ts";
 export { createDaemonCommandLibrary } from "./command-library.ts";
 export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
@@ -433,7 +434,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       doctor: sharedDiagnostics.doctor,
       toolchains: sharedDiagnostics.toolchains,
-      log: (error) => log.log("error", "WebSocket failure", logError(error)),
+      log: (error) => {
+        // Shutdown aborts socket work in flight: that cancellation is expected, not a failure.
+        if (lifetime.signal.aborted && error instanceof Error && error.name === "AbortError")
+          return;
+        log.log("error", "WebSocket failure", logError(error));
+      },
       warn: (message, fields) => log.log("warn", message, fields),
     };
     bindLiveServices(serverOptions, services);

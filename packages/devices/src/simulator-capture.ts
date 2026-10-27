@@ -85,10 +85,12 @@ export async function simulatorCapture(options: {
   const { runtime } = options;
   const fetcher = runtime.fetch ?? fetch;
   const controller = new AbortController();
-  const abort = () => controller.abort();
-  options.signal?.addEventListener("abort", abort, { once: true });
-  if (options.signal?.aborted) abort();
+  if (options.signal?.aborted) controller.abort();
   controller.signal.throwIfAborted();
+  // Cancelling stops everything this capture started. The stream request and the helper don't
+  // watch the controller, so a startup still waiting on serve-sim would otherwise never unwind.
+  const abort = () => void stop().catch(() => {});
+  options.signal?.addEventListener("abort", abort, { once: true });
   const child = runtime.spawn({
     command: options.command,
     args: [...(options.commandArgs ?? []), "--no-preview", "--quiet", nativeId(options.device)],

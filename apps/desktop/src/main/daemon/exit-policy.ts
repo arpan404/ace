@@ -22,6 +22,15 @@ const INCOMPATIBLE_DATA_EXIT = exitCodes["incompatible-data"];
 export const incompatibleDataMessage =
   "ace can't read some of its saved data because a different ace build wrote it. The daemon log names the file and how to set it aside.";
 
+/**
+ * `ace start` could not take the home's lock: another daemon holds it, usually one still
+ * starting or shutting down (an earlier app's, the CLI's). Not a crash: the supervisor waits
+ * for that daemon to answer or let go, for up to `lockWaitMs`.
+ */
+const LOCK_HELD_EXIT = exitCodes["lock-held"];
+export const lockHeldMessage =
+  "Another ace process kept ace's data busy for too long. Quit it, then try again.";
+
 /** What a daemon's exit code says about why it stopped, when it says anything. */
 function exitCause(code: number | null): DaemonStatus["cause"] {
   return code === exitCodes["address-in-use"] ? "port-in-use" : undefined;
@@ -39,16 +48,19 @@ export interface UnexpectedExit {
 export type ExitDecision =
   | { kind: "newer-data" }
   | { kind: "incompatible-data" }
+  | { kind: "lock-held" }
   | { kind: "give-up"; reason: string; cause: DaemonStatus["cause"] }
   | { kind: "restart"; reason: string; cause: DaemonStatus["cause"]; delayMs: number };
 
 /**
  * Restart with backoff until `maxRestarts` in a row, except for an exit that says a restart
- * would be refused the same way (data from a newer build, or in a format it cannot read).
+ * would be refused the same way (data from a newer build, or in a format it cannot read), and
+ * except for one refused by another daemon's lock, which is waited out rather than counted.
  */
 export function exitDecision(exit: UnexpectedExit): ExitDecision {
   if (exit.code === NEWER_DATA_EXIT) return { kind: "newer-data" };
   if (exit.code === INCOMPATIBLE_DATA_EXIT) return { kind: "incompatible-data" };
+  if (exit.code === LOCK_HELD_EXIT) return { kind: "lock-held" };
   const reason = `The daemon exited (${exit.signal ?? `code ${exit.code}`})`;
   const cause = exitCause(exit.code);
   if (exit.crashes >= exit.maxRestarts) return { kind: "give-up", reason, cause };

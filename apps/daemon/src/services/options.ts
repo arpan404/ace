@@ -25,6 +25,8 @@ export type DaemonOptions = {
   storageSchedule?: import("../storage/schedule.ts").StorageSchedule;
   /** Automatic data-retention pass timing; tests shorten it. */
   retentionTiming?: import("../storage/data-retention-policy.ts").RetentionTiming;
+  /** Automatic space reclaim timing; tests shorten it. */
+  spaceReclaimTiming?: import("../storage/space-reclaim-policy.ts").SpaceReclaimTiming;
   diagnostics?: {
     doctor(): Promise<import("@ace/protocol").DiagnosticReport>;
     toolchains(): Promise<import("@ace/protocol").Toolchain[]>;
