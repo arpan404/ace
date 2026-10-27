@@ -28,13 +28,13 @@ The target holds a grant for each **capability**, for each paired device that ca
 linked machine calls as a paired device (ADR 0078), so in practice this is one grant per linked
 machine.
 
-| Capability | Machine-call ops | Default |
-| --- | --- | --- |
-| Agents | `delegate`, `status`, `cancel`, `message`, `respond` | `remote.agentAccess` |
-| Browser | `browser.session`, `browser` | `remote.agentAccess` |
-| Simulators & emulators | `devices` | Read and act |
-| Computer use | `screen` | Off |
-| Commands | `commands` | Off |
+| Capability             | Machine-call ops                                     | Default              |
+| ---------------------- | ---------------------------------------------------- | -------------------- |
+| Agents                 | `delegate`, `status`, `cancel`, `message`, `respond` | `remote.agentAccess` |
+| Browser                | `browser.session`, `browser`                         | `remote.agentAccess` |
+| Simulators & emulators | `devices`                                            | Read and act         |
+| Computer use           | `screen`                                             | Off                  |
+| Commands               | `commands`                                           | Off                  |
 
 Each grant is Off, Read only or Read and act (`off`, `read`, `operate`).
 
@@ -54,6 +54,9 @@ Each grant is Off, Read only or Read and act (`off`, `read`, `operate`).
   The calling machine sends its thread's ceiling in the call's origin, and it refuses writes
   from read-only threads before sending (ADR 0078). The target applies the ceiling as well, so
   it doesn't depend on the caller checking.
+- **Settings.** `fleet.request` gains `grants` (each paired device's levels, optionally for
+  given device ids) and `grant` (one device, one capability, one level). Both need administrator
+  access on that machine, like its links and devices.
 - **Revocation.** Grants are read on every call, so a change applies to the next call. Turning a
   capability down also stops in-flight work for that machine and capability (below).
 - **Risk per op.** Each capability names its read-only tools. Browser takes the registry's risk
@@ -70,6 +73,10 @@ group appears only when its effective level is at least read and this machine ca
 it drive simulators but not its screen. A machine where every capability is off for this device
 answers `machine_opted_out` and is not listed.
 
+Callers from before this ADR read `tools` strictly and send no ceiling. A target lists only
+`agents` and `browser` to a caller that sends no ceiling, so those callers don't drop the
+machine. Newer callers skip groups they don't know.
+
 ### Who a remote agent is on the target
 
 A remote agent is identified on the target by the calling device, calling host, calling thread
@@ -78,7 +85,7 @@ and calling agent:
 - The **guest session** (below) is keyed by device, host and thread, so two threads on the
   Linux box get two sessions, and the same thread calling from two machines does too.
 - Within a session, each calling agent has its own **owner**: `agentOwner(sessionThread,
-  "remote:" + callingAgentId)`, the same shape as a local agent's device owner. Device leases
+"remote:" + callingAgentId)`, the same shape as a local agent's device owner. Device leases
   (`packages/devices`), computer-use leases and browser tabs are held by that owner. Two remote
   agents never share a lease, and one remote agent keeps its lease across calls. Agents on
   different machines, or in different threads, drive different simulators in parallel.

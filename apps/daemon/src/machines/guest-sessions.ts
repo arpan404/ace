@@ -158,10 +158,11 @@ export class GuestSessions {
     signal.throwIfAborted();
     const id = this.deps.newId();
     const flight: Flight = { ...work, session, controller: new AbortController() };
+    // The row opens first: a session the person deleted meanwhile refuses before anything runs.
+    engine.guests.hold(session.threadId, `${prefix}${id}`, { title: clip(work.label, 200) });
     const abort = () => flight.controller.abort(signal.reason);
     signal.addEventListener("abort", abort, { once: true });
     this.flights.set(id, flight);
-    engine.guests.hold(session.threadId, `${prefix}${id}`, { title: clip(work.label, 200) });
     let status: "completed" | "failed" | "stopped" = "failed";
     try {
       const aborted = new Promise<never>((_resolve, reject) => {
