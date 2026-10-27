@@ -82,12 +82,12 @@ function slowProvider(refuse: (call: number) => boolean = () => false) {
   };
   /** Answers every submission, including ones sent after earlier answers, until all settle. */
   async function drain(...pending: Promise<unknown>[]) {
-    let done = false;
+    const progress = { done: false };
     const all = Promise.allSettled(pending).then((results) => {
-      done = true;
+      progress.done = true;
       return results;
     });
-    while (!done) {
+    while (!progress.done) {
       waiting.shift()?.();
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
