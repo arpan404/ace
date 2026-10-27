@@ -279,6 +279,8 @@ function pendingRow(send: PendingSend, connection: string) {
     text: preview(unsentText(send), 8192),
     label: status.label,
     token: status.token,
+    /** Git's cleanup fence stopped it: a stale lock the person may clear. */
+    fenced: send.error === "git_quarantined",
   };
 }
 

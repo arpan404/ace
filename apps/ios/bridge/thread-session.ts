@@ -18,6 +18,7 @@ import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachm
 import { followBlocks } from "./thread-blocks.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
+import { followWorkLine } from "./work-line.ts";
 import { requestResolution } from "./thread-requests.ts";
 import { StepsFollower } from "./thread-steps.ts";
 import { ThreadAccessFollower } from "./thread-access.ts";
@@ -109,8 +110,10 @@ export class ThreadSession {
       (files) => put("attachments", () => ({ type: "thread.attachments", files })),
       chunks,
     );
+    const workLine = followWorkLine(store, put, preview);
     this.#stop = store.observe((keys) => {
       this.#blocks.tap(keys);
+      workLine(keys);
       this.#pill.tap(keys);
       this.#lane?.tap(keys);
       this.#steps.changed(keys);

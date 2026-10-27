@@ -26,7 +26,7 @@ import type { ChangesOwner, ChangesStore } from "./changes.ts";
 export type WorkStore = ChangesStore & Pick<ThreadSource, "queue">;
 
 /** The words for one of a problem's ways out, and whether it asks before it runs. */
-function problemAction(action: CheckoutProblemAction): {
+export function problemAction(action: CheckoutProblemAction): {
   id: string;
   label: string;
   destructive: boolean;
@@ -55,7 +55,45 @@ export function findProblemAction(
 export const lockedOf = (store: Pick<WorkStore, "queue">) =>
   store.queue?.lastFailure?.code === "git_quarantined";
 
-export class WorkSession {
+/** What a Work write needs: the thread, its live details and the move rules, and one-at-a-time. */
+export interface WorkSubject {
+  readonly owner: ChangesOwner;
+  readonly threadId: string;
+  readonly details: ThreadDetails | undefined;
+  readonly reasons: ReturnType<typeof checkoutMoveReasons>;
+  busy: boolean;
+  summary(): void;
+}
+
+/**
+ * The open thread as a Work write's subject when the Work sheet is closed: the transcript's
+ * problem line acts on the live details as they stand.
+ */
+export function threadSubject(
+  owner: ChangesOwner,
+  store: WorkStore,
+  threadId: string,
+): WorkSubject {
+  return {
+    owner,
+    threadId,
+    busy: false,
+    summary: () => {},
+    get details() {
+      return store.thread?.details;
+    },
+    get reasons() {
+      const checkout = checkoutOf(store.thread?.details);
+      return checkoutMoveReasons({
+        status: store.thread?.status.state,
+        checkout,
+        state: checkout ? "ready" : "none",
+      });
+    },
+  };
+}
+
+export class WorkSession implements WorkSubject {
   readonly threadId: string;
   readonly epoch: number;
   #owner: ChangesOwner;

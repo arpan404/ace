@@ -5,6 +5,8 @@ import type { ChangesOwner } from "./changes.ts";
 import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 import { WorkSession } from "./work.ts";
 import { clearStaleLock, workAction } from "./work-actions.ts";
+import { followWorkLine } from "./work-line.ts";
+import { Sheets } from "./sheets.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -216,5 +218,70 @@ describe("stale Git lock", () => {
       ok: true,
       message: "Lock cleared. Retry to send it.",
     });
+  });
+});
+
+describe("problem line in the thread", () => {
+  /** The line as the thread screen receives it, read whenever the test looks. */
+  function line(store: Parameters<typeof followWorkLine>[0]) {
+    let read: () => Record<string, unknown> | undefined = () => undefined;
+    const tap = followWorkLine(store, (_key, next) => (read = next), plainPreview);
+    return {
+      tap,
+      row: () => read()?.row as { label: string; actions: { id: string; label: string }[] } | null,
+    };
+  }
+
+  test("says nothing while the checkout is fine", async () => {
+    const { store } = await opened();
+    expect(line(store).row()).toBeNull();
+  });
+
+  test("offers Retry and Change checkout for a failed move, but keeps Clear in Work", async () => {
+    const { daemon, store, act } = await opened();
+    const shown = line(store);
+    daemon.workspace.failMoves("git_invalid_ref");
+    await act({ kind: "switch", branch: "develop" }, "s1");
+    await until(() => store.thread?.details?.workspaceChange?.state === "failed", "move failed");
+    shown.tap("all");
+    expect(shown.row()).toMatchObject({ label: "Checkout move failed" });
+    expect(shown.row()?.actions.map((action) => action.label)).toEqual([
+      "Retry",
+      "Change checkout",
+    ]);
+  });
+
+  test("offers Clear stale lock when an earlier daemon's lock stopped a message", async () => {
+    const { daemon, store } = await opened();
+    const shown = line(store);
+    daemon.holdQueue("work", "not_sent", { title: "Git is locked", code: "git_quarantined" });
+    await until(() => store.queue?.lastFailure?.code === "git_quarantined", "held");
+    shown.tap("all");
+    expect(shown.row()?.actions).toEqual([
+      { id: "lock.clear", label: "Clear stale lock", destructive: true },
+    ]);
+  });
+
+  test("retries a failed setup from the line while the Work sheet is closed", async () => {
+    const { owner, store, summary, sent } = await opened({
+      worktreeSetup: { state: "failed", details: ["error: lockfile"], at: 1 },
+    });
+    expect(summary().problem?.kind).toBe("setup-failed");
+    const sink = new RecordingSink();
+    const sheets = new Sheets(sink, plainPreview);
+    const thread = { owner, store, threadId: "work", epoch: 1 };
+    expect(
+      sheets.action(thread, {
+        kind: "work.action",
+        action: { kind: "problem", id: "setup-continue" },
+        requestId: "p1",
+      }),
+    ).toBe(true);
+    await until(() => sink.read("work:result:p1") !== undefined, "outcome");
+    expect(sink.read("work:result:p1")).toMatchObject({
+      ok: true,
+      message: "Started without setup",
+    });
+    expect(sent.map((payload) => payload.type)).toContain("thread.workspace.setup");
   });
 });

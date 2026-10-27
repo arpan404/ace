@@ -97,6 +97,8 @@ function flatten(view: EventView) {
     mono: false,
     at: 0,
     count: 1,
+    /** A stale Git lock an earlier daemon left stopped it: Clear stale lock is offered. */
+    fenced: false,
   };
   switch (view.kind) {
     case "event": {
@@ -139,6 +141,7 @@ function flatten(view: EventView) {
         ...row,
         text: "Not sent",
         note: preview(view.notice.detail ?? view.notice.text, 512),
+        fenced: view.notice.details?.code === "git_quarantined",
       };
     case "notice":
       return { ...row, icon: view.level, text: preview(view.text, 4096) };

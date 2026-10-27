@@ -17,7 +17,7 @@ import {
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 import type { ChangesOwner } from "./changes.ts";
-import { findProblemAction, type WorkSession } from "./work.ts";
+import { findProblemAction, type WorkSubject } from "./work.ts";
 
 /*
  * The Work sheet's writes, through the same daemon commands the web's Work card sends: switch
@@ -104,7 +104,7 @@ function failed(error: unknown): Outcome {
 
 /** Moves the checkout; uncommitted changes come back as the question, not a failure. */
 async function move(
-  session: WorkSession,
+  session: WorkSubject,
   change: CheckoutMove,
   allowUncommitted: boolean,
   done: string,
@@ -149,7 +149,7 @@ async function reference(
   return { number: parsed.number, repository: target };
 }
 
-async function perform(session: WorkSession, action: WorkAction): Promise<Outcome> {
+async function perform(session: WorkSubject, action: WorkAction): Promise<Outcome> {
   const details = session.details;
   const checkout = checkoutOf(details);
   const reasons = session.reasons;
@@ -257,7 +257,7 @@ function putResult(sink: PatchSink, preview: Preview, requestId: string, outcome
 
 /** One Work write at a time per sheet. */
 export async function workAction(
-  session: WorkSession,
+  session: WorkSubject,
   raw: unknown,
   requestId: string,
   sink: PatchSink,

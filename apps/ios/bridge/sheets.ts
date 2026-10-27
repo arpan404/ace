@@ -4,7 +4,7 @@ import { followAgents, type PatchSink, type Preview } from "./agents.ts";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
 import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
-import { WorkSession } from "./work.ts";
+import { threadSubject, WorkSession, type WorkSubject } from "./work.ts";
 import { clearStaleLock, workAction } from "./work-actions.ts";
 
 /*
@@ -46,6 +46,8 @@ export class Sheets {
   #agents: (() => void) | undefined;
   #changes: ChangesSession | undefined;
   #work: WorkSession | undefined;
+  /** The transcript's problem line acts here while Work is closed; kept so one runs at a time. */
+  #line: { threadId: string; subject: WorkSubject } | undefined;
   constructor(sink: PatchSink, preview: Preview) {
     this.#sink = sink;
     this.#preview = preview;
@@ -58,6 +60,7 @@ export class Sheets {
     this.#changes = undefined;
     this.#work?.close();
     this.#work = undefined;
+    this.#line = undefined;
   }
   /**
    * False when the action can't be read or no thread is open. A sheet's close arriving after
@@ -143,9 +146,14 @@ export class Sheets {
         void this.#work?.branches();
         return this.#work !== undefined;
       case "work.action": {
-        const session = this.#work;
-        if (!session) return false;
-        void workAction(session, action.action, action.requestId, this.#sink, this.#preview);
+        // The sheet's own session when Work is shown; else the open thread as it stands.
+        if (this.#line?.threadId !== thread.threadId)
+          this.#line = {
+            threadId: thread.threadId,
+            subject: threadSubject(thread.owner, thread.store, thread.threadId),
+          };
+        const subject = this.#work ?? this.#line.subject;
+        void workAction(subject, action.action, action.requestId, this.#sink, this.#preview);
         return true;
       }
       case "lock.clear":
