@@ -27,6 +27,7 @@ import { busyInbox } from "./busy-inbox-scenario.ts";
 import { seedSettled } from "./settled-scenario.ts";
 import { servePeer, transferPace } from "./transfer-peer.ts";
 import { seedForks } from "./fork-scenario.ts";
+import { seedTransitions } from "./transitions-scenario.ts";
 import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 import { richRound, seedRichWork } from "./rich-work-scenario.ts";
 
@@ -179,6 +180,7 @@ daemon.command({
 
 threadScenarios(daemon, details);
 seedForks(daemon, details);
+seedTransitions(daemon, details);
 waitingScenario(daemon, details);
 seedGoal(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
