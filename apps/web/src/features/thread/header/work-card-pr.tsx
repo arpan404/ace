@@ -1,5 +1,10 @@
 import type { CheckoutPr } from "@ace/ui-core";
-import { mergeGate, mergeMethods, type MergeMethod } from "@ace/ui-core";
+import {
+  mergeGate,
+  mergeMethods,
+  prSummary as sharedSummary,
+  type MergeMethod,
+} from "@ace/ui-core";
 import { useMergeMethod } from "./merge-method.ts";
 import { useState } from "react";
 import { pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -12,25 +17,9 @@ import { RowAction, RowStatic, RowSub } from "./work-card-parts.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
 
-const checks: Partial<Record<NonNullable<CheckoutPr["ci"]>, string>> = {
-  success: "checks passed",
-  failure: "checks failing",
-  pending: "checks running",
-  unknown: "checks unavailable",
-};
-
-/** Why the PR's state may be stale, in the card's words. */
-const problems: Record<NonNullable<GitFlow["prProblem"]>, string> = {
-  unverified: "couldn't verify with GitHub",
-  deleted: "repository deleted",
-  unreadable: "couldn't read from GitHub",
-};
-
 /** "open · checks passed", in words a screen reader hears too. */
 export function prSummary(pr: CheckoutPr, problem?: GitFlow["prProblem"]): string {
-  if (problem) return `${pr.state} · ${problems[problem]}`;
-  const ci = pr.ci && checks[pr.ci];
-  return ci ? `${pr.state} · ${ci}` : pr.state;
+  return sharedSummary(pr, problem);
 }
 
 /**

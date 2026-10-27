@@ -22,6 +22,7 @@ export * from "./turn-options.ts";
 export * from "./elicitation-form.ts";
 export * from "./catalog-ids.ts";
 export * from "./checkout.ts";
+export * from "./work-checkout.ts";
 export * from "./action-errors.ts";
 export * from "./inbox-words.ts";
 export * from "./pull-request.ts";
