@@ -100,17 +100,9 @@ try {
       }),
     );
     process.stdout.write(acceptance.stdout);
-    const historyIdle = await phase("history idle RSS", () =>
-      runTimed(
-        [
-          join(import.meta.dirname, "history-idle.ts"),
-          `--entry=${entry}`,
-          `--idle-ms=${long ? 600000 : 120000}`,
-        ],
-        { cwd: root, timeout: long ? 720000 : 240000, maxBuffer: 1024 * 1024 },
-      ),
-    );
-    process.stdout.write(historyIdle.stdout);
+    // No history-idle phase: since c30658b86 the daemon reads no provider history at
+    // startup or idle (past sessions are scanned only on request), so there is no idle
+    // scan to measure. Idle RSS stays covered by the idle CPU and measurement phases.
     // A fork of a long thread copies its conversation inside the fork's write transaction.
     await phase("fork history copy", async () => {
       const forked = await runTimed([join(import.meta.dirname, "fork-history.ts")], {
