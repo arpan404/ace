@@ -104,6 +104,12 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
         .onChange(of: mention) { _, picked in
             guard let picked else { return }
+            if let tab = picked.tab {
+                let inserted = Mention.insert(tab: tab, into: draft.text)
+                draft.text = inserted.text
+                draft.add(inserted.pick)
+                return
+            }
             draft.text = Mention.insert(picked.path, into: draft.text)
             draft.add(.file(picked.path, endingAt: draft.text))
         }

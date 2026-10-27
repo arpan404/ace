@@ -73,7 +73,7 @@ describe("Annotating the thread's page from the phone", () => {
     settle();
     await until(() => {
       const handOff = draft.handOff();
-      return handOff && !("refused" in handOff) && handOff.attachments.length === 3;
+      return !!handOff && !("refused" in handOff) && handOff.attachments.length === 3;
     }, "page screenshot");
     const handOff = draft.handOff();
     if (!handOff || "refused" in handOff) throw new Error("expected the annotations");

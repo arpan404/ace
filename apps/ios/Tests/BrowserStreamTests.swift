@@ -39,13 +39,18 @@ import Testing
         #expect(delta.description == nil)
     }
 
-    @Test func downloadsAndOtherBinaryChannelsAreNotDrawn() throws {
+    @Test func downloadPiecesGoToTheSDKsTransferAndOtherBinaryChannelsToo() throws {
         var router = BinaryRouter()
-        #expect(router.route(try bytes(Self.download)) == BinaryRouter.Outcome.none)
+        // A download's bytes are the SDK's: `fetchBrowserDownload` assembles them for the phone.
+        #expect(router.route(try bytes(Self.download)) == .sdk)
         // Not a stream piece at all: the SDK's own binary channel reads it.
         #expect(router.route(Data("{\"type\":\"x\"}".utf8)) == .sdk)
-        // The router still reads the next message whole.
-        guard case .stream = router.route(try bytes(Self.keyframe)) else { Issue.record("no video"); return }
+        // A picture cut into pieces still assembles whole around a download's piece.
+        let pieces = Self.pieces(kind: 2, id: 4, meta: try keyframeMeta(), payload: Data(repeating: 2, count: 100_000))
+        #expect(router.route(pieces[0]) == BinaryRouter.Outcome.none)
+        #expect(router.route(try bytes(Self.download)) == .sdk)
+        guard case .stream(let chunk) = router.route(pieces[1]) else { Issue.record("no video"); return }
+        #expect(chunk.bytes.count == 100_000)
     }
 
     @Test func aMessageCutIntoPiecesIsAssembledOnceItsLastPieceArrives() throws {

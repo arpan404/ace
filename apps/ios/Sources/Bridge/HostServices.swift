@@ -13,6 +13,8 @@ struct HostServices: Sendable {
     var attachments = AttachmentStaging()
     /// New thread's first-message files, kept with its draft across launches.
     var draftAttachments = NewThreadDraftStore.standard().files
+    /// Browser downloads copied onto the phone.
+    var saved = SavedFiles()
 
     /// A machine's connection may read its own device token and nothing else.
     static func connection(_ target: ConnectionTarget) -> HostServices {
@@ -51,6 +53,17 @@ struct HostServices: Sendable {
             let read = try JSONDecoder().decode(ChunkRead.self, from: input)
             let staging = attachments.holds(read.localId) ? attachments : draftAttachments
             return try staging.chunk(read.localId, offset: read.offset, limit: read.limit)
+        case "file.write":
+            let write = try JSONDecoder().decode(FileWrite.self, from: input)
+            try saved.write(id: write.id, name: write.name, offset: write.offset, base64: try request.requireBody())
+            return ""
+        case "capture.stage":
+            // An annotation's crop or page screenshot, staged as a message file like a photo.
+            let capture = try JSONDecoder().decode(CaptureStage.self, from: input)
+            guard capture.mimeType == "image/png" || capture.mimeType == "image/jpeg",
+                  let data = Data(base64Encoded: try request.requireBody()) else { throw HostError.unsupported }
+            let staged = try attachments.stage(data: data, name: capture.name, mimeType: capture.mimeType)
+            return String(decoding: try JSONSerialization.data(withJSONObject: staged.json), as: UTF8.self)
         case "access.result":
             guard let result else { throw HostError.unsupported }
             result(try request.requireBody())
@@ -61,3 +74,5 @@ struct HostServices: Sendable {
 }
 private struct SecretWrite: Decodable { let key: String; let token: String }
 private struct ChunkRead: Decodable { let localId: String; let offset: Int; let limit: Int }
+private struct FileWrite: Decodable { let id: String; let name: String; let offset: Int; let done: Bool }
+private struct CaptureStage: Decodable { let name: String; let mimeType: String }

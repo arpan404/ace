@@ -29,6 +29,15 @@ import Observation
     private(set) var visitCount = 0
     var problem: BrowserProblem?
     private(set) var upload: (chooserId: String, progress: Double)?
+    /// The page commands' answers (`bridge/browser-page-tools.ts`): a finished command's sentence,
+    /// the page source, screenshots at sizes, the engine's extensions and downloads being saved.
+    var done: BrowserDone?
+    private(set) var source: BrowserSource?
+    var sizes: BrowserSizes?
+    private(set) var extensions: BrowserExtensions?
+    private(set) var saving: [String: BrowserSaving] = [:]
+    /// Bumped by the page's own Send in annotate mode: the screen goes to the message.
+    private(set) var annotateSends = 0
 
     @ObservationIgnored private var renderer: BrowserRenderer?
     @ObservationIgnored private var latest: LatestBrowserPicture?
@@ -62,7 +71,11 @@ import Observation
         threadId = nil; view = nil; page = nil; pageSize = nil; generation = nil
         pictureZoom = 1; pictureOffset = .zero
         find = nil; shot = nil; logs = nil; visits = []; visitCount = 0; problem = nil; upload = nil
+        done = nil; source = nil; sizes = nil; extensions = nil
     }
+    func clearSource() { source = nil }
+    func clearExtensions() { extensions = nil }
+    func forgetSaving(_ downloadId: String) { saving[downloadId] = nil }
     func movePicture(zoom: CGFloat, offset: CGPoint) {
         if pictureZoom != zoom { pictureZoom = zoom }
         if pictureOffset != offset { pictureOffset = offset }
@@ -112,6 +125,13 @@ import Observation
         case .problem(let result): if threadId != nil { problem = result }
         case .upload(let chooserId, let progress): if threadId != nil { upload = (chooserId, progress) }
         case .presets(let list): if presets != list { presets = list }
+        case .done(let result): if threadId != nil { done = result }
+        case .source(let result): if threadId != nil { source = result }
+        case .sizes(let result): if threadId != nil { sizes = result }
+        case .extensions(let result): if threadId != nil { extensions = result }
+        // A save outlives the view: the file is the person's once it is on the phone.
+        case .saving(let result): saving[result.downloadId] = result
+        case .annotateSend: if threadId != nil { annotateSends += 1 }
         }
     }
 }

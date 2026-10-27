@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 import { base64 } from "./bytes.ts";
 import { reason } from "./browser-tools.ts";
+import { phoneDownloadMax } from "./browser-view.ts";
 
 /*
  * The page's own commands from the phone's browser menu, beside the address and tab tools in
@@ -51,8 +52,6 @@ const Extensions = z.object({
     .max(256),
 });
 
-/** The largest download the phone copies over (it is held in memory until written). */
-export const phoneDownloadMax = 128 * 1024 * 1024;
 /** Bytes per write to the phone's file, as base64 in one host call. */
 const writeBytes = 512 * 1024;
 /** The page source the sheet shows, in UTF-16 units; the daemon bounds what it sends too. */
@@ -211,7 +210,8 @@ export class BrowserPageTools {
     );
     const set = BrowserScreenshotSet.safeParse(raw);
     if (!set.success) {
-      this.#host.sink.clear("browser:sizes");
+      // None taken: the sheet stops waiting (the problem says why).
+      this.#host.sink.put("browser:sizes", () => ({ type: "browser.sizes", at, images: [] }));
       return;
     }
     this.#host.sink.put("browser:sizes", () => ({

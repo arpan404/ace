@@ -54,6 +54,8 @@ import Observation
     var access: ThreadAccessRow?
     /// Files on the next message and their uploads.
     var attachments: [AttachmentFile] = []
+    /// Browser annotations on the next message.
+    var annotations: [AnnotationChip] = []
     /// The native subagent lane open in its sheet.
     var lane: LaneModel?
     @ObservationIgnored private var positions: [String: Int] = [:]
@@ -71,6 +73,7 @@ import Observation
         tune = nil
         access = nil
         attachments = []
+        annotations = []
         hasOlder = false
     }
     /// Opening a kept thread again: what belonged to the last visit's bridge session goes (its
@@ -79,6 +82,7 @@ import Observation
         steps = [:]
         lane = nil
         attachments = []
+        annotations = []
         modelList = ThreadModels()
         stopping = false
         stopRequest = nil

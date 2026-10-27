@@ -31,6 +31,10 @@ struct RemoteScreenView: View {
                 }
             }
         }
+        .onAppear { model.followComputerAccess(mac: !screen.dialogPicks) }
+        .onDisappear { model.unfollowComputerAccess() }
+        .onChange(of: screen.dialogPicks) { _, dialog in model.computerAccessMac(!dialog) }
+        .animation(AceTheme.Motion.standardCurve, value: model.computerAccess.state)
         .task(id: model.connection) {
             if model.connection == "ready" { await screen.refresh(model); await screen.targets(model) } else { screen.disconnected() }
         }
@@ -92,6 +96,31 @@ struct RemoteScreenView: View {
         if let problem = screen.problem {
             DeviceNote(sentence: problem, action: "Try again") { Task { await screen.refresh(model) } }
         }
+        if let locked = model.computerAccess.state?.locked {
+            LockedUseRow(model: model, locked: locked, busy: model.computerAccess.state?.busy != nil)
+                .listRowBackground(AceTheme.Colours.background)
+                .listRowSeparator(.hidden)
+                .transition(.opacity)
+        }
+        if let error = model.computerAccess.state?.error {
+            ServiceProblem(message: error).listRowBackground(AceTheme.Colours.background).listRowSeparator(.hidden)
+        }
+        NavigationLink { UseMyChromeView(model: model) } label: {
+            HStack {
+                Text("Use my Chrome").aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                Spacer()
+                if let chrome = model.computerAccess.state?.chrome {
+                    Text(chrome.installed ? (chrome.connections.isEmpty ? "Installed" : "\(chrome.connections.count) connected") : "Not set up")
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+            }
+            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+        }
+        .listRowBackground(AceTheme.Colours.background)
+        .listRowSeparator(.hidden)
+        .accessibilityIdentifier("computer.chrome")
         NavigationLink { RemoteSettingsView(model: model, category: .computer) } label: {
             Text("App access and device preferences").aceFont(AceTheme.Typography.body, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)

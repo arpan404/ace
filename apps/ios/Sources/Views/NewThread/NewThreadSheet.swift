@@ -304,14 +304,29 @@ struct NewThreadSheet: View {
     }
 }
 
-/// One file picked to mention in a thread's composer; each pick is a new value.
+/// One file (or the browser's shown page) picked to mention in a thread's composer; each pick
+/// is a new value.
 struct ComposerMention: Equatable {
     let id = UUID()
     let path: String
+    /// "Ask agent about this page": the page's title goes in as a browser tab reference.
+    var tab: BrowserViewInfo.Mention? = nil
 }
 
 /// `@path` as the web's composer inserts it, separated from the words around it.
 enum Mention {
+    /// The browser's page as the web's "Ask agent about this page" leaves it: its title, then a
+    /// space, and the reference that says which tab it is.
+    static func insert(tab: BrowserViewInfo.Mention, into text: String) -> (text: String, pick: ComposerPick) {
+        let lead = text.isEmpty || text.hasSuffix(" ") || text.hasSuffix("\n") ? text : text + " "
+        let start = (lead as NSString).length
+        let label = tab.label
+        let pick = ComposerPick(start: start, end: start + (label as NSString).length, label: label, reference: .object([
+            "label": .string(label),
+            "browserTab": .object(["type": .string("browser_tab"), "tabId": .string(tab.tabId), "url": .string(tab.url), "title": .string(tab.title)]),
+        ]))
+        return (lead + label + " ", pick)
+    }
     static func insert(_ path: String, into text: String) -> String {
         let token = "@\(path) "
         if text.isEmpty || text.hasSuffix(" ") || text.hasSuffix("\n") { return text + token }

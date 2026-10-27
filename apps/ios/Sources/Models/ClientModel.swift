@@ -88,6 +88,7 @@ import QuartzCore
     /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
     let browser = BrowserLiveModel()
     let devices = DevicesModel()
+    let computerAccess = ComputerAccessModel()
     /// Continue on… and Open on… from this machine (`bridge/transfers.ts`).
     let transfers = TransfersModel()
     /// The daemon reads the bridge keeps, for each screen's first frame (`ReadMirror`).
@@ -445,6 +446,7 @@ import QuartzCore
                 if let thread, thread.id == id, thread.epoch == epoch { thread.screen.apply(screen) }
             case .browser(let patch): browser.apply(patch)
             case .devices(let patch): devices.apply(patch)
+            case .computerAccess(let state): computerAccess.apply(state)
             }
         }
         thread?.screen.commit()

@@ -3,7 +3,7 @@ import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { lockedUseLabel, lockedUseShown, lockedUseSwitchOn } from "./locked-use-reading.ts";
+import { lockedUseLabel, lockedUseShown, lockedUseSwitchOn } from "@ace/ui-core";
 import type { ComputerUse } from "./use-computer-use.ts";
 import { useLockedUse } from "./use-locked-use.ts";
 

@@ -250,6 +250,7 @@ enum BridgePatch: Decodable, Sendable {
     case browser(BrowserPatch)
     /// A thread's Devices screen and its logs (`bridge/native-devices.ts`).
     case devices(DevicesPatch)
+    case computerAccess(ComputerAccessModel.State)
     /// A kept read restored from an earlier run, and each family's generation (`bridge/native-reads.ts`).
     case serviceCache(ServiceReply.Cache, ServiceValue)
     /// A kept read the bridge stopped keeping: Swift's copy lets it go too.
@@ -336,6 +337,7 @@ enum BridgePatch: Decodable, Sendable {
         case "archive.list": self = .archiveList(try ArchiveList(from: decoder))
         case let kind where BrowserPatch.types.contains(kind): self = .browser(try BrowserPatch(from: decoder))
         case let kind where DevicesPatch.types.contains(kind): self = .devices(try DevicesPatch(from: decoder))
+        case "computer.access": self = .computerAccess(try ComputerAccessModel.State(from: decoder))
         case let kind where ScreenPatch.types.contains(kind):
             let (id, epoch) = try scope()
             self = .screen(id, epoch, try ScreenPatch(type: kind, from: decoder))

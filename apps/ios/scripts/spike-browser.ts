@@ -98,10 +98,30 @@ export function seedBrowser(daemon: FakeDaemon, details: Details): void {
     state: "complete",
     path: "/fixture/receipt-2291.pdf",
   });
+  // The receipt can be saved onto the phone; the page plays a sound; the engine runs one extension.
+  browser.downloadBytes.set(
+    `${browserThread}\u0000receipt`,
+    new TextEncoder().encode("%PDF-1.4\n% receipt 2291 · 148.00\n%%EOF\n"),
+  );
+  if (first) browser.sound(browserThread, first, true, false);
+  browser.extensions = [
+    { id: "react-devtools", name: "React Developer Tools", version: "6.1", enabled: true },
+  ];
 }
 
 const Control = z.object({
-  action: z.enum(["dialog", "prompt", "signin", "chooser", "agent", "idle", "fail"]),
+  action: z.enum([
+    "dialog",
+    "prompt",
+    "signin",
+    "chooser",
+    "agent",
+    "idle",
+    "fail",
+    "pin",
+    "region",
+    "approve",
+  ]),
 });
 
 /** `POST /browser {action}`: the page asks for something, or the agent comes and goes. */
@@ -132,6 +152,21 @@ export async function browserControl(
   else if (action === "chooser") browser.fileChooserOpen(browserThread, tabId, false);
   else if (action === "agent") browser.agentWorks(browserThread, { pointer: { x: 120, y: 300 } });
   else if (action === "idle") browser.agentIdle(browserThread);
+  // What the page's annotate overlay reports when the person taps an element or drags an area.
+  else if (action === "pin")
+    browser.annotations.pin(browserThread, {
+      comment: "Make the total bold",
+      tag: "p",
+      text: "Total 148.00",
+    });
+  else if (action === "region")
+    browser.annotations.pin(browserThread, {
+      comment: "Too much space above Pay",
+      tag: "button",
+      text: "Pay 148.00",
+    });
+  // The Mac's owner approved locked use in System Settings.
+  else if (action === "approve") daemon.computerAccess.approve();
   else browser.loadFailed(browserThread, "net::ERR_CONNECTION_REFUSED");
   return Response.json({ ok: true });
 }
@@ -151,10 +186,11 @@ export function answerScreenshot(
       type: z.literal("browser.execute"),
       requestId: z.string(),
       threadId: z.string(),
-      command: z.object({ action: z.literal("screenshot") }),
+      command: z.object({ action: z.literal("screenshot"), sizes: z.array(z.string()).optional() }),
     })
     .safeParse(JSON.parse(text));
-  if (!message.success) return false;
+  // Screenshots at several sizes are the fake daemon's own (one preview per size).
+  if (!message.success || message.data.command.sizes) return false;
   const frame = daemon.browser.frame(message.data.threadId);
   const png = drawPage(
     frame?.width ?? 402,

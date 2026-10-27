@@ -32,6 +32,7 @@ import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { phoneDeviceStorage } from "./browser-device.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks, Picked } from "./thread-attachments.ts";
+import { ComputerAccess, ComputerAccessControl } from "./computer-access.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
@@ -100,6 +101,7 @@ let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
 let transfers: NativeTransfers | undefined;
+let access: ComputerAccess | undefined;
 const pump = new PatchPump();
 /**
  * Native keeps the open thread and the last six it showed (`ThreadShelf.swift`); ledgers past
@@ -265,6 +267,7 @@ async function start(json: string): Promise<void> {
   );
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);
+  access = new ComputerAccess(client, pump, preview, scheduler.set, () => host.uuid());
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
     agentName: (threadId, agentId) =>
       threadId === openThreadId && agentId ? agentName(lease?.store.agent(agentId)) : "An agent",
@@ -291,6 +294,12 @@ function action(json: string): void {
     const deviceControl = NativeDeviceControl.safeParse(raw);
     if (deviceControl.success) {
       devices?.handle(deviceControl.data);
+      return;
+    }
+    const accessControl = ComputerAccessControl.safeParse(raw);
+    if (accessControl.success) {
+      if (access) access.handle(accessControl.data);
+      else error();
       return;
     }
     const screenControl = NativeScreenControl.safeParse(raw);

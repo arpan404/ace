@@ -4,7 +4,7 @@ import {
   lockedUseRefusal,
   lockedUseShown,
   lockedUseSwitchOn,
-} from "./locked-use-reading.ts";
+} from "./locked-use.ts";
 
 test("each Mac state reads as the word the row shows, with a matching tone", () => {
   expect(lockedUseLabel({ state: "on" })).toEqual({ label: "On", tone: "done" });

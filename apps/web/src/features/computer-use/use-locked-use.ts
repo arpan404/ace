@@ -4,7 +4,7 @@ import type { LockedUseResult, LockedUseStatus } from "@ace/protocol";
 import { useState, useSyncExternalStore } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
-import { lockedUseRefusal } from "./locked-use-reading.ts";
+import { lockedUseRefusal } from "@ace/ui-core";
 
 const timers: RetryTimers = {
   set(delay, run) {

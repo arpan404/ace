@@ -44,6 +44,28 @@ extension ClientModel {
     func browserProceed(_ tabId: String, url: String) { browserTool(["kind": "certificate", "tabId": tabId, "url": url]) }
     func browserReopen() { browserTool(["kind": "reopen"]) }
 
+    // The page's own commands (`bridge/browser-page-tools.ts`).
+    func browserMute(_ tabId: String, _ muted: Bool) { browserTool(["kind": "mute", "tabId": tabId, "muted": muted]) }
+    func browserRecord(_ on: Bool) { browserTool(["kind": "record", "on": on]) }
+    func browserClearData() { browserTool(["kind": "clearData"]) }
+    func browserSource(open: Bool) {
+        browserTool(["kind": "source", "open": open], readOnly: !open)
+        if !open { browser.clearSource() }
+    }
+    func browserPrint() { browserTool(["kind": "print"]) }
+    /// Screenshots of the shown page laid out at each size: phone, tablet, desktop.
+    func browserSizes(_ sizes: [String]) { browserTool(["kind": "sizes", "sizes": sizes]) }
+    func browserExtensions() { browserTool(["kind": "extensions"], readOnly: true) }
+    /// Copy a finished download onto this phone; it is offered once it is here.
+    func browserSave(_ downloadId: String) { browserTool(["kind": "save", "downloadId": downloadId]) }
+    func browserSaveCancel(_ downloadId: String) {
+        browserTool(["kind": "saveCancel", "downloadId": downloadId])
+        browser.forgetSaving(downloadId)
+    }
+    /// Annotate mode on the shown page; `dark` draws the page's overlay to match the app.
+    func browserAnnotate(_ on: Bool, dark: Bool) { browserTool(["kind": "annotate", "on": on, "theme": dark ? "dark" : "light"]) }
+    func browserAnnotateEdit(_ id: String) { browserTool(["kind": "annotateEdit", "id": id]) }
+
     private func browserTool(_ value: [String: Any], readOnly: Bool = false) {
         guard readOnly || canOperate, browser.threadId != nil else { return }
         action(["type": "browser", "action": value])

@@ -16,6 +16,8 @@ import type { Preview } from "./agents.ts";
  * certificate, a failed load). Pure: the live view (`browser-live.ts`) sends it on each change.
  */
 
+/** The largest download the phone copies over (it is held in memory until written). */
+export const phoneDownloadMax = 128 * 1024 * 1024;
 /** Tabs listed in the tabs sheet; the rest are counted. */
 export const tabLimit = 20;
 const downloadLimit = 50;
@@ -211,6 +213,8 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
         failed: download.state === "failed" || download.state === "denied",
         bytes: download.bytes,
         risky: download.flags.includes("executable"),
+        /** Finished and small enough to copy onto the phone (`browser-page-tools.ts`). */
+        saveable: download.state === "complete" && download.bytes <= phoneDownloadMax,
       })),
     downloading: downloads.filter((download) => download.state === "pending").length,
     /** The person's own Chrome (Use my Chrome): ace never prints, zooms or clears it. */

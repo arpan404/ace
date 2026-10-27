@@ -7,6 +7,7 @@ struct BrowserBar: View {
     @Binding var editing: Bool
     @Binding var sheet: BrowserSheet?
     @Binding var finding: Bool
+    @Binding var clearing: Bool
     let screenshot: (Bool) -> Void
 
     private var state: BrowserViewInfo.State? { model.browser.view?.state }
@@ -36,7 +37,7 @@ struct BrowserBar: View {
                 .accessibilityLabel("Tabs")
                 .accessibilityValue("\(state?.tabs.count ?? 0)")
                 .accessibilityIdentifier("browser.tabs")
-                BrowserMenu(model: model, sheet: $sheet, finding: $finding, screenshot: screenshot)
+                BrowserMenu(model: model, sheet: $sheet, finding: $finding, clearing: $clearing, screenshot: screenshot)
             }
             .aceGlass(in: AceShape.capsule, interactive: true)
         }

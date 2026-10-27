@@ -277,3 +277,9 @@ export * from "./forge-reviewers.ts";
 export * from "./forge-review-rules.ts";
 export * from "./text-completions.ts";
 export * from "./forge-lifecycle-words.ts";
+export {
+  lockedUseLabel,
+  lockedUseRefusal,
+  lockedUseShown,
+  lockedUseSwitchOn,
+} from "./locked-use.ts";

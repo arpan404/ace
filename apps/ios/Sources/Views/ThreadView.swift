@@ -173,7 +173,11 @@ struct ThreadView: View {
             .task(id: browserFollow) { if browserFollow != nil { await model.followBrowser() } }
             .navigationDestination(isPresented: $showBrowser) {
                 let help = thread.approvals.first { $0.kind == "browser_help" }
-                BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
+                BrowserScreen(model: model, help: help, toMessage: { tab in
+                    // Back to the thread, the page in the message when asked about.
+                    if let tab, model.canOperate { mention = ComposerMention(path: "", tab: tab) }
+                    showBrowser = false
+                }) { answer in if let help { model.resolve(help, answer: answer) } }
             }
             .environment(\.openBrowser, { showBrowser = true })
             .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
@@ -218,7 +222,7 @@ struct ThreadView: View {
                                      return saved
                                  }, stop: { model.stopTree() },
                                  inputBegan: { model.metrics?.inputBegan() }, mention: mention,
-                                 files: screen.attachments.count,
+                                 files: screen.attachments.count + screen.annotations.count,
                                  draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                                  suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),
                                  run: runComposerAction) {

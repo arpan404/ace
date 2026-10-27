@@ -24,6 +24,27 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
         let `private`: Bool
         /// Where the agent last pointed, in the page's CSS pixels, when the phone draws its cursor.
         let pointer: Pointer?
+        var muted: Bool? = nil
+        var audible: Bool? = nil
+        /// The page as the composer's `@` mention leaves it; nil while agents are kept out.
+        var mention: Mention? = nil
+    }
+    /// "Ask agent about this page": the words it inserts and the tab it points at.
+    struct Mention: Codable, Sendable, Equatable { let label: String; let tabId: String; let url: String; let title: String }
+    struct Recording: Codable, Sendable, Equatable {
+        /// A person started it (they can stop it); else an agent did.
+        let byPerson: Bool
+        /// This phone started it.
+        let here: Bool
+    }
+    /// Annotate mode as the bar offers it; nil when the daemon can't annotate pages.
+    struct Annotate: Codable, Sendable, Equatable {
+        /// off, starting or on.
+        let mode: String
+        /// Why the page can't be annotated now, in words.
+        let unavailable: String?
+        /// Another screen annotates this page.
+        let elsewhere: Bool
     }
     struct Pointer: Codable, Sendable, Equatable { let x: Double; let y: Double; let sequence: Int }
     /// A failed load or an untrusted certificate, as a person reads it.
@@ -63,6 +84,8 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
         let failed: Bool
         let bytes: Int
         let risky: Bool
+        /// Finished and small enough to save onto this phone.
+        var saveable: Bool? = nil
     }
     struct State: Codable, Sendable, Equatable {
         let url: String
@@ -89,6 +112,10 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
         var permission: String? = nil
         var downloads: [Download]? = nil
         var downloading: Int? = nil
+        /// The person's own Chrome: ace never prints, clears or reads its source.
+        var ownChrome: Bool? = nil
+        var recording: Recording? = nil
+        var annotate: Annotate? = nil
     }
     /// The device the shown tab is shown as (`bridge/browser-device.ts`), and the device toolbar.
     struct Device: Codable, Sendable, Equatable {
@@ -151,6 +178,37 @@ struct BrowserLog: Codable, Sendable, Equatable {
     }
     let section: String
     let entries: [Entry]
+}
+/// A finished command, said once (`browser.done`): "PDF saved to this thread" and the file.
+struct BrowserDone: Codable, Sendable, Equatable { let at: Double; let message: String; let detail: String? }
+/// The shown page's source, as the server sent it (`browser.source`).
+struct BrowserSource: Codable, Sendable, Equatable { let url: String; let source: String; let truncated: Bool }
+/// Screenshots at several sizes (`browser.sizes`); nil images while they are taken.
+struct BrowserSizes: Codable, Sendable, Equatable {
+    struct Image: Codable, Sendable, Equatable, Identifiable {
+        let size: String
+        let width: Int
+        let height: Int
+        /// Base64 JPEG.
+        let data: String
+        var id: String { size }
+    }
+    let at: Double
+    let images: [Image]?
+}
+/// The engine's extensions as it reports them (`browser.extensions`); nil while read.
+struct BrowserExtensions: Codable, Sendable, Equatable {
+    struct Item: Codable, Sendable, Equatable, Identifiable { let id: String; let name: String; let version: String?; let enabled: Bool }
+    let items: [Item]?
+}
+/// A download being copied onto this phone (`browser.saving`).
+struct BrowserSaving: Codable, Sendable, Equatable {
+    let downloadId: String
+    let name: String
+    /// saving, ready or failed.
+    let phase: String
+    let progress: Double
+    let message: String?
 }
 struct BrowserVisit: Codable, Sendable, Equatable, Identifiable {
     let url: String

@@ -10,6 +10,9 @@ struct BrowserSheets: View {
         case .console: BrowserConsoleSheet(model: model)
         case .history: BrowserHistorySheet(model: model)
         case .downloads: BrowserDownloadsSheet(model: model)
+        case .source: BrowserSourceSheet(model: model)
+        case .sizes: BrowserSizesSheet(model: model)
+        case .extensions: BrowserExtensionsSheet(model: model)
         case .settings:
             NavigationStack {
                 if let category = RemoteSettingsCategory.all.first(where: { $0.settings.contains { $0.key.hasPrefix("browser.") } }) {
@@ -127,9 +130,11 @@ struct BrowserTabsSheet: View {
     }
 }
 
-/// What the thread's tabs downloaded. Files stay on the machine running the browser.
+/// What the thread's tabs downloaded, on the machine running the browser. A finished file can
+/// be saved onto this phone: Save copies it over, then Share offers it to Files or any app.
 struct BrowserDownloadsSheet: View {
     @Bindable var model: ClientModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var downloads: [BrowserViewInfo.Download] { model.browser.view?.state?.downloads ?? [] }
     var body: some View {
         NavigationStack {
@@ -139,12 +144,17 @@ struct BrowserDownloadsSheet: View {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                         Text(download.filename).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).lineLimit(1)
                         Text(detail(download)).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(download.failed || download.risky ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
+                            .foregroundStyle(download.failed || download.risky || saving(download)?.phase == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
                             .lineLimit(2)
+                            .contentTransition(.opacity)
                     }
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    save(download)
                 }
                 .frame(minHeight: InsetStyle.rowHeight)
+                .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: saving(download))
                 .browserRow()
+                .accessibilityIdentifier("browser.download.\(download.id)")
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -156,7 +166,42 @@ struct BrowserDownloadsSheet: View {
         .tint(AceTheme.Colours.foreground)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
+    private func saving(_ download: BrowserViewInfo.Download) -> BrowserSaving? { model.browser.saving[download.id] }
+    /// Save, then its progress, then Share once the file is on the phone.
+    @ViewBuilder private func save(_ download: BrowserViewInfo.Download) -> some View {
+        let saving = saving(download)
+        if saving?.phase == "ready", let file = SavedFiles().file(id: download.id, name: download.filename) {
+            ShareLink(item: file) { Text("Share") }
+                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .transition(.opacity)
+                .accessibilityIdentifier("browser.download.share")
+        } else if saving?.phase == "saving" {
+            Button { model.browserSaveCancel(download.id) } label: {
+                ProgressView(value: saving?.progress ?? 0).progressViewStyle(.circular).controlSize(.small)
+                    .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Stop saving")
+            .accessibilityValue("\(Int((saving?.progress ?? 0) * 100)) percent")
+            .transition(.opacity)
+        } else if download.saveable == true {
+            Button("Save") { model.browserSave(download.id) }
+                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .transition(.opacity)
+                .accessibilityLabel("Save to this phone")
+                .accessibilityIdentifier("browser.download.save")
+        }
+    }
     private func detail(_ download: BrowserViewInfo.Download) -> String {
+        if let saving = saving(download) {
+            switch saving.phase {
+            case "ready": return "On this phone"
+            case "failed": return saving.message ?? "Couldn't save it to this phone"
+            default: return "Saving to this phone…"
+            }
+        }
         var parts = [download.state]
         if download.bytes > 0 { parts.append(ByteCountFormatter.string(fromByteCount: Int64(download.bytes), countStyle: .file)) }
         if download.risky { parts.append("Executable: check it before running") }

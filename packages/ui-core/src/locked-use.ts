@@ -1,5 +1,5 @@
 import type { LockedUseStatus } from "@ace/protocol";
-import type { Tone } from "@ace/ui-core";
+import type { Tone } from "./status.ts";
 
 /** This Mac's locked-use state in words, as the row shows it. */
 export function lockedUseLabel(status: LockedUseStatus): { label: string; tone: Tone } {

@@ -43,6 +43,16 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     /// A finger touched the page (the keyboard opens for a field the person just tapped).
     var onTouch: () -> Void = {}
     private var tracker = TouchTracker<ObjectIdentifier>()
+    /// Annotate mode: one finger clicks and drags as a mouse does, two fingers scroll the page.
+    var annotating = false {
+        didSet {
+            guard annotating != oldValue else { return }
+            stroke = AnnotateStroke()
+            if let input = tracker.cancelled() { onInput([input]) }
+            setNeedsLayout()
+        }
+    }
+    private var stroke = AnnotateStroke()
     private var reported: (size: CGSize, scale: CGFloat, picture: CGSize?)?
     /// The page's focused field, kept so it follows the picture as it is zoomed and moved.
     private var field: PageRect?
@@ -81,7 +91,7 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         CATransaction.commit()
         let movable = geometry.movable
         pinch.isEnabled = movable || pageSize.width > bounds.width
-        pan.isEnabled = movable
+        pan.isEnabled = movable || annotating
         report()
     }
     override func didMoveToWindow() {
@@ -142,6 +152,15 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     }
     @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
         guard recognizer.state == .changed || recognizer.state == .ended else { return }
+        if annotating, !geometry.movable {
+            // The overlay never takes the wheel: two fingers scroll the page under the markers.
+            let delta = recognizer.translation(in: self)
+            recognizer.setTranslation(.zero, in: self)
+            let scale = geometry.box.width / max(1, pageSize.width)
+            let at = geometry.pagePoint(recognizer.location(in: self))
+            onInput([.scroll(x: at.x, y: at.y, deltaX: -delta.x / max(scale, 0.01), deltaY: -delta.y / max(scale, 0.01))])
+            return
+        }
         let next = geometry.panned(by: recognizer.translation(in: self))
         recognizer.setTranslation(.zero, in: self)
         offset = next.offset
@@ -178,17 +197,46 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard accepting else { return }
         onTouch()
+        if annotating {
+            let fingers = event?.allTouches?.count ?? touches.count
+            for touch in touches {
+                send(stroke.began(view: touch.location(in: self), page: geometry.pagePoint(touch.location(in: self)), fingers: fingers))
+            }
+            return
+        }
         if let input = tracker.began(points(touches)) { onInput([input]) }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard accepting, let input = tracker.moved(points(touches)) else { return }
+        guard accepting else { return }
+        if annotating {
+            guard (event?.allTouches?.count ?? touches.count) == 1, let touch = touches.first else { return }
+            send(stroke.moved(view: touch.location(in: self), page: geometry.pagePoint(touch.location(in: self))))
+            return
+        }
+        guard let input = tracker.moved(points(touches)) else { return }
         onInput([input])
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if annotating {
+            send(stroke.ended())
+            return
+        }
         if let input = tracker.ended(touches.map { ObjectIdentifier($0) }) { onInput([input]) }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if annotating {
+            send(stroke.cancelled())
+            return
+        }
         if let input = tracker.cancelled() { onInput([input]) }
+    }
+    private func send(_ inputs: [RemoteInput]) {
+        guard !inputs.isEmpty else { return }
+        onInput(inputs)
+        // A pin or an area outlined: a light tap under the finger.
+        if inputs.contains(where: { if case .mouse(let event, _, _, _) = $0 { event == "mouseReleased" } else { false } }) {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
     }
 }
 
@@ -205,6 +253,8 @@ struct BrowserSurface: UIViewRepresentable {
     @Bindable var model: ClientModel
     /// Bumped by the Keyboard button: show the keyboard for the focused field.
     let keyboardRequest: Int
+    /// Annotate mode is on: the page's overlay takes clicks and drags.
+    var annotating = false
 
     final class Coordinator {
         var lastTouch = Date.distantPast
@@ -233,13 +283,21 @@ struct BrowserSurface: UIViewRepresentable {
     func updateUIView(_ view: BrowserSurfaceView, context: Context) {
         let coordinator = context.coordinator
         view.interactive = model.canOperate
+        view.annotating = annotating
         _ = model.browser.pageSize // Redraw the field's place when the page's size changes.
         let focus = model.canOperate ? model.browser.page?.focus : nil
         view.place(field: focus?.rect)
         guard let focus else {
             coordinator.focusType = nil
             coordinator.focusRect = nil
-            if view.textField.isFirstResponder { view.textField.resignFirstResponder() }
+            // The overlay's comment editor lives in its own shadow root, so the page reports no
+            // field: in annotate mode the Keyboard button still types into it.
+            if annotating, coordinator.keyboardRequest != keyboardRequest {
+                coordinator.keyboardRequest = keyboardRequest
+                view.textField.becomeFirstResponder()
+                return
+            }
+            if view.textField.isFirstResponder, !annotating { view.textField.resignFirstResponder() }
             return
         }
         // Another field: a new kind, or one somewhere else after the person touched the page
