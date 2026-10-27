@@ -113,9 +113,13 @@ export async function pairedMachines(
 
   /** Plays provider output into a thread the target runs. */
   async function emit(threadId: ThreadId, ...facts: Fact[]) {
-    await vi.waitFor(() => {
-      if (!target.h.contexts.get(threadId)) throw new Error("Session not open yet");
-    });
+    // A provider session opens in a child process, which can take seconds on a loaded machine.
+    await vi.waitFor(
+      () => {
+        if (!target.h.contexts.get(threadId)) throw new Error("Session not open yet");
+      },
+      { timeout: 10_000 },
+    );
     target.h.contexts.get(threadId)?.onFrame(target.h.frames.frame(...facts));
     await target.daemon.engine?.flush();
   }
