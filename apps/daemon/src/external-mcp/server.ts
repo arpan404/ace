@@ -1,4 +1,4 @@
-import { startMcpServer } from "@ace/mcp-server";
+import { aceToolDispatch, aceToolSearch, startMcpServer } from "@ace/mcp-server";
 import { WorkspaceId, type CliOperation, type AgentControlResult } from "@ace/protocol";
 import type { ServiceContext } from "../services/types.ts";
 import { Enrollments } from "./enrollments.ts";
@@ -55,15 +55,13 @@ export async function externalMcp(context: ServiceContext) {
     },
   });
   return {
-    tools: [
-      "ace_status",
-      "ace_threads_list",
-      "ace_thread_read",
-      "ace_thread_status",
-      "ace_thread_run",
-      "ace_thread_send",
-      "ace_task_control",
-    ],
+    /**
+     * What this endpoint serves, as `ace capabilities` reports it: the server's own `context`
+     * and tool search/dispatch (as for the daemon's MCP server), then every registered tool. A
+     * read enrollment lists only the read tools, and tools_call only appears for a client that
+     * asks for a core or static listing.
+     */
+    tools: ["context", aceToolSearch, aceToolDispatch, ...registry.names()],
     async execute(
       operation: Extract<CliOperation, { op: `mcp.${string}` }>,
     ): Promise<AgentControlResult> {

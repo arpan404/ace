@@ -63,6 +63,15 @@ test("external read enrollment exposes scoped reads, hides mutations and loses a
       }),
     );
     const tools = await client.listTools();
+    // ace capabilities names what the endpoint really serves, every listed tool included.
+    const capabilities = await cli(home, ["capabilities", "--json"]);
+    expect(capabilities.code, capabilities.stderr).toBe(0);
+    const declared = z
+      .object({ tools: z.object({ data: z.object({ externalMcp: z.array(z.string()) }) }) })
+      .parse(JSON.parse(capabilities.stdout)).tools.data.externalMcp;
+    expect(declared).toEqual(expect.arrayContaining(tools.tools.map((tool) => tool.name)));
+    expect(declared).toEqual(expect.arrayContaining(["context", "tools_find", "ace_thread_send"]));
+    expect(declared).not.toContain("ace_status");
     expect(tools.tools.map((tool) => tool.name)).toContain("ace_thread_read");
     expect(tools.tools.map((tool) => tool.name)).not.toContain("ace_thread_send");
     // Groups an external client never gets say so, rather than blaming the daemon.
