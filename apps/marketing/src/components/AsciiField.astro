@@ -60,6 +60,14 @@ const { focus = 0.78, scale = 0.8 } = Astro.props;
     return top + (bottom - top) * v;
   }
 
+  /** The theme's ink for the characters, as an RGB triplet. */
+  function readInk(): string {
+    return (
+      getComputedStyle(document.documentElement).getPropertyValue("--ascii-ink").trim() ||
+      "236 232 224"
+    );
+  }
+
   function start(canvas: HTMLCanvasElement): void {
     const context = canvas.getContext("2d");
     if (!context) return;
@@ -70,10 +78,7 @@ const { focus = 0.78, scale = 0.8 } = Astro.props;
     let rows = 0;
     let mask = new Float32Array(0);
     let visible = true;
-    // The theme's ink (an RGB triplet), re-read whenever the theme changes.
-    const readInk = () =>
-      getComputedStyle(document.documentElement).getPropertyValue("--ascii-ink").trim() ||
-      "236 232 224";
+    // The theme's ink, re-read whenever the theme changes.
     let ink = readInk();
     let frame = 0;
     let last = 0;

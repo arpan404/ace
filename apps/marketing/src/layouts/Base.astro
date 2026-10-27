@@ -74,10 +74,11 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     <script is:inline>
       (() => {
         const root = document.documentElement;
+        const key = "ace-theme";
         const system = matchMedia("(prefers-color-scheme: light)");
         const saved = () => {
           try {
-            return localStorage.getItem("ace-theme");
+            return localStorage.getItem(key);
           } catch {
             return null;
           }
