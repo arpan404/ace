@@ -74,6 +74,9 @@ export function runCommand(
     let exit: { code: number | null; signal: NodeJS.Signals | null };
     try {
       exit = await proc.exited;
+    } catch {
+      // It never started (no such shell): it ended with no code, like a killed process.
+      exit = { code: null, signal: null };
     } finally {
       exited = true;
       cancelTimer();
