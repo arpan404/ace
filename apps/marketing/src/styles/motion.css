@@ -337,10 +337,11 @@ html.motion :is(.reveal.is-in[data-stagger], .reveal.is-in [data-stagger]) > * {
   z-index: 2;
   width: 7px;
   height: 7px;
-  margin: -3.5px 0 0 -3.5px;
   border-radius: 50%;
   background: var(--foreground);
   box-shadow: 0 0 12px 2px color-mix(in srgb, var(--foreground) 40%, transparent);
+  /* The path places the dot's centre on the line; no margin nudge on top of that. */
+  offset-anchor: 50% 50%;
   offset-rotate: 0deg;
   pointer-events: none;
   animation: spark 1200ms var(--ease-in-out) both;
