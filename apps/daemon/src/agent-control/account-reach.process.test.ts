@@ -236,8 +236,8 @@ test("sixty accounts with long labels and large native permission selectors fit 
 });
 
 test("the models roster names an account whose models sort after every other account's", async () => {
-  // Twenty-two models on the default login fill more than one catalog page before "346" begins.
-  const filler = Array.from({ length: 22 }, (_, index): Served => [
+  // 120 models on the default login fill the whole first 100-row catalog page before "346" begins.
+  const filler = Array.from({ length: 120 }, (_, index): Served => [
     `model-${index}`,
     `Model ${index}`,
   ]);

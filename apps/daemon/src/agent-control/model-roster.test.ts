@@ -167,8 +167,13 @@ describe("efforts", () => {
     const codex = provider(result, "codex");
     const offered = (id: string, accountId: string) =>
       codex.sets
-        .filter((set) => set.ids.includes(id) && (!set.accounts || set.accounts.includes(accountId)))
-        .map((set) => ({ efforts: set.efforts ?? result.efforts, defaultEffort: set.defaultEffort }));
+        .filter(
+          (set) => set.ids.includes(id) && (!set.accounts || set.accounts.includes(accountId)),
+        )
+        .map((set) => ({
+          efforts: set.efforts ?? result.efforts,
+          defaultEffort: set.defaultEffort,
+        }));
     expect(offered("gpt-6-luna", "codex-a")).toEqual([{ efforts: "high", defaultEffort: "high" }]);
     expect(offered("gpt-6-luna", "codex-b")).toEqual([{ efforts: "", defaultEffort: undefined }]);
     // Accounts that agree stay in one set naming no account.
