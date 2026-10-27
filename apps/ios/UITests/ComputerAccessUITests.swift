@@ -51,7 +51,7 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["devices.surface"].waitForExistence(timeout: 30))
         sleep(2)
         screenshot("devices-1-framed")
-        let options = app.buttons["devices.options"]
+        let options = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'devices.options' OR label == 'Device options'")).firstMatch
         options.tap()
         app.buttons.matching(NSPredicate(format: "identifier == 'devices.screenOnly' OR label == 'Screen only'")).firstMatch.tap()
         sleep(1)

@@ -154,7 +154,6 @@ struct BrowserDownloadsSheet: View {
                 .frame(minHeight: InsetStyle.rowHeight)
                 .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: saving(download))
                 .browserRow()
-                .accessibilityIdentifier("browser.download.\(download.id)")
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
