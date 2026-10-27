@@ -36,9 +36,23 @@ export async function externalMcp(context: ServiceContext) {
   const server = await startMcpServer({
     registry,
     credentials: enrollments.credentials,
-    status: (caller) => ({
-      access: enrollments.caller(caller).scope === "read" ? "read-only" : null,
-    }),
+    status: (caller) => {
+      const readOnly = enrollments.caller(caller).scope === "read";
+      return {
+        access: readOnly ? "read-only" : null,
+        // This endpoint registers a fixed subset of ace's tools, whatever the daemon runs.
+        offReasons: {
+          unregistered:
+            "ace offers this tool group to agents in ace threads, not to external MCP clients.",
+          ...(readOnly
+            ? {
+                withheld:
+                  "This enrollment is read-only; an operate enrollment (ace mcp enroll --scope operate) offers this tool group.",
+              }
+            : {}),
+        },
+      };
+    },
   });
   return {
     tools: [

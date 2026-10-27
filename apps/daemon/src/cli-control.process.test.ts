@@ -65,6 +65,29 @@ test("external read enrollment exposes scoped reads, hides mutations and loses a
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name)).toContain("ace_thread_read");
     expect(tools.tools.map((tool) => tool.name)).not.toContain("ace_thread_send");
+    // Groups an external client never gets say so, rather than blaming the daemon.
+    const context = await client.callTool({ name: "context", arguments: { topics: ["status"] } });
+    const groups = z
+      .object({
+        status: z.object({
+          groups: z.array(
+            z.object({ name: z.string(), enabled: z.boolean(), reason: z.string().optional() }),
+          ),
+        }),
+      })
+      .parse(context.structuredContent).status.groups;
+    expect(groups).toContainEqual({
+      name: "browser",
+      enabled: false,
+      reason: "ace offers this tool group to agents in ace threads, not to external MCP clients.",
+    });
+    expect(groups).toContainEqual(
+      expect.objectContaining({
+        name: "thread_control",
+        reason: expect.stringContaining("This enrollment is read-only"),
+      }),
+    );
+    for (const group of groups) expect(group.reason).not.toMatch(/not running/);
     const own = await client.callTool({
       name: "ace_thread_read",
       arguments: { threadId: f.caller.threadId },

@@ -74,7 +74,7 @@ export type { ModelImageRuntime } from "./model-image-runtime.ts";
 
 export { privateMcpConfig, readPrivateMcpConfig } from "./private-config.ts";
 
-export { mcpStatusGroups, type StatusReader } from "./status.ts";
+export { mcpStatusGroups, type GroupOffReasons, type StatusReader } from "./status.ts";
 export { withinJsonBudget } from "./json-budget.ts";
 export { maxRequestBodyBytes } from "./result-budgets.ts";
 
