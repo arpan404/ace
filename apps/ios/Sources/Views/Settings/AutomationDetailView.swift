@@ -121,7 +121,7 @@ struct AutomationDetailView: View {
             Button(role: .destructive) { deleting = true } label: {
                 Text("Delete").aceFont(InsetStyle.label, relativeTo: .body)
                     .foregroundStyle(AceTheme.StatusText.failed)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
             }
             .disabled(!canAct)
@@ -174,7 +174,7 @@ struct AutomationDetailView: View {
             Text(title).aceFont(InsetStyle.label, relativeTo: .body)
                 .fontWeight(strong ? .semibold : .regular)
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
