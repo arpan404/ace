@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import koffi from "koffi";
+import { childHasExited } from "./child-exit.ts";
+export { childHasExited } from "./child-exit.ts";
 import { z } from "zod";
 
 // Windows identity: creation FILETIME (wall-clock, so callers still prove absence via ESRCH)
@@ -158,6 +160,10 @@ export function readWindowsProcessIdentity(
     } finally {
       api.close(token);
     }
+  } catch (error) {
+    // Exit can race any of the identity reads while our handle keeps the object alive.
+    if (api.exited(handle)) return undefined;
+    throw error;
   } finally {
     api.close(handle);
   }
@@ -266,8 +272,9 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
     }
     throw new Error("Kernel process identity requires Linux or macOS");
   } catch (error) {
-    // Native/procfs failure is not absence unless the kernel also proves the PID is gone.
-    if (gone(pid)) return undefined;
+    // An unreaped child still answers kill(pid, 0), but cannot run or have its PID reused.
+    // Keep its wait status for Node; other identity failures remain fail-closed.
+    if (childHasExited(pid) || gone(pid)) return undefined;
     throw error;
   }
 }
