@@ -277,3 +277,4 @@ export * from "./forge-reviewers.ts";
 export * from "./forge-review-rules.ts";
 export * from "./text-completions.ts";
 export * from "./forge-lifecycle-words.ts";
+export * from "./diff-scope.ts";

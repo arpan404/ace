@@ -1,21 +1,14 @@
 import { useThreadMeta } from "@ace/client-react";
-import type { Turn } from "@ace/ui-core";
+import { editedTurns, resolveScope, scopeEdits, scopeLabel, type DiffScope } from "@ace/ui-core";
 import { useMemo } from "react";
 import { z } from "zod";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useFileDiffs } from "./use-file-diffs.ts";
 import { useTurns } from "./use-turns.ts";
 
-export type Scope = "last" | "all" | (string & {});
+export type Scope = DiffScope;
+export { scopeLabel };
 const tabData = z.looseObject({ scope: z.string().optional() });
-
-export function scopeLabel(scope: Scope, turns: readonly Turn[]): string {
-  if (scope === "working-tree") return "Uncommitted";
-  if (scope === "all") return "This thread";
-  if (scope === "last") return "Last turn";
-  const turn = turns.find((candidate) => candidate.id === scope);
-  return turn ? `Turn ${turn.number}` : "Last turn";
-}
 
 /**
  * One persisted scope and one count for a Changes tab (`tabKey`), or for the first one open when
@@ -31,22 +24,10 @@ export function useScopedDiff(threadId: string, tabKey?: string) {
   const data = parsed.success ? parsed.data : {};
   const requested = data.scope ?? "last";
   const turns = useTurns(threadId);
-  const edited = useMemo(() => turns.filter((turn) => turn.edits.length), [turns]);
-  const scope =
-    !edited.length || requested === "working-tree"
-      ? "working-tree"
-      : requested === "all" || edited.some((turn) => turn.id === requested)
-        ? requested
-        : "last";
-  const turn =
-    scope === "all" || scope === "working-tree"
-      ? undefined
-      : (edited.find((candidate) => candidate.id === scope) ?? edited.at(-1));
-  const shown = useMemo(
-    () =>
-      scope === "working-tree" ? [] : turn ? turn.edits : edited.flatMap((each) => each.edits),
-    [scope, turn, edited],
-  );
+  const edited = useMemo(() => editedTurns(turns), [turns]);
+  const resolved = useMemo(() => resolveScope(requested, edited), [requested, edited]);
+  const { scope } = resolved;
+  const shown = useMemo(() => scopeEdits(resolved, edited), [resolved, edited]);
   const { files, pending, versions } = useFileDiffs(shown);
   const details = useThreadMeta(threadId)?.details;
   const stat = useMemo(

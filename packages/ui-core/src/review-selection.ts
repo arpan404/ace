@@ -1,5 +1,5 @@
 import { ReviewFingerprint, type ReviewFingerprint as Fingerprint } from "@ace/protocol";
-import type { FileDiff } from "./turns.ts";
+import type { DiffRow } from "./diff.ts";
 
 /** Lines on one side of a diff, first to last; a review comment covers fewer than 100. */
 export interface LineRange {
@@ -8,8 +8,13 @@ export interface LineRange {
   end: number;
 }
 
+/** A diff's rows, as a file's diff or a page of one holds them. */
+export interface DiffRows {
+  readonly rows: readonly DiffRow[];
+}
+
 /** Known contiguous lines on either side. Repeated patch coordinates fail closed. */
-export function linesOf(file: Pick<FileDiff, "rows">, range: LineRange): string[] | undefined {
+export function linesOf(file: DiffRows, range: LineRange): string[] | undefined {
   const lines: string[] = [];
   for (const row of file.rows)
     for (const line of row.kind === "fold" ? (row.lines ?? []) : [row]) {
@@ -24,10 +29,7 @@ export function linesOf(file: Pick<FileDiff, "rows">, range: LineRange): string[
  * The displayed selection and up to three known lines around it, within the protocol's bounds:
  * the daemon checks it against its own snapshot before recording a comment.
  */
-export function displayedSelection(
-  file: Pick<FileDiff, "rows">,
-  range: LineRange,
-): Fingerprint | undefined {
+export function displayedSelection(file: DiffRows, range: LineRange): Fingerprint | undefined {
   const lines = linesOf(file, range);
   if (!lines) return undefined;
   const before: string[] = [];
