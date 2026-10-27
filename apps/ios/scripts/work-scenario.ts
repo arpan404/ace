@@ -48,12 +48,13 @@ export function seedWork(
       ...(scenario === "clean"
         ? {
             linkedPrs: [
+              // A pull request the fixture's GitHub knows, so its page opens in the app.
               {
-                number: 31,
-                repo: repository,
-                url: "https://github.com/arpan404/ace/pull/31",
+                number: 233,
+                repo: { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const,
+                url: "https://github.com/acme/ace/pull/233",
                 state: "open" as const,
-                title: "Retry queue sends once",
+                title: "Keep the composer draft per project",
                 updatedAt: 1,
               },
             ],

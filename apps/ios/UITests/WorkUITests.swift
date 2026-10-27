@@ -53,18 +53,19 @@ import XCTest
     func testALinkedPullRequestOpensItsPageInTheApp() throws {
         let app = try open("clean")
         app.buttons["thread.subtitle"].tap()
-        let pull = app.descendants(matching: .any)["work.pr.31"].firstMatch
+        let pull = app.descendants(matching: .any)["work.pr.233"].firstMatch
         XCTAssertTrue(pull.waitForExistence(timeout: 15))
         pull.tap()
-        XCTAssertTrue(app.navigationBars["#31"].waitForExistence(timeout: 15), "the pull request's own page is pushed, not GitHub")
+        XCTAssertTrue(app.navigationBars["#233"].waitForExistence(timeout: 15), "the pull request's own page is pushed, not GitHub")
         XCTAssertFalse(app.buttons["work.branch"].exists, "Work closed on the way")
+        XCTAssertTrue(app.descendants(matching: .any)["forge.pull.header"].firstMatch.waitForExistence(timeout: 20), "the page reads the pull request")
         screenshot("pull-page")
     }
 
     func testLinkingAndUnlinkingAPullRequest() throws {
         let app = try open("clean")
         app.buttons["thread.subtitle"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["work.pr.31"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["work.pr.233"].waitForExistence(timeout: 15))
         // The sheet opens at half height; Link a PR sits below the fold.
         let link = app.buttons["work.link"]
         app.reveal(link)
@@ -77,12 +78,12 @@ import XCTest
         app.buttons["work.link.submit"].firstMatch.tap()
         XCTAssertTrue(app.descendants(matching: .any)["work.pr.77"].waitForExistence(timeout: 15))
         screenshot("linked")
-        app.buttons["work.unlink.31"].tap()
+        app.buttons["work.unlink.233"].tap()
         let confirm = app.buttons["work.unlink.confirm"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         screenshot("unlink-confirm")
         confirm.tap()
-        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.descendants(matching: .any)["work.pr.31"])
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.descendants(matching: .any)["work.pr.233"])
         wait(for: [gone], timeout: 15)
         XCTAssertTrue(app.descendants(matching: .any)["work.pr.77"].exists, "only the one asked for goes")
     }
