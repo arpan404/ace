@@ -13,8 +13,8 @@ import XCTest
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
         XCUIDevice.shared.orientation = .landscapeLeft
         let app = launch()
-        open("thread.ios-form", in: app)
-        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        open("thread.ios-plan", in: app)
+        XCTAssertTrue(title("Plan the kill-all filters", in: app).waitForExistence(timeout: 20))
         // Beside the list there is no tab bar: the sidebar carries Threads and Pull requests.
         XCTAssertTrue(app.tabBars.buttons["Pulls"].waitForNotHittable(timeout: 5), "a launch in landscape keeps the tab bar hidden")
         // A fresh thread's panel opens on Changes beside Files, the list still beside the thread.
@@ -70,18 +70,33 @@ import XCTest
         // A relaunch brings the first thread's panel back as it was.
         app.terminate()
         let again = launch()
-        open("thread.ios-form", in: again)
-        XCTAssertTrue(title("Deploy the preview", in: again).waitForExistence(timeout: 20))
+        open("thread.ios-plan", in: again)
+        XCTAssertTrue(title("Plan the kill-all filters", in: again).waitForExistence(timeout: 20))
         XCTAssertTrue(again.buttons["panel.tab.terminal"].waitForHittable(timeout: 10))
         XCTAssertFalse(again.buttons["panel.tab.agents"].exists)
+    }
+
+    func testTheBrowserOpensInThePanelBesideTheThread() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = launch()
+        open("thread.ios-browser", in: app)
+        XCTAssertTrue(title("Check the checkout flow", in: app).waitForExistence(timeout: 20))
+        app.buttons["thread.menu"].tap()
+        app.threadMenuItem("thread.browser").tap()
+        XCTAssertTrue(app.buttons["panel.tab.browser"].waitForHittable(timeout: 15))
+        XCTAssertTrue(app.buttons["browser.menu"].waitForExistence(timeout: 15))
+        XCTAssertTrue(title("Check the checkout flow", in: app).exists, "the thread stays beside the browser")
+        XCTAssertTrue(app.textViews["composer.input"].exists)
+        screenshot("ipad-panel-browser")
     }
 
     func testInPortraitTheListStepsAsideForThePanelAndComesBackAfter() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
         XCUIDevice.shared.orientation = .portrait
         let app = launch()
-        open("thread.ios-form", in: app)
-        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        open("thread.ios-approval", in: app)
+        XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 20))
         let threads = app.buttons["sidebar.threads"]
         XCTAssertTrue(threads.reachable)
         app.buttons["thread.menu"].tap()

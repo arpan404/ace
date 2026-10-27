@@ -15,8 +15,10 @@ struct PanelRoom {
     let yield: (Bool) -> Void
     /// Where the panel goes, for the thread's ⋯ menu, panel button and keys.
     let place: Binding<PanelPlace>
-    /// The inspector column's widths while the panel shows; nil hides it.
+    /// The inspector column's widths wherever the panel has room, shown or not.
     let column: Binding<PanelColumnWidth?>
+    /// The panel shows its column.
+    let shown: Binding<Bool>
 }
 
 /// The inspector column's widths: the person's own, inside what leaves the thread its share.
@@ -69,8 +71,9 @@ private struct PanelState: View {
         return PanelPlace.of(regular: sizeClass == .regular, width: room.window - room.list, list: room.list, limits: view.limits)
     }
     private var column: PanelColumnWidth? {
-        guard let view, view.open, view.shown != nil, place != .none, let room else { return nil }
-        let detail = room.window - room.list
+        guard let view, place != .none, let room else { return nil }
+        // Its column once shown: the whole window when the list steps aside for it.
+        let detail = place == .yield ? room.window : room.window - room.list
         let low = CGFloat(view.limits.min)
         return PanelColumnWidth(min: low, ideal: PanelPlace.width(size: view.size, column: detail, limits: view.limits),
                                 max: max(low, detail - CGFloat(view.limits.keep)))
@@ -80,6 +83,9 @@ private struct PanelState: View {
         Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
             .onChange(of: place, initial: true) { _, now in room?.place.wrappedValue = now }
             .onChange(of: column, initial: true) { _, now in room?.column.wrappedValue = now }
+            .onChange(of: view?.open == true && view?.shown != nil && place != .none, initial: true) { _, now in
+                room?.shown.wrappedValue = now
+            }
             // The list steps aside while a panel that needs its room shows, and comes back after.
             .onChange(of: place == .yield && view?.open == true, initial: true) { _, wants in room?.yield(wants) }
             // The person brought the list back over it, or the system closed the column: the

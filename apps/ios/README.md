@@ -392,6 +392,27 @@ open `Views/Browser/BrowserLiveView` full screen; the request's Done is offered 
   devices channel. Tests: `DeviceStreamTests` (daemon-encoded pieces), `DeviceH264Tests`,
   `DeviceViewportTests`.
 
+## iPad side panel
+
+On iPad, and in any regular window wide enough, a thread's tools open as tabs in a side panel
+beside it rather than over it: Changes, Files, Terminal, Browser and Agents, each the same screen
+the phone opens as a sheet (`Sources/Views/Workspace`). The panel is the split view's inspector
+column, so each tab's screen keeps its own bar and stack. The thread bar's panel button shows
+and hides it; + opens a tool; ⋯ pins, moves and closes the tab showing, closes the others and
+reopens the last closed. Tabs also drag to reorder and carry the same actions in a context menu.
+The panel's edge resizes it. The Panel menu (⇧⌘B, ⇧⌘D, ⌘P, ⌃\`, ⌃⇧B, ⌃⇧A, ⇧⌘[ and ], ⌥⌘W,
+⇧⌥⌘T) repeats those controls.
+
+The rules are shared with the web and any tablet app (`@ace/ui-core/tablet-workspace`, on top of
+the web's `@ace/ui-core/workspace-tabs`): what a thread starts with (Changes and Files, pinned),
+what a tool's key does, where a closed tab comes back, and what each thread remembers across
+launches (its tabs, the tab showing, whether the panel shows, its width). Each machine's bridge
+keeps its threads' panels (`bridge/workspace.ts`) in its own database. Where the panel goes is
+the window's: beside the thread when the thread keeps 440 points next to a panel of at least
+320; in portrait the thread list steps aside while the panel shows; narrower, and in every
+compact window, the tools open over the thread as on a phone. Run and preview joins the panel
+once its screen is on main (`PanelTool` in `Sources/Models/ThreadPanels.swift`).
+
 ## Agents and Changes sheets
 
 The thread header opens two detent sheets (`Views/Agents`, `Views/Changes`). The bridge

@@ -40,7 +40,14 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
     @State private var panelPlace = PanelPlace.none
     /// Set once the window first shows, for the tab bar's place (`TabBarPlace`).
     @State private var appeared = false
+    /// The inspector column's widths for the open thread's panel, kept while it hides so
+    /// showing it changes nothing else.
     @State private var panelColumn: PanelColumnWidth?
+    /// The open thread's panel wants its column.
+    @State private var panelShown = false
+    /// The list finished stepping aside for the panel, so the column may come in: UIKit's
+    /// split view fails when the column arrives while the list is still leaving.
+    @State private var listAside = false
     /// Each time the system closed the inspector itself.
     @State private var panelDismissed = 0
 
@@ -67,7 +74,7 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
         .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
         // The tab bar controller itself follows the same rule, or its first layout keeps room for it.
         .background {
-            if showing { TabBarPlace(hidden: !ThreadColumns.showsTabBar(sizeClass, path: path), relayout: "\(panelColumn != nil) \(path.count) \(sizeClass == .regular) \(appeared)").frame(width: 0, height: 0) }
+            if showing { TabBarPlace(hidden: !ThreadColumns.showsTabBar(sizeClass, path: path), relayout: "\(inspectorShown.wrappedValue) \(path.count) \(sizeClass == .regular) \(appeared)").frame(width: 0, height: 0) }
         }
         .task { try? await Task.sleep(for: .milliseconds(300)); appeared = true }
         // Set outside any animation: a launch, a turn or a window resize never springs the list.
@@ -101,11 +108,17 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
             else if panelYield, now != .detailOnly { panelYield = false; reclaimed += 1 }
         }
         // Nothing open, nothing needs the room.
+        .task(id: panelYield) {
+            listAside = false
+            guard panelYield else { return }
+            try? await Task.sleep(for: .milliseconds(450))
+            if !Task.isCancelled { listAside = true }
+        }
         .onChange(of: path.isEmpty) { _, empty in
             guard empty else { return }
             yieldList(false)
             panelPlace = .none
-            panelColumn = nil
+            panelShown = false
         }
         .task(id: settling) {
             guard settling > 0 else { return }
@@ -157,7 +170,8 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
                 }
                 .navigationDestination(for: InboxRoute.self) { page($0) }
             }
-            .environment(\.panelPlace, panelPlace)
+            // Only beside the list is there room for a panel; a compact window keeps the sheets.
+            .environment(\.panelPlace, layout == .beside ? panelPlace : .none)
             // The decisions behind the open thread's side panel, and its column in the inspector.
             .background { if let key = ThreadColumns.panelScope(path) { side(key, .state) } }
             .inspector(isPresented: inspectorShown) {
@@ -246,12 +260,13 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
         guard layout == .beside else { return nil }
         let listShows = ThreadColumns.sideBySide(sizeClass, width: width) && visibility != .detailOnly
         return PanelRoom(window: width, list: panelYield ? yieldedList : listShows ? listColumn : 0, reclaimed: reclaimed,
-                         dismissed: panelDismissed, yield: yieldList, place: $panelPlace, column: $panelColumn)
+                         dismissed: panelDismissed, yield: yieldList, place: $panelPlace, column: $panelColumn, shown: $panelShown)
     }
     /// The inspector shows while the open thread's panel has a column; closing it from outside
     /// (the system, a gesture) hides the thread's panel.
     private var inspectorShown: Binding<Bool> {
-        Binding(get: { panelColumn != nil }, set: { shown in if !shown, panelColumn != nil { panelDismissed += 1 } })
+        Binding(get: { layout == .beside && panelShown && panelColumn != nil && (panelPlace != .yield || listAside) },
+                set: { shown in if !shown, panelShown { panelDismissed += 1 } })
     }
     /// The list steps aside for the panel, or comes back once it no longer needs the room.
     private func yieldList(_ wants: Bool) {
