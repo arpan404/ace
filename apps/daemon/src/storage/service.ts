@@ -22,6 +22,7 @@ import type { StorageOwner } from "./types.ts";
 import { RETENTION_REVIEWER, retentionKinds, retentionPolicy } from "./data-retention-policy.ts";
 import { WorktreeBackups } from "./worktree-backups.ts";
 import { WorktreeBatches } from "./worktree-batches.ts";
+import { SPACE_RECLAIMER, worthReclaiming } from "./space-reclaim-policy.ts";
 
 const missing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -121,6 +122,53 @@ export class StorageService {
       );
       return this.compaction(state);
     });
+  }
+  /**
+   * Automatic, non-destructive space reclaim: one bounded compaction run that never deletes
+   * rows. It resumes any unfinished compaction, or starts one when the free list is worth
+   * returning to the OS. `pending` means free pages remain for the next run.
+   */
+  reclaimSpace(
+    maxChunks: number,
+    allowed: () => boolean,
+  ): Promise<"idle" | "pending" | "complete"> {
+    return this.serial(async () => {
+      if (this.closed || !allowed()) return "pending";
+      let state = this.journal.unfinishedCompaction();
+      if (!state) {
+        const space = readSqlitePageSpace({ prepare: (sql) => this.owner.store.statement(sql) });
+        // A file created without incremental vacuum has nothing this path can release.
+        if (
+          space.autoVacuum === 0 ||
+          !worthReclaiming({ fileBytes: space.pageBytes, freeBytes: space.reclaimableBytes })
+        )
+          return "idle";
+        const started: CompactionJournal = {
+          id: this.owner.id(),
+          owner: SPACE_RECLAIMER,
+          state: "running",
+          phase: "vacuum",
+          chunks: 0,
+          databaseBytesBefore: (await this.database()).databaseBytes,
+          incrementalUnavailable: false,
+          checkpointed: false,
+        };
+        await this.owner.store.write(() => this.journal.saveCompaction(started));
+        state = started;
+      }
+      await compactStorage(
+        this.owner,
+        this.journal,
+        state,
+        { ...this.limits, maxChunks: Math.min(maxChunks, this.limits.maxChunks) },
+        () => !this.closed && allowed(),
+      );
+      return state.state === "running" ? "pending" : "complete";
+    });
+  }
+  /** True while a compaction cut short is journaled as running. */
+  compactionUnfinished(): boolean {
+    return this.journal.unfinishedCompaction() !== undefined;
   }
   /** Stop resuming an unfinished compaction. Chunks already released stay released. */
   abandonCompaction(id: string): Promise<StorageCompaction> {
