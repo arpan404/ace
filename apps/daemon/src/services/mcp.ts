@@ -173,7 +173,18 @@ export async function startMcp(context: ServiceContext): Promise<void> {
             ),
           ]
         : []),
-      ...(help ? [browserHelpToolkit(help)] : []),
+      ...(help
+        ? [
+            browserHelpToolkit(help, async (call, { caller, signal }) => {
+              const machines = services.machines;
+              if (!machines) throw new PublicToolError("machine_unavailable");
+              return machines.caller.browser(caller, call.machine, call.tool, call.args, {
+                timeoutMs: call.timeoutMs,
+                signal,
+              });
+            }),
+          ]
+        : []),
       // Registered at startup; the devices implementation loads on an agent's first call.
       ...(devices
         ? [
@@ -195,20 +206,15 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         : []),
       // Agents use the background engine on macOS, Linux and Windows; with `machine`, another
       // paired machine's apps (ADR 0105).
-      ...(services.computer
-        ? [
-            daemonComputerToolkit(services, services.computer, async (call, { caller, signal }) => {
-              const machines = services.machines;
-              if (!machines) throw new PublicToolError("machine_unavailable");
-              return machines.caller.screen(caller, call.machine, call.tool, call.args, {
-                timeoutMs: call.timeoutMs,
-                signal,
-              });
-            }),
-          ]
-        : services.screen
-          ? [screenToolkit(services.screen)]
-          : []),
+      daemonComputerToolkit(services, services.computer, async (call, { caller, signal }) => {
+        const machines = services.machines;
+        if (!machines) throw new PublicToolError("machine_unavailable");
+        return machines.caller.screen(caller, call.machine, call.tool, call.args, {
+          timeoutMs: call.timeoutMs,
+          signal,
+        });
+      }),
+      ...(!services.computer && services.screen ? [screenToolkit(services.screen)] : []),
     ],
     observations,
     (caller) => {
@@ -226,7 +232,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
           ...(!services.browser
             ? { browser: "ace's built-in browser failed to start in this daemon." }
             : {}),
-          ...(!services.screen?.isEnabled()
+          ...(!services.screen?.isEnabled() && !services.machines?.caller.serves("screen")
             ? {
                 screen: "Computer use is disabled.",
               }

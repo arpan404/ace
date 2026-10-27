@@ -67,7 +67,10 @@ Each grant is Off, Read only or Read and act (`off`, `read`, `operate`).
   the person stops them from their threads here.
 - **Risk per op.** Each capability names its read-only tools. Browser takes the registry's risk
   class, as it does today. Stage 2 gives `devices` and `screen` theirs (`sim_list`, `sim_ui`,
-  `sim_logs`, `sim_screenshot`, `screen_apps`, `screen_state` read; the rest act). Commands
+  `sim_logs`, `sim_screenshot`, `screen_apps` read; the rest act). `screen_state` reads
+  only when the effective grant is Read only: it freshly resolves the app and refuses a stopped
+  app with a next step for the person, so a look cannot open it. Read and act keeps the normal
+  launch-on-look behavior, which the local tool catalog marks external-effect. Commands
   always act. A tool with no known risk is treated as acting.
 
 ### Discovery
@@ -94,9 +97,11 @@ and calling agent:
   Linux box get two sessions, and the same thread calling from two machines does too.
 - Within a session, each calling agent has its own **owner**: `agentOwner(sessionThread,
 "remote:" + callingAgentId)`, the same shape as a local agent's device owner. Device leases
-  (`packages/devices`), computer-use leases and browser tabs are held by that owner. Two remote
-  agents never share a lease, and one remote agent keeps its lease across calls. Agents on
-  different machines, or in different threads, drive different simulators in parallel.
+  (`packages/devices`) are held by that owner. Two remote agents never share a device lease,
+  and one remote agent keeps its lease across calls. Computer use has no per-app agent lease:
+  each calling agent gets a separate tool registry and outline baseline, and its own agent id
+  is passed to Locked Use. Browser tools currently use the guest session's root agent. Agents
+  on different machines, or in different threads, drive different simulators in parallel.
 - A device id from one paired device can't name another device's sessions: every op on a
   session checks that the session belongs to the calling device.
 
@@ -125,22 +130,29 @@ session** on the target. One exists per (calling device, calling host, calling t
   its grant is checked and is refused if either came after it. Stopping a row with no call
   behind it ends the row. A call that finishes after its session was deleted still returns its
   own result to the caller.
-- **Approvals.** Requests that wait for the person (a new site, an evaluate, a takeover) open in
+- **Approvals.** Requests that wait for the person, such as `browser_request_help`, open in
   the guest session, so they show on the target. The calling machine polls the session's
   `status` and mirrors them into the originating thread's composer strip, as browser does
   today (ADR 0078). Answering on either machine resolves both. Agents never answer them. An
   answer from the calling machine needs the capability whose tool raised the request (the
   browser's for a browser request, and so on); a request no capability raised can't be answered
-  from there.
+  from there. `browser_request_help` is registered on the target and routes through the real
+  BrowserHelp service. Browser help and generic `ask` requests record their raising tool;
+  `ask` belongs to no guest capability and cannot be answered through a capability grant.
+  Mirrored requests preserve their original attribution; child-lost requests belong to delegated
+  provider threads, not guest sessions. Browser navigation and evaluation follow the provider's
+  permissions and do not open host approvals of their own.
 
 ### Human takeover beats remote agents
 
 A person driving a simulator, screen or browser tab on the target always wins. The devices
 service already lets a `human` lease override any agent's. Remote agents hold ordinary agent
 leases, so a takeover suspends them exactly as it does local agents. Their next call gets the
-lease's "the person is using it" refusal, never a silent retry. Computer use keeps its per-app
-approval and screen-session rules (ADR 0078 follow-up, packages/screen). A remote agent is
-another agent asking, never a way around the person's per-app consent.
+lease's "the person is using it" refusal, never a silent retry. Computer use keeps its
+blocked-app rules, local enabled switch and Locked Use gate. The background computer engine does not acquire a device lease or open
+a per-app approval. Legacy screen capture uses its existing screen-session consent rules.
+Secure-input failures are tool refusals, not engine interactions. Remote guest sessions have
+no provider turn, so they cannot borrow the root agent's approved turn for Locked Use.
 
 ### Kill switch
 
@@ -254,7 +266,8 @@ grants here are independent of transport, so adding relay routing later changes 
 
 - `devices`, `screen` and `commands` ops served through the guest session (`GuestSessions.run`),
   with their risk maps, `machine` on `sim_*` and `screen_*` tools and a new `command_run` tool.
-- Releasing leases and screen sessions on the session's end hook.
+- Releasing device leases and computer outline baselines on session end and revocation,
+  including idle sessions, Stop and deletion.
 - Audit view in Settings › Fleet.
 - Built for `devices`: the target runs its own sim_* tools as the guest owner; leases are
   released on the session's end hook and on every revocation, even with no call running; a
@@ -270,3 +283,14 @@ Two real daemons paired over TLS, as in ADR 0078's tests:
 - lowering a grant applies to the next call;
 - a target with no provider installed serves a browser call through a guest session;
 - `machines` lists only granted capabilities.
+
+### Computer-use risk table
+
+| Tool                           | Read only                                                | Read and act                        |
+| ------------------------------ | -------------------------------------------------------- | ----------------------------------- |
+| `screen_apps`                  | Lists apps                                               | Lists apps                          |
+| `screen_state`                 | Freshly resolves; refuses stopped apps without launching | May launch the app                  |
+| `screen_act` and unknown tools | Refused                                                  | Subject to local computer-use rules |
+
+The calling daemon offers routed screen tools when a linked machine serves screen even if
+its own computer engine is absent or disabled. A routed call never enables local computer use.

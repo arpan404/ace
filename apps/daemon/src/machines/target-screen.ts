@@ -2,7 +2,8 @@ import type { MachineToolResult } from "@ace/protocol";
 import { ToolRegistry, nodeScheduler, type Toolkit } from "@ace/mcp-server";
 import type { ComputerClient } from "@ace/screen";
 import type { CapabilityHost } from "./capability-hosts.ts";
-import type { GuestSession } from "./guest-sessions.ts";
+import { z } from "zod";
+import type { GuestScope, GuestSessions, GuestSession } from "./guest-sessions.ts";
 import { TargetRefusal } from "./target-refusal.ts";
 import { toolResult } from "./tool-result.ts";
 
@@ -26,6 +27,7 @@ interface Held {
   computer: ComputerClient;
   tools: ToolRegistry;
   threadId: string;
+  deviceId: string;
 }
 
 /**
@@ -56,10 +58,23 @@ export class TargetScreen implements CapabilityHost {
     tool: string,
     args: Record<string, unknown>,
     signal: AbortSignal,
+    level: "read" | "operate" = "operate",
   ): Promise<MachineToolResult> {
     const computer = this.deps.computer();
     if (!computer || !this.deps.enabled())
       throw new TargetRefusal("unavailable", this.unavailable());
+    // Resolve afresh: a cached outline says nothing about whether the app is still running.
+    if (tool === "screen_state" && level === "read") {
+      const { app } = z.object({ app: z.string() }).parse(args);
+      const resolved = z
+        .object({ running: z.boolean() })
+        .parse(await computer.request("resolve", { app }, { signal }));
+      if (!resolved.running)
+        throw new TargetRefusal(
+          "machine_forbidden",
+          "That app is not running. Read only cannot open apps. Ask the person to open it on that machine, or allow Read and act in Settings › Fleet.",
+        );
+    }
     const tools = this.tools(session, computer);
     if (!tools.names().includes(tool))
       throw new TargetRefusal("invalid", "Unknown computer-use tool.");
@@ -70,7 +85,7 @@ export class TargetScreen implements CapabilityHost {
         scope: {
           sessionId: `machine:${session.deviceId}`,
           threadId: session.threadId,
-          agentId: session.agentId,
+          agentId: session.agent,
           capabilities: ["screen"],
         },
         signal,
@@ -83,6 +98,24 @@ export class TargetScreen implements CapabilityHost {
   release(threadId: string): void {
     for (const [owner, held] of this.held) if (held.threadId === threadId) this.held.delete(owner);
   }
+  follow(guests: GuestSessions): () => void {
+    const ended = guests.onEnd(({ session, capability }) => {
+      if (capability === "screen") this.release(session.threadId);
+    });
+    const revoked = guests.onRevoke((scope) => this.revoke(scope));
+    return () => {
+      ended();
+      revoked();
+    };
+  }
+  private revoke(scope: GuestScope): void {
+    if (scope.capability !== undefined && scope.capability !== "screen") return;
+    for (const [owner, held] of this.held) {
+      if (scope.deviceId !== undefined && held.deviceId !== scope.deviceId) continue;
+      if (scope.threadId !== undefined && held.threadId !== scope.threadId) continue;
+      this.held.delete(owner);
+    }
+  }
   private tools(session: GuestSession, computer: ComputerClient): ToolRegistry {
     const existing = this.held.get(session.owner);
     if (existing?.computer === computer) {
@@ -93,7 +126,12 @@ export class TargetScreen implements CapabilityHost {
     }
     const tools = new ToolRegistry({ scheduler: nodeScheduler });
     this.deps.toolkit(computer).register(tools);
-    this.held.set(session.owner, { computer, tools, threadId: session.threadId });
+    this.held.set(session.owner, {
+      computer,
+      tools,
+      threadId: session.threadId,
+      deviceId: session.deviceId,
+    });
     for (const owner of this.held.keys()) {
       if (this.held.size <= remembered) break;
       this.held.delete(owner);

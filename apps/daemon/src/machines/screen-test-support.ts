@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach } from "vitest";
@@ -27,7 +27,7 @@ function exited(child: ChildProcessWithoutNullStreams): Promise<void> {
  * One machine's computer use, as a daemon runs it: the person's switch and real computer-use
  * engine processes (the scripted fake helper). Closed after the test.
  */
-export async function computerUse() {
+export async function computerUse(env: Record<string, string> = {}) {
   const home = await mkdtemp(join(tmpdir(), "ace-machine-screen-"));
   const screen = new ScreenManager({
     command: process.execPath,
@@ -43,9 +43,9 @@ export async function computerUse() {
   const computer = new ComputerClient({
     helper: async () => "fake-helper",
     nextId: () => `r${++next}`,
-    spawnHelper: (_command, args, env) => {
+    spawnHelper: (_command, args, helperEnv) => {
       const child = spawn(process.execPath, [engine, ...args], {
-        env: { ...process.env, ...env },
+        env: { ...process.env, ...env, FAKE_LOG: join(home, "ops.log"), ...helperEnv },
         stdio: ["pipe", "pipe", "pipe"],
       });
       children.push(child);
@@ -58,5 +58,5 @@ export async function computerUse() {
     await screen.close();
     await rm(home, { recursive: true, force: true });
   });
-  return { screen, computer };
+  return { screen, computer, ops: () => readFile(join(home, "ops.log"), "utf8").catch(() => "") };
 }

@@ -41,6 +41,8 @@ interface Result {
 export interface ComputerToolkitOptions {
   /** The platform the helper drives, for the tools' wording. Default macOS. */
   platform?: ComputerPlatform;
+  /** Whether local computer use is enabled; remote routing does not enable it. */
+  enabled?: () => boolean;
   /** The person's own list of apps agents can't use: app ids or names. */
   blockedApps?: () => readonly string[] | Promise<readonly string[]>;
   /** Told while a thread's agent looks at or acts in an app; the returned function ends it. */
@@ -90,9 +92,17 @@ const callerOf = (context: ToolContext) => `${context.caller.threadId}/${context
 const textOf = (content: Content) => (content[0]?.type === "text" ? content[0].text : "");
 
 export function computerToolkit(
-  client: ComputerClient,
+  client: ComputerClient | undefined,
   options: ComputerToolkitOptions = {},
 ): Toolkit {
+  const localClient = () => {
+    if (!client)
+      throw new ComputerError(
+        "unavailable",
+        "This machine has no computer use. Pass machine to use a linked machine's apps.",
+      );
+    return client;
+  };
   const memory = new ComputerMemory();
   const platform = options.platform ?? "macos";
   const computerSchemas = computerSchemasFor(platform);
@@ -138,7 +148,7 @@ export function computerToolkit(
     let found: (ResolvedApp & { running?: boolean }) | undefined = memory.app(key);
     if (!found) {
       const fresh = Resolved.parse(
-        await client.request("resolve", { app }, { signal: context.signal }),
+        await localClient().request("resolve", { app }, { signal: context.signal }),
       );
       found = fresh;
       memory.resolved(key, { bundleId: fresh.bundleId, name: fresh.name });
@@ -158,7 +168,7 @@ export function computerToolkit(
     const done = options.using?.(context.caller.threadId, app.name);
     try {
       const send = (signal: AbortSignal) =>
-        client.request(op, payload, { signal, app: app.bundleId });
+        localClient().request(op, payload, { signal, app: app.bundleId });
       if (!options.lockedUse) return await send(context.signal);
       const { threadId, agentId } = context.caller;
       return await options.lockedUse(
@@ -178,7 +188,7 @@ export function computerToolkit(
     async screen_apps(args, { signal }) {
       const { query } = computerSchemas.screen_apps.parse(args);
       const { apps } = ComputerApps.parse(
-        await client.request("apps", query ? { query } : {}, { signal }),
+        await localClient().request("apps", query ? { query } : {}, { signal }),
       );
       const person = await personBlocked();
       const usable = apps.filter((app) => !blockedReason(app, person, host));
@@ -304,6 +314,11 @@ export function computerToolkit(
                 context,
               );
             try {
+              if (options.enabled?.() === false)
+                throw new ComputerError(
+                  "unavailable",
+                  "Computer use is disabled on this machine. Pass machine to use a linked machine's apps.",
+                );
               return await run[name](args, context);
             } catch (error) {
               if (error instanceof ComputerError)

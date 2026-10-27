@@ -153,7 +153,7 @@ export function capabilityOfTool(tool: string): MachineCapability | undefined {
 /** The capability whose tool raised a request waiting on the person in a guest session. */
 export function capabilityOfRequest(request: InteractionRequest): MachineCapability | undefined {
   if (request.kind === "browser_help") return "browser";
-  if (request.kind === "approval" && request.target) return capabilityOfTool(request.target.tool);
+  if ("target" in request && request.target) return capabilityOfTool(request.target.tool);
   return undefined;
 }
 

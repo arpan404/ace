@@ -128,6 +128,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
     call: Extract<MachineCall, { op: HostedCapability }>,
     signal: AbortSignal,
     ticket: number,
+    known: GrantFacts,
   ) {
     const host = deps.hosts[call.op];
     if (!host?.call)
@@ -151,7 +152,14 @@ export function createMachineTarget(deps: MachineTargetDeps) {
         ticket,
       },
       signal,
-      (stop) => serve(session, call.tool, call.args, stop),
+      (stop) =>
+        serve(
+          session,
+          call.tool,
+          call.args,
+          stop,
+          effectiveGrants(known)[call.op] === "operate" ? "operate" : "read",
+        ),
     );
   }
   async function run(device: Device, request: MachineCallRequest, signal: AbortSignal) {
@@ -203,7 +211,7 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       case "devices":
       case "screen":
       case "commands":
-        return hosted(device, origin, call, signal, ticket);
+        return hosted(device, origin, call, signal, ticket, known);
     }
   }
   return {
