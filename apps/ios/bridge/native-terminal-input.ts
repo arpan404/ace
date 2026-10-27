@@ -20,7 +20,8 @@ const Input = z.union([
  */
 export const NativeTerminalInputRequest = z.object({
   type: z.literal("terminal.input"),
-  threadId: z.string().min(1),
+  /** Omitted for a sign-in terminal, which belongs to no thread. */
+  threadId: z.string().min(1).optional(),
   terminalId: z.string().min(1).max(128),
   /** DECCKM as the phone's screen last saw it. */
   applicationCursor: z.boolean(),
@@ -47,7 +48,12 @@ export async function writeNativeTerminalInput(
   return owner.request(
     {
       type: "terminal.request",
-      operation: { op: "write", threadId: request.threadId, terminalId: request.terminalId, data },
+      operation: {
+        op: "write",
+        ...(request.threadId ? { threadId: request.threadId } : {}),
+        terminalId: request.terminalId,
+        data,
+      },
     },
     { signal, timeoutMs: 20_000 },
   );

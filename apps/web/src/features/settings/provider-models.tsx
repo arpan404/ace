@@ -1,14 +1,16 @@
 import { pluralCount } from "@ace/ui-core";
-import { ProviderConfiguration, type CatalogModel, type ProviderKind } from "@ace/protocol";
+import type { CatalogModel, ProviderKind } from "@ace/protocol";
 import {
+  customModelChange,
+  providerDefaultModel,
+  modelHidden,
+  modelIdOfKey,
+  modelVisibilityChange,
   modelKey,
   freeModelMarker,
-  unavailableSelection,
   modelName,
-  unavailablePickerModel,
-  newThreadOptions,
-  pickerModel,
-  pickerGroups,
+  providerModelLists,
+  providerModelProblems,
   type PickerModel,
 } from "@ace/ui-core";
 import { EyeIcon, EyeSlashIcon, StarIcon } from "@phosphor-icons/react";
@@ -22,7 +24,6 @@ import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import {
   GroupProblem,
-  isSignInProblem,
   ModelField,
   useFavoriteModels,
   useRefreshModels,
@@ -30,32 +31,6 @@ import {
 import { useModelCatalog, useModelInstances } from "@/lib/model-catalog.ts";
 import { useProviderConfiguration } from "@/lib/provider-configuration.ts";
 import { useAccountViews } from "@/features/accounts/index.ts";
-
-type PickerGroup = ReturnType<typeof pickerGroups>[number];
-
-/**
- * The problems a provider's model groups report, each said once: two accounts that can't reach
- * the same service share one line. OpenCode and Pi list "no models" per service, so it is left to
- * their Services card; and when the Accounts card lists the provider's accounts, a problem that
- * signing in fixes is left to the account's own row, which already offers the one action.
- */
-function uniqueProblems(
-  groups: readonly PickerGroup[],
-  provider: ProviderKind,
-  accountsListed: boolean,
-): { problem: PickerGroup["problems"][number]; id: string }[] {
-  const seen = new Set<string>();
-  return groups.flatMap((group) =>
-    group.problems.flatMap((problem, index) => {
-      if (problem.code === "no_models" && ["opencode", "pi"].includes(provider)) return [];
-      if (accountsListed && isSignInProblem(problem)) return [];
-      const key = [problem.code, problem.source ?? "", problem.message].join("\u0000");
-      if (seen.has(key)) return [];
-      seen.add(key);
-      return [{ problem, id: `${group.id}-${index}` }];
-    }),
-  );
-}
 
 export function ProviderModels(props: { provider: ProviderKind }) {
   const catalog = useModelCatalog();
@@ -65,21 +40,12 @@ export function ProviderModels(props: { provider: ProviderKind }) {
   const stars = useFavoriteModels();
   const [open, setOpen] = useState(false);
   const rows = (catalog ?? []).filter((model) => model.provider === props.provider);
-  const unique = [...new Map(rows.map((row) => [row.id, row])).values()];
-  const models = newThreadOptions(rows, [], []).models.map((option) =>
-    pickerModel(option, option.label, option.account),
-  );
-  const listed = newThreadOptions(
-    unique.map((model) => ({ ...model, hidden: false })),
-    [],
-    [],
-  ).models.map((option) => pickerModel(option, option.label, option.account));
-  const groups = pickerGroups(listed, instances, props.provider);
+  const { unique, models, groups } = providerModelLists(rows, instances, props.provider);
   const byKey = new Map(unique.map((model) => [modelKey(model.provider, model.id), model]));
   // One line per problem: two accounts that can't reach the same service say it once.
   const accounts = useAccountViews();
   const accountsListed = !!accounts.data?.some((account) => account.provider === props.provider);
-  const problems = uniqueProblems(groups, props.provider, accountsListed);
+  const problems = providerModelProblems(groups, props.provider, accountsListed);
   return (
     <>
       {problems.length > 0 && (
@@ -190,11 +156,7 @@ function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): 
   const { model } = props;
   const label = modelName(model.provider, model.displayName, model.id);
   const preferences = useProviderConfiguration(model.provider);
-  const hidden =
-    preferences.value?.hiddenModels?.includes(model.id) === true ||
-    model.visibilityReason === "model_hidden" ||
-    model.visibilityReason === "deprecated" ||
-    model.visibilityReason === "provider_hidden";
+  const hidden = modelHidden(preferences.value, model);
   return (
     <li className="flex min-h-9 items-center gap-2 text-ui">
       <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -219,20 +181,7 @@ function ModelRow(props: { model: CatalogModel; starred: boolean; toggleStar(): 
         label={`${hidden ? "Show" : "Hide"} ${label}`}
         size="sm"
         disabled={preferences.disabled}
-        onClick={() =>
-          void preferences.update((row) => {
-            const ids = new Set([model.id, ...(model.aliases ?? [])]);
-            return {
-              ...row,
-              hiddenModels: hidden
-                ? (row.hiddenModels ?? []).filter((id) => !ids.has(id))
-                : [...new Set([...(row.hiddenModels ?? []), model.id])],
-              shownModels: hidden
-                ? [...new Set([...(row.shownModels ?? []), model.id])]
-                : (row.shownModels ?? []).filter((id) => !ids.has(id)),
-            };
-          })
-        }
+        onClick={() => void preferences.update(modelVisibilityChange(model, hidden))}
       />
     </li>
   );
@@ -242,31 +191,20 @@ function CustomModel(props: { provider: ProviderKind }) {
   const [open, setOpen] = useState(false);
   const [id, setId] = useState("");
   const [name, setName] = useState("");
-  const valid =
-    ProviderConfiguration.shape.customModels
-      .unwrap()
-      .element.safeParse({ id: id.trim(), displayName: name.trim() }).success &&
-    !preferences.value?.customModels?.some((model) => model.id === id.trim());
+  const edit = customModelChange(preferences.value, id, name);
+  const valid = edit.ok;
   return open ? (
     <form
       className="grid gap-2 py-2"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!valid) return;
-        void preferences
-          .update((row) => ({
-            ...row,
-            customModels: [
-              ...(row.customModels ?? []),
-              { id: id.trim(), displayName: name.trim() },
-            ],
-          }))
-          .then((saved) => {
-            if (!saved) return;
-            setId("");
-            setName("");
-            setOpen(false);
-          });
+        if (!edit.ok) return;
+        void preferences.update(edit.change).then((saved) => {
+          if (!saved) return;
+          setId("");
+          setName("");
+          setOpen(false);
+        });
       }}
     >
       <label className="grid gap-1 text-sm">
@@ -318,22 +256,16 @@ function DefaultModel(props: {
   catalog: readonly CatalogModel[] | undefined;
 }) {
   const preferences = useProviderConfiguration(props.provider);
-  // One row per model: the default is the provider's, whichever account lists it.
-  const seen = new Set<string>();
-  const models: PickerModel[] = props.models.flatMap((model) => {
-    if (seen.has(model.key)) return [];
-    seen.add(model.key);
-    const account = !model.source || model.source.kind === "account";
-    return [{ ...model, instance: undefined, ...(account ? { source: undefined } : {}) }];
-  });
-  const saved = preferences.value?.defaultModel;
-  const missing =
-    !!saved && !!unavailableSelection(props.catalog, { provider: props.provider, model: saved });
-  if (missing) models.unshift(unavailablePickerModel({ provider: props.provider, model: saved }));
-  const current =
-    (missing ? models[0] : undefined) ??
-    props.models.find((model) => model.isDefault && model.userDefault) ??
-    props.models.find((model) => model.isDefault);
+  const {
+    choices: models,
+    current,
+    missing,
+  } = providerDefaultModel(
+    props.provider,
+    props.models,
+    props.catalog,
+    preferences.value?.defaultModel,
+  );
   if (!models.length) return null;
   const choose = (id: string | null) => preferences.update((row) => ({ ...row, defaultModel: id }));
   return (
@@ -347,7 +279,7 @@ function DefaultModel(props: {
         note={missing ? "Unavailable" : current?.userDefault ? "Your choice" : undefined}
         disabled={preferences.disabled}
         className="max-w-56"
-        onPick={(key) => void choose(key.slice(key.indexOf("\u0000") + 1))}
+        onPick={(key) => void choose(modelIdOfKey(key))}
       />
       {(current?.userDefault || missing) && (
         <Button

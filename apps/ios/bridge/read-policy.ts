@@ -19,7 +19,8 @@ export type ReadFamily =
   | "prompts"
   | "catalog"
   | "forge"
-  | "host";
+  | "host"
+  | "providers";
 
 type Raw = Record<string, unknown>;
 const Raw = z.record(z.string(), z.unknown());
@@ -81,6 +82,10 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "host.storage":
     case "host.diagnostics":
       return "host";
+    // A provider's Settings page and the off and missing providers (`provider-page.ts`).
+    case "provider.page":
+    case "providers.others":
+      return "providers";
     case "forge.pulls":
     case "forge.issues":
     case "forge.pull":
@@ -108,17 +113,17 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return projectLookups.has(operation(value) ?? "") ? [] : ["projects", "source-control"];
     case "settings.set":
     case "settings.reset":
-      return ["settings", "settings-page", "source-control", "host"];
+      return ["settings", "settings-page", "source-control", "host", "providers"];
     case "host.storage.apply":
     case "host.storage.compact":
     case "host.storage.set":
     case "host.worktreeTimeout":
     case "host.reset":
-      return ["host", "settings", "settings-page"];
+      return ["host", "settings", "settings-page", "providers"];
     case "settings.page.set":
-      return ["settings", "settings-page", "source-control", "host"];
+      return ["settings", "settings-page", "source-control", "host", "providers"];
     case "settings.models.star":
-      return ["settings", "settings-page"];
+      return ["settings", "settings-page", "providers"];
     case "automation.put":
     case "automation.remove":
     case "automation.run":
@@ -128,6 +133,10 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return pluginLookups.has(pluginType(value) ?? "") ? [] : ["plugins", "catalog"];
     case "prompts.request":
       return ["prompts"];
+    case "provider.edit":
+      return ["providers", "settings", "catalog"];
+    case "provider.logout":
+      return ["providers", "catalog"];
     case "forge.merge":
     case "forge.auto-merge":
     case "forge.review":
@@ -149,17 +158,18 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
     case "workspace.changed":
       return ["projects", "source-control"];
     case "settings.changed":
-      return ["settings", "settings-page", "source-control", "host"];
+      return ["settings", "settings-page", "source-control", "host", "providers"];
     case "usage.updated":
       return ["usage"];
     case "accounts.changed":
-      return ["usage", "settings-page"];
+      return ["usage", "settings-page", "providers"];
     case "plugins.removed":
       return ["plugins", "catalog"];
     case "catalog.changed":
+      return ["catalog"];
     case "models.changed":
     case "providers.changed":
-      return ["catalog", "settings-page"];
+      return ["catalog", "settings-page", "providers"];
     case "forge.pr.updated":
       return ["forge"];
     default:

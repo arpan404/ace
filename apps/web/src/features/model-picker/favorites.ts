@@ -3,6 +3,7 @@ import { ProviderConfiguration, ProviderKind } from "@ace/protocol";
 import {
   catalogModelIds,
   changeProvider,
+  editProviderConfiguration,
   favoriteModelKeys,
   readJson,
   withFavoriteToggled,
@@ -14,7 +15,6 @@ import * as z from "zod/mini";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { editProviderConfiguration } from "@/lib/provider-configuration.ts";
 
 const Favorites = z.catch(z.array(z.string()), []);
 const favoritesKey = "ace.models.favorites";

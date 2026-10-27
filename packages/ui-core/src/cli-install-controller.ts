@@ -8,12 +8,24 @@ import type {
   ProviderKind,
 } from "@ace/protocol";
 
+/** What installing, updating or removing a CLI needs of the SDK client. */
+export type InstallClient = Pick<ClientApi, "request" | "onMessage" | "connectionState">;
+
 export type InstallView =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "plan"; plan: ProviderInstallPlan }
   | { kind: "progress"; progress: ProviderInstallProgress }
   | { kind: "error"; message: string };
+
+/** Why the computer refused to plan or start an installer, in words for the person. */
+function refusal(error: string | undefined, starting: boolean): string {
+  if (error === "forbidden")
+    return "This device isn't allowed to install on this computer. Install from ace on the computer.";
+  return starting
+    ? "Couldn't start the installer. Another installation may be running. Try again."
+    : "Couldn't prepare the installer. Check your connection and try again.";
+}
 
 const done = (progress: ProviderInstallProgress) =>
   ["succeeded", "failed", "cancelled", "needs_admin"].includes(progress.state);
@@ -29,12 +41,12 @@ export class CliInstallController {
   private disposed = false;
   private planning: AbortController | undefined;
   private cancelStarting = false;
-  private client: ClientApi;
+  private client: InstallClient;
   private remember: (session: string | undefined) => void;
   private target: { provider: ProviderKind; agent?: InstallAgent; acpAgentId?: string };
 
   constructor(
-    client: ClientApi,
+    client: InstallClient,
     target: { provider: ProviderKind; agent?: InstallAgent; acpAgentId?: string },
     recovery: {
       session?: string | undefined;
@@ -106,7 +118,7 @@ export class CliInstallController {
           ? { kind: "plan", plan: reply.result.plan }
           : {
               kind: "error",
-              message: "Couldn't prepare the installer. Check your connection and try again.",
+              message: refusal(reply.result.ok ? undefined : reply.result.error, false),
             },
       );
     } catch {
@@ -131,7 +143,7 @@ export class CliInstallController {
       if (!reply.result.ok || !("progress" in reply.result)) {
         this.set({
           kind: "error",
-          message: "Couldn't start the installer. Another installation may be running. Try again.",
+          message: refusal(reply.result.ok ? undefined : reply.result.error, true),
         });
         return;
       }
