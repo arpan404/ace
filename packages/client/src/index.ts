@@ -77,6 +77,8 @@ export type { AuthenticatedChannelOptions, DeviceConnectionTarget } from "./devi
 export { downloadArtifact } from "@ace/files/client";
 export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";
 
+/** Bounded wire base64 to bytes, natively where the engine can. */
+export { decodeBase64 } from "./base64.ts";
 export {
   connectionLost,
   downloadFile,

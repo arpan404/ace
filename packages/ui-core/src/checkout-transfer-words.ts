@@ -47,17 +47,20 @@ export function archiveFailure(error: unknown): { code: string; message: string 
 }
 
 /**
- * Where a "keep both" upload goes: `path` with " 2" (then " 3", …) before its extension, the
- * first that `taken` doesn't hold. "notes.md" → "notes 2.md"; ".env" → ".env 2".
+ * Where a "keep both" upload may go, in order: `path` with " 2" (then " 3", …) before its
+ * extension. "notes.md" → "notes 2.md"; ".env" → ".env 2". Endless; take the first that's free.
  */
-export function keepBothPath(path: string, taken: (path: string) => boolean): string {
+export function* keepBothPaths(path: string): Generator<string, never> {
   const { folder, name } = pathParts(path);
   const dot = name.lastIndexOf(".");
   const stem = dot > 0 ? name.slice(0, dot) : name;
   const extension = dot > 0 ? name.slice(dot) : "";
   const prefix = folder ? `${folder}/` : "";
-  for (let copy = 2; ; copy++) {
-    const candidate = `${prefix}${stem} ${copy}${extension}`;
-    if (!taken(candidate)) return candidate;
-  }
+  for (let copy = 2; ; copy++) yield `${prefix}${stem} ${copy}${extension}`;
+}
+
+/** The first "keep both" path that `taken` doesn't hold. */
+export function keepBothPath(path: string, taken: (path: string) => boolean): string {
+  for (const candidate of keepBothPaths(path)) if (!taken(candidate)) return candidate;
+  throw new Error("unreachable");
 }
