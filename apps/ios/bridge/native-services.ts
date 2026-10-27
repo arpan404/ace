@@ -33,12 +33,17 @@ import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import {
-  UsageLimitsRequest,
+  UsageAccountsRequest,
+  UsageLimitsCombineRequest,
+  UsageRefreshRequest,
   UsageResetRequest,
-  readUsageLimits,
+  combineLimits,
+  readUsageAccounts,
   useBankedReset,
 } from "./usage-limits.ts";
-import { UsageReportRequest, readUsageReport } from "./usage-report.ts";
+import { UsagePartRequest, readUsagePart } from "./usage-part.ts";
+import { UsageCombineRequest, combineUsage } from "./usage-report.ts";
+import { host } from "./host.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
@@ -198,9 +203,13 @@ export class NativeServices {
         );
         return;
       }
-      const limits = UsageLimitsRequest.safeParse(raw);
-      if (limits.success) {
-        this.#answer(id, raw, await readUsageLimits(this.owner, controller.signal), read);
+      const accounts = UsageAccountsRequest.safeParse(raw);
+      if (accounts.success) {
+        this.#answer(id, raw, await readUsageAccounts(this.owner, false, controller.signal), read);
+        return;
+      }
+      if (UsageRefreshRequest.safeParse(raw).success) {
+        this.#reply(id, true, await readUsageAccounts(this.owner, true, controller.signal), "");
         return;
       }
       const reset = UsageResetRequest.safeParse(raw);
@@ -208,14 +217,20 @@ export class NativeServices {
         this.#reply(id, true, await useBankedReset(this.owner, reset.data, controller.signal), "");
         return;
       }
-      const report = UsageReportRequest.safeParse(raw);
-      if (report.success) {
-        this.#answer(
-          id,
-          raw,
-          await readUsageReport(this.owner, report.data, controller.signal),
-          read,
-        );
+      const part = UsagePartRequest.safeParse(raw);
+      if (part.success) {
+        this.#answer(id, raw, await readUsagePart(this.owner, part.data, controller.signal), read);
+        return;
+      }
+      // Sums other machines' parts in shared code; nothing here reaches this machine.
+      const combine = UsageCombineRequest.safeParse(raw);
+      if (combine.success) {
+        this.#reply(id, true, combineUsage(combine.data), "");
+        return;
+      }
+      const combineAccounts = UsageLimitsCombineRequest.safeParse(raw);
+      if (combineAccounts.success) {
+        this.#reply(id, true, combineLimits(combineAccounts.data, host.now()), "");
         return;
       }
       const transcript = NativeTranscriptRequest.safeParse(raw);

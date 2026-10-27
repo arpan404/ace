@@ -1,135 +1,102 @@
-import type { ClientCore } from "@ace/client";
-import { ProviderKind, UsageQuery, type UsageDimension, type UsageResult } from "@ace/protocol";
-import {
-  catalogModelIds,
-  catalogModelNames,
-  dayRange,
-  knownTimeZone,
-  previousSpan,
-  providerNames,
-  readModelCatalog,
-  usageDay,
-  usageReport,
-  type ModelCatalog,
-} from "@ace/ui-core";
+import { ProviderKind } from "@ace/protocol";
+import { dayRange, previousSpan, providerNames, usageCoverage, usageReport } from "@ace/ui-core";
 import { z } from "zod";
-import { host } from "./host.ts";
+import { UsagePart } from "./usage-part.ts";
 import { usageMetricView, type UsageMetricView } from "./usage-report-view.ts";
 
 /*
- * The Usage screen's Cost and Tokens views: the range's usage per day, model and session, and
- * the period before it for growth, read from the machine and worded by `usage-report-view.ts`.
+ * The Usage screen's Cost and Tokens views across the machines in scope: each machine's part
+ * (`usage-part.ts`) summed by the web Usage page's `usageReport`, with growth against the
+ * period before and a line naming any machine that isn't counted. Pure: no I/O.
  */
 
-export const UsageReportRequest = z.object({
-  type: z.literal("usage.report"),
-  days: z.union([z.literal(1), z.literal(7), z.literal(30), z.literal(90)]),
-  /** One provider's usage; every provider when absent. */
-  provider: z.string().min(1).max(64).optional(),
+export const UsageMachineReach = z.enum(["counted", "loading", "offline", "failed"]);
+const Machine = z.object({
+  id: z.string().min(1).max(256),
+  name: z.string().min(1).max(128),
+  reach: UsageMachineReach,
 });
-export type UsageReportRequest = z.infer<typeof UsageReportRequest>;
+
+export const UsageCombineRequest = z.object({
+  type: z.literal("usage.combine"),
+  days: z.union([z.literal(1), z.literal(7), z.literal(30), z.literal(90)]),
+  /** Every machine in scope; a counted one carries its part. */
+  machines: z
+    .array(Machine.extend({ part: UsagePart.optional() }))
+    .min(1)
+    .max(32),
+});
+export type UsageCombineRequest = z.infer<typeof UsageCombineRequest>;
+
+export interface UsageCoverageView {
+  /** "2 of 3 machines · Studio is offline"; null for a single counted machine. */
+  line: string | null;
+  complete: boolean;
+}
 
 export interface UsageReportReply {
   type: "usage.report";
   from: string;
   to: string;
-  /** The providers that have usage or accounts here, for the provider filter. */
+  /** The providers that have usage on any counted machine, for the provider filter. */
   providers: { id: string; name: string }[];
+  coverage: UsageCoverageView;
   tokens: UsageMetricView;
   cost: UsageMetricView;
 }
-
-const quiet = 15_000;
 
 const providerName = (id: string) => {
   const kind = ProviderKind.safeParse(id);
   return kind.success ? providerNames[kind.data] : id;
 };
 
-async function rows(
-  owner: ClientCore,
-  kind: "usage.summary" | "usage.series",
-  span: { from: string; to: string },
-  groupBy: UsageDimension[],
-  provider: string | undefined,
-  signal: AbortSignal,
-): Promise<UsageResult> {
-  const query = UsageQuery.parse({
-    ...span,
-    groupBy,
-    filters: provider ? { provider: [provider] } : {},
-    equivalentApiCost: true,
-    limit: 1000,
+export function combineUsage(request: UsageCombineRequest): UsageReportReply {
+  // Every part counts the days the first counted machine chose; a part kept from other days
+  // (an older visit) is still being read again, so it waits instead of skewing the sums.
+  const lead = request.machines.find(
+    (machine) => machine.reach === "counted" && machine.part,
+  )?.part;
+  const span = lead ?? { from: "", to: "" };
+  const reaches = request.machines.map((machine) => {
+    const part = machine.part;
+    if (machine.reach !== "counted") return { machine, reach: machine.reach, part: undefined };
+    if (!part) return { machine, reach: "failed" as const, part: undefined };
+    if (part.from !== span.from || part.to !== span.to)
+      return { machine, reach: "loading" as const, part: undefined };
+    return { machine, reach: "counted" as const, part };
   });
-  const reply = await owner.request(
-    { type: kind, query, requestId: host.uuid() },
-    { signal, timeoutMs: quiet },
+  const parts = reaches.flatMap((entry) => (entry.part ? [entry.part] : []));
+  const coverage = usageCoverage(
+    reaches.map(({ machine, reach }) => ({ id: machine.id, name: machine.name, reach })),
   );
-  return reply.result;
-}
-
-/** The zone the machine counts usage days in; the phone's own when it can't say. */
-async function usageZone(owner: ClientCore, signal: AbortSignal): Promise<string | undefined> {
-  const probe = { from: "2026-01-01", to: "2026-01-01" };
-  const result = await rows(owner, "usage.summary", probe, [], undefined, signal);
-  return knownTimeZone(result.timezone);
-}
-
-export async function readUsageReport(
-  owner: ClientCore,
-  request: UsageReportRequest,
-  signal: AbortSignal,
-): Promise<UsageReportReply> {
-  const catalogRead = readModelCatalog(owner, {}, signal).catch((): ModelCatalog => ({
-    models: [],
-    instances: [],
-  }));
-  const zone = await usageZone(owner, signal);
-  const now = host.now();
-  const span = { from: usageDay(now, zone, request.days - 1), to: usageDay(now, zone) };
-  const before = previousSpan(span.from, span.to);
-  const only = request.provider;
-  const [daily, models, threads, earlier, everyone, catalog] = await Promise.all([
-    rows(owner, "usage.series", span, ["day", "provider"], only, signal),
-    rows(owner, "usage.summary", span, ["model", "provider"], only, signal),
-    rows(owner, "usage.summary", span, ["thread", "provider"], only, signal),
-    rows(owner, "usage.series", before, ["day", "provider"], only, signal),
-    rows(owner, "usage.summary", span, ["provider"], undefined, signal),
-    catalogRead,
-  ]);
-  const canonical = catalogModelIds(catalog.models);
-  const modelName = catalogModelNames(catalog.models);
+  const days = span.from ? dayRange(span.from, span.to) : [];
+  const before = span.from ? previousSpan(span.from, span.to) : { from: "", to: "" };
+  const modelName = new Map(
+    parts.flatMap((part) =>
+      part.modelNames.map((entry) => [`${entry.provider}\0${entry.model}`, entry.name]),
+    ),
+  );
   const names = {
     provider: providerName,
-    model: (provider: string, model: string) => modelName(provider, model),
+    model: (provider: string, model: string) => modelName.get(`${provider}\0${model}`) ?? model,
   };
-  const report = usageReport(
-    [
-      {
-        daily: daily.rows,
-        models: models.rows,
-        threads: threads.rows,
-        threadsTruncated: threads.truncated,
-      },
-    ],
-    dayRange(span.from, span.to),
-    (provider, model) => canonical(provider, model) ?? model,
-  );
+  const report = usageReport(parts, days);
   const previous = usageReport(
-    [{ daily: earlier.rows, models: [], threads: [], threadsTruncated: false }],
-    dayRange(before.from, before.to),
+    parts.map((part) => ({
+      daily: part.previous,
+      models: [],
+      threads: [],
+      threadsTruncated: false,
+    })),
+    before.from ? dayRange(before.from, before.to) : [],
   );
-  const listed = [
-    ...new Set(
-      everyone.rows
-        .map((row) => row.dimensions.provider)
-        .filter((id) => id !== undefined && id !== null),
-    ),
-  ];
+  const listed = [...new Set(parts.flatMap((part) => part.providers))];
   return {
     type: "usage.report",
-    ...span,
+    from: span.from,
+    to: span.to,
     providers: listed.map((id) => ({ id, name: providerName(id) })),
+    coverage: { line: coverage.line, complete: coverage.complete },
     tokens: usageMetricView(report, previous, request.days, "tokens", names),
     cost: usageMetricView(report, previous, request.days, "cost", names),
   };
