@@ -55,6 +55,7 @@ function phone(
   call: HostRequest,
   outbox: Map<string, string>,
   transport: ClientOptions["transport"],
+  limits?: ClientOptions["limits"],
 ) {
   let ids = 0;
   const snapshots = nativeReadSnapshots(call, () => 1_000);
@@ -75,6 +76,7 @@ function phone(
       },
     },
     readSnapshots: snapshots,
+    ...(limits ? { limits } : {}),
     scheduler: {
       set(delayMs, callback) {
         const timer = setTimeout(callback, delayMs);
@@ -216,4 +218,45 @@ test("reloading the open thread shows a fresh copy read from the machine, not th
   expect(reopened).toBeDefined();
   expect(reopened).not.toBe(first.store);
   await until(() => reopened?.unconfirmed === false && reopened.order.length === 3, "read again");
+});
+
+/** The native store, with each thread write applied at once but answered only when released. */
+function slowWrites(call: HostRequest) {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  let puts = 0;
+  const slow: HostRequest = (operation, ...rest) => {
+    const reply = call(operation, ...rest);
+    if (operation !== "snapshot.thread.put") return reply;
+    puts++;
+    return reply.then(async (text) => {
+      await promise;
+      return text;
+    });
+  };
+  return { call: slow, puts: () => puts, release: resolve };
+}
+
+test("a thread let go with its last checkpoint still queued stays cleared", async () => {
+  const daemon = machine();
+  const store = nativeStore();
+  const writes = slowWrites(store.call);
+  const { client, snapshots } = phone(daemon, writes.call, new Map(), () => fakeTransport(daemon), {
+    threads: 1,
+  });
+  await client.start();
+  const one = client.thread("one");
+  await until(() => one.store.order.length === 2, "loaded");
+  // Its first checkpoint is with storage and not yet answered...
+  await until(() => writes.puts() >= 1, "first checkpoint sent");
+  // ...when it changes again and is let go: its last checkpoint waits behind the first.
+  daemon.apply("one", [facts.message("root", "later", "user", "One more thing")]);
+  await until(() => one.store.order.length === 3, "changed");
+  one.release();
+  const two = client.thread("two");
+  closers.push(() => two.release());
+
+  await act({ type: "cache.clear" }, client, snapshots, new RecordingSink());
+  writes.release();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect([...store.items.keys()].filter((key) => key.endsWith("thread:one"))).toEqual([]);
 });

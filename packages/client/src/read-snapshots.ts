@@ -26,6 +26,7 @@ export class SnapshotBinding {
   #read: () => unknown;
   #unfollow: () => void;
   #closed = false;
+  #discarded = false;
   #changed = false;
   #dirty = false;
   #writing = false;
@@ -90,6 +91,7 @@ export class SnapshotBinding {
   }
 
   #store(value: unknown): Promise<void> {
+    if (this.#discarded) return Promise.resolve();
     try {
       return this.#persistence.storage.set(this.#key, value).catch(() => {});
     } catch {
@@ -98,10 +100,12 @@ export class SnapshotBinding {
   }
 
   /**
-   * Stop following without writing what is unwritten: the record is being dropped. A write
-   * already started still lands first, so a delete asked after this one wins.
+   * Stop following and write nothing more, including a checkpoint `close` left waiting behind a
+   * write in flight: the record is being dropped. A write already handed to storage still lands
+   * first, so a delete asked after this one wins.
    */
   discard(): void {
+    this.#discarded = true;
     if (this.#closed) return;
     this.#closed = true;
     this.#cancel?.();

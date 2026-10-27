@@ -30,6 +30,8 @@ export class Subscriptions {
   #cache = new Map<string, Cached>();
   #inactiveBytes = 0;
   #checkpoints = new Set<Promise<void>>();
+  /** Bindings of threads already let go whose last checkpoint may still be waiting, by thread. */
+  #closing = new Map<string, Set<SnapshotBinding>>();
   #persistence: Persistence | undefined;
   #starting = new Set<string>();
   #wires = new Map<string, Cached>();
@@ -128,11 +130,18 @@ export class Subscriptions {
     this.#inactiveBytes -= entry.inactiveBytes;
     this.#cache.delete(threadId);
     entry.binding?.discard();
+    this.#discardClosing(threadId);
     return true;
+  }
+  /** A thread let go earlier may still have a checkpoint queued: it must not land after a drop. */
+  #discardClosing(threadId: string): void {
+    for (const binding of this.#closing.get(threadId) ?? []) binding.discard();
+    this.#closing.delete(threadId);
   }
   /** Let go of every thread nobody holds, as `discard` does. */
   discardUnheld(): void {
     for (const threadId of this.#cache.keys()) this.discard(threadId);
+    for (const threadId of this.#closing.keys()) this.#discardClosing(threadId);
   }
   /** Checkpoint every read snapshot; resolves once all of them, and earlier ones, are written. */
   close(): Promise<void> {
@@ -158,10 +167,19 @@ export class Subscriptions {
     );
   }
   #checkpoint(entry: Cached): void {
-    const written = entry.binding?.close();
-    if (!written) return;
+    const binding = entry.binding;
+    const written = binding?.close();
+    if (!binding || !written) return;
     this.#checkpoints.add(written);
-    void written.finally(() => this.#checkpoints.delete(written));
+    const closing = this.#closing.get(entry.threadId) ?? new Set();
+    closing.add(binding);
+    this.#closing.set(entry.threadId, closing);
+    void written.finally(() => {
+      this.#checkpoints.delete(written);
+      closing.delete(binding);
+      if (!closing.size && this.#closing.get(entry.threadId) === closing)
+        this.#closing.delete(entry.threadId);
+    });
   }
   #evict(threadId: string, entry: Cached): void {
     this.#inactiveBytes -= entry.inactiveBytes;
