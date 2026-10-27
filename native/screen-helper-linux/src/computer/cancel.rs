@@ -41,6 +41,8 @@ impl StopSignal {
 #[derive(Clone, Default)]
 pub struct Cancellations {
     flags: Arc<Mutex<HashMap<String, bool>>>,
+    /// The client closed stdin: every request, running or queued, is cancelled.
+    closed: Arc<AtomicBool>,
     pub stop: StopSignal,
 }
 
@@ -73,7 +75,14 @@ impl Cancellations {
     }
 
     pub fn is_cancelled(&self, id: &str) -> bool {
-        self.with(|flags| flags.get(id).copied().unwrap_or(false))
+        self.closed.load(Ordering::Acquire)
+            || self.with(|flags| flags.get(id).copied().unwrap_or(false))
+    }
+
+    /// The client is gone (stdin closed): cancels the running request and all queued ones, so
+    /// the helper exits at the running one's next checkpoint instead of finishing its waits.
+    pub fn close(&self) {
+        self.closed.store(true, Ordering::Release);
     }
 
     /// The check long-running work calls between steps and inside waits.
@@ -118,6 +127,21 @@ mod tests {
         assert_eq!(check.check().unwrap_err().code, "cancelled");
         cancellations.finish("a");
         assert!(!cancellations.cancel("a"));
+    }
+
+    #[test]
+    fn closing_cancels_the_running_request_and_any_queued_after_it() {
+        let cancellations = Cancellations::default();
+        cancellations.register("a");
+        let running = cancellations.checkpoint("a");
+        assert!(running.check().is_ok());
+        cancellations.close();
+        assert_eq!(running.check().unwrap_err().code, "cancelled");
+        cancellations.register("b");
+        assert_eq!(
+            cancellations.checkpoint("b").check().unwrap_err().code,
+            "cancelled"
+        );
     }
 
     #[test]

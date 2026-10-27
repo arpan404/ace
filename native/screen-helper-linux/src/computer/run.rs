@@ -54,8 +54,16 @@ fn read_stdin(output: Output, cancellations: Cancellations, sender: tokio::sync:
             }
         }
     }
+    // The client is gone: stop the running request at its next checkpoint, and exit regardless
+    // soon after, in case it is somewhere that doesn't check (a portal call, a slow app).
+    cancellations.close();
     let _ = sender.send(Message::End);
+    std::thread::sleep(EXIT_GRACE);
+    std::process::exit(0);
 }
+
+/// How long after stdin closes the helper may take to wind down.
+const EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// `--data-dir <dir>`: where screen-sharing restore tokens are kept (the daemon passes
 /// `<ACE_HOME>/screen`).

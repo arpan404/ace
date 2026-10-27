@@ -24,6 +24,8 @@ answered `bad_request` by its id, and the next request still runs.
 - `cancel {target}` is answered at once by the stdin thread with `{cancelled}`. The target stops
   at its next check (between steps, and every 50 ms inside waits and typing) and reports
   `cancelled` with the steps it finished.
+- When stdin closes, the running request and any queued ones are cancelled the same way and the
+  helper exits; it exits within 3 s even if the running request is somewhere that doesn't check.
 
 Arguments: `--computer [--data-dir <absolute dir>]`. The daemon passes `<ACE_HOME>/screen`; the
 helper keeps Wayland screen-sharing restore tokens under `<dir>/portal/`. Without it, tokens last
