@@ -1,7 +1,7 @@
 import {
   Client,
+  ClientError,
   type ClientApi,
-  type ClientError,
   type ConnectionState,
   type Intent,
   type Lease,
@@ -13,6 +13,13 @@ import {
   type Transport,
 } from "@ace/client";
 import { DeviceId, HostId } from "@ace/protocol";
+import {
+  projectSidebarLease,
+  projectThreadLease,
+  snapshotSidebar,
+  snapshotThread,
+  wrapSelection,
+} from "./read-projection.ts";
 import { PinnedTransportError, TrustMonitor } from "../security/pinned-transport.ts";
 import {
   bridgePinnedHttp,
@@ -166,6 +173,12 @@ export interface ProductionMutations extends Pick<
  * network-fetching read (`threadsWindow`, `loadOlder`, `itemsWindow`,
  * `threadSearch`, `markThreadRead`, …) and every mutation stays unreachable
  * so a view-only phone cannot reach a mutating path through this boundary.
+ * At runtime every lease store is a null-prototype projected view with only
+ * the reader methods (no `Sidebar`/`ThreadStore` prototype or mutator
+ * escapes, frozen copies out), every `Selection` re-checks the pin on
+ * `getSnapshot`/`subscribe`, and every lease invalidates on release plus
+ * releases its inner subscription and tracked taps. Cached rows are frozen
+ * point-in-time snapshots, never the live store.
  */
 export interface ProductionReads {
   connectionState(): Selection<ConnectionState>;
@@ -350,6 +363,10 @@ export function createProductionMakeRuntime(deps: ProductionRuntimeDeps): Produc
     // readable while view-only. A same-host replacement or re-pair mints a
     // new record, so a cached read handle fails instead of following the new
     // owner; close and removal detach through the registry delete in `close`.
+    // Every surface below is projected: lease stores are null-prototype
+    // reader-only views (no concrete `Sidebar`/`ThreadStore` escapes),
+    // selections re-check the pin per call, and leases invalidate plus
+    // release their inner subscription on `release`.
     const checkBound = (): { client: Client; entry: MachineEntry } => {
       const current = resolveCurrent(hostId);
       if (current !== boundRecord || current.client !== boundClient) {
@@ -357,16 +374,28 @@ export function createProductionMakeRuntime(deps: ProductionRuntimeDeps): Produc
       }
       return current;
     };
+    const checkPin = (): void => {
+      checkBound();
+    };
     return {
-      connectionState: () => checkBound().client.connectionState(),
+      connectionState: () => wrapSelection(checkPin, checkBound().client.connectionState()),
       get error() {
-        return checkBound().client.error;
+        const failure = checkBound().client.error;
+        if (failure === undefined) return undefined;
+        return Object.freeze(new ClientError(failure.code, failure.message));
       },
-      threads: () => checkBound().client.threads(),
-      thread: (threadId: string) => checkBound().client.thread(threadId),
-      cachedThreads: () => checkBound().client.cachedThreads?.(),
-      cachedThread: (threadId: string) => checkBound().client.cachedThread?.(threadId),
-      intent: (commandId) => checkBound().client.intent(commandId),
+      threads: () => projectSidebarLease(checkPin, checkBound().client.threads()),
+      thread: (threadId: string) =>
+        projectThreadLease(checkPin, checkBound().client.thread(threadId)),
+      cachedThreads: () => {
+        const held = checkBound().client.cachedThreads?.();
+        return held === undefined ? undefined : snapshotSidebar(held);
+      },
+      cachedThread: (threadId: string) => {
+        const held = checkBound().client.cachedThread?.(threadId);
+        return held === undefined ? undefined : snapshotThread(held);
+      },
+      intent: (commandId) => wrapSelection(checkPin, checkBound().client.intent(commandId)),
     };
   };
   return makeRuntime;

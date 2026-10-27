@@ -114,7 +114,7 @@ Production wiring has landed; UI consumption is later work:
    cached handle fails after disconnect, removal or replacement yet reads
    on after revocation. Only selection leases, the connection selection
    and `intent` escape through it, never the raw SDK client nor a
-   mutating or network-fetching call. No production UI is wired to mutations until gate
+   mutating or network-fetching call. Lease stores are null-prototype reader-only projections with frozen copies (no concrete Sidebar/ThreadStore prototype or mutator at runtime), every Selection re-checks the epoch-plus-binding pin per call, retained leases invalidate on release/disconnect/replacement and release their inner subscription plus tracked taps, and cached rows are frozen snapshots. No production UI is wired to mutations until gate
    enforcement is demonstrable in tests, so `index.production.tsx` stays
    an unpaired shell and no view-only phone can reach a mutating path
    from this boundary alone.

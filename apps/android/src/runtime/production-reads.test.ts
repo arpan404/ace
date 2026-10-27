@@ -396,3 +396,257 @@ it("a stale read handle fails after same-host replacement instead of following t
     await produced.disconnectAll();
   }
 });
+
+it("projected lease stores expose readers only at runtime, with frozen copies", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const produced = await pairLive(daemon);
+  try {
+    const reads = produced.runtimeForReading("host-1");
+    await until(() => reads.connectionState().getSnapshot() === "ready");
+    const inbox = reads.threads();
+    try {
+      await until(() => inbox.store.ids.includes(THREAD));
+      const store = inbox.store as unknown as Record<string, unknown>;
+      expect(Object.getPrototypeOf(store)).toBeNull();
+      expect(Object.isFrozen(store)).toBe(true);
+      expect(Object.keys(store).toSorted()).toEqual(
+        [
+          "error",
+          "homeWindow",
+          "ids",
+          "loaded",
+          "observe",
+          "select",
+          "syncing",
+          "thread",
+          "unconfirmed",
+          "window",
+        ].toSorted(),
+      );
+      for (const mutator of [
+        "configure",
+        "acquire",
+        "close",
+        "reject",
+        "receive",
+        "reconnect",
+        "disconnect",
+        "snapshot",
+        "delivery",
+        "page",
+        "restore",
+        "fail",
+        "recover",
+        "setSyncing",
+        "setUnconfirmed",
+        "export",
+        "send",
+      ]) {
+        expect((store as object) && mutator in (store as object)).toBe(false);
+        expect(store[mutator]).toBeUndefined();
+      }
+      // No constructor/prototype escape to the concrete class.
+      expect("constructor" in store).toBe(false);
+      expect((store as { constructor?: unknown }).constructor).toBeUndefined();
+      // Copies out: mutating the view cannot mutate the live store.
+      const ids = store["ids"] as unknown[];
+      expect(Object.isFrozen(ids)).toBe(true);
+      expect(() => {
+        (ids as string[]).push("evil");
+      }).toThrow();
+      expect(inbox.store.ids).not.toContain("evil");
+      const row = inbox.store.thread(THREAD);
+      expect(Object.isFrozen(row)).toBe(true);
+      const before = inbox.store.thread(THREAD)?.title;
+      try {
+        (row as unknown as Record<string, unknown>)["title"] = "evil";
+      } catch {
+        /* Frozen: assignment throws in strict mode. */
+      }
+      expect(inbox.store.thread(THREAD)?.title).toBe(before);
+      // Selections are reader-only values too.
+      const sel = inbox.store.select(["ids"], (sidebar) => sidebar.ids);
+      expect(Object.getPrototypeOf(sel as object)).toBeNull();
+      expect(Object.keys(sel as object).toSorted()).toEqual(["getSnapshot", "subscribe"]);
+    } finally {
+      inbox.release();
+    }
+
+    const one = reads.thread(THREAD);
+    try {
+      await until(() => one.store.thread !== undefined);
+      const tstore = one.store as unknown as Record<string, unknown>;
+      expect(Object.getPrototypeOf(tstore)).toBeNull();
+      expect(Object.isFrozen(tstore)).toBe(true);
+      for (const mutator of [
+        "snapshot",
+        "delivery",
+        "page",
+        "restore",
+        "fail",
+        "recover",
+        "setSyncing",
+        "setUnconfirmed",
+        "export",
+        "retainedBytes",
+        "configure",
+        "acquire",
+        "receive",
+      ]) {
+        expect(mutator in (tstore as object)).toBe(false);
+        expect(tstore[mutator]).toBeUndefined();
+      }
+      expect("constructor" in tstore).toBe(false);
+      const order = one.store.order;
+      expect(Object.isFrozen(order)).toBe(true);
+    } finally {
+      one.release();
+    }
+
+    // Cached rows are frozen snapshots, never the live store.
+    const cached = reads.cachedThreads();
+    expect(cached).toBeDefined();
+    expect(Object.getPrototypeOf(cached as object)).toBeNull();
+    expect(Object.isFrozen(cached)).toBe(true);
+    expect((cached as unknown as Record<string, unknown>)["configure"]).toBeUndefined();
+    const snapshotIds = [...(cached?.ids ?? [])];
+    (snapshotIds as string[]).push("evil");
+    expect(reads.cachedThreads()?.ids).not.toContain("evil");
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("a retained lease invalidates its store and selections after disconnect and replacement", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const produced = await pairLive(daemon);
+  try {
+    const reads = produced.runtimeForReading("host-1");
+    await until(() => reads.connectionState().getSnapshot() === "ready");
+    const held = reads.threads();
+    try {
+      await until(() => held.store.ids.includes(THREAD));
+      const retainedStore = held.store;
+      const retainedIds = retainedStore.select(["ids"], (sidebar) => sidebar.ids);
+      const retainedConn = reads.connectionState();
+      const retainedIntent = reads.intent("anything");
+      expect(retainedIds.getSnapshot()).toContain(THREAD);
+
+      await produced.disconnectAll();
+      // The retained lease no longer reads the stale sidebar: every entry throws.
+      expect(() => retainedStore.ids).toThrow("not connected");
+      expect(() => retainedStore.thread(THREAD)).toThrow("not connected");
+      expect(() => retainedStore.select(["ids"], (sidebar) => sidebar.ids)).toThrow(
+        "not connected",
+      );
+      expect(() => retainedStore.observe(() => {})).toThrow("not connected");
+      expect(() => retainedIds.getSnapshot()).toThrow("not connected");
+      expect(() => retainedIds.subscribe(() => {})).toThrow("not connected");
+      expect(() => retainedConn.getSnapshot()).toThrow("not connected");
+      expect(() => retainedIntent.getSnapshot()).toThrow("not connected");
+      // Explicit release still detaches the inner subscription without throwing.
+      held.release();
+      held.release();
+      expect(() => held.store.ids).toThrow("not connected");
+    } finally {
+      held.release();
+    }
+  } finally {
+    await produced.disconnectAll();
+  }
+
+  const daemon2 = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const produced2 = await pairLive(daemon2);
+  try {
+    const reads = produced2.runtimeForReading("host-1");
+    await until(() => reads.connectionState().getSnapshot() === "ready");
+    const held = reads.thread(THREAD);
+    let opened = false;
+    try {
+      await until(() => held.store.thread !== undefined);
+      opened = true;
+      const retainedStore = held.store;
+      const live = produced2.manager.entry("host-1");
+      const url = live?.target.kind === "direct" ? live.target.url : "";
+      const { MachineEntry } = await import("@ace/client/machines");
+      await produced2.manager.connectEntry(
+        MachineEntry.parse({
+          hostId: "host-1",
+          displayName: "host-1",
+          target: { kind: "direct", url, fingerprint: "8e".repeat(32) },
+          deviceId: "device-1",
+        }),
+      );
+      expect(opened).toBe(true);
+      expect(() => retainedStore.thread).toThrow("not connected");
+      expect(() => retainedStore.order).toThrow("not connected");
+      expect(() => retainedStore.item("anything")).toThrow("not connected");
+      held.release();
+      expect(() => held.store.thread).toThrow("not connected");
+    } finally {
+      held.release();
+    }
+  } finally {
+    await produced2.disconnectAll();
+  }
+});
+
+it("view-only reads stay usable with no mutation wire", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const sent: string[] = [];
+  const database = memoryDatabase();
+  const produced = createProductionStartup({
+    bridge: daemonBridge(),
+    credentials: createMemoryCredentialStore(),
+    directoryStorage: memoryStorage(),
+    database,
+    identityReader: async () => ({ hostId: "host-1", displayName: "Studio", version: "1.0" }),
+    transportFor: () => {
+      const inner = fakeTransport(daemon);
+      return {
+        open: (events) => inner.open(events),
+        send: (text) => {
+          sent.push(text);
+          inner.send(text);
+        },
+        close: () => inner.close(),
+      };
+    },
+  });
+  expect(await produced.load()).toEqual([]);
+  daemon.createThread({ id: THREAD, workspaceId: "ace", title: "T", provider: "codex" });
+  await produced.pair(preparePairing(LINK), "My phone");
+  try {
+    const reads = produced.runtimeForReading("host-1");
+    await until(() => reads.connectionState().getSnapshot() === "ready");
+    const operateGate = produced.runtimeForMutation("host-1");
+    await produced.grants.setScopes("device-1", ["read"]);
+    expect(produced.canOperate("host-1")).toBe(false);
+    const before = sent.length;
+    {
+      const lease = reads.threads();
+      try {
+        await until(() => lease.store.ids.includes(THREAD));
+        expect(lease.store.thread(THREAD)?.title).toBe("T");
+      } finally {
+        lease.release();
+      }
+    }
+    {
+      const lease = reads.thread(THREAD);
+      try {
+        await until(() => lease.store.thread !== undefined);
+      } finally {
+        lease.release();
+      }
+    }
+    expect(reads.cachedThreads()?.ids).toContain(THREAD);
+    // No command admission or fetch escapes through view-only reads.
+    expect(sent.slice(before).some((text) => text.includes("thread.archive"))).toBe(false);
+    expect(sent.slice(before).some((text) => text.includes('"command"'))).toBe(false);
+    await expect(operateGate.enqueue(archive)).rejects.toBeInstanceOf(ViewOnlyError);
+    expect(() => produced.runtimeForMutation("host-1")).toThrow(ViewOnlyError);
+  } finally {
+    await produced.disconnectAll();
+  }
+});
