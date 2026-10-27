@@ -39,8 +39,12 @@ export class ChromeVideo implements VideoHost {
   private directory: string;
   private delay: (milliseconds: number) => Promise<void>;
   private ready: Promise<{ worker: BrowserCdp; document: BrowserCdp }> | undefined;
+  private documentTarget: string | undefined;
+  private documentSession: string | undefined;
   private sessions = new Set<string>();
   private captures = new Map<string, CaptureEvents>();
+  /** Captures told to stop whose stop hasn't finished: their tab is still held until then. */
+  private stopping = new Set<Promise<unknown>>();
   private ids = 0;
   constructor(options: {
     connection: Connection;
@@ -76,19 +80,10 @@ export class ChromeVideo implements VideoHost {
     height: number,
     events: CaptureEvents,
   ): Promise<VideoCaptureHandle> {
-    const { worker, document } = await this.extension();
     const { windowId } = Window.parse(await page.send("Browser.getWindowForTarget"));
-    const { streamId } = z
-      .object({ streamId: z.string().min(1).max(256) })
-      .parse(await evaluate(worker, "aceVideo.open", [windowId]));
     const id = `capture-${++this.ids}`;
+    const document = await this.start(id, windowId, width, height);
     this.captures.set(id, events);
-    try {
-      await evaluate(document, "aceVideo.start", [id, streamId, width, height]);
-    } catch (error) {
-      this.captures.delete(id);
-      throw error;
-    }
     const call = (name: string, args: unknown[]) =>
       void evaluate(document, name, args).catch(() => {});
     return {
@@ -97,9 +92,62 @@ export class ChromeVideo implements VideoHost {
       audio: (on) => call("aceVideo.audio", [id, on]),
       close: () => {
         if (!this.captures.delete(id)) return;
-        call("aceVideo.stop", [id]);
+        const stopped = evaluate(document, "aceVideo.stop", [id]).catch(() => {});
+        this.stopping.add(stopped);
+        void stopped.finally(() => this.stopping.delete(stopped));
       },
     };
+  }
+  /**
+   * Opens capture `id` of the tab shown in `windowId` and returns the document encoding it.
+   * Each attempt takes a fresh stream id, since Chrome takes one only once. With the tab's sound
+   * first; a capture that can't take it streams its picture alone. A failed attempt can leave
+   * the tab held by a capture Chrome started but never handed over, and nothing else frees it:
+   * then the document is restarted, which ends every capture it asked for, and tried once more.
+   */
+  private async start(id: string, windowId: number, width: number, height: number) {
+    // A capture still stopping holds its tab; asking for the tab before then is refused.
+    await Promise.all(this.stopping);
+    let { worker, document } = await this.extension();
+    const attempt = async (audio: boolean) => {
+      const { streamId } = z
+        .object({ streamId: z.string().min(1).max(256) })
+        .parse(await evaluate(worker, "aceVideo.open", [windowId]));
+      await evaluate(document, "aceVideo.start", [
+        id,
+        streamId,
+        width,
+        height,
+        ...(audio ? [] : [{ audio: false }]),
+      ]);
+    };
+    try {
+      await attempt(true);
+      return document;
+    } catch {}
+    try {
+      await attempt(false);
+      return document;
+    } catch (error) {
+      if (!heldTab(error)) throw error;
+    }
+    ({ worker, document } = await this.restart(worker));
+    await attempt(true).catch(() => attempt(false));
+    return document;
+  }
+  /** Closes the encoding document and opens a new one; its captures end, so viewers reopen them. */
+  private async restart(worker: BrowserCdp): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
+    const old = this.documentTarget;
+    await evaluate(worker, "aceVideo.reset", []);
+    if (this.documentSession) this.sessions.delete(this.documentSession);
+    for (const events of this.captures.values()) events.ended();
+    this.captures.clear();
+    const opened = this.openDocument(worker, old).then((document) => ({ worker, document }));
+    this.ready = opened.catch((error: unknown) => {
+      this.ready = undefined;
+      throw error;
+    });
+    return opened;
   }
   /**
    * Video of a tab the extension can't capture (a private browser context, ADR 0088 amended):
@@ -179,20 +227,30 @@ export class ChromeVideo implements VideoHost {
       .parse(await this.connection.send("Extensions.loadUnpacked", { path: this.directory }));
     if (loaded.id !== videoExtensionId)
       throw new Error("The video extension loaded under another id");
-    const worker = await this.attach(`${origin}worker.js`);
+    const worker = (await this.attach(`${origin}worker.js`)).session;
     if (process.platform === "win32") await this.untilExport(worker, "ready");
+    return { worker, document: await this.openDocument(worker) };
+  }
+  /** Has the worker open the encoding document and attaches to it; never to target `not`. */
+  private async openDocument(worker: BrowserCdp, not?: string): Promise<BrowserCdp> {
     await evaluate(worker, "aceVideo.ready", []);
-    const document = await this.attach(`${origin}offscreen.html`);
+    const attached = await this.attach(`${origin}offscreen.html`, not);
+    this.documentTarget = attached.targetId;
+    this.documentSession = attached.sessionId;
+    const document = attached.session;
     if (process.platform === "win32") await this.untilExport(document, "supported");
     document.on("Runtime.bindingCalled", (raw) => this.receive(raw));
     await document.send("Runtime.addBinding", { name: "aceVideoEvent" });
-    return { worker, document };
+    return document;
   }
-  /** Attaches to the extension target at `url`, waiting a few seconds for it to start. */
-  private async attach(url: string): Promise<BrowserCdp> {
+  /** Attaches to the extension target at `url` (never `not`), waiting a few seconds for it. */
+  private async attach(
+    url: string,
+    not?: string,
+  ): Promise<{ session: BrowserCdp; targetId: string; sessionId: string }> {
     for (let attempt = 0; attempt < 50; attempt++) {
       const { targetInfos } = Targets.parse(await this.connection.send("Target.getTargets"));
-      const target = targetInfos.find((info) => info.url === url);
+      const target = targetInfos.find((info) => info.url === url && info.targetId !== not);
       if (target) {
         this.targets.keep(target.targetId);
         const { sessionId } = Attached.parse(
@@ -202,7 +260,11 @@ export class ChromeVideo implements VideoHost {
           }),
         );
         this.sessions.add(sessionId);
-        return this.connection.session(sessionId);
+        return {
+          session: this.connection.session(sessionId),
+          targetId: target.targetId,
+          sessionId,
+        };
       }
       await this.delay(100);
     }
@@ -243,6 +305,13 @@ export class ChromeVideo implements VideoHost {
       split === -1 ? undefined : new Uint8Array(Buffer.from(payload.slice(split + 1), "base64"));
     deliverVideoEvent(this.captures, event.data, bytes);
   }
+}
+
+/** Chrome refused a capture because another one, maybe one it never handed over, holds the tab. */
+function heldTab(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message.includes("Cannot capture a tab with an active stream")
+  );
 }
 
 /** Calls `name(...args)` in a target and returns its (awaited) value; throws what it threw. */

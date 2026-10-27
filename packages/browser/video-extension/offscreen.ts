@@ -362,7 +362,7 @@ Object.assign(globalThis, {
     /**
      * Opens the tab capture `streamId` at exactly this size, replacing capture `id`. `audio:
      * false` leaves the tab's sound alone: capturing it takes it off the machine's speakers,
-     * which the desktop app's own views must keep.
+     * which the desktop app's own views must keep. Throws what Chrome refused it with.
      */
     async start(
       id: string,
@@ -383,20 +383,21 @@ Object.assign(globalThis, {
           maxFrameRate: 60,
         },
       };
-      // The tab's sound rides the same capture (ADR 0088, Audio); a capture that can't take it
-      // still streams its picture.
-      const capture = (audio: boolean): Promise<unknown> =>
-        Reflect.apply(navigator.mediaDevices.getUserMedia, navigator.mediaDevices, [
+      // The tab's sound rides the same capture (ADR 0088, Audio). One attempt: a stream id works
+      // once, so a capture that can't take the sound is retried by the daemon on a fresh id.
+      const stream: unknown = await Reflect.apply(
+        navigator.mediaDevices.getUserMedia,
+        navigator.mediaDevices,
+        [
           {
-            audio: audio
-              ? { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } }
-              : false,
+            audio:
+              options.audio === false
+                ? false
+                : { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
             video,
           },
-        ]);
-      const stream: unknown = await (options.audio === false
-        ? capture(false)
-        : capture(true).catch(() => capture(false)));
+        ],
+      );
       if (!(stream instanceof MediaStream)) throw new Error("No tab capture");
       const [track] = stream.getVideoTracks();
       if (!track) throw new Error("No tab capture");
