@@ -16,7 +16,7 @@ import {
   type PrRemotes,
 } from "./pr-worktree-resolution.ts";
 import { readPrConflicts, runPrConflictStep } from "./pr-conflicts.ts";
-import type { ForgePrStatus, ForgeRepository } from "@ace/protocol";
+import type { ForgePrStatus, ForgeRepository, InstalledEditor } from "@ace/protocol";
 import type { CreationWorkspace } from "./creation-workspace.ts";
 import { decodeProjectRow, projectSelect } from "./project-storage.ts";
 import { OriginCache, sameOriginProject } from "./project-origin.ts";
@@ -90,6 +90,8 @@ export interface WorkspaceRuntimeOptions {
   editorPath?: string;
   /** Starts `host.open`'s editor or file manager; a detached process by default. */
   hostSpawn?: HostSpawner;
+  /** Finds `host.open`'s editors; this machine's installed ones by default. */
+  hostEditors?: () => Promise<readonly InstalledEditor[]>;
   /** Launcher folders searched after PATH; the platform's usual ones by default. */
   editorLocations?: readonly string[];
   platform?: NodeJS.Platform;
@@ -588,12 +590,14 @@ export class WorkspaceRuntime {
         line: op.line,
         app: op.app,
         platform,
-        editors: () =>
-          installedEditors(
-            this.options.editorPath ?? process.env.PATH,
-            platform,
-            this.options.editorLocations ?? editorLocations(platform, homedir(), process.env),
-          ),
+        editors:
+          this.options.hostEditors ??
+          (() =>
+            installedEditors(
+              this.options.editorPath ?? process.env.PATH,
+              platform,
+              this.options.editorLocations ?? editorLocations(platform, homedir(), process.env),
+            )),
         spawn: this.options.hostSpawn ?? spawnDetached,
         allowed: still ?? (() => true),
         signal,

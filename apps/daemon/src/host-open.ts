@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { readFile, realpath, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { InstalledEditor } from "@ace/protocol";
 
 /*
@@ -129,29 +129,70 @@ export async function openOnHost(input: {
   const shim = hostLaunch({ platform: input.platform, app, ...found, line: input.line, editor });
   if (!shim) throw new Error("editor_not_found");
   const launch =
-    input.platform === "win32" ? await windowsExecutable(shim, input.readLauncher) : shim;
+    input.platform === "win32"
+      ? await windowsExecutable(shim, editor?.id, input.readLauncher)
+      : shim;
   input.signal.throwIfAborted();
   if (!input.allowed()) throw new Error("forbidden");
   await input.spawn(launch);
 }
 
 /**
+ * Where each editor's `.cmd` launcher sits inside its install, as levels above the launcher's
+ * folder to the install root: VS Code's `bin\code.cmd`, Cursor's `resources\app\bin\cursor.cmd`.
+ * An editor not listed is never started from its launcher: ace doesn't guess an install layout.
+ */
+const launcherDepth: Readonly<Record<string, number>> = { code: 1, cursor: 3 };
+
+/** The launcher's command line: its `"%~dp0…\Name.exe"` call, never a comment or `set` line. */
+const commandLine = /^@?"%~dp0([^"%]+\.exe)"/i;
+
+/** Thrown when an editor's Windows launcher can't be started safely; the bridge says so. */
+export const launcherRefused = "editor_launcher_unsupported";
+
+/**
  * On Windows editors install `.cmd` launchers (`code.cmd`), which start only through a shell.
- * The executable the launcher runs (`"%~dp0..\Code.exe"`) starts directly instead, with the
- * same arguments and still no shell. A launcher naming no executable that exists is refused.
+ * The executable the launcher runs starts directly instead, with the same arguments and still
+ * no shell, but only when it is certain to be the editor's own: the path comes from the
+ * launcher's command line alone (comments, `set` and other lines are ignored), is relative to
+ * the launcher (`%~dp0`), and resolves, through symlinks and junctions, to an `.exe` inside the
+ * editor's install root. Anything else is refused.
  */
 async function windowsExecutable(
   launch: HostLaunch,
+  editorId: string | undefined,
   read: (path: string) => Promise<string> = (path) => readFile(path, "utf8"),
 ): Promise<HostLaunch> {
   if (!/\.(?:cmd|bat)$/i.test(launch.command)) return launch;
-  const script = await read(launch.command).catch(() => "");
-  const named = /"([^"]*\.exe)"/i.exec(script)?.[1];
-  if (!named) throw new Error("editor_not_found");
-  const folder = dirname(launch.command);
-  const target = named.replace(/%~dp0/gi, `${folder}${sep}`).replaceAll("\\", sep);
-  const executable = isAbsolute(target) ? resolve(target) : resolve(join(folder, target));
-  const found = await stat(executable).catch(() => undefined);
-  if (!found?.isFile()) throw new Error("editor_not_found");
-  return { command: executable, args: launch.args };
+  const depth = editorId === undefined ? undefined : launcherDepth[editorId];
+  if (depth === undefined) throw new Error(launcherRefused);
+  try {
+    const launcher = await realpath(launch.command);
+    const script = await read(launcher);
+    const relativeExe = script
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => !/^@?(?:rem\b|::)/i.test(line))
+      .map((line) => commandLine.exec(line)?.[1])
+      .find((match) => match !== undefined);
+    if (!relativeExe) throw new Error(launcherRefused);
+    const folder = dirname(launcher);
+    let installRoot = folder;
+    for (let level = 0; level < depth; level++) installRoot = dirname(installRoot);
+    const root = await realpath(installRoot);
+    const executable = await realpath(resolve(folder, ...relativeExe.split("\\")));
+    const inside = relative(root, executable);
+    if (
+      inside === "" ||
+      inside === ".." ||
+      inside.startsWith(`..${sep}`) ||
+      isAbsolute(inside) ||
+      !/\.exe$/i.test(executable) ||
+      !(await stat(executable)).isFile()
+    )
+      throw new Error(launcherRefused);
+    return { command: executable, args: launch.args };
+  } catch {
+    throw new Error(launcherRefused);
+  }
 }

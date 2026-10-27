@@ -28,6 +28,8 @@ export type HostOpenRequest = z.infer<typeof HostOpenRequest>;
 
 const problems: Record<string, string> = {
   editor_not_found: "That editor isn't installed on the machine any more.",
+  editor_launcher_unsupported:
+    "ace can't start this editor's launcher on that computer safely. Open it there instead.",
   path_not_found: "That isn't on the machine any more.",
   workspace_not_found: "That project is gone.",
   forbidden: "This phone can only view this machine.",
