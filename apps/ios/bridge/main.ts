@@ -16,6 +16,7 @@ import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
 import { followMachine, MachineProviders } from "./machine-info.ts";
 import { MachineAdmission } from "./machine-admission.ts";
+import { MachineAppUpdate } from "./machine-app-update.ts";
 import { HostCare } from "./host-care.ts";
 import { followMachineIdentity } from "./machine-identity.ts";
 import { followProjectLooks } from "./project-looks.ts";
@@ -93,6 +94,7 @@ let session: ThreadSession | undefined;
 let epoch = 0;
 let machine: MachineProviders | undefined;
 let admission: MachineAdmission | undefined;
+let appUpdate: MachineAppUpdate | undefined;
 let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
 let suggest: ComposerSuggest | undefined;
@@ -189,6 +191,8 @@ async function start(json: string): Promise<void> {
   followMachineIdentity(client, pump);
   machine = new MachineProviders(client, pump);
   admission = new MachineAdmission(client, pump);
+  appUpdate?.dispose();
+  appUpdate = new MachineAppUpdate(client, pump);
   archive = new ArchiveBrowser(client, pump);
   const reads = new NativeReads(client, pump, {
     now: () => host.now(),

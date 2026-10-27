@@ -1,4 +1,4 @@
-import type { Admission, DiagnosticsHealth } from "@ace/protocol";
+import type { Admission, AppUpdate, DiagnosticsHealth } from "@ace/protocol";
 
 /** Each read-only setup check's name as people know it, and what to do when it fails. */
 export const hostChecks: Record<string, { label: string; fix: string }> = {
@@ -76,4 +76,24 @@ export function admissionWords(admission: Admission): { line: string | null; act
         ? "1 thread is finishing"
         : `${admission.busy} threads are finishing`;
   return { line: `New work paused · ${busy}`, action: "Resume new work" };
+}
+
+/**
+ * The desktop app's update, read-only: its version and one line. Restart required is the only
+ * state that needs the person; a daemon no app has reported to reads Unknown.
+ */
+export function appUpdateWords(update: AppUpdate): {
+  version: string;
+  line: string | null;
+  needsYou: boolean;
+} {
+  const report = update.report;
+  if (!report) return { version: "Unknown", line: null, needsYou: false };
+  if (report.restartRequired)
+    return { version: report.version, line: "Restart to finish updating", needsYou: true };
+  return {
+    version: report.version,
+    line: report.available ? `Update ${report.available} available` : "Up to date",
+    needsYou: false,
+  };
 }
