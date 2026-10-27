@@ -169,11 +169,7 @@ describe("Work sheet", () => {
       await act({ kind: "link", reference: "https://github.com/arpan404/other/pull/7" }, "l2"),
     ).toMatchObject({ ok: true });
     await until(() => summary().prs.length === 2, "two links");
-    expect(
-      summary()
-        .prs.map((pr) => pr.number)
-        .sort(),
-    ).toEqual([41, 7].sort());
+    expect(summary().prs.map((pr) => pr.number)).toEqual(expect.arrayContaining([41, 7]));
     expect(
       await act({ kind: "unlink", number: 7, repo: { owner: "arpan404", name: "other" } }, "u1"),
     ).toMatchObject({
@@ -221,17 +217,17 @@ describe("stale Git lock", () => {
   });
 });
 
-describe("problem line in the thread", () => {
-  /** The line as the thread screen receives it, read whenever the test looks. */
-  function line(store: Parameters<typeof followWorkLine>[0]) {
-    let read: () => Record<string, unknown> | undefined = () => undefined;
-    const tap = followWorkLine(store, (_key, next) => (read = next), plainPreview);
-    return {
-      tap,
-      row: () => read()?.row as { label: string; actions: { id: string; label: string }[] } | null,
-    };
-  }
+/** The line as the thread screen receives it, read whenever the test looks. */
+function line(store: Parameters<typeof followWorkLine>[0]) {
+  let read: (() => Record<string, unknown> | undefined) | undefined;
+  const tap = followWorkLine(store, (_key, next) => (read = next), plainPreview);
+  return {
+    tap,
+    row: () => read?.()?.row as { label: string; actions: { id: string; label: string }[] } | null,
+  };
+}
 
+describe("problem line in the thread", () => {
   test("says nothing while the checkout is fine", async () => {
     const { store } = await opened();
     expect(line(store).row()).toBeNull();

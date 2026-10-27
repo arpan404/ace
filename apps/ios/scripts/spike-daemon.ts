@@ -11,6 +11,7 @@ import { waitingScenario } from "./waiting-scenario.ts";
 import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
+import { seedWork, WorkScenario } from "./work-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
@@ -220,6 +221,7 @@ const richTimer =
 requestScenarios(daemon, details);
 spikeDevices(daemon, details);
 let fresh = 0;
+let works = 0;
 let naps = 0;
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
@@ -306,6 +308,15 @@ const server = Bun.serve<undefined>({
       );
       const threadId = `ios-fresh-${scenario}-${++fresh}`;
       seedRequest(daemon, scenario, threadId, details);
+      return Response.json({ threadId });
+    }
+    // A new thread for one Work test: its checkout moves, links and recoveries stay its own.
+    if (path === "/review/work" && request.method === "POST") {
+      const scenario = WorkScenario.parse(
+        z.object({ scenario: z.string() }).parse(await request.json()).scenario,
+      );
+      const threadId = `ios-work-${scenario}-${++works}`;
+      seedWork(daemon, scenario, threadId, details);
       return Response.json({ threadId });
     }
     // Restarts ios-nap's snooze from now, so the offline-snooze test never depends on how long

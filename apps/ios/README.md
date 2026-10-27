@@ -417,6 +417,25 @@ tree, a running background command, usage, and a three-file diff. The diff inclu
 3,000-line file and a long line. Set `ACE_IOS_SPIKE_PORT` and launch with
 `--spike-port N` to run a fixture beside another agent's.
 
+## Work sheet
+
+The thread header's "project · branch" line, and Work in ⋯, open the thread's Work
+(`Views/Work`, `bridge/work.ts`), followed only while shown like the sheets above. It shows where
+the checkout lives (machine, project, folder; local or a worktree, with a move to the other), the
+branch (a searchable switch, branches read only when the picker opens), linked pull requests (each
+opens on GitHub; Link a PR by number or address; Unlink is a red word, asked first) and what stops
+the checkout. The rules are `@ace/ui-core/work-checkout`, shared with the web's Work card: whether
+the checkout may move (never under live agents), the failed or unconfirmed move with Retry and a
+confirmed Clear, a missing worktree, a failed setup script with Retry and Continue without setup,
+and the question when a move meets uncommitted changes. Writes go through `thread.workspace.*`,
+`forge.pr.link`/`unlink` and `git.lock.clear` once each (`bridge/work-actions.ts`); an answer that
+never came is shown as unconfirmed. The same problems, and a stale Git lock an earlier daemon left,
+show as one line above the composer (`bridge/work-line.ts`) with their ways out as words, and a Not
+sent row stopped by the lock offers Clear stale lock. The daemon already retires such locks by
+itself once their daemon and Git processes are gone; the button is the last resort.
+`POST /review/work {"scenario": "clean" | "stuck" | "locked"}` seeds a fresh thread per
+`WorkUITests` test (`scripts/work-scenario.ts`).
+
 ## New thread, projects and files
 
 The inbox header's compose button opens New thread (`Views/NewThread`). It follows the web's
