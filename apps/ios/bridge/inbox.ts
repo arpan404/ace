@@ -290,6 +290,10 @@ function pendingRow(send: PendingSend, connection: string) {
     text: preview(unsentText(send), 8192),
     /** Why it wasn't sent, behind Details; empty when the SDK kept no reason. */
     detail: send.state === "failed" && send.error ? preview(send.error, 2048) : "",
+    /** Files and images on it: Edit can take back only words, so a message with files keeps them by Retry. */
+    files:
+      send.payload.input.filter((part) => part.type !== "text" && part.type !== "mention").length +
+      (send.payload.context?.attachments?.length ?? 0),
     label: status.label,
     token: status.token,
   };

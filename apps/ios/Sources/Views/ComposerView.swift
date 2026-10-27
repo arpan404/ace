@@ -18,6 +18,8 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     let inputBegan: () -> Void
     /// A file picked in Files: each new one is inserted as `@path`.
     var mention: ComposerMention? = nil
+    /// Words handed back (a message that wasn't sent, an earlier message recalled): after what is typed.
+    var restore: ComposerRestore? = nil
     /// Files on the next message: with any, the message can go without words.
     var files = 0
     /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
@@ -107,6 +109,10 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
             draft.text = Mention.insert(picked.path, into: draft.text)
             draft.add(.file(picked.path, endingAt: draft.text))
         }
+        .onChange(of: restore) { _, back in
+            guard let back else { return }
+            draft.text = back.merged(into: draft.text)
+        }
         .onChange(of: draft.text) { _, _ in notice = nil }
         .modifier(ComposerSuggestHost(suggester: suggester, text: $draft.text, place: $place, keep: { draft.add($0) }))
         .onAppear { suggester?.active = true }
@@ -179,5 +185,16 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                 return saved
             }
         }
+    }
+}
+
+/// Words handed back to the composer. They follow what is already typed after a blank line, as
+/// the web's returned draft does, so nothing typed is lost.
+struct ComposerRestore: Equatable {
+    let id = UUID()
+    let text: String
+    func merged(into current: String) -> String {
+        let typed = current.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+        return typed.isEmpty ? text : "\(typed)\n\n\(text)"
     }
 }

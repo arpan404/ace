@@ -74,6 +74,8 @@ struct ConversationFeed: View {
     @Binding var behind: Bool
     /// Bumped by each Scroll to end the person taps.
     var jumps = 0
+    /// Words taken back from a message that wasn't sent go into the composer.
+    var restore: (String) -> Void = { _ in }
     @State private var reading = TranscriptReading()
     @State private var following = true
     @State private var initialScroll = false
@@ -121,7 +123,18 @@ struct ConversationFeed: View {
                 } else { ConversationSkeleton().padding(AceTheme.Spacing.xl) }
                 if reading.thread == nil || reading.joined {
                     ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
-                        PendingSendRow(row: row, canRetry: model.canOperate) { await model.retrySend(row) }
+                        PendingSendRow(row: row, canRetry: model.canOperate, retry: { await model.retrySend(row) },
+                                       edit: {
+                                           guard await model.dismissSend(row.id) else { return false }
+                                           restore(row.text)
+                                           return true
+                                       },
+                                       discard: { await model.dismissSend(row.id) })
+                            .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+                    }
+                    if let held = thread.screen.queue?.notSent {
+                        HeldSendRow(message: held, canAct: model.canOperate, act: { await model.actOnQueue($0) },
+                                    edit: { message, change in await model.editQueued(message, change: change) }, restore: restore)
                             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
                     }
                 }

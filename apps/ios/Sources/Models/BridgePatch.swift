@@ -165,6 +165,8 @@ struct PendingRow: Codable, Sendable, Identifiable {
     let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String
     /// The shared unsent wording ("Sends on reconnect", "Not sent") and its colour token.
     let label: String?; let token: String?
+    /// Why it wasn't sent, behind Details, and the files on it; nil from older bridges.
+    var detail: String? = nil; var files: Int? = nil
 }
 /// A status the bridge has already worded; Swift only maps `token` to a theme colour.
 struct StatusDisplay: Codable, Sendable, Equatable { let label: String; let token: String }

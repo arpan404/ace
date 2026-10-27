@@ -32,6 +32,8 @@ struct ThreadView: View {
     @State private var showBrowser = false
     @State private var showSearch = false
     @State private var showQueue = false
+    /// Words taken back from a message that wasn't sent, for the composer.
+    @State private var restored: ComposerRestore?
     /// The goal's sheet, named by the navigation generation it was opened on: its changes are for
     /// that one. The generation rides on the presentation itself, since a sheet keeps the content
     /// it was first built with and a value captured beside it would be the one before opening.
@@ -80,7 +82,7 @@ struct ThreadView: View {
                                                 openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
                                                 openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
-                         barHeight: barHeight, behind: $behind, jumps: jumps)
+                         barHeight: barHeight, behind: $behind, jumps: jumps, restore: { restored = ComposerRestore(text: $0) })
             .publishedMedia(model: model, threadId: thread.id)
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
@@ -222,7 +224,7 @@ struct ThreadView: View {
                                      if saved { acceptedSend += 1 }
                                      return saved
                                  }, stop: { model.stopTree() },
-                                 inputBegan: { model.metrics?.inputBegan() }, mention: mention,
+                                 inputBegan: { model.metrics?.inputBegan() }, mention: mention, restore: restored,
                                  files: screen.attachments.count,
                                  draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                                  suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),

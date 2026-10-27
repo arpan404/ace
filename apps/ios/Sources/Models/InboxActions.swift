@@ -18,4 +18,8 @@ extension ClientModel {
         await inboxCommand(["kind": "pin", "threadId": threadId, "pinned": pinned])
     }
     func loadOlderThreads() { inboxRequest(["kind": "more"]) }
+    /// A failed send the person took back into the composer or discarded: it leaves the transcript
+    /// and Unsent on this phone. `restoreSend` is Undo.
+    func dismissSend(_ commandId: String) async -> Bool { await inboxCommand(["kind": "dismissSend", "commandId": commandId]) }
+    func restoreSend(_ commandId: String) async -> Bool { await inboxCommand(["kind": "restoreSend", "commandId": commandId]) }
 }
