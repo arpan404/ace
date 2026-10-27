@@ -32,6 +32,7 @@ export type { MultiDayThreadOptions, SyntheticThreadEvent } from "./scenarios/mu
 export { multiDayDemo } from "./scenarios/multi-day-demo.ts";
 export { longHistory } from "./scenarios/long-history.ts";
 export { workbench } from "./scenarios/workbench.ts";
+export { prWorkThread, seedPrWork } from "./scenarios/pr-work.ts";
 export {
   measurementCall,
   typedMeasurementCall,
