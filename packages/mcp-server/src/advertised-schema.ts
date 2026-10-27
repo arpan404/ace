@@ -19,7 +19,8 @@ import { flatUnion } from "./schema-unions.ts";
  *   to extra keys accepts ace's reserved result keys);
  * - a `description` that only restates the field's default or its enum values.
  *
- * Unions of string choices and discriminated object unions are spelled flat (`schema-unions.ts`).
+ * Unions of string choices and discriminated object unions are spelled flat (`schema-unions.ts`),
+ * and a union of one item or a list of them is spelled as the list.
  * `type` stays beside every `enum` and `const`: Gemini's schema subset rejects an enum without
  * one. Types, enums, constants, required fields, defaults, formats, small numeric and array
  * bounds, other descriptions and extension keys such as `x-mcp-header` are kept: they change what
@@ -136,8 +137,21 @@ function flatten(node: Json): Json {
   const [key] = present;
   if (present.length !== 1 || key === undefined || "type" in node) return node;
   const variants = node[key];
-  const flat = Array.isArray(variants) ? flatUnion(variants) : undefined;
+  const flat = Array.isArray(variants) ? (flatUnion(variants) ?? listOfOne(variants)) : undefined;
   if (!flat) return node;
   const { [key]: _union, ...rest } = node;
   return { ...rest, ...flat };
+}
+
+/**
+ * "One item, or a list of them" is advertised as the list alone: the item's schema once instead
+ * of twice. A list of one says the same thing, and the Zod schema still accepts a bare item.
+ */
+function listOfOne(variants: readonly unknown[]): Json | undefined {
+  const [first, second] = variants;
+  if (variants.length !== 2 || !isRecord(first) || !isRecord(second)) return undefined;
+  const [item, list] = second["type"] === "array" ? [first, second] : [second, first];
+  return list["type"] === "array" && JSON.stringify(list["items"]) === JSON.stringify(item)
+    ? list
+    : undefined;
 }

@@ -18663,10 +18663,10 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"A stable id for the criterion (letters, digits, _ . -)."} |
-| description | yes | string | {"minLength":1,"maxLength":4096,"description":"The observable behaviour that must hold."} |
-| requiredKinds | yes | array | {"minItems":1,"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceKind.json"},"description":"Evidence kinds that must each have a current pass."} |
-| independent | no | boolean | {"description":"Passes count only from another provider or model than the run owner's."} |
+| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| description | yes | string | {"minLength":1,"maxLength":4096} |
+| requiredKinds | yes | array | {"minItems":1,"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceKind.json"}} |
+| independent | no | boolean |  |
 
 Example:
 
@@ -18686,13 +18686,13 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| criterionId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"The criterion this observation checks."} |
-| kind | yes | ["automated","source","ui","human","manual"] | {"description":"Which required kind this observation satisfies."} |
-| result | yes | ["pass","fail"] | {"description":"What the check observed."} |
-| revision | yes | string | {"minLength":1,"maxLength":512,"description":"The revision from get, read before the check ran."} |
-| action | yes | string | {"minLength":1,"maxLength":4096,"description":"The command or interaction actually performed."} |
-| artifact | yes | string | {"minLength":1,"maxLength":4096,"description":"Where the full output is kept: a path, URL or report reference."} |
-| note | yes | string | {"minLength":1,"maxLength":4096,"description":"The observed result and environment, in a sentence or two."} |
+| criterionId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| kind | yes | [OffshiftEvidenceKind.json](schema/OffshiftEvidenceKind.json) |  |
+| result | yes | ["pass","fail"] |  |
+| revision | yes | string | {"minLength":1,"maxLength":512,"description":"From get, before the check ran."} |
+| action | yes | string | {"minLength":1,"maxLength":4096} |
+| artifact | yes | string | {"minLength":1,"maxLength":4096} |
+| note | yes | string | {"minLength":1,"maxLength":4096} |
 | recordedAt | yes | [Timestamp.json](schema/Timestamp.json) |  |
 | by | no | union | {"default":null,"anyOf":[{"$ref":"https://ace.local/protocol/v1/OffshiftAuthor.json"},{"type":"null"}]} |
 
@@ -18739,13 +18739,13 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| criterionId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"The criterion this observation checks."} |
-| kind | yes | ["automated","source","ui","human","manual"] | {"description":"Which required kind this observation satisfies."} |
-| result | yes | ["pass","fail"] | {"description":"What the check observed."} |
-| revision | yes | string | {"minLength":1,"maxLength":512,"description":"The revision from get, read before the check ran."} |
-| action | yes | string | {"minLength":1,"maxLength":4096,"description":"The command or interaction actually performed."} |
-| artifact | yes | string | {"minLength":1,"maxLength":4096,"description":"Where the full output is kept: a path, URL or report reference."} |
-| note | yes | string | {"minLength":1,"maxLength":4096,"description":"The observed result and environment, in a sentence or two."} |
+| criterionId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| kind | yes | [OffshiftEvidenceKind.json](schema/OffshiftEvidenceKind.json) |  |
+| result | yes | ["pass","fail"] |  |
+| revision | yes | string | {"minLength":1,"maxLength":512,"description":"From get, before the check ran."} |
+| action | yes | string | {"minLength":1,"maxLength":4096} |
+| artifact | yes | string | {"minLength":1,"maxLength":4096} |
+| note | yes | string | {"minLength":1,"maxLength":4096} |
 
 Example:
 
@@ -18877,9 +18877,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"A stable id for the step (letters, digits, _ . -)."} |
-| title | yes | string | {"minLength":1,"maxLength":160,"description":"What to do, as a short imperative."} |
-| phase | yes | ["plan","implement","verify","review","delivery"] | {"description":"The phase the step belongs to."} |
+| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| title | yes | string | {"minLength":1,"maxLength":160} |
+| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
 | kinds | no | array | {"minItems":1,"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceKind.json"}} |
 
 Example:
@@ -19359,9 +19359,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"A stable id for the step (letters, digits, _ . -)."} |
-| title | yes | string | {"minLength":1,"maxLength":160,"description":"What to do, as a short imperative."} |
-| phase | yes | ["plan","implement","verify","review","delivery"] | {"description":"The phase the step belongs to."} |
+| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| title | yes | string | {"minLength":1,"maxLength":160} |
+| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
 | state | yes | [OffshiftStepState.json](schema/OffshiftStepState.json) |  |
 | note | no | string | {"minLength":1,"maxLength":1024} |
 
@@ -19383,9 +19383,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"A stable id for the step (letters, digits, _ . -)."} |
-| title | yes | string | {"minLength":1,"maxLength":160,"description":"What to do, as a short imperative."} |
-| phase | yes | ["plan","implement","verify","review","delivery"] | {"description":"The phase the step belongs to."} |
+| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| title | yes | string | {"minLength":1,"maxLength":160} |
+| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
 
 Example:
 

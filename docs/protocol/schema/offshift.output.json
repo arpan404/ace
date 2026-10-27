@@ -89,24 +89,20 @@
                     "additionalProperties": false,
                     "properties": {
                       "description": {
-                        "description": "The observable behaviour that must hold.",
                         "maxLength": 4096,
                         "minLength": 1,
                         "type": "string"
                       },
                       "id": {
-                        "description": "A stable id for the criterion (letters, digits, _ . -).",
                         "maxLength": 128,
                         "minLength": 1,
                         "pattern": "^[a-zA-Z0-9_.-]+$",
                         "type": "string"
                       },
                       "independent": {
-                        "description": "Passes count only from another provider or model than the run owner's.",
                         "type": "boolean"
                       },
                       "requiredKinds": {
-                        "description": "Evidence kinds that must each have a current pass.",
                         "items": {
                           "enum": [
                             "automated",
@@ -144,13 +140,11 @@
                     "additionalProperties": false,
                     "properties": {
                       "action": {
-                        "description": "The command or interaction actually performed.",
                         "maxLength": 4096,
                         "minLength": 1,
                         "type": "string"
                       },
                       "artifact": {
-                        "description": "Where the full output is kept: a path, URL or report reference.",
                         "maxLength": 4096,
                         "minLength": 1,
                         "type": "string"
@@ -203,14 +197,12 @@
                         "default": null
                       },
                       "criterionId": {
-                        "description": "The criterion this observation checks.",
                         "maxLength": 128,
                         "minLength": 1,
                         "pattern": "^[a-zA-Z0-9_.-]+$",
                         "type": "string"
                       },
                       "kind": {
-                        "description": "Which required kind this observation satisfies.",
                         "enum": [
                           "automated",
                           "source",
@@ -221,7 +213,6 @@
                         "type": "string"
                       },
                       "note": {
-                        "description": "The observed result and environment, in a sentence or two.",
                         "maxLength": 4096,
                         "minLength": 1,
                         "type": "string"
@@ -232,7 +223,6 @@
                         "type": "integer"
                       },
                       "result": {
-                        "description": "What the check observed.",
                         "enum": [
                           "pass",
                           "fail"
@@ -240,7 +230,7 @@
                         "type": "string"
                       },
                       "revision": {
-                        "description": "The revision from get, read before the check ran.",
+                        "description": "From get, before the check ran.",
                         "maxLength": 512,
                         "minLength": 1,
                         "type": "string"
@@ -353,7 +343,6 @@
                     "additionalProperties": false,
                     "properties": {
                       "id": {
-                        "description": "A stable id for the step (letters, digits, _ . -).",
                         "maxLength": 128,
                         "minLength": 1,
                         "pattern": "^[a-zA-Z0-9_.-]+$",
@@ -365,7 +354,6 @@
                         "type": "string"
                       },
                       "phase": {
-                        "description": "The phase the step belongs to.",
                         "enum": [
                           "plan",
                           "implement",
@@ -384,7 +372,6 @@
                         "type": "string"
                       },
                       "title": {
-                        "description": "What to do, as a short imperative.",
                         "maxLength": 160,
                         "minLength": 1,
                         "type": "string"
@@ -534,7 +521,6 @@
                       "additionalProperties": false,
                       "properties": {
                         "id": {
-                          "description": "A stable id for the step (letters, digits, _ . -).",
                           "maxLength": 128,
                           "minLength": 1,
                           "pattern": "^[a-zA-Z0-9_.-]+$",
@@ -556,7 +542,6 @@
                           "type": "array"
                         },
                         "phase": {
-                          "description": "The phase the step belongs to.",
                           "enum": [
                             "plan",
                             "implement",
@@ -567,7 +552,6 @@
                           "type": "string"
                         },
                         "title": {
-                          "description": "What to do, as a short imperative.",
                           "maxLength": 160,
                           "minLength": 1,
                           "type": "string"
