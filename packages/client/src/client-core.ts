@@ -441,6 +441,13 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   commandId(): string {
     return CommandId.parse(this.options.id());
   }
+  /**
+   * New words for a send that failed, in place in the outbox (one saved write; a failed write
+   * keeps the original). Send it again with `retrySend`.
+   */
+  editFailedSend(id: string, payload: CommandPayload): Promise<void> {
+    return this.#intents.rewrite(id, payload);
+  }
   pendingSend(id: string): PendingSend | undefined {
     return this.#pendingSendEntries.get(id);
   }

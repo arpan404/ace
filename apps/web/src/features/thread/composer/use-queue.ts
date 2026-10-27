@@ -1,11 +1,10 @@
 import { distinctRetainedInputs } from "@ace/projection";
-import { composerInput, editComposerTokens, tokensFromInput } from "@ace/ui-core";
+import { inputWithText, tokensFromInput } from "@ace/ui-core";
 import { useClient, useThreadMeta } from "@ace/client-react";
 import {
   CommandId,
   ThreadId,
   type CommandPayload,
-  type ContentPart,
   type QueuePage,
   type QueuedMessage,
 } from "@ace/protocol";
@@ -21,15 +20,6 @@ import { draftOf, restoreReturnedDraft } from "./returned-draft.ts";
 /** The text of a queued message, as the person wrote it. */
 export const queuedText = (message: Pick<QueuedMessage, "input">) =>
   tokensFromInput(message.input).text;
-
-/** Replace the text, keep files and images. */
-function withText(input: readonly ContentPart[], text: string): ContentPart[] {
-  const original = tokensFromInput(input);
-  return [
-    ...composerInput(text, editComposerTokens(original.text, text, original.tokens)),
-    ...input.filter((part) => part.type !== "text" && part.type !== "mention"),
-  ];
-}
 
 /**
  * A change to one queued message the person made, shown at once while its command is on its
@@ -58,7 +48,7 @@ export function overlayQueue(
   shown = shown.map((message) => {
     const edit = live.find(([id, e]) => id === message.id && e.kind === "text")?.[1];
     return edit?.kind === "text"
-      ? { ...message, input: withText(message.input, edit.text) }
+      ? { ...message, input: inputWithText(message.input, edit.text) }
       : message;
   });
   const order = live.findLast(([, edit]) => edit.kind === "order")?.[1];
@@ -259,7 +249,7 @@ export function useQueue(threadId: string): QueueControls {
           type: "queue.edit",
           ...target,
           messageId: message.id,
-          input: withText(message.input, text),
+          input: inputWithText(message.input, text),
           ...(message.context ? { context: message.context } : {}),
         },
         "save the message",

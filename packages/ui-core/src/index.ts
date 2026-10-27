@@ -163,6 +163,7 @@ export * from "./continuation.ts";
 export {
   composerInput,
   editComposerTokens,
+  inputWithText,
   referenceContext,
   tokensFromInput,
   withTypedCommand,

@@ -193,6 +193,42 @@ export class Intents {
     return operation;
   }
   /** A daemon refusal of one command. Transient ones stay pending and resend with backoff. */
+  /**
+   * New words for a send that failed, in place: the same command id, thread and kind, saved in one
+   * write. A write that fails leaves the original, in memory and on disk, so a crash mid-edit
+   * keeps either the old words or the new ones, never neither.
+   */
+  rewrite(id: string, payload: CommandPayload): Promise<void> {
+    return this.#serialize(async () => {
+      const previous = this.#records.get(id);
+      if (previous?.state !== "failed")
+        throw new ClientError("protocol", "Only a send that failed can be edited");
+      const before = previous.command.payload;
+      if (
+        (before.type !== "thread.send" && before.type !== "thread.create") ||
+        payload.type !== before.type ||
+        (payload.type === "thread.send" &&
+          before.type === "thread.send" &&
+          payload.threadId !== before.threadId)
+      )
+        throw new ClientError("protocol", "An edit keeps the send's kind and thread");
+      const command = Command.parse({ ...previous.command, payload });
+      if (
+        !fitsUtf8(JSON.stringify({ type: "command", command }), this.#options.frameBytes) ||
+        !fitsUtf8(JSON.stringify({ ...previous, command }), this.#options.bytes - 128)
+      )
+        throw new ClientError("limit");
+      const next: Intent = { ...previous, command };
+      this.#put(id, next);
+      try {
+        await this.#persist(next, []);
+      } catch {
+        this.#put(id, previous);
+        throw new ClientError("storage");
+      }
+      this.#options.changed(id);
+    });
+  }
   refuse(commandId: string, code: string, retryable: boolean): Promise<void> {
     const intent = this.#records.get(commandId);
     if (intent?.state !== "pending") return Promise.resolve();
