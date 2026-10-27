@@ -4,6 +4,7 @@ import { ClientCore } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import {
+  readSettingsScope,
   readSettingsModels,
   readSettingsPage,
   writeSettingsPage,
@@ -335,5 +336,67 @@ test("the machine's other pages save lists and text, refusing what the setting w
   expect(relay).toMatchObject({
     ok: false,
     message: "Use a secure relay address without credentials",
+  });
+});
+
+/** A write that names the Build role's provider, sent alone or in a batch. */
+const touchesProvider = (message: { type: string; key?: string; entries?: { key: string }[] }) =>
+  message.key === "providers.coder.provider" ||
+  (message.entries ?? []).some((entry) => entry.key === "providers.coder.provider");
+
+test("a role change the machine refuses in part writes none of it", async () => {
+  const p = await ports();
+  const sheet = await readSettingsModels(p, {
+    type: "settings.models",
+    page: "role.build",
+    row: "role.model",
+  });
+  const model = sheet.providers.find((entry) => entry.ready)?.models[0];
+  if (!model) throw new Error("fixture has no model");
+  // This machine refuses the provider key, whichever way it is sent.
+  const refusing: PagePorts = {
+    ...p,
+    owner: {
+      request: (async (
+        message: { type: string; key?: string; entries?: { key: string }[] },
+        options: unknown,
+      ) => {
+        if (message.type.startsWith("settings.set") && touchesProvider(message))
+          return {
+            type: "settings.result",
+            requestId: "refused",
+            ok: false,
+            entries: [],
+            diagnostics: [{ layer: "global", code: "validation", message: "Not on this machine" }],
+          };
+        return p.owner.request(message as never, options as never);
+      }) as PagePorts["owner"]["request"],
+    },
+  };
+  const written = await writeSettingsPage(refusing, {
+    type: "settings.page.set",
+    page: "role.build",
+    row: "role.model",
+    value: { key: model.key, account: model.account },
+  });
+  expect(written).toMatchObject({ ok: false, message: "Not on this machine" });
+  expect(p.daemon.services.settings.isSet("providers.coder.model")).toBe(false);
+  expect(p.daemon.services.settings.isSet("providers.coder.provider")).toBe(false);
+});
+
+test("the scope control never sends a change to a machine this phone may only view", () => {
+  const plan = readSettingsScope({
+    type: "settings.scope",
+    all: true,
+    current: "studio",
+    machines: [
+      { id: "studio", name: "studio", connected: true, canOperate: true },
+      { id: "shared", name: "shared", connected: true, canOperate: false },
+    ],
+  });
+  expect(plan).toEqual({
+    type: "settings.scope",
+    send: ["studio"],
+    footer: "Saved on studio. shared is view-only from this phone.",
   });
 });

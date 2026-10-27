@@ -63,28 +63,15 @@ export function createSettingsSession(context: SocketContext): SocketService {
       if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
       else await commit();
     },
-    authorize: (request) =>
-      request.type === "settings.set" &&
-      (request.key === "sourceControl.preferences" ||
-        request.key === "projects.roots" ||
-        request.key === "providers.configuration" ||
-        request.key.startsWith("storage.") ||
-        // Where the daemon writes downloaded files on its machine.
-        request.key.startsWith("browser.download") ||
-        // Which apps agents can't use: only the person may loosen it.
-        request.key === "computer.blockedApps" ||
-        // Whether agents may operate this Mac while it is locked.
-        request.key === "computer.lockedUse" ||
-        request.key.startsWith("host.") ||
-        request.key.startsWith("remote."))
-        ? request.layer.kind === "global" &&
-          authorize("admin") &&
-          (request.key !== "projects.roots" || authorize("projects"))
-        : authorize(
-            request.type === "settings.set" || request.type === "settings.reset"
-              ? "operate"
-              : "read",
-          ),
+    authorize: (request) => {
+      if (request.type === "settings.setMany")
+        return request.entries.every((entry) =>
+          allowedWrite(entry.key, request.layer.kind, authorize),
+        );
+      return request.type === "settings.set"
+        ? allowedWrite(request.key, request.layer.kind, authorize)
+        : authorize(request.type === "settings.reset" ? "operate" : "read");
+    },
   });
   return {
     close() {
@@ -106,6 +93,7 @@ export function createSettingsSession(context: SocketContext): SocketService {
           return true;
         case "settings.reset":
         case "settings.set":
+        case "settings.setMany":
           if (!authorize("operate")) {
             fail("forbidden", "Operate scope required", false, { requestId: message.requestId });
             return true;
@@ -116,4 +104,25 @@ export function createSettingsSession(context: SocketContext): SocketService {
       return false;
     },
   };
+}
+
+/** Whether this device may write `key` on `layer`: admin-only keys need admin, on the global layer. */
+function allowedWrite(key: string, layer: string, authorize: SocketContext["authorize"]): boolean {
+  const adminOnly =
+    key === "sourceControl.preferences" ||
+    key === "projects.roots" ||
+    key === "providers.configuration" ||
+    key.startsWith("storage.") ||
+    // Where the daemon writes downloaded files on its machine.
+    key.startsWith("browser.download") ||
+    // Which apps agents can't use: only the person may loosen it.
+    key === "computer.blockedApps" ||
+    // Whether agents may operate this Mac while it is locked.
+    key === "computer.lockedUse" ||
+    key.startsWith("host.") ||
+    key.startsWith("remote.");
+  if (!adminOnly) return authorize("operate");
+  return (
+    layer === "global" && authorize("admin") && (key !== "projects.roots" || authorize("projects"))
+  );
 }

@@ -13,13 +13,32 @@ import SwiftUI
     var several: Bool { inbox.sessions.count > 1 }
     func name(_ client: ClientModel) -> String { machines.first { $0.client === client }?.name ?? "This machine" }
 
-    /// Where a change made on `client`'s page goes: that machine alone, or every machine that
-    /// can take it now. Machines that can't are named, so the person knows they kept their value.
-    func targets(from client: ClientModel) -> (send: [Machine], skipped: [Machine]) {
-        guard all, several else { return (machines.filter { $0.client === client }, []) }
-        let reachable = machines.filter { $0.client.connection == "ready" && $0.client.canOperate }
-        let skipped = machines.filter { machine in !reachable.contains { $0.id == machine.id } }
-        return (reachable, skipped)
+    /// The bridge's answer for each page's machine (`settingsScopePlan` in `@ace/ui-core`): where
+    /// a change goes and the line that says so. A view-only machine is never a target.
+    struct Plan: Decodable, Sendable, Equatable { let send: [String]; let footer: String }
+    private(set) var plans: [String: Plan] = [:]
+
+    /// What the plan is worked out from; it's asked again whenever this changes.
+    func planKey(for client: ClientModel) -> String {
+        "\(all)|" + machines.map { "\($0.id):\($0.client.connection == "ready"):\($0.client.canOperate)" }.joined(separator: ",")
+    }
+    func refreshPlan(for client: ClientModel) async {
+        guard let current = machines.first(where: { $0.client === client }) else { return }
+        let payload: [String: Any] = [
+            "type": "settings.scope", "all": all, "current": current.id,
+            "machines": machines.map { ["id": $0.id, "name": $0.name, "connected": $0.client.connection == "ready", "canOperate": $0.client.canOperate] as [String: Any] },
+        ]
+        if let plan = try? await client.service(payload, as: Plan.self) { plans[current.id] = plan }
+    }
+
+    /// Where a change made on `client`'s page goes. With one machine paired it's that machine;
+    /// with several, the bridge's plan decides, and until it answers only the page's own machine,
+    /// when this phone may change it, takes the change.
+    func targets(from client: ClientModel) -> [Machine] {
+        let own = machines.filter { $0.client === client && $0.client.canOperate }
+        guard several, let current = own.first ?? machines.first(where: { $0.client === client }) else { return own }
+        guard let plan = plans[current.id] else { return own }
+        return machines.filter { plan.send.contains($0.id) }
     }
 }
 
@@ -37,7 +56,7 @@ struct SettingsScopeSection: View {
     @Bindable var scope: SettingsScope
     let client: ClientModel
     var body: some View {
-        let (send, skipped) = scope.targets(from: client)
+        let footer = scope.plans[scope.machines.first { $0.client === client }?.id ?? ""]?.footer
         Section {
             Picker("Changes go to", selection: $scope.all) {
                 Text("This machine").tag(false)
@@ -48,18 +67,13 @@ struct SettingsScopeSection: View {
         } header: {
             InsetHeader("Changes go to")
         } footer: {
-            Text(footer(send: send, skipped: skipped)).contentTransition(.opacity)
+            // The line is reserved while the plan is first read, so nothing moves when it arrives.
+            Text(footer ?? " ").contentTransition(.opacity)
+                .animation(.smooth, value: footer)
                 .accessibilityIdentifier("settings.scope.targets")
         }
         .insetRowBackground()
         .sensoryFeedback(.selection, trigger: scope.all)
-    }
-    private func footer(send: [SettingsScope.Machine], skipped: [SettingsScope.Machine]) -> String {
-        let names = ListFormatter.localizedString(byJoining: send.map(\.name))
-        guard scope.all else { return "Saved on \(names) only." }
-        let reached = send.isEmpty ? "No machine is connected." : "Saved on \(names)."
-        guard !skipped.isEmpty else { return reached }
-        let away = ListFormatter.localizedString(byJoining: skipped.map(\.name))
-        return "\(reached) \(away) \(skipped.count == 1 ? "isn't" : "aren't") connected and keep\(skipped.count == 1 ? "s its" : " their") own."
+        .task(id: scope.planKey(for: client)) { await scope.refreshPlan(for: client) }
     }
 }

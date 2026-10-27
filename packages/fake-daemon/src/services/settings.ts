@@ -7,6 +7,7 @@ import {
   type SettingsScope,
   type ServerMessage,
 } from "@ace/protocol";
+import { setOnItsOwn } from "@ace/settings/batch";
 import { defaults } from "@ace/settings/defaults";
 
 /** Where a connection's pushes go; the connection owns its own lifetime. */
@@ -137,6 +138,30 @@ export class FakeSettings {
           if (subscriber.push === push && subscriber.id === message.subscriptionId)
             this.subscribers.delete(subscriber);
         return reply(true);
+      case "settings.setMany": {
+        // All or none, as the daemon: every entry is checked before any is kept.
+        const checked: [SettingsKey, unknown][] = [];
+        for (const entry of message.entries) {
+          const key = SettingsKey.safeParse(entry.key);
+          if (!key.success) return reply(false, [], "Unknown setting");
+          if (setOnItsOwn(key.data))
+            return reply(false, [], `Set ${key.data} on its own, not with others`);
+          const value = SettingsValues.shape[key.data].safeParse(entry.value);
+          if (!value.success) return reply(false, [], "Invalid setting value");
+          checked.push([key.data, value.data]);
+        }
+        if (message.layer.kind !== "global")
+          return reply(false, [], "The fake daemon writes batches to the global layer only");
+        for (const [key, value] of checked) this.global.set(key, value);
+        this.notifyMany(checked.map(([key]) => key));
+        return reply(
+          true,
+          this.entries(
+            checked.map(([key]) => key),
+            {},
+          ),
+        );
+      }
       case "settings.set": {
         const key = SettingsKey.safeParse(message.key);
         if (!key.success) return reply(false, [], "Unknown setting");
@@ -193,6 +218,18 @@ export class FakeSettings {
           subscriptionId: subscriber.id,
           entries: this.entries([key], subscriber.scope),
         });
+  }
+  /** One `settings.changed` per subscriber for everything a batch changed. */
+  private notifyMany(keys: readonly string[]): void {
+    for (const subscriber of this.subscribers) {
+      const seen = keys.filter((key) => subscriber.keys.has(key));
+      if (seen.length)
+        subscriber.push({
+          type: "settings.changed",
+          subscriptionId: subscriber.id,
+          entries: this.entries(seen, subscriber.scope),
+        });
+    }
   }
   release(push: Push): void {
     for (const subscriber of this.subscribers)

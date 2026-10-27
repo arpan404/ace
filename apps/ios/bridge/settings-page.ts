@@ -1,7 +1,7 @@
 import type { ClientCore } from "@ace/client";
 import { SettingsKey, SettingsProvenance, SettingsValues } from "@ace/protocol";
 import { roleKeys, runRoles } from "@ace/settings/roles";
-import { catalogModelIds } from "@ace/ui-core";
+import { catalogModelIds, settingsScopePlan } from "@ace/ui-core";
 import { z } from "zod";
 import { readAgents, type AgentRead } from "./agent-read.ts";
 import type { Preview } from "./agents.ts";
@@ -61,6 +61,25 @@ export const SettingsModelsRequest = z.object({
   page: PageId,
   row: z.string().min(1).max(128),
 });
+/** Where a change goes and the line that says so (`settingsScopePlan`), for the scope control. */
+export const SettingsScopeRequest = z.object({
+  type: z.literal("settings.scope"),
+  all: z.boolean(),
+  current: z.string().min(1).max(256),
+  machines: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(256),
+        name: z.string().max(256),
+        connected: z.boolean(),
+        canOperate: z.boolean(),
+      }),
+    )
+    .max(64),
+});
+export function readSettingsScope(request: z.infer<typeof SettingsScopeRequest>) {
+  return { type: "settings.scope", ...settingsScopePlan(request) };
+}
 export const SettingsModelStar = z.object({
   type: z.literal("settings.models.star"),
   key: z.string().min(1).max(512),
@@ -245,19 +264,30 @@ export async function writeSettingsPage(
   const planned = plan(state, request.row, request.value);
   if (!planned.ok)
     return { ok: false, message: planned.message, page: shape(state, ports.preview) };
-  for (const [key, value] of planned.writes) {
-    const reply = Entries.parse(
-      await ports.owner.request(
-        { type: "settings.set", key, value: z.json().parse(value), layer: { kind: "global" } },
-        quiet(ports.signal),
-      ),
-    );
-    if (reply.ok === false) {
-      const message = reply.diagnostics?.[0]?.message ?? "This machine didn't save that change.";
-      return { ok: false, message, page: shape(await read(ports, request.page), ports.preview) };
-    }
+  const reply = Entries.parse(
+    await ports.owner.request(writeRequest(planned.writes), quiet(ports.signal)),
+  );
+  if (reply.ok === false) {
+    const message = reply.diagnostics?.[0]?.message ?? "This machine didn't save that change.";
+    return { ok: false, message, page: shape(await read(ports, request.page), ports.preview) };
   }
   return { ok: true, page: shape(await read(ports, request.page), ports.preview) };
+}
+
+/**
+ * One write for the whole change: a single setting with `settings.set`, several (a role's model
+ * and provider, a cleared role) with `settings.setMany`, which the machine applies all or none.
+ */
+function writeRequest(writes: readonly [SettingsKey, unknown][]) {
+  const layer = { kind: "global" } as const;
+  const [only] = writes;
+  if (writes.length === 1 && only)
+    return { type: "settings.set" as const, key: only[0], value: z.json().parse(only[1]), layer };
+  return {
+    type: "settings.setMany" as const,
+    entries: writes.map(([key, value]) => ({ key, value: z.json().parse(value) })),
+    layer,
+  };
 }
 
 function plan(state: Read, rowId: string, value: unknown): Writes {
