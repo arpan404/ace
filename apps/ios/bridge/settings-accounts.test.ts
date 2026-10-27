@@ -17,6 +17,10 @@ afterEach(async () => {
   client = undefined;
 });
 
+// Bridge answers are untyped JSON for Swift; the tests read them as such.
+// oxlint-disable-next-line typescript/no-explicit-any
+type Answer = Record<string, any>;
+
 async function open() {
   const fixture = await settingsFixture();
   client = fixture.owner;
@@ -25,7 +29,7 @@ async function open() {
       fixture.owner,
       SettingsManageRequest.parse(request),
       new AbortController().signal,
-    )) as Record<string, any>;
+    )) as Answer;
   return { ...fixture, ask };
 }
 

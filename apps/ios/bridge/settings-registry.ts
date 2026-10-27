@@ -303,7 +303,7 @@ export async function answerRegistryScreen(
         if (reply.result.ok) return { ok: true, name: check.agent.name };
         return {
           ok: false,
-          problem: /scope required$/.test(reply.result.reason)
+          problem: reply.result.reason.endsWith("scope required")
             ? registryFailure(reply.result.reason)
             : "ace couldn't add that command. Check it's installed on the computer running ace and isn't already added.",
         };

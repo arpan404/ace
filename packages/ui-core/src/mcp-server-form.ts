@@ -77,9 +77,9 @@ export function checkMcpServer(
   }
   if (!address)
     return { ok: false, field: "address", problem: "Enter the command that starts the server." };
-  const words = splitCommand(address);
-  if (!words) return { ok: false, field: "address", problem: "Close the quote in the command." };
-  const [command, ...args] = words;
+  const parts = splitCommand(address);
+  if (!parts) return { ok: false, field: "address", problem: "Close the quote in the command." };
+  const [command, ...args] = parts;
   const parsed = McpServerInput.safeParse({ transport: "command", command, args });
   if (!command || !parsed.success)
     return { ok: false, field: "address", problem: "Use a shorter command." };

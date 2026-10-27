@@ -90,7 +90,7 @@ export function accountWays(provider: Provider, support: ApiKeySupport): Account
   });
   if (provider === "antigravity")
     return antigravitySignInMethods.map((entry) => ({
-      ...base,
+      upstream: null,
       id: entry.method,
       label: entry.label,
       method: "login",
@@ -124,9 +124,9 @@ export function accountWays(provider: Provider, support: ApiKeySupport): Account
 
 /** Ways to sign an existing account in again: the browser, then each API key the CLI takes. */
 export function reauthWays(provider: Provider, support: ApiKeySupport): AccountWay[] {
-  const ways = accountWays(provider, support).map((entry) =>
-    entry.method === "login" && !entry.signIn ? { ...entry, label: "Sign in again" } : entry,
-  );
+  const ways = accountWays(provider, support);
+  for (const entry of ways)
+    if (entry.method === "login" && !entry.signIn) entry.label = "Sign in again";
   if (provider !== "opencode" || !support.supported) return ways;
   return [
     ...ways,
