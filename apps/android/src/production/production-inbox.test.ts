@@ -22,6 +22,7 @@ import {
   retryReading,
   routeKeyFor,
   shouldAutoRecoverReads,
+  shouldPollAutoRecover,
   shouldResolveLease,
   shouldShowInbox,
   threadHeadlineFor,
@@ -337,6 +338,34 @@ it("bounds auto-recovery so a persistently dead lease waits for Retry", () => {
   expect(shouldAutoRecoverReads(true, "ready", MAX_AUTO_RECOVER_ATTEMPTS + 10)).toBe(false);
   // A manual Retry resets the budget by passing 0 again.
   expect(shouldAutoRecoverReads(true, "ready", 0)).toBe(true);
+});
+
+it("polls auto-recovery on budget alone so a fresh ready snapshot can heal the lease", () => {
+  // Regression: the readers gated the poll on
+  // `shouldAutoRecoverReads(true, null, …)`, which is always false because
+  // `null !== "ready"` — recovery never ran. The poll gate must pass on
+  // budget alone; only the post-read decision requires `ready`.
+  expect(shouldPollAutoRecover(0)).toBe(true);
+  expect(shouldPollAutoRecover(MAX_AUTO_RECOVER_ATTEMPTS - 1)).toBe(true);
+  expect(shouldPollAutoRecover(MAX_AUTO_RECOVER_ATTEMPTS)).toBe(false);
+  expect(shouldPollAutoRecover(MAX_AUTO_RECOVER_ATTEMPTS + 10)).toBe(false);
+  // Poll gate passes while the full guard still waits for a fresh snapshot.
+  expect(shouldAutoRecoverReads(true, null, 0)).toBe(false);
+  // Budget exhausted: neither gate fires, so the lease waits for manual Retry.
+  expect(shouldPollAutoRecover(MAX_AUTO_RECOVER_ATTEMPTS)).toBe(false);
+  expect(shouldAutoRecoverReads(true, "ready", MAX_AUTO_RECOVER_ATTEMPTS)).toBe(false);
+  // Transient blip: budget remains and fresh reports ready → recover.
+  const autoAttempts = 0;
+  const dead = true;
+  const fresh: string | null = "ready";
+  const wouldRecover =
+    dead &&
+    shouldPollAutoRecover(autoAttempts) &&
+    shouldAutoRecoverReads(dead, fresh, autoAttempts);
+  expect(wouldRecover).toBe(true);
+  // Still connecting: poll runs but the post-read guard holds, no churn.
+  expect(shouldPollAutoRecover(0)).toBe(true);
+  expect(shouldAutoRecoverReads(true, "connecting", 0)).toBe(false);
 });
 
 it("keeps route identity stable across fresh-per-read route objects", () => {

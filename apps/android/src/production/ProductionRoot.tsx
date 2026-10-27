@@ -42,8 +42,8 @@ import { createCoalescingFlight } from "./single-flight.ts";
 import { readStoredLockPrefsWithStatus, sqliteAppLockStorage } from "./lock-storage.ts";
 import { networkChange, snapshotNetworkState, type NetworkSnapshot } from "./network-monitor.ts";
 import { ThreadDraftStore, memoryDraftPersistence } from "../thread-drafts.ts";
-import { machineCards, routeMessage, selectActiveHost } from "./production-wiring.ts";
-import { ActiveMachineInbox } from "./production-inbox.tsx";
+import { machineCards, routeMessage } from "./production-wiring.ts";
+import { MergedMachineInbox } from "./production-inbox.tsx";
 import { PairingScreen } from "../Pairing.tsx";
 import { PairingFlowError, type ConfirmedPairing } from "../pairing/pairing-flow.ts";
 import type { MachineEntry } from "@ace/client/machines";
@@ -108,8 +108,9 @@ import type { MachineEntry } from "@ace/client/machines";
  * lock-after timeout. Both write through the same `createAppLock` policy
  * the startup gate reads; there is no second lock implementation.
  *
- * Inbox threads arrive with the multi-machine merge (later): this slice
- * owns startup, pairing, lock/privacy and per-machine permission display.
+ * Inbox threads arrive merged across every paired machine (one list ordered
+ * by the shared grouping/ranking rules, host-aware thread routes): this
+ * slice owns startup, pairing, lock/privacy and per-machine permission display.
  * Mutations stay behind `startup.runtimeForMutation(hostId)` (the reviewed
  * gate); screens resolve it per operation and never cache it.
  */
@@ -158,7 +159,6 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
   const [failure, setFailure] = useState<string | null>(null);
   const [secureGuardFailed, setSecureGuardFailed] = useState(false);
   const [pairingOpen, setPairingOpen] = useState(false);
-  const [activeHost, setActiveHost] = useState<string | undefined>(undefined);
   const [, setTick] = useState(0);
   const lockRef = useRef<AppLock | null>(null);
   const startupRef = useRef<ProductionStartup | null>(null);
@@ -425,9 +425,8 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
       try {
         // A hung directory read must surface Retry: without the race the UI
         // sits on an opaque screen with no recovery.
-        const entries = await withLoadTimeout(raw);
+        await withLoadTimeout(raw);
         if (cancelled || !isCurrent()) return;
-        setActiveHost(selectActiveHost(entries));
         setEntriesVersion((v) => v + 1);
         setLoadError(null);
         setLoaded(true);
@@ -560,17 +559,14 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
       startup={startup}
       lock={lock}
       drafts={drafts}
-      activeHost={activeHost}
       pairingOpen={pairingOpen}
       secureGuardFailed={secureGuardFailed}
       lockStorageFailed={lockStorageFailed}
       onPairingOpen={() => setPairingOpen(true)}
       onPairingClose={() => setPairingOpen(false)}
-      onChanged={(entries) => {
-        setActiveHost((prev) => selectActiveHost(entries, prev ?? activeHost));
+      onChanged={() => {
         setEntriesVersion((v) => v + 1);
       }}
-      onSelect={setActiveHost}
       notify={notify}
     />
   );
@@ -627,27 +623,23 @@ function MachinesView({
   startup,
   lock,
   drafts,
-  activeHost,
   pairingOpen,
   secureGuardFailed,
   lockStorageFailed,
   onPairingOpen,
   onPairingClose,
   onChanged,
-  onSelect,
   notify,
 }: {
   startup: ProductionStartup;
   lock: AppLock;
   drafts: ThreadDraftStore;
-  activeHost: string | undefined;
   pairingOpen: boolean;
   secureGuardFailed: boolean;
   lockStorageFailed: boolean;
   onPairingOpen(): void;
   onPairingClose(): void;
-  onChanged(entries: readonly MachineEntry[]): void;
-  onSelect(hostId: string): void;
+  onChanged(): void;
   notify(text: string): void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -716,8 +708,7 @@ function MachinesView({
               setError(message);
               notify(message);
             }
-            onChanged(startup.manager.entries());
-            onSelect(entry.hostId);
+            onChanged();
             onPairingClose();
             return entry;
           } catch (pairError) {
@@ -758,7 +749,7 @@ function MachinesView({
     setError(null);
     try {
       await startup.remove(hostId);
-      onChanged(startup.manager.entries());
+      onChanged();
     } catch (removeError) {
       const message =
         removeError instanceof Error ? removeError.message : "Remove failed. Try again.";
@@ -846,20 +837,9 @@ function MachinesView({
         return (
           <Group key={card.hostId}>
             <AceText role="rowTitle">{card.displayName}</AceText>
-            <AceText role="caption">
-              {card.canOperate ? "View and act" : "View only"}
-              {activeHost === card.hostId ? " · Active" : ""}
-            </AceText>
+            <AceText role="caption">{card.canOperate ? "View and act" : "View only"}</AceText>
             {message ? <AceText role="caption">{message}</AceText> : null}
             <AceText role="caption">{access(card.hostId)}</AceText>
-            {activeHost !== card.hostId ? (
-              <AceButton
-                label="Select"
-                onPress={() => onSelect(card.hostId)}
-                enabled={!busy}
-                kind="secondary"
-              />
-            ) : null}
             <AceButton
               label="Remove"
               onPress={() => void remove(card.hostId)}
@@ -871,14 +851,12 @@ function MachinesView({
       })}
       {error ? <AceText role="caption">{error}</AceText> : null}
       <AceButton label="Pair another machine" onPress={onPairingOpen} kind="secondary" />
-      {activeHost ? (
-        <ActiveMachineInbox startup={startup} hostId={activeHost} drafts={drafts} notify={notify} />
-      ) : null}
+      <MergedMachineInbox startup={startup} entries={entries} drafts={drafts} notify={notify} />
       <LockSettings lock={lock} notify={notify} />
       <AceText role="caption">
-        Threads show the active machine only; the cross-machine merge is later work. The open thread
-        keeps a composer while this phone may operate; sends admit through the per-machine gate and
-        fail closed while view-only or offline.
+        Threads from every paired machine merge into one inbox; a row opens its machine&apos;s
+        thread. The open thread keeps a composer while this phone may operate on that machine; sends
+        admit through the per-machine gate and fail closed while view-only or offline.
       </AceText>
     </ScrollView>
   );

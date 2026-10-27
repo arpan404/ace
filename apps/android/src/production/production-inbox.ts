@@ -193,6 +193,18 @@ export function shouldResolveLease(route: StartupRoute): boolean {
 }
 
 /**
+ * Budget-only gate for the auto-recovery poll: the first check in the
+ * recovery effect runs before a fresh connection snapshot exists, so it
+ * must not require `fresh === "ready"` yet. Passing `null` to
+ * `shouldAutoRecoverReads` here always returns false and makes recovery
+ * dead code; check the budget only and let the post-read
+ * `shouldAutoRecoverReads(true, fresh, …)` decide.
+ */
+export function shouldPollAutoRecover(autoAttempts = 0): boolean {
+  return autoAttempts < MAX_AUTO_RECOVER_ATTEMPTS;
+}
+
+/**
  * Safe auto-recovery condition: re-resolve only when the retained lease is
  * dead and a fresh read handle already reports `ready`. A stale snapshot
  * never triggers it, and a revoked route never reaches it (callers gate on
