@@ -3,6 +3,7 @@ import {
   colourChart,
   floodChunks,
   fullScreenKey,
+  redrawFullScreen,
   startFullScreen,
   type FullScreen,
 } from "./terminal-programs.ts";
@@ -167,6 +168,8 @@ export class FakeTerminals {
     const session = this.sessions.get(id);
     if (!session) return;
     session.info = { ...session.info, cols, rows };
+    // A full-screen program redraws for the new size, as SIGWINCH makes real ones do.
+    if (session.program) this.output(id, redrawFullScreen(session.program, session.info));
   }
   close(id: string): void {
     if (!this.sessions.delete(id)) return;

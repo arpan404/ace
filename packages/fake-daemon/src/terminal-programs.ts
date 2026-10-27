@@ -51,7 +51,10 @@ export function fullScreenKey(
 ): { output: string; quit: boolean } {
   if (state.pending || char === esc) {
     state.pending += char;
-    const done = /^\x1b[[O][A-D]$/.test(state.pending);
+    const done =
+      state.pending.length === 3 &&
+      "[O".includes(state.pending[1] ?? "") &&
+      "ABCD".includes(state.pending[2] ?? "");
     if (!done && state.pending.length < 3) return { output: "", quit: false };
     const key = state.pending.at(-1);
     state.pending = "";
@@ -64,6 +67,11 @@ export function fullScreenKey(
   if (char === "k") return move(state, -1, size);
   state.tick++;
   return { output: draw(state, size), quit: false };
+}
+
+/** The program's screen again, for a new size. */
+export function redrawFullScreen(state: FullScreen, size: ProgramSize): string {
+  return draw(state, size);
 }
 
 function move(state: FullScreen, delta: number, size: ProgramSize) {
@@ -95,7 +103,9 @@ function drawTop(state: FullScreen, size: ProgramSize): string {
     out += at(row, col) + bar(`${cpu} `, load, half);
   }
   out += at(3, 1) + bar("Mem", 0.62, cols - 1);
-  out += at(4, 1) + `Tasks: ${esc}[1m${processes.length}${esc}[0m, ${esc}[32m1 running${esc}[0m  Load: 1.42 1.10 0.98`;
+  out +=
+    at(4, 1) +
+    `Tasks: ${esc}[1m${processes.length}${esc}[0m, ${esc}[32m1 running${esc}[0m  Load: 1.42 1.10 0.98`;
   const header = pad("  PID  CPU%  COMMAND", cols);
   out += at(6, 1) + `${esc}[30;42m${header}${esc}[0m`;
   processes.forEach(([pid = "", name = "", args], index) => {
@@ -114,7 +124,11 @@ function drawTop(state: FullScreen, size: ProgramSize): string {
     ["j/k", "Move"],
     ["q", "Quit"],
   ];
-  out += at(rows, 1) + keys.map(([key, label]) => `${esc}[0m${key}${esc}[30;46m${pad(label ?? "", 6)}${esc}[0m`).join("");
+  out +=
+    at(rows, 1) +
+    keys
+      .map(([key, label]) => `${esc}[0m${key}${esc}[30;46m${pad(label ?? "", 6)}${esc}[0m`)
+      .join("");
   return out;
 }
 
@@ -143,7 +157,9 @@ function drawVi(state: FullScreen, size: ProgramSize): string {
         .replace(/\b(import|from|const|describe|it|expect)\b/g, `${esc}[35m$1${esc}[0m`)
         .replace(/("[^"]*")/g, `${esc}[32m$1${esc}[0m`);
   }
-  out += at(rows, 1) + `${esc}[7m${pad(` replay.test.ts  ${state.selected + 1},1  All `, cols)}${esc}[0m`;
+  out +=
+    at(rows, 1) +
+    `${esc}[7m${pad(` replay.test.ts  ${state.selected + 1},1  All `, cols)}${esc}[0m`;
   out += at(Math.min(rows - 1, state.selected + 1), 1);
   return out;
 }

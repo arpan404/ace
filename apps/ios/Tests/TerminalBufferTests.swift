@@ -173,6 +173,15 @@ private func rows(_ screen: TerminalScreen) -> [String] { screen.lines.map(\.tex
         #expect(s.lines.allSatisfy { $0.cells.count == 3 })
     }
 
+    @Test func aFullScreenProgramKeepsItsTopRowsWhenTheScreenShrinks() {
+        var s = screen("\u{1b}[?1049h\u{1b}[1;1Htitle\u{1b}[2;1Hrow\u{1b}[5;1Hkeys", rows: 5)
+        s.resize(columns: 20, rows: 3)
+        #expect(rows(s) == ["title", "row", ""])
+        #expect(s.cursorRow == 2)
+        s.resize(columns: 20, rows: 5)
+        #expect(rows(s) == ["title", "row", "", "", ""])
+    }
+
     @Test func clearingKeepsThePromptLineAndDropsHistory() {
         var s = screen("1\r\n2\r\n3\r\n4\r\n$ ", rows: 3)
         s.clearHistory()

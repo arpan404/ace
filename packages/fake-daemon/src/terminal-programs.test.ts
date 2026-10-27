@@ -25,7 +25,7 @@ describe("the fake shell's terminal programs", () => {
     expect(started).toContain("vitest run apps/server");
     // An arrow in application mode moves the highlight to the second process.
     const moved = type("\x1bOB");
-    expect(moved).toMatch(/\x1b\[7m\s+388/);
+    expect(moved).toContain("\x1b[7m  388");
     const quit = type("q");
     expect(quit).toContain("\x1b[?1049l");
     expect(quit).toContain("$ ");
@@ -40,5 +40,21 @@ describe("the fake shell's terminal programs", () => {
     const flood = type("flood 2000\r");
     expect(flood).toContain("module-2000.ts");
     expect(flood.split("\r\n").length).toBeGreaterThan(2000);
+  });
+});
+
+describe("full-screen programs and resizing", () => {
+  it("redraws top for the new size, as a real program does after SIGWINCH", () => {
+    const terminals = new FakeTerminals({ capacity: 1024 * 1024 });
+    const info = terminals.openNow({ threadId: "t", cwd: "/repo", cols: 60, rows: 30 });
+    let output = "";
+    terminals.attach(info.id, 0, (event) => {
+      if (event.type === "data") output += event.data;
+    });
+    terminals.write(info.id, "top\r");
+    output = "";
+    terminals.resize(info.id, 40, 12);
+    expect(output).toContain("\x1b[12;1H");
+    expect(output).toContain("PID");
   });
 });

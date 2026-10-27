@@ -408,7 +408,7 @@ struct TerminalScreen: Sendable {
         var alternate = usingAlternate ? lines : other
         Self.fit(&main, rows: height, columns: width, history: &scrollback, ids: &nextId, cursor: &mainCursor)
         var none = TerminalScrollback(limit: 0)
-        Self.fit(&alternate, rows: height, columns: width, history: &none, ids: &nextId, cursor: &alternateCursor)
+        Self.fit(&alternate, rows: height, columns: width, history: &none, ids: &nextId, cursor: &alternateCursor, keepTop: true)
         if usingAlternate {
             lines = alternate; other = main
             cursorRow = alternateCursor; savedMain.row = mainCursor
@@ -427,7 +427,13 @@ struct TerminalScreen: Sendable {
     /// Fit one buffer to `height` rows. Only the main buffer has history to give rows to and
     /// take them back from.
     private static func fit(_ buffer: inout [TerminalLine], rows height: Int, columns: Int,
-                            history: inout TerminalScrollback, ids: inout UInt64, cursor: inout Int) {
+                            history: inout TerminalScrollback, ids: inout UInt64, cursor: inout Int, keepTop: Bool = false) {
+        // A full-screen program lays out from the top and redraws for the new size; until it
+        // does, its top rows (title bars, headers) are the ones worth keeping.
+        if keepTop, buffer.count > height {
+            buffer.removeLast(buffer.count - height)
+            cursor = min(cursor, height - 1)
+        }
         while buffer.count > height {
             // Drop empty rows below the cursor first; otherwise the top row leaves.
             if cursor < buffer.count - 1, buffer[buffer.count - 1].text.isEmpty { buffer.removeLast() }
