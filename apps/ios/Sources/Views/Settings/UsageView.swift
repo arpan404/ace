@@ -1,72 +1,17 @@
 import SwiftUI
 
-private struct UsageReply: Decodable {
-    struct Result: Decodable {
-        struct Row: Decodable {
-            struct Totals: Decodable {
-                let inputTokens: Double
-                let outputTokens: Double
-                let cachedInputTokens: Double
-                let providerReportedUsd: Double
-                let estimatedUsd: Double
-            }
-            let dimensions: [String: String?]
-            let totals: Totals
-        }
-        let rows: [Row]
-        let truncated: Bool
-        let timezone: String
-        let omittedEvents: Int
-    }
-    let result: Result
-}
-
-/// `usage.limits` (`bridge/usage-limits.ts`): the shared Usage-page limits, worded by
-/// `@ace/ui-core`, for Swift to draw beside the token use.
-private struct UsageLimitsReply: Decodable {
-    struct Pace: Codable, Sendable, Hashable {
-        let label: String
-        let token: String
-    }
-    struct Window: Codable, Sendable, Hashable {
-        let id: String
-        let label: String
-        let leftPercent: Double
-        let resets: String?
-        let resetsAt: Double?
-        let observedAt: Double
-        let stale: Bool
-        let old: Bool
-        let pace: Pace?
-    }
-    struct Account: Codable, Sendable, Hashable {
-        let key: String
-        let label: String
-        let plan: String?
-        let signIn: String?
-        let bankedResets: Double?
-        let bankedExpiresAt: Double?
-        let noSessionWindow: Bool
-        let windows: [Window]
-    }
-    struct Provider: Codable, Sendable, Hashable {
-        let key: String
-        let provider: String
-        let providerLabel: String
-        let accounts: [Account]
-    }
-    let providers: [Provider]
-    let quiet: [String]
-}
-
+/// Settings › Usage: the web Usage page on the phone. Cost and Tokens over a range with growth
+/// against the period before, a daily chart, totals, types and a breakdown; Limits with what is
+/// left of every window. Every figure is worded by `@ace/ui-core` through the bridge.
 struct UsageView: View {
-    private enum Tab: Hashable { case limits, tokens }
+    private enum Tab: String, Hashable { case cost, tokens, limits }
     let model: ClientModel
     @State private var tab = Tab.limits
-    @State private var days = 7
-    @State private var result: UsageReply.Result?
-    @State private var problem: String?
-    @State private var loading = false
+    @State private var days = 30
+    @State private var provider: String?
+    @State private var report: UsageReportReply?
+    @State private var reportProblem: String?
+    @State private var reportLoading = false
     @State private var limits: UsageLimitsReply?
     @State private var limitsProblem: String?
     @State private var limitsLoading = false
@@ -77,185 +22,147 @@ struct UsageView: View {
         self.model = model
         _limits = State(initialValue: model.kept(Self.limitsRead, as: UsageLimitsReply.self))
     }
+
     var body: some View {
-        List {
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.xl) {
+                controls
+                Group {
+                    if tab == .limits { limitsPage } else { spendPage }
+                }
+                .padding(.top, AceTheme.Spacing.sm)
+            }
+            .padding(.horizontal, AceTheme.Spacing.xl)
+            .padding(.top, AceTheme.Spacing.sm)
+            .padding(.bottom, AceTheme.Spacing.xxxl)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+        }
+        .background(AceTheme.Colours.background)
+        .navigationTitle("Usage").navigationBarTitleDisplayMode(.inline)
+        .task(id: readKey) { await read(fresh: false) }
+        .refreshable { await read(fresh: true) }
+    }
+
+    private var readKey: [String] {
+        tab == .limits
+            ? ["limits", String(model.readGeneration(Self.limitsRead))]
+            : ["report", String(days), provider ?? "", String(model.readGeneration(reportRead))]
+    }
+
+    private var controls: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
             Picker("View", selection: $tab) {
-                Text("Limits").tag(Tab.limits)
+                Text("Cost").tag(Tab.cost)
                 Text("Tokens").tag(Tab.tokens)
+                Text("Limits").tag(Tab.limits)
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("usage.view")
-            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
-            Group {
-                if tab == .tokens {
-                    tokens
-                } else {
-                    limitsView
+            if tab != .limits {
+                Picker("Range", selection: $days) {
+                    Text("Today").tag(1); Text("7 days").tag(7); Text("30 days").tag(30); Text("90 days").tag(90)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("usage.range")
+                if let providers = report?.providers, providers.count > 1 || provider != nil {
+                    providerMenu(providers)
                 }
             }
-            .insetRowBackground()
-        }
-        .insetGroupedList()
-        .navigationTitle("Usage").navigationBarTitleDisplayMode(.inline)
-        .task(id: [tab == .limits ? 0 : 1, model.readGeneration(Self.limitsRead)]) {
-            if tab == .limits { await readLimits() } else { await readTokens() }
-        }
-        .task(id: days) { if tab == .tokens { await readTokens() } }
-        .refreshable {
-            if tab == .limits { await readLimits() } else { await readTokens() }
         }
     }
-    @ViewBuilder private var tokens: some View {
-        Picker("Period", selection: $days) { Text("7 days").tag(7); Text("30 days").tag(30); Text("90 days").tag(90) }
-            .pickerStyle(.segmented)
-            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
-        if loading, result == nil { HStack { Spacer(); ProgressView().accessibilityLabel("Reading usage"); Spacer() }.listRowBackground(Color.clear) }
-        ServiceProblem(message: problem)
-        if let result {
-            if result.rows.isEmpty { ContentUnavailableView("No usage in this period", systemImage: "chart.bar").listRowBackground(Color.clear) }
-            ForEach(Array(result.rows.enumerated()), id: \.offset) { _, row in
-                Section {
-                    LabeledContent("Input tokens", value: row.totals.inputTokens.formatted())
-                    LabeledContent("Output tokens", value: row.totals.outputTokens.formatted())
-                    LabeledContent("Cached input", value: row.totals.cachedInputTokens.formatted())
-                    LabeledContent("Reported cost", value: row.totals.providerReportedUsd.formatted(.currency(code: "USD")))
-                    LabeledContent("Estimated cost", value: row.totals.estimatedUsd.formatted(.currency(code: "USD")))
-                } header: { InsetHeader(row.dimensions["provider"]?.flatMap { $0 }?.capitalized ?? "Usage") }
+
+    private func providerMenu(_ providers: [UsageReportReply.Provider]) -> some View {
+        Menu {
+            Picker("Provider", selection: $provider) {
+                Text("All providers").tag(String?.none)
+                ForEach(providers, id: \.id) { entry in Text(entry.name).tag(Optional(entry.id)) }
             }
-            if result.truncated || result.omittedEvents > 0 { Text("Some records are outside the retained window.") }
-            Text("Dates use \(result.timezone). CLI token counts and estimated cost may differ from billing.")
-                .foregroundStyle(AceTheme.Colours.mutedForeground).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+        } label: {
+            Text(providers.first { $0.id == provider }?.name ?? "All providers")
+                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+        }
+        .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
+        .accessibilityLabel("Provider")
+        .accessibilityIdentifier("usage.provider")
+    }
+
+    @ViewBuilder private var spendPage: some View {
+        ServiceProblem(message: reportProblem)
+        if let report {
+            let view = tab == .cost ? report.cost : report.tokens
+            if view.providers.isEmpty, view.byDay.isEmpty {
+                ContentUnavailableView("No usage in this range", systemImage: "chart.xyaxis.line")
+                    .frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
+            } else {
+                UsageSpendView(view: view)
+            }
+        } else if reportLoading {
+            loading("Reading usage")
         }
     }
-    @ViewBuilder private var limitsView: some View {
-        if limitsLoading, limits == nil {
-            HStack { Spacer(); ProgressView().accessibilityLabel("Reading limits"); Spacer() }.listRowBackground(Color.clear)
-        }
+
+    @ViewBuilder private var limitsPage: some View {
         ServiceProblem(message: limitsProblem)
         if let limits {
             if limits.providers.isEmpty, limits.quiet.isEmpty {
-                ContentUnavailableView("No accounts yet", systemImage: "chart.bar", description: Text("Add an account to see its limits."))
-                    .listRowBackground(Color.clear)
+                ContentUnavailableView("No accounts yet", systemImage: "chart.bar",
+                                       description: Text("Add an account to see its limits."))
+                    .frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
+            } else {
+                UsageLimitsView(limits: limits, redeem: redeem)
             }
-            ForEach(limits.providers, id: \.key) { provider in
-                Section {
-                    ForEach(provider.accounts, id: \.key) { account in
-                        LimitAccountRow(account: account)
-                    }
-                } header: {
-                    HStack(spacing: AceTheme.Spacing.sm) {
-                        ProviderMark(provider: provider.provider, size: 16)
-                        InsetHeader(provider.providerLabel)
-                    }
-                }
-            }
-            if !limits.quiet.isEmpty {
-                Text("No limits reported · \(limits.quiet.joined(separator: ", "))")
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            }
+        } else if limitsLoading {
+            loading("Reading limits")
         }
     }
-    private var tokensRead: [String: Any] {
-        let now = Date(timeIntervalSince1970: model.now() / 1000)
-        let start = now.addingTimeInterval(-Double(days - 1) * 86400)
-        let format = Date.ISO8601FormatStyle().year().month().day().dateSeparator(.dash)
-        return ["type": "usage.summary", "query": ["from": start.formatted(format), "to": now.formatted(format), "groupBy": ["provider"], "limit": 100]]
+
+    private func loading(_ label: String) -> some View {
+        ProgressView().accessibilityLabel(label)
+            .frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
     }
-    private func readTokens() async {
-        let read = tokensRead
-        if let kept = model.kept(read, as: UsageReply.self) { result = kept.result }
-        loading = true; problem = nil
-        defer { loading = false }
+
+    private var reportRead: [String: Any] {
+        var read: [String: Any] = ["type": "usage.report", "days": days]
+        if let provider { read["provider"] = provider }
+        return read
+    }
+
+    private func read(fresh: Bool) async {
+        if tab == .limits { await readLimits(fresh: fresh) } else { await readReport(fresh: fresh) }
+    }
+
+    private func readReport(fresh: Bool) async {
+        var read = reportRead
+        if let kept = model.kept(read, as: UsageReportReply.self) { report = kept }
+        if fresh { read["fresh"] = true }
+        reportLoading = true; reportProblem = nil
+        defer { reportLoading = false }
         do {
-            let reply = try await model.read(read, as: UsageReply.self)
-            result = reply.result
-        } catch is CancellationError {} catch { if !Task.isCancelled { problem = error.localizedDescription } }
+            report = try await model.read(read, as: UsageReportReply.self)
+        } catch is CancellationError {} catch {
+            if !Task.isCancelled { reportProblem = error.localizedDescription }
+        }
     }
-    private func readLimits() async {
+
+    private func readLimits(fresh: Bool) async {
+        var read = Self.limitsRead
+        if fresh { read["fresh"] = true }
         limitsLoading = true; limitsProblem = nil
         defer { limitsLoading = false }
         do {
-            limits = try await model.read(Self.limitsRead, as: UsageLimitsReply.self)
-        } catch is CancellationError {} catch { if !Task.isCancelled { limitsProblem = error.localizedDescription } }
-    }
-}
-
-/// One account's windows with what is left, as the Mac Usage page's Limits view reads them.
-private struct LimitAccountRow: View {
-    let account: UsageLimitsReply.Account
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            Text(account.label)
-                .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-            if let plan = account.plan {
-                Text(String(plan.prefix(1)).uppercased() + String(plan.dropFirst()))
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            if let banked = account.bankedResets.map(Int.init), banked > 0 {
-                Text(bankedLine(count: banked, expiresAt: account.bankedExpiresAt))
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            ForEach(account.windows, id: \.self) { window in
-                LimitWindowRow(window: window)
-            }
-            if let signIn = account.signIn {
-                Text(signIn)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            if account.noSessionWindow {
-                Text("No session (5h) limit reported for this account")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
+            limits = try await model.read(read, as: UsageLimitsReply.self)
+        } catch is CancellationError {} catch {
+            if !Task.isCancelled { limitsProblem = error.localizedDescription }
         }
-        .padding(.vertical, AceTheme.Spacing.xxs)
-        .accessibilityElement(children: .combine)
     }
-    private func bankedLine(count: Int, expiresAt: Double?) -> String {
-        let resets = count == 1 ? "1 banked reset" : "\(count) banked resets"
-        guard let expiresAt else { return resets }
-        let date = Date(timeIntervalSince1970: expiresAt / 1000).formatted(date: .abbreviated, time: .omitted)
-        return "\(resets) · next expires \(date)"
-    }
-}
 
-private struct LimitWindowRow: View {
-    let window: UsageLimitsReply.Window
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(window.label)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                Spacer(minLength: AceTheme.Spacing.sm)
-                if window.stale {
-                    Text("—").foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
-                } else {
-                    Text("\(Int(window.leftPercent))% left")
-                        .monospacedDigit()
-                        .foregroundStyle(window.leftPercent == 0 ? StateStyle.text("failed") : AceTheme.Colours.foreground)
-                }
-            }
-            if window.stale {
-                if let resetsAt = window.resetsAt {
-                    Text("Reset \(relative(resetsAt))")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                }
-                Text("Read \(relative(window.observedAt))")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            } else {
-                if let pace = window.pace {
-                    StateLabel(status: StatusDisplay(label: pace.label, token: pace.token))
-                }
-                Text(window.resets ?? "Reset not reported")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                if window.old {
-                    Text("As of \(relative(window.observedAt))")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                }
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-    private func relative(_ epochMs: Double) -> String {
-        Date(timeIntervalSince1970: epochMs / 1000).formatted(.relative(presentation: .named))
+    private func redeem(_ account: UsageLimitsReply.Account, _ key: String) async throws -> String {
+        guard let instanceId = account.instanceId else { throw CancellationError() }
+        let reply = try await model.service(
+            ["type": "usage.useReset", "instanceId": instanceId, "idempotencyKey": key],
+            as: UsageResetReply.self)
+        await readLimits(fresh: true)
+        return reply.words
     }
 }
