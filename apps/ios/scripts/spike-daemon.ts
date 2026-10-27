@@ -321,6 +321,15 @@ const server = Bun.serve<undefined>({
       seedWork(daemon, scenario, threadId, details);
       return Response.json({ threadId });
     }
+    // GitHub's branch moves on (`remoteHead`), so a plain push from the thread's checkout is
+    // rejected; an empty one lets pushes through again. Drives a merge whose push failed.
+    if (path === "/review/push-rejects" && request.method === "POST") {
+      const { threadId, remoteHead } = z
+        .object({ threadId: z.string().min(1), remoteHead: z.string() })
+        .parse(await request.json());
+      daemon.workspace.git.setRemoteDiverged(threadId, remoteHead);
+      return Response.json({ ok: true });
+    }
     // Restarts ios-nap's snooze from now, so the offline-snooze test never depends on how long
     // the fixture has been running.
     if (path === "/review/nap" && request.method === "POST") {

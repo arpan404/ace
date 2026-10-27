@@ -76,6 +76,49 @@ import XCTest
         screenshot("conflicts-pushed")
     }
 
+    func testAMergeWhosePushFailedReadsNotPushedAndPushAloneSendsIt() throws {
+        try pushRejects("d".padding(toLength: 40, withPad: "d", startingAt: 0))
+        let app = launchOnPulls()
+        open(app, "forge.pull.226")
+        tapRevealed(app, app.buttons["forge.pull.conflicts"])
+        tapRevealed(app, app.buttons["forge.conflicts.start"])
+        XCTAssertTrue(app.buttons["Both"].firstMatch.waitForExistence(timeout: 20))
+        app.buttons["Both"].firstMatch.tap()
+        let theirs = app.buttons["Theirs"].firstMatch
+        XCTAssertTrue(theirs.waitForExistence(timeout: 20))
+        theirs.tap()
+        tapRevealed(app, app.buttons["Take ours"].firstMatch)
+        let finish = app.buttons["forge.conflicts.finish"]
+        XCTAssertTrue(waitFor(finish, "isEnabled == true"))
+        finish.tap()
+        // The merge committed but GitHub refused the push: the page says so and offers Push only.
+        let unpushed = app.staticTexts["forge.conflicts.unpushed"]
+        XCTAssertTrue(unpushed.waitForExistence(timeout: 20))
+        XCTAssertEqual(unpushed.label, "Merged locally, not pushed")
+        XCTAssertFalse(app.buttons["forge.conflicts.start"].exists, "no second merge is offered")
+        screenshot("conflicts-unpushed")
+        try pushRejects("")
+        tapRevealed(app, app.buttons["forge.conflicts.push"])
+        XCTAssertTrue(app.staticTexts["Pushed the merge to refactor/composer-toolbar"].waitForExistence(timeout: 20))
+        XCTAssertTrue(waitFor(unpushed, "exists == false"))
+        screenshot("conflicts-unpushed-pushed")
+    }
+
+    /// Makes the fixture's GitHub refuse (or take again) the PR thread's plain push.
+    private func pushRejects(_ remoteHead: String) throws {
+        let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/review/push-rejects")))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["threadId": "pr-work-226", "remoteHead": remoteHead])
+        let done = expectation(description: "fixture")
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+            done.fulfill()
+        }.resume()
+        wait(for: [done], timeout: 10)
+    }
+
     func testTheStackRebasesLocallyThenOffersToPublish() {
         let app = launchOnPulls()
         open(app, "forge.pull.226")
