@@ -273,8 +273,9 @@ ace clean --compact --json
 ace clean --compact --abandon COMPACTION_ID --json
 ```
 
-`--compact` runs incremental database compaction, which needs host administration
-and is never part of a cleanup plan. A run that hits its chunk limit returns
+The daemon compacts its database automatically when enough space is free, so
+`--compact` is rarely needed. It runs the same incremental compaction now, needs host
+administration and is never part of a cleanup plan. A run that hits its chunk limit returns
 `pending` with uncertain exit status; repeat `--compact` to resume it, or pass
 `--abandon` to stop it. A database created before incremental vacuum reports
 `incrementalUnavailable` and is left unchanged. There is no full rebuild; see
@@ -336,8 +337,9 @@ directly.
 - **Fix ace folder access** creates missing ace and log folders and makes them private
   to you. It refuses links, non-directories and folders owned by someone else.
 - **Reclaim database space** is offered when at least 1 MiB is reusable or the WAL
-  reaches 32 MiB. The running local daemon compacts in small journaled steps and
-  checkpoints the WAL; doctor reports the size before and after. If ace isn't running,
+  reaches 32 MiB. The daemon already does this on its own once 64 MiB or 10% of the
+  file is free; the repair runs it now. The running local daemon compacts in small
+  journaled steps and checkpoints the WAL; doctor reports the size before and after. If ace isn't running,
   the repair is listed as unable to run and nothing is written. Legacy
   `auto_vacuum=NONE` files keep their reusable pages; shrinking them needs a
   rowid-preserving migration. No full VACUUM, WAL deletion or corrupt-file rebuild
