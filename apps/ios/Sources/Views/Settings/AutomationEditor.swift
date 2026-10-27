@@ -183,8 +183,13 @@ struct AutomationEditor: View {
             .disabled(saving || !model.canOperate || form == nil)
             .accessibilityIdentifier("automation.save")
         }
-        .padding(.horizontal, AceTheme.Spacing.lg)
-        .padding(.vertical, AceTheme.Spacing.sm)
+        .padding(.leading, AceTheme.Spacing.lg)
+        .padding(.trailing, AceTheme.Spacing.xs)
+        .padding(.vertical, AceTheme.Spacing.xs)
+        // Plain system glass, so the rows passing under it never read through the words.
+        .floatingGlass()
+        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.bottom, AceTheme.Spacing.xs)
     }
 
     @ViewBuilder private func field<Content: View>(_ name: String, @ViewBuilder _ content: () -> Content) -> some View {

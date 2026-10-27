@@ -150,7 +150,7 @@ struct AutomationDetailView: View {
             }
             ForEach(runs) { run in
                 AutomationRunView(run: run, canRun: canAct && row?.enabled == true,
-                                  open: run.threadId.flatMap { threadId in links.map { links in { links.thread(threadId) } } },
+                                  open: opener(run.threadId),
                                   runAgain: { Task { await runNow(note: nil) } })
             }
             if before != nil {
@@ -161,6 +161,12 @@ struct AutomationDetailView: View {
             }
         } header: { InsetHeader("Runs") }
         .insetRowBackground()
+    }
+
+    /// "Open thread" for a run that has one.
+    private func opener(_ threadId: String?) -> (() -> Void)? {
+        guard let threadId, let links else { return nil }
+        return { links.thread(threadId) }
     }
 
     private func textRow(_ title: String, id: String, strong: Bool = false, action: @escaping () -> Void) -> some View {

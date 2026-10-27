@@ -142,17 +142,23 @@ struct AutomationWhenSection: View {
     // MARK: GitHub and files
 
     @ViewBuilder private var github: some View {
-        TextField("owner/name", text: Binding(get: { form.repository }, set: { form.repository = $0; touch("repository") }))
-            .aceMonospace(AceTheme.Typography.code, relativeTo: .body)
-            .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-            .accessibilityIdentifier("automation.repository")
+        LabeledContent("Repository") {
+            TextField("owner/name", text: Binding(get: { form.repository }, set: { form.repository = $0; touch("repository") }))
+                .multilineTextAlignment(.trailing)
+                .aceMonospace(AceTheme.Typography.code, relativeTo: .body)
+                .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                .accessibilityIdentifier("automation.repository")
+        }
         problem("repository")
         menu("Event", selection: form.event, choices.events, id: "automation.event") { form.event = $0 }
         if form.event == "issue_labelled" {
-            TextField("Label, like needs-triage", text: Binding(get: { form.label }, set: { form.label = $0; touch("label") }))
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-                .accessibilityIdentifier("automation.label")
-                .transition(.opacity)
+            LabeledContent("Label") {
+                TextField("needs-triage", text: Binding(get: { form.label }, set: { form.label = $0; touch("label") }))
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("automation.label")
+            }
+            .transition(.opacity)
             problem("label")
         }
         Text("ace checks GitHub every five minutes with this machine's GitHub sign-in.")

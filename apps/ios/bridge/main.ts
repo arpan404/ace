@@ -252,7 +252,8 @@ async function start(json: string): Promise<void> {
   const newThread = compose.newThread;
   const automations = new NativeAutomations({
     owner: client,
-    now: () => host.now(),
+    // Whole milliseconds, as the daemon's clock reads them.
+    now: () => Math.floor(host.now()),
     zone: localTimeZone,
     agents: async () => {
       if (!newThread.loadedAgents) await newThread.agents();
