@@ -106,9 +106,11 @@ const EndBlockRow = memo(function EndBlockRow({
 const TranscriptBlockRow = memo(function TranscriptBlockRow({
   block,
   store,
+  notify,
 }: {
   block: Block;
   store: ThreadSource;
+  notify(text: string): void;
 }) {
   const theme = useTheme();
   const ids = useMemo(() => blockItems(block), [block]);
@@ -151,7 +153,7 @@ const TranscriptBlockRow = memo(function TranscriptBlockRow({
     if (!text && !detail) return null;
     return (
       <View style={{ marginHorizontal: tokens.spacing.lg, marginVertical: tokens.spacing.sm }}>
-        {text ? <Markdown text={text} streaming={streaming} /> : null}
+        {text ? <Markdown text={text} streaming={streaming} notify={notify} /> : null}
         {detail ? (
           <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
             {detail}
@@ -489,7 +491,9 @@ export function ThreadScreen({
         style={{ flex: 1 }}
         data={blocks}
         keyExtractor={(item) => blockKey(item)}
-        renderItem={({ item }) => <TranscriptBlockRow block={item} store={lease.store} />}
+        renderItem={({ item }) => (
+          <TranscriptBlockRow block={item} store={lease.store} notify={notify} />
+        )}
         getItemType={(item) => `${item.kind}:${blockTestId(item)}`}
         maintainVisibleContentPosition={{
           autoscrollToBottomThreshold: 0.1,

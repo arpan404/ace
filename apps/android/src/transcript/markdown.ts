@@ -193,7 +193,29 @@ export function isOverInlineLimit(text: string): boolean {
 /** Bounded preview for an over-limit message: plain slice, never markdown-parsed. */
 export function longMessagePreview(text: string): string {
   if (text.length <= LONG_MESSAGE_PREVIEW_CHARS) return text;
-  return text.slice(0, LONG_MESSAGE_PREVIEW_CHARS);
+  return backOffGraphemeEdge(text.slice(0, LONG_MESSAGE_PREVIEW_CHARS));
+}
+
+/**
+ * A raw UTF-16 cut can strand a surrogate lead (renders as �) or detach a
+ * combining mark, variation selector or zero-width joiner. Back off over a
+ * trailing edge so the preview stays readable. ASCII previews are untouched,
+ * so their exact length is preserved.
+ */
+function backOffGraphemeEdge(slice: string): string {
+  let end = slice.length;
+  while (end > 0 && isGraphemeEdge(slice.charCodeAt(end - 1)!)) end -= 1;
+  return slice.slice(0, end);
+}
+
+function isGraphemeEdge(code: number): boolean {
+  return (
+    (code >= 0xd800 && code <= 0xdbff) || // lead surrogate whose pair was cut
+    (code >= 0x0300 && code <= 0x036f) || // combining marks
+    code === 0xfe0e ||
+    code === 0xfe0f || // variation selectors
+    code === 0x200d // zero-width joiner
+  );
 }
 
 export function isCodeCollapsible(text: string): boolean {
@@ -212,6 +234,84 @@ export function codeLineCount(text: string): number {
 function lineCount(text: string): number {
   if (text === "") return 0;
   return text.split("\n").length;
+}
+
+/**
+ * Streaming deltas re-render on every chunk. Past `STREAMING_FULL_PARSE_CHARS`
+ * a full `markdownBlocks` parse per delta is O(n) each and O(n²) over the
+ * stream, so the settled head is parsed once and only the tail re-parses.
+ * The full text stays rendered: head blocks plus tail blocks concatenate to
+ * exactly the full parse. Pure.
+ */
+export const STREAMING_FULL_PARSE_CHARS = 16_000;
+/** Fresh tail re-parsed per delta while streaming a large message. */
+export const STREAMING_TAIL_CHARS = 8_000;
+/** The settled head only advances in chunks, so head re-parses stay amortized. */
+export const STREAMING_HEAD_GROWTH_CHARS = 4_000;
+
+/**
+ * Split streaming text into a settled head and a fresh tail at a blank-line
+ * boundary, where every parser state (paragraph, quote, list, table) is
+ * already flushed. Returns null when a full parse is cheaper or safer: short
+ * text, no blank-line boundary in range, or an unclosed fence in the head
+ * (a fence spanning the cut would parse differently split than whole).
+ */
+export function streamingSplit(text: string): { head: string; tail: string } | null {
+  if (text.length <= STREAMING_FULL_PARSE_CHARS) return null;
+  const cut = text.lastIndexOf("\n\n", text.length - STREAMING_TAIL_CHARS);
+  if (cut < 0) return null;
+  const head = text.slice(0, cut + 2);
+  if (isInOpenFence(head)) return null;
+  return { head, tail: text.slice(cut + 2) };
+}
+
+/** True while `text` opens a fence it never closes (streaming code). */
+export function isInOpenFence(text: string): boolean {
+  let open: string | null = null;
+  for (const raw of text.split("\n")) {
+    const trimmed = raw.trim();
+    if (open !== null) {
+      const mark = open[0]!;
+      let run = 0;
+      while (trimmed[run] === mark) run += 1;
+      if (run >= open.length && trimmed.slice(run).trim() === "") open = null;
+    } else {
+      const marker = fenceMarker(trimmed);
+      if (marker !== null) open = marker;
+    }
+  }
+  return open !== null;
+}
+
+/** The settled head cache: parsed once, reused across deltas. */
+export interface StreamingAccumulator {
+  head: string;
+  blocks: MarkdownBlock[];
+}
+
+/**
+ * One incremental step for a streaming message. Head blocks are referentially
+ * stable while the head is unchanged, so settled rows keep their state; the
+ * tail re-parses each call but stays bounded by `STREAMING_TAIL_CHARS` plus
+ * one growth chunk. Non-append edits reset the head. `blocks` always equals
+ * `markdownBlocks(text)` for text the split accepts, and falls back to the
+ * full parse otherwise.
+ */
+export function accumulateStreamingBlocks(
+  prev: StreamingAccumulator,
+  text: string,
+): { state: StreamingAccumulator; blocks: MarkdownBlock[] } {
+  const split = streamingSplit(text);
+  if (split === null) return { state: { head: "", blocks: [] }, blocks: markdownBlocks(text) };
+  let head = prev.head;
+  if (head !== "" && !text.startsWith(head)) head = "";
+  if (head === "" || split.head.length >= head.length + STREAMING_HEAD_GROWTH_CHARS) {
+    head = split.head;
+    const blocks = markdownBlocks(head);
+    const state = { head, blocks };
+    return { state, blocks: [...blocks, ...markdownBlocks(text.slice(head.length))] };
+  }
+  return { state: prev, blocks: [...prev.blocks, ...markdownBlocks(text.slice(head.length))] };
 }
 
 /** Inline spans for one run of prose. Malformed markup stays literal.
@@ -301,6 +401,64 @@ export function markdownInline(text: string): InlineSpan[] {
   }
   pushPlain();
   return spans.length > 0 ? spans : [{ kind: "text", text }];
+}
+
+/**
+ * Content fingerprint over the full string: length plus a hash of every UTF-16
+ * unit. A tail change past any window still changes the key, so memo'd rows
+ * never reuse stale output while streaming. (The previous 64-char window kept
+ * the same key when only the tail changed.)
+ */
+export function fingerprintText(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)!) | 0;
+  return `${text.length}:${(hash >>> 0).toString(36)}`;
+}
+
+/** Fingerprint of a block's full content: settled blocks keep stable keys. */
+export function blockFingerprint(block: MarkdownBlock): string {
+  switch (block.kind) {
+    case "paragraph":
+      return `p:${fingerprintText(block.text)}`;
+    case "heading":
+      return `h${block.level}:${fingerprintText(block.text)}`;
+    case "code":
+      return `code:${block.language}:${fingerprintText(block.text)}`;
+    case "list":
+      return `list:${block.ordered ? "o" : "u"}:${block.start}:${fingerprintText(block.items.join("\n"))}`;
+    case "quote":
+      return `q:${fingerprintText(block.text)}`;
+    case "table":
+      return `t:${fingerprintText([...block.headers, ...block.rows.flat()].join("\n"))}`;
+    case "rule":
+      return "rule";
+  }
+}
+
+/** Fingerprint of a span's full content. */
+export function spanFingerprint(span: InlineSpan): string {
+  return span.kind === "link"
+    ? `link:${fingerprintText(span.text)}:${fingerprintText(span.url)}`
+    : `${span.kind}:${fingerprintText(span.text)}`;
+}
+
+/**
+ * Content keys with occurrence counting: append-only deltas keep settled
+ * entries (and their state) while duplicates stay unique.
+ */
+export function withStableKeys<T>(
+  values: T[],
+  fingerprint: (value: T) => string,
+): { key: string; value: T }[] {
+  const seen = new Map<string, number>();
+  const keyed: { key: string; value: T }[] = [];
+  for (const value of values) {
+    const base = fingerprint(value);
+    const occurrence = (seen.get(base) ?? 0) + 1;
+    seen.set(base, occurrence);
+    keyed.push({ key: `${base}#${occurrence}`, value });
+  }
+  return keyed;
 }
 
 function fenceMarker(line: string): string | null {

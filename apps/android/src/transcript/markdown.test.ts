@@ -3,15 +3,25 @@ import {
   CODE_VISIBLE_LINES,
   INLINE_MESSAGE_LIMIT,
   LONG_MESSAGE_PREVIEW_CHARS,
+  STREAMING_FULL_PARSE_CHARS,
+  STREAMING_HEAD_GROWTH_CHARS,
+  STREAMING_TAIL_CHARS,
+  accumulateStreamingBlocks,
+  blockFingerprint,
   codeLineCount,
+  fingerprintText,
   isCodeCollapsible,
+  isInOpenFence,
   isOverInlineLimit,
   isSafeWebUrl,
   longMessagePreview,
   markdownBlocks,
   markdownInline,
   markdownPieces,
+  streamingSplit,
   visibleCodeText,
+  withStableKeys,
+  type StreamingAccumulator,
 } from "./markdown.ts";
 import { openWebLink } from "./links.ts";
 import { copyCodeText } from "./clipboard.ts";
@@ -222,4 +232,138 @@ it("copies code through the native bridge and reports bridge failure", () => {
       throw new Error("no bridge");
     }),
   ).toBe(false);
+});
+
+it("fingerprints the full string so a tail-only change keeps its identity", () => {
+  const head = "Statement of work for the transcript row. ".repeat(2);
+  expect(head.length).toBeGreaterThan(64);
+  const before = `${head}Draft one.`;
+  const after = `${head}Draft two!`;
+  expect(before.length).toBe(after.length);
+  expect(before.slice(0, 64)).toBe(after.slice(0, 64));
+  // A 64-char window would hash these identically and reuse stale rows.
+  expect(fingerprintText(before)).not.toBe(fingerprintText(after));
+  expect(fingerprintText(before)).toBe(fingerprintText(before));
+  expect(fingerprintText("")).toBe(fingerprintText(""));
+});
+
+it("keeps settled block keys stable across a streaming delta", () => {
+  const before = "First paragraph stays.\n\nSecond paragraph grows.";
+  const after = "First paragraph stays.\n\nSecond paragraph grows further.";
+  const beforeKeys = withStableKeys(markdownBlocks(before), blockFingerprint).map(
+    (keyed) => keyed.key,
+  );
+  const afterKeys = withStableKeys(markdownBlocks(after), blockFingerprint).map(
+    (keyed) => keyed.key,
+  );
+  expect(beforeKeys).toHaveLength(2);
+  expect(afterKeys).toHaveLength(2);
+  expect(afterKeys[0]).toBe(beforeKeys[0]);
+  expect(afterKeys[1]).not.toBe(beforeKeys[1]);
+});
+
+it("keeps duplicate blocks unique with occurrence counting", () => {
+  const keys = withStableKeys(markdownBlocks("Same.\n\nSame."), blockFingerprint).map(
+    (keyed) => keyed.key,
+  );
+  expect(keys).toHaveLength(2);
+  expect(new Set(keys).size).toBe(2);
+  expect(keys[1]).toContain("#2");
+});
+
+function largeDoc(paragraphs: number): string {
+  const section = [
+    "## Progress update",
+    "",
+    "Shipping the transcript row with **bold** claims and `code` samples.",
+    "",
+    "- first item with a [safe link](https://example.com/a)",
+    "- second item",
+    "",
+    "```ts",
+    "const settled = true;",
+    "```",
+    "",
+    "| Area | Result |",
+    "| --- | --- |",
+    "| UI | Fixed |",
+    "",
+    "> Quoted context stays readable.",
+    "",
+    "---",
+    "",
+  ].join("\n");
+  return Array.from(
+    { length: paragraphs },
+    (_, i) => `Paragraph ${i + 1} streams in.\n\n${section}`,
+  )
+    .join("\n")
+    .concat("\n");
+}
+
+it("splits large streaming text at a blank line so head plus tail rejoin exactly", () => {
+  expect(streamingSplit("small\n\ntext")).toBeNull();
+  const doc = largeDoc(60);
+  expect(doc.length).toBeGreaterThan(STREAMING_FULL_PARSE_CHARS);
+  const split = streamingSplit(doc);
+  expect(split).not.toBeNull();
+  const { head, tail } = split!;
+  expect(head + tail).toBe(doc);
+  expect(head.endsWith("\n\n")).toBe(true);
+  expect(tail.length).toBeLessThanOrEqual(STREAMING_TAIL_CHARS + 500);
+  expect([...markdownBlocks(head), ...markdownBlocks(tail)]).toEqual(markdownBlocks(doc));
+});
+
+it("falls back to a full parse when a split would be unsafe", () => {
+  expect(streamingSplit("word ".repeat(5000))).toBeNull();
+  const openFence = `\`\`\`sh\n${"echo hi\n\n".repeat(2500)}still streaming`;
+  expect(openFence.length).toBeGreaterThan(STREAMING_FULL_PARSE_CHARS);
+  expect(isInOpenFence(openFence)).toBe(true);
+  expect(streamingSplit(openFence)).toBeNull();
+  expect(isInOpenFence("```sh\necho hi\n```\n\nAfter")).toBe(false);
+});
+
+it("accumulates streaming deltas with a stable head and exact blocks", () => {
+  const first = largeDoc(60);
+  const second = `${first}Tail sentence one more.\n\nTail sentence two more.\n`;
+  let state: StreamingAccumulator = { head: "", blocks: [] };
+  const one = accumulateStreamingBlocks(state, first);
+  expect(one.blocks).toEqual(markdownBlocks(first));
+  expect(one.state.head).not.toBe("");
+  const two = accumulateStreamingBlocks(one.state, second);
+  expect(two.blocks).toEqual(markdownBlocks(second));
+  // A small delta does not reparse the settled head: same block references.
+  expect(two.state.blocks).toBe(one.state.blocks);
+  // Once the head grows by a full chunk it advances and still rejoins exactly.
+  const third = `${second}${"Another streamed line.\n\n".repeat(400)}`;
+  expect(third.length - second.length).toBeGreaterThan(STREAMING_HEAD_GROWTH_CHARS);
+  const three = accumulateStreamingBlocks(two.state, third);
+  expect(three.blocks).toEqual(markdownBlocks(third));
+  expect(three.state.head.length).toBeGreaterThan(two.state.head.length);
+});
+
+it("resets the settled head when streaming text is edited, not appended", () => {
+  const first = largeDoc(60);
+  const one = accumulateStreamingBlocks({ head: "", blocks: [] }, first);
+  const edited = `Revised opener.\n\n${first.slice(first.indexOf("\n\n") + 2)}`;
+  const two = accumulateStreamingBlocks(one.state, edited);
+  expect(two.blocks).toEqual(markdownBlocks(edited));
+});
+
+it("keeps the over-limit preview on character boundaries", () => {
+  const emoji = "😀";
+  const long = `${"a".repeat(LONG_MESSAGE_PREVIEW_CHARS - 1)}${emoji}${"b".repeat(INLINE_MESSAGE_LIMIT)}`;
+  const preview = longMessagePreview(long);
+  expect(long.startsWith(preview)).toBe(true);
+  expect(preview).toBe("a".repeat(LONG_MESSAGE_PREVIEW_CHARS - 1));
+  // eslint-disable-next-line no-control-regex
+  expect(/[\ud800-\udbff](?![\udc00-\udfff])/.test(preview)).toBe(false);
+  expect(preview.length).toBeLessThanOrEqual(LONG_MESSAGE_PREVIEW_CHARS);
+});
+
+it("keeps the over-limit preview literal instead of parsed", () => {
+  const tricky = "**bold** [x](javascript:alert(1))\n```unclosed\n";
+  const preview = longMessagePreview(`${tricky}${"z".repeat(INLINE_MESSAGE_LIMIT)}`);
+  expect(preview.startsWith(tricky)).toBe(true);
+  expect(preview).toContain("**bold**");
 });
