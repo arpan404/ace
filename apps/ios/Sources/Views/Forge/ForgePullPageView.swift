@@ -124,7 +124,7 @@ struct ForgePullPageView: View {
             }
             if let desk { ForgeReviewersSection(desk: desk, compose: { composing = $0 }) }
             if let desk { ForgeManageSection(desk: desk, route: route, open: open) }
-            ForgeWorkSection(client: client, route: route, target: target(page), push: open, openThread: openThread, startThread: startThread)
+            ForgeWorkSection(client: client, route: route, target: target(page), push: open, openThread: openThread, startThread: startThread, title: page.title)
             ForgeChecksSection(client: client, route: route, target: target(page), shown: page.checks, open: open)
             ForgeSection(title: nil) {
                 ForgeLinkRow(title: "Files changed", detail: page.changedFiles == 1 ? "1 file" : "\(page.changedFiles) files", identifier: "forge.pull.files") {

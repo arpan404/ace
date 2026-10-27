@@ -11,6 +11,8 @@ struct ForgeWorkSection: View {
     let push: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
     let startThread: (() -> Void)?
+    /// The pull request's title, as New thread names it.
+    let title: String
     @State private var work: ForgeWorkPage?
     @State private var stack: ForgeStackPage?
     @State private var writing: String?
@@ -20,13 +22,14 @@ struct ForgeWorkSection: View {
     private var stackRequest: [String: Any] { ClientModel.forgeStackRead(pushed(.stack), threadId: nil, method: "squash") }
 
     init(client: ClientModel, route: ForgeRoute, target: ForgePullTarget, push: @escaping (ForgeRoute) -> Void,
-         openThread: @escaping (InboxKey) -> Void, startThread: (() -> Void)?) {
+         openThread: @escaping (InboxKey) -> Void, startThread: (() -> Void)?, title: String = "") {
         self.client = client
         self.route = route
         self.target = target
         self.push = push
         self.openThread = openThread
         self.startThread = startThread
+        self.title = title
         _work = State(initialValue: client.kept(ClientModel.forgeWorkRead(route), as: ForgeWorkPage.self))
     }
 
@@ -51,7 +54,7 @@ struct ForgeWorkSection: View {
                     Text("No thread is working on this pull request.").meta()
                     Spacer(minLength: AceTheme.Spacing.sm)
                     if let startThread, client.canOperate {
-                        Button("Start a thread", action: startThread).buttonStyle(.borderless)
+                        Button("Start a thread") { start(work) }.buttonStyle(.borderless)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                             .accessibilityIdentifier("forge.work.start")
                     }
@@ -102,6 +105,14 @@ struct ForgeWorkSection: View {
 
     private func pushed(_ kind: ForgeRoute.Kind) -> ForgeRoute {
         ForgeRoute(kind: kind, machineId: route.machineId, project: route.project, number: route.number, repository: target.repository)
+    }
+
+    /// New thread on this pull request: a worktree of the head shown here, linked to it.
+    private func start(_ work: ForgeWorkPage) {
+        NewThreadDraftStore.standard().seed(
+            machineId: route.machineId, projectId: route.project,
+            pullRequest: NewThreadPull(repository: target.repository, number: target.number, headSha: work.headSha, title: title))
+        startThread?()
     }
 
     private func checkOut(_ threadId: String, _ headSha: String) {

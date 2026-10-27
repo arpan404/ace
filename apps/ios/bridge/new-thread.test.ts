@@ -425,6 +425,37 @@ test("a thread started from an issue links that issue", async () => {
   });
 });
 
+test("a thread started from a pull request opens in a worktree of the head the person saw", async () => {
+  const daemon = fixture();
+  const compose = await connect(daemon);
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string } | null;
+  const pullRequest = {
+    ref: {
+      repository: { forge: "github", host: "github.com", owner: "acme", name: "ace" },
+      number: 233,
+    },
+    headSha: "a".repeat(40),
+  };
+  compose.compose({
+    kind: "create",
+    commandId: "draft-pull-0001",
+    workspaceId: "ace",
+    provider: start?.provider,
+    model: start?.model,
+    mode: "local",
+    text: "Fix the failing test",
+    pullRequest,
+  });
+  await until(() => latest("admission", "draft-pull-0001"));
+  expect(createPayloads().at(-1)).toMatchObject({
+    type: "thread.create",
+    workspaceId: "ace",
+    mode: "worktree",
+    pullRequest,
+  });
+});
+
 test("New thread opens again on its last projects and agents, and keeps them when the reread fails", async () => {
   const daemon = fixture();
   const compose = await connect(
