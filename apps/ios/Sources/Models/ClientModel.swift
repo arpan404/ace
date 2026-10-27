@@ -316,7 +316,9 @@ import QuartzCore
             case .serviceGenerations(let generations): reads.update(generations: generations)
             case .readingSettled: break // Only a held page waits for it.
             case .terminal(let patch):
-                if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
+                // Credit follows parsing, so a fast program is paced to what the phone can draw.
+                let id = patch.id
+                terminal.receive(patch) { [weak self] offset in self?.action(["type": "terminal.credit", "id": id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
             case .itemText: break // `resolveTextEdits` turns these into whole rows first.
             case .inboxReset(let ids):

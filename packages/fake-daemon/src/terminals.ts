@@ -1,4 +1,11 @@
 import { FakeByteRing } from "./byte-ring.ts";
+import {
+  colourChart,
+  floodChunks,
+  fullScreenKey,
+  startFullScreen,
+  type FullScreen,
+} from "./terminal-programs.ts";
 /**
  * The daemon terminal service as a client sees it, simulated in memory: PTY sessions per
  * thread, a bounded scrollback ring with absolute offsets, attach-from-offset replay (the
@@ -32,6 +39,8 @@ interface Session {
   ring: FakeByteRing;
   line: string;
   listeners: Set<(event: TerminalEvent) => void>;
+  /** A full-screen program reading keys instead of the shell. */
+  program?: FullScreen | undefined;
 }
 
 const prompt = (cwd: string) => `\x1b[2m${cwd.split("/").pop() ?? cwd}\x1b[0m $ `;
@@ -202,6 +211,15 @@ export class FakeTerminals {
   }
   private key(session: Session, char: string): void {
     const id = session.info.id;
+    if (session.program) {
+      const { output, quit } = fullScreenKey(session.program, char, session.info);
+      if (output) this.output(id, output);
+      if (quit) {
+        session.program = undefined;
+        this.output(id, prompt(session.info.cwd));
+      }
+      return;
+    }
     if (char === "\r" || char === "\n") {
       const command = session.line.trim();
       session.line = "";
@@ -230,7 +248,18 @@ export class FakeTerminals {
       this.changed();
       return;
     }
-    if (command === "clear") this.output(id, "\x1b[2J\x1b[H");
+    const [name = "", count] = command.split(/\s+/);
+    if (name === "top" || name === "vi") {
+      const [program, output] = startFullScreen(name, session.info);
+      session.program = program;
+      this.output(id, output);
+      return;
+    }
+    if (name === "colors") this.output(id, colourChart(session.info));
+    else if (name === "flood")
+      for (const chunk of floodChunks(Math.min(100_000, Number(count) || 5_000)))
+        this.output(id, chunk);
+    else if (command === "clear") this.output(id, "\x1b[2J\x1b[H");
     else if (command) this.output(id, respond(command, session.info.cwd));
     this.output(id, prompt(session.info.cwd));
   }
