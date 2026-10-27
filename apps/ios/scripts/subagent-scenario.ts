@@ -1,13 +1,17 @@
 import type { Fact } from "@ace/core";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
+import { blockedCard, deliveredCard } from "./offshift-card.ts";
 
 /*
  * Subagents to inspect on the phone (no provider CLI runs):
- * - `ios-subagents`: a root that launched three native subagents with prompts. One failed, one
+ * - `ios-subagents`: a root that launched four native subagents with prompts. One failed, one
+ *   waits for a usage limit to reset (unfinished, never working), one
  *   was stopped, and one finished its own turn while a subagent under it still works and asks
  *   the person a question, so its branch waits on the person and never reads done.
  * - `ios-big-tree`: 160 finished subagents, two still working, and 45 background commands, for
  *   the Agents sheet's pages.
+ * `ios-subagents` carries an Offshift run held by a blocker; `ios-big-tree` one in delivery that
+ * must read Working while its two subagents still work.
  */
 
 function launch(item: string, name: string, prompt: string): Fact[] {
@@ -50,8 +54,8 @@ export function seedSubagents(daemon: FakeDaemon): void {
       "Found three kill sites so far; reading the CLI next.",
     ),
     facts.endTurn("auditor", "failed", {
-      kind: "quota",
-      message: "Usage limit reached for this model",
+      kind: "provider",
+      message: "The model's server closed the stream before the answer finished",
     }),
     facts.subagent("claude", "migrator", "Migrator", "spawn-migrate", {
       model: "claude-sonnet-5-5",
@@ -82,6 +86,13 @@ export function seedSubagents(daemon: FakeDaemon): void {
         ],
       },
     },
+    ...launch("spawn-docs", "Document cleanup", "Write the cleanup section of the operator guide."),
+    facts.subagent("claude", "writer", "Doc writer", "spawn-docs"),
+    facts.turn("writer", "spawn"),
+    facts.endTurn("writer", "failed", {
+      kind: "quota",
+      message: "Usage limit reached for this model",
+    }),
     facts.subagent("claude", "linter", "Linter", "spawn-lint"),
     facts.turn("linter", "spawn"),
     facts.endTurn("linter", "interrupted"),
@@ -121,4 +132,6 @@ export function seedSubagents(daemon: FakeDaemon): void {
     );
   big.push(facts.endTurn("root"));
   daemon.apply("ios-big-tree", big);
+  daemon.updateOffshift("ios-subagents", blockedCard(Date.now() - 600_000));
+  daemon.updateOffshift("ios-big-tree", deliveredCard(Date.now() - 60_000));
 }

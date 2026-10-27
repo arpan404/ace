@@ -18,6 +18,7 @@ import { questionDraft, ThreadAction, type QuestionReply } from "./thread-action
 import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 import { followBlocks } from "./thread-blocks.ts";
 import { followLaneInfo } from "./lane-info.ts";
+import { followOffshift } from "./offshift.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { requestResolution } from "./thread-requests.ts";
@@ -51,6 +52,7 @@ export class ThreadSession {
   readonly #queue: QueueFollower;
   readonly #blocks: ReturnType<typeof followBlocks>;
   readonly #pill: PillFollower;
+  readonly #offshift: ChangeTap;
   readonly #steps: StepsFollower;
   readonly #tune: TuneFollower;
   readonly #tray: AttachmentTray;
@@ -89,6 +91,7 @@ export class ThreadSession {
     const signal = this.#abort.signal;
     this.#blocks = followBlocks(store, put);
     this.#pill = new PillFollower(store, put);
+    this.#offshift = followOffshift(store, put);
     this.#queue = new QueueFollower(client, store, this.#threadId, signal, put, (count) =>
       this.#pill.queued(count),
     );
@@ -116,6 +119,7 @@ export class ThreadSession {
       this.#pill.tap(keys);
       this.#lane?.tap(keys);
       this.#lane?.info(keys);
+      this.#offshift(keys);
       this.#steps.changed(keys);
       if (keys === "all") void this.#readSetting();
       if (

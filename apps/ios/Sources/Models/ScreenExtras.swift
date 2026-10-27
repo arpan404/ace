@@ -69,6 +69,7 @@ extension ThreadScreenModel {
             if lane?.agentId == agentId { lane?.apply(id, row: row) }
         case .laneBlockPosition(let agentId, let id, let index):
             if lane?.agentId == agentId { lane?.move(id, to: index) }
+        case .offshift(let run): if offshift != run { offshift = run }
         case .laneInfo(let agentId, let info):
             guard let lane, lane.agentId == agentId else { return }
             if lane.info != info { lane.info = info }

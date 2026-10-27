@@ -430,6 +430,9 @@ import QuartzCore
                 }
             case .agents(let id, let epoch, let sheet):
                 if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet; ThreadOpenTrace.shared.sheetFilled("agents") }
+            case .logs(let id, let epoch, let logs):
+                if thread?.id == id, thread?.epoch == epoch, sheets.logs != logs { sheets.logs = logs }
+            case .logsCopy(let id, let text): sheets.copies[id] = text
             case .changesSummary(let id, let epoch, let summary):
                 if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary; ThreadOpenTrace.shared.sheetFilled("changes") }
             case .changesFile(let id, let epoch, let path, let diff):

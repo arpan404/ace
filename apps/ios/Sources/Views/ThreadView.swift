@@ -30,6 +30,8 @@ struct ThreadView: View {
     @State private var showChanges = false
     @State private var showTerminal = false
     @State private var showBrowser = false
+    @State private var showLogs = false
+    @State private var showOffshift = false
     @State private var showSearch = false
     @State private var showQueue = false
     /// The goal's sheet, named by the navigation generation it was opened on: its changes are for
@@ -103,7 +105,7 @@ struct ThreadView: View {
                         .background(AceTheme.Colours.background)
                 }
             }
-            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal)
+            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal, logs: $showLogs)
             .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
                 Button("OK") { activityProblem = nil }
             } message: { Text(activityProblem ?? "") }
@@ -136,6 +138,13 @@ struct ThreadView: View {
             }
             .sheet(isPresented: $showTune) {
                 if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
+            }
+            .sheet(isPresented: $showOffshift) {
+                NavigationStack {
+                    OffshiftRunView(screen: thread.screen)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showOffshift = false } } }
+                }
+                .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .transferSheet(model: model, kind: "thread")
@@ -294,6 +303,8 @@ struct ThreadView: View {
         case .computer: showComputer = true
         case .tools: showTools = true
         case .agents: showAgents = true
+        case .logs: showLogs = true
+        case .offshift: showOffshift = true
         }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.

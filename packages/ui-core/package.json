@@ -27,6 +27,8 @@
     "./subagent-group": "./src/subagent-group.ts",
     "./thread-execution": "./src/thread-execution.ts",
     "./mobile": "./src/mobile.ts",
+    "./thread-log": "./src/thread-log.ts",
+    "./log-filter": "./src/log-filter.ts",
     "./source-highlight": "./src/source-highlight.ts",
     "./transfers": "./src/transfers.ts",
     "./byte-size": "./src/byte-size.ts",

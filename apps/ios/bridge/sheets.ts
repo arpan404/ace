@@ -3,6 +3,7 @@ import { z } from "zod";
 import { followAgents, type AgentsFollow, type PatchSink, type Preview } from "./agents.ts";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
+import { followLogs, LogsQuery, type LogsFollow } from "./logs.ts";
 import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
 
 /*
@@ -15,6 +16,11 @@ const SheetAction = z.discriminatedUnion("kind", [
   /** The next page of the open Agents sheet's agents or background tasks. */
   z.object({ kind: z.literal("agents.more"), list: z.enum(["agents", "tasks"]) }),
   z.object({ kind: z.literal("changes"), open: z.boolean() }),
+  /** The thread's Logs: opened or closed, or its scope and filter changed while open. */
+  z.object({ kind: z.literal("logs"), open: z.boolean(), query: LogsQuery.optional() }),
+  z.object({ kind: z.literal("logs.earlier") }),
+  /** The shown lines as text for Copy, answered under `logs.copy`. */
+  z.object({ kind: z.literal("logs.copy"), requestId: z.string().min(1).max(64) }),
   z.object({ kind: z.literal("changes.refresh") }),
   z.object({ kind: z.literal("changes.file"), path: z.string().min(1).max(4096).nullable() }),
   z.object({ kind: z.literal("git"), action: z.unknown(), requestId: z.string().min(1).max(64) }),
@@ -34,6 +40,7 @@ export class Sheets {
   #sink: PatchSink;
   #preview: Preview;
   #agents: AgentsFollow | undefined;
+  #logs: LogsFollow | undefined;
   #changes: ChangesSession | undefined;
   constructor(sink: PatchSink, preview: Preview) {
     this.#sink = sink;
@@ -43,6 +50,8 @@ export class Sheets {
   close(): void {
     this.#agents?.stop();
     this.#agents = undefined;
+    this.#logs?.stop();
+    this.#logs = undefined;
     this.#changes?.close();
     this.#changes = undefined;
   }
@@ -65,6 +74,34 @@ export class Sheets {
       case "agents.more":
         this.#agents?.more(action.list);
         return this.#agents !== undefined;
+      case "logs": {
+        const query = action.query ?? LogsQuery.parse({});
+        if (!action.open) {
+          this.#logs?.stop();
+          this.#logs = undefined;
+        } else if (this.#logs) this.#logs.query(query);
+        else
+          this.#logs = followLogs(
+            thread.store,
+            thread.threadId,
+            thread.epoch,
+            this.#sink,
+            this.#preview,
+            logTime,
+            query,
+          );
+        return true;
+      }
+      case "logs.earlier":
+        this.#logs?.earlier();
+        return this.#logs !== undefined;
+      case "logs.copy": {
+        const logs = this.#logs;
+        if (!logs) return false;
+        const id = action.requestId;
+        this.#sink.put(`logs.copy:${id}`, () => ({ type: "logs.copy", id, text: logs.copy() }));
+        return true;
+      }
       case "changes":
         this.#changes?.close();
         this.#changes = action.open
@@ -117,7 +154,15 @@ export class Sheets {
   }
 }
 
+const clock = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+});
+const logTime = (at: number) => clock.format(at);
+
 function releases(action: z.infer<typeof SheetAction>): boolean {
-  if (action.kind === "agents" || action.kind === "changes") return !action.open;
+  if (action.kind === "agents" || action.kind === "changes" || action.kind === "logs")
+    return !action.open;
   return action.kind === "changes.file" && action.path === null;
 }

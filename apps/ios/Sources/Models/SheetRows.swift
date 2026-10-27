@@ -17,6 +17,8 @@ struct SubagentInfo: Codable, Sendable, Equatable {
     /// running, human, stalled, done, failed or stopped.
     let phase: String
     let status: StatusDisplay
+    /// At work right now, so its time ticks; a branch that only waits never reads as working.
+    let working: Bool
     let startedAt: Double
     let endedAt: Double?
     let requests: [String]
@@ -24,6 +26,40 @@ struct SubagentInfo: Codable, Sendable, Equatable {
     let stoppable: Bool
     let retry: Retry?
     let parentBusy: Bool
+}
+
+/// A thread's Offshift run as the bridge words it (`mobileOffshift` in ui-core): its word against
+/// the whole tree (never Done while anything works or waits), phase, blocker, steps, criteria.
+struct OffshiftRun: Codable, Sendable, Equatable {
+    struct Need: Codable, Sendable, Equatable { let kind: String; let failed: Bool }
+    struct Criterion: Codable, Sendable, Equatable, Identifiable {
+        let id: String
+        let description: String
+        /// Met, Failed or Open.
+        let state: String
+        let needs: [Need]
+        let evidence: [String]
+    }
+    struct Step: Codable, Sendable, Equatable, Identifiable {
+        let id: String
+        let title: String
+        /// Done, Skipped or To do.
+        let state: String
+        let reason: String?
+    }
+    let word: String
+    let token: String
+    let phase: String
+    let blocker: String?
+    let outcome: String
+    let endpoint: String
+    let next: String?
+    let pending: Int
+    let updatedAt: Double
+    let criteria: [Criterion]
+    let moreCriteria: Int
+    let steps: [Step]
+    let done: Bool
 }
 
 struct AgentSheet: Codable, Sendable, Equatable {

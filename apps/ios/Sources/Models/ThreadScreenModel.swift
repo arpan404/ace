@@ -56,6 +56,8 @@ import Observation
     var attachments: [AttachmentFile] = []
     /// The native subagent lane open in its sheet.
     var lane: LaneModel?
+    /// The thread's latest Offshift run, worded against the whole tree; nil while it has none.
+    var offshift: OffshiftRun?
     @ObservationIgnored private var positions: [String: Int] = [:]
     @ObservationIgnored private var reorder = false
 
@@ -67,6 +69,7 @@ import Observation
         queue = nil
         pill = nil
         goal = nil
+        offshift = nil
         steps = [:]
         tune = nil
         access = nil

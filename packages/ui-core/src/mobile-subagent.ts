@@ -4,6 +4,7 @@ import { agentName } from "./agents.ts";
 import { modelLabel, providerNames } from "./providers.ts";
 import type { StatusDisplay, StatusToken } from "./mobile-status.ts";
 import { readSubagentBranch } from "./subagent-group.ts";
+import { subagentLabels } from "./subagents.ts";
 import {
   subagentEnded,
   subagentOutcome,
@@ -34,6 +35,11 @@ export interface SubagentInspection {
   prompt: { text: string; at: number } | null;
   phase: SubagentPhase;
   status: StatusDisplay;
+  /**
+   * Its branch is at work right now, so its time ticks ("Working for 40s"). A branch that only
+   * waits (a usage limit, a queue slot) is still unfinished but never reads as working.
+   */
+  working: boolean;
   startedAt: number;
   /** When its branch ended; null while anything in it runs or waits. */
   endedAt: number | null;
@@ -118,7 +124,9 @@ export function subagentInspection(
   const agent = reader.agent(agentId);
   if (!agent || agent.origin === "root") return undefined;
   const branch = readSubagentBranch(reader, agentId).value;
-  const phase = subagentPhase(branch?.state ?? "working");
+  const state = branch?.state ?? "working";
+  const phase = subagentPhase(state);
+  const waits = phase === "running" && state !== "working";
   const ended = subagentEnded(phase);
   const parent = agent.parentId ? reader.agent(agent.parentId) : undefined;
   const direct = !parent || parent.origin === "root";
@@ -136,10 +144,13 @@ export function subagentInspection(
       : { agentId: parent.id, name: agentName(parent, spawnOf(reader, parent)) },
     prompt: promptOf(spawnOf(reader, agent)),
     phase,
-    status: {
-      label: subagentOutcome(phase, agent.createdAt, endedAt ?? undefined, now),
-      token: phaseTokens[phase],
-    },
+    status: waits
+      ? { label: subagentLabels[state], token: "waiting" }
+      : {
+          label: subagentOutcome(phase, agent.createdAt, endedAt ?? undefined, now),
+          token: phaseTokens[phase],
+        },
+    working: phase === "running" && !waits,
     startedAt: agent.createdAt,
     endedAt,
     requests: branchRequests(reader, agentId),

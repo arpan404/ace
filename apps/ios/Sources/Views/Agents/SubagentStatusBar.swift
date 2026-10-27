@@ -64,7 +64,7 @@ struct SubagentStatusBar: View {
     /// "Working for 1m 4s" ticking from the daemon's start, else the bridge's settled words.
     @ViewBuilder private var state: some View {
         Group {
-            if info.phase == "running" {
+            if info.working {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text("Working for \(Elapsed.words(since: info.startedAt, now: context.date))")
                         .foregroundStyle(AceTheme.Colours.mutedForeground)

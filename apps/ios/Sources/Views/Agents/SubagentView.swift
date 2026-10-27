@@ -22,6 +22,7 @@ struct SubagentView: View {
     /// A child that runs as its own ace thread: leaves the sheet and opens it.
     let openThread: (String) -> Void
     @State private var questionDraft = QuestionDraftState()
+    @State private var showLog = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var lane: LaneModel? { thread.screen.lane?.agentId == route.agentId ? thread.screen.lane : nil }
     private var info: SubagentInfo? { lane?.info }
@@ -72,7 +73,11 @@ struct SubagentView: View {
         .accessibilityIdentifier("lane.transcript")
         .navigationTitle(info?.name ?? route.title)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $showLog) { LogsView(model: model, agentId: route.agentId) }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Log") { showLog = true }.accessibilityIdentifier("subagent.log")
+            }
             ToolbarItem(placement: .principal) {
                 VStack(spacing: AceTheme.Spacing.xxs) {
                     Text(info?.name ?? route.title).aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)

@@ -67,6 +67,7 @@ test("a failed subagent shows what it was asked and offers Ask parent to retry, 
   );
   expect(failed.prompt?.bubble.long).toBe(false);
   expect(failed.phase).toBe("failed");
+  expect(failed.working).toBe(false);
   expect(failed.status.token).toBe("failed");
   expect(failed.stoppable).toBe(false);
   expect(failed.retry).toEqual({ label: "Ask parent to retry" });
@@ -147,4 +148,21 @@ test("a subagent that finished well can't be retried: the request is refused and
   const admission = await until(() => latest("admission", "retry-done"), "the refusal");
   expect(admission.ok).toBe(false);
   expect(commands("thread.send")).toHaveLength(0);
+});
+
+test("a subagent held by a usage limit reads Waiting, never working, and can't be retried yet", async () => {
+  const { agentId } = await laneOf("limited", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    spawn("spawn", "reviewer", "Review it."),
+    facts.subagent("claude", "reviewer", "Reviewer", "spawn"),
+    facts.turn("reviewer", "spawn"),
+    facts.endTurn("reviewer", "failed", { kind: "quota", message: "Usage limit reached" }),
+    facts.endTurn("root"),
+  ]);
+  const limited = await until(() => info(agentId), "the lane's info");
+  expect(limited.status).toEqual({ label: "Waiting", token: "waiting" });
+  expect(limited.working).toBe(false);
+  expect(limited.endedAt).toBeNull();
+  expect(limited.retry).toBeNull();
 });
