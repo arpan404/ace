@@ -192,11 +192,18 @@ struct AccountSignInFlow: View {
     let name: String
     let started: StartedSignIn
     @State private var key = ""
+    /// The sign-in as last read; it starts before it knows whether the CLI wants a key.
+    @State private var current: LoginProgress?
     @State private var handedOver: LoginProgress?
     @State private var problem: String?
     @State private var busy = false
     var body: some View {
-        if started.progress.state == "awaiting_api_key", handedOver == nil {
+        let progress = current ?? started.progress
+        if progress.state == "starting", handedOver == nil {
+            HStack { Spacer(); ProgressView(); Spacer() }
+                .frame(maxHeight: .infinity)
+                .task { await settle() }
+        } else if progress.state == "awaiting_api_key", handedOver == nil {
             Form {
                 Group {
                     Section {
@@ -210,7 +217,17 @@ struct AccountSignInFlow: View {
             .insetGroupedList()
             .onDisappear { key = "" }
         } else {
-            ProviderSignInView(model: model, provider: provider, name: name, instance: started.instance, initial: handedOver ?? started.progress)
+            ProviderSignInView(model: model, provider: provider, name: name, instance: started.instance, initial: handedOver ?? progress)
+        }
+    }
+    /// Reads the sign-in until it says what it waits for.
+    private func settle() async {
+        while (current ?? started.progress).state == "starting", !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(400))
+            if let reply = try? await model.service(["type": "provider.login.poll", "session": started.progress.session], as: LoginAnswer.self),
+               let next = reply.result.progress {
+                withAnimation(.smooth) { current = next }
+            }
         }
     }
     private func handOver() async {
@@ -219,7 +236,7 @@ struct AccountSignInFlow: View {
         key = ""
         defer { busy = false }
         do {
-            let reply = try await model.service(["type": "provider.login.apiKey", "session": started.progress.session, "apiKey": entry], as: LoginAnswer.self)
+            let reply = try await model.service(["type": "provider.login.apiKey", "session": (current ?? started.progress).session, "apiKey": entry], as: LoginAnswer.self)
             guard reply.result.ok, let next = reply.result.progress else { throw ServiceFailure(message: "The CLI didn't take the key. Check it and try again.") }
             withAnimation(.smooth) { handedOver = next }
         } catch { problem = error.localizedDescription }

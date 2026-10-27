@@ -19,15 +19,17 @@ import XCTest
         XCTAssertTrue(add.waitForExistence(timeout: 20))
         screenshot("providers")
         add.tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Gemini CLI'")).firstMatch.waitForExistence(timeout: 20))
+        let gemini = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Amp'")).firstMatch
+        let found = gemini.waitForExistence(timeout: 20)
         screenshot("registry")
+        if !found { print("TREE", app.debugDescription) }
+        XCTAssertTrue(found)
         let search = app.searchFields.firstMatch
         search.tap()
         search.typeText("google")
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Gemini CLI'")).firstMatch.waitForExistence(timeout: 10))
         screenshot("registry-search")
-        app.buttons["Cancel"].firstMatch.tap()
-
+        search.buttons["Clear text"].firstMatch.tap()
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Amp'")).firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Install plan"].waitForExistence(timeout: 20))
         screenshot("agent")
@@ -53,7 +55,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Add My agent?"].waitForExistence(timeout: 10))
         screenshot("manual-confirm")
         app.buttons["Add agent"].firstMatch.tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Gemini CLI'")).firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Add by command"].firstMatch.waitForExistence(timeout: 20))
     }
 
     func testAnAccountsBadgeChangesAsItIsEditedAndRemoveOffersItsFiles() {
@@ -80,7 +82,7 @@ import XCTest
         remove.tap()
         XCTAssertTrue(app.buttons["Remove and delete its files"].waitForExistence(timeout: 10))
         screenshot("remove-confirm")
-        app.buttons["Cancel"].firstMatch.tap()
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
 
         let addAccount = app.buttons["Add account"].firstMatch
         for _ in 0..<4 where !addAccount.isHittable { app.swipeUp() }
