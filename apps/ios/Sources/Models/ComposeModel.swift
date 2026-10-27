@@ -137,12 +137,12 @@ enum ComposePatch: Decodable, Sendable {
         case "compose.start":
             self = .started(id: try box.decode(String.self, forKey: .id),
                             ComposeOutcome(ok: try box.decode(Bool.self, forKey: .ok), id: try box.decodeIfPresent(String.self, forKey: .threadId),
-                                           message: try box.decode(String.self, forKey: .message),
-                                         canAllow: try box.decodeIfPresent(Bool.self, forKey: .canAllow) ?? false))
+                                           message: try box.decode(String.self, forKey: .message)))
         case "compose.added":
             self = .added(id: try box.decode(String.self, forKey: .id),
                           ComposeOutcome(ok: try box.decode(Bool.self, forKey: .ok), id: try box.decodeIfPresent(String.self, forKey: .projectId),
-                                         message: try box.decode(String.self, forKey: .message)))
+                                         message: try box.decode(String.self, forKey: .message),
+                                         canAllow: try box.decodeIfPresent(Bool.self, forKey: .canAllow) ?? false))
         case "compose.access": self = .access(try ComposeAccess(from: decoder))
         case "compose.attachments":
             self = .attachments(workspaceId: try box.decode(String.self, forKey: .workspaceId), try box.decode([AttachmentFile].self, forKey: .files),
