@@ -195,9 +195,11 @@ export interface ProductionMutations extends Pick<
  *   `itemId` fails to resolve daemon-side.
  * - `observeFiles` below is host-wide, not thread-scoped: `files.changed`
  *   carries no thread and event batches carrying `workspace.files_changed`
- *   carry a `workspaceId` that is not filtered. The effect is refresh-only
- *   (the viewer re-reads its own thread); no content leaks, but cross-thread
- *   churn is expected.
+ *   carry a `workspaceId` that is not filtered. Batches are narrowed to
+ *   their `workspace.files_changed` entries before delivery, so unrelated
+ *   event content never crosses even though the tap itself is host-wide.
+ *   The effect is refresh-only (the viewer re-reads its own thread); no
+ *   content leaks, but cross-thread churn is expected.
  */
 export const PRODUCTION_FILES_REQUEST_OPS: ReadonlySet<string> = new Set([
   "list",
@@ -316,9 +318,13 @@ export interface ProductionReads {
   /** Download-channel cleanup only; anything else throws. Never raw `send`. */
   filesSend(message: ProductionFilesCancel): void;
   /**
-   * File-change taps only (`files.changed` plus event batches carrying
-   * `workspace.files_changed`); every other server message is dropped, and a
-   * pin failure detaches instead of delivering. Never raw `onMessage`.
+   * File-change taps only: `files.changed` passes through, and `events`
+   * batches are narrowed to their `workspace.files_changed` entries so
+   * unrelated batch content (titles, statuses, other payloads) never crosses
+   * this boundary. Every other server message is dropped, and a pin failure
+   * detaches instead of delivering. Never raw `onMessage`. Coverage fields
+   * (`subscriptionId`/`afterSeq`/`throughSeq`) are preserved as-is; the tap
+   * is refresh-only (the viewer re-reads its own thread).
    */
   observeFiles(listener: (message: ServerMessage) => void): () => void;
 }
@@ -348,6 +354,28 @@ export interface ProductionMakeRuntime {
 
 function notConnected(): Error {
   return new Error("This machine is not connected.");
+}
+
+/**
+ * Narrow one server message to a file-change tap. `files.changed` passes
+ * through untouched; `events` batches pass through only their
+ * `workspace.files_changed` entries (same message shell, filtered events)
+ * so unrelated batch content never crosses the production file boundary;
+ * batches with no file-change entry and every other message drop to
+ * `undefined`. Pure: no I/O, no pin checks; `observeFiles` applies the pin
+ * around it.
+ */
+export function filterProductionFileTap(message: ServerMessage): ServerMessage | undefined {
+  if (message.type === "files.changed") return message;
+  if (message.type === "events") {
+    const relevant = message.events.filter(
+      (event) => event.payload?.type === "workspace.files_changed",
+    );
+    if (relevant.length === 0) return undefined;
+    if (relevant.length === message.events.length) return message;
+    return { ...message, events: relevant };
+  }
+  return undefined;
 }
 
 export function createProductionMakeRuntime(deps: ProductionRuntimeDeps): ProductionMakeRuntime {
@@ -569,18 +597,8 @@ export function createProductionMakeRuntime(deps: ProductionRuntimeDeps): Produc
             stop?.();
             return;
           }
-          if (message.type === "files.changed") {
-            listener(message);
-            return;
-          }
-          if (
-            message.type === "events" &&
-            Array.isArray((message as { events?: unknown }).events)
-          ) {
-            const events = (message as { events: { payload?: { type?: unknown } }[] }).events;
-            if (events.some((event) => event.payload?.type === "workspace.files_changed"))
-              listener(message);
-          }
+          const tap = filterProductionFileTap(message);
+          if (tap !== undefined) listener(tap);
         };
         stop = boundClient.onMessage(wrapped);
         return () => {
