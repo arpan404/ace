@@ -1,6 +1,7 @@
 import type { Storage } from "@ace/client";
 import type { SQLiteDatabase } from "expo-sqlite";
 import { z } from "zod";
+import type { ThreadDraftPersistence } from "./thread-drafts.ts";
 const Row = z.object({ value: z.string() });
 /** One owner per daemon/device namespace. Every resolved write is committed to disk. */
 export async function sqliteOutbox(db: SQLiteDatabase, namespace: string): Promise<Storage> {
@@ -43,6 +44,38 @@ export async function sqliteOutbox(db: SQLiteDatabase, namespace: string): Promi
             await tx.runAsync("INSERT OR REPLACE INTO outbox VALUES (?,?,?)", namespace, id, value);
         });
       },
+    },
+  };
+}
+/**
+ * Unsent composer words per machine+thread, kept in the same database but
+ * outside the outbox: drafts are local words, never pending commands.
+ */
+export async function sqliteDraftPersistence(
+  db: SQLiteDatabase,
+  namespace: string,
+): Promise<ThreadDraftPersistence> {
+  await db.execAsync(
+    `CREATE TABLE IF NOT EXISTS metadata (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(namespace,key));`,
+  );
+  return {
+    async load() {
+      const row: unknown = await db.getFirstAsync(
+        "SELECT value FROM metadata WHERE namespace=? AND key=?",
+        namespace,
+        "thread-drafts",
+      );
+      return row === null ? null : Row.parse(row).value;
+    },
+    async save(value) {
+      await db.withExclusiveTransactionAsync(async (tx) => {
+        await tx.runAsync(
+          "INSERT OR REPLACE INTO metadata VALUES (?,?,?)",
+          namespace,
+          "thread-drafts",
+          value,
+        );
+      });
     },
   };
 }

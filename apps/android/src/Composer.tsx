@@ -1,5 +1,5 @@
 import { useMemo, useRef, useEffect, useLayoutEffect, useState } from "react";
-import { TextInput, View, Text, findNodeHandle } from "react-native";
+import { AppState, TextInput, View, Text, findNodeHandle } from "react-native";
 import type { ClientApi } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
 import { AceHost, useTheme, tokens, textStyle } from "./theme.tsx";
@@ -12,15 +12,20 @@ import {
   probeInput,
 } from "./input-metrics.ts";
 import { isInstrumentedBuild } from "./native-mode.ts";
-import { ComposerDraft } from "./composer-draft.ts";
+import { ComposerDraft, type DraftStore } from "./composer-draft.ts";
 import { useSelection } from "./selection.ts";
 import { AceButton, Row } from "./components.tsx";
 export function Composer({
   threadId,
+  draftKey,
+  drafts,
   client,
   notify,
 }: {
   threadId: string;
+  /** Where this composer's unsent words are kept; null keeps them only on screen. */
+  draftKey: string | null;
+  drafts: DraftStore | null;
   client: ClientApi;
   notify(text: string): void;
 }) {
@@ -49,6 +54,21 @@ export function Composer({
       ),
     [client, threadId],
   );
+  // Leaving the thread, backgrounding, or a killed app keeps the unsent words:
+  // follow loads this thread's draft and flushes the one followed before.
+  // Backgrounding awaits the write to give it its best chance, but the OS can
+  // still kill the app mid-write: drafts are exact across navigation and
+  // relaunch, best-effort across kills.
+  useEffect(() => {
+    model.follow(draftKey, drafts);
+  }, [model, draftKey, drafts]);
+  useEffect(() => () => model.flush(), [model]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") void model.flushAsync();
+    });
+    return () => subscription.remove();
+  }, [model]);
   const { text: draft, saving } = useSelection(model.selection);
   useLayoutEffect(() => {
     if (!instrumented) return;

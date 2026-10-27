@@ -80,7 +80,13 @@ function Ready({ runtime }: { runtime: Runtime }) {
           </Stack.Screen>
           <Stack.Screen name="Thread" options={({ route }) => ({ title: route.params.title })}>
             {({ route }) => (
-              <ThreadScreen client={runtime.client} id={route.params.id} notify={notify} />
+              <ThreadScreen
+                client={runtime.client}
+                id={route.params.id}
+                hostId={runtime.hostId}
+                drafts={runtime.drafts}
+                notify={notify}
+              />
             )}
           </Stack.Screen>
         </Stack.Navigator>

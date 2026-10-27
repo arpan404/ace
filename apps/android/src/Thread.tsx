@@ -11,6 +11,8 @@ import { Approval } from "./Approval.tsx";
 import { Composer } from "./Composer.tsx";
 import { AceText, AceButton, Row, StatusPill } from "./components.tsx";
 import { statusAppearance } from "./status.ts";
+import { draftKey } from "./thread-drafts.ts";
+import type { ThreadDraftStore } from "./thread-drafts.ts";
 import { transcriptRowContent } from "@ace/ui-core/mobile";
 import { AgentsSheet } from "./sheets.tsx";
 
@@ -58,10 +60,15 @@ const TranscriptRow = memo(function TranscriptRow({
 export function ThreadScreen({
   client,
   id,
+  hostId,
+  drafts,
   notify,
 }: {
   client: ClientApi;
   id: string;
+  /** Owning machine; null keeps unsent words only while the thread is shown. */
+  hostId: string | null;
+  drafts: ThreadDraftStore | null;
   notify(text: string): void;
 }) {
   const theme = useTheme();
@@ -204,7 +211,13 @@ export function ThreadScreen({
           <Approval id={interaction} store={lease.store} client={client} notify={notify} />
         </View>
       ))}
-      <Composer threadId={id} client={client} notify={notify} />
+      <Composer
+        threadId={id}
+        draftKey={hostId === null ? null : draftKey(hostId, id)}
+        drafts={drafts}
+        client={client}
+        notify={notify}
+      />
       {agents ? (
         <AgentsSheet
           store={lease.store}
