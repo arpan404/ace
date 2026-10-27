@@ -183,17 +183,16 @@ import XCTest
         option.tap()
     }
     /// Short slow drags, down the list then back up, until `target` shows clear of the bars.
-    /// Scrolls the screen's list until `target` shows clear of the bars: a slow swipe on the list
-    /// itself, down the list while the row isn't loaded yet, then back up it.
+    /// Scrolls the screen's list until `target` shows clear of the bars: slow swipes, down the
+    /// list while the row isn't loaded yet, then back up it.
     private func reveal(_ app: XCUIApplication, _ target: XCUIElement) {
         let top = app.frame.height * 0.15, bottom = app.frame.height * 0.8
-        let list = app.collectionViews.firstMatch
+        // The whole window: the first collection view can be the thread list behind Settings.
         for attempt in 0..<20 {
             if target.waitForExistence(timeout: attempt == 0 ? 3 : 1), target.isHittable,
                target.frame.minY > top, target.frame.maxY < bottom { return }
             let down = target.exists ? target.frame.minY >= bottom : attempt < 10
-            let surface = list.exists ? list : app
-            if down { surface.swipeUp(velocity: .slow) } else { surface.swipeDown(velocity: .slow) }
+            if down { app.swipeUp(velocity: .slow) } else { app.swipeDown(velocity: .slow) }
         }
     }
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
