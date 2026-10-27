@@ -21,6 +21,8 @@ struct ForgeLogView: View {
     @State private var paging: ForgeLogPaging
     @State private var failure: String?
     @State private var openedOnFocus = false
+    /// The failure's line is laid out on screen.
+    @State private var focusShown = false
 
     init(client: ClientModel, name: String, request: [String: Any], total: Int?, focus: Int?,
          errors: Set<Int> = [], jump: Int? = nil, live: Bool = false) {
@@ -52,7 +54,12 @@ struct ForgeLogView: View {
                     ProgressView().frame(maxWidth: .infinity).padding(.vertical, AceTheme.Spacing.lg)
                 }
                 ForEach(0..<paging.lines, id: \.self) { index in
-                    line(index).id(index).onAppear { read(paging.near(index)) }
+                    line(index).id(index)
+                        .onAppear {
+                            read(paging.near(index))
+                            if index == focus { focusShown = true }
+                        }
+                        .onDisappear { if index == focus { focusShown = false } }
                 }
             }
             .padding(.horizontal, AceTheme.Spacing.lg)
@@ -63,6 +70,7 @@ struct ForgeLogView: View {
                 if paging.identity != identity {
                     paging.show(identity, total: total)
                     openedOnFocus = false
+                    focusShown = false
                     failure = nil
                 }
                 read(paging.near(focus ?? 0))
@@ -87,9 +95,16 @@ struct ForgeLogView: View {
             .onChange(of: focusLoaded, initial: true) { _, loaded in
                 guard loaded, !openedOnFocus, let focus, focus > 0 else { return }
                 openedOnFocus = true
-                proxy.scrollTo(focus, anchor: .top)
-                // Once more after the lines just read are laid out, which may move the target.
-                Task { await Task.yield(); proxy.scrollTo(focus, anchor: .top) }
+                // A jump far into a long lazy list lands only roughly until the rows around the
+                // target are laid out, so it is repeated briefly until the failure is on screen.
+                Task {
+                    for wait in [0, 120, 300, 600, 1_000] {
+                        try? await Task.sleep(for: .milliseconds(wait))
+                        proxy.scrollTo(focus, anchor: .top)
+                        try? await Task.sleep(for: .milliseconds(60))
+                        if focusShown { break }
+                    }
+                }
             }
         }
     }
