@@ -14,7 +14,17 @@ import { CHUNK_SIZE, FileError, codeOf } from "./types.ts";
  * release. A bare "sqlite3.dll" would load whatever copy sits first on PATH, if any.
  */
 function windowsSqlite(): string {
-  return win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "winsqlite3.dll");
+  return win32.join(windowsSystemDirectory(), "winsqlite3.dll");
+}
+/** The real System32 from the kernel, never from an environment variable a caller can set. */
+function windowsSystemDirectory(): string {
+  const directory = koffi
+    .load("kernel32.dll")
+    .func("uint32_t __stdcall GetSystemDirectoryW(_Out_ void *buffer, uint32_t size)");
+  const buffer = Buffer.alloc(2 * 1024);
+  const length = z.number().int().parse(directory(buffer, 1024));
+  if (length === 0 || length >= 1024) throw new Error("Windows system directory unavailable");
+  return buffer.subarray(0, length * 2).toString("utf16le");
 }
 /** Native SQLite's incremental reader owns one read-only snapshot and a fixed 64 KiB buffer. */
 async function exportBlob(input: z.infer<typeof BlobExport>): Promise<void> {
