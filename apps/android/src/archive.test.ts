@@ -8,6 +8,7 @@ import {
   archiveHasMore,
   archiveIds,
   archiveListLimit,
+  archiveOwnerFor,
   canComposeLive,
   canPageArchive,
   closedArchiveList,
@@ -65,12 +66,18 @@ function stubStore(entries: ThreadListEntry[], loaded = true, before: boolean = 
   };
 }
 
-function stubPort(failures: { window?: number; more?: number } = {}) {
+function stubPort(
+  failures: { window?: number; more?: number } = {},
+  shared?: { owner?: object | undefined } | undefined,
+) {
   const calls: string[] = [];
   let windowFailures = failures.window ?? 0;
   let moreFailures = failures.more ?? 0;
   let holding = false;
   let releaseMore: (() => void) | undefined;
+  // An explicit shared owner models two wrappers around the same underlying
+  // sidebar: both ports resolve through `cachedThreads` to one claim series.
+  const owner = shared?.owner;
   const port: ArchiveWindowPort & {
     calls: string[];
     setHolding(value: boolean): void;
@@ -79,8 +86,9 @@ function stubPort(failures: { window?: number; more?: number } = {}) {
   } = {
     calls,
     // Fail the next `count` window calls, so one port can go offline after a
-    // successful open: open and close on the same client share one claim
-    // series, and a different port object would be a different machine.
+    // successful open: open and close on the same owner share one claim
+    // series, while ports with distinct owners stay isolated.
+    ...(owner === undefined ? {} : { cachedThreads: () => owner as never }),
     failWindows(count: number) {
       windowFailures += count;
     },
@@ -732,6 +740,7 @@ test("strand recovery heals only when ready and never clobbers an open archive",
   recoverStrandedHomeWindow(port, "offline");
   recoverStrandedHomeWindow(port, "reconnecting");
   recoverStrandedHomeWindow(port, "fatal");
+  recoverStrandedHomeWindow(port, undefined);
   expect(port.calls).toEqual([]);
   recoverStrandedHomeWindow(port, "ready");
   expect(port.calls).toEqual(["window"]);
@@ -748,6 +757,79 @@ test("strand recovery heals only when ready and never clobbers an open archive",
   expect(port.calls).toHaveLength(owned + 1);
   recoverStrandedHomeWindow(port, "ready");
   expect(port.calls).toHaveLength(owned + 2);
+});
+
+test("an offline close strands until a ready heal repoints home", async () => {
+  const port = stubPort();
+  const paging = new ArchivePaging();
+  await paging.openArchive(port);
+  // The same owner drops offline for the home restore.
+  port.failWindows(1);
+  expect(await paging.closeArchive(port)).toBe(false);
+  expect(paging.restoreFailed).toBe(true);
+  // Offline and pre-snapshot heals stay silent; only ready repoints home.
+  const stranded = port.calls.length;
+  recoverStrandedHomeWindow(port, "offline");
+  recoverStrandedHomeWindow(port, undefined);
+  expect(port.calls).toHaveLength(stranded);
+  recoverStrandedHomeWindow(port, "ready");
+  expect(port.calls).toHaveLength(stranded + 1);
+});
+
+test("two wrappers around one sidebar share one window owner", async () => {
+  // One canonical sidebar behind two distinct wrapper objects: the owner is
+  // the cached sidebar, not the wrapper identity.
+  const owner = {};
+  const first = stubPort({}, { owner });
+  const second = stubPort({}, { owner });
+  expect(archiveOwnerFor(first)).toBe(owner);
+  expect(archiveOwnerFor(second)).toBe(owner);
+  expect(archiveOwnerFor(first)).toBe(archiveOwnerFor(second));
+
+  const paging = new ArchivePaging();
+  expect(await paging.openArchive(first)).toBe(true);
+  // The second wrapper sees the same wanted flag through the shared owner.
+  expect(isArchiveWindowWanted(first)).toBe(true);
+  expect(isArchiveWindowWanted(second)).toBe(true);
+  // A heal through the other wrapper yields to the open archive.
+  requestHomeWindow(second);
+  expect(first.calls).toEqual(["window"]);
+  expect(second.calls).toEqual([]);
+  // Closing through the other wrapper restores home: not a superseded
+  // early-return, a real home call on that wrapper.
+  expect(await paging.closeArchive(second)).toBe(true);
+  expect(paging.superseded).toBe(false);
+  expect(paging.restoreFailed).toBe(false);
+  expect(second.calls).toEqual(["window"]);
+  expect(first.calls).toEqual(["window"]);
+  expect(isArchiveWindowWanted(first)).toBe(false);
+  expect(isArchiveWindowWanted(second)).toBe(false);
+});
+
+test("a client switch isolates owners and restores each sidebar", async () => {
+  // Two canonical sidebars (a client change mints a new one): an open on the
+  // new owner never supersedes the old owner's session, and each close
+  // restores its own sidebar home.
+  const portA = stubPort({}, { owner: {} });
+  const portB = stubPort({}, { owner: {} });
+  const pagingA = new ArchivePaging();
+  await pagingA.openArchive(portA);
+  const pagingB = new ArchivePaging();
+  await pagingB.openArchive(portB);
+  expect(pagingA.superseded).toBe(false);
+  expect(pagingB.superseded).toBe(false);
+  expect(isArchiveWindowWanted(portA)).toBe(true);
+  expect(isArchiveWindowWanted(portB)).toBe(true);
+  // Closing the new owner restores only its sidebar.
+  expect(await pagingB.closeArchive(portB)).toBe(true);
+  expect(isArchiveWindowWanted(portB)).toBe(false);
+  expect(isArchiveWindowWanted(portA)).toBe(true);
+  expect(portB.calls).toEqual(["window", "window"]);
+  expect(portA.calls).toEqual(["window"]);
+  // The old owner still restores its own home afterwards.
+  expect(await pagingA.closeArchive(portA)).toBe(true);
+  expect(isArchiveWindowWanted(portA)).toBe(false);
+  expect(portA.calls).toEqual(["window", "window"]);
 });
 
 const sdkClients: ClientCore[] = [];
@@ -812,9 +894,10 @@ test("a reopen owns the window on the real SDK when the old restore lands late",
   const client = realClient();
   const lease = client.threads();
   try {
-    // Park the real home restore behind a gate while keeping one port identity:
-    // coordination keys on the port object, so open and close share it and the
-    // calls still land in the actual sidebar in issue order.
+    // Park the real home restore behind a gate while keeping one owner: the
+    // wrapper forwards the client's cached sidebar, so open and close share
+    // the canonical claim series and the calls still land in the actual
+    // sidebar in issue order.
     const calls: string[] = [];
     let releaseHome!: () => void;
     const homeGate = new Promise<void>((resolve) => {
@@ -827,6 +910,7 @@ test("a reopen owns the window on the real SDK when the old restore lands late",
         await client.threadsWindow(input);
       },
       async threadsMore() {},
+      cachedThreads: () => client.cachedThreads() as never,
     };
     const first = new ArchivePaging();
     await first.openArchive(gated);
@@ -843,6 +927,46 @@ test("a reopen owns the window on the real SDK when the old restore lands late",
     expect(calls).toEqual(["archive", "home", "archive"]);
     expect(await second.closeArchive(gated)).toBe(true);
     expect(isArchiveWindowWanted(gated)).toBe(false);
+  } finally {
+    lease.release();
+  }
+});
+
+test("two wrappers around one real client share one window owner", async () => {
+  const client = realClient();
+  const lease = client.threads();
+  try {
+    // Two distinct wrapper objects forwarding the same cached sidebar: one
+    // canonical owner, so a close through the other wrapper restores home
+    // instead of reporting superseded with no call.
+    const wrap = (tag: string): ArchiveWindowPort & { calls: string[] } => {
+      const calls: string[] = [];
+      return {
+        calls,
+        async threadsWindow(input: { archived?: boolean }) {
+          calls.push(input.archived ? tag : "home");
+          await client.threadsWindow(input);
+        },
+        async threadsMore(options) {
+          await client.threadsMore(options);
+        },
+        cachedThreads: () => client.cachedThreads() as never,
+      };
+    };
+    const first = wrap("archive-a");
+    const second = wrap("archive-b");
+    expect(archiveOwnerFor(first)).toBe(archiveOwnerFor(second));
+    const paging = new ArchivePaging();
+    expect(await paging.openArchive(first)).toBe(true);
+    expect(isArchiveWindowWanted(second)).toBe(true);
+    // A heal through the other wrapper yields to the open archive.
+    requestHomeWindow(second);
+    expect(second.calls).toEqual([]);
+    expect(await paging.closeArchive(second)).toBe(true);
+    expect(paging.superseded).toBe(false);
+    expect(paging.restoreFailed).toBe(false);
+    expect(second.calls).toEqual(["home"]);
+    expect(isArchiveWindowWanted(first)).toBe(false);
   } finally {
     lease.release();
   }

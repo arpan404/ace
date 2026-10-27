@@ -1,4 +1,4 @@
-import type { ClientApi, SidebarSource } from "@ace/client";
+import type { ClientApi, ConnectionState, SidebarSource } from "@ace/client";
 import type { ThreadListEntry } from "@ace/protocol";
 import { archivedOrder } from "@ace/ui-core/mobile";
 
@@ -15,7 +15,7 @@ import { archivedOrder } from "@ace/ui-core/mobile";
  * closing returns it to the home window. A second machine's subscription is never
  * touched because this phone owns only its own window calls.
  *
- * Shared coordination, scoped to the owning client: the SDK applies
+ * Shared coordination, scoped to the owning sidebar: the SDK applies
  * `threadsWindow` synchronously (`ClientCore` forwards straight to
  * `Sidebar.configure`), so the window the store shows is decided by the order
  * window calls are *issued*, not the order they settle. Every mount builds its
@@ -25,8 +25,8 @@ import { archivedOrder } from "@ace/ui-core/mobile";
  * change nothing. The latest route's intent is therefore always the last window
  * call issued, even when older async calls complete out of order. No extra
  * leases or subscriptions are created here; coordination is window calls only.
- * Generations never cross clients: each `threadsWindow` port (one SDK sidebar
- * per machine) owns its own claim series, so archive work on one machine
+ * Generations never cross clients: each canonical sidebar owns its own claim
+ * series (see `archiveOwnerFor`), so archive work on one machine
  * cannot supersede another's.
  */
 
@@ -140,57 +140,83 @@ export function canPageArchive(more: boolean, loading: boolean): boolean {
   return more && !loading;
 }
 
-export type ArchiveWindowPort = Pick<ClientApi, "threadsWindow" | "threadsMore">;
+export type ArchiveWindowPort = Pick<ClientApi, "threadsWindow" | "threadsMore" | "cachedThreads">;
 
 /**
- * One claim series per window owner. The port object is the SDK client the
- * screen was mounted with (one sidebar per machine), so two machines never
- * share a generation. Entries live as long as the test run; production holds
- * one client per machine for the app lifetime.
+ * Stable explicit owner identity for one client's archive window. The
+ * canonical sidebar (`cachedThreads()`, one `Sidebar` per `ClientCore`) is
+ * the owner when the port exposes it, so two wrapper objects around the same
+ * underlying client share one claim series. Ports without a cached sidebar
+ * (stubs, closed clients) fall back to their own identity: each such port is
+ * its own owner. Callers must forward `cachedThreads` when wrapping a client;
+ * a wrapper that hides it is treated as a separate owner.
+ */
+export function archiveOwnerFor(port: ArchiveWindowPort): object {
+  try {
+    const store = port.cachedThreads?.();
+    if (store) return store;
+  } catch {
+    // A closed client has no cached sidebar; fall through to port identity.
+  }
+  return port;
+}
+
+/**
+ * One claim series per canonical owner. Entries live as long as their owner:
+ * a `WeakMap` so heal polling and removed/re-paired clients never leak.
  */
 interface WindowCoordination {
   generation: number;
   archiveWanted: boolean;
 }
 
-const windowCoordinations = new Map<object, WindowCoordination>();
+let windowCoordinations = new WeakMap<object, WindowCoordination>();
 
 function coordinationFor(port: ArchiveWindowPort): WindowCoordination {
-  let coord = windowCoordinations.get(port);
+  const owner = archiveOwnerFor(port);
+  let coord = windowCoordinations.get(owner);
   if (!coord) {
     coord = { generation: 0, archiveWanted: false };
-    windowCoordinations.set(port, coord);
+    windowCoordinations.set(owner, coord);
   }
   return coord;
 }
 
-/**
- * Whether the latest route on this client owns the archive window right now.
- * Takes the port so two machines never answer for each other.
- */
-export function isArchiveWindowWanted(port: ArchiveWindowPort): boolean {
-  return coordinationFor(port).archiveWanted;
+/** Read-only peek: heals and `wanted` checks must not mint entries. */
+function coordinationPeek(port: ArchiveWindowPort): WindowCoordination | undefined {
+  return windowCoordinations.get(archiveOwnerFor(port));
 }
 
 /**
- * Reset the shared window coordination. Tests only: clears every client's
- * owner so one test's open/close cannot gate another's. Pass a port to reset
- * only that client.
+ * Whether the latest route on this owner currently wants the archive window.
+ * Takes the port but resolves to the canonical owner, so two wrappers around
+ * the same client answer together. Never mints coordination entries.
+ */
+export function isArchiveWindowWanted(port: ArchiveWindowPort): boolean {
+  return coordinationPeek(port)?.archiveWanted ?? false;
+}
+
+/**
+ * Reset the shared window coordination. Tests only: pass a port to reset
+ * only that owner's series; with no port every series is dropped (the map is
+ * replaced, so stale owners are collectible). Production holds one client
+ * per machine for the app lifetime.
  */
 export function resetArchiveWindowCoordinationForTests(port?: ArchiveWindowPort): void {
-  if (port) windowCoordinations.delete(port);
-  else windowCoordinations.clear();
+  if (port) windowCoordinations.delete(archiveOwnerFor(port));
+  else windowCoordinations = new WeakMap();
 }
 
 /**
  * Best-effort home heal for screens mounted without the archive (the inbox
- * self-heal). Never repoints home while an archive route on the same client
- * owns the window, and never bumps the generation: it is the same direction
+ * self-heal). Never repoints home while an archive route on the same owner
+ * wants the window, and never bumps the generation: it is the same direction
  * as a close, so it cannot strand or supersede anyone. Failures stay silent;
- * the next window call repairs them.
+ * the next window call repairs them. Resolves the canonical owner first, so a
+ * heal through one wrapper yields to an archive opened through another.
  */
 export function requestHomeWindow(port: ArchiveWindowPort): void {
-  if (coordinationFor(port).archiveWanted) return;
+  if (coordinationPeek(port)?.archiveWanted) return;
   void port.threadsWindow({}).catch(() => {});
 }
 
@@ -198,10 +224,13 @@ export function requestHomeWindow(port: ArchiveWindowPort): void {
  * Reconnect/focus recovery for a stranded home window (a failed archive
  * restore left the shared store on the archive filter while no archive route
  * owns it). Repoints home only when the connection is ready and only when no
- * archive route on the same client owns the window, so a heal never clobbers
+ * archive route on the same owner wants the window, so a heal never clobbers
  * an open archive. Failures stay silent; the next heal retries them.
  */
-export function recoverStrandedHomeWindow(port: ArchiveWindowPort, connection: string): void {
+export function recoverStrandedHomeWindow(
+  port: ArchiveWindowPort,
+  connection: ConnectionState | undefined,
+): void {
   if (connection !== "ready") return;
   requestHomeWindow(port);
 }
@@ -224,8 +253,8 @@ export function recoverStrandedHomeWindow(port: ArchiveWindowPort, connection: s
 export class ArchivePaging {
   /** The generation this session's last window intent claimed; 0 when it owns none. */
   private claim = 0;
-  /** Which client's generation `claim` belongs to; claims never cross clients. */
-  private claimPort: ArchiveWindowPort | null = null;
+  /** Which canonical owner's generation `claim` belongs to; claims never cross owners. */
+  private claimOwner: object | null = null;
   /** True once a settlement lost to a newer route; cleared by the next own intent. */
   private stale = false;
   private opened = false;
@@ -248,23 +277,27 @@ export class ArchivePaging {
     return this.stale;
   }
 
-  /** Whether this session still owns the latest window intent on this client. */
+  /** Whether this session still owns the latest window intent for this owner. */
   private ownsWindow(port: ArchiveWindowPort): boolean {
-    if (this.claimPort !== port || this.claim === 0) return false;
-    return this.claim === coordinationFor(port).generation;
+    if (this.claimOwner === null || this.claim === 0) return false;
+    if (this.claimOwner !== archiveOwnerFor(port)) return false;
+    return this.claim === coordinationPeek(port)?.generation;
   }
 
   /**
    * Whether the window call that claimed `claim` on `port` is still the latest
-   * intent: neither this session nor another one on the same client claimed a
+   * intent: neither this session nor another one on the same owner claimed a
    * newer window since. A captured claim is needed next to the stored one: a
    * same-instance reopen overwrites `claim`, so the stored check alone would
-   * bless the stale call. The port check keeps one client's reopen from
-   * validating another client's stale call.
+   * bless the stale call. The owner check keeps one client's reopen from
+   * validating another client's stale call, and lets two wrappers around the
+   * same sidebar validate each other.
    */
   private current(port: ArchiveWindowPort, claim: number): boolean {
     return (
-      this.claimPort === port && this.claim === claim && claim === coordinationFor(port).generation
+      this.claimOwner === archiveOwnerFor(port) &&
+      this.claim === claim &&
+      claim === coordinationPeek(port)?.generation
     );
   }
 
@@ -278,7 +311,7 @@ export class ArchivePaging {
     const claim = ++coord.generation;
     coord.archiveWanted = true;
     this.claim = claim;
-    this.claimPort = port;
+    this.claimOwner = archiveOwnerFor(port);
     this.stale = false;
     this.opened = true;
     this.failed = false;
@@ -307,13 +340,12 @@ export class ArchivePaging {
    */
   async loadMore(port: ArchiveWindowPort, hasMore: boolean): Promise<boolean> {
     if (!canPageArchive(hasMore, this.loading)) return false;
-    const coord = coordinationFor(port);
-    const generation = coord.generation;
+    const generation = coordinationFor(port).generation;
     this.loading = true;
     this.failed = false;
     try {
       await port.threadsMore();
-      if (coordinationFor(port).generation !== generation) {
+      if (coordinationPeek(port)?.generation !== generation) {
         this.stale = true;
         this.loading = false;
         return false;
@@ -321,7 +353,7 @@ export class ArchivePaging {
       this.loading = false;
       return true;
     } catch {
-      if (coordinationFor(port).generation !== generation) {
+      if (coordinationPeek(port)?.generation !== generation) {
         this.stale = true;
         this.loading = false;
         return false;
@@ -350,14 +382,14 @@ export class ArchivePaging {
       this.loading = false;
       this.failed = false;
       this.claim = 0;
-      this.claimPort = null;
+      this.claimOwner = null;
       this.stale = true;
       return true;
     }
     const claim = ++coord.generation;
     coord.archiveWanted = false;
     this.claim = claim;
-    this.claimPort = port;
+    this.claimOwner = archiveOwnerFor(port);
     this.stale = false;
     this.opened = false;
     this.loading = false;
@@ -366,18 +398,18 @@ export class ArchivePaging {
       await port.threadsWindow({});
       if (!this.current(port, claim)) {
         this.claim = 0;
-        this.claimPort = null;
+        this.claimOwner = null;
         this.stale = true;
         return true;
       }
       this.claim = 0;
-      this.claimPort = null;
+      this.claimOwner = null;
       this.restoreFailed = false;
       return true;
     } catch (error) {
       if (!this.current(port, claim)) {
         this.claim = 0;
-        this.claimPort = null;
+        this.claimOwner = null;
         this.stale = true;
         return true;
       }
@@ -408,23 +440,23 @@ export class ArchivePaging {
       this.failed = false;
       this.restoreFailed = false;
       this.claim = 0;
-      this.claimPort = null;
+      this.claimOwner = null;
       this.stale = true;
       return true;
     }
     const claim = ++coord.generation;
     coord.archiveWanted = false;
     this.claim = claim;
-    this.claimPort = port;
+    this.claimOwner = archiveOwnerFor(port);
     this.stale = false;
     this.opened = false;
     this.loading = false;
     this.failed = false;
     const tries = Math.max(1, Math.floor(attempts));
     for (let attempt = 0; attempt < tries; attempt++) {
-      if (!this.current(port, claim) || coordinationFor(port).archiveWanted) {
+      if (!this.current(port, claim) || coordinationPeek(port)?.archiveWanted) {
         this.claim = 0;
-        this.claimPort = null;
+        this.claimOwner = null;
         this.stale = true;
         return true;
       }
@@ -432,18 +464,18 @@ export class ArchivePaging {
         await port.threadsWindow({});
         if (!this.current(port, claim)) {
           this.claim = 0;
-          this.claimPort = null;
+          this.claimOwner = null;
           this.stale = true;
           return true;
         }
         this.claim = 0;
-        this.claimPort = null;
+        this.claimOwner = null;
         this.restoreFailed = false;
         return true;
       } catch (error) {
         if (!this.current(port, claim)) {
           this.claim = 0;
-          this.claimPort = null;
+          this.claimOwner = null;
           this.stale = true;
           return true;
         }

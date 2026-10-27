@@ -370,14 +370,23 @@ export function Inbox({
   useEffect(() => {
     // A restore that failed while offline strands the inbox on the archive window
     // after this screen is already mounted; heal once the socket is ready again.
-    // The heal still yields while an archive route owns the window.
+    // The heal still yields while an archive route owns the window. `undefined`
+    // (no snapshot yet) heals nothing.
     recoverStrandedHomeWindow(client, connection);
   }, [client, connection]);
+  // Latest connection for foreground heals: the AppState callback fires long
+  // after subscribe, so it must read the current snapshot, not the one
+  // captured at subscribe time.
+  const connectionRef = useRef(connection);
+  useEffect(() => {
+    connectionRef.current = connection;
+  }, [connection]);
   useEffect(() => {
     // Returning to the app with a stranded window (failed restore, then
-    // background) heals the same way a reconnect does.
+    // background) heals the same way a reconnect does: only when ready, and
+    // never while an archive route owns the window.
     const subscription = AppState.addEventListener("change", (status) => {
-      if (status === "active") requestHomeWindow(client);
+      if (status === "active") recoverStrandedHomeWindow(client, connectionRef.current);
     });
     return () => subscription.remove();
   }, [client]);

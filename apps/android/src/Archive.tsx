@@ -171,7 +171,14 @@ export function ArchiveScreen({
   const theme = useTheme();
   const operate = canActInbox(canAct);
   const lease = useMemo(() => client.threads(), [client]);
-  const paging = useMemo(() => new ArchivePaging(), []);
+  // One pager per client: the pager holds the owner's claim, so reusing one
+  // across a client change would orphan the old sidebar's home restore when
+  // the new open overwrites the claim. Keying by client gives the old
+  // effect's cleanup (old client + old pager) the restore before the new
+  // effect opens the new sidebar. The dep is intentional: a fresh pager per
+  // client, never shared across sidebars.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const paging = useMemo(() => new ArchivePaging(), [client]);
   // The pager's loading/failed flags live outside the store snapshot, so an
   // epoch re-reads the list whenever a window call settles.
   const [epoch, setEpoch] = useState(0);
