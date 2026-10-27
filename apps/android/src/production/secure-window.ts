@@ -23,6 +23,14 @@ export interface SecureWindowModule {
   secureWindowApplied?(): boolean | PromiseLike<boolean>;
 }
 
+/**
+ * Bound for the async native guard read. The native entry resolves on the
+ * UI thread; a hung bridge must still present Retry instead of an opaque
+ * opener, so the async helper fails closed (false) on timeout. Matches the
+ * production load timeout so every phase-one wait shares one bound.
+ */
+export const SECURE_WINDOW_TIMEOUT_MS = 15_000;
+
 /** True only when the native window synchronously confirms FLAG_SECURE. Never throws. */
 export function isSecureWindowApplied(nativeModule: unknown): boolean {
   try {
@@ -40,16 +48,33 @@ export function isSecureWindowApplied(nativeModule: unknown): boolean {
 /**
  * Honest async verification: awaits promise-like native results and reports
  * the settled outcome. Resolves true only when the native window confirms
- * FLAG_SECURE; false when the entry is missing, disabled, rejects, or throws.
- * Never rejects.
+ * FLAG_SECURE; false when the entry is missing, disabled, rejects, throws,
+ * or hangs past `timeoutMs` (fail-closed: a hung guard shows the recoverable
+ * failure with Retry, never an opaque opener). Never rejects; a late native
+ * settlement after the timeout is swallowed and changes nothing.
  */
-export async function isSecureWindowAppliedAsync(nativeModule: unknown): Promise<boolean> {
+export async function isSecureWindowAppliedAsync(
+  nativeModule: unknown,
+  timeoutMs: number = SECURE_WINDOW_TIMEOUT_MS,
+): Promise<boolean> {
   try {
     const candidate = nativeModule as SecureWindowModule | null | undefined;
     if (candidate === null || candidate === undefined) return false;
     if (typeof candidate.secureWindowApplied !== "function") return false;
-    const settled = await Promise.resolve(candidate.secureWindowApplied());
-    return settled === true;
+    const guarded = Promise.resolve(candidate.secureWindowApplied());
+    // A hung native read must not produce an unhandled rejection when it
+    // eventually settles after the timeout wins the race.
+    guarded.then(undefined, () => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      });
+      const settled = await Promise.race([guarded, timeout]);
+      return settled === true;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   } catch {
     return false;
   }

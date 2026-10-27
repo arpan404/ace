@@ -66,3 +66,42 @@ it("async helper accepts then-only thenables and fails closed otherwise", async 
     }),
   ).resolves.toBe(false);
 });
+
+it("a hung native guard fails closed on timeout and ignores the late settlement", async () => {
+  // Deferred real edge: the native UI-thread read never settles. The helper
+  // must still present the recoverable failure (false → insecure-window copy
+  // with Retry) instead of stalling the opener, and the late settlement must
+  // change nothing and leak no unhandled rejection.
+  let resolveLate!: (value: boolean) => void;
+  const hanging = new Promise<boolean>((resolve) => {
+    resolveLate = resolve;
+  });
+  // Swallow the late settlement branch so no unhandled rejection can escape
+  // when the orphan eventually settles after the timeout wins.
+  hanging.then(undefined, () => undefined);
+  const seen = await isSecureWindowAppliedAsync({ secureWindowApplied: () => hanging }, 10);
+  expect(seen).toBe(false);
+  resolveLate(true);
+  await hanging;
+  // Late success after the timeout stays failed-closed: a fresh hung read
+  // still times out even after the previous orphan resolved late.
+  const stillHanging = new Promise<boolean>(() => undefined);
+  stillHanging.then(undefined, () => undefined);
+  await expect(
+    isSecureWindowAppliedAsync({ secureWindowApplied: () => stillHanging }, 10),
+  ).resolves.toBe(false);
+
+  let rejectLate!: (error: unknown) => void;
+  const hangingReject = new Promise<boolean>((_, reject) => {
+    rejectLate = reject;
+  });
+  hangingReject.then(undefined, () => undefined);
+  const rejected = await isSecureWindowAppliedAsync(
+    { secureWindowApplied: () => hangingReject },
+    10,
+  );
+  expect(rejected).toBe(false);
+  rejectLate(new Error("late gone"));
+  await Promise.resolve();
+  await Promise.resolve();
+});

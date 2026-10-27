@@ -40,7 +40,7 @@ import { createLoadLifecycle } from "./load-lifecycle.ts";
 import { createStartupTeardown } from "./startup-teardown.ts";
 import { createCoalescingFlight } from "./single-flight.ts";
 import { readStoredLockPrefsWithStatus, sqliteAppLockStorage } from "./lock-storage.ts";
-import { networkChange, type NetworkSnapshot } from "./network-monitor.ts";
+import { networkChange, snapshotNetworkState, type NetworkSnapshot } from "./network-monitor.ts";
 import { machineCards, routeMessage, selectActiveHost } from "./production-wiring.ts";
 import { PairingScreen } from "../Pairing.tsx";
 import { PairingFlowError, type ConfirmedPairing } from "../pairing/pairing-flow.ts";
@@ -232,8 +232,10 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
       // frame. The native entry is async because the window is read on the UI
       // thread, never on the JS thread. Fail closed when the guard (or the
       // whole native module entry) is unavailable: no database, no directory,
-      // no socket.
-      if (!(await isSecureWindowAppliedAsync(nativeModule))) {
+      // no socket. The async helper bounds the read against the production
+      // load timeout: a hung bridge resolves false (fail-closed) instead of
+      // stalling the opener with no Retry.
+      if (!(await isSecureWindowAppliedAsync(nativeModule, PRODUCTION_LOAD_TIMEOUT_MS))) {
         if (!cancelled) setFailure(PRODUCTION_FAILURE_COPY.insecureWindow);
         return;
       }
@@ -292,11 +294,14 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
         setLockStorageFailed(storageFailed);
         setStartup(produced);
         setLock(appLock);
-        try {
-          previousNetworkRef.current = networkSnapshot(await Network.getNetworkStateAsync());
-        } catch {
-          previousNetworkRef.current = undefined;
-        }
+        // The initial snapshot only establishes the baseline (first sighting
+        // propagates nothing), so a hung or failing read must never stall
+        // phase one: the helper bounds it and falls back to `undefined`,
+        // letting startup proceed to the lock with Retry available.
+        previousNetworkRef.current = await snapshotNetworkState(
+          () => Network.getNetworkStateAsync(),
+          PRODUCTION_LOAD_TIMEOUT_MS,
+        );
         if (!cancelled) {
           networkSubscription = Network.addNetworkStateListener((event) => {
             const next = networkSnapshot(event);
@@ -307,21 +312,24 @@ export function ProductionRoot({ notify }: { notify: (text: string) => void }) {
           });
         }
       } catch {
-        // A failed phase one runs the same ordered teardown as unmount:
-        // drain the tracked orphans first so a timed-out table/prefs write
-        // settles before the close, then disconnect (no-op here), flush and
-        // close last. Direct `closeDbOnce` here would close under a running
-        // orphan. The effect cleanup below re-runs the same teardown and
-        // shares the first run instead of double-closing. A failed lock
-        // flush is no longer swallowed by the teardown: surface it as a
-        // storage failure (inline banner) alongside the generic failure.
+        // A failed phase one shows Retry immediately, then runs the same
+        // ordered teardown as unmount in the background: drain the tracked
+        // orphans first so a timed-out table/prefs write settles before the
+        // close, then disconnect (no-op here: a failed phase one never
+        // adopted a manager, so a retry cannot compete with it), flush and
+        // close last. Awaiting the drain before `setFailure` would stall the
+        // opener with no Retry when an orphan hangs forever; surfacing the
+        // failure first keeps the screen recoverable while the background
+        // teardown still closes exactly once (shared with the effect cleanup
+        // below, which owns the same promise instead of double-closing).
+        // Direct `closeDbOnce` here would close under a running orphan. A
+        // failed lock flush is surfaced as a storage failure alongside the
+        // generic failure.
         if (!cancelled) {
-          try {
-            await teardown.teardown();
-          } catch {
-            setLockStorageFailed(true);
-          }
           setFailure(PRODUCTION_FAILURE_COPY.startup);
+          void teardown.teardown().catch(() => {
+            if (!cancelled) setLockStorageFailed(true);
+          });
         }
         // When cancelled the effect cleanup owns the teardown; returning
         // lets it drain and close exactly once.

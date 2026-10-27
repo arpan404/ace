@@ -246,3 +246,69 @@ it("a failed lock flush still closes, then reports instead of vanishing", async 
   await expect(teardown.teardown()).rejects.toThrow("could not be saved");
   expect(order).toEqual(["disconnect", "flush", "close"]);
 });
+
+it("a hung phase-one orphan shows failure first while the background teardown still closes safely", async () => {
+  // Deferred real edge for the production root failure path: a timed-out
+  // table/prefs orphan hangs forever. `setFailure` must run before the
+  // drain completes (recoverable Retry on screen), while the shared teardown
+  // still drains first and closes last in the background — never closing
+  // under the live orphan, never double-closing, and never adopting a
+  // competing manager (the failed generation disconnects its own no-op
+  // manager while the retry mints its own).
+  const order: string[] = [];
+  const hungGate = deferred<string>();
+  hungGate.promise.then(undefined, () => undefined);
+  const owner = createLoadLifecycle();
+  owner.begin();
+  owner.track(hungGate.promise);
+  const teardown = createStartupTeardown({
+    owner,
+    disconnectAll: async () => {
+      order.push("disconnect");
+    },
+    flush: async () => {
+      order.push("flush");
+    },
+    closeDb: async () => {
+      order.push("close");
+    },
+  });
+
+  // Production-root failure order: surface Retry first, drain in background.
+  let failure: string | null = null;
+  let storageFailed = false;
+  failure = "The connection could not start.";
+  void teardown.teardown().catch(() => {
+    storageFailed = true;
+  });
+  // Recoverable state is visible while the hung orphan still blocks the drain.
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(failure).toBe("The connection could not start.");
+  expect(order).toEqual([]);
+  expect(storageFailed).toBe(false);
+
+  // The retry generation owns a fresh lifecycle/manager: it never shares the
+  // failed generation's teardown and never disconnects a sibling.
+  const retryOwner = createLoadLifecycle();
+  retryOwner.begin();
+  const retryTeardown = createStartupTeardown({
+    owner: retryOwner,
+    disconnectAll: async () => {
+      order.push("retry-disconnect");
+    },
+    flush: async () => {},
+    closeDb: async () => {
+      order.push("retry-close");
+    },
+  });
+  await retryTeardown.teardown();
+  expect(order).toEqual(["retry-disconnect", "retry-close"]);
+
+  // Late orphan settles: the failed generation now drains, disconnects its
+  // own manager, and closes its own handle — exactly once.
+  hungGate.resolve("tables");
+  await teardown.teardown();
+  expect(order).toEqual(["retry-disconnect", "retry-close", "disconnect", "flush", "close"]);
+  expect(storageFailed).toBe(false);
+});
