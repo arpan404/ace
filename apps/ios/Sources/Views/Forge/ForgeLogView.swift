@@ -3,7 +3,9 @@ import SwiftUI
 /// A check's log in monospace, read a page at a time as its lines come near the screen: the
 /// bridge splits the log once, and the phone asks only for the lines it is about to draw. Each
 /// line not yet read holds one line's height, so scrolling never jumps. Error lines take the
-/// failed colour. `jump` scrolls to a line (a step's start, or the failure on opening).
+/// failed colour. `jump` scrolls to a line (a step's start, or the failure on opening). While
+/// `live` (the check still runs) the tail is read again every couple of seconds, so new lines
+/// arrive; another log (a new run) starts over. Which answers are taken is `ForgeLogPaging`'s.
 struct ForgeLogView: View {
     let client: ClientModel
     let name: String
@@ -14,35 +16,70 @@ struct ForgeLogView: View {
     let focus: Int?
     var errors: Set<Int> = []
     var jump: Int?
-    @State private var pages: [Int: [String]] = [:]
-    @State private var count: Int?
-    @State private var asked: Set<Int> = []
+    /// The check is still running: its log grows.
+    var live = false
+    @State private var paging: ForgeLogPaging
     @State private var failure: String?
     @State private var openedOnFocus = false
 
-    private static let pageSize = 200
-    private var lines: Int { count ?? total ?? 0 }
+    init(client: ClientModel, name: String, request: [String: Any], total: Int?, focus: Int?,
+         errors: Set<Int> = [], jump: Int? = nil, live: Bool = false) {
+        self.client = client
+        self.name = name
+        self.request = request
+        self.total = total
+        self.focus = focus
+        self.errors = errors
+        self.jump = jump
+        self.live = live
+        _paging = State(initialValue: ForgeLogPaging(identity: Self.identity(of: request), total: total))
+    }
+
+    /// Which log a request names: its kind and run, never the page.
+    static func identity(of request: [String: Any]) -> String {
+        request.keys.sorted().filter { $0 != "from" && $0 != "count" }.map { "\($0)=\(request[$0] ?? "")" }.joined(separator: "&")
+    }
+    private var identity: String { Self.identity(of: request) }
     /// The page holding the failure has been read.
-    private var focusLoaded: Bool { focus.map { pages[$0 / Self.pageSize] != nil } ?? false }
+    private var focusLoaded: Bool { focus.map { paging.loaded($0) } ?? false }
 
     var body: some View {
         ScrollViewReader { proxy in
             LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 if let failure {
                     Text(failure).meta(AceTone.failed.text).padding(.vertical, AceTheme.Spacing.sm)
-                } else if count == nil, total == nil {
+                } else if paging.count == nil {
                     ProgressView().frame(maxWidth: .infinity).padding(.vertical, AceTheme.Spacing.lg)
                 }
-                ForEach(0..<lines, id: \.self) { index in
-                    line(index).id(index).onAppear { want(index) }
+                ForEach(0..<paging.lines, id: \.self) { index in
+                    line(index).id(index).onAppear { read(paging.near(index)) }
                 }
             }
             .padding(.horizontal, AceTheme.Spacing.lg)
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("forge.log")
-            .task { want(focus ?? 0) }
+            .task(id: identity) {
+                // Another log (a new run, another check) starts over at its failure or its top.
+                if paging.identity != identity {
+                    paging.show(identity, total: total)
+                    openedOnFocus = false
+                    failure = nil
+                }
+                read(paging.near(focus ?? 0))
+            }
+            .onChange(of: total) { _, total in paging.show(identity, total: total) }
+            // A running check keeps writing: its tail is read again until it stops.
+            .task(id: "\(identity)|\(live)") {
+                guard live else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(2))
+                    if Task.isCancelled { break }
+                    read(paging.tail())
+                }
+            }
             .onChange(of: jump) { _, line in
                 guard let line else { return }
-                want(line)
+                read(paging.near(line))
                 withAnimation(AceMotion.smooth) { proxy.scrollTo(line, anchor: .top) }
             }
             // Opening on the failure: once the lines around it have arrived, and only once, so a
@@ -56,10 +93,7 @@ struct ForgeLogView: View {
     }
 
     private func line(_ index: Int) -> some View {
-        let text = pages[index / Self.pageSize].flatMap { page in
-            index % Self.pageSize < page.count ? page[index % Self.pageSize] : nil
-        }
-        return Text(verbatim: text ?? " ")
+        Text(verbatim: paging.line(index) ?? " ")
             .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
             .foregroundStyle(errors.contains(index) ? AceTone.failed.text : AceTheme.Colours.foreground)
             .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
@@ -67,28 +101,20 @@ struct ForgeLogView: View {
             .textSelection(.enabled)
     }
 
-    /// Reads the page holding `index`, and the next one when the line is near its end.
-    private func want(_ index: Int) {
-        let page = index / Self.pageSize
-        read(page)
-        if index % Self.pageSize > Self.pageSize - 40 { read(page + 1) }
-    }
-
-    private func read(_ page: Int) {
-        guard !asked.contains(page), count.map({ page * Self.pageSize < $0 }) ?? true else { return }
-        asked.insert(page)
-        var payload = request
-        payload["from"] = page * Self.pageSize
-        payload["count"] = Self.pageSize
-        Task {
-            do {
-                let read = try await client.forgeLog(payload)
-                pages[page] = read.lines
-                if count != read.total { count = read.total }
-                failure = nil
-            } catch {
-                asked.remove(page)
-                failure = "Couldn't read the log. \(error.localizedDescription)"
+    /// Asks for each ticket's page; only the newest answer for this log is taken.
+    private func read(_ tickets: [ForgeLogPaging.Ticket]) {
+        for ticket in tickets {
+            var payload = request
+            payload["from"] = ticket.page * ForgeLogPaging.pageSize
+            payload["count"] = ForgeLogPaging.pageSize
+            Task {
+                do {
+                    let read = try await client.forgeLog(payload)
+                    if paging.accept(ticket, lines: read.lines, total: read.total) { failure = nil }
+                } catch {
+                    paging.failed(ticket)
+                    if ticket.identity == paging.identity { failure = "Couldn't read the log. \(error.localizedDescription)" }
+                }
             }
         }
     }

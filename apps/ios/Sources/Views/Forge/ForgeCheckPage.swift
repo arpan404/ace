@@ -102,7 +102,7 @@ struct ForgeCheckPageView: View {
                         .accessibilityAddTraits(.isHeader)
                     if log.truncated { Text("Older lines are on GitHub.").meta().padding(.horizontal, AceTheme.Spacing.lg) }
                     ForgeLogView(client: client, name: page.name, request: logRequest(id, page), total: log.lines, focus: log.focus,
-                                 errors: Set(log.errors), jump: jump)
+                                 errors: Set(log.errors), jump: jump, live: !page.finished)
                 }
             }
             if let note = page.note { Text(note).meta().padding(.horizontal, AceTheme.Spacing.lg) }
