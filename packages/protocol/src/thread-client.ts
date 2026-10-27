@@ -6,7 +6,7 @@ import { WorktreeCreationProgress } from "./worktree-creation.ts";
 import { ExecutionOptions } from "./thread-transitions.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
-import { BackgroundTaskId, InteractionId, RunId, ThreadId, Timestamp } from "./ids.ts";
+import { BackgroundTaskId, InteractionId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
 import { ForgeRepository, LinkedPullRequest } from "./forge.ts";
 import { WorktreeBaseRecord } from "./worktree-base.ts";
 import { ThreadContinuedOn } from "./transfers.ts";
@@ -201,6 +201,16 @@ export const ThreadRunMetadata = z.object({
     .optional(),
 });
 export type ThreadRunMetadata = z.infer<typeof ThreadRunMetadata>;
+/**
+ * What a move to another project left behind: the project it came from and its details there
+ * (branch, pull requests, diff). Moving back to that project restores them, so Undo after Move
+ * puts the thread back as it was.
+ */
+export const ThreadMovedFrom = z.object({
+  workspaceId: WorkspaceId,
+  details: ThreadDetails,
+});
+export type ThreadMovedFrom = z.infer<typeof ThreadMovedFrom>;
 export const ThreadClientFields = ThreadOrganization.extend({
   /** Sequence of the latest execution status, compared with this device's read cursor. */
   activitySeq: z.number().int().nonnegative().optional(),
@@ -208,6 +218,7 @@ export const ThreadClientFields = ThreadOrganization.extend({
   hasSentMessage: z.boolean().optional(),
   details: ThreadDetails.optional(),
   live: ThreadRunMetadata.optional(),
+  movedFrom: ThreadMovedFrom.optional(),
 });
 export type ThreadClientFields = z.infer<typeof ThreadClientFields>;
 export const ThreadClientUpdated = z.object({
@@ -221,6 +232,7 @@ export const ThreadClientUpdated = z.object({
     autoSettle: z.literal(false).nullable().optional(),
     settleWhenDone: z.literal(true).nullable().optional(),
     prSettled: z.number().int().positive().nullable().optional(),
+    movedFrom: ThreadMovedFrom.nullable().optional(),
   }),
 });
 export type ThreadClientUpdated = z.infer<typeof ThreadClientUpdated>;
@@ -252,7 +264,15 @@ export const ThreadOrganizationCommands = [
   }),
   z.object({ type: z.literal("thread.read"), threadId: ThreadId, unread: z.boolean() }),
   z.object({ type: z.literal("thread.settle"), threadId: ThreadId }),
-  z.object({ type: z.literal("thread.unsettle"), threadId: ThreadId }),
+  z.object({
+    type: z.literal("thread.unsettle"),
+    threadId: ThreadId,
+    /**
+     * Take back a settle (Undo): only the settle goes. Activity, auto-settle and an agent's
+     * request to settle stay as they were, where a plain unsettle keeps the thread in the list.
+     */
+    undo: z.literal(true).optional(),
+  }),
   /** Let this thread settle by itself again (`enabled`), or keep it in the list until settled by hand. */
   z.object({ type: z.literal("thread.autoSettle"), threadId: ThreadId, enabled: z.boolean() }),
   z.object({ type: z.literal("thread.snooze"), threadId: ThreadId, until: Timestamp.nullable() }),

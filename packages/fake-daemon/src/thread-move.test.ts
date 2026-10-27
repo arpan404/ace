@@ -85,3 +85,39 @@ function view(daemon: FakeDaemon) {
   if (!snapshot || !("thread" in snapshot)) throw new Error("Thread snapshot missing");
   return snapshot;
 }
+
+test("moving back to the project a thread left restores its branch and details there", () => {
+  const f = world();
+  const move = (workspaceId: string) =>
+    f.command({
+      type: "thread.move",
+      threadId: "source",
+      workspaceId: WorkspaceId.parse(workspaceId),
+    });
+  expect(move("new")).toMatchObject({ ok: true });
+  expect(view(f.daemon).thread.details?.branch).toBeUndefined();
+  expect(move("old")).toMatchObject({ ok: true });
+  expect(view(f.daemon).thread).toMatchObject({
+    workspaceId: "old",
+    details: { branch: "old-branch", head: "a".repeat(40), worktree: "/fake/old" },
+  });
+});
+
+test("settling and taking it back leaves auto-settle and the thread's place as they were", () => {
+  const f = world();
+  f.daemon.apply("source", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+  const before = view(f.daemon).thread;
+  expect(f.command({ type: "thread.settle", threadId: "source" })).toMatchObject({ ok: true });
+  expect(view(f.daemon).thread.settledAt).toBeDefined();
+  expect(f.command({ type: "thread.unsettle", threadId: "source", undo: true })).toMatchObject({
+    ok: true,
+  });
+  const after = view(f.daemon).thread;
+  expect(after.settledAt).toBeUndefined();
+  expect(after.autoSettle).toBe(before.autoSettle);
+  expect(after.activityAt).toBe(before.activityAt);
+  // A plain unsettle keeps it in the list for good.
+  f.command({ type: "thread.settle", threadId: "source" });
+  f.command({ type: "thread.unsettle", threadId: "source" });
+  expect(view(f.daemon).thread.autoSettle).toBe(false);
+});
