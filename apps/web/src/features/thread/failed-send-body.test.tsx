@@ -158,9 +158,11 @@ test("Edit sends the failed message's new words, and the one behind it waits as 
   );
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
   expect(
-    within(screen.getByRole("feed", { name: "Transcript" })).getByText("hi there"),
+    await within(screen.getByRole("feed", { name: "Transcript" })).findByText("hi there"),
   ).toBeTruthy();
-  expect((await queued(app)).messages.map(words)).toEqual(["then the tests"]);
+  await waitFor(async () =>
+    expect((await queued(app)).messages.map(words)).toEqual(["then the tests"]),
+  );
   expect(screen.queryByText("Not sent")).toBeNull();
 });
 
@@ -185,7 +187,9 @@ test("when another device edits the failed message first, it sends theirs and th
   expect(await screen.findByText("That message already left the queue")).toBeTruthy();
   expect(composer.textContent).toBe("hi there");
   expect(
-    within(screen.getByRole("feed", { name: "Transcript" })).getByText("hello from the laptop"),
+    await within(screen.getByRole("feed", { name: "Transcript" })).findByText(
+      "hello from the laptop",
+    ),
   ).toBeTruthy();
   expect((await queued(app)).messages).toEqual([]);
 });
