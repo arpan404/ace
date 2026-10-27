@@ -4,6 +4,7 @@ import {
   formatUsd,
   growthBasis,
   pluralCount,
+  usageAxis,
   usageGrowth,
   usageHue,
   type UsageGrowth,
@@ -43,7 +44,7 @@ export interface UsageChartDay {
 
 export interface UsageChart {
   title: string;
-  /** The y axis: zero, half and the peak, with their compact labels. */
+  /** The y axis: round steps from zero to just past the peak, with compact labels. */
   axis: { value: number; label: string }[];
   top: number;
   /** The chart's name for assistive tech: its peak day. */
@@ -149,6 +150,7 @@ export function usageMetricView(
     };
   });
   const max = Math.max(0, ...chartDays.flatMap((day) => day.values));
+  const axis = usageAxis(max, money ? "usd" : "tokens");
   const peak = report.days.reduce<(typeof report.days)[number] | undefined>(
     (best, day) => (best && value(best) >= value(day) ? best : day),
     undefined,
@@ -239,8 +241,8 @@ export function usageMetricView(
     }),
     chart: {
       title,
-      axis: [0, 0.5, 1].map((tick) => ({ value: tick * (max || 1), label: format(tick * max) })),
-      top: max || 1,
+      axis: axis.ticks,
+      top: axis.top,
       summary:
         peak && max > 0
           ? `${title}, highest ${format(value(peak))} on ${dayLabel.format(at(peak.day))}`

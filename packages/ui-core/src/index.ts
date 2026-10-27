@@ -135,6 +135,7 @@ export * from "./checkout-errors.ts";
 export * from "./projects.ts";
 export * from "./folder-search.ts";
 export * from "./path-picker.ts";
+export * from "./usage-axis.ts";
 export * from "./usage-cost.ts";
 export * from "./usage-days.ts";
 export * from "./usage-growth.ts";

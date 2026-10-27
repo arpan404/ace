@@ -98,6 +98,7 @@ test("tokens read in compact units, with growth against the week before", async 
   expect(reply.tokens.chart.days).toHaveLength(7);
   expect(reply.tokens.chart.days[0]?.texts).toEqual(["1B", "250M"]);
   expect(reply.tokens.chart.axis.map((tick) => tick.label)).toEqual(["0", "500M", "1B"]);
+  expect(reply.tokens.chart.top).toBe(1_000_000_000);
   expect(reply.tokens.totals).toContainEqual({ label: "Unpriced tokens", value: "1.8B" });
   expect(reply.providers.map((entry) => entry.name).toSorted()).toEqual(["Claude Code", "Codex"]);
 });
