@@ -9,8 +9,7 @@ private struct MenuScreen: Identifiable {
     var identifier: String { id }
 }
 
-/// The ⋯ panel's icon grid: the thread's screens (Changes, Agent tree, Files, Terminal,
-/// Browser, Logs, Find, Turns) as icons above the scrollable action sections.
+/// The four primary destinations, always one tap away.
 private struct MenuScreenGrid: View {
     let open: (ThreadDestination) -> Void
     let dismiss: DismissAction
@@ -19,13 +18,9 @@ private struct MenuScreenGrid: View {
     private var screens: [MenuScreen] {
         [
             MenuScreen(id: "thread.changes", title: "Changes", icon: .plusMinus, destination: .changes),
-            MenuScreen(id: "thread.agents", title: "Agent tree", icon: .treeStructure, destination: .agents),
             MenuScreen(id: "thread.files", title: "Files", icon: .folder, destination: .files),
             MenuScreen(id: "thread.terminal", title: "Terminal", icon: .terminalWindow, destination: .terminal),
             MenuScreen(id: "thread.browser", title: "Browser", icon: .compass, destination: .browser),
-            MenuScreen(id: "thread.logs", title: "Logs", icon: .scroll, destination: .logs),
-            MenuScreen(id: "thread.search", title: "Find", icon: .magnifyingGlass, destination: .search),
-            MenuScreen(id: "thread.turns", title: "Turns", icon: .listBullets, destination: .turns),
         ]
     }
 
@@ -82,23 +77,7 @@ private struct MenuRow: View {
     }
 }
 
-/// Shared menu actions need explicit row sizing in a sheet; native context menus supply their own.
-private struct PanelActionStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var enabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .aceFont(AceTheme.Typography.body, relativeTo: .body)
-            .foregroundStyle(configuration.role == .destructive ? Color.red : AceTheme.Colours.foreground)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.vertical, AceTheme.Spacing.sm)
-            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
-            .contentShape(Rectangle())
-            .opacity(enabled ? (configuration.isPressed ? 0.6 : 1) : 0.4)
-    }
-}
-
-/// The thread's ⋯ panel: screen shortcuts followed by scrollable, full-height action rows.
+/// A compact sheet of primary destinations and native menus for secondary actions.
 struct ThreadMenuPanel: View {
     let model: ClientModel
     let thread: ThreadModel
@@ -130,48 +109,63 @@ struct ThreadMenuPanel: View {
     }
 
     private var panel: some View {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                MenuScreenGrid(open: open, dismiss: dismiss)
-                    .padding(.bottom, AceTheme.Spacing.sm)
-                if let run = thread.screen.offshift {
-                    Divider()
-                    MenuRow(title: "Offshift run · \(run.word)", icon: .listChecks, identifier: "thread.offshift") {
-                        open(.offshift); dismiss()
-                    }
-                }
-                if model.canOperate, !archived {
-                    Divider()
-                    conversation
-                }
-                Divider()
-                tools
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            MenuScreenGrid(open: open, dismiss: dismiss)
+                .padding(.bottom, AceTheme.Spacing.sm)
+            Divider()
+            Menu { conversation } label: { groupLabel("Conversation", icon: .notePencil) }
+                .accessibilityIdentifier("thread.options.conversation")
+                .menuIndicator(.hidden)
+            Menu { tools } label: { groupLabel("Tools", icon: .wrench) }
+                .accessibilityIdentifier("thread.options.tools")
+                .menuIndicator(.hidden)
+            Menu {
                 if let organizer, let row, let hostId = model.hostId, model.canOperate {
-                    Divider()
-                    // The row's shared actions, in the shared words (`threadMenu`).
                     ThreadActionItems(key: InboxKey(machineId: hostId, id: thread.id), row: row,
                                       labels: model.inboxLayout.menuLabels ?? [:],
                                       sections: model.inboxLayout.menuSections ?? [:],
                                       snoozeOptions: model.inboxLayout.snooze,
                                       organizer: dismissing(leaving(organizer)))
-                        .buttonStyle(PanelActionStyle())
-                }
-                Divider()
-                system
-                if model.canOperate, thread.screen.controls?.canStop == true {
                     Divider()
-                    MenuRow(title: "Stop all agents", icon: .stopCircle) {
-                        model.stopTree(); dismiss()
-                    }
-                    .disabled(thread.screen.stopping)
                 }
+                system
+            } label: { groupLabel("Organize", icon: .folderSimple) }
+                .accessibilityIdentifier("thread.options.organize")
+                .menuIndicator(.hidden)
+            if model.canOperate, thread.screen.controls?.canStop == true {
+                Divider()
+                MenuRow(title: "Stop all agents", icon: .stopCircle) {
+                    model.stopTree(); dismiss()
+                }
+                .disabled(thread.screen.stopping)
             }
-            .padding(.horizontal, AceTheme.Spacing.lg)
-            .padding(.vertical, AceTheme.Spacing.md)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, AceTheme.Spacing.lg)
+        .padding(.vertical, AceTheme.Spacing.md)
+    }
+
+    private func groupLabel(_ title: String, icon: AceIcon.Name) -> some View {
+        HStack {
+            Label(title, ace: icon)
+            Spacer(minLength: AceTheme.Spacing.sm)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+        }
+        .aceFont(AceTheme.Typography.body, relativeTo: .body)
+        .foregroundStyle(AceTheme.Colours.foreground)
+        .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     /// What can be done with the conversation itself.
     @ViewBuilder private var conversation: some View {
+        MenuRow(title: "Find in thread", icon: .magnifyingGlass, identifier: "thread.search") { open(.search); dismiss() }
+        MenuRow(title: "Turns", icon: .listBullets, identifier: "thread.turns") { open(.turns); dismiss() }
+        MenuRow(title: "Attachments", icon: .paperclip, identifier: "thread.attachments") { open(.attachments); dismiss() }
         if model.canOperate, !archived {
+            Divider()
             MenuRow(title: "Rename…", icon: .pencilSimple, identifier: "thread.menu.rename") {
                 open(.rename); dismiss()
             }
@@ -190,6 +184,12 @@ struct ThreadMenuPanel: View {
 
     /// The thread's tools that aren't screens: what the phone keeps, runs and opens elsewhere.
     @ViewBuilder private var tools: some View {
+        MenuRow(title: "Agent tree", icon: .treeStructure, identifier: "thread.agents") { open(.agents); dismiss() }
+        MenuRow(title: "Logs", icon: .scroll, identifier: "thread.logs") { open(.logs); dismiss() }
+        if let run = thread.screen.offshift {
+            MenuRow(title: "Offshift run · \(run.word)", icon: .listChecks, identifier: "thread.offshift") { open(.offshift); dismiss() }
+        }
+        Divider()
         MenuRow(title: "Reload from machine", icon: .arrowClockwise, identifier: "thread.reload") {
             model.reloadFromMachine(); dismiss()
         }
@@ -198,9 +198,6 @@ struct ThreadMenuPanel: View {
         }
         MenuRow(title: "Work", icon: .gitBranch, identifier: "thread.work") {
             open(.work); dismiss()
-        }
-        MenuRow(title: "Attachments", icon: .paperclip, identifier: "thread.attachments") {
-            open(.attachments); dismiss()
         }
         MenuRow(title: "Devices", icon: .deviceMobile, identifier: "thread.devices") {
             open(.devices); dismiss()
@@ -241,7 +238,6 @@ struct ThreadMenuPanel: View {
                     }
                 } icon: { Image(ace: .desktop) }
             }
-            .buttonStyle(PanelActionStyle())
             .disabled(!ready)
             .accessibilityIdentifier("thread.continueOn")
             .frame(maxWidth: .infinity, alignment: .leading)

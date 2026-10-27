@@ -76,17 +76,17 @@ import XCTest
         let menu = app.buttons["thread.menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 30))
         menu.tap()
-        for id in ["thread.action.copy-link", "thread.action.pin", "thread.action.delete"] {
-            let action = app.buttons[id]
-            XCTAssertTrue(action.waitForExistence(timeout: 5))
-            for _ in 0..<8 where !action.isHittable {
-                app.scrollViews["thread.options.scroll"].swipeUp()
-            }
-            XCTAssertTrue(action.isHittable, "Every action must be reachable by scrolling")
-            XCTAssertGreaterThanOrEqual(action.frame.height, 44, "Every options action needs a full tap target")
+        for id in ["thread.options.conversation", "thread.options.tools", "thread.options.organize"] {
+            let group = app.buttons[id]
+            XCTAssertTrue(group.waitForExistence(timeout: 5))
+            XCTAssertGreaterThanOrEqual(group.frame.height, 44)
         }
-        XCTAssertTrue(app.buttons["thread.action.move"].exists)
-        XCTAssertTrue(app.buttons["thread.action.auto-settle-off"].exists)
+        XCTAssertFalse(app.buttons["thread.action.delete"].exists, "Organize actions stay out of the initial sheet")
+        screenshot("compact-thread-menu")
+        app.buttons["thread.options.organize"].tap()
+        for label in ["Copy link", "Pin", "Move to project…", "Turn off auto-settle", "Delete thread"] {
+            XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5), "The grouped menu retains \(label)")
+        }
         screenshot("thread-menu")
     }
 

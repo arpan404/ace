@@ -156,7 +156,8 @@ struct ThreadMenu: View, Equatable {
                             hasActivity: hasActivity, activityRow: activityRow, open: open,
                             problem: problem, leave: leave)
                 .presentationCompactAdaptation(.sheet)
-                .presentationDetents([.large])
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
     }
 
