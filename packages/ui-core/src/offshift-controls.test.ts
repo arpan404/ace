@@ -66,7 +66,10 @@ test("forward names unfinished steps before missing checks", () => {
 test("starting a run needs a goal, a criterion and how each is checked", () => {
   expect(startOperation({ goal: "  ", doneWhen: "", criteria: [] }, "r1").ok).toBe(false);
   expect(
-    startOperation({ goal: "Fix login", doneWhen: "", criteria: [{ description: "  ", kinds: ["ui"] }] }, "r1"),
+    startOperation(
+      { goal: "Fix login", doneWhen: "", criteria: [{ description: "  ", kinds: ["ui"] }] },
+      "r1",
+    ),
   ).toMatchObject({ ok: false, reason: "Add at least one criterion" });
   expect(
     startOperation(
@@ -93,7 +96,9 @@ test("starting a run needs a goal, a criterion and how each is checked", () => {
       runId: "person-abc",
       outcome: "Fix login",
       endpoint: "Reported in this thread",
-      criteria: [{ id: "c1", description: "Shows error", requiredKinds: ["ui"], independent: true }],
+      criteria: [
+        { id: "c1", description: "Shows error", requiredKinds: ["ui"], independent: true },
+      ],
       playbook: "fix",
     },
   });
@@ -101,7 +106,13 @@ test("starting a run needs a goal, a criterion and how each is checked", () => {
 
 test("a check needs words and carries the card's version and revision", () => {
   expect(
-    evidenceOperation(card(), { criterionId: "c1", kind: "ui", result: "pass", note: "  ", link: "" }),
+    evidenceOperation(card(), {
+      criterionId: "c1",
+      kind: "ui",
+      result: "pass",
+      note: "  ",
+      link: "",
+    }),
   ).toMatchObject({ ok: false, reason: "Say what you checked" });
   expect(
     evidenceOperation(card(), {
@@ -127,7 +138,11 @@ test("revising a criterion needs words and how it is checked", () => {
   expect(reviseOperation(card(), "c1", { description: "  ", kinds: ["ui"] }).ok).toBe(false);
   expect(reviseOperation(card(), "c1", { description: "Shows error", kinds: [] }).ok).toBe(false);
   expect(
-    reviseOperation(card(), "c1", { description: " Shows error ", kinds: ["ui"], independent: true }),
+    reviseOperation(card(), "c1", {
+      description: " Shows error ",
+      kinds: ["ui"],
+      independent: true,
+    }),
   ).toMatchObject({
     ok: true,
     op: {

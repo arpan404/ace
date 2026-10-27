@@ -133,8 +133,11 @@ export function startOperation(
 ): Drafted<Operation<"start">> {
   const goal = draft.goal.trim();
   if (!goal) return { ok: false, reason: "Add a goal" };
-  const criteria: { description: string; kinds: readonly OffshiftEvidenceKind[]; independent?: true }[] =
-    [];
+  const criteria: {
+    description: string;
+    kinds: readonly OffshiftEvidenceKind[];
+    independent?: true;
+  }[] = [];
   for (const item of draft.criteria) {
     const description = item.description.trim();
     if (!description) continue;
@@ -271,8 +274,7 @@ export function advanceOperation(
 export function resumeOperation(card: OffshiftRunCard, note: string): Drafted<Operation<"resume">> {
   const trimmed = note.trim();
   if (!trimmed) return { ok: false, reason: "Say how the blocker is resolved" };
-  if (trimmed.length > 4096)
-    return { ok: false, reason: "Keep each line under 4,096 characters" };
+  if (trimmed.length > 4096) return { ok: false, reason: "Keep each line under 4,096 characters" };
   return {
     ok: true,
     op: { action: "resume", runId: card.id, expectedVersion: card.version, note: trimmed },
@@ -282,8 +284,7 @@ export function resumeOperation(card: OffshiftRunCard, note: string): Drafted<Op
 /** End the run for good, with an optional note. */
 export function endOperation(card: OffshiftRunCard, note: string): Drafted<Operation<"end">> {
   const trimmed = note.trim();
-  if (trimmed.length > 4096)
-    return { ok: false, reason: "Keep each line under 4,096 characters" };
+  if (trimmed.length > 4096) return { ok: false, reason: "Keep each line under 4,096 characters" };
   const op = { action: "end" as const, runId: card.id, expectedVersion: card.version };
   return { ok: true, op: trimmed ? Object.assign(op, { note: trimmed }) : op };
 }
