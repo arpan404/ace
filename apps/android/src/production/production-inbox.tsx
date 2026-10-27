@@ -30,6 +30,10 @@ import {
   shouldShowInbox,
   type ProductionInboxEntry,
 } from "./production-inbox.ts";
+import {
+  canShowProductionInboxActions,
+  currentProductionInboxGrant,
+} from "./production-inbox-actions.ts";
 import type { ThreadDraftStore } from "../thread-drafts.ts";
 import type { ProductionStartup } from "../runtime/production-startup.ts";
 import {
@@ -174,7 +178,11 @@ export function ActiveMachineInbox({
     setOpenId(null);
   }
   const gatedOpenId = openIdForRoute(effectiveOpenId, route);
-  const canOperate = startup.canOperate(hostId);
+  // Fail-closed grant read through the shared helper: unknown hosts and
+  // throwing grants stay view-only. Re-read every render, so the 2s liveness
+  // tick bounds stale buttons after revocation; the tap itself re-checks.
+  const canOperate = currentProductionInboxGrant((host) => startup.canOperate(host), hostId);
+  const showActions = canShowProductionInboxActions(canOperate);
   const now = useNowTick(gatedOpenId === null);
   const inboxActions = useProductionInboxActions(startup);
 
@@ -314,7 +322,7 @@ export function ActiveMachineInbox({
         }}
       >
         <AceText role="rowTitle">Threads</AceText>
-        {canOperate ? null : (
+        {showActions ? null : (
           <Text style={{ ...textStyle("caption"), color: theme.colours.mutedForeground }}>
             View only
           </Text>
@@ -358,7 +366,7 @@ export function ActiveMachineInbox({
               machineId={hostId}
               now={now}
               open={setOpenId}
-              canAct={canOperate}
+              canAct={showActions}
               busy={inboxActions.isBusy(hostId, entry.id)}
               onAct={(kind, preset) => {
                 void inboxActions.act(hostId, kind, entry.id, preset).then((issue) => {

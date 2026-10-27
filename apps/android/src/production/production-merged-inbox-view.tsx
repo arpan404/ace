@@ -48,6 +48,7 @@ import {
   type InboxActionKind,
   type SnoozePresetId,
 } from "../inbox-actions.ts";
+import { currentProductionInboxGrant } from "./production-inbox-actions.ts";
 import {
   ProductionInboxActionBanner,
   ProductionInboxRowActions,
@@ -299,8 +300,14 @@ export function MergedMachineInbox({
   );
   const data: ProductionMergedEntry[] = useMemo(() => mergedEntriesFor(merged), [merged]);
   const showNames = showsMachineNames(paired.length);
-  const allViewOnly = paired.length > 0 && paired.every((hostId) => !startup.canOperate(hostId));
-  const inboxActions = useProductionInboxActions(startup);
+  const canOperateFor = (hostId: string): boolean =>
+    currentProductionInboxGrant((host) => startup.canOperate(host), hostId);
+  // Fail-closed grant read per host through the shared helper; re-read every
+  // render so the liveness tick below bounds stale buttons after revocation.
+  const allViewOnly = paired.length > 0 && paired.every((hostId) => !canOperateFor(hostId));
+  const inboxActions = useProductionInboxActions(startup, {
+    hostLabel: showNames ? (hostId) => machineLabelFor(hostId, names) : undefined,
+  });
   function retry(hostId: string): void {
     retryReading(startup, hostId);
     setRetryTicks((prev) => ({ ...prev, [hostId]: (prev[hostId] ?? 0) + 1 }));
@@ -399,7 +406,7 @@ export function MergedMachineInbox({
                   now={now}
                   machineName={showNames ? machineLabelFor(entry.machineId, names) : null}
                   open={setOpenKey}
-                  canAct={startup.canOperate(row.machineId)}
+                  canAct={canOperateFor(row.machineId)}
                   busy={inboxActions.isBusy(row.machineId, row.entry.id)}
                   onAct={(kind, preset) => {
                     void inboxActions

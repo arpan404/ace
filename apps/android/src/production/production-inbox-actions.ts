@@ -73,6 +73,34 @@ export function productionInboxRefusalCopy(error: string | undefined): string {
 }
 
 /**
+ * Prefix a failure with its host's display name when the view shows more
+ * than one machine. Single-machine views pass no label and keep the plain
+ * copy; merged views pass `machineLabelFor` so a refusal names its machine,
+ * like iOS prefixing when `showsMachineNames`. Never throws.
+ */
+export function withHostAttribution(
+  message: string,
+  hostId: string,
+  hostLabel?: ((hostId: string) => string | null) | undefined,
+): string {
+  let label: string | null = null;
+  try {
+    label = hostLabel?.(hostId) ?? null;
+  } catch {
+    label = null;
+  }
+  if (label === null || label === hostId) return message;
+  return `${label}: ${message}`;
+}
+
+/** Spoken label for the Undo toast; names which action it takes back. */
+export function inboxUndoAccessibilityLabel(undo: { kind: InboxActionKind }): string {
+  if (undo.kind === "archive") return "Undo archive";
+  if (undo.kind === "settle") return "Undo settle";
+  return "Undo";
+}
+
+/**
  * Admit one inbox action through a freshly resolved gate. The gate is local to
  * this call and discarded after: nothing is cached, so revocation, disconnect,
  * removal or replacement between renders still fails here, immediately before

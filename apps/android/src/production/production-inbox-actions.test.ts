@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { ThreadListEntry, type ThreadStatus } from "@ace/protocol";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import type { ExpoPinnedBridge } from "../security/expo-bridge.ts";
@@ -10,11 +10,25 @@ import { availableInboxActions, undoActionFor } from "../inbox-actions.ts";
 import {
   canShowProductionInboxActions,
   currentProductionInboxGrant,
+  inboxUndoAccessibilityLabel,
   productionInboxActionFailureCopy,
   productionInboxRefusalCopy,
   runProductionInboxAction,
   watchProductionInboxReceipt,
+  withHostAttribution,
 } from "./production-inbox-actions.ts";
+import {
+  armProductionInboxUndoForTests,
+  pendingProductionInboxFailuresForTests,
+  reportProductionInboxFailureForTests,
+  resetProductionInboxActionUiForTests,
+  snapshotProductionInboxActionUiForTests,
+} from "./production-inbox-actions-store.ts";
+
+afterEach(() => {
+  resetProductionInboxActionUiForTests();
+  vi.useRealTimers();
+});
 
 const PIN = "9f".repeat(32);
 const TOKEN = "e0".repeat(32);
@@ -370,4 +384,64 @@ it("watches a production receipt: acked stays silent, refused reports, dead hand
   } finally {
     await produced.disconnectAll();
   }
+});
+
+it("attributes failures to the host only when the merged view names machines", () => {
+  const raw = "This machine is not connected.";
+  expect(withHostAttribution(raw, "host-1", () => "Studio")).toBe(`Studio: ${raw}`);
+  expect(withHostAttribution(raw, "host-1", () => "host-1")).toBe(raw);
+  expect(withHostAttribution(raw, "host-1", () => null)).toBe(raw);
+  expect(withHostAttribution(raw, "host-1", undefined)).toBe(raw);
+  expect(
+    withHostAttribution(raw, "host-1", () => {
+      throw new Error("names dead");
+    }),
+  ).toBe(raw);
+});
+
+it("names the Undo toast by the action it takes back", () => {
+  expect(inboxUndoAccessibilityLabel({ kind: "archive" })).toBe("Undo archive");
+  expect(inboxUndoAccessibilityLabel({ kind: "settle" })).toBe("Undo settle");
+});
+
+it("queues a refusal behind a visible Undo instead of masking it", () => {
+  vi.useFakeTimers();
+  armProductionInboxUndoForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "archive",
+    commandId: "cmd-1",
+    label: "Thread archived",
+  });
+  reportProductionInboxFailureForTests({
+    hostId: "host-2",
+    threadId: THREAD,
+    kind: "settle",
+    message: "Studio: This change could not be applied.",
+  });
+  expect(snapshotProductionInboxActionUiForTests().failed).toBeNull();
+  expect(pendingProductionInboxFailuresForTests()).toHaveLength(1);
+  vi.advanceTimersByTime(5000);
+  expect(snapshotProductionInboxActionUiForTests().undo).toBeNull();
+  expect(snapshotProductionInboxActionUiForTests().failed?.message).toContain("Studio:");
+});
+
+it("survives a remount: Undo and queued failures live in the module store", () => {
+  armProductionInboxUndoForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "settle",
+    commandId: "cmd-2",
+    label: "Thread settled",
+  });
+  expect(snapshotProductionInboxActionUiForTests().undo?.commandId).toBe("cmd-2");
+  reportProductionInboxFailureForTests({
+    hostId: "host-1",
+    threadId: THREAD,
+    kind: "settle",
+    message: "This change could not be applied.",
+  });
+  // A remount re-reads the same module snapshot; nothing is lost.
+  expect(snapshotProductionInboxActionUiForTests().undo?.commandId).toBe("cmd-2");
+  expect(pendingProductionInboxFailuresForTests()).toHaveLength(1);
 });
