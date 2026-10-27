@@ -69,15 +69,16 @@ import XCTest
         let link = app.buttons["work.link"]
         app.reveal(link)
         link.tap()
-        let field = app.textFields["work.link.field"]
+        // A system alert's field keeps no identifier of its own.
+        let field = app.alerts.textFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.typeText("#77")
         screenshot("link")
-        app.buttons["work.link.submit"].tap()
+        app.buttons["work.link.submit"].firstMatch.tap()
         XCTAssertTrue(app.descendants(matching: .any)["work.pr.77"].waitForExistence(timeout: 15))
         screenshot("linked")
         app.buttons["work.unlink.31"].tap()
-        let confirm = app.buttons["work.unlink.confirm"]
+        let confirm = app.buttons["work.unlink.confirm"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         screenshot("unlink-confirm")
         confirm.tap()
