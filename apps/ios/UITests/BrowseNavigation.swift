@@ -24,7 +24,8 @@ extension XCUIApplication {
     func threadMenuItem(_ identifier: String) -> XCUIElement {
         let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
                       "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
-                      "thread.terminal": "Terminal", "thread.tools": "Skills and tools"]
+                      "thread.terminal": "Terminal", "thread.tools": "Skills and tools",
+                      "thread.reload": "Reload from machine"]
         return buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, labels[identifier] ?? identifier)).firstMatch
     }
     /// The inbox's New thread button, the round tab at the tab bar's trailing end.

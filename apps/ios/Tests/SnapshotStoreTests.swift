@@ -75,6 +75,23 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent("machine.sqlite")
     }
+    @Test func clearingGivesTheSpaceBack() throws {
+        let database = try temporaryDatabase()
+        defer { try? FileManager.default.removeItem(at: database.deletingLastPathComponent()) }
+        let store = try SnapshotStore(database: database, now: Clock().now)
+        let item = "{\"id\":\"a\",\"t\":\"\(String(repeating: "x", count: 500_000))\"}"
+        try put(store, "host/thread:t", ids: ["a"], body: "{}\n\(item)")
+        let full = try bytes(store)
+        _ = try store.perform("snapshot.clear")
+        let cleared = try bytes(store)
+        #expect(full > 500_000)
+        #expect(cleared < 64 * 1024)
+    }
+
+    private func bytes(_ store: SnapshotStore) throws -> Int {
+        let text = try store.perform("snapshot.size") ?? ""
+        return try #require(Int(text))
+    }
     private func put(_ store: SnapshotStore, _ key: String, ids: [String], removed: [String] = [], replace: Bool = false,
                      settled: Bool = false, body: String) throws {
         let input = try JSONSerialization.data(withJSONObject: ["key": key, "settled": settled, "ids": ids, "removed": removed, "replace": replace])

@@ -81,7 +81,7 @@ final class SnapshotStore {
                 try run("DELETE FROM items", [])
             }
             // Give the space back: the person cleared the cache to free it.
-            sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE); VACUUM;", nil, nil, nil)
+            sqlite3_exec(db, "VACUUM; PRAGMA wal_checkpoint(TRUNCATE);", nil, nil, nil)
             return ""
         case "snapshot.size":
             let files = [url.path, url.path + "-wal", url.path + "-shm"]
