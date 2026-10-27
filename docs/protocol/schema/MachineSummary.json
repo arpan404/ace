@@ -9,6 +9,9 @@
       ],
       "type": "string"
     },
+    "grants": {
+      "$ref": "https://ace.local/protocol/v1/MachineGrants.json"
+    },
     "machine": {
       "$ref": "https://ace.local/protocol/v1/MachineName.json"
     },

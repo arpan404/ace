@@ -150,6 +150,30 @@
         },
         {
           "properties": {
+            "devices": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/MachineDeviceGrants.json"
+              },
+              "maxItems": 1000,
+              "type": "array"
+            },
+            "kind": {
+              "const": "grants",
+              "type": "string"
+            },
+            "master": {
+              "$ref": "https://ace.local/protocol/v1/MachineAgentAccess.json"
+            }
+          },
+          "required": [
+            "kind",
+            "master",
+            "devices"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "count": {
               "maximum": 9007199254740991,
               "minimum": 0,

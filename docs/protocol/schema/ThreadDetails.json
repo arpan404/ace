@@ -61,6 +61,24 @@
       ],
       "type": "object"
     },
+    "guest": {
+      "properties": {
+        "host": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "name"
+      ],
+      "type": "object"
+    },
     "head": {
       "anyOf": [
         {
