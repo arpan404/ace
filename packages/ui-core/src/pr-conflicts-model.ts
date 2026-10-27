@@ -1,7 +1,12 @@
 import type { GitConflictHunk, GitConflictSegment } from "@ace/protocol";
+import { actionErrorText } from "./action-errors.ts";
 
-/** How one hunk is resolved: one side's lines, or text the person wrote. */
-export type HunkChoice = { kind: "ours" } | { kind: "theirs" } | { kind: "edit"; text: string };
+/** How one hunk is resolved: one side's lines, both (ours first), or text the person wrote. */
+export type HunkChoice =
+  | { kind: "ours" }
+  | { kind: "theirs" }
+  | { kind: "both" }
+  | { kind: "edit"; text: string };
 
 /** A hunk written back as Git left it, markers included, so it stays to resolve. */
 function unresolved(hunk: GitConflictHunk): string {
@@ -17,7 +22,9 @@ function unresolved(hunk: GitConflictHunk): string {
 }
 
 function chosen(hunk: GitConflictHunk, choice: HunkChoice): string {
-  return choice.kind === "ours" ? hunk.ours : choice.kind === "theirs" ? hunk.theirs : choice.text;
+  if (choice.kind === "ours") return hunk.ours;
+  if (choice.kind === "theirs") return hunk.theirs;
+  return choice.kind === "both" ? editDraft(hunk) : choice.text;
 }
 
 /**
@@ -65,4 +72,17 @@ export function conflictRequest(input: {
   headBranch: string;
 }): string {
   return `Resolve the merge conflicts in \`${input.path}\` in this checkout of PR #${input.number} (merging ${input.baseBranch} into ${input.headBranch}). Keep what both sides meant, remove every conflict marker, then \`git add\` the file. Don't commit or push: I'll finish the merge from the PR panel.`;
+}
+
+/** What a refused conflict step means here, where the checkout is a pull request's own. */
+export function conflictRefusalText(code: string | undefined, headBranch: string): string {
+  if (code === "git_push_rejected")
+    return `${headBranch} moved on GitHub since this checkout was made. Nothing was overwritten: bring its new commits into the checkout, then push again.`;
+  if (code === "git_dirty_worktree")
+    return "The checkout has uncommitted changes, or untracked files the merge would overwrite. Commit or move them first.";
+  if (code === "git_head_moved")
+    return "The checkout changed since it was read. Look again, then retry.";
+  if (code === "git_pr_head_unavailable")
+    return "This checkout doesn't hold this pull request. Check the pull request out here first.";
+  return actionErrorText(code ?? "action_outcome_uncertain");
 }

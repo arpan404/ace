@@ -13,7 +13,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge, writeFailure } from "@/lib/forge-read.ts";
 import { runCommand } from "@/lib/daemon-command.ts";
 import { useToast } from "@/components/ui/toast.tsx";
-import { checkRunId } from "./pr-check-model.ts";
+import { checkRunId } from "@ace/ui-core";
 
 /*
  * One check run, read only when the panel opens it. Its key names the PR (so the panel's

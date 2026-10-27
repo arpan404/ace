@@ -38,7 +38,7 @@ export function stackOperationLabel(operation: ForgeStackOperation): string {
 /** GitHub's pull request state for a layer. */
 export function layerStateLabel(state: string): string {
   return (
-    { OPEN: "Open", MERGED: "Merged", CLOSED: "Closed", DRAFT: "Draft" }[state] ?? humanize(state)
+    { OPEN: "Open", MERGED: "Merged", CLOSED: "Closed", DRAFT: "Draft" }[state] ?? stateWords(state)
   );
 }
 
@@ -54,11 +54,11 @@ export function mergeRulesLabel(mergeState: string): string {
       UNSTABLE: "Failing non-required checks",
       DRAFT: "Draft",
       UNKNOWN: "Merge rules unknown",
-    }[mergeState] ?? humanize(mergeState)
+    }[mergeState] ?? stateWords(mergeState)
   );
 }
 
-export type Signal = "good" | "pending" | "bad" | "unknown";
+export type StackSignal = "good" | "pending" | "bad" | "unknown";
 
 /** Check and status-context states that block a merge. */
 const failing = new Set([
@@ -92,7 +92,7 @@ export function layerMergeBlocker(layer: Pick<ForgeStackLayer, "mergeState" | "r
 
 /** The layer's checks signal: a failing required check outranks GitHub's rollup state. */
 export function layerChecksSignal(layer: Pick<ForgeStackLayer, "checksState" | "requiredChecks">): {
-  signal: Signal;
+  signal: StackSignal;
   label: string;
 } {
   const failed = failingRequiredChecks(layer);
@@ -106,24 +106,24 @@ export function layerChecksSignal(layer: Pick<ForgeStackLayer, "checksState" | "
 }
 
 export function checksSignal(state: ForgeStackLayer["checksState"]): {
-  signal: Signal;
+  signal: StackSignal;
   label: string;
 } {
   if (state === "SUCCESS") return { signal: "good", label: "Checks passing" };
   if (state === "PENDING" || state === "EXPECTED")
     return { signal: "pending", label: "Checks running" };
   if (state && failing.has(state)) return { signal: "bad", label: "Checks failing" };
-  return { signal: "unknown", label: state ? `Checks ${humanize(state)}` : "Checks unknown" };
+  return { signal: "unknown", label: state ? `Checks ${stateWords(state)}` : "Checks unknown" };
 }
 
 export function reviewSignal(decision: ForgeStackLayer["reviewDecision"]): {
-  signal: Signal;
+  signal: StackSignal;
   label: string;
 } {
   if (decision === "APPROVED") return { signal: "good", label: "Approved" };
   if (decision === "REVIEW_REQUIRED") return { signal: "pending", label: "Review required" };
   if (decision === "CHANGES_REQUESTED") return { signal: "bad", label: "Changes requested" };
-  return { signal: "unknown", label: decision ? humanize(decision) : "Review unknown" };
+  return { signal: "unknown", label: decision ? stateWords(decision) : "Review unknown" };
 }
 
 /** One required check's state: `SUCCESS` reads "passing", `PENDING` "running". */
@@ -134,7 +134,7 @@ export function checkStateLabel(state: string): string {
 }
 
 /** `SOME_STATE` → "Some state", for values GitHub adds later. */
-export function humanize(value: string): string {
+export function stateWords(value: string): string {
   const words = value.toLowerCase().replaceAll("_", " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }

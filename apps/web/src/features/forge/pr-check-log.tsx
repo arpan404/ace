@@ -5,7 +5,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
-import { nextMatch, searchLog } from "./pr-check-model.ts";
+import { nextMatch, searchLog } from "@ace/ui-core";
 
 /** Past this many lines only the rows near the viewport mount. */
 const windowAbove = 400;

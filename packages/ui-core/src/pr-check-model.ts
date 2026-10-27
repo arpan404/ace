@@ -92,3 +92,40 @@ export function checkFixRequest(
   parts.push("Find the cause and push a fix to the PR branch.");
   return parts.join("\n\n");
 }
+
+/** What can be done to one check from its page, decided once for every client. */
+export interface CheckControls {
+  /** Re-run only the workflow run's failed jobs: a finished run that failed or was cancelled. */
+  rerunFailed: boolean;
+  /** Re-run every job of a finished workflow run. */
+  rerunAll: boolean;
+  /** Stop a workflow run that is still going. */
+  cancel: boolean;
+  /** Hand the failure to an agent: an open PR's failing check. */
+  fix: boolean;
+}
+
+export function checkControls(
+  check: Pick<ForgeCheck, "status">,
+  run: Pick<ForgeCheckRun, "workflow"> | undefined,
+  prOpen: boolean,
+): CheckControls {
+  const workflow = run?.workflow ?? null;
+  const failed = check.status === "failure" || check.status === "cancelled";
+  return {
+    rerunFailed: workflow !== null && failed,
+    rerunAll: workflow !== null && check.status !== "pending",
+    cancel: workflow !== null && check.status === "pending",
+    fix: prOpen && check.status === "failure",
+  };
+}
+
+/** Why a workflow job shows no log, when it has none. */
+export function checkLogNote(
+  check: Pick<ForgeCheck, "status">,
+  run: Pick<ForgeCheckRun, "log" | "workflow" | "logUnavailable">,
+): string | undefined {
+  if (run.log || !run.workflow) return undefined;
+  if (check.status === "pending") return "The log shows once this job finishes.";
+  return run.logUnavailable ? "GitHub has no log for this job any more." : undefined;
+}

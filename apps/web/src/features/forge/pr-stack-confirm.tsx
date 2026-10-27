@@ -1,13 +1,9 @@
-import type { ForgeStackExpected, ForgeStackMovedLayer, ForgeStackOperation } from "@ace/protocol";
+import type { ForgeStackMovedLayer } from "@ace/protocol";
+import type { StackConfirmation } from "@ace/ui-core";
 import type { StackPublishUpdate } from "@ace/forge/stack-publish";
 import { Button } from "@/components/ui/button.tsx";
 
-export type StackConfirmation = {
-  action: ForgeStackOperation["action"];
-  method: "merge" | "squash" | "rebase";
-  expected: ForgeStackExpected;
-  numbers: number[];
-};
+export type { StackConfirmation } from "@ace/ui-core";
 
 const numbered = (numbers: readonly number[]) => numbers.map((number) => `#${number}`).join(", ");
 
