@@ -22,6 +22,9 @@ struct InboxRowActions {
 }
 
 /// What the list holds, in order: which rows are in which group, and which shelves are open.
+/// Equal, for the animation, when nothing moved or when the whole list was replaced (the first
+/// rows, or the live list taking over from the saved one): those arrive at once, never as a
+/// crossfade of every row over itself.
 private struct Membership: Equatable {
     let keys: [String]
     let rows: [[InboxKey]]
@@ -30,6 +33,15 @@ private struct Membership: Equatable {
         keys = sections.map(\.key)
         rows = sections.map(\.rows)
         self.shelves = shelves
+    }
+    /// More rows than this joining or leaving at once is a replacement, not a move.
+    static let animatedChange = 8
+    static func == (lhs: Membership, rhs: Membership) -> Bool {
+        if lhs.keys == rhs.keys && lhs.rows == rhs.rows && lhs.shelves == rhs.shelves { return true }
+        if lhs.shelves != rhs.shelves { return false }
+        let old = Set(lhs.rows.joined()), new = Set(rhs.rows.joined())
+        if old.isEmpty || new.isEmpty { return true }
+        return old.symmetricDifference(new).count > animatedChange
     }
 }
 
@@ -295,15 +307,11 @@ private struct InboxThreadCell: View {
         let canSettle = canOperate && !settled && row.state != "working"
         let label = InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.mark(key.machineId),
                                    project: inbox.projectLook(key, workspace: row.workspaceId))
-        return Group {
-            if selecting {
-                // The list picks the row; a button would open it instead.
-                label.contentShape(Rectangle())
-            } else {
-                Button { actions.open(key) } label: { label }
-                    .buttonStyle(RowPressStyle(selected: open == key))
-            }
-        }
+        // One view in both modes, so entering Select mode only slides the check circles in: in
+        // it the list picks the row, and the button underneath takes no taps.
+        return Button { actions.open(key) } label: { label }
+            .buttonStyle(RowPressStyle(selected: open == key))
+            .allowsHitTesting(!selecting)
         .accessibilityAddTraits(open == key ? .isSelected : [])
         .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
         .inboxRowChrome()

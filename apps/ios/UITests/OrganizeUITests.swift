@@ -23,9 +23,15 @@ import XCTest
         XCTAssertTrue(app.buttons["Delete thread"].exists)
         XCTAssertTrue(app.buttons["Select"].exists)
         screenshot("row-menu")
+        // The fixture keeps what earlier runs did: mark it read first if it is unread.
+        if app.buttons["Mark read"].exists {
+            app.buttons["Mark read"].tap()
+            wait(for: [expectation(for: NSPredicate(format: "NOT (label CONTAINS 'Done')"), evaluatedWith: done)], timeout: 10)
+            done.press(forDuration: 1.2)
+        }
         // Mark unread: the finished row says Done again.
         let unread = app.buttons["Mark unread"]
-        XCTAssertTrue(unread.exists)
+        XCTAssertTrue(unread.waitForExistence(timeout: 5))
         unread.tap()
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         let saysDone = NSPredicate(format: "label CONTAINS 'Done'")
@@ -86,7 +92,8 @@ import XCTest
         // Both come back with one Undo.
         for title in picked {
             let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
-            XCTAssertTrue(row.waitForExistence(timeout: 15), title)
+            app.bringToMiddle(row)
+            XCTAssertTrue(row.exists, title)
         }
     }
 
