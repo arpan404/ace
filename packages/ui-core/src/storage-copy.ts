@@ -39,11 +39,5 @@ export const storageReasons: Record<StorageReason, string> = {
   cleanup_in_progress: "Another operation owns cleanup",
   owner_unavailable: "Ownership could not be verified",
 };
-export function storageBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-}
 
 export const itemCount = (count: number) => `${count} ${count === 1 ? "item" : "items"}`;

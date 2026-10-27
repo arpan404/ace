@@ -12,7 +12,8 @@ import {
 import { StorageRetentionControls } from "./storage-retention.tsx";
 import { DataRetentionSettings } from "./data-retention.tsx";
 import { StorageCompactAction, StoragePlanPreview } from "./storage-plan.tsx";
-import { itemCount, storageBytes, storageLabels } from "@ace/ui-core/host-care";
+import { itemCount, storageLabels } from "@ace/ui-core/host-care";
+import { formatBytes } from "@ace/ui-core/byte-size";
 import { FailedBackups, WorktreeStorageSettings } from "./worktree-storage.tsx";
 import { StorageRetention } from "@ace/protocol";
 
@@ -124,17 +125,17 @@ export function StorageSettings() {
                 inline
               >
                 <span className="text-sm tabular-nums text-muted-foreground">
-                  {storageBytes(category.bytes)}
+                  {formatBytes(category.bytes)}
                 </span>
               </SettingRow>
             ))}
             <SettingRow
               title="Transcript database"
-              description={`${storageBytes(usage.data.reclaimableDatabaseBytes)} can be reclaimed by compacting.`}
+              description={`${formatBytes(usage.data.reclaimableDatabaseBytes)} can be reclaimed by compacting.`}
               inline
             >
               <span className="text-sm tabular-nums text-muted-foreground">
-                {storageBytes(usage.data.databaseBytes)}
+                {formatBytes(usage.data.databaseBytes)}
               </span>
             </SettingRow>
             {/* Compaction gives those unused pages back; it sits beside the size it changes. */}

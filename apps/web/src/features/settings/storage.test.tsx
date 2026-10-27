@@ -60,12 +60,12 @@ test("storage shows protected data and waits for confirmation before removing re
 test("compacting the database reports the freed bytes and refreshes usage", async () => {
   const app = harness({ clock: () => 200 * 86400000 });
   app.daemon.seedServices({
-    storageDatabase: { bytes: 10 * 1024 ** 2, reclaimable: 4 * 1024 ** 2 },
+    storageDatabase: { bytes: 10_000_000, reclaimable: 4_000_000 },
   });
   await app.open("/settings/storage");
-  expect(await screen.findByText("10.0 MB")).toBeTruthy();
+  expect(await screen.findByText("10 MB")).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Compact database" }));
-  expect(await screen.findByText("Compacted from 10.0 MB to 6.0 MB.")).toBeTruthy();
+  expect(await screen.findByText("Compacted from 10 MB to 6.0 MB.")).toBeTruthy();
   expect(await screen.findByText("6.0 MB")).toBeTruthy();
   expect(screen.getByText("0 B can be reclaimed by compacting.")).toBeTruthy();
 });
@@ -77,8 +77,8 @@ test("worktree settings and storage usage belong to the selected daemon", async 
   });
   const remote = app.machines.get("build");
   if (!remote) throw new Error("Missing build server");
-  app.daemon.seedServices({ storageDatabase: { bytes: 2 * 1024 ** 2, reclaimable: 0 } });
-  remote.seedServices({ storageDatabase: { bytes: 3 * 1024 ** 2, reclaimable: 0 } });
+  app.daemon.seedServices({ storageDatabase: { bytes: 2_000_000, reclaimable: 0 } });
+  remote.seedServices({ storageDatabase: { bytes: 3_000_000, reclaimable: 0 } });
   await app.open("/settings/storage");
   expect(await screen.findByText("2.0 MB")).toBeTruthy();
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));

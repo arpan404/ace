@@ -91,7 +91,7 @@ const logs = [
     id: "old-log",
     kind: "logs" as const,
     label: "logs/ace.1.jsonl",
-    bytes: 1024,
+    bytes: 1000,
     modifiedAt: 1,
     threadIds: [],
     fingerprint: "old",
@@ -102,7 +102,7 @@ const logs = [
     id: "live-log",
     kind: "logs" as const,
     label: "logs/ace.jsonl",
-    bytes: 2048,
+    bytes: 2000,
     modifiedAt: 1,
     threadIds: [],
     fingerprint: "live",
@@ -115,14 +115,14 @@ test("storage reads its usage in words and a cleanup names what goes before remo
   const fixture = daemon();
   fixture.seedServices({
     storageItems: logs,
-    storageDatabase: { bytes: 4 * 1024 ** 2, reclaimable: 1024 ** 2 },
+    storageDatabase: { bytes: 4_000_000, reclaimable: 1_000_000 },
   });
   const { services, sink } = await phone(fixture);
   const page = await call(services, sink, { type: "host.storage" });
   expect(page.ok).toBe(true);
   expect(page.value.usage).toMatchObject({
     rows: expect.arrayContaining([
-      { kind: "logs", title: "Logs and support bundles", detail: "2 items", size: "3.0 KB" },
+      { kind: "logs", title: "Logs and support bundles", detail: "2 items", size: "3 KB" },
     ]),
     database: { size: "4.0 MB", detail: "1.0 MB can be reclaimed by compacting." },
   });
@@ -139,7 +139,7 @@ test("storage reads its usage in words and a cleanup names what goes before remo
     action: string;
     confirm: { title: string; message: string };
   };
-  expect(plan.summary).toBe("1 item to remove · 1.0 KB of data. 1 protected.");
+  expect(plan.summary).toBe("1 item to remove · 1 KB of data. 1 protected.");
   expect(plan.items.find((item) => item.id === "live-log")).toMatchObject({
     removes: false,
     line: "Keep · Currently in use",
@@ -147,7 +147,7 @@ test("storage reads its usage in words and a cleanup names what goes before remo
   expect(plan.action).toBe("Remove 1 item");
   expect(plan.confirm.title).toBe("Remove 1 item?");
   expect(plan.confirm.message).toMatch(
-    /^Logs and support bundles: 1, 1\.0 KB in all, will be permanently removed\./,
+    /^Logs and support bundles: 1, 1 KB in all, will be permanently removed\./,
   );
 
   const applied = await call(services, sink, { type: "host.storage.apply", planId: plan.id });

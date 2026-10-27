@@ -10,7 +10,8 @@ import {
   type StorageRequest,
   type StorageUsage,
 } from "@ace/protocol";
-import { itemCount, storageBytes, storageLabels, storageReasons } from "@ace/ui-core/host-care";
+import { itemCount, storageLabels, storageReasons } from "@ace/ui-core/host-care";
+import { formatBytes } from "@ace/ui-core/byte-size";
 import { z } from "zod";
 import { host } from "./host.ts";
 import { HostProblem } from "./host-problem.ts";
@@ -98,11 +99,11 @@ export function usageView(usage: StorageUsage): StorageUsageView {
       kind: category.kind,
       title: storageLabels[category.kind],
       detail: itemCount(category.items),
-      size: storageBytes(category.bytes),
+      size: formatBytes(category.bytes),
     })),
     database: {
-      size: storageBytes(usage.databaseBytes),
-      detail: `${storageBytes(usage.reclaimableDatabaseBytes)} can be reclaimed by compacting.`,
+      size: formatBytes(usage.databaseBytes),
+      detail: `${formatBytes(usage.reclaimableDatabaseBytes)} can be reclaimed by compacting.`,
     },
     partial: usage.complete ? null : "Measured in a bounded batch; refresh for more.",
     backups: failed.length
@@ -135,14 +136,14 @@ export function planView(plan: StoragePlan, applied?: StorageApply): StoragePlan
     id: plan.id,
     title: worktrees ? "Worktree deletion preview" : "Cleanup preview",
     summary: plan.items.length
-      ? `${itemCount(remove.length)} to remove · ${storageBytes(plan.bytes)} of data. ${kept} protected.${plan.complete ? "" : " This is a bounded batch. Preview again after cleanup to find more data."}`
+      ? `${itemCount(remove.length)} to remove · ${formatBytes(plan.bytes)} of data. ${kept} protected.${plan.complete ? "" : " This is a bounded batch. Preview again after cleanup to find more data."}`
       : "Nothing to clean up. No data was found in these storage categories.",
     items: plan.items.map((item) => {
       const result = applied?.items.find((entry) => entry.id === item.id);
       return {
         id: item.id,
         label: item.label,
-        size: storageBytes(item.bytes),
+        size: formatBytes(item.bytes),
         removes: item.disposition === "remove",
         line: [
           item.disposition === "remove" ? "Remove" : "Keep",
@@ -178,7 +179,7 @@ export function planView(plan: StoragePlan, applied?: StorageApply): StoragePlan
         ? null
         : {
             title: `Remove ${itemCount(remove.length)}?`,
-            message: `${goes.join(", ")}, ${storageBytes(plan.bytes)} in all, will be permanently removed. ace checks the plan again and keeps anything that has changed or is protected.`,
+            message: `${goes.join(", ")}, ${formatBytes(plan.bytes)} in all, will be permanently removed. ace checks the plan again and keeps anything that has changed or is protected.`,
             button: "Remove items",
           },
     outcome:
@@ -194,7 +195,7 @@ export function compactionLine(result: StorageCompaction): string {
   if (result.incrementalUnavailable)
     return "This database was created before compaction was available and can't shrink in place.";
   if (result.state === "complete")
-    return `Compacted from ${storageBytes(result.databaseBytesBefore)} to ${storageBytes(result.databaseBytes)}.`;
+    return `Compacted from ${formatBytes(result.databaseBytesBefore)} to ${formatBytes(result.databaseBytes)}.`;
   return result.state === "pending"
     ? "Compaction paused. Resume to continue."
     : "Compaction stopped.";
