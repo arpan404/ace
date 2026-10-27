@@ -40,25 +40,20 @@ struct ThreadToolbar: ToolbarContent {
     let menu: ThreadMenu
     /// Opens the thread's Work sheet from the "project · branch" line.
     let openWork: () -> Void
-    /// Starts a new thread from the open one, beside ⋯; nil where no machine can start threads.
-    var newThread: (() -> Void)? = nil
     /// Nil where the panel has no room: a phone, a narrow window.
     var panel: PanelToggle? = nil
 
     private var headingWidth: CGFloat {
         max(0, min(AceTheme.Dimensions.touchTarget * 5,
-                   pageWidth - 4 * AceTheme.Dimensions.touchTarget - 2 * AceTheme.Spacing.lg))
+                   pageWidth - (panel == nil ? 2 : 4) * AceTheme.Dimensions.touchTarget - 2 * AceTheme.Spacing.lg))
     }
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
             ToolbarItem(placement: .principal) { heading }.sharedBackgroundVisibility(.hidden)
-            // New thread and ⋯ share one glass capsule across from the system's back button.
-            if let newThread { ToolbarItem(placement: .topBarTrailing) { NewThreadButton(action: newThread) } }
             ToolbarItem(placement: .topBarTrailing) { EquatableView(content: menu) }
         } else {
             ToolbarItem(placement: .principal) { heading }
-            if let newThread { ToolbarItem(placement: .topBarTrailing) { NewThreadButton(action: newThread) } }
             ToolbarItem(placement: .topBarTrailing) { EquatableView(content: menu) }
         }
         if let panel {
@@ -148,9 +143,9 @@ struct ThreadMenu: View, Equatable {
         Button {
             showing = true
         } label: {
-            AceIcon(.dotsThree, size: 20)
+            AceIcon(.dotsThree, size: AceTheme.Spacing.lg)
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+                .frame(width: AceTheme.Spacing.xxl, height: AceTheme.Spacing.xxl)
                 .contentShape(Rectangle())
         }
         // On the menu itself: a label on its icon leaves the button VoiceOver reads unnamed.
@@ -181,21 +176,4 @@ extension View {
             navigationTitle(title)
         }
     }
-}
-
-/// Starts a new thread from the open one, in the thread's own bar beside ⋯.
-private struct NewThreadButton: View {
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) { Image(systemName: "square.and.pencil") }
-            .accessibilityLabel("New thread")
-            .accessibilityIdentifier("thread.newThread")
-    }
-}
-
-extension EnvironmentValues {
-    /// Presents New thread from the open thread. A binding keeps the environment stable across
-    /// toolbar layout passes; a newly captured callback here feeds back into toolbar resolution.
-    /// Nil where no machine can start a thread.
-    @Entry var newThreadPresentation: Binding<Bool>? = nil
 }
