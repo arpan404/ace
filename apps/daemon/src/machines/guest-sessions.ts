@@ -10,7 +10,7 @@ import {
   type MachineCapability,
   type WorkspaceId,
 } from "@ace/protocol";
-import { agentOwner } from "@ace/devices";
+import { agentOwner } from "@ace/devices/tools";
 import type { Store } from "../store.ts";
 import type { Engine } from "../engine/index.ts";
 import { clip } from "../agent-control/watch-view.ts";
