@@ -20,6 +20,9 @@ import XCTest
         XCTAssertTrue(coverage.waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["usage.machine"].exists)
         XCTAssertTrue(app.buttons["usage.refresh"].exists)
+        // Slim capsules, but every filter and Refresh still takes a 44pt tap.
+        XCTAssertGreaterThanOrEqual(app.buttons["usage.machine"].frame.height, 44)
+        XCTAssertGreaterThanOrEqual(app.buttons["usage.refresh"].frame.height, 44)
         XCTAssertTrue(waitFor(coverage, label: "All 2 machines"))
         // Each account sits under the machine it was read on.
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "studio-9921")).firstMatch.waitForExistence(timeout: 20))

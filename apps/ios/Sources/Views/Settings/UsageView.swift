@@ -95,12 +95,15 @@ struct UsageView: View {
                     providerMenu(providers)
                 }
                 Spacer(minLength: AceTheme.Spacing.sm)
-                Button(refreshing ? "Refreshing…" : "Refresh") { Task { await refresh() } }
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                    .frame(minHeight: 44).contentShape(Rectangle())
-                    .disabled(refreshing)
-                    .accessibilityHint("Asks each machine for current limits and reads usage again")
-                    .accessibilityIdentifier("usage.refresh")
+                Button { Task { await refresh() } } label: {
+                    Text(refreshing ? "Refreshing…" : "Refresh")
+                        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                        .padding(.horizontal, AceTheme.Spacing.xs)
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .disabled(refreshing)
+                .accessibilityHint("Asks each machine for current limits and reads usage again")
+                .accessibilityIdentifier("usage.refresh")
             }
             if inbox.sessions.count > 1 { coverageLine }
         }
@@ -131,12 +134,9 @@ struct UsageView: View {
             }
         } label: {
             Text(scope.isEmpty ? "All machines" : inbox.name(scope))
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                .lineLimit(1)
-                .frame(minHeight: 30)
+                .usageCapsule()
         }
-        .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
-        .frame(minHeight: 44)
+        .buttonStyle(.plain)
         .accessibilityLabel("Machine")
         .accessibilityIdentifier("usage.machine")
         .onChange(of: scope) {
@@ -153,12 +153,9 @@ struct UsageView: View {
             }
         } label: {
             Text(providers.first { $0.id == provider }?.name ?? "All providers")
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                .lineLimit(1)
-                .frame(minHeight: 30)
+                .usageCapsule()
         }
-        .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
-        .frame(minHeight: 44)
+        .buttonStyle(.plain)
         .accessibilityLabel("Provider")
         .accessibilityIdentifier("usage.provider")
     }
@@ -257,6 +254,26 @@ struct UsageView: View {
         await readLimits(fresh: true, refresh: false)
         return reply.words
     }
+}
+
+/// A filter menu's label: a slim capsule at the segmented controls' height, inside a 44pt tap
+/// area, so it reads as light as the controls above it and is still easy to hit.
+private struct UsageCapsule: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+            .lineLimit(1)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .padding(.horizontal, AceTheme.Spacing.md)
+            .frame(minHeight: 32)
+            .background(.fill.tertiary, in: Capsule())
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+    }
+}
+
+private extension View {
+    func usageCapsule() -> some View { modifier(UsageCapsule()) }
 }
 
 /// The last combined answers this run drew, by scope, so reopening Usage or switching back to a
