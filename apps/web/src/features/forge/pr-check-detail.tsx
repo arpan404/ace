@@ -25,7 +25,13 @@ import { cn } from "@/lib/cn.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
 import { PrMarkdown } from "./pr-markdown.tsx";
 import { PrCheckLog } from "./pr-check-log.tsx";
-import { checkFixRequest, checkRunId, fileAnnotation } from "./pr-check-model.ts";
+import {
+  checkControls,
+  checkFixRequest,
+  checkLogNote,
+  checkRunId,
+  fileAnnotation,
+} from "@ace/ui-core";
 import { useCheckRerun, useCheckRun } from "./pr-check-run.ts";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
 import { readFailureText } from "./query-state.tsx";
@@ -137,12 +143,6 @@ function Output(props: {
   );
 }
 
-function logNote(check: ForgeCheck, run: ForgeCheckRun): string | undefined {
-  if (run.log || !run.workflow) return undefined;
-  if (check.status === "pending") return "The log shows once this job finishes.";
-  return run.logUnavailable ? "GitHub has no log for this job any more." : undefined;
-}
-
 /**
  * One check opened in place: its re-runs and "Fix with agent", its annotations, and its log
  * opened at the failing step, or for another app's check what that app reported. GitHub is
@@ -207,7 +207,7 @@ export function PrCheckDetail(props: {
     );
   const run = query.data;
   const open = detail.status.state === "open" || detail.status.state === "draft";
-  const failed = check.status === "failure" || check.status === "cancelled";
+  const controls = checkControls(check, run, open);
   const workflow = run.workflow;
   const reason = context.disabled ? "Wait for GitHub to refresh" : undefined;
   const blank =
@@ -216,11 +216,11 @@ export function PrCheckDetail(props: {
     !run.output.title &&
     !run.output.summary &&
     !run.output.text;
-  const note = logNote(check, run);
+  const note = checkLogNote(check, run);
   return (
     <div className="space-y-2 py-1 pl-6">
       <div className="flex flex-wrap items-center gap-1.5">
-        {workflow && failed && (
+        {workflow && controls.rerunFailed && (
           <DisabledReason reason={reason}>
             <Button
               size="xs"
@@ -238,7 +238,7 @@ export function PrCheckDetail(props: {
             </Button>
           </DisabledReason>
         )}
-        {workflow && check.status !== "pending" && (
+        {workflow && controls.rerunAll && (
           <DisabledReason reason={reason}>
             <Button
               size="xs"
@@ -257,7 +257,20 @@ export function PrCheckDetail(props: {
             </Button>
           </DisabledReason>
         )}
-        {open && check.status === "failure" && (
+        {workflow && controls.cancel && (
+          <DisabledReason reason={reason}>
+            <Button
+              size="xs"
+              variant="ghost"
+              className="text-status-failed"
+              disabled={rerun.pending || context.disabled}
+              onClick={() => void rerun.run({ kind: "cancel", runId: workflow.runId })}
+            >
+              Cancel run
+            </Button>
+          </DisabledReason>
+        )}
+        {controls.fix && (
           <Button
             size="xs"
             variant="ghost"

@@ -28,6 +28,7 @@ import { catalogIssueList, matchingIssues } from "./forge-list-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
 import { FakeConflicts } from "./conflict-wire.ts";
+import { FakePrWork } from "./pr-work-wire.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 const emptyDiff = { files: 0, additions: 0, deletions: 0 };
 
@@ -52,6 +53,10 @@ export type FakeWorkspaceControls = Pick<
   | "checkReruns"
   | "git"
   | "conflicts"
+  | "prWork"
+  | "linkPullRequest"
+  | "patchPullRequest"
+  | "worktrees"
   | "failMoves"
   | "setDetails"
 >;
@@ -64,6 +69,10 @@ export class FakeWorkspaceWire {
   readonly checkReruns: ForgeCheckAction[] = [];
   /** Merge conflicts in PR checkouts (`git.conflicts`). */
   readonly conflicts = new FakeConflicts();
+  /** Pull requests' stacks and check runs (`forge.pr.stack`, `forge.pr.check`). */
+  readonly prWork = new FakePrWork();
+  /** Every `forge.pr.worktree` checkout asked for, oldest first. */
+  readonly worktrees: Extract<CommandPayload, { type: "forge.pr.worktree" }>[] = [];
   private moveFailure: string | undefined;
   /** Every checkout move fails with `error` (its change kept as failed), or none does. */
   failMoves(error: string | undefined): void {
@@ -114,6 +123,20 @@ export class FakeWorkspaceWire {
     review: Parameters<FakePrCatalog["submitReview"]>[1],
   ): void {
     this.pullRequests.submitReview(number, review);
+  }
+  /** Change catalog PR `number` as GitHub would have, for every later read. */
+  patchPullRequest(number: number, change: Parameters<FakePrCatalog["patch"]>[1]): void {
+    this.pullRequests.patch(number, change);
+  }
+  /** Catalog PR `number` names `thread` among the threads working on it. */
+  linkPullRequest(number: number, thread: { id: ThreadId; title: string }): void {
+    this.pullRequests.patch(number, (fixture) => ({
+      ...fixture,
+      detail: {
+        ...fixture.detail,
+        relatedThreads: [...fixture.detail.relatedThreads, { ...thread, archived: false }],
+      },
+    }));
   }
   /** Mark a catalog PR merged, as a Verify merge run does on GitHub. */
   mergePullRequest(number: number): void {
@@ -342,7 +365,8 @@ export class FakeWorkspaceWire {
     }
     const catalogued = this.forgeReads.has(JSON.stringify(op))
       ? undefined
-      : (this.pullRequests.peopleRead(op, (state) =>
+      : (this.prWork.read(op) ??
+        this.pullRequests.peopleRead(op, (state) =>
           "workspaceId" in op
             ? (matchingIssues(op, ForgeIssueSearch.parse({ state }), this.forgeReads) ?? [])
             : [],
@@ -461,8 +485,12 @@ export class FakeWorkspaceWire {
     }
     if (payload.type === "forge.hosted.checks") {
       this.checkReruns.push(payload.action);
+      this.pullRequests.restateChecks(payload.pr.number, this.prWork.checks(payload).moved);
       return { ok: true };
     }
+    if (payload.type === "forge.pr.worktree") return this.checkOut(payload);
+    const stack = this.prWork.command(payload);
+    if (stack) return stack;
     const merged =
       this.pullRequests.merge(payload) ??
       this.pullRequests.mergeState(payload) ??
@@ -645,6 +673,42 @@ export class FakeWorkspaceWire {
     if (payload.type === "git.lock.clear")
       return thread ? { ok: true, locksCleared: 1 } : { ok: false, error: "thread_not_found" };
     return undefined;
+  }
+  /** A thread's checkout becomes the pull request's head, as `forge.pr.worktree` leaves it. */
+  private checkOut(
+    payload: Extract<CommandPayload, { type: "forge.pr.worktree" }>,
+  ): Omit<CommandResult, "commandId"> {
+    this.worktrees.push(payload);
+    const view = this.context.thread(payload.threadId);
+    if (!view) return { ok: false, error: "thread_not_found" };
+    const detail = this.pullRequests.detailOf(payload.pullRequest.ref.number);
+    if (!detail) return { ok: false, error: "forge_not_found" };
+    if (detail.status.headSha !== payload.pullRequest.headSha)
+      return { ok: false, error: "forge_conflict" };
+    const details = view.thread.details ?? {};
+    this.context.update(payload.threadId, {
+      type: "thread.client.updated",
+      changes: {
+        details: {
+          ...details,
+          mode: "worktree",
+          branch: detail.headBranch,
+          head: detail.status.headSha,
+          worktree: `/fake/worktrees/${payload.threadId}`,
+          pullRequestWorkspace: {
+            ref: detail.status.ref,
+            headSha: detail.status.headSha,
+            baseSha: detail.baseSha,
+            headBranch: detail.headBranch,
+            baseBranch: detail.baseBranch,
+            headRepository: detail.headRepository ?? null,
+            context: "",
+            contextTruncated: false,
+          },
+        },
+      },
+    });
+    return { ok: true, threadId: payload.threadId };
   }
   descriptor(id: string, threadId: ThreadId) {
     const terminal = this.terminals.list(threadId).find((entry) => entry.id === id);

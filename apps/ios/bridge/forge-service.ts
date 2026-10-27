@@ -33,6 +33,19 @@ import {
   writeManage,
 } from "./forge-manage.ts";
 import {
+  ForgeChecksRequest,
+  readCheck,
+  readCheckLog,
+  readChecks,
+  readLocalLog,
+  writeChecks,
+  writeLocal,
+} from "./forge-checks.ts";
+import { LogPages } from "./forge-log-pages.ts";
+import { ForgeConflictsRequest, readPullConflicts, writeConflicts } from "./forge-conflicts.ts";
+import { ForgeStackRequest, readStack, writeStack } from "./forge-stack.ts";
+import { ForgeWorktreeRequest, readWork, writeWorktree } from "./forge-worktree.ts";
+import {
   createPr,
   ForgeNewPrCompareRequest,
   ForgeNewPrContextRequest,
@@ -70,6 +83,10 @@ export const ForgeRequest = z.intersection(
     ForgeNewPrCreateRequest,
     ForgeIssueCommentRequest,
     ForgeIssueReconcileRequest,
+    ForgeChecksRequest,
+    ForgeConflictsRequest,
+    ForgeStackRequest,
+    ForgeWorktreeRequest,
   ]),
   z.object({ fresh: z.boolean().default(false) }),
 );
@@ -90,6 +107,8 @@ export class ForgeService {
   #cache = new Map<string, ForgeMemory>();
   /** Comment bodies as last shown, which an edit or delete expects to replace. */
   #shown: ShownBodies = new Map();
+  /** Check logs split into lines, read by the page a page at a time. */
+  #logs = new LogPages();
 
   /**
    * `stamp` is the kept forge reads' stamp (`NativeReads.stamp`), so both memories agree;
@@ -173,6 +192,30 @@ export class ForgeService {
           return await writeInbox(this.#owner, reads, request);
         case "forge.review":
           return await writeReview(this.#owner, reads, request, this.#shown, this.#newId);
+        case "forge.pull.checks":
+          return await readChecks(this.#owner, reads, request, this.#preview);
+        case "forge.pull.check":
+          return await readCheck(reads, this.#logs, request, this.#preview);
+        case "forge.pull.check.log":
+          return await readCheckLog(reads, this.#logs, request);
+        case "forge.local.log":
+          return await readLocalLog(this.#owner, this.#logs, request);
+        case "forge.checks.write":
+          return await writeChecks(this.#owner, reads, request);
+        case "forge.local.write":
+          return await writeLocal(this.#owner, reads, request);
+        case "forge.pull.conflicts":
+          return await readPullConflicts(this.#owner, reads, request, this.#preview);
+        case "forge.conflicts":
+          return await writeConflicts(this.#owner, reads, request);
+        case "forge.pull.stack":
+          return await readStack(reads, request, this.#preview);
+        case "forge.stack":
+          return await writeStack(this.#owner, reads, request);
+        case "forge.pull.work":
+          return await readWork(this.#owner, reads, request, this.#preview);
+        case "forge.worktree":
+          return await writeWorktree(this.#owner, reads, request);
       }
     } catch (error) {
       const code =

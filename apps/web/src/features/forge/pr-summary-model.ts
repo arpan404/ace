@@ -1,5 +1,5 @@
 import type { ForgeComment, ForgePrStatus } from "@ace/protocol";
-import { checkFixRequest } from "./pr-check-model.ts";
+import { checkFixRequest } from "@ace/ui-core";
 
 /*
  * What the Summary tab lists, worked out from the PR detail without rendering: each reviewer's

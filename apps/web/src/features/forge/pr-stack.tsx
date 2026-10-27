@@ -2,19 +2,19 @@ import { useState } from "react";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { ForgePrDetail, ForgeStackMovedLayer, ForgeStackOperation } from "@ace/protocol";
-import { canPublishStack, matchesLocalStack, matchesStackBranches } from "@ace/forge/stack-plan";
-import { canPublishAfter, stackPublishUpdates } from "@ace/forge/stack-publish";
+import { stackPublishUpdates } from "@ace/forge/stack-publish";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
-import { actionErrorText } from "@ace/ui-core";
+import { actionErrorText, stackConfirmation, stackControls } from "@ace/ui-core";
 import { usePrStackQuery } from "./pr-stack-query.ts";
 import { QueryState } from "./query-state.tsx";
 import { StackRail } from "./pr-stack-rail.tsx";
-import { StackConfirm, type StackConfirmation } from "./pr-stack-confirm.tsx";
-import { stackOperationLabel } from "./pr-stack-labels.ts";
+import { StackConfirm } from "./pr-stack-confirm.tsx";
+import type { StackConfirmation } from "@ace/ui-core";
+import { stackOperationLabel } from "@ace/ui-core";
 
 /** One action in the stack toolbar; while disabled its reason is a hover/focus tip. */
 function StackAction(props: { reason: string | undefined; onClick(): void; children: string }) {
@@ -73,82 +73,22 @@ export function PrStack(props: {
   const [message, setMessage] = useState("");
   const query = usePrStackQuery({ workspaceId: props.workspaceId, pr: ref, threadId });
   const stack = query.isError ? undefined : (query.data?.stack ?? undefined);
-  const local = query.data?.local;
   const operation = query.data?.operation;
   const moved = (!query.isError && query.data?.movedLayers) || [];
-  const index = stack?.layers.findIndex((layer) => layer.number === ref.number) ?? -1;
-  const scope = stack?.layers.slice(0, index + 1) ?? [];
-  const incomplete =
-    operation && ["pending", "uncertain", "conflict", "push_partial"].includes(operation.state);
   const associated = props.detail.relatedThreads.some((thread) => thread.id === threadId);
   const busy = !ready || pending || query.isFetching || query.isError || !stack;
   const disabled = busy || !associated;
-  const canRebase =
-    stack && local && !query.data?.localUnavailable && matchesLocalStack(local, stack);
-  const canRecover =
-    stack && local && !query.data?.localUnavailable && matchesStackBranches(local, stack);
-  const canPublish =
-    stack &&
-    canPublishStack(stack) &&
-    stack.layers.every((layer) => layer.queueState === null) &&
-    !local?.branches.some((branch) => branch.isQueued);
+  const controls = stackControls({
+    workspace: query.isError ? undefined : query.data,
+    number: ref.number,
+    associated,
+    busy,
+  });
   const publishing =
     confirmation?.action === "push" ? stackPublishUpdates(confirmation.expected) : [];
-  // Why a toolbar action can't run now, checked in the order the person can fix them.
-  const writeReason = !associated
-    ? "Link this pull request to a task first."
-    : busy
-      ? "Wait for the stack to refresh."
-      : undefined;
-  const localReason =
-    writeReason ??
-    query.data?.localUnavailable ??
-    (!canPublish ? "Reconcile queued, closed or unavailable layers on GitHub first." : undefined);
-  const busyReason = incomplete
-    ? "Finish or reconcile the current stack operation first."
-    : undefined;
-  const mergeReason =
-    writeReason ??
-    busyReason ??
-    (!stack?.canMerge
-      ? "GitHub doesn't allow merging this stack."
-      : scope.some((layer) => layer.state !== "OPEN" && layer.state !== "MERGED")
-        ? "A lower layer is closed."
-        : undefined);
-  const rebaseReason =
-    localReason ??
-    busyReason ??
-    (!canRebase ? "The task checkout doesn't match this stack." : undefined);
-  const recoverReason =
-    localReason ?? (!canRecover ? "The task checkout doesn't match this stack." : undefined);
-  const abortReason =
-    writeReason ??
-    query.data?.localUnavailable ??
-    (!canRecover ? "The task checkout doesn't match this stack." : undefined);
-  const recovering =
-    operation &&
-    operation.action !== "merge" &&
-    operation.action !== "push" &&
-    ["conflict", "uncertain"].includes(operation.state);
-  const syncing = operation?.action === "sync";
   const prepare = (action: StackConfirmation["action"]) => {
-    if (!stack || disabled) return;
-    setConfirmation({
-      action,
-      method,
-      expected: {
-        id: stack.id,
-        trunk: stack.trunk,
-        layers: stack.layers.map((layer) => ({ number: layer.number, headSha: layer.headSha })),
-        local: local ?? null,
-      },
-      numbers: (action === "merge"
-        ? scope
-        : action === "sync"
-          ? moved
-          : stack.layers.filter((layer) => layer.state !== "MERGED")
-      ).map((layer) => layer.number),
-    });
+    if (!query.data || disabled) return;
+    setConfirmation(stackConfirmation(query.data, ref.number, action, method) ?? null);
   };
   const run = async () => {
     if (!confirmation || disabled) return;
@@ -247,43 +187,15 @@ export function PrStack(props: {
               { value: "rebase", label: "Rebase" },
             ]}
           />
-          <StackAction reason={mergeReason} onClick={() => prepare("merge")}>
-            {`Merge through #${ref.number}`}
-          </StackAction>
-          <StackAction reason={rebaseReason} onClick={() => prepare("rebase")}>
-            Rebase local stack
-          </StackAction>
-          {recovering && (
-            <>
-              {/* A sync interrupted without a result can only be restored, not continued. */}
-              {!(syncing && operation?.state === "uncertain") && (
-                <StackAction reason={recoverReason} onClick={() => prepare("continue")}>
-                  {syncing ? "Continue sync" : "Continue local rebase"}
-                </StackAction>
-              )}
-              <StackAction reason={abortReason} onClick={() => prepare("abort")}>
-                {syncing ? "Abort sync" : "Abort rebase"}
-              </StackAction>
-            </>
-          )}
-          {moved.length > 0 && (
-            <StackAction reason={recoverReason} onClick={() => prepare("sync")}>
-              Bring in GitHub commits
-            </StackAction>
-          )}
-          {operation && canPublishAfter(operation) && (
+          {controls.map((control) => (
             <StackAction
-              reason={
-                recoverReason ??
-                (moved.length
-                  ? "GitHub has newer commits on some layers. Bring them into the stack first."
-                  : undefined)
-              }
-              onClick={() => prepare("push")}
+              key={control.action}
+              reason={control.reason}
+              onClick={() => prepare(control.action)}
             >
-              Publish stack
+              {control.label}
             </StackAction>
-          )}
+          ))}
         </div>
       )}
       {stack && confirmation && (

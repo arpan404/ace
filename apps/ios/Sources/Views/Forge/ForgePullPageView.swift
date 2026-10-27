@@ -11,6 +11,8 @@ struct ForgePullPageView: View {
     /// Pushes the Timeline or a changed file on this stack.
     let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
+    /// New thread, offered when no thread works on this pull request.
+    var startThread: (() -> Void)?
     @AppStorage("ace.git.mergeMethod") private var savedMethod = ""
     @State private var page: ForgePullPage?
     @State private var failure: String?
@@ -28,11 +30,13 @@ struct ForgePullPageView: View {
     private var request: [String: Any] { ClientModel.forgePullRead(project: route.project, number: route.number, repository: route.repository, method: method) }
 
     /// Opens on the page this phone last saw for this pull request, read again behind it.
-    init(client: ClientModel, route: ForgeRoute, open: @escaping (ForgeRoute) -> Void, openThread: @escaping (InboxKey) -> Void) {
+    init(client: ClientModel, route: ForgeRoute, open: @escaping (ForgeRoute) -> Void, openThread: @escaping (InboxKey) -> Void,
+         startThread: (() -> Void)? = nil) {
         self.client = client
         self.route = route
         self.open = open
         self.openThread = openThread
+        self.startThread = startThread
         let saved = UserDefaults.standard.string(forKey: "ace.git.mergeMethod") ?? ""
         let method = saved.isEmpty ? "squash" : saved
         let kept = client.kept(ClientModel.forgePullRead(project: route.project, number: route.number, repository: route.repository, method: method), as: ForgePullPage.self)
@@ -120,13 +124,8 @@ struct ForgePullPageView: View {
             }
             if let desk { ForgeReviewersSection(desk: desk, compose: { composing = $0 }) }
             if let desk { ForgeManageSection(desk: desk, route: route, open: open) }
-            if !page.checks.isEmpty {
-                ForgeSection(title: "Checks") {
-                    ForEach(page.checks, id: \.self) { check in
-                        ForgeLine(leading: check.name, trailing: check.word, tone: check.tone)
-                    }
-                }
-            }
+            ForgeWorkSection(client: client, route: route, target: target(page), push: open, openThread: openThread, startThread: startThread)
+            ForgeChecksSection(client: client, route: route, target: target(page), shown: page.checks, open: open)
             ForgeSection(title: nil) {
                 ForgeLinkRow(title: "Files changed", detail: page.changedFiles == 1 ? "1 file" : "\(page.changedFiles) files", identifier: "forge.pull.files") {
                     open(ForgeRoute(kind: .files, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
@@ -134,6 +133,10 @@ struct ForgePullPageView: View {
             }
         }
         .padding(.vertical, AceTheme.Spacing.md)
+    }
+
+    private func target(_ page: ForgePullPage) -> ForgePullTarget {
+        ForgePullTarget(project: route.project, number: page.number, repository: page.repository)
     }
 
     private func header(_ page: ForgePullPage) -> some View {

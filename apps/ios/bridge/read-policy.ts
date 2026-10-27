@@ -86,6 +86,11 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "forge.pull.manage":
     case "forge.newpr.context":
     case "forge.newpr.compare":
+    case "forge.pull.checks":
+    case "forge.pull.check":
+    case "forge.pull.conflicts":
+    case "forge.pull.stack":
+    case "forge.pull.work":
       return "forge";
     default:
       return undefined;
@@ -120,6 +125,11 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "forge.newpr.create":
     case "forge.issue.comment":
     case "forge.issue.check":
+    case "forge.checks.write":
+    case "forge.local.write":
+    case "forge.conflicts":
+    case "forge.stack":
+    case "forge.worktree":
       return ["forge"];
     default:
       return [];

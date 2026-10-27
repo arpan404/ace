@@ -1,4 +1,4 @@
-import { FakeDaemon, facts, seedForgeBrowse } from "@ace/fake-daemon";
+import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
 import { z } from "zod";
@@ -193,6 +193,8 @@ seedProjects(daemon);
 seedProjectMarks(daemon, { host: hostId, name: machineName });
 // GitHub pull requests, issues and notifications for the Pulls tab.
 seedForgeBrowse(daemon, Date.now());
+// PR page work: #229's check runs, #226's linked thread with conflicts and its stack (`pr-work.ts`).
+seedPrWork(daemon, Date.now());
 seedNativeMedia(daemon);
 seedMessageAttachments(daemon);
 seedBrowser(daemon, details);
