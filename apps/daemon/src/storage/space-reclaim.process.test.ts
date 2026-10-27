@@ -218,3 +218,31 @@ test("stopping the daemon mid-run waits for the current chunk only", async () =>
   expect(freeBytes(f)).toBeGreaterThan(0);
   expect(timers.pending()).toEqual([]);
 });
+
+test("reclaim steps aside while other maintenance holds the store, without reporting a failure", async () => {
+  const f = await storageFixture(undefined, undefined, { limits: { chunkPages: 64 } });
+  cleanups.push(() => f.close());
+  const timers = manualTimers(f.advance);
+  fillAndDelete(f);
+  // `start` reports any failure by throwing, which fails the test.
+  const loop = await start(f, timers.schedule, { chunksPerRun: 1 });
+  cleanups.push(() => loop.close());
+  await timers.fire(); // startup delay
+  await timers.fire(); // one bounded run; more is left
+  expect(await timers.armed()).toEqual([timing.continueMs]);
+  const before = freeBytes(f);
+  expect(before).toBeGreaterThan(0);
+  const release = Promise.withResolvers<void>();
+  const held = f.store.maintenance(() => release.promise);
+  await timers.fire(); // continue
+  await timers.fire(); // probe closes; the run finds the store held
+  // The next due time is saved once the other maintenance lets writers in again.
+  for (let turn = 0; turn < 100; turn++) await setImmediate();
+  expect(freeBytes(f)).toBe(before);
+  release.resolve();
+  await held;
+  expect(await timers.armed()).toEqual([timing.busyMs]);
+
+  await timers.settle();
+  expect(freeBytes(f)).toBe(0);
+});

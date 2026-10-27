@@ -89,8 +89,13 @@ export class SpaceReclaim {
           ? "busy"
           : await this.service.reclaimSpace(this.timing.chunksPerRun, () => !this.closed);
     } catch (error) {
-      this.failed(error);
-      outcome = "failed";
+      // Other maintenance holding the fence, or a full storage queue, is a busy moment.
+      const message = error instanceof Error ? error.message : "";
+      if (message === "Store is busy" || message === "storage_busy") outcome = "busy";
+      else {
+        this.failed(error);
+        outcome = "failed";
+      }
     }
     // A run cut short by shutdown leaves its journal running; the next start resumes it.
     if (this.closed) return;
