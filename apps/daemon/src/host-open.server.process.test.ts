@@ -28,12 +28,15 @@ async function machine() {
   folders.push(project);
   const started: HostLaunch[] = [];
   let finish: (editors: InstalledEditor[]) => void = noop;
+  // Resolves once the open is inside editor discovery, so the test acts at that exact point.
+  const entered = Promise.withResolvers<void>();
   const f = await setup({}, (store, home) => ({
     workspaceActions: new WorkspaceRuntime(store, join(home, "workspace"), () => 1000, {
       platform: "darwin",
       hostEditors: () =>
         new Promise((resolve) => {
           finish = resolve;
+          entered.resolve();
         }),
       hostSpawn: async (launch) => {
         started.push(launch);
@@ -61,7 +64,7 @@ async function machine() {
       requestId,
       operation: { op: "host.open", app: { kind: "editor", editorId: "code" }, workspaceId },
     });
-  return { f, phone, open, started, finish: () => finish([code]) };
+  return { f, phone, open, started, discovering: entered.promise, finish: () => finish([code]) };
 }
 
 /** The reply to `requestId`, skipping unrelated pushes. */
@@ -73,10 +76,10 @@ async function answer(client: Client, requestId: string): Promise<ServerMessage>
 }
 
 it("a phone whose access expires while editors are found never starts the editor", async () => {
-  const { f, phone, open, started, finish } = await machine();
+  const { f, phone, open, started, discovering, finish } = await machine();
   open("expiring");
   // The open is waiting on discovery; the phone's day runs out meanwhile.
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await discovering;
   f.advance(day + 1);
   finish();
   const reply = await answer(phone, "expiring");
@@ -88,9 +91,9 @@ it("a phone whose access expires while editors are found never starts the editor
 });
 
 it("a phone still within its access opens the editor on the machine", async () => {
-  const { phone, open, started, finish } = await machine();
+  const { phone, open, started, discovering, finish } = await machine();
   open("current");
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await discovering;
   finish();
   expect(await answer(phone, "current")).toMatchObject({ result: { kind: "opened" } });
   expect(started).toHaveLength(1);
