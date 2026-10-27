@@ -130,11 +130,11 @@ function sameStringArray(a: unknown, b: unknown): boolean {
 }
 
 /** Copy-once cache: return the frozen copy while the live value is identical. */
-function memoCopy<T>(getLive: () => T, copy: (value: T) => T): () => T {
+function memoCopy<T>(getLive: () => T, copy: (value: T) => T): (() => T) & { clear: () => void } {
   let has = false;
   let lastLive: unknown;
   let lastFrozen: unknown;
-  return () => {
+  const get = (): T => {
     const live = getLive();
     if (has && (Object.is(live, lastLive) || sameStringArray(live, lastLive)))
       return lastFrozen as T;
@@ -144,24 +144,67 @@ function memoCopy<T>(getLive: () => T, copy: (value: T) => T): () => T {
     has = true;
     return frozen;
   };
+  get.clear = (): void => {
+    has = false;
+    lastLive = undefined;
+    lastFrozen = undefined;
+  };
+  return get;
 }
 
-function memoCopyArg<A, R>(fn: (arg: A) => R, copy: (value: R) => R): (arg: A) => R {
+/**
+ * Per-arg copy cache, bounded so a long-lived lease cannot grow without
+ * bound. Tradeoff: entries past the cap evict the least-recently-read key,
+ * so an evicted id mints a fresh frozen copy on next read (`Object.is`
+ * stability holds only for retained keys). That costs one extra render for
+ * an evicted row, never correctness; the alternative — retaining every id
+ * ever read plus its live row — pins evicted store rows forever.
+ */
+const ARG_CACHE_LIMIT = 500;
+
+type Clearable = { clear: () => void };
+
+function memoCopyArg<A, R>(
+  fn: (arg: A) => R,
+  copy: (value: R) => R,
+  limit: number = ARG_CACHE_LIMIT,
+): ((arg: A) => R) & Clearable {
   // Per-key cache: list rendering reads `a` then `b` then `a` again, and
   // `useSyncExternalStore` needs `Object.is` stability per id. A single
   // last-one slot thrashes across ids (copy#3 !== copy#1 after interleave);
   // a `Map` keeps each id stable while its live value is unchanged, matching
   // real `Sidebar.thread(id)` / `ThreadStore.item(id)` record stability.
+  // Insertion order is recency: hits refresh, misses past the cap evict oldest.
   const cache = new Map<A, { live: unknown; frozen: unknown }>();
-  return (arg: A) => {
+  const get = (arg: A): R => {
     const live = fn(arg);
     const held = cache.get(arg);
-    if (held !== undefined && (Object.is(live, held.live) || sameStringArray(live, held.live)))
+    if (held !== undefined && (Object.is(live, held.live) || sameStringArray(live, held.live))) {
+      cache.delete(arg);
+      cache.set(arg, held);
       return held.frozen as R;
+    }
     const frozen = copy(live);
+    cache.delete(arg);
     cache.set(arg, { live, frozen });
+    if (cache.size > limit) {
+      const oldest = cache.keys().next();
+      if (!oldest.done) cache.delete(oldest.value);
+    }
     return frozen;
   };
+  get.clear = (): void => {
+    cache.clear();
+  };
+  return get;
+}
+
+/** Non-enumerable release hook: lease `release()` clears every arg/single cache. */
+export const RELEASE_PROJECTION_CACHES: unique symbol = Symbol("ace.releaseProjectionCaches");
+
+function releaseCachesOf(store: unknown): void {
+  const release = (store as Record<symbol, unknown>)[RELEASE_PROJECTION_CACHES];
+  if (typeof release === "function") (release as () => void)();
 }
 
 function nullSealed<T extends object>(entries: Record<string | symbol, unknown>): T {
@@ -446,6 +489,18 @@ export function projectSidebar(
     (id: string) => live.thread(id),
     (value) => freezeCopy(value),
   );
+  Object.defineProperty(view, RELEASE_PROJECTION_CACHES, {
+    value: () => {
+      getError.clear();
+      getIds.clear();
+      getHomeWindow.clear();
+      getWindow.clear();
+      getThread.clear();
+    },
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
   Object.defineProperties(view, {
     error: { enumerable: true, get: () => (check(), getError()) },
     syncing: { enumerable: true, get: () => (check(), live.syncing) },
@@ -591,9 +646,40 @@ export function projectThread(
   if (typeof live.deleted === "function")
     view["deleted"] = (id: string) => (check(), live.deleted?.(id));
   if (typeof live.appended === "function") {
+    // B3 decision: keep the projected fast-path, documented as live-identity
+    // only. `MessageDeltas.appended` is `WeakMap`-identity keyed, so frozen
+    // view copies (`view.item(a)`) always miss and legally return `false`
+    // (`readers.ts`: "false when it can't tell"). Callers must not rely on it
+    // for view items; the check below still guards post-release use.
     const appended = live.appended.bind(live);
     view["appended"] = (previous: Item, next: Item) => (check(), appended(previous, next));
   }
+  Object.defineProperty(view, RELEASE_PROJECTION_CACHES, {
+    value: () => {
+      getError.clear();
+      getThread.clear();
+      getQueue.clear();
+      getOffshift.clear();
+      getContext.clear();
+      getOrder.clear();
+      getAgentIds.clear();
+      getInteractionIds.clear();
+      getTaskIds.clear();
+      getRunIds.clear();
+      getChildren.clear();
+      getItem.clear();
+      getAgent.clear();
+      getRun.clear();
+      getInteraction.clear();
+      getTask.clear();
+      getUsage.clear();
+      getMeter.clear();
+      getUsageSnapshot.clear();
+    },
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
   view["select"] = selectInner;
   view["observe"] = observeInner;
   return Object.freeze(view) as unknown as ThreadSource;
@@ -745,6 +831,11 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
     for (const [id, seq] of Object.entries(view.itemSeqs ?? {})) seqs.set(id, seq);
     const truncated = new Set<string>(exported.truncated ?? []);
     const deleted = new Set<string>(exported.deleted ?? []);
+    // B2: snapshots never retain the live `appended` closure. Binding it
+    // would pin the live `ThreadSource` past lease release (leak) and is
+    // semantically dead anyway: `MessageDeltas.appended` is WeakMap-identity
+    // keyed, snapshot items are frozen copies, so it always misses → false.
+    // Omit it; `ThreadReader.appended` is optional.
     return buildThreadSnapshot({
       data,
       items,
@@ -759,7 +850,6 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
       seqs,
       truncated,
       deleted,
-      appended: typeof live.appended === "function" ? live.appended.bind(live) : undefined,
     });
   }
   const order = [...live.order];
@@ -862,7 +952,6 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
     seqs,
     truncated,
     deleted,
-    appended: typeof live.appended === "function" ? live.appended.bind(live) : undefined,
   });
 }
 
@@ -880,10 +969,9 @@ function buildThreadSnapshot(parts: {
   seqs: Map<string, number>;
   truncated: Set<string>;
   deleted: Set<string>;
-  appended: ((previous: Item, next: Item) => boolean) | undefined;
 }): ThreadSource {
   const { data, items, agents, runs, interactions, tasks, usage, meters, usageSnapshots } = parts;
-  const { children, seqs, truncated, deleted, appended } = parts;
+  const { children, seqs, truncated, deleted } = parts;
   const snap = Object.create(null) as Record<string, unknown>;
   Object.defineProperties(snap, {
     error: { enumerable: true, get: () => data["error"] },
@@ -913,9 +1001,9 @@ function buildThreadSnapshot(parts: {
   snap["truncated"] = (id: string) => truncated.has(id);
   snap["itemSeq"] = (id: string) => seqs.get(id) as unknown;
   snap["deleted"] = (id: string) => deleted.has(id);
-  // `appended` stays optional, matching the live reader: a snapshot of a
-  // source without it omits it instead of inventing a default.
-  if (appended !== undefined) snap["appended"] = appended;
+  // B2: `appended` is intentionally absent on snapshots. The live `appended`
+  // closes over the store (leak past release) and can never fire on frozen
+  // snapshot copies (WeakMap identity). Callers fall back to full compare.
   snap["select"] = <T>(
     _keys: readonly ThreadKey[],
     selector: (reader: ThreadReader) => T,
@@ -950,6 +1038,9 @@ export function projectSidebarLease(
     const pending = [...active];
     active.clear();
     for (const release of pending) teardown(release);
+    // Drop every cached frozen copy + live row ref so a long-lived lease
+    // that scrolled thousands of ids does not pin them past release.
+    releaseCachesOf(store);
     // A throwing inner lease must not strand this wrapper or throw to UI
     // teardown: the projected store is already invalidated above.
     teardown(() => inner.release());
@@ -982,6 +1073,9 @@ export function projectThreadLease(
     const pending = [...active];
     active.clear();
     for (const release of pending) teardown(release);
+    // Drop every cached frozen copy + live row ref so a long-lived lease
+    // that scrolled thousands of ids does not pin them past release.
+    releaseCachesOf(store);
     // A throwing inner lease must not strand this wrapper or throw to UI
     // teardown: the projected store is already invalidated above.
     teardown(() => inner.release());

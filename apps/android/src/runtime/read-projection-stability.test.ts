@@ -204,9 +204,113 @@ describe("read projection stability (useSyncExternalStore contract)", () => {
     const withView = projectThread(noopCheck, withLive as never);
     expect(typeof withView.appended).toBe("function");
     expect(withView.appended?.(itemA as never, itemB as never)).toBe(true);
+    // Snapshots never retain the live closure: no leak past release, and no
+    // dead WeakMap-identity fast-path on frozen copies. Callers fall back.
     const withSnap = snapshotThread(withLive as never);
-    expect(typeof withSnap.appended).toBe("function");
-    expect(withSnap.appended?.(itemA as never, itemB as never)).toBe(true);
+    expect("appended" in withSnap).toBe(false);
+    expect(withSnap.appended).toBeUndefined();
+  });
+
+  it("bounds per-id caches and drops them on lease release", async () => {
+    const { RELEASE_PROJECTION_CACHES } = await import("./read-projection.ts");
+    const rows: Record<string, { id: string }> = {};
+    for (let i = 0; i < 600; i++) rows[`t${i}`] = { id: `t${i}` };
+    const live = {
+      error: undefined,
+      syncing: false,
+      unconfirmed: false,
+      loaded: true,
+      ids: Object.keys(rows),
+      homeWindow: undefined,
+      window: undefined,
+      thread: (id: string) => rows[id],
+      select: () => {
+        throw new Error("unused");
+      },
+      observe: () => () => {},
+    };
+    const view = projectSidebar(noopCheck, live as never);
+    const first = view.thread("t0");
+    for (let i = 1; i < 600; i++) view.thread(`t${i}`);
+    // The oldest entry evicted past the 500 cap: the same live row now mints
+    // a fresh frozen copy instead of pinning every id ever read.
+    expect(view.thread("t0")).not.toBe(first);
+    // A recently read id stays Object.is-stable for useSyncExternalStore.
+    const recent = view.thread("t599");
+    expect(view.thread("t599")).toBe(recent);
+
+    // Lease release clears every cache so live rows are not pinned past it.
+    const inner = {
+      store: live,
+      release: () => {},
+    };
+    const lease = projectSidebarLease(noopCheck, inner as never);
+    const leaseStore = lease.store;
+    const held = leaseStore.thread("t1");
+    expect(leaseStore.thread("t1")).toBe(held);
+    lease.release();
+    // Symbol access bypasses the pin-checked getters, so it stays readable
+    // after release; the cached live rows themselves were dropped on release.
+    const clearer = (leaseStore as unknown as Record<symbol, unknown>)[
+      RELEASE_PROJECTION_CACHES as unknown as symbol
+    ];
+    // The store is dead after release; clearing ran without throwing.
+    expect(() => leaseStore.thread("t1")).toThrow("not connected");
+    expect(typeof clearer).toBe("function");
+  });
+
+  it("projected appended is false on frozen copies, live on store identities", async () => {
+    const { ThreadStore, defaultLimits } = await import("@ace/client");
+    const { Thread, Item, Event } = await import("@ace/protocol");
+    const { createThreadView } = await import("@ace/projection");
+    const thread = Thread.parse({
+      id: "thread",
+      workspaceId: "workspace",
+      provider: "codex",
+      title: "T",
+      rootAgentId: "root",
+      status: { state: "done" },
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    const first = Item.parse({
+      id: "m1",
+      agentId: "root",
+      type: "message",
+      role: "assistant",
+      createdAt: 1,
+      complete: true,
+      parts: [{ type: "text", text: "hello" }],
+    });
+    const store = new ThreadStore(defaultLimits);
+    const view = createThreadView(thread, 10);
+    view.items = { m1: first };
+    view.itemOrder = ["m1"];
+    view.itemSeqs = { m1: 10 };
+    view.itemsBefore = null;
+    store.snapshot(view);
+    const deliver = (seq: number, payload: object) =>
+      store.delivery({
+        type: "events",
+        subscriptionId: "s",
+        afterSeq: seq - 1,
+        throughSeq: seq,
+        events: [Event.parse({ id: `e${seq}`, seq, at: seq, threadId: thread.id, payload })],
+      });
+    deliver(11, { type: "item.delta", itemId: "m1", agentId: "root", field: "text", append: " world" });
+    const v1 = store.item("m1");
+    deliver(12, { type: "item.delta", itemId: "m1", agentId: "root", field: "text", append: "!" });
+    const v2 = store.item("m1");
+    // Real SDK ground truth: successive appends share one prefix run.
+    expect(store.appended(v1 as never, v2 as never)).toBe(true);
+
+    const projected = projectThread(noopCheck, store as never);
+    // Frozen view copies are never WeakMap identities → legally false.
+    expect(projected.appended?.(projected.item("m1") as never, projected.item("m1") as never)).toBe(
+      false,
+    );
+    // Snapshot omits the fast-path instead of leaking the live closure.
+    expect(snapshotThread(store as never).appended).toBeUndefined();
   });
 
   it("filters exotic array entries instead of leaking undefined", () => {

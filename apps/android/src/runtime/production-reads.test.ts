@@ -894,7 +894,10 @@ it("observe forwards copies and subscriptions detach on release and pin failure"
   expect(Object.isFrozen((snap.thread as unknown as { nested: unknown }).nested)).toBe(true);
   expect((snap.thread as unknown as { title: string }).title).toBe(before);
   expect(snap.truncated("i1")).toBe(false);
-  expect(snap.appended?.({} as never, {} as never)).toBe(false);
+  // Snapshots omit `appended` instead of retaining the live closure or
+  // inventing a dead false: the WeakMap fast-path never fires on copies.
+  expect("appended" in snap).toBe(false);
+  expect(snap.appended).toBeUndefined();
 });
 
 it("projected snapshots isolate actual nested rows; writes cannot reach the live store", async () => {
