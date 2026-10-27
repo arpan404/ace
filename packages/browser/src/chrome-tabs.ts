@@ -288,7 +288,7 @@ export class ChromeTabs {
   async proceedCertificate(id: string, url: string): Promise<void> {
     const tab = this.tabs.get(id);
     if (!tab) throw new Error("Browser tab unavailable");
-    tab.certificates.expect(url);
+    await tab.certificates.shown(url);
     const result = z.object({ exceptionDetails: z.unknown().optional() }).parse(
       await tab.cdp.send("Runtime.evaluate", {
         expression: "certificateErrorPageController.proceed()",
