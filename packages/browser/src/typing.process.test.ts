@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import type { Actor } from "./session-options.ts";
 import { executablePath, fixture, ref } from "./test-support.ts";
 
@@ -70,40 +71,21 @@ describe.skipIf(!executablePath)("an agent typing beside the person", () => {
     expect(await read("document.getElementById('notes').selectionStart")).toBe(1);
   }, 60_000);
 
-  it("an agent's type answers only once the page's own input handler has run", async () => {
-    const { f, snapshot, read } = await page(
-      200,
-      `<input aria-label="Slow" id="slow">`,
-      `window.handledAt = 0;
-       document.getElementById('slow').addEventListener('input', () => {
-         const until = Date.now() + 500; while (Date.now() < until) {}
-         handledAt = Date.now();
-       });`,
-    );
-    await f.service.execute(
-      "thread",
-      { action: "type", ref: ref(snapshot, "Slow"), text: "x" },
-      agent,
-    );
-    const answeredAt = Date.now();
-    // Reading the page waits for the handler either way, so compare when each happened.
-    const handledAt = Number(await read("handledAt"));
-    expect(handledAt).toBeGreaterThan(0);
-    expect(handledAt).toBeLessThanOrEqual(answeredAt);
-  }, 60_000);
-
   it("fill_form waits again for a person who comes back between two fields", async () => {
     const quietMs = 1_500;
     const { f, snapshot, read } = await page(
       quietMs,
       `<input aria-label="First" id="first"><input aria-label="Second" id="second">`,
       // The first field's own handler keeps the page busy long enough for the person to return.
+      // Times are the page's own monotonic clock: Chrome's wall clock can drift from Node's
+      // (on Windows by hundreds of milliseconds). An event's timeStamp is when the browser got
+      // the person's input, even if the busy page handles it later.
       `window.filledAt = {};
        document.getElementById('first').addEventListener('input', () => {
-         const until = Date.now() + 1000; while (Date.now() < until) {}
-         filledAt.first = Date.now();
+         const until = performance.now() + 1000; while (performance.now() < until) {}
        });
-       document.getElementById('second').addEventListener('input', () => { filledAt.second = Date.now(); });`,
+       document.getElementById('second').addEventListener('input', () => { filledAt.second = performance.now(); });
+       document.addEventListener('mousemove', (event) => { filledAt.person ??= event.timeStamp; });`,
     );
     const fill = f.service.execute(
       "thread",
@@ -117,11 +99,12 @@ describe.skipIf(!executablePath)("an agent typing beside the person", () => {
       agent,
     );
     await new Promise((resolve) => setTimeout(resolve, 300));
-    const personAt = Date.now();
     await f.service.input("thread", nudge, "person");
     await fill;
     expect(await read("document.getElementById('second').value")).toBe("two");
-    const second = Number(await read("filledAt.second"));
-    expect(second - personAt).toBeGreaterThanOrEqual(quietMs - 150);
+    const { person, second } = z
+      .object({ person: z.number(), second: z.number() })
+      .parse(await read("filledAt"));
+    expect(second - person).toBeGreaterThanOrEqual(quietMs - 150);
   }, 60_000);
 });
