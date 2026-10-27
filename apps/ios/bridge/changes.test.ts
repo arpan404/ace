@@ -42,6 +42,27 @@ async function opened(options: { patch?: string; status?: typeof status } = {}) 
   closers.push(sheet.close);
   return sheet;
 }
+/** A small file and a 20,000-line one the checkout's 256 KiB patch is cut inside. */
+const cutPatchOf = (label: string) =>
+  [
+    "diff --git a/src/small.ts b/src/small.ts",
+    "--- a/src/small.ts",
+    "+++ b/src/small.ts",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "diff --git a/data/huge.ts b/data/huge.ts",
+    "new file mode 100644",
+    "--- /dev/null",
+    "+++ b/data/huge.ts",
+    "@@ -0,0 +1,20000 @@",
+    ...Array.from({ length: 20_000 }, (_, i) => `+${label} ${i + 1}`),
+    "",
+  ].join("\n");
+const cutStatus = [
+  status[0],
+  { path: "data/huge.ts", status: "added", additions: 20_000, deletions: 0, binary: false },
+] as typeof status;
 const step = (sink: RecordingSink) => sink.read("changes:summary")?.step as ChangesStep;
 const rows = (sink: RecordingSink, path: string) =>
   filePages(sink, path).flatMap((page) => page.lines as MobileRow[]);
@@ -150,6 +171,60 @@ describe("Changes sheet", () => {
     const all = rows(sink, "data/huge.ts");
     expect(all).toHaveLength(20_000);
     expect(all.at(-1)).toMatchObject({ new: 20_000, text: "generated fixture row 20000" });
+  });
+
+  test("a cut file edited mid-read starts again at page one at its new version, never stitched from two diffs", async () => {
+    const { session, sink, daemon } = await opened({
+      patch: cutPatchOf("generated fixture row"),
+      status: cutStatus,
+    });
+    session.open("data/huge.ts", true);
+    await until(() => filePages(sink, "data/huge.ts").length === 1, "first page");
+    const first = fileHeader(sink, "data/huge.ts")?.version;
+    expect(first).toEqual(expect.any(String));
+    daemon.workspace.setGitDiff("changes", cutPatchOf("edited fixture row"));
+    // Pages run on until one is past the daemon's first page, which is of another version now.
+    const header = () => fileHeader(sink, "data/huge.ts");
+    while (header()?.version === first && header()?.complete !== true) {
+      const pages = filePages(sink, "data/huge.ts").length;
+      session.more("data/huge.ts");
+      await until(
+        () => header()?.version !== first || filePages(sink, "data/huge.ts").length > pages,
+        "next page or a new version",
+      );
+    }
+    await until(() => filePages(sink, "data/huge.ts").length === 1, "page one again");
+    expect(fileHeader(sink, "data/huge.ts")?.version).not.toBe(first);
+    expect(fileHeader(sink, "data/huge.ts")).toMatchObject({ pages: 1 });
+    const texts = rows(sink, "data/huge.ts").map((row) => row.text);
+    expect(texts[0]).toBe("edited fixture row 1");
+    expect(texts.every((text) => text.startsWith("edited "))).toBe(true);
+  });
+
+  test("a cut file's viewed mark holds across reads and clears when its content changes past the cut", async () => {
+    const { session, sink, daemon } = await opened({
+      patch: cutPatchOf("generated fixture row"),
+      status: cutStatus,
+    });
+    const viewed = () =>
+      ((sink.read("changes:summary")?.files ?? []) as { path: string; viewed: boolean }[]).find(
+        (file) => file.path === "data/huge.ts",
+      )?.viewed;
+    expect(session.viewed("data/huge.ts", true)).toBe(true);
+    await until(() => viewed() === true, "marked viewed");
+    await session.refresh();
+    await until(() => viewed() === true, "still viewed after a read of the same content");
+    // Same counts, and the part the checkout's patch holds is unchanged: only the cut part moved.
+    daemon.workspace.setGitDiff(
+      "changes",
+      cutPatchOf("generated fixture row").replace(
+        "+generated fixture row 19999\n",
+        "+generated fixture row 19999 edited\n",
+      ),
+    );
+    await session.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(viewed()).toBe(false);
   });
 
   test("several files stay open at once and expand-all opens every listed file", async () => {

@@ -1,4 +1,4 @@
-import type { DiffRow } from "@ace/ui-core";
+import { PatchFileReader, type DiffRow } from "@ace/ui-core";
 import type { DiffRows } from "@ace/ui-core/review";
 import {
   mobilePageLimits,
@@ -16,7 +16,9 @@ import { sectionDiff, type FileSource, type Sourced, type TurnDiffs } from "./ch
  * The files open in the Changes sheet, several at once. Each open file ships a small header
  * patch and its rows in pages (`changes:page:<id>:<n>`); asking for more sends the next page
  * only, so a long file costs what has been read of it. A file cut from the checkout's patch is
- * read alone from the daemon, one 256 KiB page at a time, as far as the pages asked for reach.
+ * read alone from the daemon, one 256 KiB page at a time, as far as the pages asked for reach:
+ * each page is parsed once as it arrives, and every page is read at the version (the daemon's
+ * validator) its first page named. A file that changed mid-read starts again at page one.
  */
 
 export interface OpenFilesLimits extends PageLimits {
@@ -35,11 +37,23 @@ export const openFilesLimits: OpenFilesLimits = {
 };
 
 /** One page of one file's patch from the daemon (`git.diff` with `path`). */
+export interface DiffPage {
+  patch: string;
+  truncated: boolean;
+  nextOffset?: number | undefined;
+  /** The version the page belongs to. */
+  validator?: string | undefined;
+}
+/**
+ * Read a page of `path` from `offset`; with `expected`, only at that version: "changed" when the
+ * file's patch has moved on since.
+ */
 export type ReadPage = (
   path: string,
   from: string | null,
   offset: number,
-) => Promise<{ patch: string; truncated: boolean; nextOffset?: number | undefined }>;
+  expected: string | undefined,
+) => Promise<DiffPage | "changed">;
 
 interface Open {
   id: string;
@@ -56,11 +70,17 @@ interface Open {
   ends: number[];
   /** Pages asked for. */
   wanted: number;
-  /** Text read from the daemon and where its next page starts. */
-  text: string;
+  /** A daemon-read file's parser, fed each page once. */
+  reader: PatchFileReader | undefined;
+  /** Code units read from the daemon, and where its next page starts. */
+  held: number;
   next: number | undefined;
   reading: boolean;
-  /** Bumped when the file's version changes, so a late read is dropped. */
+  /** Bumped for each read from the daemon, so only the latest one lands. */
+  ticket: number;
+  /** The checkout read a daemon-read file was last checked against. */
+  round: number;
+  /** Bumped when the file's version changes, so a late page is dropped. */
   generation: number;
 }
 
@@ -73,6 +93,10 @@ export interface OpenFilesDeps {
   readPage: ReadPage;
   layout: () => DiffLayout;
   viewed: (path: string, version: string) => boolean;
+  /** A cut file's version, read from the daemon while `round` was the checkout read. */
+  learned?: (path: string, round: number, version: string) => void;
+  /** The parser a daemon-read file is fed with. */
+  reader?: () => PatchFileReader;
   limits?: OpenFilesLimits;
 }
 
@@ -124,16 +148,31 @@ export class OpenFiles {
   sync(sourceOf: (path: string) => Sourced | undefined): void {
     for (const [path, file] of this.#open) {
       const sourced = sourceOf(path);
-      if (sourced && sourced.version === file.version) {
-        this.#header(file);
+      const check = sourced ? this.#check(file, sourced) : "restart";
+      if (check === "restart") {
+        this.#restart(file, sourced);
         continue;
       }
-      this.#clear(file.id);
-      const fresh = this.#fresh(file.id, path, sourced);
-      fresh.generation = file.generation + 1;
-      this.#open.set(path, fresh);
-      this.#load(fresh);
+      file.source = sourced?.source ?? file.source;
+      if (check === "revalidate" && file.source.kind === "daemon") {
+        file.round = file.source.round;
+        this.#revalidate(file);
+      }
+      this.#header(file);
     }
+  }
+
+  /** Whether `file` still shows `sourced`, must start again, or must ask the daemon. */
+  #check(file: Open, sourced: Sourced): "same" | "restart" | "revalidate" {
+    const was = file.source;
+    const now = sourced.source;
+    if (now.kind !== "daemon" || was.kind !== "daemon")
+      return sourced.version === file.version ? "same" : "restart";
+    if (now.path !== was.path || now.from !== was.from) return "restart";
+    // Unknown on either side: a first page is on its way, or this read hasn't asked for one.
+    if (sourced.version && file.version)
+      return sourced.version === file.version ? "same" : "restart";
+    return now.round === file.round ? "same" : "revalidate";
   }
 
   /** The layout changed: every sent page goes again in it. */
@@ -195,17 +234,40 @@ export class OpenFiles {
       cut: false,
       ends: [],
       wanted: 1,
-      text: "",
+      reader: sourced?.source.kind === "daemon" ? this.#newReader() : undefined,
+      held: 0,
       next: 0,
       reading: false,
+      ticket: 0,
+      round: sourced?.source.kind === "daemon" ? sourced.source.round : 0,
       generation: 0,
     };
+  }
+
+  #newReader(): PatchFileReader {
+    return this.#deps.reader ? this.#deps.reader() : new PatchFileReader();
+  }
+
+  /** `file` at a new version: its pages are cleared and it starts again at page one. */
+  #reset(file: Open, sourced: Sourced | undefined): Open {
+    this.#clear(file.id);
+    const fresh = this.#fresh(file.id, file.path, sourced);
+    fresh.generation = file.generation + 1;
+    this.#open.set(file.path, fresh);
+    return fresh;
+  }
+
+  #restart(file: Open, sourced: Sourced | undefined): void {
+    this.#load(this.#reset(file, sourced));
   }
 
   #load(file: Open): void {
     const { source } = file;
     if (file.state === "error") return this.#header(file);
-    if (source.kind === "daemon") return this.#emit(file);
+    if (source.kind === "daemon") {
+      file.rows = file.reader?.rows ?? [];
+      return this.#emit(file);
+    }
     file.rows =
       source.kind === "turn"
         ? this.#deps.diffs.diff(source.file).rows
@@ -280,38 +342,82 @@ export class OpenFiles {
     });
   }
 
+  /** The next page of a daemon-read file, at the version its first page named. */
   #read(file: Open): void {
+    const offset = file.next;
+    if (file.reading || offset === undefined) return;
+    this.#fetch(file, offset, (page) => {
+      this.#take(file, page, offset);
+      this.#emit(file);
+    });
+  }
+
+  /**
+   * A new checkout read lists `file` again with its version not known in it: read its first page
+   * again, keeping what is shown when that is still the version shown.
+   */
+  #revalidate(file: Open): void {
+    this.#fetch(file, 0, (page) => {
+      if (page.validator !== undefined && page.validator === file.version) {
+        this.#learned(file);
+        return this.#emit(file);
+      }
+      const fresh = this.#reset(file, { source: file.source, version: "" });
+      fresh.round = file.round;
+      this.#take(fresh, page, 0);
+      this.#emit(fresh);
+    });
+  }
+
+  #fetch(file: Open, offset: number, took: (page: DiffPage) => void): void {
     const { source } = file;
-    if (file.reading || source.kind !== "daemon" || file.next === undefined) return;
+    if (source.kind !== "daemon") return;
+    const ticket = ++file.ticket;
     file.reading = true;
-    const generation = file.generation;
-    const live = () => this.#open.get(file.path) === file && file.generation === generation;
-    this.#deps
-      .readPage(source.path, source.from, file.next)
-      .then((page) => {
-        if (!live()) return;
-        file.text += page.patch;
-        file.next = page.truncated ? page.nextOffset : undefined;
-        if (file.text.length >= this.#limits.heldText && file.next !== undefined) {
-          file.next = undefined;
-          file.cut = true;
-        }
-        if (page.truncated && page.nextOffset === undefined) file.cut = true;
-        file.complete = file.next === undefined;
-        file.rows = sectionDiff(file.text)?.rows ?? [];
-        file.state = "ready";
-      })
-      .catch((error: unknown) => {
-        if (!live()) return;
-        file.state = "error";
-        file.message = error instanceof Error && error.message ? error.message : "unavailable";
-      })
-      .finally(() => {
+    const live = () => this.#open.get(file.path) === file && file.ticket === ticket;
+    const expected = offset > 0 && file.version ? file.version : undefined;
+    this.#deps.readPage(source.path, source.from, offset, expected).then(
+      (page) => {
         if (!live()) return;
         file.reading = false;
-        if (file.state !== "error") this.#emit(file);
-        else this.#header(file);
-      });
+        // Edited since its first page: this version's pages can't be finished.
+        if (page === "changed") return this.#restart(file, { source, version: "" });
+        took(page);
+      },
+      (error: unknown) => {
+        if (!live()) return;
+        file.reading = false;
+        file.state = "error";
+        file.message = error instanceof Error && error.message ? error.message : "unavailable";
+        this.#header(file);
+      },
+    );
+  }
+
+  /** Parse one page into `file`'s rows: only the page's own text is read. */
+  #take(file: Open, page: DiffPage, offset: number): void {
+    if (offset === 0 && page.validator !== undefined) {
+      file.version = page.validator;
+      this.#learned(file);
+    }
+    file.reader?.push(page.patch);
+    file.held += page.patch.length;
+    file.next = page.truncated ? page.nextOffset : undefined;
+    if (file.held >= this.#limits.heldText && file.next !== undefined) {
+      file.next = undefined;
+      file.cut = true;
+    }
+    if (page.truncated && page.nextOffset === undefined) file.cut = true;
+    if (file.next === undefined) {
+      file.reader?.end();
+      file.complete = true;
+    }
+    file.rows = file.reader?.rows ?? [];
+    file.state = "ready";
+  }
+
+  #learned(file: Open): void {
+    if (file.version) this.#deps.learned?.(file.path, file.round, file.version);
   }
 
   #clear(id: string): void {

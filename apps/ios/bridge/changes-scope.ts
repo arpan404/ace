@@ -32,6 +32,13 @@ export interface Reads {
   patchTruncated: boolean;
   lastPath: string | undefined;
   pr: ForgePrStatus | null;
+  /** Counts the reads, so a file cut from this one knows which read it was listed in. */
+  round: number;
+  /**
+   * The versions (daemon validators) of files cut from the patch, as learned by reading their
+   * first page since this read; a cut file's version is unknown until then.
+   */
+  validators: Map<string, string>;
 }
 
 export interface ScopeOption {
@@ -127,24 +134,28 @@ export class ChangesScope {
     if (file.binary) return { source: { kind: "binary" }, version };
     const section = reads.sections.get(path);
     if (cutIn(reads, path))
-      return { source: { kind: "daemon", path, from: file.from ?? null }, version };
+      return {
+        source: { kind: "daemon", path, from: file.from ?? null, round: reads.round },
+        version,
+      };
     return { source: { kind: "section", text: section ?? "" }, version };
   }
 
-  /** The version a viewed mark is checked against. */
+  /** The version a viewed mark is checked against; undefined while a cut file's is unknown. */
   versionOf(path: string, reads: Reads | undefined): string | undefined {
     if (!this.workingTree) {
       const file = this.#scoped().files.find((candidate) => candidate.path === path);
       return file && this.#diffs.key(file);
     }
     if (!reads) return undefined;
+    if (cutIn(reads, path)) return reads.validators.get(path);
     let versions = this.#versions.get(reads);
     if (!versions) this.#versions.set(reads, (versions = new Map()));
     const held = versions.get(path);
     if (held !== undefined) return held;
     const file = reads.byPath.get(path);
     if (!file) return undefined;
-    const version = workingVersion(file, reads.sections.get(path), cutIn(reads, path));
+    const version = workingVersion(reads.sections.get(path) ?? "");
     versions.set(path, version);
     return version;
   }
