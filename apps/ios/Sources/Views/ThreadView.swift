@@ -7,6 +7,7 @@ struct ThreadView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.threadDrafts) private var drafts
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
     /// Push another thread (a delegated child or a conversation this one started).
@@ -51,6 +52,16 @@ struct ThreadView: View {
     @State private var suggester = ComposerSuggester()
     /// "Attach files" picked from `/`: the + menu's three sources are offered.
     @State private var askAttach = false
+    @State private var renaming = false
+    @State private var transitionSheet: ThreadSheet?
+    /// The fork the composer writes to, once its words are in place (`screen.fork`).
+    @State private var forkKey: String?
+    /// Bumped to bring the keyboard up: a fork opened, a message edited.
+    @State private var composerFocus = 0
+    /// Each fork the machine started: a success tap as it opens.
+    @State private var forksStarted = 0
+    /// Finished answers' math, code colours and diff lines, kept while the thread is open.
+    @State private var rich: MarkdownRich?
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
     /// Starting prefers the inbox's current row (confirmed or not, so an unconfirmed start
     /// still reads Syncing); without one it falls back conservatively as unconfirmed.
@@ -91,6 +102,8 @@ struct ThreadView: View {
             }
             .toolbar {
                 ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread),
+                              rename: model.canOperate && !archived ? { renaming = true } : nil,
+                              retitle: model.canOperate && !archived ? { Task { _ = await model.retitle(thread.id) } } : nil,
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, activityRow: activityRow,
                                                open: open, problem: { activityProblem = $0 }, leave: leave))
             }
@@ -108,6 +121,26 @@ struct ThreadView: View {
                 }
             }
             .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal)
+            .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet,
+                               openThread: openThread)
+            .environment(\.markdownRich, rich)
+            // The math page starts only when a formula arrives (`MathRenderer`), never on opening.
+            .task { if rich == nil { rich = MarkdownRich(model: model) } }
+            .sensoryFeedback(.success, trigger: forksStarted)
+            // A new thread started from this one (a fork, a continuation): a success tap as it opens.
+            .onChange(of: screen.continued) { _, opened in if opened != nil { forksStarted += 1 } }
+            // A fork opened: its words go where the composer keeps them (an edited message's to
+            // start with), then the composer writes to it with the keyboard up.
+            .onChange(of: screen.fork?.key, initial: true) { _, key in
+                guard let fork = screen.fork, let hostId = model.hostId, key != nil else {
+                    forkKey = nil
+                    return
+                }
+                let kept = ThreadDrafts.key(hostId: hostId, threadId: fork.key)
+                if !fork.prefill.isEmpty, drafts?.text(for: kept).isEmpty ?? false { drafts?.save(fork.prefill, for: kept) }
+                forkKey = kept
+                composerFocus += 1
+            }
             .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
                 Button("OK") { activityProblem = nil }
             } message: { Text(activityProblem ?? "") }
@@ -234,7 +267,8 @@ struct ThreadView: View {
                     ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
                 } else if model.canOperate {
-                    ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: asking == nil ? placeholder : "Reply…",
+                    ComposerView(controls: screen.controls, stopping: screen.stopping,
+                                 placeholder: screen.fork != nil ? "Message the fork" : asking == nil ? placeholder : "Reply…",
                                  send: { text, alternate, references in
                                      let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
                                      let saved = await model.sendMessage(text, alternate: alternate, reply: reply, references: references)
@@ -251,9 +285,13 @@ struct ThreadView: View {
                                  },
                                  recall: { older in await model.sentText(thread.id, older: older) },
                                  files: screen.attachments.count,
-                                 draftKey: model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
+                                 draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                                  suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),
-                                 run: runComposerAction) {
+                                 run: runComposerAction, focusRequest: composerFocus) {
+                        if let fork = screen.fork {
+                            ForkStrip(fork: fork) { model.closeFork() }
+                                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+                        }
                         ComposerAccessories(model: model, screen: screen, problem: attachProblem)
                     } leading: { pick in
                         AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
@@ -285,6 +323,8 @@ struct ThreadView: View {
         }
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
         .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.queue?.strip)
+        // The fork strip rises out of the composer as it opens, or fades under Reduce Motion.
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.fork?.key)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
@@ -333,6 +373,11 @@ struct ThreadView: View {
     private let placeholder = "Ask anything"
     private func open(_ destination: ThreadDestination) {
         switch destination {
+        case .rename: renaming = true
+        case .forkLast: Task { _ = await model.openFork(.latest) }
+        case .merge: transitionSheet = .merge
+        case .turns: transitionSheet = .turns
+        case .attachments: transitionSheet = .files
         case .changes: showChanges = true
         case .search: showSearch = true
         case .files: showFiles = true

@@ -17,6 +17,10 @@ struct AnswerRow: View {
     var openMessage: ((TranscriptRow) -> Void)? = nil
     @Environment(\.readMessage) private var readMessage
     @Environment(\.fileLinks) private var fileLinks
+    @Environment(\.markdownRich) private var rich
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The finished answer with its formulas marked, and the formulas (`MarkdownRich`).
+    @State private var withMath: MarkdownRich.Prose?
     @State private var full: String?
     @State private var problem: String?
     /// Whole answers past this many characters open in the reader instead of the row.
@@ -27,18 +31,31 @@ struct AnswerRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             if !shown.isEmpty {
                 let menu = !between && !live
-                MarkdownView(text: shown, selectable: !menu).fileLinks(fileLinks, itemId: row.id)
-                    .messageMenu(menu ? shown : "", title: "Answer")
+                // The row's own marked text first: its formulas read in their text form from the
+                // first frame. A whole answer read later asks the bridge for its own.
+                let math = live ? nil : (withMath ?? (full == nil ? row.math : nil) ?? rich?.knownProse(shown))
+                MarkdownView(text: math?.text ?? shown, selectable: !menu)
+                    .fileLinks(fileLinks, itemId: row.id)
+                    .environment(\.markdownSettled, !live)
+                    .environment(\.markdownMath, math?.math ?? [])
+                    .messageMenu(menu ? shown : "", title: "Answer", row: row)
+                    .animation(reduceMotion ? nil : .smooth, value: withMath)
             }
             if live { StreamingCaret() }
             if row.truncated && !live && full == nil { partial }
             if !between && (row.complete || (row.truncated && !live)) {
-                MessageActions(at: row.createdAt, copy: shown, label: full == nil && row.truncated ? "Copy preview" : "Copy answer")
+                MessageActions(row: row, copy: shown, label: full == nil && row.truncated ? "Copy preview" : "Copy answer")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("message.answer.\(row.id)")
         .task(id: row.truncated && row.complete) { await load() }
+        // Math is set once the answer stops streaming; a kept read draws on the first frame.
+        .task(id: row.complete && !streaming ? shown : "") {
+            guard row.complete, !streaming, full != nil || row.math == nil, let rich, rich.knownProse(shown) == nil else { return }
+            if let read = await rich.prose(shown) { withMath = read }
+        }
     }
     private var shown: String { full ?? row.text }
     @ViewBuilder private var partial: some View {

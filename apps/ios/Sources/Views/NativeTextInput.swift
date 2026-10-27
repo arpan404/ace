@@ -56,6 +56,7 @@ struct NativeTextInput: UIViewRepresentable {
             context.coordinator.placed = place.id
             view.selectedRange = NSRange(location: min(place.offset, (view.text as NSString).length), length: 0)
             context.coordinator.reportCaret(view)
+            if place.focus, !view.isFirstResponder { Task { @MainActor in view.becomeFirstResponder() } }
         }
         view.inputBegan = inputBegan
         view.escape = escape
@@ -147,6 +148,8 @@ struct NativeTextInput: UIViewRepresentable {
 struct CaretPlacement: Equatable {
     let id = UUID()
     let offset: Int
+    /// Bring the keyboard up too: the composer was asked for (a fork opened, a message edited).
+    var focus = false
 }
 
 @MainActor final class ComposerTextView: UITextView {

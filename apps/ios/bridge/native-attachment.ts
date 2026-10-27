@@ -1,5 +1,5 @@
 import { attachmentBytes, type ClientCore } from "@ace/client";
-import { BlobHash, ItemId, ThreadId } from "@ace/protocol";
+import { BlobHash, ItemId, ThreadId, type Attachment } from "@ace/protocol";
 import { z } from "zod";
 
 import { base64 } from "./bytes.ts";
@@ -15,7 +15,8 @@ import { readNativeItem } from "./native-item.ts";
 export const NativeAttachmentRequest = z.object({
   type: z.literal("native.attachment"),
   threadId: ThreadId,
-  itemId: ItemId,
+  /** The message carrying it; absent for a file of the thread's own list (Attachments). */
+  itemId: ItemId.optional(),
   ref: z.union([BlobHash, z.string().regex(/^part:\d{1,3}$/)]),
   /** `thumbnail` is the daemon's bounded preview; `original` the file itself. */
   variant: z.enum(["thumbnail", "original"]),
@@ -40,7 +41,25 @@ export async function readNativeAttachment(
   owner: ClientCore,
   request: NativeAttachmentRequest,
   signal: AbortSignal,
+  /** The Attachments list the person is looking at, so a listed file isn't listed again. */
+  listed?: { find(threadId: string, sha256: string): Attachment | undefined },
 ): Promise<NativeAttachment> {
+  if (!request.itemId) {
+    // Only a file the thread itself stores, as its Attachments list names it.
+    if (request.ref.startsWith("part:")) throw new Error("Attachment unavailable");
+    const known = listed?.find(request.threadId, request.ref);
+    if (known) return readStored(owner, request, known, signal);
+    const reply = await owner.request(
+      { type: "context.request", operation: { op: "attachment.list", threadId: request.threadId } },
+      { signal },
+    );
+    const stored =
+      reply.result.kind === "attachments"
+        ? reply.result.attachments.find((file) => file.sha256 === request.ref)
+        : undefined;
+    if (!stored) throw new Error("Attachment unavailable");
+    return readStored(owner, request, stored, signal);
+  }
   // Another thread's item, or one the daemon refuses, simply has no files here.
   const item = await readNativeItem(owner, request.threadId, request.itemId, signal).catch(
     (error: unknown) => {
@@ -58,6 +77,16 @@ export async function readNativeAttachment(
   }
   const attachment = item.attachments?.find((file) => file.sha256 === request.ref);
   if (!attachment) throw new Error("Attachment unavailable");
+  return readStored(owner, request, attachment, signal);
+}
+
+/** A stored file's preview or bytes, once the caller has shown the thread holds it. */
+async function readStored(
+  owner: ClientCore,
+  request: NativeAttachmentRequest,
+  attachment: Attachment,
+  signal: AbortSignal,
+): Promise<NativeAttachment> {
   const thumbnail = request.variant === "thumbnail";
   // A file without a preview is never downloaded whole just to draw a row.
   if (thumbnail && !attachment.thumbnailAvailable) throw new Error("No preview");

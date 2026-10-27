@@ -158,6 +158,9 @@ struct ConversationFeed: View {
         .background(AceTheme.Colours.background)
         .scrollDismissesKeyboard(.interactively)
         .modifier(TapPutsKeyboardAway(up: keyboardLift > 0))
+        // ⇧⌥⌘↑ and ↓ on a hardware keyboard, as on the web: the turn before and after the one on
+        // top. They repeat the thread menu's Turns list, never the only way.
+        .background { TurnKeys { stepTurn($0, proxy: proxy) } }
         .accessibilityIdentifier("transcript")
         .accessibilityValue(ready ? (reading.paged ? "Reading history" : "Ready") : "Loading")
         .onScrollPhaseChange { old, phase in
@@ -284,12 +287,32 @@ struct ConversationFeed: View {
         settle.run(gap: { pinned && !intent.active && !keyboardMoving ? intent.metrics.toEnd : nil },
                    wait: { intent.animating }) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
     }
+    /// The previous or next turn from the one at the top of the screen: its ask scrolls to the
+    /// top. Past the rows held, an earlier turn pages older history in; after the last, the end.
+    private func stepTurn(_ direction: Int, proxy: ScrollViewProxy) {
+        let rows = TranscriptFeedRow.rows(shown)
+        let starts = rows.indices.filter { rows[$0].block.row.kind == "user" }
+        let top = intent.metrics.topInset
+        let first = rows.firstIndex { (anchor.frames[$0.id]?.maxY ?? -.infinity) > top + 1 } ?? rows.count - 1
+        following = false
+        if direction > 0 {
+            if let next = starts.first(where: { $0 > first }) { withAnimation { proxy.scrollTo(rows[next].id, anchor: .top) }; return }
+            reading.live(model: model, thread: thread); following = true; toEnd(proxy)
+            return
+        }
+        let here = starts.last { $0 <= first }
+        let sitsBelow = here.map { (anchor.frames[rows[$0].id]?.minY ?? top) < top - AceTheme.Spacing.sm } ?? false
+        if let here, here < first || sitsBelow { withAnimation { proxy.scrollTo(rows[here].id, anchor: .top) }; return }
+        if let previous = starts.last(where: { $0 < (here ?? first) }) { withAnimation { proxy.scrollTo(rows[previous].id, anchor: .top) }; return }
+        if reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder { reading.read("older", model: model, live: thread) }
+    }
     /// A search hit asked for an item in this thread: the shared window opens around it.
     private func focusRequested() {
         guard thread.loaded, let focus = model.focusOnOpen, focus.thread == thread.id else { return }
         model.focusOnOpen = nil
         following = false
-        reading.jump(to: focus.item, model: model, live: thread)
+        if let turn = focus.turn { reading.jump(toTurn: turn, model: model, live: thread) }
+        else { reading.jump(to: focus.item, model: model, live: thread) }
     }
     /// Following the end, the end stays in place as rows change height: older history filling in
     /// above, rows measured on the way down after a jump. The person's own scroll wins, and a
@@ -344,5 +367,20 @@ private struct TranscriptTopEdge: ViewModifier {
             content.toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
                 .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         }
+    }
+}
+
+/// The previous and next turn on a hardware keyboard, listed in the ⌘ overlay by name.
+private struct TurnKeys: View {
+    let step: (Int) -> Void
+    var body: some View {
+        VStack {
+            Button("Previous turn") { step(-1) }.keyboardShortcut(.upArrow, modifiers: [.shift, .option, .command])
+            Button("Next turn") { step(1) }.keyboardShortcut(.downArrow, modifiers: [.shift, .option, .command])
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

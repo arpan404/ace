@@ -56,6 +56,12 @@ import Observation
     var attachments: [AttachmentFile] = []
     /// The native subagent lane open in its sheet.
     var lane: LaneModel?
+    /// What the menu and messages offer (`thread.transitions`).
+    var transitions: TransitionsRow?
+    /// The fork the composer writes; nil while it writes to this thread.
+    var fork: ForkDraftRow?
+    /// Bring back to parent's starting summary, once read.
+    var mergeDraft: MergeDraftRow?
     @ObservationIgnored private var positions: [String: Int] = [:]
     @ObservationIgnored private var reorder = false
 
@@ -71,6 +77,9 @@ import Observation
         tune = nil
         access = nil
         attachments = []
+        transitions = nil
+        fork = nil
+        mergeDraft = nil
         hasOlder = false
     }
     /// Opening a kept thread again: what belonged to the last visit's bridge session goes (its
@@ -80,6 +89,9 @@ import Observation
         lane = nil
         attachments = []
         modelList = ThreadModels()
+        // The last visit's fork was its bridge session's; a new one starts on this thread.
+        fork = nil
+        mergeDraft = nil
         stopping = false
         stopRequest = nil
     }

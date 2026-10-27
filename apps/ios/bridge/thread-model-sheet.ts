@@ -75,6 +75,13 @@ export class ThreadModelSheet {
   readonly #files: () => readonly { name: string; mimeType?: string | undefined }[];
   /** What the rows were last worked out for (`#shape`). */
   #shaped = "";
+  readonly #fork:
+    | {
+        open(): boolean;
+        picked(): ModelChoice | undefined;
+        choose(choice: ModelChoice | undefined): void;
+      }
+    | undefined;
 
   constructor(
     client: ClientCore,
@@ -88,6 +95,15 @@ export class ThreadModelSheet {
       changed: () => void;
       /** The files on the message being written, which a new thread's model must read. */
       files: () => readonly { name: string; mimeType?: string | undefined }[];
+      /**
+       * A fork being written in the composer: the sheet picks its model instead of moving the
+       * thread. `picked` is the fork's model (undefined: what the thread runs).
+       */
+      fork?: {
+        open(): boolean;
+        picked(): ModelChoice | undefined;
+        choose(choice: ModelChoice | undefined): void;
+      };
     },
   ) {
     this.#client = client;
@@ -99,6 +115,7 @@ export class ThreadModelSheet {
     this.#preview = io.preview;
     this.#changed = io.changed;
     this.#files = io.files;
+    this.#fork = io.fork;
     this.#favorites = new ModelFavorites(client);
   }
 
@@ -214,6 +231,7 @@ export class ThreadModelSheet {
   ): void {
     const scene = this.#scene();
     if (!scene) return admit(requestId, false, "Still reading this thread. Try again.");
+    if (this.#fork?.open()) return this.#pickForFork(scene, target, requestId, admit);
     if (this.#sending)
       return admit(requestId, false, "Still starting the new thread. Wait for it to open.");
     const plan = switchPlan(scene, target);
@@ -254,6 +272,22 @@ export class ThreadModelSheet {
     admit(requestId, true, "");
     this.#changed();
     this.#publish();
+  }
+
+  /** Any model on any account starts the fork; the thread's own forks on what it runs. */
+  #pickForFork(scene: ShapedScene, target: SwitchTarget, requestId: string, admit: Admission) {
+    const choice = scene.choices.find(
+      (candidate) => candidate.key === target.key && candidate.accountId === target.account,
+    );
+    if (!choice) return admit(requestId, false, "That model isn't offered now. Pick another.");
+    this.#fork?.choose(choice.id === scene.running?.id ? undefined : choice);
+    admit(requestId, true, "");
+    this.#publish();
+  }
+
+  /** The fork was opened or closed, or its model picked: the rows check another one. */
+  forkChanged(): void {
+    if (this.#state === "ready") this.#publish();
   }
 
   #stood(): string {
@@ -332,7 +366,8 @@ export class ThreadModelSheet {
       const scene = this.#scene();
       const read = this.#read;
       if (!scene || !read) return undefined;
-      const picked = scene.picked;
+      const forking = this.#fork?.open() === true;
+      const picked = forking ? (this.#fork?.picked() ?? scene.running) : scene.picked;
       // A model the catalog doesn't list (retired, custom) is still the one checked, by name.
       const selection = runsOn(scene.thread);
       const current = picked
@@ -358,7 +393,9 @@ export class ThreadModelSheet {
         current: current ?? null,
         currentLabel:
           picked || !selection?.model ? "" : this.#preview(modelLabel(selection.model), 128),
-        ...switchRows(scene, targets),
+        // Every row starts the fork as it is: nothing to ask, nothing refused.
+        ...(forking ? { rows: {}, asks: [] } : switchRows(scene, targets)),
+        forking,
       };
     });
   }

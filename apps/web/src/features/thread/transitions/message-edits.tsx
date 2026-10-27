@@ -6,8 +6,13 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failureMessage, useDaemonReady } from "@/lib/daemon-command.ts";
 import { useThreadSources } from "../sources/index.ts";
-import { retryPointOf, sameRetryPoint, type EditPoint, type RetryPoint } from "./edit-point.ts";
-import { resendPayload } from "./resend.ts";
+import {
+  resendPayload,
+  retryPointOf,
+  sameRetryPoint,
+  type EditPoint,
+  type RetryPoint,
+} from "@ace/ui-core";
 
 /*
  * Retry on the transcript's newest answer, through what the daemon already offers: Pi rewinds its

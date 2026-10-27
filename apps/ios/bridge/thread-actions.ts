@@ -136,6 +136,36 @@ export const ThreadAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("lane.open"), agentId: z.string().min(1).max(256) }),
   z.object({ type: z.literal("lane.close") }),
   z.object({ type: z.literal("attach"), file: Picked }),
+  /**
+   * The composer writes a fork: from an answer (with the turn its row names, for one only the
+   * history window holds), from the last turn, or from before the person's message, edited.
+   */
+  z.object({
+    type: z.literal("fork.open"),
+    at: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("answer"),
+        itemId: z.string().min(1).max(256),
+        runId: z.string().min(1).max(256).optional(),
+      }),
+      z.object({ kind: z.literal("latest") }),
+      z.object({ kind: z.literal("edit"), itemId: z.string().min(1).max(256) }),
+    ]),
+    requestId,
+  }),
+  z.object({ type: z.literal("fork.cancel") }),
+  /** Pi asks the newest answer's question again, in place. */
+  z.object({ type: z.literal("retry"), answerId: z.string().min(1).max(256), requestId }),
+  /** Pi continues from this answer. */
+  z.object({ type: z.literal("rewind"), itemId: z.string().min(1).max(256), requestId }),
+  /** Bring this fork back to its parent: what it starts with, then the summary sent. */
+  z.object({ type: z.literal("merge.draft") }),
+  z.object({
+    type: z.literal("merge"),
+    summary: z.string().min(1).max(100_000),
+    includeCode: z.boolean(),
+    requestId,
+  }),
   z.object({ type: z.literal("detach"), localId: z.string().min(1).max(64) }),
 ]);
 export type ThreadAction = z.infer<typeof ThreadAction>;

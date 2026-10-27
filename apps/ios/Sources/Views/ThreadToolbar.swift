@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
-enum ThreadDestination { case changes, search, files, terminal, scripts, browser, devices, computer, tools, agents }
+enum ThreadDestination { case changes, search, files, terminal, scripts, browser, devices, computer, tools, agents, rename, forkLast, merge, turns, attachments }
 
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
 /// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title centred
@@ -11,6 +11,9 @@ struct ThreadToolbar: ToolbarContent {
     /// "project · branch" (or the machine where there is no branch).
     let subtitle: String
     let status: StatusDisplay?
+    /// Rename and name-again from the title's own menu; nil where the thread can't be renamed.
+    var rename: (() -> Void)? = nil
+    var retitle: (() -> Void)? = nil
     let menu: ThreadMenu
 
     var body: some ToolbarContent {
@@ -23,10 +26,30 @@ struct ThreadToolbar: ToolbarContent {
             ToolbarItem(placement: .topBarTrailing) { menu }
         }
     }
-    private var heading: some View {
+    /// The title opens its own menu, Rename first, as the system's documents do; a small chevron
+    /// beside it says so.
+    @ViewBuilder private var heading: some View {
+        if let rename {
+            Menu {
+                Button("Rename…", ace: .pencilSimple, action: rename).accessibilityIdentifier("thread.rename")
+                if let retitle { Button("Name from first message", ace: .sparkle, action: retitle).accessibilityIdentifier("thread.retitle") }
+            } label: { titleStack(chevron: true) }
+            .accessibilityIdentifier("thread.title")
+            .accessibilityHint("Rename this thread")
+        } else {
+            titleStack(chevron: false).accessibilityIdentifier("thread.title")
+        }
+    }
+    private func titleStack(chevron: Bool) -> some View {
         VStack(spacing: AceTheme.Spacing.none) {
-            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
-                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+            HStack(spacing: AceTheme.Spacing.xxs) {
+                Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
+                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+                if chevron {
+                    Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+                        .foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
+                }
+            }
             if !subtitle.isEmpty {
                 Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
@@ -36,7 +59,6 @@ struct ThreadToolbar: ToolbarContent {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
         .accessibilityValue(status?.label ?? "")
-        .accessibilityIdentifier("thread.title")
     }
 }
 
@@ -72,11 +94,33 @@ struct ThreadMenu: View {
                 Button("Changes", ace: .plusMinus) { open(.changes) }.accessibilityIdentifier("thread.changes")
                 Button("Agent tree", ace: .treeStructure) { open(.agents) }.accessibilityIdentifier("thread.agents")
                 Button("Find in thread", ace: .magnifyingGlass) { open(.search) }.accessibilityIdentifier("thread.search")
+                Button("Turns", ace: .listBullets) { open(.turns) }.accessibilityIdentifier("thread.turns")
+            }
+            // What can be done with the conversation itself.
+            Section {
+                if model.canOperate, !archived {
+                    Button("Rename…", ace: .pencilSimple) { open(.rename) }.accessibilityIdentifier("thread.menu.rename")
+                    if thread.screen.transitions?.lastTurn == true {
+                        Button("Fork from the last turn", ace: .gitFork) { open(.forkLast) }.accessibilityIdentifier("thread.forkLast")
+                    }
+                    if thread.screen.transitions?.parent != nil {
+                        Button("Bring back to parent…", ace: .gitMerge) { open(.merge) }.accessibilityIdentifier("thread.merge")
+                    }
+                }
+                Button("Run and preview…", ace: .play) { open(.scripts) }.accessibilityIdentifier("thread.scripts")
+            }
+            // Everything the thread's row offers, in the same words and order (`threadMenu`).
+            if let organizer, let row, let hostId = model.hostId, model.canOperate {
+                ThreadActionItems(key: InboxKey(machineId: hostId, id: thread.id), row: row,
+                                  labels: model.inboxLayout.menuLabels ?? [:], sections: model.inboxLayout.menuSections ?? [:],
+                                  snoozeOptions: model.inboxLayout.snooze, organizer: leaving(organizer))
+            }
+            Section {
                 Button("Files", ace: .folder) { open(.files) }.accessibilityIdentifier("thread.files")
+                Button("Attachments", ace: .paperclip) { open(.attachments) }.accessibilityIdentifier("thread.attachments")
                 Button("Browser", ace: .compass) { open(.browser) }.accessibilityIdentifier("thread.browser")
                 Button("Devices", ace: .deviceMobile) { open(.devices) }.accessibilityIdentifier("thread.devices")
                 Button("Terminal", ace: .terminalWindow) { open(.terminal) }.accessibilityIdentifier("thread.terminal")
-                Button("Run and preview…", ace: .play) { open(.scripts) }.accessibilityIdentifier("thread.scripts")
                 OpenOnHostMenu(model: model, target: HostOpenTarget(threadId: thread.id)) { Label("Open in…", ace: .arrowSquareOut) }
                     .accessibilityIdentifier("thread.openIn")
                 Button("Computer use", ace: .appWindow) { open(.computer) }
@@ -113,12 +157,6 @@ struct ThreadMenu: View {
                         Button("Archive", ace: .archive) { Task { if await model.archive(thread.id) { leave() } } }
                     }
                 }
-            }
-            // Everything the thread's row offers, in the same words and order (`threadMenu`).
-            if let organizer, let row, let hostId = model.hostId, model.canOperate {
-                ThreadActionItems(key: InboxKey(machineId: hostId, id: thread.id), row: row,
-                                  labels: model.inboxLayout.menuLabels ?? [:], sections: model.inboxLayout.menuSections ?? [:],
-                                  snoozeOptions: model.inboxLayout.snooze, organizer: leaving(organizer))
             }
             if model.canOperate, thread.screen.controls?.canStop == true {
                 Section {

@@ -32,6 +32,14 @@ import { NativeAttachmentRequest, readNativeAttachment } from "./native-attachme
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
+import { NativeRichRequest, readNativeRich } from "./native-rich.ts";
+import {
+  ThreadFileIndex,
+  NativeThreadFilesRequest,
+  NativeTurnsRequest,
+  readNativeThreadFiles,
+  readNativeTurns,
+} from "./native-thread-index.ts";
 import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
 import { SentPromptRequest, readSentPrompt } from "./sent-prompt.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
@@ -95,6 +103,10 @@ export class NativeServices {
    */
   #keeping = new Set<string>();
   readonly transcript: NativeTranscript;
+  /** The Attachments lists last read, for opening a listed file without listing again. */
+  readonly threadFiles = new ThreadFileIndex();
+  /** The files the fork being written in a thread carries, which its list can't remove. */
+  carried: (threadId: string) => ReadonlySet<string> = () => new Set();
   readonly owner: ClientCore;
   readonly sink: PatchSink;
   readonly devices: NativeDevices | undefined;
@@ -234,6 +246,32 @@ export class NativeServices {
         this.#reply(id, true, readSentPrompt(this.owner, sent.data), "");
         return;
       }
+      const rich = NativeRichRequest.safeParse(raw);
+      if (rich.success) {
+        this.#reply(id, true, await readNativeRich(rich.data), "");
+        return;
+      }
+      const turns = NativeTurnsRequest.safeParse(raw);
+      if (turns.success) {
+        this.#reply(id, true, await readNativeTurns(this.owner, turns.data, controller.signal), "");
+        return;
+      }
+      const threadFiles = NativeThreadFilesRequest.safeParse(raw);
+      if (threadFiles.success) {
+        this.#reply(
+          id,
+          true,
+          await readNativeThreadFiles(
+            this.owner,
+            threadFiles.data,
+            controller.signal,
+            this.threadFiles,
+            this.carried(threadFiles.data.threadId),
+          ),
+          "",
+        );
+        return;
+      }
       const limits = UsageLimitsRequest.safeParse(raw);
       if (limits.success) {
         this.#answer(id, raw, await readUsageLimits(this.owner, controller.signal), read);
@@ -259,7 +297,12 @@ export class NativeServices {
         this.#reply(
           id,
           true,
-          await readNativeAttachment(this.owner, attachment.data, controller.signal),
+          await readNativeAttachment(
+            this.owner,
+            attachment.data,
+            controller.signal,
+            this.threadFiles,
+          ),
           "",
         );
         return;

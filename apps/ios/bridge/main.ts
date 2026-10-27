@@ -276,6 +276,9 @@ async function start(json: string): Promise<void> {
     new ProjectManage(client, scheduler.set),
     inboxRequests(client, inbox.organizer, { now: () => host.now(), set: scheduler.set }, pump),
   );
+  // A file the fork being written carries stays in its thread until the fork is sent or closed.
+  services.carried = (threadId) =>
+    threadId === openThreadId ? (session?.carriedFiles() ?? new Set()) : new Set();
   terminal = new NativeTerminal(client, pump);
   transfers = new NativeTransfers(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
@@ -357,6 +360,7 @@ function action(json: string): void {
           pump,
           nativeChunks,
           (threadId) => suggest?.entries(threadId),
+          () => services?.transcript.source(value.threadId),
         );
         browser?.close();
         browser?.probe(value.threadId, epoch);

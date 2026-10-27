@@ -1,5 +1,11 @@
 import type { ClientCore } from "@ace/client";
-import type { ContextOperation, ContextResult, MessageContext, ThreadId } from "@ace/protocol";
+import type {
+  Attachment,
+  ContextOperation,
+  ContextResult,
+  MessageContext,
+  ThreadId,
+} from "@ace/protocol";
 import { ContextError, attachmentLimits, attachmentSizeProblem, expectContext } from "@ace/ui-core";
 import { z } from "zod";
 import { call } from "./host.ts";
@@ -41,6 +47,11 @@ export type Picked = z.infer<typeof Picked>;
 
 interface Staged extends Picked {
   state: "uploading" | "ready" | "failed";
+  /**
+   * A file the thread already stores, carried from a message (an edited one): it goes by
+   * reference, never uploads again, and leaving the message never releases it from the thread.
+   */
+  carried: { itemId: string; thumbnail: boolean } | undefined;
   progress: number;
   error: string;
   uploadId: string | undefined;
@@ -95,11 +106,57 @@ export class AttachmentTray {
       error: problem ?? "",
       uploadId: undefined,
       draftId: undefined,
+      carried: undefined,
       abort: new AbortController(),
     };
     this.#files.set(picked.localId, file);
     this.#publish();
     if (!problem) void this.#upload(file);
+  }
+
+  /**
+   * Put files message `itemId` carries on this message as they are: the same stored files, by
+   * reference. Ones already on it, or past the per-message limit, are left off.
+   */
+  carry(itemId: string, files: readonly Attachment[]): void {
+    for (const attachment of files) {
+      if (this.#files.size >= attachmentLimits.perMessage) break;
+      if ([...this.#files.values()].some((file) => file.sha256 === attachment.sha256)) continue;
+      const localId = `carried-${attachment.sha256.slice(0, 32)}`;
+      this.#files.set(localId, {
+        localId,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        bytes: attachment.bytes,
+        sha256: attachment.sha256,
+        state: "ready",
+        progress: 1,
+        error: "",
+        uploadId: undefined,
+        draftId: undefined,
+        carried: { itemId, thumbnail: attachment.thumbnailAvailable === true },
+        abort: new AbortController(),
+      });
+    }
+    this.#publish();
+  }
+
+  /** The stored files carried on the message, which the thread must keep while it is written. */
+  carried(): ReadonlySet<string> {
+    return new Set(
+      [...this.#files.values()].filter((file) => file.carried).map((file) => file.sha256),
+    );
+  }
+
+  /** Take the carried files back off the message (the edit it came with was closed). */
+  dropCarried(): void {
+    let dropped = false;
+    for (const [localId, file] of this.#files)
+      if (file.carried) {
+        this.#files.delete(localId);
+        dropped = true;
+      }
+    if (dropped) this.#publish();
   }
 
   /** Take a file off the message: an upload stops, a held file is released. */
@@ -109,6 +166,8 @@ export class AttachmentTray {
     this.#files.delete(localId);
     file.abort.abort();
     this.#publish();
+    // The thread keeps a carried file: its message still shows it.
+    if (file.carried) return;
     const release: ContextOperation | undefined =
       file.state === "ready"
         ? "threadId" in this.#target
@@ -243,6 +302,10 @@ export class AttachmentTray {
         state: file.state,
         progress: file.progress,
         error: file.error,
+        /** Where a carried file is read from (`native.attachment`), as its message shows it. */
+        carried: file.carried
+          ? { itemId: file.carried.itemId, ref: file.sha256, thumbnail: file.carried.thumbnail }
+          : null,
       })),
     );
   }

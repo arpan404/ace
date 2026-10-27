@@ -1,14 +1,18 @@
 import { threadCleaning } from "./thread-cleanup-journal.ts";
 import { organizationDecision } from "@ace/projection";
 export { organizationCommands } from "@ace/projection";
-import { ThreadId, type Command, type CommandResult } from "@ace/protocol";
+import { ThreadId, type Command, type CommandResult, type ContentPart } from "@ace/protocol";
 import type { Store } from "./store.ts";
+import { oldestTitleInput } from "./engine/title-input.ts";
+import { provisionalTitle } from "./engine/thread-title.ts";
 
 export function organizeThread(
   store: Store,
   command: Command,
   at: number,
   ownsWork: (id: ThreadId) => boolean = noOwnedWork,
+  /** A thread named again from its opening request: the utility model's title can follow. */
+  renamed?: (id: ThreadId, opening: ContentPart[]) => void,
 ): CommandResult {
   const p = command.payload;
   if (!("threadId" in p)) return { commandId: command.id, ok: false, error: "invalid_command" };
@@ -20,6 +24,19 @@ export function organizeThread(
   if (p.type === "thread.delete") {
     if (threadHasPendingWork(store, thread.id, ownsWork))
       return { commandId: command.id, ok: false, error: "thread_busy" };
+  }
+  if (p.type === "thread.title.regenerate") {
+    // Named again from its opening request, as a new thread is: its first words now; the
+    // utility model's title follows (`ThreadTitles.regenerate`) and replaces them only.
+    const opening = oldestTitleInput(store, thread.id);
+    if (!opening) return { commandId: command.id, ok: false, error: "thread_title_unavailable" };
+    store.appendEvents(
+      thread.id,
+      [{ type: "thread.updated", title: provisionalTitle(opening), titleSource: "provisional" }],
+      at,
+    );
+    renamed?.(thread.id, opening);
+    return { commandId: command.id, ok: true, threadId: thread.id };
   }
   const decision = organizationDecision(thread, command, at);
   if (typeof decision === "string") return { commandId: command.id, ok: false, error: decision };

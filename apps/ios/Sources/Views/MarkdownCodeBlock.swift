@@ -6,10 +6,21 @@ import SwiftUI
 struct MarkdownCodeBlock: View {
     let language: String
     let text: String
+    @Environment(\.markdownRich) private var rich
+    @Environment(\.markdownSettled) private var settled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var copied = false
     @State private var showAll = false
+    @State private var loaded: MarkdownRich.Code?
+    /// The block's width, so a diff's tints reach its edge even where its lines are short.
+    @State private var width: CGFloat = 0
     private static let cappedAt = 20
+    /// Colours or diff lines once read; a kept read shows on the first frame, so nothing pops.
+    private var extras: MarkdownRich.Code? { loaded ?? rich?.knownCode(language.lowercased(), text) }
     var body: some View {
+        block
+    }
+    @ViewBuilder private var block: some View {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         let long = lines.count > Self.cappedAt + 2
         let shown = long && !showAll ? lines.prefix(Self.cappedAt).joined(separator: "\n") : text
@@ -37,11 +48,24 @@ struct MarkdownCodeBlock: View {
             .padding(.leading, AceTheme.Spacing.md).padding(.trailing, AceTheme.Spacing.xs)
             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(verbatim: shown).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                if let diff = extras?.diff {
+                    DiffLines(lines: long && !showAll ? Array(diff.prefix(Self.cappedAt)) : diff)
+                        .frame(minWidth: width, alignment: .leading)
+                        .padding(.top, AceTheme.Spacing.sm).padding(.bottom, AceTheme.Spacing.md)
+                } else {
+                    Group {
+                        if let extras, !extras.runs.isEmpty { Text(MarkdownRich.coloured(shown, extras)) }
+                        else { Text(verbatim: shown) }
+                    }
+                    .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .fixedSize(horizontal: true, vertical: false).textSelection(.enabled)
                     .padding(.horizontal, AceTheme.Spacing.md).padding(.top, AceTheme.Spacing.sm).padding(.bottom, AceTheme.Spacing.md)
+                }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            // Colours arrive over the same glyphs: they fade in, the block never moves.
+            .animation(reduceMotion ? nil : .smooth, value: loaded)
             if long {
                 Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
                 Button(showAll ? "Collapse" : "Show all \(lines.count) lines") { showAll.toggle() }
@@ -61,6 +85,132 @@ struct MarkdownCodeBlock: View {
         .task(id: copied) {
             guard copied else { return }
             do { try await Task.sleep(for: .seconds(1.5)); copied = false } catch { }
+        }
+        // Coloured only once the answer has stopped streaming, and only when it comes into view.
+        .task(id: settled ? text : "") {
+            guard settled, loaded == nil, let rich, rich.knownCode(language.lowercased(), text) == nil else { return }
+            loaded = await rich.code(language.lowercased(), text)
+        }
+        .sensoryFeedback(.success, trigger: copied) { _, now in now }
+    }
+}
+
+/// A diff fence: added and removed lines tinted across the block with a bar at their edge, hunk
+/// headers muted, as the web's diff body reads. VoiceOver says which lines were added or removed.
+private struct DiffLines: View {
+    let lines: [MarkdownRich.Code.Line]
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                Text(verbatim: line.text.isEmpty ? " " : line.text)
+                    .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                    .foregroundStyle(line.kind == "hunk" || line.kind == "meta" ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.horizontal, AceTheme.Spacing.md)
+                    .frame(maxWidth: .infinity, minHeight: AceTheme.Typography.code.lineHeight, alignment: .leading)
+                    .background(tint(line.kind))
+                    .overlay(alignment: .leading) { bar(line.kind).frame(width: 2) }
+                    .accessibilityLabel(line.kind == "add" ? "Added: \(line.text)" : line.kind == "del" ? "Removed: \(line.text)" : line.text)
+            }
+        }
+        .textSelection(.enabled)
+    }
+    private func tint(_ kind: String) -> Color {
+        switch kind {
+        case "add": AceTheme.Colours.diffAdd
+        case "del": AceTheme.Colours.diffDelete
+        default: .clear
+        }
+    }
+    private func bar(_ kind: String) -> Color {
+        switch kind {
+        case "add": AceTheme.Status.done
+        case "del": AceTheme.Status.failed
+        default: .clear
+        }
+    }
+}
+
+/// Display math, typeset as the web sets it (`MathRenderer`): centred, scrolling sideways when
+/// wider than the column, its text form until the typeset formula is drawn and if it can't be.
+struct MathBlock: View {
+    let span: MathSpan
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var typeset: MathImage?
+    var body: some View {
+        let size = MathMarkers.size(typeSize)
+        let shown = typeset ?? MathRenderer.shared.cached(span, size: size)
+        // Centred, as the web sets display math; one wider than the column scrolls sideways.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: AceTheme.Spacing.none) {
+                Spacer(minLength: AceTheme.Spacing.none)
+                formula(shown)
+                Spacer(minLength: AceTheme.Spacing.none)
+            }
+            ScrollView(.horizontal, showsIndicators: false) { formula(shown) }
+        }
+        .frame(maxWidth: .infinity)
+        .animation(reduceMotion ? nil : .smooth, value: typeset != nil)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(span.text)
+        .accessibilityIdentifier(shown == nil ? "markdown.math" : "markdown.math.typeset")
+        .task(id: "\(span.tex)|\(size)") {
+            guard MathRenderer.shared.cached(span, size: size) == nil else { return }
+            typeset = await MathRenderer.shared.render(span, size: size)
+        }
+    }
+}
+
+extension MathBlock {
+    @ViewBuilder fileprivate func formula(_ shown: MathImage?) -> some View {
+        Group {
+            if let shown {
+                Image(uiImage: shown.image).foregroundStyle(AceTheme.Colours.foreground)
+                    .transition(.opacity)
+            } else {
+                Text(verbatim: span.text)
+                    .font(.system(.body, design: .serif).italic())
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .fixedSize()
+                    .transition(.opacity)
+            }
+        }
+        .padding(.vertical, AceTheme.Spacing.xs)
+    }
+}
+
+/// A paragraph holding inline formulas: its prose as Markdown, each formula typeset and set on
+/// the line's baseline in the prose's ink, its text form until then and if it can't be.
+struct MathProse: View {
+    let text: String
+    let math: [MathSpan]
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var typeset: [Int: MathImage] = [:]
+    var body: some View {
+        let size = MathMarkers.size(typeSize)
+        let pieces = MathMarkers.pieces(text)
+        pieces.reduce(Text(verbatim: "")) { line, piece in
+            switch piece {
+            case .prose(let prose): return line + Text(MarkdownView.styled(prose))
+            case .formula(let index):
+                guard index < math.count else { return line }
+                if let image = typeset[index] ?? MathRenderer.shared.cached(math[index], size: size) {
+                    return line + Text(Image(uiImage: image.image)).baselineOffset(image.baseline - image.image.size.height)
+                }
+                return line + Text(verbatim: math[index].text)
+            }
+        }
+        .aceFont(AceTheme.Typography.body, relativeTo: .body)
+        .animation(reduceMotion ? nil : .smooth, value: typeset.count)
+        .accessibilityLabel(MathMarkers.plain(text, math))
+        .task(id: "\(text)|\(size)") {
+            for case .formula(let index) in pieces where index < math.count {
+                guard MathRenderer.shared.cached(math[index], size: size) == nil else { continue }
+                if let image = await MathRenderer.shared.render(math[index], size: size) { typeset[index] = image }
+                if Task.isCancelled { return }
+            }
         }
     }
 }

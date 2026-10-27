@@ -28,6 +28,7 @@ import { busyInbox } from "./busy-inbox-scenario.ts";
 import { seedSettled } from "./settled-scenario.ts";
 import { servePeer, transferPace } from "./transfer-peer.ts";
 import { seedForks } from "./fork-scenario.ts";
+import { seedTransitions } from "./transitions-scenario.ts";
 import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 import { richRound, seedRichWork } from "./rich-work-scenario.ts";
 
@@ -74,6 +75,8 @@ const details = (branch: string) => ({
   branch,
   machine: { host: hostId, name: machineName },
 });
+// Seeded first, so they are the list's oldest finished threads and never push the others down.
+seedTransitions(daemon, details);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-stream",

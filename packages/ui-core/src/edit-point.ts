@@ -1,5 +1,5 @@
 import type { ForkPoint, Item, Run } from "@ace/protocol";
-import { forkPointOf, sameForkPoint } from "@ace/ui-core";
+import { forkPointOf, sameForkPoint } from "./fork-point.ts";
 
 /*
  * Where retrying the person's last ask starts from. Pure over the thread's order. It goes back to
@@ -86,4 +86,80 @@ function sameEditPoint(a: EditPoint | undefined, b: EditPoint | undefined): bool
 export function sameRetryPoint(a: RetryPoint | undefined, b: RetryPoint | undefined): boolean {
   if (a === b) return true;
   return !!a && !!b && a.askId === b.askId && sameEditPoint(a.point, b.point);
+}
+
+/**
+ * Editing the person's message `messageId`: a fork from just before it (the main agent's newest
+ * finished answer ahead of it), whose first message is the edited words. Undefined for anything
+ * but the person's message, and for one with no finished answer before it (the thread's opening).
+ */
+export function editPointOf(
+  reader: Reader,
+  messageId: string,
+  rootAgentId: string | undefined,
+  /** The message's place in `reader.order`; the caller knows it, so nothing scans for it. */
+  at: number,
+): EditPoint | undefined {
+  if (!rootAgentId || at < 0 || reader.order[at] !== messageId) return undefined;
+  const item = reader.item(messageId);
+  if (item?.type !== "message" || item.role !== "user" || item.synthetic) return undefined;
+  return pointBefore(reader, at, rootAgentId);
+}
+
+/**
+ * What a fork brings back to its parent: its main agent's newest finished answer of its own work.
+ * What the fork copied from its parent (`inherited`) is not its own work.
+ */
+export function mergeAnswerOf(
+  reader: Reader,
+  rootAgentId: string | undefined,
+): Extract<Item, { type: "message" }> | undefined {
+  if (!rootAgentId) return undefined;
+  for (let at = reader.order.length - 1; at >= 0; at--) {
+    const item = reader.item(reader.order[at] ?? "");
+    if (
+      item?.type === "message" &&
+      item.role === "assistant" &&
+      item.complete &&
+      !item.synthetic &&
+      !item.inherited &&
+      item.agentId === rootAgentId
+    )
+      return item;
+  }
+  return undefined;
+}
+
+/** The answer's words as a merge summary starts out, bounded to what a message carries. */
+export function mergeSummaryOf(
+  answer: Extract<Item, { type: "message" }> | undefined,
+  limit: number,
+): string {
+  return (
+    answer?.parts
+      .flatMap((part) => (part.type === "text" ? [part.text] : []))
+      .join("")
+      .slice(0, limit) ?? ""
+  );
+}
+
+/** Why a fork's work can't go back to its parent yet, in the words the bring-back form shows. */
+export const bringBackWaits = {
+  working: "Wait for every agent in this fork to finish before bringing its work back.",
+  answer: "Wait for an answer in this fork before bringing results back.",
+} as const;
+
+/**
+ * Whether this fork's work can go back to its parent now: only once its whole tree has finished
+ * (the daemon refuses a live one) and it has an answer of its own to send. `state` is the fork's
+ * whole-tree status.
+ */
+export function bringBackOf(
+  reader: Reader,
+  rootAgentId: string | undefined,
+  state: string | undefined,
+): { answer: Extract<Item, { type: "message" }> } | { refused: string } {
+  if (state !== "done" && state !== "failed") return { refused: bringBackWaits.working };
+  const answer = mergeAnswerOf(reader, rootAgentId);
+  return answer ? { answer } : { refused: bringBackWaits.answer };
 }

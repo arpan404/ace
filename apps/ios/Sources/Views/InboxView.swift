@@ -43,6 +43,7 @@ struct InboxView: View {
     @State private var links = PendingLinks()
     /// The open thread's commands, for search everything (`ThreadKeysBox`).
     @State private var threadKeysBox = ThreadKeysBox()
+    @State private var renamingRow: InboxKey?
     /// A row brought back by Undo or Unsettle, scrolled into view once it is in the list again:
     /// unsettling makes it the newest activity, so it returns far from where the person acted.
     @State private var reveal: InboxKey?
@@ -58,6 +59,7 @@ struct InboxView: View {
 
     var body: some View {
         sheets
+            .modifier(InboxRename(inbox: inbox, key: $renamingRow))
             .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { key in
                 ForEach(inbox.merged.snooze) { option in
                     Button(option.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: option.id) } }
@@ -247,6 +249,7 @@ struct InboxView: View {
             wake: { row, key in acted(); Task { _ = await inbox.client(key.machineId)?.wake(row.id) } },
             archive: { _, key in acted(); Task { await organize.run(.archive, [key], in: inbox) } },
             pin: { row, key, pinned in acted(); Task { _ = await inbox.client(key.machineId)?.pin(row.id, pinned) } },
+            rename: { key in acted(); renamingRow = key },
             move: { key, section, index in acted(); Task { await inbox.move(key, in: section, to: index) } },
             organizer: organizer,
             // Select mode belongs to each tab's list (`InboxStack`).

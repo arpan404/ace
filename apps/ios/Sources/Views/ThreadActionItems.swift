@@ -14,8 +14,8 @@ extension EnvironmentValues {
 
 /// One thread's actions as menu sections, in the shared order and words (`threadMenu`): read,
 /// pin and move; Snooze or Wake; settle and auto-settle; archive and delete, delete in red.
-/// Ids this app has no handler for (rename and fork belong to the thread's own header) are
-/// left out.
+/// Rename shows only where the caller passes `rename` (a row's menu; the open thread's ⋯ has its
+/// own). Ids this app has no handler for (fork belongs to the thread's own header) are left out.
 struct ThreadActionItems: View {
     let key: InboxKey
     let row: ThreadRow
@@ -25,13 +25,15 @@ struct ThreadActionItems: View {
     let organizer: ThreadOrganizer
     /// Extra rows at the end of the read block: Move up and Move down in a hand-sorted list.
     var extra: AnyView? = nil
+    /// Asks for the thread's new name, at the shared menu's place for Rename.
+    var rename: (() -> Void)? = nil
 
     static let handled: Set<String> = [
         "new-on-main", "copy-link", "unread", "read", "pin", "unpin", "move", "settle", "unsettle",
         "auto-settle-off", "auto-settle-on", "archive", "restore", "delete",
     ]
 
-    private var ids: [String] { (row.menu ?? []).filter { Self.handled.contains($0) && labels[$0] != nil } }
+    private var ids: [String] { (row.menu ?? []).filter { (Self.handled.contains($0) || ($0 == "rename" && rename != nil)) && labels[$0] != nil } }
     private func block(_ name: String) -> [String] { ids.filter { sections[$0] == name } }
     private var snoozed: Bool { row.group == "snoozed" }
     private var settled: Bool { row.group == "settled" }
@@ -57,7 +59,9 @@ struct ThreadActionItems: View {
 
     @ViewBuilder private func item(_ id: String) -> some View {
         let label = labels[id] ?? id
-        if id == "delete" {
+        if id == "rename", let rename {
+            Button("\(label)…", ace: .pencilSimple, action: rename).accessibilityIdentifier("thread.action.rename")
+        } else if id == "delete" {
             Button(role: .destructive) { organizer.perform(key, id) } label: { Label(label, ace: .trash) }
                 .accessibilityIdentifier("thread.action.delete")
         } else {

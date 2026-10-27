@@ -87,6 +87,8 @@ export class ThreadTitles {
   private readonly attempted = new Set<ThreadId>();
   private readonly branchAttempted = new Set<ThreadId>();
   private readonly running = new Set<AbortController>();
+  /** Threads being named again now: a second tap waits on the first, never starts another. */
+  private readonly regenerating = new Map<ThreadId, Promise<void>>();
   private closed = false;
   constructor(options: ThreadTitleOptions) {
     this.options = options;
@@ -118,6 +120,24 @@ export class ThreadTitles {
       // Non-worktree threads never consume a second model call.
       this.branchAttempted.add(id);
     }
+  }
+  /**
+   * The person asked for the thread to be named again: generate from its opening request once
+   * more, inside the admission transaction like `namingPrompt`. Lands only while the thread still
+   * carries the provisional title that request set.
+   */
+  regenerate(id: ThreadId, input: readonly ContentPart[]): void {
+    if (this.closed || this.regenerating.has(id)) return;
+    const parts = [...input];
+    const done = new Promise<void>((resolve) => queueMicrotask(resolve))
+      .then(() => this.generate(id, parts))
+      .finally(() => this.regenerating.delete(id));
+    this.regenerating.set(id, done);
+  }
+
+  /** Resolves once the threads being named again now are named (or given up on). */
+  async regenerated(): Promise<void> {
+    await Promise.all(this.regenerating.values());
   }
   private async generate(id: ThreadId, parts: readonly ContentPart[]): Promise<void> {
     if (this.closed) return;

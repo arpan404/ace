@@ -13,6 +13,8 @@ struct InboxRowActions {
     let archive: (ThreadRow, InboxKey) -> Void
     /// Pin (leading Pinned) or unpin.
     let pin: (ThreadRow, InboxKey, Bool) -> Void
+    /// Ask for the row's new name.
+    let rename: (InboxKey) -> Void
     /// Put the row at an index among the other rows of its section, as shown.
     let move: (InboxKey, MergedInbox.Section, Int) -> Void
     /// The rest of a thread's actions, by its shared menu ids (`ThreadActionItems`).
@@ -333,6 +335,7 @@ private struct InboxThreadCell: View {
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             if canOperate && !selecting {
                 pinButton(row, pinned).tint(Color(uiColor: .systemGray))
+                Button("Rename", ace: .pencilSimple) { actions.rename(key) }.tint(Color(uiColor: .systemGray3))
                 Button("Archive", ace: .archive) { actions.archive(row, key) }.tint(Color(uiColor: .systemGray2))
             }
         }
@@ -382,7 +385,8 @@ private struct InboxRowMenu: View {
                 let merged = inbox.merged
                 ThreadActionItems(key: key, row: row, labels: merged.menuLabels, sections: merged.menuSections,
                                   snoozeOptions: merged.snooze, organizer: actions.organizer,
-                                  extra: canMoveUp || canMoveDown ? AnyView(moves) : nil)
+                                  extra: canMoveUp || canMoveDown ? AnyView(moves) : nil,
+                                  rename: { actions.rename(key) })
                 Section { Button("Select", ace: .checkCircle) { actions.select(key) }.accessibilityIdentifier("thread.action.select") }
             } else {
                 Button("Copy link", ace: .link) { actions.organizer.perform(key, "copy-link") }

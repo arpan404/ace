@@ -1,6 +1,7 @@
 import type { ThreadSource } from "@ace/client";
 import type { Item } from "@ace/protocol";
 import {
+  mathSpans,
   describeStep,
   handoffMarker,
   opensAgentPage,
@@ -170,6 +171,23 @@ export function itemDetail(item: Item, context?: StepContext) {
     level: item.type === "notice" ? item.level : "",
     step: stepOf(item, context),
     bubble: bubbleOf(item),
+    math: mathOf(item),
     ...attachmentsOf(item),
   };
+}
+
+/** Answers past this length read their formulas when opened in full (`native.rich`). */
+const mathLimit = 8192;
+
+/**
+ * A finished answer's formulas, marked where they sit (`mathSpans`), so its first frame on the
+ * phone already reads them in their text form; null for anything else, and never while the
+ * answer streams, which costs a delta nothing.
+ */
+function mathOf(item: Item) {
+  if (item.type !== "message" || item.role !== "assistant" || !item.complete) return null;
+  const text = item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+  if (text.length > mathLimit || (!text.includes("$") && !text.includes("\\"))) return null;
+  const spans = mathSpans(text);
+  return spans.math.length ? spans : null;
 }

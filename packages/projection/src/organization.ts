@@ -9,6 +9,7 @@ import {
 
 export const organizationCommands = [
   "thread.rename",
+  "thread.title.regenerate",
   "thread.archive",
   "thread.unarchive",
   "thread.delete",

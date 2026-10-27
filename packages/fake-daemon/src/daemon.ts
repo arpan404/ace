@@ -2,6 +2,7 @@ import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
 import { MachineIcon } from "@ace/protocol";
+import { regeneratedTitle } from "./title-regenerate.ts";
 import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations, refusedAtAdmission } from "./worktree-creation.ts";
@@ -1117,6 +1118,12 @@ export class FakeDaemon implements Host {
           (id, facts) => this.apply(id, facts),
         );
         if (alive) return { commandId, ok: false, error: "thread_busy", alive };
+      }
+      if (payload.type === "thread.title.regenerate") {
+        const renamed = regeneratedTitle(host.view);
+        if (!renamed) return { commandId, ok: false, error: "thread_title_unavailable" };
+        this.append(host, [renamed], this.options.clock());
+        return { commandId, ok: true, threadId: ThreadId.parse(host.id) };
       }
       const decision = organizationDecision(host.view.thread, command, this.options.clock());
       if (typeof decision === "string") return { commandId, ok: false, error: decision };
