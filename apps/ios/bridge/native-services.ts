@@ -36,6 +36,7 @@ import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
+import { ProviderServices } from "./provider-services.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
@@ -98,6 +99,8 @@ export class NativeServices {
   readonly files: CheckoutFiles | undefined;
   readonly forge: ForgeService | undefined;
   readonly reads: NativeReads | undefined;
+  /** A provider's Settings page: its reads, edits and CLI installs (`provider-services.ts`). */
+  readonly providers: ProviderServices;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
@@ -115,6 +118,7 @@ export class NativeServices {
     this.files = files;
     this.forge = forge;
     this.reads = reads;
+    this.providers = new ProviderServices(owner);
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
@@ -190,6 +194,11 @@ export class NativeServices {
           await readNativeMessage(this.owner, message.data, controller.signal),
           "",
         );
+        return;
+      }
+      const provider = await this.providers.answer(raw, controller.signal);
+      if (provider) {
+        this.#answer(id, raw, provider.value, read);
         return;
       }
       const limits = UsageLimitsRequest.safeParse(raw);

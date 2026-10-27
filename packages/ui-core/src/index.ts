@@ -63,6 +63,7 @@ export * from "./picker-entries.ts";
 export * from "./model-favorites.ts";
 export * from "./cli-install-controller.ts";
 export * from "./provider-configuration-edit.ts";
+export * from "./provider-models-view.ts";
 export * from "./speed.ts";
 export * from "./model-groups.ts";
 export * from "./model-label.ts";

@@ -17,7 +17,8 @@ export type ReadFamily =
   | "plugins"
   | "prompts"
   | "catalog"
-  | "forge";
+  | "forge"
+  | "providers";
 
 type Raw = Record<string, unknown>;
 const Raw = z.record(z.string(), z.unknown());
@@ -74,6 +75,10 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return operation(value) === "list" ? "prompts" : undefined;
     case "catalog.list":
       return "catalog";
+    // A provider's Settings page and the off and missing providers (`provider-page.ts`).
+    case "provider.page":
+    case "providers.others":
+      return "providers";
     case "forge.pulls":
     case "forge.issues":
     case "forge.pull":
@@ -101,7 +106,7 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return projectLookups.has(operation(value) ?? "") ? [] : ["projects", "source-control"];
     case "settings.set":
     case "settings.reset":
-      return ["settings", "source-control"];
+      return ["settings", "source-control", "providers"];
     case "automation.put":
     case "automation.remove":
     case "automation.run":
@@ -111,6 +116,10 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return pluginLookups.has(pluginType(value) ?? "") ? [] : ["plugins", "catalog"];
     case "prompts.request":
       return ["prompts"];
+    case "provider.edit":
+      return ["providers", "settings", "catalog"];
+    case "provider.logout":
+      return ["providers", "catalog"];
     case "forge.merge":
     case "forge.auto-merge":
     case "forge.review":
@@ -132,16 +141,18 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
     case "workspace.changed":
       return ["projects", "source-control"];
     case "settings.changed":
-      return ["settings", "source-control"];
+      return ["settings", "source-control", "providers"];
     case "usage.updated":
-    case "accounts.changed":
       return ["usage"];
+    case "accounts.changed":
+      return ["usage", "providers"];
     case "plugins.removed":
       return ["plugins", "catalog"];
     case "catalog.changed":
+      return ["catalog"];
     case "models.changed":
     case "providers.changed":
-      return ["catalog"];
+      return ["catalog", "providers"];
     case "forge.pr.updated":
       return ["forge"];
     default:

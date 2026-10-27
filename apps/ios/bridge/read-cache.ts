@@ -134,6 +134,7 @@ const families = [
   "prompts",
   "catalog",
   "forge",
+  "providers",
 ] as const satisfies readonly ReadFamily[];
 /** The kept record's shape. A new version starts empty rather than reading another shape. */
 const recordVersion = 1;

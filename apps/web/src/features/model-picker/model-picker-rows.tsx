@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button.tsx";
 import { useRefreshModels } from "./use-refresh-models.ts";
 import type { ProviderKind } from "@ace/protocol";
-import type { ModelProblem, PickerModel } from "@ace/ui-core";
+import { isSignInProblem, type ModelProblem, type PickerModel } from "@ace/ui-core";
 import { isPlainCliLogin, providerNames, freeModelMarker } from "@ace/ui-core";
 import {
   CaretRightIcon,
@@ -229,13 +229,8 @@ export function LegacyToggle(props: {
   );
 }
 
-/** Discovery problems that signing in fixes: not set up or signed out. */
-const fixedBySignIn = new Set<ModelProblem["code"]>(["not_configured", "auth_expired"]);
-
 /** Whether signing in is the fix, so the account's own row can offer it instead. */
-export function isSignInProblem(problem: ModelProblem): boolean {
-  return problem.actionId === "provider.sign_in" || fixedBySignIn.has(problem.code);
-}
+export { isSignInProblem };
 
 /**
  * Why a group's list may be out of date, in the daemon's words, with what to do: "OpenRouter
