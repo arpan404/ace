@@ -1,12 +1,23 @@
 import { expect, test } from "vitest";
 import { sessionHarness } from "./session.test-helper.ts";
 import { obj } from "./native.ts";
+import { toolFactsDeadlineMs } from "./tool-facts.ts";
 
 const aceMcp = { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) };
 
 /** ace's server entry and guidance as the session started its Codex thread. */
-async function startedWith(mode: string) {
-  const h = await sessionHarness(false, mode, undefined, undefined, aceMcp);
+async function startedWith(mode: string, runtime?: Parameters<typeof sessionHarness>[8]) {
+  const h = await sessionHarness(
+    false,
+    mode,
+    undefined,
+    undefined,
+    aceMcp,
+    undefined,
+    undefined,
+    undefined,
+    runtime,
+  );
   try {
     const start = h.frames.find(
       (frame) => frame.dir === "send" && obj(frame.data).method === "thread/start",
@@ -47,4 +58,17 @@ test("a Codex thread on a model outside its catalog gets the fixed list, and onl
   expect(prompted).toContain("automation_remove");
   expect(prompted).not.toContain("tools_call");
   expect(instructions).toContain("tools_call {name, arguments}");
+});
+
+/** The real clock, for a deadline that has to pass while the app-server never answers. */
+function schedule(callback: () => void, delayMs: number) {
+  const timer = setTimeout(callback, delayMs);
+  return () => clearTimeout(timer);
+}
+
+test("a stalled app-server delays a Codex thread start only by the discovery deadline, then lists every tool", async () => {
+  const started = performance.now();
+  const { headers } = await startedWith("stalled-facts", { schedule });
+  expect(performance.now() - started).toBeLessThan(toolFactsDeadlineMs + 2_000);
+  expect(headers["X-Ace-Tools"]).toBeUndefined();
 });

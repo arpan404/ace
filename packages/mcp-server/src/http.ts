@@ -358,7 +358,7 @@ async function createHandler(
         // There tools_call never reaches a destructive tool, and its annotations say so.
         .map((tool) =>
           namesDestructive && bareToolName(tool.name) === aceToolDispatch
-            ? { ...tool, annotations: { ...tool.annotations, destructiveHint: false } }
+            ? notDestructive(tool)
             : tool,
         ),
     }));
@@ -454,3 +454,10 @@ async function createHandler(
   return { handler, legacy, nodeHandler, validateHost, validateOrigin };
 }
 function noop(): void {}
+
+/** A listed tool whose annotations say it never reaches a destructive tool. */
+function notDestructive<T extends { annotations?: Record<string, unknown> | undefined }>(
+  tool: T,
+): T {
+  return { ...tool, annotations: { ...tool.annotations, destructiveHint: false } };
+}

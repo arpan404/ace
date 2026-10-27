@@ -193,10 +193,13 @@ known at launch starts on core.
   code-mode-only models, as declarations in `exec`'s description. A person's `omit_tools_from` or
   `code_mode.direct_only_tool_namespaces` can also force tools direct.
 - The metadata comes from Codex's catalog: the longest slug the model name starts with, retried
-  after one `provider/` segment (an exact match for a provider's `model_catalog_url`). Every
-  bundled model has search. A model outside the catalog (Ollama or LM Studio under `--oss`, a
-  custom provider's own names) gets fallback metadata without it, and `amazon-bedrock-runtime`
-  turns it off for every model. `features.code_mode_only_strict_3p_tools` keeps MCP tools deferred
+  after one `provider/` segment, for Codex's own catalog and a `model_catalog_json` file (which
+  wins); an exact slug match for a provider's `model_catalog_url`. Every bundled model has search.
+  A model outside the catalog (Ollama or LM Studio under `--oss`, a custom provider's own names, a
+  dated name under a catalog URL listing only the base slug) gets fallback metadata without it,
+  and `amazon-bedrock-runtime` turns it off for every model. A custom catalog's entries set
+  `supports_search_tool` themselves and `model/list` does not return it, so ace treats a model
+  found there as unknown. `features.code_mode_only_strict_3p_tools` keeps MCP tools deferred
   on code-mode-only turns regardless. The auth mode only filters what `model/list` shows.
 - The tool mode is the model's own (the gpt-5.6 and gpt-6 families are code-mode-only), else
   `features.code_mode_only` or `code_mode`, both off by default, so gpt-5.5 runs without `exec`
@@ -212,10 +215,18 @@ known at launch starts on core.
   schema over 5,000 bytes. ace's largest tool definition is under 2,600 characters.
 
 So the adapter reads `config/read` and `model/list` before the thread starts
-(`codexToolListing`). A session whose model would load every tool connects with the fixed list,
-`tools_call` keeping Codex's prompt because it reaches `automation_remove`, and pays about 3,080
-tokens per request instead of the catalogue (about 10,050 plus guidance). A fact it cannot read
-keeps every tool listed. Codex's prefix, `guide` and `tools_find` also name the way in without
+(`codexToolListing`), under one 2.5-second deadline: both are local reads that take
+milliseconds, and only a cold catalog goes online under Codex's own 5-second limit. The catalog is
+read beside the config on an app-server that has none yet, skipped where the config decides
+(Bedrock Runtime, Codex's default model), and kept per app-server keyed by the provider, catalog
+file and URL. A fact it cannot read, or that misses the deadline, keeps every tool listed, and a
+late catalog read still fills the cache. A session whose model would load every tool connects
+with the fixed list and pays about 2,910 tokens per request instead of the catalogue (about
+10,050 plus guidance). Codex never asks under ace's read-only access (approval policy `never`)
+and refuses a prompted tool there, so on that list `tools_call` is approved like the other ace
+tools and refuses destructive targets, and `automation_remove`, the one destructive tool, is
+listed by name with Codex's prompt (about 60 tokens; a second, prompted dispatcher would cost
+more). Codex's prefix, `guide` and `tools_find` also name the way in without
 `exec` (its `tool_search`, then `mcp__ace__<name>`) and, on the fixed list, `tools_call`. A
 switch from a catalog model to one without search mid-thread still loads every tool until the
 session reopens, since Codex cannot replace a thread's MCP entry.

@@ -195,7 +195,10 @@ export class OpenToolsets {
  * the prompt of its own (`codexInjection`). Only `automation_remove` is destructive today, about
  * 80 tokens per request where a second, prompted dispatcher would cost more.
  */
-export function namesDestructiveTools(listing: ToolListing, client: AceClient | undefined): boolean {
+export function namesDestructiveTools(
+  listing: ToolListing,
+  client: AceClient | undefined,
+): boolean {
   return client === "codex" && listing === "static";
 }
 
