@@ -27,26 +27,43 @@ contract and implies no security the native transport does not yet provide.
 - `tickets.ts` — fresh single-use ticket exchange per connection attempt
   over the injected pinned fetch, reusing the shared `accessTicket` and
   `pairedSocketCredential` contracts. Tickets are never cached.
+- `../security/pinned-transport.ts` — request policy in front of the native
+  bridge, mirroring iOS `PinnedHTTP`/`PinnedSocket`: a valid 64-hex pin is
+  required on every call (fail closed before any network), origins and fixed
+  `/v1/` paths are validated, responses are bounded at 1 MiB, redirects are
+  refused, and refusals map to `pin`/`redirect`/`offline`/`limit`/`invalid`.
+  `createPinnedHttp` binds one origin plus its confirmed pin to the
+  `NativePinnedHttp` bridge; `validateSocketTarget` gates WSS endpoints.
+- `transport/` in `modules/ace-native` — the Kotlin TLS boundary: a pinning
+  trust manager (SPKI pin plus validity window during the handshake, single
+  ADR 0097 `*.ts.net` exception), bounded HTTPS with redirect refusal, a
+  pinned WebSocket reporting `trust("pin")` before the fatal close, and the
+  Expo bridge (`pinnedFetch`, `pinnedSocketOpen/Send/Close`,
+  `onPinnedSocketEvent`). Socket entries are evicted by identity so a stale
+  close from a replaced session never drops its replacement. JVM unit plus
+  loopback integration tests cover the pin digest vector, mismatched-pin
+  fail-closed with nothing written, and the trust-report ordering.
 
 ## What is deliberately missing
 
-No native pinned HTTPS (A02.02), no native authenticated WSS (A02.03), no QR
-capture (A02.06), no app lock (A02.07) and no production startup or ticket
-wiring (A02.08). The Keystore adapter (A02.04) is wired (`keystore.ts` plus
-the `secure-store.ts` production entry); until the native trust adapter
-exists, nothing here may authorize a connection: the production entry point
-(`index.production.tsx`) stays unpaired, the fixture runtime stays
-debug-only, and the React Native default fetch or WebSocket must never
-carry pairing material.
+No QR capture (A02.06), no app lock (A02.07) and no production startup or
+ticket wiring (A02.08). Until that wiring lands, nothing here may authorize
+a connection: the production entry point (`index.production.tsx`) stays
+unpaired, the fixture runtime stays debug-only, and the React Native
+default fetch or WebSocket must never carry pairing material.
 
 ## Integration needs
 
-1. Native pinned HTTPS adapter implementing the `TrustInput` contract
-   (leaf DER SPKI digest, validity window, exact-host check, no redirects,
-   1 MiB response bound) behind `PairingTransport.redeem`.
-2. Native pinned WSS adapter with the same trust policy behind the ticket
-   exchange and the `host.identity` read in `PairingTransport.readIdentity`.
-3. `expo-secure-store` wired through `createKeystoreCredentialStore`
+1. Pairing/startup wiring: build the `NativePinnedHttp` bridge from the Expo
+   `pinnedFetch` function (`{origin, fingerprint, method, path, body, token}`
+   in, `{status, body}` out, rejection message exactly the refusal) and pass
+   it to `createPinnedHttp`; `PairingTransport.redeem`/`readIdentity` already
+   carry the explicit `fingerprint` every request requires, validated with
+   `isPin` before any code leaves the phone. The WSS socket behind the
+   ticket exchange and the `host.identity` read uses
+   `pinnedSocketOpen/Send/Close` with `onPinnedSocketEvent` (`open`,
+   `message`, `binary` as base64, `trust`, `close` with the numeric code).
+2. `expo-secure-store` wired through `createKeystoreCredentialStore`
    (`keystore.ts`, production entry `secure-store.ts`) with the isolated
    `app.ace.android.device-token` service, no authentication prompt,
    SecureStore-safe key encoding, and Auto Backup exclusion
@@ -54,7 +71,7 @@ carry pairing material.
    `keychainAccessible` is iOS-only and ignored by the Android native
    module, so the adapter never sends it. Fail-closed reads, single-key
    deletes and malformed-token handling are covered in `keystore.test.ts`.
-4. Production startup that routes empty, removed and revoked pairings to
+3. Production startup that routes empty, removed and revoked pairings to
    pairing again, requests a fresh ticket per connection, and keeps the
    fixture transport debug-only.
 
