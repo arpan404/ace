@@ -385,11 +385,9 @@ it("a rejected first tap still gives every waiter its own outcome", async () => 
   // resolving to an outcome. Same-option waiters must still patch `unsaved`
   // (no unhandled rejection, no missing patch); the different-option waiter
   // chains behind and retries from live state.
-  const thread = vi
-    .spyOn(client, "thread")
-    .mockImplementationOnce(() => {
-      throw new Error("lease boom");
-    });
+  const thread = vi.spyOn(client, "thread").mockImplementationOnce(() => {
+    throw new Error("lease boom");
+  });
   const enqueue = vi.spyOn(client, "enqueue");
   const alert = approvalAlert("n:1", ["allow", "deny"]);
   const [owner, same, different] = await Promise.all([
@@ -442,8 +440,7 @@ it("a rejected first tap still gives every waiter its own outcome", async () => 
 });
 
 it("multiple different-option waiters waking after failures never enqueue concurrently", async () => {
-  const { daemon, client, sync, of, interactions, interactionId } =
-    await phone();
+  const { daemon, client, sync, of, interactions, interactionId } = await phone();
   // A second pending approval offering three options, so three concurrent
   // taps can each name a different option.
   daemon.apply(threadId, [
@@ -479,24 +476,49 @@ it("multiple different-option waiters waking after failures never enqueue concur
     ],
   });
   // Fail the first two outbox saves (`unsaved` leaves the interaction
-  // pending) while tracking overlap; the third succeeds. A serial chain
-  // gives exactly three saves, one at a time, and every request its patch.
+  // pending) while tracking overlap across every attempt; the third
+  // succeeds. A serial chain gives exactly three saves, one at a time, and
+  // every request its patch. Every attempt occupies the overlap window
+  // (including the failing ones): tracking only the successful enqueue
+  // would still show maxInFlight==1 under a concurrent implementation.
   const realEnqueue = client.enqueue.bind(client);
   let calls = 0;
   let inFlight = 0;
   let maxInFlight = 0;
   const enqueue = vi.spyOn(client, "enqueue").mockImplementation(async (payload, id) => {
     calls += 1;
-    if (calls <= 2) throw new Error("outbox full");
+    const attempt = calls;
     inFlight += 1;
     maxInFlight = Math.max(maxInFlight, inFlight);
     try {
       await new Promise((done) => setTimeout(done, 20));
+      if (attempt <= 2) throw new Error("outbox full");
       return await realEnqueue(payload, id as string);
     } finally {
       inFlight -= 1;
     }
   });
+  // Guard the whole settle window (confirmed read + enqueue), not just the
+  // outbox call: overlapping settleActions would hold overlapping thread
+  // leases even if their enqueues happened to serialize by timing.
+  const realThread = client.thread.bind(client);
+  let leases = 0;
+  let maxLeases = 0;
+  vi.spyOn(client, "thread").mockImplementation(((...args: Parameters<typeof client.thread>) => {
+    const lease = (
+      realThread as (...a: Parameters<typeof client.thread>) => { release: () => void }
+    )(...args);
+    leases += 1;
+    maxLeases = Math.max(maxLeases, leases);
+    const release = lease.release.bind(lease);
+    return {
+      ...lease,
+      release: () => {
+        leases -= 1;
+        release();
+      },
+    };
+  }) as typeof client.thread);
   const [first, second, third] = await Promise.all([
     sync.resolve({
       requestId: "tap-ox",
@@ -529,6 +551,7 @@ it("multiple different-option waiters waking after failures never enqueue concur
   expect(calls).toBe(3);
   expect(enqueue).toHaveBeenCalledTimes(3);
   expect(maxInFlight).toBe(1);
+  expect(maxLeases).toBe(1);
   expect(interactions().find((entry) => entry.id === target)).toMatchObject({
     state: "resolved",
     resolution: { kind: "approval", optionId: "oz" },
