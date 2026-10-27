@@ -12,6 +12,7 @@
     "./work-log-reading": "./src/work-log-reading.ts",
     "./command-rank": "./src/command-rank.ts",
     "./acp-registry": "./src/acp-registry.ts",
+    "./acp-registry-data": "./src/acp-registry-data.ts",
     "./counts": "./src/counts.ts",
     "./computer-use": "./src/computer-use.ts",
     "./devices": "./src/device-kit.ts",

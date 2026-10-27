@@ -1,5 +1,26 @@
 export { accountShortLabel } from "@ace/accounts/labels";
-export { accountBadge } from "./account-badge.ts";
+export {
+  accountBadge,
+  accountBadgePreview,
+  accountBadgeProblem,
+  type AccountBadgeDraft,
+  type AccountBadgePreview,
+} from "./account-badge.ts";
+export {
+  manualAgent,
+  splitCommand,
+  type ManualAgent,
+  type ManualAgentCheck,
+} from "./acp-manual-agent.ts";
+export {
+  checkMcpServer,
+  mcpServersNote,
+  mcpServerWord,
+  providerHasMcpServers,
+  type McpServerCheck,
+  type McpServerDraft,
+  type McpServerStatus,
+} from "./mcp-server-form.ts";
 export { threadAttention, withoutPortableHandoff } from "@ace/projection";
 export * from "./notice-text.ts";
 /*
