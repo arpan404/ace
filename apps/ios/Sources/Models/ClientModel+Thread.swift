@@ -93,6 +93,23 @@ extension ClientModel {
         struct Reply: Decodable { let text: String? }
         return try? await service(["type": "thread.sentText", "threadId": threadId, "older": older], as: Reply.self).text
     }
+    /// A queued message's full words, read from the daemon's queue. `takeBack` also removes it and
+    /// answers only once the daemon confirmed; a refusal leaves it queued and answers nil.
+    func queuedWords(_ messageId: String, takeBack: Bool) async -> WordsRequests.Answer {
+        guard canOperate else { return WordsRequests.unsent }
+        let id = admissions.nextId()
+        return await wordRequests.wait(id: id) {
+            threadAction(["type": "queueWords", "messageId": messageId, "takeBack": takeBack, "requestId": id])
+        }
+    }
+    /// A failed send's full words, once its dismissal is saved on this phone.
+    func takeBackSend(_ commandId: String) async -> WordsRequests.Answer {
+        guard canOperate else { return WordsRequests.unsent }
+        let id = admissions.nextId()
+        return await wordRequests.wait(id: id) {
+            action(["type": "inbox", "action": ["kind": "takeBackSend", "commandId": commandId], "requestId": id])
+        }
+    }
     /// The queue's list shows its next page.
     func showMoreQueued() { threadAction(["type": "queueMore"]) }
     /// Pause, resume or clear a thread's goal from its sheet, for the navigation generation the

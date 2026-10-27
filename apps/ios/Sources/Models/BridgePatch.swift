@@ -218,6 +218,9 @@ enum BridgePatch: Decodable, Sendable {
     case error(String)
     case receipt(String, Bool, String)
     case admission(String, Bool, String)
+    /// A message's full words for the composer (`bridge/take-back.ts`): nil text with the reason
+    /// when they couldn't be had, or the daemon kept the message.
+    case words(String, String?, String)
     case block(String, Int, String, BlockRow?)
     case blockPosition(String, Int, String, Int?)
     case controls(String, Int, ControlsRow?)
@@ -260,7 +263,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph }
+    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph, text }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -299,6 +302,10 @@ enum BridgePatch: Decodable, Sendable {
         case "pending": self = .pending(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(PendingRow.self, forKey: .row))
         case "error": self = .error(try box.decode(String.self, forKey: .message))
         case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "words":
+            let ok = try box.decode(Bool.self, forKey: .ok)
+            self = .words(try box.decode(String.self, forKey: .id), ok ? try box.decodeIfPresent(String.self, forKey: .text) : nil,
+                          try box.decode(String.self, forKey: .message))
         case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         case "thread.block":
             let (id, epoch) = try scope()

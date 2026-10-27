@@ -40,29 +40,37 @@ struct HeldSendRow: View {
     let canAct: Bool
     let act: (QueueRow.Action) async -> Bool
     let edit: (QueueRow.Message, [String: Any]) async -> Bool
+    /// The message's full words from the daemon's queue; `true` also removes it, answering once
+    /// the daemon confirmed (`bridge/take-back.ts`).
+    let words: (Bool) async -> WordsRequests.Answer
     /// Words taken back go into the composer.
     let restore: (String) -> Void
     @State private var rewording = false
-    @State private var words = ""
+    @State private var draft = ""
+    @State private var problem: String?
     var body: some View {
         let queued = QueueRow.Message(id: message.id, text: message.text, delivery: "queue", state: "queued", attachments: message.attachments)
         NotSentMessage(text: message.text, attachments: message.attachments, reason: message.reason, detail: message.detail,
                     canAct: canAct, retryLabel: "Try again", removeLabel: "Remove",
                     retry: { await act(QueueRow.Action(id: "resume", label: "Try again")) },
                     edit: {
-                        // Files stay with the message: its words are changed where it waits.
-                        if message.attachments > 0 { words = message.text; rewording = true; return true }
-                        guard await edit(queued, ["kind": "remove"]) else { return false }
-                        restore(message.text)
+                        // Files stay with the message: its full words are changed where it waits.
+                        // Without files it is taken back, and its words come only once it is gone.
+                        let answer = await words(message.attachments == 0)
+                        guard let text = answer.text else { problem = answer.message; return false }
+                        if message.attachments > 0 { draft = text; rewording = true } else { restore(text) }
                         return true
                     },
                     remove: { await edit(queued, ["kind": "remove"]) })
             .alert("Edit message", isPresented: $rewording) {
-                TextField("Message", text: $words, axis: .vertical)
-                Button("Save") { Task { _ = await edit(queued, ["kind": "words", "text": words]) } }
-                    .disabled(words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                TextField("Message", text: $draft, axis: .vertical)
+                Button("Save") { Task { _ = await edit(queued, ["kind": "words", "text": draft]) } }
+                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Cancel", role: .cancel) {}
             }
+            .alert("Couldn't edit the message", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
+                Button("OK") { problem = nil }
+            } message: { Text(problem ?? "") }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("heldSend")
     }

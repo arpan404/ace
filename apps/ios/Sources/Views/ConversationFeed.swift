@@ -125,8 +125,10 @@ struct ConversationFeed: View {
                     ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
                         PendingSendRow(row: row, canRetry: model.canOperate, retry: { await model.retrySend(row) },
                                        edit: {
-                                           guard await model.dismissSend(row.id) else { return false }
-                                           restore(row.text)
+                                           // The send's full words, once its dismissal is saved.
+                                           let answer = await model.takeBackSend(row.id)
+                                           guard let text = answer.text else { model.error = answer.message; return false }
+                                           restore(text)
                                            return true
                                        },
                                        discard: { await model.dismissSend(row.id) })
@@ -134,7 +136,8 @@ struct ConversationFeed: View {
                     }
                     if let held = thread.screen.queue?.notSent {
                         HeldSendRow(message: held, canAct: model.canOperate, act: { await model.actOnQueue($0) },
-                                    edit: { message, change in await model.editQueued(message, change: change) }, restore: restore)
+                                    edit: { message, change in await model.editQueued(message, change: change) },
+                                    words: { takeBack in await model.queuedWords(held.id, takeBack: takeBack) }, restore: restore)
                             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
                             .transition(.opacity)
                     }
