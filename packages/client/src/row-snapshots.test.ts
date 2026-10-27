@@ -340,3 +340,41 @@ test("a thread growing past the byte cap lets older ones go without any new thre
   }
   expect([...rows.threads.keys()]).toEqual(["host/thread:live"]);
 });
+
+test("an inbox record written while expiry lists what is kept is not let go", async () => {
+  const clock = { at: day };
+  const rows = new MemoryRows(clock);
+  await new RowSnapshots(rows, { now: () => clock.at }).set("host/sidebar", { rows: ["old"] });
+  clock.at += 8 * day;
+  const snapshots = new RowSnapshots(rows, { now: () => clock.at });
+  const { promise, resolve } = Promise.withResolvers<void>();
+  rows.gate = promise;
+  const sweep = snapshots.expire();
+  // Listed eight days unused; the inbox is written again before the listing is answered.
+  await snapshots.set("host/sidebar", { rows: ["new"] });
+  rows.gate = undefined;
+  resolve();
+  await sweep;
+  expect(await snapshots.get("host/sidebar")).toEqual({ rows: ["new"] });
+});
+
+test("a read answered after its thread expired neither restores it nor corrupts the next write", async () => {
+  const clock = { at: day };
+  const rows = new MemoryRows(clock);
+  const value = record("t", [message("a", "hi", true), message("b", "x", true)]);
+  await new RowSnapshots(rows, { now: () => clock.at }).set("host/thread:t", value);
+  clock.at += 8 * day;
+  const snapshots = new RowSnapshots(rows, { now: () => clock.at });
+  const { promise, resolve } = Promise.withResolvers<void>();
+  rows.gate = promise;
+  // Expiry lists first and drops the thread; a read asked just after is answered behind the drop.
+  const sweep = snapshots.expire();
+  const read = snapshots.get("host/thread:t");
+  rows.gate = undefined;
+  resolve();
+  await sweep;
+  expect(await read).toBeUndefined();
+
+  await snapshots.set("host/thread:t", value);
+  expect(await new RowSnapshots(rows, { now: () => clock.at }).get("host/thread:t")).toEqual(value);
+});

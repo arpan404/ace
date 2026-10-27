@@ -138,6 +138,8 @@ export class RowSnapshots implements ReadSnapshotStorage {
         return Promise.resolve();
       }
       if (text === undefined) return Promise.resolve();
+      // A listing taken before this write must not judge the record by its older use.
+      this.#bump(key);
       return this.#rows.setRecord(key, text).catch(() => {});
     }
     let write: ThreadWrite | undefined;
