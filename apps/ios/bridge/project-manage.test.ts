@@ -180,7 +180,8 @@ describe("opening a project on the machine running ace", () => {
     ).toEqual({
       ok: false,
       code: "editor_not_found",
-      message: "That editor isn't installed on the machine any more.",
+      message:
+        "That editor isn't available to open from here on that computer. Show it in the file manager instead.",
     });
   });
 });
@@ -316,6 +317,7 @@ describe("polling for a late write's answer", () => {
     await until(() => client.connectionState().getSnapshot() === "ready", "connected");
     const { owner, release } = late(client);
     const sink = new RecordingSink();
+    const manage = new ProjectManage(owner, impatient);
     const services = new NativeServices(
       client,
       sink,
@@ -324,7 +326,7 @@ describe("polling for a late write's answer", () => {
       undefined,
       undefined,
       undefined,
-      new ProjectManage(owner, impatient),
+      manage,
     );
     const ask = async (id: string, request: Record<string, unknown>) => {
       services.handle({ type: "service", id, request: { type: "native.project", request } });
@@ -342,11 +344,14 @@ describe("polling for a late write's answer", () => {
       await until(() => reply(id) !== undefined, `poll ${poll} answered`);
       expect(reply(id)?.message).not.toContain("Too many requests");
     }
+    // Every cancelled poll took its waiter with it.
+    expect(manage.waitingPolls).toBe(0);
     await new Promise((resolve) => setTimeout(resolve, 50));
     release();
     await ask("last", { op: "outcome", writeId });
     await until(() => reply("last") !== undefined, "last poll answered");
     expect(reply("last")?.value).toMatchObject({ ok: false, code: "workspace_threads_running" });
+    expect(manage.waitingPolls).toBe(0);
     services.dispose();
   });
 });

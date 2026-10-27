@@ -89,6 +89,12 @@ export const NativeProjectRequest = z.object({
 export type NativeProjectRequest = z.infer<typeof NativeProjectRequest>;
 
 /** How a write ended: taken (or saved here, `queued`), else the daemon's code and words. */
+/** A queued write's receipt once it came, and the polls waiting for it meanwhile. */
+interface Kept {
+  outcome: Settled | undefined;
+  waiters: Set<(outcome: Settled) => void>;
+}
+
 /** A write the daemon answered: taken, or refused with its code and words. */
 type Settled =
   | { ok: true; queued: false; terminalId?: string }
@@ -107,7 +113,7 @@ export class ProjectManage {
   readonly #repositories: Repositories;
   readonly #scripts: ProjectScripts;
   /** Queued writes' eventual receipts, by write id. */
-  readonly #queued = new Map<string, Promise<Settled>>();
+  readonly #queued = new Map<string, Kept>();
   constructor(owner: ProjectManageOwner, schedule: (delay: number, run: () => void) => () => void) {
     this.#owner = owner;
     this.#schedule = schedule;
@@ -237,31 +243,50 @@ export class ProjectManage {
   }
 
   /** A queued write's eventual receipt, once; unknown when this run never queued it. */
-  async #outcome(writeId: string, signal: AbortSignal): Promise<Settled> {
+  #outcome(writeId: string, signal: AbortSignal): Promise<Settled> {
     const kept = this.#queued.get(writeId);
     if (!kept)
-      return refused(
-        "unknown",
-        "This phone lost track of that change. Check the project on your computer.",
+      return Promise.resolve(
+        refused(
+          "unknown",
+          "This phone lost track of that change. Check the project on your computer.",
+        ),
       );
-    signal.throwIfAborted();
-    let release: () => void = noop;
-    const abandoned = new Promise<never>((_, reject) => {
-      const stop = () => reject(signal.reason);
-      signal.addEventListener("abort", stop, { once: true });
-      release = () => signal.removeEventListener("abort", stop);
-    });
-    try {
-      const outcome = await Promise.race([kept, abandoned]);
+    if (kept.outcome) {
       this.#queued.delete(writeId);
-      return outcome;
-    } finally {
-      release();
+      return Promise.resolve(kept.outcome);
     }
+    signal.throwIfAborted();
+    return new Promise((resolve, reject) => {
+      // One waiter per poll, removed however the poll ends: answered, cancelled or timed out.
+      const answered = (outcome: Settled) => {
+        stop();
+        this.#queued.delete(writeId);
+        resolve(outcome);
+      };
+      const abandoned = () => {
+        stop();
+        reject(signal.reason);
+      };
+      const stop = () => {
+        kept.waiters.delete(answered);
+        signal.removeEventListener("abort", abandoned);
+      };
+      kept.waiters.add(answered);
+      signal.addEventListener("abort", abandoned, { once: true });
+    });
   }
 
-  /** The bridge is going away: forget kept receipts; their writes stay in the outbox. */
+  /** Polls waiting on a queued write's receipt right now. */
+  get waitingPolls(): number {
+    let count = 0;
+    for (const kept of this.#queued.values()) count += kept.waiters.size;
+    return count;
+  }
+
+  /** The bridge is going away: forget kept receipts and their waiters; writes stay in the outbox. */
   dispose(): void {
+    for (const kept of this.#queued.values()) kept.waiters.clear();
     this.#queued.clear();
   }
 
@@ -271,7 +296,13 @@ export class ProjectManage {
       const oldest = this.#queued.keys().next().value;
       if (oldest !== undefined) this.#queued.delete(oldest);
     }
-    this.#queued.set(writeId, final);
+    const kept: Kept = { outcome: undefined, waiters: new Set() };
+    this.#queued.set(writeId, kept);
+    // The receipt's one reaction: kept for a later poll, and given to whoever waits now.
+    void final.then((outcome) => {
+      kept.outcome = outcome;
+      for (const waiter of kept.waiters) waiter(outcome);
+    });
   }
 
   /** What the project's new threads can default to: models on this machine, local branches. */
