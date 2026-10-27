@@ -71,6 +71,7 @@ export function transitionHarness(
     closed: boolean;
   }[] = [];
   const inputs: {
+    threadId: ThreadId;
     provider: ProviderKind;
     nativeId: string;
     text: string;
@@ -189,6 +190,7 @@ export function transitionHarness(
               .map((part) => (part.type === "text" ? part.text : "attachment"))
               .join("\n");
             inputs.push({
+              threadId: context.threadId,
               provider,
               nativeId,
               text,

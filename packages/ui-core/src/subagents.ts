@@ -62,7 +62,7 @@ export function subagentState(status: AgentStatus): SubagentState {
       return "working";
     case "blocked":
       if (status.on === "queue") return "queued";
-      return status.on === "human" ? "human" : status.on === "subagents" ? "working" : "waiting";
+      return status.on === "human" ? "human" : "waiting";
     case "unresponsive":
       return "unresponsive";
     case "failed":
@@ -186,31 +186,34 @@ export function subagentBranchStates(
   const ids = new Set(agents.map((agent) => agent.id));
   const root = agents.find((agent) => agent.origin === "root");
   const superseded = agentRuns(agents).latest;
+  const children = new Map<string, RunAgent[]>();
+  for (const agent of agents) {
+    if (!agent.parentId || superseded.has(agent.id)) continue;
+    const group = children.get(agent.parentId) ?? [];
+    group.push(agent);
+    children.set(agent.parentId, group);
+  }
+  const cache = new Map<string, SubagentState>();
+  const visiting = new Set<string>();
+  const branch = (agent: RunAgent): SubagentState => {
+    const known = cache.get(agent.id);
+    if (known) return known;
+    if (visiting.has(agent.id)) return "waiting";
+    visiting.add(agent.id);
+    let state = subagentState(agent.status);
+    for (const child of children.get(agent.id) ?? []) state = rollupSubagent(state, branch(child));
+    if (work.needsYou.has(agent.id)) state = "human";
+    else if (subagentTerminal(state) && work.running.has(agent.id)) state = "working";
+    visiting.delete(agent.id);
+    cache.set(agent.id, state);
+    return state;
+  };
   return agents.flatMap((agent): SubagentState[] => {
     // An earlier run of an agent that ran again counts once, as its latest run.
     if (agent.origin === "root" || superseded.has(agent.id)) return [];
     // Under another loaded subagent: its branch already counts it.
     const parent = agent.parentId;
     if (parent && parent !== root?.id && ids.has(parent)) return [];
-    return [branchState(agent)];
+    return [branch(agent)];
   });
-  /** One agent with everything under it, as the subagents block's branch rule reads it. */
-  function branchState(agent: RunAgent, seen = new Set<string>()): SubagentState {
-    if (work.needsYou.has(agent.id)) return "human";
-    seen.add(agent.id);
-    // Blocked only on its subagents, it isn't working itself: they say what it is doing.
-    if (agent.status.state === "blocked" && agent.status.on === "subagents") {
-      const below = agents
-        .filter((child) => child.parentId === agent.id && !seen.has(child.id))
-        .map((child) => branchState(child, seen));
-      if (!below.length) return "waiting";
-      const state = below.reduce(rollupSubagent);
-      return subagentTerminal(state) ? "working" : state;
-    }
-    const own = subagentState(agent.status);
-    // Ended but still unsettled (its background work runs on): working. One that waits (a
-    // usage limit, a queue slot for its parent's run) keeps its own word.
-    if (work.running.has(agent.id) && subagentTerminal(own)) return "working";
-    return own;
-  }
 }

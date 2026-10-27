@@ -284,6 +284,7 @@ export function ThreadModelControl(props: {
           .join(" · ")
       : "Choose a model",
     switching: switchWaits,
+    switchError: meta?.switch?.state === "failed" ? meta.switch.error : undefined,
     offline: online ? undefined : offlineNote,
     modelKey: target?.key,
     instance: target?.accountId || undefined,

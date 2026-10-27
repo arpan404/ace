@@ -7,7 +7,11 @@ const now = new Date(2026, 9, 20, 23, 46).getTime();
 const reset = new Date(2026, 9, 20, 23, 59).getTime();
 
 test("a usage limit reads as one sentence with its reset time, and Continue resumes the turn", () => {
-  const notice = queueNotice({ state: "limited", until: reset }, undefined, now);
+  const notice = queueNotice(
+    { state: "limited", until: reset },
+    { paused: true, reason: "limit", resumeAt: null },
+    now,
+  );
   const turn = heldTurn(notice, undefined, "Codex", now, "en-US");
   expect(turn && heldTurnSentence(turn)).toBe("Codex is out of usage until 11:59 PM");
   expect(turn?.carryOn).toEqual({ id: "resume_now", label: "Continue" });
@@ -26,7 +30,11 @@ test("once the person chose to resume at reset, the sentence says when it resume
 });
 
 test("a limit with no known reset says nothing it doesn't know", () => {
-  const notice = queueNotice({ state: "limited" }, undefined, now);
+  const notice = queueNotice(
+    { state: "limited" },
+    { paused: true, reason: "limit", resumeAt: null },
+    now,
+  );
   const turn = heldTurn(notice, undefined, "Claude", now);
   expect(turn && heldTurnSentence(turn)).toBe("Claude is out of usage");
   expect(turn?.atReset).toBeUndefined();

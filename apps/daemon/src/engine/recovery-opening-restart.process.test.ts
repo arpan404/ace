@@ -33,18 +33,7 @@ test("a usage-limit move that committed before a restart opens on its account an
     [
       {
         on: "send",
-        frames: [
-          frames.frame(
-            start,
-            {
-              type: "turn.ended",
-              agent: "root",
-              outcome: "failed",
-              error: { kind: "quota", message: "Quota" },
-            },
-            { type: "retry", agent: "root", on: "rate_limit", until: 1_000_000, message: "Quota" },
-          ),
-        ],
+        frames: [frames.frame(start)],
       },
     ],
     frames,
@@ -52,6 +41,17 @@ test("a usage-limit move that committed before a restart opens on its account an
   );
   const id = await h.create();
   h.command({ type: "thread.send", threadId: id, input: text("following") });
+  h.contexts[0]?.onFrame(
+    frames.frame(
+      {
+        type: "turn.ended",
+        agent: "root",
+        outcome: "failed",
+        error: { kind: "quota", message: "Quota" },
+      },
+      { type: "retry", agent: "root", on: "rate_limit", until: 1_000_000, message: "Quota" },
+    ),
+  );
   await h.engine.flush();
   const replacement = replaceProvider(h, frames, [
     { on: "send", frames: [frames.frame(start, end)] },

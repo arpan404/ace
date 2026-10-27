@@ -347,7 +347,7 @@ test("a subagent whose own turn ended stays with the running ones while its suba
     facts.endTurn("lead"),
   ]);
   const agents = within(card).getByRole("region", { name: "Agents" });
-  expect(within(agents).getByRole("heading", { name: "Agents · 1 running" })).toBeTruthy();
+  expect(within(agents).getByRole("heading", { name: "Agents · 1 waiting" })).toBeTruthy();
   expect(within(agents).getByRole("button", { name: /^Open Lead,/ })).toBeTruthy();
   expect(within(agents).queryByRole("button", { name: /^Completed/ })).toBeNull();
 });
