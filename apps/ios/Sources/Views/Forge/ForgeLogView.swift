@@ -88,6 +88,8 @@ struct ForgeLogView: View {
                 guard loaded, !openedOnFocus, let focus, focus > 0 else { return }
                 openedOnFocus = true
                 proxy.scrollTo(focus, anchor: .top)
+                // Once more after the lines just read are laid out, which may move the target.
+                Task { await Task.yield(); proxy.scrollTo(focus, anchor: .top) }
             }
         }
     }
