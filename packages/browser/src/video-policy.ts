@@ -31,12 +31,6 @@ export interface VideoSource {
   scale: number;
   /** The codecs the encoder supports. */
   codecs: readonly string[];
-  /**
-   * Codecs that encode a picture at its exact size, odd sides included. Given where a stretch to
-   * even sizes would show (Windows at device scale 1, `gpu-scale.ts`): a viewer whose full picture
-   * has an odd side and who decodes one of these gets it at that size, unstretched.
-   */
-  exactCodecs?: readonly string[];
 }
 
 export interface VideoEncode {
@@ -87,27 +81,6 @@ export function viewerPicture(
   return { width: even(source.width * scale), height: even(source.height * scale) };
 }
 
-/**
- * A viewer's picture at the page's own pixels, when that is what it shows and a side is odd;
- * undefined otherwise (an even picture, or one scaled to the pane, needs no exact size).
- */
-function exactPicture(
-  source: Pick<VideoSource, "width" | "height" | "scale">,
-  viewport: BrowserCaptureViewport,
-): { width: number; height: number } | undefined {
-  const shown = Math.min(viewport.width / source.width, viewport.height / source.height);
-  const scale = Math.min(
-    shown * viewport.devicePixelRatio,
-    source.scale,
-    longestFrameSide / Math.max(source.width, source.height),
-  );
-  if (scale !== source.scale) return undefined;
-  const width = source.width * scale;
-  const height = source.height * scale;
-  if (!Number.isInteger(width) || !Number.isInteger(height)) return undefined;
-  return width % 2 === 1 || height % 2 === 1 ? { width, height } : undefined;
-}
-
 /** The most bits per second a picture of this size is worth at 60 fps. */
 export function bitrateCeiling(picture: { width: number; height: number }): number {
   return Math.round(
@@ -147,14 +120,6 @@ export function planVideo(source: VideoSource, viewers: readonly VideoViewer[]):
   const wanted = viewers.flatMap((viewer) => {
     const codec = viewer.codecs.find((candidate) => source.codecs.includes(candidate));
     if (!codec || viewer.viewport.nativeShown) return [];
-    const exact = source.exactCodecs && exactPicture(source, viewer.viewport);
-    if (exact && (viewer.scale ?? 1) === 1) {
-      const exactCodec = viewer.codecs.find(
-        (candidate) => source.exactCodecs?.includes(candidate) && source.codecs.includes(candidate),
-      );
-      if (exactCodec)
-        return [{ id: viewer.id, codec: exactCodec, link: viewer.link, full: exact, ...exact }];
-    }
     const full = viewerPicture(source, viewer.viewport);
     const scale = viewer.scale ?? 1;
     return [
