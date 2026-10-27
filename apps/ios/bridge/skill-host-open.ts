@@ -1,4 +1,4 @@
-import type { SkillEntry } from "@ace/protocol";
+import type { SkillEntry, WorkspaceId } from "@ace/protocol";
 
 /*
  * Open on computer, for a skill: its SKILL.md in an editor, or its folder in the file manager,
@@ -13,8 +13,8 @@ import type { SkillEntry } from "@ace/protocol";
 /** Where Open on computer opens this skill, or null when it can't be opened there. */
 export function hostOpenTarget(
   entry: Pick<SkillEntry, "scope" | "path">,
-  workspaceId: string | undefined,
-): { workspaceId: string; path: string } | null {
+  workspaceId: WorkspaceId | undefined,
+): { workspaceId: WorkspaceId; path: string } | null {
   if (entry.scope !== "project" || !workspaceId) return null;
   return { workspaceId, path: `${entry.path.replace(/\/+$/, "")}/SKILL.md` };
 }

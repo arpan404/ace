@@ -166,8 +166,6 @@ export class NativeSkillLibrary {
 
   async answer(request: NativeSkillsRequest, signal: AbortSignal): Promise<unknown> {
     try {
-      if (request.op === "openers" || request.op === "open")
-        return await this.#host(request, signal);
       return { ok: true, ...(await this.#answer(request, signal)) };
     } catch (error) {
       if (error instanceof Refused) return { ok: false, code: error.code, message: error.message };
@@ -254,6 +252,9 @@ export class NativeSkillLibrary {
           note: note ? `${note}. It reads the folder the skill is saved in.` : null,
         };
       }
+      case "openers":
+      case "open":
+        return this.#host(request, signal);
       case "delete": {
         const result = await skills(
           this.#owner,
@@ -275,7 +276,7 @@ export class NativeSkillLibrary {
   async #host(
     request: Extract<NativeSkillsRequest, { op: "openers" | "open" }>,
     signal: AbortSignal,
-  ) {
+  ): Promise<object> {
     const at = request.workspaceId ? { workspaceId: request.workspaceId } : {};
     const { entry } = expect(
       await skills(this.#owner, { op: "read", id: request.id, ...at }, signal),
@@ -283,8 +284,12 @@ export class NativeSkillLibrary {
     );
     const target = hostOpenTarget(entry, request.workspaceId);
     if (!target) throw new Refused("unavailable", "This skill can't be opened on the computer.");
-    if (request.op === "openers") return answerHostOpen(this.#owner, { op: "openers" });
-    return answerHostOpen(this.#owner, { op: "open", app: request.app, ...target });
+    const outcome = await answerHostOpen(
+      this.#owner,
+      request.op === "openers" ? { op: "openers" } : { op: "open", app: request.app, ...target },
+    );
+    // `host-open.ts` answers with its own `ok`, which wins over the wrapper's.
+    return z.record(z.string(), z.unknown()).parse(outcome);
   }
 
   async #create(request: Extract<NativeSkillsRequest, { op: "create" }>, signal: AbortSignal) {
@@ -345,7 +350,7 @@ export class NativeSkillLibrary {
     used:
       | { count: number; last?: { threadId: string; title: string; at: number } | undefined }
       | undefined,
-    workspaceId: string | undefined,
+    workspaceId: WorkspaceId | undefined,
   ) {
     const locked = lockedAgents(entry);
     const providers = entry.agents.map((agent) => agent.provider);

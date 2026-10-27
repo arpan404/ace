@@ -121,7 +121,9 @@ struct SkillPageView: View {
                 }
             }
             .padding(.vertical, AceTheme.Spacing.xs)
-            SkillOpenOnComputer(model: model, target: page.open)
+            if page.open != nil, model.canOperate {
+                SkillOpenOnComputer(model: model, skillId: page.id, workspaceId: workspaceId)
+            }
             runsRow(page)
             if let hint = page.argumentHint {
                 SkillDetailRow(title: "Arguments", line: hint) { EmptyView() }
@@ -220,16 +222,4 @@ private struct SkillPagePlaceholder: View {
         .redacted(reason: .placeholder)
         .transition(.opacity)
     }
-}
-
-/// Open on computer: the skill's SKILL.md on the machine running ace.
-///
-/// TODO(host.open): draws nothing until `host.open` from branch
-/// `ace/ios-gaps-projects-machines-notes` is merged. Then the bridge's `hostOpenTarget`
-/// (`bridge/skill-host-open.ts`) returns a target, and this body becomes
-/// `if let target { OpenOnHostMenu(model: model, target: HostOpenTarget(workspaceId: target.workspaceId, path: target.path, line: nil)) { Text("Open on computer") } }`.
-struct SkillOpenOnComputer: View {
-    let model: ClientModel
-    let target: SkillHostTarget?
-    var body: some View { EmptyView() }
 }

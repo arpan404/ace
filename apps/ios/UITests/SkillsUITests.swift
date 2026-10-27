@@ -88,6 +88,51 @@ import XCTest
         wait(for: [updated], timeout: 15)
     }
 
+    func testAProjectSkillOpensOnTheComputer() async throws {
+        let app = launchIntoSkills()
+        let picker = app.descendants(matching: .any)["skills.project"].firstMatch
+        XCTAssertTrue(picker.waitForExistence(timeout: 15))
+        picker.tap()
+        app.buttons["skills-demo"].firstMatch.tap()
+        let row = app.buttons["skills.row.release-desktop"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        screenshot("library-project")
+        row.tap()
+        let open = app.descendants(matching: .any)["skill.openOnComputer"].firstMatch
+        for _ in 0..<4 where !open.isHittable { app.swipeUp() }
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        screenshot("page-open-on-computer")
+        open.tap()
+        let code = app.buttons["VS Code"].firstMatch
+        XCTAssertTrue(code.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Show in Finder"].exists)
+        screenshot("open-on-computer-menu")
+        code.tap()
+        // The fixture records what host.open opened; no process starts.
+        var opened: [[String: String]] = []
+        for _ in 0..<20 where opened.isEmpty {
+            try await Task.sleep(for: .milliseconds(250))
+            opened = try await hostOpened()
+        }
+        XCTAssertEqual(opened.first?["app"], "code")
+        XCTAssertEqual(opened.first?["path"], ".claude/skills/release-desktop/SKILL.md")
+    }
+
+    /// A personal skill lives outside every project, so it offers no Open on computer.
+    func testAPersonalSkillHasNoOpenOnComputer() throws {
+        let app = launchIntoSkills()
+        app.buttons["skills.row.research"].tap()
+        XCTAssertTrue(app.buttons["skill.edit"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.descendants(matching: .any)["skill.openOnComputer"].firstMatch.exists)
+    }
+
+    private func hostOpened() async throws -> [[String: String]] {
+        let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/host-opened"))
+        let (data, _) = try await URLSession.shared.data(from: url)
+        struct Reply: Decodable { let opened: [[String: String]] }
+        return try JSONDecoder().decode(Reply.self, from: data).opened
+    }
     private func launchIntoSkills() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]

@@ -1,7 +1,7 @@
 import type { FakeDaemon } from "@ace/fake-daemon";
 
 /*
- * Skills and plugins for the phone's Skills screens: project `ace`'s own skills, personal ones
+ * Skills and plugins for the phone's Skills screens: project `skills-demo`'s own skills, personal ones
  * linked into several agents (one Claude keeps a copy of), a built-in one, and two installed
  * plugins that reach different agents. No provider CLI runs.
  */
@@ -10,6 +10,13 @@ const steps = (title: string, use: string) =>
   `# ${title}\n\n${use}\n\n## Steps\n\n1. Read the request and the files it names.\n2. Do the work in small, checked steps.\n3. Report what changed and what is left.\n`;
 
 export function seedSkills(daemon: FakeDaemon, now: number): void {
+  // A project the phone can list (inside the fake host's home), holding the project skills.
+  const { workspaceId } = daemon.projects.receive({ name: "skills-demo" });
+  // Open on computer lists these; the fake machine records what it opened and starts nothing.
+  daemon.workspace.setEditors([
+    { id: "code", name: "VS Code", command: "/usr/local/bin/code" },
+    { id: "zed", name: "Zed", command: "/usr/local/bin/zed" },
+  ]);
   daemon.seedServices({
     skills: [
       {
@@ -17,7 +24,7 @@ export function seedSkills(daemon: FakeDaemon, now: number): void {
         description: "Build, sign and publish a desktop release of ace for both Mac CPUs.",
         body: steps("Release desktop", "Use when the person asks to ship a desktop build."),
         scope: "project",
-        workspaceId: "ace",
+        workspaceId,
         home: "claude",
         links: ["codex"],
         manual: true,
@@ -29,7 +36,7 @@ export function seedSkills(daemon: FakeDaemon, now: number): void {
         description: "Check the phone bridge's frame and memory budgets before merging.",
         body: steps("Bridge budgets", "Use before merging a change to apps/ios/bridge."),
         scope: "project",
-        workspaceId: "ace",
+        workspaceId,
       },
       {
         name: "research",
