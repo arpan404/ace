@@ -27,6 +27,8 @@ import {
 } from "@ace/ui-core";
 import { z } from "zod";
 import { submitCommand } from "./commands.ts";
+import { FolderRequest, ProjectFolders } from "./project-folders.ts";
+import { answerHostOpen, HostOpenRequest } from "./host-open.ts";
 
 /*
  * Managing a project from the phone, as the web's Edit project and Remove dialogs do: what a
@@ -74,6 +76,8 @@ export const NativeProjectRequest = z.object({
       workspaceId: WorkspaceId,
       stopRunning: z.boolean().default(false),
     }),
+    ...FolderRequest.options,
+    ...HostOpenRequest.options,
   ]),
 });
 export type NativeProjectRequest = z.infer<typeof NativeProjectRequest>;
@@ -88,9 +92,11 @@ export type ProjectManageOwner = Pick<ClientCore, "request" | "enqueue" | "inten
 export class ProjectManage {
   readonly #owner: ProjectManageOwner;
   readonly #schedule: (delay: number, run: () => void) => () => void;
+  readonly #folders: ProjectFolders;
   constructor(owner: ProjectManageOwner, schedule: (delay: number, run: () => void) => () => void) {
     this.#owner = owner;
     this.#schedule = schedule;
+    this.#folders = new ProjectFolders(owner, (raw) => this.write(raw));
   }
 
   async answer(request: NativeProjectRequest["request"]): Promise<unknown> {
@@ -120,6 +126,13 @@ export class ProjectManage {
       }
       case "initials":
         return { ok: true, initials: projectInitials(request.name) };
+      case "openers":
+      case "open":
+        return answerHostOpen(this.#owner, request);
+      case "roots":
+      case "allowFolder":
+      case "removeFolder":
+        return this.#folders.answer(request);
       case "remove":
         return this.write({
           type: "workspace.remove",

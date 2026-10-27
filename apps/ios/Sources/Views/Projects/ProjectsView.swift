@@ -62,6 +62,15 @@ struct ProjectsView: View {
                 if loaded && !loading && projects.isEmpty && problem == nil { ContentUnavailableView("No projects", systemImage: "folder") }
             }
             .listRowBackground(Color.clear)
+            if query.isEmpty {
+                Section {
+                    NavigationLink { ProjectFoldersView(model: model) } label: {
+                        InsetRow("Project folders", systemImage: "folder.badge.gearshape", subtitle: "Where ace may open projects")
+                    }
+                    .accessibilityIdentifier("projects.folders")
+                }
+                .insetRowBackground()
+            }
         }
         .insetGroupedList()
         .searchable(text: $query, prompt: "Search projects")

@@ -47,6 +47,17 @@ struct MachineDetailView: View {
             providers
             if let client {
                 Section {
+                    NavigationLink { MachineDevicesView(model: client, machine: facts.name) } label: {
+                        InsetRow("Devices", systemImage: "iphone.and.arrow.forward", subtitle: "Pair, review and revoke devices")
+                    }
+                    .accessibilityIdentifier("machine.devices")
+                    NavigationLink { MachineLinksView(inbox: inbox, hostId: hostId) } label: {
+                        InsetRow("Linked machines", systemImage: "point.3.connected.trianglepath.dotted", subtitle: "Machines its agents can reach")
+                    }
+                    .accessibilityIdentifier("machine.links")
+                } header: { InsetHeader("Fleet") }
+                .insetRowBackground()
+                Section {
                     ForEach(RemoteSettingsCategory.all + (client.transfers.linked ? [.fleet] : [])) { category in
                         NavigationLink { RemoteSettingsView(model: client, category: category) } label: {
                             InsetRow(category.title, systemImage: category.symbol)

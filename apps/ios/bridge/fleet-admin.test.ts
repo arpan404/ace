@@ -46,7 +46,9 @@ describe("administering a machine from the phone", () => {
     const { ask } = await machine();
     const hostId = HostId.parse("laptop-host");
     const pairingUrl = "https://laptop.local:5870/pair#fingerprint=ab&code=ABCD-EFGH&scopes=read";
-    expect(await ask({ op: "redeemLink", pairingUrl, hostId, name: "Laptop" })).toEqual({ ok: true });
+    expect(await ask({ op: "redeemLink", pairingUrl, hostId, name: "Laptop" })).toEqual({
+      ok: true,
+    });
     expect((await ask({ op: "overview" })).links).toEqual([
       expect.objectContaining({ hostId, name: "Laptop", status: "online" }),
     ]);

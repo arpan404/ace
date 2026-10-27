@@ -7,6 +7,7 @@ import {
   deviceLifetimes,
   deviceScopeLabels,
   fleetRefusal,
+  fleetRules,
   linkLifetimes,
   linkPairingProblem,
   linkRedeemProblem,
@@ -34,6 +35,8 @@ export const NativeFleetRequest = z.object({
   machine: z.string().min(1).max(256),
   request: z.discriminatedUnion("op", [
     z.object({ op: z.literal("overview") }),
+    /** The fleet-wide rules a person sets on every machine at once. */
+    z.object({ op: z.literal("rules") }),
     z.object({
       op: z.literal("pair"),
       access: Access,
@@ -90,6 +93,8 @@ export async function answerFleet(owner: FleetOwner, input: NativeFleetRequest):
     switch (request.op) {
       case "overview":
         return await overview(ask, machine);
+      case "rules":
+        return { ok: true, rules: fleetRules };
       case "pair": {
         const ttl = linkLifetimes.find((entry) => entry.value === request.ttlMs)?.value;
         const keeps = deviceLifetimes.find((entry) => entry.value === request.deviceTtlMs)?.value;

@@ -20,6 +20,15 @@ struct MachinesView: View {
                         .insetRowBackground()
                 }
             }
+            if !inbox.sessions.isEmpty {
+                Section {
+                    NavigationLink { FleetRulesView(inbox: inbox) } label: {
+                        InsetRow("Fleet rules", systemImage: "point.3.connected.trianglepath.dotted", subtitle: "Remote access and agents, on every machine")
+                    }
+                    .accessibilityIdentifier("machines.fleetRules")
+                    .insetRowBackground()
+                }
+            }
             if machines != nil {
                 Section {
                     ZStack {

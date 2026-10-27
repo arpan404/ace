@@ -93,3 +93,92 @@ describe("managing a project from the phone", () => {
     expect((options as { branches: string[] }).branches).toContain("main");
   });
 });
+
+describe("the folders a machine may open projects in", () => {
+  const roots = async (manage: ProjectManage) =>
+    ((await manage.answer({ op: "roots" })) as { folders: { path: string }[] }).folders.map(
+      (folder) => folder.path,
+    );
+
+  test("allowing a folder under ~ adds the machine's own path to its project folders", async () => {
+    const { daemon, manage } = await machine();
+    daemon.projects.seedFolders("/Users/dev", [{ path: "/Users/dev/code" }]);
+    expect(await manage.answer({ op: "allowFolder", path: "~/code", create: false })).toEqual({
+      ok: true,
+      queued: false,
+    });
+    expect(await roots(manage)).toContain("/Users/dev/code");
+  });
+
+  test("a missing folder is offered for creating, then created and allowed", async () => {
+    const { daemon, manage } = await machine();
+    daemon.projects.seedFolders("/Users/dev", []);
+    const missing = await manage.answer({
+      op: "allowFolder",
+      path: "/Users/dev/new",
+      create: false,
+    });
+    expect(missing).toMatchObject({
+      ok: false,
+      code: "directory_missing",
+      canCreate: true,
+      name: "new",
+    });
+    await manage.answer({ op: "allowFolder", path: "/Users/dev/new", create: true });
+    expect(await roots(manage)).toContain("/Users/dev/new");
+  });
+
+  test("a folder that is no longer allowed leaves the list", async () => {
+    const { daemon, manage } = await machine();
+    daemon.projects.seedFolders("/Users/dev", [{ path: "/Users/dev/code" }]);
+    await manage.answer({ op: "allowFolder", path: "/Users/dev/code", create: false });
+    await manage.answer({ op: "removeFolder", path: "/Users/dev/code" });
+    expect(await roots(manage)).not.toContain("/Users/dev/code");
+  });
+
+  test("a relative path is refused before anything is sent", async () => {
+    const { manage } = await machine();
+    expect(await manage.answer({ op: "allowFolder", path: "code", create: false })).toMatchObject({
+      ok: false,
+      code: "invalid_path",
+    });
+  });
+});
+
+describe("opening a project on the machine running ace", () => {
+  test("the machine's editors and file manager are offered, and opening one opens it there", async () => {
+    const { daemon, manage } = await machine();
+    daemon.workspace.setEditors([{ id: "code", name: "Visual Studio Code", command: "/bin/code" }]);
+    expect(await manage.answer({ op: "openers" })).toEqual({
+      ok: true,
+      editors: [{ id: "code", name: "Visual Studio Code" }],
+      fileManager: "Finder",
+    });
+    const opened = await manage.answer({
+      op: "open",
+      app: { kind: "editor", editorId: "code" },
+      workspaceId: web,
+      path: "src/queue.ts",
+      line: 4,
+    });
+    expect(opened).toEqual({ ok: true });
+    expect(daemon.workspace.opened).toEqual([
+      { app: "code", folder: "web", path: "src/queue.ts", line: 4 },
+    ]);
+  });
+
+  test("an editor the machine doesn't have is refused in words", async () => {
+    const { manage } = await machine();
+    expect(
+      await manage.answer({
+        op: "open",
+        app: { kind: "editor", editorId: "zed" },
+        workspaceId: web,
+      }),
+    ).toEqual({
+      ok: false,
+      code: "editor_not_found",
+      message: "That editor isn't installed on the machine any more.",
+    });
+  });
+});

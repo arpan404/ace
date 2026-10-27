@@ -50,3 +50,13 @@ back), and puts it back with the daemon's reason when refused.
 Run ordinals stay one per root run and still number the runs list and checkpoints. Turn
 numbers are separate: `Run.turn` groups an ask with the runs the agent starts by itself after
 it (ADR 0062, "Turns are asks"). Older runs without it use their ordinal as their turn.
+
+### Opening on the machine running ace (amended 2026-10-27)
+
+A client on another device, such as a phone, has no editor of its own for the host's folders.
+`workspace.request` `host.open` opens a project's or thread's folder, or a file in it, on the
+machine running ace: in an editor `editors.list` found there, or the platform's file manager
+(`open`, `xdg-open`, `explorer.exe`). It needs `operate`. The launcher always comes from the
+host's own discovery, never from the client; the process starts detached without a shell; the
+target is resolved through symlinks and refused when it leaves the folder it names. The desktop
+app still opens editors on its own machine through the launch descriptor above.
