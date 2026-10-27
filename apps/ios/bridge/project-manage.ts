@@ -78,6 +78,8 @@ export const NativeProjectRequest = z.object({
       workspaceId: WorkspaceId,
       stopRunning: z.boolean().default(false),
     }),
+    /** A queued write's eventual receipt: taken or refused. */
+    z.object({ op: z.literal("outcome"), writeId: z.string().min(1).max(128) }),
     ...FolderRequest.options,
     ...HostOpenRequest.options,
     ...RepositoryRequest.options,
@@ -87,8 +89,13 @@ export const NativeProjectRequest = z.object({
 export type NativeProjectRequest = z.infer<typeof NativeProjectRequest>;
 
 /** How a write ended: taken (or saved here, `queued`), else the daemon's code and words. */
+/** A write the daemon answered: taken, or refused with its code and words. */
+type Settled =
+  | { ok: true; queued: false; terminalId?: string }
+  | { ok: false; code: string; message: string };
 export type WriteOutcome =
-  | { ok: true; queued: boolean; terminalId?: string }
+  | Settled
+  | { ok: true; queued: true; writeId: string }
   | { ok: false; code: string; message: string };
 
 export type ProjectManageOwner = Pick<ClientCore, "request" | "enqueue" | "intent" | "commandId">;
@@ -99,6 +106,8 @@ export class ProjectManage {
   readonly #folders: ProjectFolders;
   readonly #repositories: Repositories;
   readonly #scripts: ProjectScripts;
+  /** Queued writes' eventual receipts, by write id. */
+  readonly #queued = new Map<string, Promise<Settled>>();
   constructor(owner: ProjectManageOwner, schedule: (delay: number, run: () => void) => () => void) {
     this.#owner = owner;
     this.#schedule = schedule;
@@ -140,6 +149,8 @@ export class ProjectManage {
       case "publish":
       case "publish.cancel":
         return this.#repositories.answer(request);
+      case "outcome":
+        return this.#outcome(request.writeId);
       case "scripts":
       case "runScript":
       case "previews":
@@ -160,44 +171,84 @@ export class ProjectManage {
     }
   }
 
-  /** Send a project command durably and wait for the daemon's receipt, or for `receiptWait`. */
+  /**
+   * Send a project command durably and wait for the daemon's receipt. One that takes longer
+   * than `receiptWait` answers `queued` with a `writeId`: the command stays in the outbox and
+   * its eventual receipt, taken or refused, is kept for `outcome` to give.
+   */
   write(raw: unknown): Promise<WriteOutcome> {
     const payload = CommandPayload.safeParse(raw);
     if (!payload.success)
       return Promise.resolve(refused("invalid", projectProblem("invalid").message));
-    return new Promise((resolve) => {
-      let done = false;
-      let stop: () => void = noop;
-      const finish = (outcome: WriteOutcome) => {
-        if (done) return;
-        done = true;
-        stop();
-        resolve(outcome);
-      };
+    let saved: () => void = noop;
+    const admitted = new Promise<void>((resolve) => {
+      saved = resolve;
+    });
+    const final = new Promise<Settled>((resolve) => {
       submitCommand(
         this.#owner,
         payload.data,
-        () => {
-          stop = this.#schedule(receiptWait, () => finish({ ok: true, queued: true }));
-        },
+        () => saved(),
         (result) => {
           if (result.ok)
-            finish({
+            resolve({
               ok: true,
               queued: false,
               ...(result.terminalId ? { terminalId: result.terminalId } : {}),
             });
           else {
             const code = result.error ?? "project_failed";
-            finish(refused(code, projectProblem(code).message));
+            resolve(refused(code, projectProblem(code).message));
           }
         },
       ).catch(() =>
-        finish(
+        resolve(
           refused("unsaved", "Couldn't save that on this phone. Your changes are still here."),
         ),
       );
     });
+    return new Promise((resolve) => {
+      let done = false;
+      let stop: () => void = noop;
+      void final.then((outcome) => {
+        if (done) return;
+        done = true;
+        stop();
+        resolve(outcome);
+      });
+      void admitted.then(() => {
+        if (done) return;
+        stop = this.#schedule(receiptWait, () => {
+          if (done) return;
+          done = true;
+          const writeId = this.#owner.commandId();
+          this.#keep(writeId, final);
+          resolve({ ok: true, queued: true, writeId });
+        });
+      });
+    });
+  }
+
+  /** A queued write's eventual receipt, once; unknown when this run never queued it. */
+  async #outcome(writeId: string): Promise<Settled> {
+    const kept = this.#queued.get(writeId);
+    if (!kept)
+      return refused(
+        "unknown",
+        "This phone lost track of that change. Check the project on your computer.",
+      );
+    const outcome = await kept;
+    this.#queued.delete(writeId);
+    return outcome;
+  }
+
+  #keep(writeId: string, final: Promise<Settled>): void {
+    // Bounded: the oldest kept receipt nobody asked for goes first.
+    if (this.#queued.size >= 64) {
+      const oldest = this.#queued.keys().next().value;
+      if (oldest !== undefined) this.#queued.delete(oldest);
+    }
+    this.#queued.set(writeId, final);
   }
 
   /** What the project's new threads can default to: models on this machine, local branches. */
@@ -276,6 +327,6 @@ const choices = {
   colours: BadgeColor.options.map((colour) => ({ id: colour, label: capital(colour) })),
 };
 
-function refused(code: string, message: string): WriteOutcome {
+function refused(code: string, message: string): { ok: false; code: string; message: string } {
   return { ok: false, code, message };
 }

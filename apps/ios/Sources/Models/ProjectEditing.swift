@@ -58,6 +58,8 @@ struct ProjectOptions: Decodable, Sendable {
 struct ProjectWriteOutcome: Decodable, Sendable {
     let ok: Bool
     var queued: Bool? = nil
+    /// A queued write's id, to ask for the computer's eventual answer.
+    var writeId: String? = nil
     var code: String? = nil
     var message: String? = nil
 }
@@ -92,22 +94,40 @@ extension ClientModel {
         return try await service(["type": "native.project", "request": ["op": "options", "workspaceId": project.id, "current": current]], as: ProjectOptions.self)
     }
     /// Save an edit: the bridge decides what differs (`projectEdit`) and sends only that.
-    func saveProject(_ project: NativeProject, draft: [String: Any]) async -> ProjectWriteOutcome {
+    func saveProject(_ project: NativeProject, draft: [String: Any], waiting: (() -> Void)? = nil) async -> ProjectWriteOutcome {
         guard canOperate else { return ProjectWriteOutcome(ok: false, message: "This phone can only view this machine.") }
         let raw = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(project.raw))) ?? [:]
-        return await projectWrite(["op": "save", "project": raw, "draft": draft])
+        return await projectWrite(["op": "save", "project": raw, "draft": draft], waiting: waiting)
     }
-    func removeProject(_ id: String, stopRunning: Bool) async -> ProjectWriteOutcome {
+    func removeProject(_ id: String, stopRunning: Bool, waiting: (() -> Void)? = nil) async -> ProjectWriteOutcome {
         guard canOperate else { return ProjectWriteOutcome(ok: false, message: "This phone can only view this machine.") }
-        return await projectWrite(["op": "remove", "workspaceId": id, "stopRunning": stopRunning])
+        return await projectWrite(["op": "remove", "workspaceId": id, "stopRunning": stopRunning], waiting: waiting)
     }
     /// The badge initials for a name being typed, by the shared rule.
     func projectInitials(_ name: String) async -> String? {
         struct Reply: Decodable { let initials: String }
         return try? await service(["type": "native.project", "request": ["op": "initials", "name": name]], as: Reply.self).initials
     }
-    func projectWrite(_ request: [String: Any]) async -> ProjectWriteOutcome {
-        do { return try await service(["type": "native.project", "request": request], as: ProjectWriteOutcome.self) }
-        catch { return ProjectWriteOutcome(ok: false, message: error.localizedDescription) }
+    /// A project write, answered only once the computer took or refused it: one still in the
+    /// outbox after the bridge's wait calls `waiting` and keeps asking for its outcome, so a
+    /// late refusal reaches the screen that made it.
+    func projectWrite(_ request: [String: Any], waiting: (() -> Void)? = nil) async -> ProjectWriteOutcome {
+        do {
+            let first = try await service(["type": "native.project", "request": request], as: ProjectWriteOutcome.self)
+            guard first.ok, first.queued == true, let writeId = first.writeId else { return first }
+            waiting?()
+            // Up to half an hour of asking; the write itself stays in the outbox regardless.
+            for _ in 0..<15 where !Task.isCancelled {
+                do {
+                    return try await service(["type": "native.project", "request": ["op": "outcome", "writeId": writeId]], as: ProjectWriteOutcome.self, timeout: .seconds(120))
+                } catch is CancellationError {
+                    break
+                } catch {
+                    // Still waiting on the computer: the bridge keeps the answer; ask again.
+                    continue
+                }
+            }
+            return ProjectWriteOutcome(ok: false, message: "Your computer hasn't answered yet. The change is saved on this phone and applies once it does.")
+        } catch { return ProjectWriteOutcome(ok: false, message: error.localizedDescription) }
     }
 }

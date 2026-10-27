@@ -2,7 +2,7 @@ import "./test-host.ts";
 import { afterEach, describe, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
-import { ProjectManage } from "./project-manage.ts";
+import { ProjectManage, type ProjectManageOwner } from "./project-manage.ts";
 import { sheetFixture, until } from "./sheet-fixture.ts";
 
 const web = WorkspaceId.parse("web");
@@ -237,5 +237,68 @@ describe("a thread's dev servers", () => {
       { port: 5173, url: "http://localhost:5173/", title: "Vite + React + TS" },
       { port: 3000, url: "http://localhost:3000/", title: "Next.js" },
     ]);
+  });
+});
+
+describe("a write the computer answers late", () => {
+  /**
+   * The real client, except each command's receipt reaches the bridge only once the test
+   * releases it: the computer answering after the bridge stopped waiting.
+   */
+  function late(client: ReturnType<typeof sheetFixture>["client"]) {
+    const held: (() => void)[] = [];
+    let released = false;
+    const owner: ProjectManageOwner = {
+      request: client.request.bind(client),
+      enqueue: client.enqueue.bind(client),
+      commandId: client.commandId.bind(client),
+      intent: (id) => {
+        const real = client.intent(id);
+        return {
+          getSnapshot: () => (released ? real.getSnapshot() : undefined),
+          subscribe: (listener: () => void) => {
+            held.push(listener);
+            return real.subscribe(() => {
+              if (released) listener();
+            });
+          },
+        } as ReturnType<ProjectManageOwner["intent"]>;
+      },
+    };
+    const release = () => {
+      released = true;
+      for (const listener of held) listener();
+    };
+    return { owner, release };
+  }
+  /** The wait for a receipt runs out at once. */
+  const impatient = (_delay: number, run: () => void) => {
+    run();
+    return () => {};
+  };
+
+  test("a removal refused after the wait still reaches the phone with its reason", async () => {
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    daemon.createThread({ id: "t1", workspaceId: web, title: "Fix checkout", provider: "codex" });
+    daemon.apply("t1", [facts.rootAgent("codex"), facts.turn("root")]);
+    await client.start();
+    await until(() => client.connectionState().getSnapshot() === "ready", "connected");
+    const { owner, release } = late(client);
+    const manage = new ProjectManage(owner, impatient);
+    const first = (await manage.answer({ op: "remove", workspaceId: web, stopRunning: false })) as {
+      writeId: string;
+    };
+    expect(first).toMatchObject({ ok: true, queued: true, writeId: expect.any(String) });
+    const outcome = manage.answer({ op: "outcome", writeId: first.writeId });
+    // Give the daemon time to answer, then let its receipt through.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    release();
+    expect(await outcome).toEqual({
+      ok: false,
+      code: "workspace_threads_running",
+      message: "Threads in this project are still running.",
+    });
+    expect(daemon.projects.get("web")).toBeDefined();
   });
 });

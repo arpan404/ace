@@ -146,9 +146,21 @@ private struct ProjectRemoval: ViewModifier {
     @State private var problem: String?
     @State private var busy = false
     @State private var done = 0
+    @State private var waiting = false
 
     func body(content: Content) -> some View {
         content
+            .overlay(alignment: .bottom) {
+                if waiting {
+                    Text("Waiting for your computer to remove \(project.name)…")
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
+                        .floatingGlass()
+                        .padding(.bottom, AceTheme.Spacing.lg)
+                        .transition(.opacity)
+                }
+            }
+            .smoothChange(waiting)
             .sensoryFeedback(.success, trigger: done)
             .confirmationDialog("Remove \(project.name)?", isPresented: $isPresented, titleVisibility: .visible) {
                 Button("Remove project", role: .destructive) { remove(stopRunning: false) }
@@ -168,7 +180,8 @@ private struct ProjectRemoval: ViewModifier {
         busy = true
         Task {
             defer { busy = false }
-            let outcome = await model.removeProject(project.id, stopRunning: stopRunning)
+            let outcome = await model.removeProject(project.id, stopRunning: stopRunning) { waiting = true }
+            waiting = false
             if outcome.ok {
                 done += 1
                 // The haptic lands before the screen goes.

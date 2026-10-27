@@ -23,6 +23,8 @@ struct EditProjectView: View {
     @State private var photo: PhotosPickerItem?
     @State private var imageProblem: String?
     @State private var initials = ""
+    /// Saved on this phone; the computer hasn't answered yet.
+    @State private var waiting = false
 
     struct NoteDraft: Identifiable, Equatable { let id = UUID(); var saved: String?; var text: String }
 
@@ -66,9 +68,17 @@ struct EditProjectView: View {
                 Button("Remove project…", role: .destructive) { removing = true }.accessibilityIdentifier("project.edit.remove")
             }
             .insetRowBackground()
+            if waiting {
+                Section {
+                    Text("Saved on this phone. Waiting for your computer to apply it…")
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+                .insetRowBackground()
+            }
             if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
         }
         .insetGroupedList()
+        .smoothChange(waiting)
         .smoothChange(icon.mode)
         .smoothChange(options == nil)
         .smoothChange(notes.map(\.id))
@@ -202,7 +212,8 @@ struct EditProjectView: View {
                 return value
             }
         }
-        let outcome = await model.saveProject(project, draft: draft)
+        let outcome = await model.saveProject(project, draft: draft) { waiting = true }
+        waiting = false
         if outcome.ok { done(.saved) } else { problem = outcome.message ?? "Couldn't save. Try again." }
     }
 }

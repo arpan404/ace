@@ -65,6 +65,9 @@ export class ProjectScripts {
       });
       if (!outcome.ok)
         return { ok: false, message: `Couldn't run ${script.command}: ${outcome.message}` };
+      // Still in the outbox: it runs once the computer answers, and shows in Terminal then.
+      if (outcome.queued)
+        return { ok: false, message: `${script.name} will start once your computer answers.` };
       return { ok: true, terminalId: outcome.terminalId ?? null, reused: false };
     } catch {
       return { ok: false, message: "Couldn't read the project's scripts. Try again." };
