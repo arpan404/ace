@@ -213,6 +213,20 @@ pub fn inaccessible_error(entry: &DesktopApp, pid: u32) -> CuError {
     CuError::new("app_inaccessible", message)
 }
 
+/// An app started inside the grace period that still showed no window after the wait. A slow
+/// start (a cold LibreOffice, a busy machine) looks the same as one started without
+/// accessibility, so it isn't reported as inaccessible yet: once it is older than
+/// [`STARTING`], the next `state` says so if it still isn't on the bus.
+pub fn still_starting_error(entry: &DesktopApp) -> CuError {
+    let name = &entry.name;
+    CuError::new(
+        "launch_failed",
+        format!(
+            "{name} was started moments ago and still shows no window ace can see. Call screen_state again in a moment; if it still can't see {name} then, it says why."
+        ),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::age_from;

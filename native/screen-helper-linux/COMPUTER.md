@@ -60,7 +60,9 @@ for its window.
 - **Apps that read accessibility only at start** (Firefox) and were started before it was on are
   not on the bus: instead of opening them again, `state` answers `app_inaccessible`, asking the
   person to quit and reopen them. A process younger than 20 s is still starting, so it is waited
-  for (up to 15 s) rather than reported. The daemon turns accessibility on for the session as soon
+  for (up to 15 s) rather than reported; if it still shows no window, `state` answers
+  `launch_failed` asking to try again in a moment (it may just be slow), and only an older
+  process gets `app_inaccessible`. The daemon turns accessibility on for the session as soon
   as computer use is on, so apps opened afterwards are seen.
 - **Suites in one process.** LibreOffice runs every module in `soffice.bin`: each module with a
   window is its own app (`libreoffice-writer`, `libreoffice-calc`), named by the window title's

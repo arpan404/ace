@@ -217,7 +217,13 @@ impl Service {
                     let app = self
                         .wait_for_launch(bus, &entry, &installed, check)
                         .await
-                        .map_err(|error| if error.code == "launch_failed" { apps::inaccessible_error(&entry, pid) } else { error })?;
+                        .map_err(|error| {
+                            if error.code == "launch_failed" {
+                                apps::still_starting_error(&entry)
+                            } else {
+                                error
+                            }
+                        })?;
                     return self.adopt(query, app);
                 }
                 if !launch {
