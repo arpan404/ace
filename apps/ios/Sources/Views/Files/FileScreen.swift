@@ -69,6 +69,14 @@ struct FileScreen: View {
             }
             .modifier(FileActionPrompts(actions: actions))
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
+            .onChange(of: path, initial: true) { _, now in model.fileOpened(scope, now) }
+    }
+
+    /// The switcher picked another open file: show it here, as a tab switch would.
+    private func switchTo(_ picked: String) {
+        guard picked != path, !editing else { return }
+        content = nil; image = nil; failure = nil; source = false
+        path = picked
     }
 
     // MARK: Content
@@ -142,6 +150,7 @@ struct FileScreen: View {
 
     @ToolbarContentBuilder private var viewToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
+            OpenFilesButton(model: model, scope: scope) { picked in switchTo(picked) }
             if text != nil, !markdownPreview {
                 Button("Find in file", systemImage: "magnifyingglass") { handle.find() }.accessibilityIdentifier("file.find")
             }
