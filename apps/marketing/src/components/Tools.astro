@@ -4,18 +4,21 @@ import { toolFamilies } from "../content/product.ts";
 import BrandMark from "./BrandMark.astro";
 ---
 
-<section id="mcp" class="tools page">
+<section id="mcp" class="section page">
   <div class="intro reveal">
-    <h2 class="section-title">One MCP toolset, every agent.</h2>
-    <p class="lede">
-      ace runs an MCP server for each agent session. Whichever CLI runs the agent, it gets the
-      same tools, and your CLI's own permission mode decides what runs.
-    </p>
+    <div>
+      <p class="eyebrow">MCP</p>
+      <h2 class="section-title">One toolset, every agent.</h2>
+      <p class="lede">
+        ace runs an MCP server for each agent session. Whichever CLI runs the agent, it gets the
+        same tools, and your CLI's own permission mode decides what runs.
+      </p>
+    </div>
     <ul class="marks" aria-label="Agents that get ace's tools">
       {
         builtInAgents.map((agent) => (
-          <li title={agent.label}>
-            <BrandMark brand={agent.brand} size={22} />
+          <li class="tile" title={agent.label}>
+            <BrandMark brand={agent.brand} size={18} />
             <span class="sr-only">{agent.label}</span>
           </li>
         ))
@@ -27,10 +30,8 @@ import BrandMark from "./BrandMark.astro";
     {
       toolFamilies.map((family) => (
         <div class="row" role="row">
-          <div class="family" role="rowheader">
-            <h3>{family.family}</h3>
-            <p>{family.purpose}</p>
-          </div>
+          <h3 role="rowheader">{family.family}</h3>
+          <p role="cell">{family.purpose}</p>
           <div class="names" role="cell">
             {family.tools.map((tool) => (
               <code>{tool}</code>
@@ -43,98 +44,53 @@ import BrandMark from "./BrandMark.astro";
 </section>
 
 <style>
-  .tools {
-    display: grid;
-    gap: 56px;
-    padding-block: 120px;
-  }
-
   .intro {
-    display: grid;
-    gap: 20px;
-    align-content: start;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: 32px;
   }
 
   .marks {
     display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin: 8px 0 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .marks li {
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
-    border: 1px solid var(--border);
-    background: var(--surface);
+    gap: 8px;
   }
 
   .table {
+    margin-top: 56px;
     border-top: 1px solid var(--border);
   }
 
   .row {
     display: grid;
-    gap: 12px;
-    padding-block: 20px;
+    grid-template-columns: 160px 1fr 1.3fr;
+    gap: 24px;
+    align-items: baseline;
+    padding: 18px 0;
     border-bottom: 1px solid var(--border);
   }
 
-  .family {
-    display: grid;
-    gap: 2px;
-  }
-
-  .family p {
-    color: var(--subtle);
+  .row p {
+    color: var(--muted);
     font-size: 14px;
   }
 
   .names {
     display: flex;
     flex-wrap: wrap;
-    align-content: center;
-    gap: 6px;
+    gap: 6px 16px;
   }
 
-  .names code {
-    padding: 3px 8px;
-    border-radius: 6px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--foreground);
-    font-size: 13px;
+  code {
+    color: var(--subtle);
+    font-size: 12.5px;
   }
 
-  @media (min-width: 768px) {
+  @media (max-width: 800px) {
     .row {
-      grid-template-columns: 260px 1fr;
-      gap: 32px;
-    }
-  }
-
-  @media (min-width: 1100px) {
-    .tools {
-      grid-template-columns: 400px 1fr;
-      gap: 80px;
-      align-items: start;
-    }
-
-    .intro {
-      position: sticky;
-      top: 96px;
-    }
-  }
-
-  @media (max-width: 767px) {
-    .tools {
-      padding-block: 72px;
-      gap: 32px;
+      grid-template-columns: 1fr;
+      gap: 6px;
     }
   }
 </style>

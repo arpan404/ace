@@ -4,7 +4,7 @@ import AceMark from "./AceMark.astro";
 ---
 
 <footer class="footer">
-  <div class="page footer-inner">
+  <div class="page inner">
     <a class="brand" href="/" aria-label="ace home">
       <AceMark size={20} />
       <span>ace</span>
@@ -12,7 +12,8 @@ import AceMark from "./AceMark.astro";
     <nav aria-label="Footer">
       <a href={links.source}>GitHub</a>
       <a href={links.releases}>Releases</a>
-      <a href={links.license}>Apache-2.0 license</a>
+      <a href="/llms.txt">llms.txt</a>
+      <a href={links.license}>Apache-2.0</a>
     </nav>
   </div>
 </footer>
@@ -22,7 +23,7 @@ import AceMark from "./AceMark.astro";
     border-top: 1px solid var(--border);
   }
 
-  .footer-inner {
+  .inner {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -34,9 +35,8 @@ import AceMark from "./AceMark.astro";
   .brand {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     font-weight: 600;
-    letter-spacing: -0.03em;
     text-decoration: none;
   }
 
@@ -44,12 +44,13 @@ import AceMark from "./AceMark.astro";
     display: flex;
     flex-wrap: wrap;
     gap: 24px;
+    font-size: 14px;
   }
 
   nav a {
     color: var(--subtle);
-    font-size: 14px;
     text-decoration: none;
+    transition: color var(--motion-fast) var(--ease-out);
   }
 
   nav a:hover {

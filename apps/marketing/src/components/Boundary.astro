@@ -1,0 +1,33 @@
+---
+import { boundary } from "../content/product.ts";
+import { links } from "../site.ts";
+import Icon from "./Icon.astro";
+import IconGrid from "./IconGrid.astro";
+---
+
+<section id="privacy" class="section page">
+  <div class="reveal">
+    <p class="eyebrow">Boundaries</p>
+    <h2 class="section-title">Know where your code goes.</h2>
+    <p class="lede">
+      ace sits around your agents, not between you and your providers. Here is everything it
+      holds, and everything it doesn't.
+    </p>
+  </div>
+  <IconGrid items={boundary} columns={2} />
+  <p class="more reveal">
+    <a class="text-link" href={links.source}>Read the source</a>
+    <Icon name="arrow-right" size={14} />
+  </p>
+</section>
+
+<style>
+  .more {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 28px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+</style>

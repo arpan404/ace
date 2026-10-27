@@ -1,0 +1,28 @@
+---
+/* A screenshot of the app, served as responsive WebP. */
+import type { ImageMetadata } from "astro";
+import { getImage } from "astro:assets";
+
+interface Props {
+  image: ImageMetadata;
+  alt: string;
+  sizes: string;
+  widths: number[];
+  eager?: boolean;
+}
+
+const { image, alt, sizes, widths, eager = false } = Astro.props;
+const set = await getImage({ src: image, widths, format: "webp", quality: 82 });
+---
+
+<img
+  src={set.src}
+  srcset={set.srcSet.attribute}
+  sizes={sizes}
+  alt={alt}
+  width={image.width}
+  height={image.height}
+  loading={eager ? "eager" : "lazy"}
+  fetchpriority={eager ? "high" : "auto"}
+  decoding="async"
+/>

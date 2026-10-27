@@ -3,113 +3,113 @@ import { acpAgents as acp, builtInAgents as providers } from "../content/agents.
 import BrandMark from "./BrandMark.astro";
 ---
 
-<section id="agents" class="agents page reveal">
-  <h2 class="section-title">Bring the agents you already pay for.</h2>
-  <p class="lede">
-    ace starts each CLI the way you would in a terminal. Logins and subscriptions stay with the
-    CLI. ace never asks for or stores a key.
-  </p>
+<section id="agents" class="section page">
+  <div class="reveal">
+    <p class="eyebrow">Providers</p>
+    <h2 class="section-title">Keep the agents you already pay for.</h2>
+    <p class="lede">
+      ace starts each CLI the way you would in a terminal. Logins, models and subscriptions stay
+      with the CLI; ace never asks for or stores a key.
+    </p>
+  </div>
 
-  <ul class="providers" aria-label="Built-in agents">
+  <ul class="rule-grid providers reveal" aria-label="Built-in agents">
     {
       providers.map((provider) => (
         <li>
-          <BrandMark brand={provider.brand} size={28} />
-          <span>{provider.label}</span>
+          <span class="tile">
+            <BrandMark brand={provider.brand} size={20} />
+          </span>
+          <span class="name">{provider.label}</span>
+          <span class="kind">Built in</span>
         </li>
       ))
     }
+    <li class="acp">
+      <div class="acp-head">
+        <span class="name">Any ACP agent</span>
+        <span class="kind">Agent Client Protocol</span>
+      </div>
+      <ul aria-label="ACP agents">
+        {
+          acp.map((agent) => (
+            <li>
+              <BrandMark brand={agent.brand} size={15} />
+              {agent.label}
+            </li>
+          ))
+        }
+      </ul>
+    </li>
   </ul>
-
-  <div class="acp">
-    <p>Any agent that speaks ACP works too, including</p>
-    <ul aria-label="ACP agents">
-      {
-        acp.map((agent) => (
-          <li>
-            <BrandMark brand={agent.brand} size={16} />
-            {agent.label}
-          </li>
-        ))
-      }
-    </ul>
-  </div>
 </section>
 
 <style>
-  .agents {
-    display: grid;
-    gap: 20px;
-    padding-block: 120px 96px;
-  }
-
   .providers {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    margin: 40px 0 0;
-    padding: 0;
-    list-style: none;
-    border-top: 1px solid var(--border);
+    margin-top: 56px;
+    grid-template-columns: repeat(3, 1fr);
   }
 
-  .providers li {
+  .providers > li {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 24px 0;
-    font-size: 17px;
+    gap: 14px;
+    padding: 24px;
+  }
+
+  .name {
+    font-size: 16px;
     font-weight: 500;
-    letter-spacing: -0.01em;
   }
 
-  .acp {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px 16px;
-    padding-top: 24px;
-    border-top: 1px solid var(--border);
+  .kind {
+    margin-left: auto;
     color: var(--subtle);
-    font-size: 14px;
+    font-size: 13px;
+  }
+
+  .providers > .acp {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 18px;
+  }
+
+  .acp-head {
+    display: flex;
+    align-items: center;
   }
 
   .acp ul {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
   }
 
-  .acp li {
+  .acp ul li {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding-inline: 8px;
-    border-radius: 6px;
-    background: var(--surface);
+    gap: 8px;
+    height: 32px;
+    padding-inline: 12px;
+    border-radius: 999px;
     border: 1px solid var(--border);
     color: var(--muted);
     font-size: 13px;
   }
 
-  @media (min-width: 768px) {
+  @media (max-width: 900px) {
     .providers {
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(2, 1fr);
     }
   }
 
-  @media (min-width: 1024px) {
+  @media (max-width: 560px) {
     .providers {
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: 1fr;
     }
-  }
 
-  @media (max-width: 767px) {
-    .agents {
-      padding-block: 72px 56px;
+    .providers > li {
+      padding: 18px 20px;
     }
   }
 </style>

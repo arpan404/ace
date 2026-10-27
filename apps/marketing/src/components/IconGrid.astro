@@ -1,0 +1,65 @@
+---
+/* A ruled grid of short points, each with an icon tile, a title and a sentence or two. */
+import Icon, { type IconName } from "./Icon.astro";
+
+interface Props {
+  items: { icon: IconName; title: string; body: string }[];
+  columns: 2 | 3;
+}
+
+const { items, columns } = Astro.props;
+---
+
+<ul class="rule-grid icon-grid reveal" style={`--columns: ${columns}`}>
+  {
+    items.map((item) => (
+      <li>
+        <span class="tile">
+          <Icon name={item.icon} size={18} />
+        </span>
+        <h3>{item.title}</h3>
+        <p>{item.body}</p>
+      </li>
+    ))
+  }
+</ul>
+
+<style>
+  .icon-grid {
+    margin-top: 56px;
+    grid-template-columns: repeat(var(--columns), 1fr);
+  }
+
+  li {
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    padding: 28px;
+  }
+
+  h3 {
+    margin-top: 10px;
+  }
+
+  p {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  @media (max-width: 900px) {
+    .icon-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 600px) {
+    .icon-grid {
+      grid-template-columns: 1fr;
+    }
+
+    li {
+      padding: 22px 20px;
+    }
+  }
+</style>

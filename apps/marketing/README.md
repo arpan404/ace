@@ -45,6 +45,6 @@ disagree.
 
 ## Screenshots
 
-`src/assets/shots/` holds light and dark captures of the web app running against the fake daemon
-(`bun run dev:fake`), at 1440×900 and 2× scale. Replace both modes together. `public/og.png` is the
-1200×630 social card.
+`src/assets/shots/` holds dark captures of the web app running against the fake daemon
+(`bun run dev:fake`), at 1440×900 and 2× scale: `home` (the hero), `review` and `fleet`. The site is
+dark only, so there are no light captures. `public/og.png` is the 1200×630 social card.

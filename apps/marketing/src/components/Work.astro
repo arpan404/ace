@@ -1,0 +1,237 @@
+---
+import fleetDark from "../assets/shots/fleet-dark.png";
+import reviewDark from "../assets/shots/review-dark.png";
+import { capabilities } from "../content/product.ts";
+import BrowserPanel from "./panels/BrowserPanel.astro";
+import ComputerPanel from "./panels/ComputerPanel.astro";
+import DevicesPanel from "./panels/DevicesPanel.astro";
+import Shot from "./Shot.astro";
+import Stage from "./Stage.astro";
+
+const [browser, computer, devices] = capabilities;
+if (!browser || !computer || !devices) throw new Error("The page expects three capabilities.");
+
+/* Each row: copy on one side, its visual on a Stage on the other, alternating sides. */
+const rows = [
+  {
+    id: "browser",
+    label: "Browser use",
+    ...browser,
+    title: "Agents check their work in a real browser",
+    mood: "ember" as const,
+  },
+  {
+    id: "machine",
+    label: "Computer use",
+    ...computer,
+    title: "Your Mac's apps, used in the background",
+    mood: "dusk" as const,
+  },
+  {
+    id: "devices",
+    label: "Devices",
+    ...devices,
+    title: "Simulators and emulators in one hub",
+    mood: "moss" as const,
+  },
+  {
+    id: "review",
+    label: "Review",
+    title: "Review the diff next to the conversation",
+    body: "Give a thread its own git worktree and its changes stay apart. Comment on a line, send the comment to the agent, then commit and push from the same panel.",
+    details: [
+      "One worktree per thread, created for you",
+      "Line comments go straight back to the agent",
+      "Commit, push and open the pull request in place",
+    ],
+    tools: [],
+    mood: "slate" as const,
+  },
+  {
+    id: "fleet",
+    label: "Fleet",
+    title: "One fleet for all your machines",
+    body: "Run agents on your laptop, a build server and a workstation, and steer all of them from whichever screen is closest.",
+    details: [
+      "Link machines and see every thread in one list",
+      "Pair a phone or tablet with a link or QR code",
+      "Local network, Tailscale or an end-to-end encrypted relay",
+    ],
+    tools: [],
+    mood: "clay" as const,
+  },
+];
+---
+
+<section id="work" class="section page">
+  <div class="intro reveal">
+    <p class="eyebrow">Beyond the terminal</p>
+    <h2 class="section-title">Agents that can see what they build.</h2>
+    <p class="lede">
+      Every agent gets a browser, your Mac's apps and phone simulators through ace's own tools, and
+      you watch each one live with a hand on the controls.
+    </p>
+  </div>
+
+  <div class="rows">
+    {
+      rows.map((row, index) => (
+        <article id={row.id} class:list={["row", { flip: index % 2 === 1 }]}>
+          <div class="row-copy reveal">
+            <p class="eyebrow">
+              {String(index + 1).padStart(2, "0")} / {row.label}
+            </p>
+            <h3>{row.title}</h3>
+            <p class="body">{row.body}</p>
+            <ul class="details">
+              {row.details.map((detail) => (
+                <li>{detail}</li>
+              ))}
+            </ul>
+            {row.tools.length > 0 && (
+              <p class="tools">
+                {row.tools.map((tool) => (
+                  <code>{tool}</code>
+                ))}
+              </p>
+            )}
+          </div>
+          <div class="row-visual reveal">
+            {row.id === "browser" && (
+              <Stage mood={row.mood}>
+                <BrowserPanel />
+              </Stage>
+            )}
+            {row.id === "machine" && (
+              <Stage mood={row.mood}>
+                <ComputerPanel />
+              </Stage>
+            )}
+            {row.id === "devices" && (
+              <Stage mood={row.mood}>
+                <DevicesPanel />
+              </Stage>
+            )}
+            {row.id === "review" && (
+              <Stage mood={row.mood} bleed>
+                <div class="crop" style="--zoom: 215%; --shift: -115%">
+                  <Shot
+                    image={reviewDark}
+                    alt="A thread with its Changes panel open: a file tree with added and removed line counts, a diff, and a line comment ready to send to the agent."
+                    sizes="(min-width: 1024px) 1400px, 200vw"
+                    widths={[1440, 2880]}
+                  />
+                </div>
+              </Stage>
+            )}
+            {row.id === "fleet" && (
+              <Stage mood={row.mood} bleed>
+                <div class="crop" style="--zoom: 118%; --shift: 0%">
+                  <Shot
+                    image={fleetDark}
+                    alt="ace's Fleet settings: two machines, This Mac and a build server, with Link buttons; remote access reached over Tailscale; and paired devices, an iPhone with view and act access and an iPad with view only."
+                    sizes="(min-width: 1024px) 720px, 100vw"
+                    widths={[720, 1425]}
+                  />
+                </div>
+              </Stage>
+            )}
+          </div>
+        </article>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .rows {
+    display: grid;
+    gap: 120px;
+    margin-top: 88px;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 72px;
+    align-items: center;
+  }
+
+  .row.flip {
+    grid-template-columns: 1.2fr 1fr;
+  }
+
+  .row.flip .row-copy {
+    order: 2;
+  }
+
+  .row-copy h3 {
+    margin-top: 14px;
+    font-size: clamp(22px, 2.4vw, 28px);
+    letter-spacing: -0.025em;
+  }
+
+  .body {
+    margin-top: 14px;
+    color: var(--muted);
+    line-height: 1.65;
+  }
+
+  .details {
+    margin-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+
+  .details li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin-top: 18px;
+    color: var(--subtle);
+  }
+
+  .tools code {
+    font-size: 12px;
+  }
+
+  .crop {
+    width: 100%;
+    max-height: 460px;
+    overflow: hidden;
+    border-top-left-radius: 10px;
+    border: 1px solid var(--border-strong);
+    border-right: 0;
+    border-bottom: 0;
+    box-shadow: 0 30px 80px -30px rgb(0 0 0 / 0.85);
+  }
+
+  /* --zoom scales the screenshot past the frame; --shift moves the part worth seeing into view. */
+  .crop :global(img) {
+    width: var(--zoom);
+    max-width: none;
+    margin-left: var(--shift);
+  }
+
+  @media (max-width: 960px) {
+    .rows {
+      gap: 88px;
+    }
+
+    .row,
+    .row.flip {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+
+    .row.flip .row-copy {
+      order: 0;
+    }
+  }
+</style>

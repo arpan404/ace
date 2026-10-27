@@ -2,15 +2,21 @@
 import { faq } from "../content/product.ts";
 ---
 
-<section id="faq" class="faq page">
-  <h2 class="section-title reveal">Frequently asked questions</h2>
-  <div class="list">
+<section id="faq" class="section page faq">
+  <div class="reveal">
+    <p class="eyebrow">FAQ</p>
+    <h2 class="section-title">Questions, answered.</h2>
+  </div>
+  <div class="list reveal">
     {
       faq.map((entry) => (
-        <div class="entry reveal">
-          <h3>{entry.question}</h3>
+        <details>
+          <summary>
+            <h3>{entry.question}</h3>
+            <span class="sign" aria-hidden="true" />
+          </summary>
           <p>{entry.answer}</p>
-        </div>
+        </details>
       ))
     }
   </div>
@@ -19,54 +25,74 @@ import { faq } from "../content/product.ts";
 <style>
   .faq {
     display: grid;
-    gap: 40px;
-    padding-block: 120px;
+    grid-template-columns: 1fr 2fr;
+    gap: 64px;
   }
 
   .list {
-    display: grid;
-    margin: 0;
     border-top: 1px solid var(--border);
   }
 
-  .entry {
-    display: grid;
-    gap: 8px;
-    padding-block: 24px;
+  details {
     border-bottom: 1px solid var(--border);
   }
 
-  .entry:last-child {
-    border-bottom: none;
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 22px 0;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
   }
 
   h3 {
-    font-size: 17px;
+    font-size: 16px;
   }
 
-  p {
-    max-width: 44em;
+  /* A plus that turns into a minus when the answer is open. */
+  .sign {
+    position: relative;
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    color: var(--subtle);
+  }
+
+  .sign::before,
+  .sign::after {
+    content: "";
+    position: absolute;
+    inset: 5.5px 0 auto;
+    height: 1px;
+    background: currentColor;
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+
+  .sign::after {
+    transform: rotate(90deg);
+  }
+
+  details[open] .sign::after {
+    transform: rotate(0deg);
+  }
+
+  details p {
+    max-width: 40em;
+    padding-bottom: 24px;
     color: var(--muted);
+    line-height: 1.7;
   }
 
-  @media (min-width: 1024px) {
+  @media (max-width: 860px) {
     .faq {
-      grid-template-columns: 320px 1fr;
-      gap: 64px;
-      align-items: start;
-    }
-
-    .faq h2 {
-      position: sticky;
-      top: 96px;
-      font-size: 40px;
-    }
-  }
-
-  @media (max-width: 767px) {
-    .faq {
-      padding-block: 72px;
-      gap: 24px;
+      grid-template-columns: 1fr;
+      gap: 32px;
     }
   }
 </style>

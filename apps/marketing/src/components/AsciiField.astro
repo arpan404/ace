@@ -1,0 +1,162 @@
+---
+/*
+ * ace's mark drawn in monospace characters over a faint drifting field, used as the backdrop of
+ * the hero and the closing call to action. Purely decorative: hidden from assistive technology,
+ * drawn once (no drift) when the reader prefers reduced motion, and paused while off screen.
+ */
+interface Props {
+  /** Where the mark sits across the canvas, from 0 (left) to 1 (right). */
+  focus?: number;
+  /** The mark's height as a share of the canvas height. */
+  scale?: number;
+}
+
+const { focus = 0.78, scale = 0.8 } = Astro.props;
+---
+
+<div class="ascii" aria-hidden="true">
+  <canvas data-ascii-field data-focus={focus} data-scale={scale}></canvas>
+</div>
+
+<style>
+  .ascii {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+</style>
+
+<script>
+  // The app's wing path (apps/web/src/components/ace-mark.tsx), in a 24-unit box.
+  const wing =
+    "M11.6 2C10.8 2 10.4 2.6 9.8 3.3L2.9 11.3C1.2 13.3 1.8 15.6 3.8 16.8L7.8 19.3C8.5 19.8 9.3 19.8 9.9 19.1L11 17.7C11.7 16.8 11.5 16.1 10.8 15.4L7.3 12.3C10.3 9.8 11.6 7.6 11.6 5V2Z";
+  const ramp = " .·:-=+*o#%@";
+  const cellWidth = 9;
+  const cellHeight = 15;
+
+  /** Smooth value noise from a small integer hash; deterministic, so every visit looks alike. */
+  function hash(x: number, y: number): number {
+    let h = Math.imul(x, 374761393) + Math.imul(y, 668265263);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+  }
+
+  function noise(x: number, y: number): number {
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+    const xf = x - xi;
+    const yf = y - yi;
+    const u = xf * xf * (3 - 2 * xf);
+    const v = yf * yf * (3 - 2 * yf);
+    const top = hash(xi, yi) + (hash(xi + 1, yi) - hash(xi, yi)) * u;
+    const bottom = hash(xi, yi + 1) + (hash(xi + 1, yi + 1) - hash(xi, yi + 1)) * u;
+    return top + (bottom - top) * v;
+  }
+
+  function start(canvas: HTMLCanvasElement): void {
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const focus = Number(canvas.dataset.focus ?? 0.72);
+    const scale = Number(canvas.dataset.scale ?? 0.86);
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let columns = 0;
+    let rows = 0;
+    let mask = new Float32Array(0);
+    let visible = true;
+    let frame = 0;
+    let last = 0;
+
+    /** Rasterise the mark at cell resolution, softened so its edges dissolve into characters. */
+    const measure = (): void => {
+      const ratio = window.devicePixelRatio || 1;
+      const { width, height } = canvas.getBoundingClientRect();
+      canvas.width = Math.round(width * ratio);
+      canvas.height = Math.round(height * ratio);
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      columns = Math.ceil(width / cellWidth);
+      rows = Math.ceil(height / cellHeight);
+
+      const shape = document.createElement("canvas");
+      shape.width = columns;
+      shape.height = rows;
+      const pen = shape.getContext("2d");
+      if (!pen) return;
+      // Cells are taller than wide, so the mark is stretched across columns to look square.
+      const size = rows * scale;
+      const across = size * (cellHeight / cellWidth);
+      pen.filter = "blur(0.6px)";
+      pen.translate(columns * focus - across / 2, (rows - size) / 2);
+      pen.scale(across / 24, size / 24);
+      pen.translate(0, 1.5);
+      // Both wings in one path: the second is the first mirrored across the 24-unit box.
+      const mark = new Path2D(wing);
+      mark.addPath(new Path2D(wing), new DOMMatrix([-1, 0, 0, 1, 24, 0]));
+      // oxlint-disable-next-line unicorn/no-array-fill-with-reference-type -- a canvas fill, not Array.prototype.fill
+      pen.fill(mark);
+      const pixels = pen.getImageData(0, 0, columns, rows).data;
+      mask = new Float32Array(columns * rows);
+      for (let index = 0; index < mask.length; index += 1) mask[index] = (pixels[index * 4 + 3] ?? 0) / 255;
+    }
+
+    const draw = (time: number): void => {
+      const { width, height } = canvas.getBoundingClientRect();
+      context.clearRect(0, 0, width, height);
+      context.font = `11px "Geist Mono Variable", ui-monospace, monospace`;
+      context.textBaseline = "top";
+      const drift = time / 9000;
+      for (let row = 0; row < rows; row += 1) {
+        for (let column = 0; column < columns; column += 1) {
+          const inside = mask[row * columns + column] ?? 0;
+          const field = noise(column / 14 + drift, row / 7 - drift * 0.6);
+          // The field fades out toward the copy on the left and toward the page edges.
+          const dx = column / columns - focus;
+          const dy = row / rows - 0.5;
+          const reach = Math.max(0, 1 - Math.hypot(dx * 1.6, dy * 1.9));
+          const sparkle = noise(column * 0.9 + time / 700, row * 0.9) * 0.25;
+          const level = inside * (0.55 + sparkle) + field * field * reach * 0.42;
+          if (level < 0.08) continue;
+          const glyph = ramp.charAt(Math.min(ramp.length - 1, Math.floor(level * ramp.length)));
+          const alpha = inside > 0.5 ? 0.16 + level * 0.32 : 0.05 + level * 0.3;
+          context.fillStyle = `rgba(236, 232, 224, ${alpha.toFixed(3)})`;
+          context.fillText(glyph, column * cellWidth, row * cellHeight);
+        }
+      }
+    }
+
+    const tick = (time: number): void => {
+      frame = 0;
+      if (!visible) return;
+      // About 15 frames a second is plenty for a slow drift.
+      if (time - last > 66) {
+        last = time;
+        draw(time);
+      }
+      frame = requestAnimationFrame(tick);
+    }
+
+    measure();
+    draw(0);
+    new ResizeObserver(() => {
+      measure();
+      draw(last);
+    }).observe(canvas);
+    if (still) return;
+    new IntersectionObserver(([entry]) => {
+      visible = entry?.isIntersecting ?? false;
+      if (visible && frame === 0) frame = requestAnimationFrame(tick);
+    }).observe(canvas);
+  }
+
+  void document.fonts.ready.then(() => {
+    for (const canvas of document.querySelectorAll<HTMLCanvasElement>("[data-ascii-field]")) {
+      start(canvas);
+    }
+  });
+</script>

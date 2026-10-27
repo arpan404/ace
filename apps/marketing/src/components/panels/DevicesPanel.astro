@@ -1,0 +1,46 @@
+---
+/* The devices hub: simulators and emulators, which agent holds one, and a pending approval. */
+const devices = [
+  { name: "iPhone 17 Pro", os: "iOS 26", state: "Claude Code", tone: "working" as const },
+  { name: "iPad Air", os: "iPadOS 26", state: "Booted" },
+  { name: "Pixel 9", os: "Android 16", state: "Off" },
+];
+---
+
+<div class="panel">
+  <div class="panel-row">
+    <span class="panel-label">Devices</span>
+  </div>
+  {
+    devices.map((device) => (
+      <div class="panel-row" data-tone={device.tone}>
+        <span class="name">{device.name}</span>
+        <span class="panel-quiet">{device.os}</span>
+        <span class="panel-end">
+          {device.tone && <span class="status-dot" aria-hidden="true" />}
+          <span class:list={[{ "status-word": device.tone, "panel-quiet": !device.tone }]}>
+            {device.state}
+          </span>
+        </span>
+      </div>
+    ))
+  }
+  <div class="panel-row ask" data-tone="needs-you">
+    <span class="status-dot" aria-hidden="true"></span>
+    <span>Codex wants to use Pixel 9</span>
+    <span class="panel-end">
+      <span class="panel-action">Allow</span>
+      <span class="panel-quiet">Deny</span>
+    </span>
+  </div>
+</div>
+
+<style>
+  .name {
+    min-width: 108px;
+  }
+
+  .ask {
+    background: color-mix(in srgb, var(--status-needs-you) 7%, transparent);
+  }
+</style>

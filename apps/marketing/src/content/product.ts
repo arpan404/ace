@@ -234,3 +234,29 @@ export const faq: { question: string; answer: string }[] = [
       "Yes. ace is open source under the Apache-2.0 license. You pay only for the agent subscriptions you already have.",
   },
 ];
+
+export type BoundaryIcon = "hard-drives" | "key" | "users-three" | "code";
+
+/** Where ace stops: what it holds, what it never touches. */
+export const boundary: { icon: BoundaryIcon; title: string; body: string }[] = [
+  {
+    icon: "hard-drives",
+    title: "Your work stays on your machine",
+    body: "Threads, history and settings live in a local daemon next to your code. ace is an app you run, never a hosted service.",
+  },
+  {
+    icon: "key",
+    title: "Credentials stay with each CLI",
+    body: "Every agent runs through its own logged-in CLI and talks to its own provider. ace never asks for, stores or proxies a key.",
+  },
+  {
+    icon: "users-three",
+    title: "Remote access is yours to grant",
+    body: "Machines and phones join only when you pair them, over your network, Tailscale or an end-to-end encrypted relay you can host.",
+  },
+  {
+    icon: "code",
+    title: "Every line is open",
+    body: "ace is Apache-2.0. Read the daemon, the clients and the architecture decisions behind them on GitHub.",
+  },
+];
