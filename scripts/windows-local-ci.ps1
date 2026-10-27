@@ -83,8 +83,12 @@ function Use-NodeHeaders {
 function Invoke-Step([string] $name, [scriptblock] $block) {
   Write-Host "--- $name"
   $global:LASTEXITCODE = 0
-  & $block
-  if ($LASTEXITCODE -ne 0) { throw "$name failed (exit $LASTEXITCODE)" }
+  # Windows PowerShell turns a native tool's stderr into errors; the exit code decides instead.
+  $ErrorActionPreference = "Continue"
+  & $block 2>&1 | ForEach-Object { "$_" }
+  $code = $LASTEXITCODE
+  $ErrorActionPreference = "Stop"
+  if ($code -ne 0) { throw "$name failed (exit $code)" }
 }
 
 function Invoke-Vitest([string[]] $arguments) {
