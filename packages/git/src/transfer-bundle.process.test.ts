@@ -104,7 +104,8 @@ async function originPair() {
   const source = await repository();
   const directory = await scratch();
   const origin = join(directory, "origin.git");
-  await git(directory, "init", "-q", "--bare", origin);
+  // Name main so the target's clone checks it out whatever git's default branch is.
+  await git(directory, "init", "-q", "--bare", "--initial-branch=main", origin);
   await git(source, "remote", "add", "origin", origin);
   await git(source, "push", "-q", "origin", "main");
   await git(directory, "clone", "-q", origin, "target");

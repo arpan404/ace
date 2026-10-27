@@ -10,7 +10,9 @@ async function published() {
   const home = dirname(repo);
   const remote = join(home, "remote.git");
   await git(repo, "branch", "-M", "main");
-  await git(repo, "init", "--bare", remote);
+  // A bare repository's HEAD names git's default branch (master unless init.defaultBranch says
+  // otherwise); name main so the collaborator's clone checks it out rather than an unborn one.
+  await git(repo, "init", "--bare", "--initial-branch=main", remote);
   await git(repo, "remote", "add", "origin", remote);
   await git(repo, "push", "--set-upstream", "origin", "main");
   const collaborator = join(home, "collaborator");
