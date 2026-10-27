@@ -122,16 +122,16 @@ export async function startWorkspaceActions({
   resources.own(() => {
     clearInterval(healing);
     return sweep;
-  });
+  }, "Git lock sweep");
   services.canReadThread = (_device, id) => {
     const thread = store.readThread(id);
     return thread !== undefined && thread.deletedAt === undefined;
   };
-  resources.own(() => workspace.close());
+  resources.own(() => workspace.close(), "workspace Git");
   const prLinks = new PullRequestAutoLink(store, workspace, (error) =>
     log.log("debug", "Created pull request could not be linked", logError(error)),
   );
-  resources.own(() => prLinks.close());
+  resources.own(() => prLinks.close(), "pull request links");
   // A read that times out means something hangs (a Git or forge call); say so once per kind
   // of read, so a stuck checkout is visible without repeating every minute.
   const timedOut = new Set<string>();
@@ -144,7 +144,7 @@ export async function startWorkspaceActions({
       logError(error),
     );
   });
-  resources.own(() => refresh.close());
+  resources.own(() => refresh.close(), "workspace refresh");
 }
 export function createWorkspaceActionsSession(context: SocketContext): SocketService {
   const { options, authorize, send, canReadThread, connected, tasks } = context;
