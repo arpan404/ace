@@ -80,10 +80,16 @@ export class NativeSkillPlugins {
   async answer(request: NativePluginsRequest, signal: AbortSignal): Promise<unknown> {
     try {
       if (request.op === "plugins") return { ok: true, plugins: await this.#plugins(signal) };
-      return { ok: true, plugin: await this.#queued(request.name, () => this.#change(request, signal)) };
+      return {
+        ok: true,
+        plugin: await this.#queued(request.name, () => this.#change(request, signal)),
+      };
     } catch (error) {
       if (error instanceof Refused) return { ok: false, message: error.message };
-      return { ok: false, message: request.op === "plugins" ? "Couldn't read your plugins." : unreachable };
+      return {
+        ok: false,
+        message: request.op === "plugins" ? "Couldn't read your plugins." : unreachable,
+      };
     }
   }
 
@@ -110,7 +116,12 @@ export class NativeSkillPlugins {
         : pluginAgentSet(policy, request.provider, request.on);
     const saved = await plugin(
       this.#owner,
-      { type: "plugins.availability", name: request.name, enabled: next.enabled, providers: [...next.providers] },
+      {
+        type: "plugins.availability",
+        name: request.name,
+        enabled: next.enabled,
+        providers: [...next.providers],
+      },
       "plugins.availability",
       signal,
     );

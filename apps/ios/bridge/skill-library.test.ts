@@ -121,7 +121,10 @@ test("a delete sent again after it applied reads as deleted, and the skill is go
   const { ask, named } = await library();
   const { id } = await ask(draft);
   const page = await ask({ op: "skill", id });
-  expect(await ask({ op: "delete", id, expectedHash: page.hash })).toEqual({ ok: true, deleted: id });
+  expect(await ask({ op: "delete", id, expectedHash: page.hash })).toEqual({
+    ok: true,
+    deleted: id,
+  });
   expect(await ask({ op: "delete", id, expectedHash: page.hash, retry: true })).toEqual({
     ok: true,
     deleted: id,
@@ -175,9 +178,10 @@ test("a built-in skill can't be changed from the phone", async () => {
   const [row] = await named("review-changes");
   const page = await ask({ op: "skill", id: row?.id });
   expect(page).toMatchObject({ editable: false, path: null });
-  expect(
-    await ask({ op: "delete", id: row?.id, expectedHash: page.hash }),
-  ).toMatchObject({ ok: false, code: "read_only" });
+  expect(await ask({ op: "delete", id: row?.id, expectedHash: page.hash })).toMatchObject({
+    ok: false,
+    code: "read_only",
+  });
 });
 
 test("the phone's kept list is read again after it creates a skill, and then shows it", async () => {
@@ -187,12 +191,22 @@ test("the phone's kept list is read again after it creates a skill, and then sho
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
   const sink = new RecordingSink();
   const reads = new NativeReads(client, sink, { now: () => 0, schedule: () => () => {} });
-  const services = new NativeServices(client, sink, undefined, undefined, undefined, undefined, reads);
+  const services = new NativeServices(
+    client,
+    sink,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    reads,
+  );
   const list = { type: "skills.native", op: "library" };
-  const names = (id: string) =>
-    (
-      sink.read(`service:${id}`)?.value as { groups: { rows: { name: string }[] }[] }
-    ).groups.flatMap((group) => group.rows.map((row) => row.name));
+  const names = (id: string) => {
+    const value = sink.read(`service:${id}`)?.value as
+      | { groups: { rows: { name: string }[] }[] }
+      | undefined;
+    return value?.groups.flatMap((group) => group.rows.map((row) => row.name)) ?? [];
+  };
   services.handle({ type: "service", id: "before", request: list, cache: "skills" });
   await until(() => sink.read("service:before") !== undefined, "listed");
   expect(names("before")).not.toContain("release-notes");

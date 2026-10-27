@@ -49,8 +49,19 @@ import { hostOpenTarget } from "./skill-host-open.ts";
 const scope = { workspaceId: WorkspaceId.optional() };
 const Scope = z.enum(["personal", "project"]);
 export const NativeSkillsRequest = z.discriminatedUnion("op", [
-  z.object({ type: z.literal("skills.native"), op: z.literal("library"), ...scope, project: z.string().max(256).optional() }),
-  z.object({ type: z.literal("skills.native"), op: z.literal("skill"), id: SkillId, ...scope, project: z.string().max(256).optional() }),
+  z.object({
+    type: z.literal("skills.native"),
+    op: z.literal("library"),
+    ...scope,
+    project: z.string().max(256).optional(),
+  }),
+  z.object({
+    type: z.literal("skills.native"),
+    op: z.literal("skill"),
+    id: SkillId,
+    ...scope,
+    project: z.string().max(256).optional(),
+  }),
   z.object({ type: z.literal("skills.native"), op: z.literal("draft"), ...scope }),
   z.object({
     type: z.literal("skills.native"),
@@ -120,7 +131,8 @@ async function skills(owner: Owner, operation: Operation, signal: AbortSignal) {
 }
 function expect<K extends SkillResult["kind"]>(result: SkillResult, kind: K) {
   if (result.kind === "error") throw new Refused(result.code, result.message);
-  if (result.kind !== kind) throw new Refused("unavailable", "The machine answered something else.");
+  if (result.kind !== kind)
+    throw new Refused("unavailable", "The machine answered something else.");
   return result as Extract<SkillResult, { kind: K }>;
 }
 
@@ -165,25 +177,28 @@ export class NativeSkillLibrary {
     switch (request.op) {
       case "library": {
         const listed = await this.#list(request.workspaceId, signal);
-        const rows = listed.entries
-          .map((entry) => ({ ...row(entry), home: entry.scope }))
-          .toSorted((a, b) => a.name.localeCompare(b.name));
+        const entries = listed.entries.toSorted((a, b) => a.name.localeCompare(b.name));
         return {
           stale: listed.stale,
-          groups: groupByHome(rows).map((group) => ({
-            id: group.home,
-            title: homeLabel(group.home, request.project),
-            rows: group.members.map(({ home: _, ...each }) => each),
-          })),
+          groups: groupByHome(entries.map((entry) => ({ home: entry.scope, entry }))).map(
+            (group) => ({
+              id: group.home,
+              title: homeLabel(group.home, request.project),
+              rows: group.members.map((member) => row(member.entry)),
+            }),
+          ),
         };
       }
       case "skill": {
         const [read, usage] = await Promise.all([
           skills(this.#owner, { op: "read", id: request.id, ...at }, signal),
-          skills(this.#owner, { op: "usage", ids: [request.id], ...at }, signal).catch(() => undefined),
+          skills(this.#owner, { op: "usage", ids: [request.id], ...at }, signal).catch(
+            () => undefined,
+          ),
         ]);
         const { entry, text } = expect(read, "skill");
-        const used = usage?.kind === "usage" ? usage.usage.find((each) => each.id === entry.id) : undefined;
+        const used =
+          usage?.kind === "usage" ? usage.usage.find((each) => each.id === entry.id) : undefined;
         return this.#page(entry, text, request.project, used, request.workspaceId);
       }
       case "draft": {
@@ -191,7 +206,9 @@ export class NativeSkillLibrary {
           .request({ type: "providers.request", operation: "list" }, { ...wait, signal })
           .catch(() => undefined);
         const result = statuses?.result;
-        const installed = result?.ok ? result.providers.filter((row) => row.installed === true).map((row) => row.provider) : [];
+        const installed = result?.ok
+          ? result.providers.filter((each) => each.installed === true).map((each) => each.provider)
+          : [];
         const chosen = initialSkillAgents(installed);
         return {
           agents: skillAgents.map((agent) => agentRow(agent, chosen.includes(agent), false)),
@@ -211,23 +228,36 @@ export class NativeSkillLibrary {
         return this.#edit(request, signal);
       case "agents": {
         const reply = expect(
-          await skills(this.#owner, { op: "setAgents", id: request.id, agents: request.agents, ...at }, signal),
+          await skills(
+            this.#owner,
+            { op: "setAgents", id: request.id, agents: request.agents, ...at },
+            signal,
+          ),
           "skill",
         );
         const note = keptAgentsText(reply.kept, request.agents, title(reply.entry));
-        return { hash: reply.entry.hash, note: note ? `${note}. It reads the folder the skill is saved in.` : null };
+        return {
+          hash: reply.entry.hash,
+          note: note ? `${note}. It reads the folder the skill is saved in.` : null,
+        };
       }
       case "delete": {
-        const result = await skills(this.#owner, { op: "delete", id: request.id, expectedHash: request.expectedHash, ...at }, signal);
+        const result = await skills(
+          this.#owner,
+          { op: "delete", id: request.id, expectedHash: request.expectedHash, ...at },
+          signal,
+        );
         // A retried delete whose first send went through finds nothing left to delete.
-        if (request.retry && result.kind === "error" && result.code === "not_found") return { deleted: request.id };
+        if (request.retry && result.kind === "error" && result.code === "not_found")
+          return { deleted: request.id };
         return { deleted: expect(result, "deleted").id };
       }
     }
   }
 
   async #create(request: Extract<NativeSkillsRequest, { op: "create" }>, signal: AbortSignal) {
-    if (request.scope === "project" && !request.workspaceId) throw new Refused("invalid", "Pick a project first.");
+    if (request.scope === "project" && !request.workspaceId)
+      throw new Refused("invalid", "Pick a project first.");
     const result = await skills(
       this.#owner,
       {
@@ -235,7 +265,10 @@ export class NativeSkillLibrary {
         name: request.name,
         description: request.description.trim(),
         body: request.body,
-        scope: request.scope === "project" && request.workspaceId ? { kind: "project", workspaceId: request.workspaceId } : { kind: "personal" },
+        scope:
+          request.scope === "project" && request.workspaceId
+            ? { kind: "project", workspaceId: request.workspaceId }
+            : { kind: "personal" },
         agents: request.agents,
         manual: request.manual,
       },
@@ -251,18 +284,37 @@ export class NativeSkillLibrary {
 
   async #edit(request: Extract<NativeSkillsRequest, { op: "edit" }>, signal: AbortSignal) {
     const at = request.workspaceId ? { workspaceId: request.workspaceId } : {};
-    const sent = { description: request.description.trim(), body: request.body, manual: request.manual };
-    const result = await skills(this.#owner, { op: "edit", id: request.id, expectedHash: request.expectedHash, ...sent, ...at }, signal);
+    const sent = {
+      description: request.description.trim(),
+      body: request.body,
+      manual: request.manual,
+    };
+    const result = await skills(
+      this.#owner,
+      { op: "edit", id: request.id, expectedHash: request.expectedHash, ...sent, ...at },
+      signal,
+    );
     if (result.kind === "error" && result.code === "conflict") {
       // Either the first send of this edit applied, or someone else changed the skill.
-      const now = expect(await skills(this.#owner, { op: "read", id: request.id, ...at }, signal), "skill");
+      const now = expect(
+        await skills(this.#owner, { op: "read", id: request.id, ...at }, signal),
+        "skill",
+      );
       if (editApplied(sent, now)) return { hash: now.entry.hash };
       throw new Refused("conflict", "This skill changed on the machine since you opened it.");
     }
     return { hash: expect(result, "skill").entry.hash };
   }
 
-  #page(entry: SkillEntry, text: string, project: string | undefined, used: { count: number; last?: { threadId: string; title: string; at: number } | undefined } | undefined, workspaceId: string | undefined) {
+  #page(
+    entry: SkillEntry,
+    text: string,
+    project: string | undefined,
+    used:
+      | { count: number; last?: { threadId: string; title: string; at: number } | undefined }
+      | undefined,
+    workspaceId: string | undefined,
+  ) {
     const locked = lockedAgents(entry);
     const providers = entry.agents.map((agent) => agent.provider);
     const copies = entry.agents.some((agent) => agent.via === "copy");
@@ -273,8 +325,12 @@ export class NativeSkillLibrary {
       description: entry.description,
       editable: entry.editable,
       hash: entry.hash,
-      agentsText: copies ? `${agentsText(providers)}, each keeps its own copy` : agentsText(providers),
-      agents: skillAgents.map((agent) => agentRow(agent, providers.includes(agent), locked.includes(agent))),
+      agentsText: copies
+        ? `${agentsText(providers)}, each keeps its own copy`
+        : agentsText(providers),
+      agents: skillAgents.map((agent) =>
+        agentRow(agent, providers.includes(agent), locked.includes(agent)),
+      ),
       savedIn: homeLabel(entry.scope, project),
       path: entry.scope === "builtin" ? null : entry.path,
       manual: entry.manual,
@@ -282,7 +338,13 @@ export class NativeSkillLibrary {
       runsChoices: runsChoices.map((choice) => ({ manual: choice.manual, label: choice.label })),
       argumentHint: entry.argumentHint ?? null,
       used: !used?.count ? "Not used yet" : timesText(used.count),
-      last: used?.last ? { threadId: used.last.threadId, title: used.last.title, ago: formatAgo(used.last.at, this.#now()) } : null,
+      last: used?.last
+        ? {
+            threadId: used.last.threadId,
+            title: used.last.title,
+            ago: formatAgo(used.last.at, this.#now()),
+          }
+        : null,
       instructions: instructionsShown(text, name),
       body: skillBody(text),
       deleteMessage: `This deletes ${entry.path} and its files. Agents stop seeing it.`,

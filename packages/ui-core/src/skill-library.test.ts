@@ -154,15 +154,12 @@ test("Runs says what manual means for the agents that have the skill", () => {
 });
 
 test("a skill keeps the agents that read its own folder or hold a copy", () => {
+  const presence = { via: "link" as const, path: "", honoursManual: true };
   const agents = [
-    { provider: "claude" as const, removable: true },
-    { provider: "codex" as const, removable: false },
+    { ...presence, provider: "claude" as const, removable: true },
+    { ...presence, provider: "codex" as const, removable: false },
   ];
-  expect(
-    lockedAgents({
-      agents: agents.map((a) => ({ ...a, via: "link" as const, path: "", honoursManual: true })),
-    }),
-  ).toEqual(["codex"]);
+  expect(lockedAgents({ agents })).toEqual(["codex"]);
 });
 
 test("a plugin with no agents reads as off, and switching it on gives it every agent", () => {
