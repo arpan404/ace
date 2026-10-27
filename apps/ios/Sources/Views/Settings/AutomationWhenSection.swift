@@ -142,20 +142,17 @@ struct AutomationWhenSection: View {
     // MARK: GitHub and files
 
     @ViewBuilder private var github: some View {
-        LabeledContent("Repository") {
+        labeledField("Repository") {
             TextField("owner/name", text: Binding(get: { form.repository }, set: { form.repository = $0; touch("repository") }))
-                .multilineTextAlignment(.trailing)
                 .aceMonospace(AceTheme.Typography.code, relativeTo: .body)
-                .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                .keyboardType(.URL)
                 .accessibilityIdentifier("automation.repository")
         }
         problem("repository")
         menu("Event", selection: form.event, choices.events, id: "automation.event") { form.event = $0 }
         if form.event == "issue_labelled" {
-            LabeledContent("Label") {
+            labeledField("Label") {
                 TextField("needs-triage", text: Binding(get: { form.label }, set: { form.label = $0; touch("label") }))
-                    .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityIdentifier("automation.label")
             }
             .transition(.opacity)
@@ -179,6 +176,19 @@ struct AutomationWhenSection: View {
     }
 
     // MARK: Parts
+
+    /// A named text field on one row: the name on the left, the field filling the rest. The field
+    /// stays its own element (named by the row) so VoiceOver and touch both reach it.
+    private func labeledField<Field: View>(_ title: String, @ViewBuilder field: () -> Field) -> some View {
+        HStack(spacing: AceTheme.Spacing.md) {
+            Text(title).foregroundStyle(AceTheme.Colours.foreground).accessibilityHidden(true)
+            field()
+                .multilineTextAlignment(.trailing)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .accessibilityLabel(title)
+        }
+    }
 
     private func menu(_ title: String, selection: String, _ options: [AutomationChoice], id: String,
                       set: @escaping (String) -> Void) -> some View {
