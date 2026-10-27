@@ -283,11 +283,14 @@ struct SharedFile: Identifiable {
     var id: URL { url }
 }
 
-/// The system share sheet for one file.
+/// The system share sheet for one file; `finished` runs once the person shares or cancels.
 struct ShareSheet: UIViewControllerRepresentable {
     let url: URL
+    var finished: (() -> Void)? = nil
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let finished { controller.completionWithItemsHandler = { _, _, _, _ in finished() } }
+        return controller
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

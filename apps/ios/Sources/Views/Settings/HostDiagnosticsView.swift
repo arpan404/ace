@@ -14,6 +14,7 @@ struct HostDiagnosticsView: View {
     @State private var includeThreads = false
     @State private var exporting = false
     @State private var bundle: URL?
+    @State private var sharing = false
     @State private var bundleProblem: String?
     @State private var timeoutProblem: String?
     @State private var resetting = false
@@ -54,6 +55,14 @@ struct HostDiagnosticsView: View {
         .sensoryFeedback(.success, trigger: copied)
         .sensoryFeedback(.success, trigger: resets)
         .navigationTitle("Diagnostics").navigationBarTitleDisplayMode(.inline)
+        // The bundle holds logs and settings: it goes once shared, or when Diagnostics closes.
+        .sheet(isPresented: $sharing) {
+            if let bundle {
+                ShareSheet(url: bundle) { discardBundle() }
+                    .presentationDetents([.medium, .large]).ignoresSafeArea()
+            }
+        }
+        .onDisappear { discardBundle() }
         .readWhenConnected(model, id: model.readGeneration(Self.read)) { await load() }
         .refreshable { await load() }
     }
@@ -87,9 +96,9 @@ struct HostDiagnosticsView: View {
     @ViewBuilder private var supportSection: some View {
         Section {
             Toggle("Include conversations", isOn: $includeThreads).disabled(exporting)
-                .onChange(of: includeThreads) { bundle = nil }
-            if let bundle {
-                ShareLink(item: bundle) { Text("Share support bundle") }
+                .onChange(of: includeThreads) { discardBundle() }
+            if bundle != nil {
+                Button("Share support bundle") { sharing = true }
                     .transition(.opacity).accessibilityIdentifier("diagnostics.share")
             } else {
                 Button(exporting ? "Exporting…" : "Export support bundle") { export() }
@@ -150,11 +159,14 @@ struct HostDiagnosticsView: View {
             do {
                 let reply = try await model.service(["type": "host.support", "includeThreads": includeThreads], as: HostSupportReply.self, timeout: .seconds(90))
                 guard let data = Data(base64Encoded: reply.data) else { throw ServiceFailure(message: "The support bundle didn't arrive whole. Try again.") }
-                let url = FileManager.default.temporaryDirectory.appending(path: reply.name)
-                try data.write(to: url, options: [.atomic, .completeFileProtection])
-                bundle = url
+                discardBundle()
+                bundle = try SupportBundleFile.write(data, name: reply.name)
             } catch is CancellationError {} catch { bundleProblem = error.localizedDescription }
         }
+    }
+    private func discardBundle() {
+        SupportBundleFile.discard(bundle)
+        bundle = nil
     }
     private func reset() {
         resetting = true; resetProblem = nil
@@ -167,3 +179,4 @@ struct HostDiagnosticsView: View {
         }
     }
 }
+
