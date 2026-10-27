@@ -118,8 +118,15 @@ export const MachineCall = z.discriminatedUnion("op", [
     interactionId: InteractionId,
     resolution: InteractionResolution,
   }),
-  /** The target thread that owns this caller's browser and its consent requests. */
-  z.strictObject({ op: z.literal("browser.session") }),
+  /**
+   * The calling thread's guest session there, which holds its browser and the requests that wait
+   * for the person. `capability` names the guest capability it is for (default browser), so its
+   * grant decides (ADR 0105).
+   */
+  z.strictObject({
+    op: z.literal("browser.session"),
+    capability: z.enum(["browser", "devices", "screen", "commands"]).optional(),
+  }),
   z.strictObject({
     op: z.literal("browser"),
     tool: z.string().regex(/^browser_[a-z_]{1,64}$/),

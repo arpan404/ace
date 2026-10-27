@@ -11,6 +11,8 @@ import { TargetRefusal } from "../machines/target-refusal.ts";
 import { TargetThreads } from "../machines/target-threads.ts";
 import { TargetBrowser } from "../machines/target-browser.ts";
 import { TargetDevices } from "../machines/target-devices.ts";
+import { TargetScreen } from "../machines/target-screen.ts";
+import { daemonComputerToolkit } from "../computer-tools.ts";
 import { GuestSessions } from "../machines/guest-sessions.ts";
 import { MachineGrantStore } from "../machines/grant-store.ts";
 import { switchRevocation } from "../machines/grant-rules.ts";
@@ -112,6 +114,17 @@ export function startMachines(context: ServiceContext): void {
     guestMachine: (threadId) => store.getThread(ThreadId.parse(threadId))?.details?.guest?.name,
   });
   resources.own(devices.follow(guests));
+  const screen = new TargetScreen({
+    computer: () => services.computer,
+    enabled: () => services.screen?.isEnabled() ?? false,
+    toolkit: (computer) => daemonComputerToolkit(services, computer),
+  });
+  // Work stopped or revoked lets go of what its agents held here (ADR 0105).
+  resources.own(
+    guests.onEnd(({ session, capability }) => {
+      if (capability === "screen") screen.release(session.threadId);
+    }),
+  );
   services.machineCalls = createMachineTarget({
     hostId,
     hostName,
@@ -123,7 +136,7 @@ export function startMachines(context: ServiceContext): void {
     grants,
     hosts: {
       devices,
-      screen: unservedHost(() => services.screen !== undefined),
+      screen,
       commands: commandHost({ store, engine, guests, threads, dataDir: config.dataDir, now, log }),
     },
     log: record("info"),

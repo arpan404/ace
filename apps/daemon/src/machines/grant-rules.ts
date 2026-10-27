@@ -189,6 +189,7 @@ export function capabilityOf(
       return capabilityOfRequest(request) ?? [];
     }
     case "browser.session":
+      return call.capability ?? "browser";
     case "browser":
       return "browser";
     case "devices":

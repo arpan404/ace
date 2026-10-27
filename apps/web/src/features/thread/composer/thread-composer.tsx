@@ -48,7 +48,7 @@ import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
 import { sentText } from "./last-sent.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
-import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
+import { useThreadStop } from "./use-thread-stop.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { failureMessage } from "@/lib/daemon-command.ts";
 import { useGoalCommand } from "./goal-command.ts";
@@ -261,31 +261,7 @@ export function ThreadComposer({
   useEffect(() => void loadSender(), []);
 
   // Stop names the turn it was pressed in, and reads "Stopping…" until that turn ends.
-  const fence = useStopFence(props.thread.id);
-  const run = fence && "runId" in fence ? fence.runId : undefined;
-  const stopping = useStopping(props.thread.id);
-  const stop = () => {
-    if (!fence) return;
-    const commandId = crypto.randomUUID();
-    recordStop(props.thread.id, { commandId, runId: run });
-    void client
-      .enqueue(
-        {
-          type: "thread.interrupt",
-          threadId,
-          cascade: true,
-          ...fence,
-        },
-        commandId,
-      )
-      .catch(() => {
-        clearStop(props.thread.id);
-        toast.error({ title: "Couldn't stop the agent" });
-      });
-  };
-  useEffect(() => {
-    if (!busy) clearStop(props.thread.id);
-  }, [busy, props.thread.id]);
+  const { stop, stopping } = useThreadStop(props.thread.id, busy);
   // Opening a thread on a desktop puts the caret in the message, unless the agent is asking
   // something: then its first option takes focus (UX audit CMP-2).
   const open = useInteractions(props.thread.id);

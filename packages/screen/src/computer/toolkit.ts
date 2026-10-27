@@ -50,7 +50,32 @@ export interface ComputerToolkitOptions {
    * locked Mac. Absent, every request goes to the helper as it is.
    */
   lockedUse?: LockedUseGate;
+  /** With a route, every tool also takes `machine` to use another paired machine's apps. */
+  route?: ComputerMachineRoute;
 }
+
+/**
+ * Sends a computer-use tool to another paired machine (ADR 0105). That machine runs it with its
+ * own computer-use switch and app rules; this side passes the tool and its arguments.
+ */
+export type ComputerMachineRoute = (
+  call: {
+    machine: string;
+    tool: ComputerToolName;
+    args: Record<string, unknown>;
+    timeoutMs: number;
+  },
+  context: ToolContext,
+) => Promise<unknown>;
+
+/** The optional `machine` argument every computer-use tool takes when routing is available. */
+const machineInput = {
+  machine: z
+    .string()
+    .regex(/^[a-zA-Z0-9_.-]{1,64}$/)
+    .optional()
+    .describe("Another paired machine's apps (machines); omit for this machine."),
+};
 
 const Resolved = z.looseObject({ bundleId: z.string(), name: z.string(), running: z.boolean() });
 
@@ -256,6 +281,7 @@ export function computerToolkit(
     },
   };
 
+  const route = options.route;
   return {
     register(registry) {
       for (const name of Object.keys(computerSchemas) as ComputerToolName[]) {
@@ -267,10 +293,16 @@ export function computerToolkit(
           riskClass: metadata.riskClass,
           // These tools act on this computer's apps, never on outside systems.
           openWorld: false,
-          input: computerSchemas[name],
+          input: route ? computerSchemas[name].extend(machineInput) : computerSchemas[name],
           capability: "screen",
           timeoutMs: metadata.timeoutMs,
-          async run(args, context) {
+          async run(raw, context) {
+            const { machine, ...args } = z.record(z.string(), z.unknown()).parse(raw);
+            if (route && typeof machine === "string")
+              return route(
+                { machine, tool: name, args, timeoutMs: metadata.timeoutMs - 5_000 },
+                context,
+              );
             try {
               return await run[name](args, context);
             } catch (error) {

@@ -23,6 +23,11 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 }, 60_000);
 
+interface ComputerUse {
+  screen: import("@ace/screen").ScreenManager;
+  computer: import("@ace/screen").ComputerClient;
+}
+
 const browser = () => ({ headlessBackend: new FakeHeadless(), ffmpeg: "/nonexistent/ffmpeg" });
 
 /**
@@ -39,6 +44,9 @@ export async function pairedMachines(
     sourceTransport?: import("./transport.ts").MachineTransport;
     /** The target's devices, e.g. the fake simulators from `@ace/devices/testing`. */
     targetDevices?: import("@ace/devices").DevicesService;
+    /** Each machine's computer use: its switch and the engine its agents drive. */
+    targetScreen?: ComputerUse;
+    sourceScreen?: ComputerUse;
   } = {},
 ) {
   const target = await daemonFixture(
@@ -48,12 +56,14 @@ export async function pairedMachines(
       machines: { pollMs: 50 },
       ...(options.targetEngineLimits ? { engineLimits: options.targetEngineLimits } : {}),
       ...(options.targetDevices ? { devices: options.targetDevices } : {}),
+      ...options.targetScreen,
     },
     { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" },
   );
   cleanup.push(() => target.daemon.close());
   const source = await daemonFixture(undefined, {
     browser: browser(),
+    ...options.sourceScreen,
     machines: {
       pollMs: 50,
       ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),

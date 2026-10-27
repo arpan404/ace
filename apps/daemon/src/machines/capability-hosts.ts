@@ -12,6 +12,8 @@ export type HostedCapability = "devices" | "screen" | "commands";
 export interface CapabilityHost {
   /** Whether this machine can serve it now (a simulator runtime, a screen to use). */
   available(): boolean;
+  /** Why it can't serve now, with the person's next step; asked only when not available. */
+  unavailable?(): string;
   /** Whether one call only reads. Unknown tools must answer false: they act. */
   readOnly(tool: string, args: Record<string, unknown>): boolean;
   /** Absent while this build lists the capability but doesn't serve it: `not_supported`. */
