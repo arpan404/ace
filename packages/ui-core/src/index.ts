@@ -100,6 +100,7 @@ export * from "./status.ts";
 export * from "./storage.ts";
 export * from "./thread-card.ts";
 export * from "./thread-menu.ts";
+export { readAceLink, type AceLink } from "./ace-link.ts";
 export * from "./thread-state.ts";
 export * from "./thread-title.ts";
 export * from "./time.ts";

@@ -190,3 +190,11 @@ test("archiving several threads at once can be taken back together", async () =>
   await request({ type: "inbox.bulk", action: "unarchive", threadIds: ["a", "b"] });
   await until(() => ids(sink).length === 2, "the rows coming back");
 });
+
+test("a link another app opens is read by the shared rules", async () => {
+  const { request } = await following(() => {});
+  expect(await request({ type: "link.read", url: "ace://thread/a?machine=mac" })).toEqual({
+    link: { kind: "thread", threadId: "a", machine: "mac" },
+  });
+  expect(await request({ type: "link.read", url: "javascript:alert(1)" })).toEqual({ link: null });
+});

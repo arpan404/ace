@@ -9,6 +9,7 @@ import {
 import {
   deleteQuestion,
   isSettled,
+  readAceLink,
   settleChoice,
   stopAndDeleteQuestion,
   type DeleteQuestion,
@@ -65,6 +66,9 @@ export const InboxBulkRequest = z.object({
   force: z.boolean().optional(),
 });
 export type InboxBulkRequest = z.infer<typeof InboxBulkRequest>;
+
+/** Read an `ace://` link another app opened the phone with (`readAceLink`). */
+export const AceLinkRequest = z.object({ type: z.literal("link.read"), url: z.string().max(8192) });
 
 export const InboxDeleteQuestionRequest = z.object({
   type: z.literal("inbox.deleteQuestion"),
@@ -311,6 +315,8 @@ export function inboxRequests(
   return (raw, requestId) => {
     const bulk = InboxBulkRequest.safeParse(raw);
     if (bulk.success) return runBulk(owner, organizer, clock, bulk.data, requestId, pump);
+    const link = AceLinkRequest.safeParse(raw);
+    if (link.success) return Promise.resolve({ link: readAceLink(link.data.url) ?? null });
     const question = InboxDeleteQuestionRequest.safeParse(raw);
     if (question.success)
       return Promise.resolve(readDeleteQuestion(organizer, question.data.threadIds));
