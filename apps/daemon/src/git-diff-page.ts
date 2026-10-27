@@ -10,13 +10,10 @@ import { gitDiffFileLimit } from "@ace/protocol";
 export const diffPageSize = 262_144;
 
 /**
- * Bytes to ask git for so the decoded text reaches `offset + page` code units when the file has
- * that much: a UTF-8 byte sequence never decodes to more code units than it has bytes, and at
- * most to a third as many (three-byte characters), so three bytes per unit always suffice.
+ * Bytes of one file's patch git is read for: decoded, never more code units than the paging
+ * limit, so every page of a file comes from one bounded read (held by `FilePatchCache`).
  */
-export function diffPageBytes(offset: number, page = diffPageSize): number {
-  return Math.min(gitDiffFileLimit * 3, (offset + page) * 3 + 4);
-}
+export const filePatchBytes = gitDiffFileLimit;
 
 export interface DiffPage {
   patch: string;
