@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
-enum ThreadDestination { case changes, search, files, terminal, browser, devices, computer, tools, agents }
+enum ThreadDestination { case changes, search, files, terminal, browser, devices, computer, tools, agents, rename, forkLast, merge, turns, attachments }
 
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
 /// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title centred
@@ -11,6 +11,9 @@ struct ThreadToolbar: ToolbarContent {
     /// "project · branch" (or the machine where there is no branch).
     let subtitle: String
     let status: StatusDisplay?
+    /// Rename and name-again from the title's own menu; nil where the thread can't be renamed.
+    var rename: (() -> Void)? = nil
+    var retitle: (() -> Void)? = nil
     let menu: ThreadMenu
 
     var body: some ToolbarContent {
@@ -23,10 +26,30 @@ struct ThreadToolbar: ToolbarContent {
             ToolbarItem(placement: .topBarTrailing) { menu }
         }
     }
-    private var heading: some View {
+    /// The title opens its own menu, Rename first, as the system's documents do; a small chevron
+    /// beside it says so.
+    @ViewBuilder private var heading: some View {
+        if let rename {
+            Menu {
+                Button("Rename…", ace: .pencilSimple, action: rename).accessibilityIdentifier("thread.rename")
+                if let retitle { Button("Name from first message", ace: .sparkle, action: retitle).accessibilityIdentifier("thread.retitle") }
+            } label: { titleStack(chevron: true) }
+            .accessibilityIdentifier("thread.title")
+            .accessibilityHint("Rename this thread")
+        } else {
+            titleStack(chevron: false).accessibilityIdentifier("thread.title")
+        }
+    }
+    private func titleStack(chevron: Bool) -> some View {
         VStack(spacing: AceTheme.Spacing.none) {
-            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
-                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+            HStack(spacing: AceTheme.Spacing.xxs) {
+                Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
+                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+                if chevron {
+                    Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+                        .foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
+                }
+            }
             if !subtitle.isEmpty {
                 Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
@@ -36,7 +59,6 @@ struct ThreadToolbar: ToolbarContent {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
         .accessibilityValue(status?.label ?? "")
-        .accessibilityIdentifier("thread.title")
     }
 }
 
@@ -66,6 +88,19 @@ struct ThreadMenu: View {
                 Button("Terminal", ace: .terminalWindow) { open(.terminal) }.accessibilityIdentifier("thread.terminal")
                 Button("Computer use", ace: .appWindow) { open(.computer) }
                 Button("Skills and tools", ace: .wrench) { open(.tools) }.accessibilityIdentifier("thread.tools")
+            }
+            Section {
+                if model.canOperate, !archived {
+                    Button("Rename…", ace: .pencilSimple) { open(.rename) }.accessibilityIdentifier("thread.menu.rename")
+                    if thread.screen.transitions?.lastTurn == true {
+                        Button("Fork from the last turn", ace: .gitFork) { open(.forkLast) }.accessibilityIdentifier("thread.forkLast")
+                    }
+                    if thread.screen.transitions?.parent != nil {
+                        Button("Bring back to parent…", ace: .gitMerge) { open(.merge) }.accessibilityIdentifier("thread.merge")
+                    }
+                }
+                Button("Turns", ace: .listBullets) { open(.turns) }.accessibilityIdentifier("thread.turns")
+                Button("Attachments", ace: .paperclip) { open(.attachments) }.accessibilityIdentifier("thread.attachments")
             }
             Section {
                 if model.canOperate, model.transfers.linked, !archived {

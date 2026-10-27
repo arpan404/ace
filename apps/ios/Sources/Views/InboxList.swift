@@ -13,6 +13,8 @@ struct InboxRowActions {
     let archive: (ThreadRow, InboxKey) -> Void
     /// Pin (leading Pinned) or unpin.
     let pin: (ThreadRow, InboxKey, Bool) -> Void
+    /// Ask for the row's new name.
+    let rename: (InboxKey) -> Void
     /// Put the row at an index among the other rows of its section, as shown.
     let move: (InboxKey, MergedInbox.Section, Int) -> Void
 }
@@ -286,6 +288,7 @@ private struct InboxThreadCell: View {
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             if canOperate {
                 pinButton(row, pinned).tint(Color(uiColor: .systemGray))
+                Button("Rename", ace: .pencilSimple) { actions.rename(key) }.tint(Color(uiColor: .systemGray3))
                 Button("Archive", ace: .archive) { actions.archive(row, key) }.tint(Color(uiColor: .systemGray2))
             }
         }
@@ -298,6 +301,7 @@ private struct InboxThreadCell: View {
         .contextMenu {
             if canOperate {
                 pinButton(row, pinned)
+                Button("Rename…", ace: .pencilSimple) { actions.rename(key) }
                 if canMoveUp { Button("Move up", ace: .arrowUp) { step(-1) } }
                 if canMoveDown { Button("Move down", ace: .arrowDown) { step(1) } }
                 if settled { Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) } }

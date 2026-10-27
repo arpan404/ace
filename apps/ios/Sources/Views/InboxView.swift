@@ -40,6 +40,7 @@ struct InboxView: View {
     /// Where Settings opens: its root, or Machines from the connection title.
     @State private var settingsStart: [SettingsRoute] = []
     @State private var snoozing: InboxKey?
+    @State private var renamingRow: InboxKey?
     @State private var undo: InboxUndo?
     /// A row brought back by Undo or Unsettle, scrolled into view once it is in the list again:
     /// unsettling makes it the newest activity, so it returns far from where the person acted.
@@ -56,6 +57,7 @@ struct InboxView: View {
 
     var body: some View {
         sheets
+            .modifier(InboxRename(inbox: inbox, key: $renamingRow))
             .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { key in
                 ForEach(inbox.merged.snooze) { option in
                     Button(option.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: option.id) } }
@@ -219,6 +221,7 @@ struct InboxView: View {
             wake: { row, key in acted(); Task { _ = await inbox.client(key.machineId)?.wake(row.id) } },
             archive: { row, key in acted(); command(key, .archived) { await $0.archive(row.id) } },
             pin: { row, key, pinned in acted(); Task { _ = await inbox.client(key.machineId)?.pin(row.id, pinned) } },
+            rename: { key in acted(); renamingRow = key },
             move: { key, section, index in acted(); Task { await inbox.move(key, in: section, to: index) } })
     }
     /// Runs an undoable inbox command; once this device admits it, the toast offers Undo.

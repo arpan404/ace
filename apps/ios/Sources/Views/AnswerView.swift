@@ -28,12 +28,12 @@ struct AnswerRow: View {
             if !shown.isEmpty {
                 let menu = !between && !live
                 MarkdownView(text: shown, selectable: !menu).fileLinks(fileLinks, itemId: row.id)
-                    .messageMenu(menu ? shown : "", title: "Answer")
+                    .messageMenu(menu ? shown : "", title: "Answer", row: row)
             }
             if live { StreamingCaret() }
             if row.truncated && !live && full == nil { partial }
             if !between && (row.complete || (row.truncated && !live)) {
-                MessageActions(at: row.createdAt, copy: shown, label: full == nil && row.truncated ? "Copy preview" : "Copy answer")
+                MessageActions(row: row, copy: shown, label: full == nil && row.truncated ? "Copy preview" : "Copy answer")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

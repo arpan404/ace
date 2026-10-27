@@ -28,6 +28,8 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     var suggestionHeight: CGFloat? = nil
     /// A builtin picked from `/` or + that the screen runs (attach, plan, model, review).
     var run: (String) -> Void = { _ in }
+    /// Each new value brings the keyboard up with the caret at the end of the words.
+    var focusRequest = 0
     @ViewBuilder var top: () -> Top
     /// The + at the row's start; it is handed what picking one of the + list's rows does.
     @ViewBuilder var leading: (_ pick: @escaping (SuggestionRow) -> Void) -> Leading
@@ -112,6 +114,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         .onAppear { suggester?.active = true }
         .onDisappear { suggester?.active = false }
         .onChange(of: draftKey, initial: true) { _, key in draft.follow(key, in: drafts) }
+        .onChange(of: focusRequest) { _, _ in place = CaretPlacement(offset: (draft.text as NSString).length, focus: true) }
         .onChange(of: scenePhase) { _, phase in if phase != .active { draft.flush() } }
         .onDisappear { draft.flush() }
     }

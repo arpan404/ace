@@ -121,7 +121,7 @@ struct InboxStack<Destination: View>: View {
                         },
                         accepts: actions.accepts, settle: actions.settle, unsettle: actions.unsettle,
                         snooze: actions.snooze, snoozeUntil: actions.snoozeUntil, wake: actions.wake,
-                        archive: actions.archive, pin: actions.pin, move: actions.move)
+                        archive: actions.archive, pin: actions.pin, rename: actions.rename, move: actions.move)
     }
     /// A pull request, issue or thread picked from the Pulls list.
     private func pick(_ open: () -> Void) {

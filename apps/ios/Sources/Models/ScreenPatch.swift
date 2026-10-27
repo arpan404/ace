@@ -158,9 +158,15 @@ enum ScreenPatch: Sendable {
     case continued(String)
     /// A move sent without the question it needs (the rows were older than the thread): ask it.
     case switchAsk(SwitchAsk)
+    /// What the thread's menu and messages offer: Retry's answer, the last turn, the parent.
+    case transitions(TransitionsRow)
+    /// The fork written in the composer; nil once it is closed or started.
+    case fork(ForkDraftRow?)
+    /// What bringing this fork back to its parent starts with.
+    case mergeDraft(MergeDraftRow)
 
-    static let types: Set<String> = ["thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal, opened }
+    static let types: Set<String> = ["thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index, pill, goal, opened, draft }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {
@@ -174,6 +180,9 @@ enum ScreenPatch: Sendable {
         case "thread.access": self = .access(try ThreadAccessRow(from: decoder))
         case "thread.pill": self = .pill(try box.decodeIfPresent(PillRow.self, forKey: .pill), try box.decodeIfPresent(GoalRow.self, forKey: .goal))
         case "thread.attachments": self = .attachments(try box.decode([AttachmentFile].self, forKey: .files))
+        case "thread.transitions": self = .transitions(try TransitionsRow(from: decoder))
+        case "thread.fork": self = .fork(try box.decodeIfPresent(ForkDraftRow.self, forKey: .draft))
+        case "thread.mergeDraft": self = .mergeDraft(try MergeDraftRow(from: decoder))
         case "thread.laneBlock":
             self = .laneBlock(lane: try box.decode(String.self, forKey: .lane), id: try box.decode(String.self, forKey: .id), row: try box.decodeIfPresent(BlockRow.self, forKey: .row))
         default:

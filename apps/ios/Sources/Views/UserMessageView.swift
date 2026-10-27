@@ -14,8 +14,8 @@ struct UserMessageRow: View {
                 MessageAttachments(row: row, attachments: attachments, more: row.moreAttachments ?? 0)
                     .padding(.leading, UserBubble.inset)
             }
-            if readable { UserBubble(text: row.text, bubble: row.bubble, id: row.id).messageMenu(copyText, title: "Message") }
-            MessageActions(at: row.createdAt, copy: readable ? copyText : nil, label: "Copy message")
+            if readable { UserBubble(text: row.text, bubble: row.bubble, id: row.id).messageMenu(copyText, title: "Message", row: row) }
+            MessageActions(row: row, copy: readable ? copyText : nil, label: "Copy message")
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityIdentifier("message.user.\(row.id)")
@@ -135,40 +135,3 @@ private struct BubbleText: View {
     }
 }
 
-/// A message's time and Copy, under it: always shown, since nothing hovers on a phone.
-struct MessageActions: View {
-    let at: Double
-    let copy: String?
-    let label: String
-    @State private var copied = false
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            Text(Date(timeIntervalSince1970: at / 1000), format: .dateTime.hour().minute())
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
-            if let copy {
-                Button {
-                    UIPasteboard.general.string = copy
-                    copied = true
-                } label: {
-                    AceIcon(copied ? .check : .copy, size: 14, relativeTo: .caption)
-                        .frame(width: AceTheme.Spacing.xxl, height: AceTheme.Spacing.xxl)
-                        .contentShape(Rectangle().inset(by: -AceTheme.Spacing.sm))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .accessibilityLabel(copied ? "Copied" : label)
-            }
-            if copied {
-                Text("Copied").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-        }
-        .frame(minHeight: AceTheme.Spacing.xxl)
-        .sensoryFeedback(.success, trigger: copied) { _, now in now }
-        .task(id: copied) {
-            guard copied else { return }
-            do { try await Task.sleep(for: .seconds(1.5)); copied = false } catch { }
-        }
-    }
-}
