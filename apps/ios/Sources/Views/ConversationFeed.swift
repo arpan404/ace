@@ -75,9 +75,6 @@ struct ConversationFeed: View {
     /// Bumped by each Scroll to end the person taps.
     var jumps = 0
     /// Words taken back from a message that wasn't sent go into the composer.
-    /// Words taken back go into the thread's saved draft; the take-back record is acknowledged once
-    /// they are there.
-    var restore: (String, String?) -> Void = { _, _ in }
     @State private var reading = TranscriptReading()
     @State private var following = true
     @State private var initialScroll = false
@@ -126,20 +123,16 @@ struct ConversationFeed: View {
                 if reading.thread == nil || reading.joined {
                     ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
                         PendingSendRow(row: row, canRetry: model.canOperate, retry: { await model.retrySend(row) },
-                                       edit: {
-                                           // The send's full words, once its dismissal is saved.
-                                           let answer = await model.takeBackSend(row.id)
-                                           guard let text = answer.text else { model.error = answer.message; return false }
-                                           restore(text, answer.record)
-                                           return true
-                                       },
+                                       words: { await model.sendWords(row.id) },
+                                       saveWords: { await model.editFailedSend(row.id, text: $0) },
                                        discard: { await model.dismissSend(row.id) })
                             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
                     }
                     if let held = thread.screen.queue?.notSent {
                         HeldSendRow(message: held, canAct: model.canOperate, act: { await model.actOnQueue($0) },
                                     edit: { message, change in await model.editQueued(message, change: change) },
-                                    words: { takeBack in await model.queuedWords(held.id, takeBack: takeBack) }, restore: restore)
+                                    words: { await model.queuedWords(held.id) },
+                                    saveWords: { await model.editQueuedWords(held.id, text: $0) })
                             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
                             .transition(.opacity)
                     }

@@ -18,8 +18,6 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     let inputBegan: () -> Void
     /// A file picked in Files: each new one is inserted as `@path`.
     var mention: ComposerMention? = nil
-    /// Words handed back (a message that wasn't sent, an earlier message recalled): after what is typed.
-    var restore: ComposerRestore? = nil
     /// Images, files and folders pasted or dropped onto the composer; nil takes only words.
     var intake: (([NSItemProvider]) -> Void)? = nil
     /// An earlier message the person sent, `older` 0 the latest; nil where there is none to recall.
@@ -130,10 +128,6 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
             guard let picked else { return }
             draft.text = Mention.insert(picked.written, into: draft.text)
             draft.add(.file(picked.path, lines: picked.lines, endingAt: draft.text))
-        }
-        .onChange(of: restore) { _, back in
-            guard let back else { return }
-            draft.text = back.merged(into: draft.text)
         }
         .onChange(of: draft.text) { _, _ in notice = nil }
         .modifier(ComposerSuggestHost(suggester: suggester, text: $draft.text, place: $place, keep: { draft.add($0) }))

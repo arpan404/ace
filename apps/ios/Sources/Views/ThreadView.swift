@@ -80,7 +80,7 @@ struct ThreadView: View {
                                                 openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
                                                 openAgents: { showAgents = true }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
-                         barHeight: barHeight, behind: $behind, jumps: jumps, restore: { text, record in model.giveWords(text, to: thread.id, record: record) })
+                         barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
@@ -149,7 +149,9 @@ struct ThreadView: View {
                     QueueSheet(queue: queue, canAct: model.canOperate,
                                canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer",
                                edit: { message, change in await model.editQueued(message, change: change) },
-                               act: { await model.actOnQueue($0) }, showMore: { model.showMoreQueued() })
+                               act: { await model.actOnQueue($0) }, showMore: { model.showMoreQueued() },
+                               words: { await model.queuedWords($0) },
+                               saveWords: { await model.editQueuedWords($0, text: $1) })
                 }
             }
             // The next message continued this thread in a new one: open it once its row is here
@@ -226,7 +228,7 @@ struct ThreadView: View {
                                      if saved { acceptedSend += 1 }
                                      return saved
                                  }, stop: { model.stopTree() },
-                                 inputBegan: { model.metrics?.inputBegan() }, mention: mention, restore: composerAppend,
+                                 inputBegan: { model.metrics?.inputBegan() }, mention: mention,
                                  intake: { providers in
                                      Task {
                                          let result = await ComposerIntake.stage(providers, into: AttachmentStaging())
@@ -275,12 +277,6 @@ struct ThreadView: View {
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
     private func leave() {
         if let close = closeOpenThread, close.id == thread.id { close.close() } else { dismiss() }
-    }
-    /// Words just written into this thread's saved draft, for the composer showing it.
-    private var composerAppend: ComposerRestore? {
-        guard let append = model.draftAppend, let hostId = model.hostId,
-              append.key == ThreadDrafts.key(hostId: hostId, threadId: thread.id) else { return nil }
-        return append.restore
     }
     /// A pill part opens what it names.
     private func openPill(_ opens: String) {

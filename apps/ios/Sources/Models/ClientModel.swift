@@ -113,10 +113,6 @@ import QuartzCore
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
     @ObservationIgnored let wordRequests = WordsRequests()
-    /// Words on their way into a thread's saved draft (`DraftWordsDrain` writes and acknowledges them).
-    var givenWords: [GivenWords] = []
-    /// The latest words written into a draft, for a composer showing that draft to take in too.
-    var draftAppend: DraftAppend?
     @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
@@ -360,8 +356,7 @@ import QuartzCore
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .notification(let patch): notificationSink?(patch)
-            case .words(let id, let text, let message, let record): wordRequests.resolve(id, .init(text: text, message: message, record: record))
-            case .wordsRecover(let record, let threadId, let text): giveWords(text, to: threadId, record: record)
+            case .words(let id, let ok, let text, let message): wordRequests.resolve(id, .init(ok: ok, text: text, message: message))
             case .receipt(let id, let ok, let message) where receipts.tracks(id):
                 // A goal change answers on its own sheet, never as the screen-wide error.
                 receipts.resolve(id, refused: ok ? nil : (message.isEmpty ? "Your computer refused that change." : message))

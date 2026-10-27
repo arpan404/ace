@@ -77,29 +77,42 @@ import XCTest
         let cancel = app.buttons["Cancel"].firstMatch
         if cancel.exists { cancel.tap() } else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap() }
         XCTAssertTrue(app.buttons["Remove message"].waitForNonExistence(timeout: 5))
+        // Edit opens the sheet on its full words; Save changes them where it waits.
         app.buttons["notSent.edit"].tap()
-        // Its words go back into the composer, and it leaves the transcript.
-        let input = app.textViews["composer.input"]
-        let restored = NSPredicate(format: "value CONTAINS 'retries with backoff'")
-        wait(for: [expectation(for: restored, evaluatedWith: input)], timeout: 10)
-        // The daemon keeps the queue held for the next message, which now heads it.
-        XCTAssertTrue(app.staticTexts["Now add retries with backoff to the webhook handler"].waitForNonExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Then write the tests"].waitForExistence(timeout: 10))
+        let field = app.textViews["edit.text"]
+        let loaded = NSPredicate(format: "value == 'Now add retries with backoff to the webhook handler'")
+        wait(for: [expectation(for: loaded, evaluatedWith: field)], timeout: 15)
+        screenshot("not-sent-edit-sheet")
+        field.tap()
+        field.typeText(" and log each attempt")
+        app.buttons["edit.save"].tap()
+        XCTAssertTrue(field.waitForNonExistence(timeout: 15))
+        // The same message, in the same place, with its new words: nothing was removed.
+        XCTAssertTrue(app.staticTexts["Now add retries with backoff to the webhook handler and log each attempt"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["notSent.edit"].exists)
         screenshot("not-sent-edited")
     }
 
-    func testALongMessageThatWasntSentComesBackWhole() throws {
+    func testALongMessageThatWasntSentEditsInFull() throws {
         let app = launch(into: "ios-held-long")
         let edit = app.buttons["notSent.edit"]
         XCTAssertTrue(edit.waitForExistence(timeout: 15))
         edit.tap()
-        // The composer gets the whole message, past the transcript's 8,192-character preview.
-        let input = app.textViews["composer.input"]
+        // The sheet holds the whole message, past the transcript's 8,192-character preview.
+        let field = app.textViews["edit.text"]
         let whole = NSPredicate(format: "value ENDSWITH 'END-OF-MESSAGE'")
-        wait(for: [expectation(for: whole, evaluatedWith: input)], timeout: 15)
-        XCTAssertGreaterThan((input.value as? String)?.count ?? 0, 8_192)
-        screenshot("not-sent-long-edited")
+        wait(for: [expectation(for: whole, evaluatedWith: field)], timeout: 15)
+        XCTAssertGreaterThan((field.value as? String)?.count ?? 0, 8_192)
+        screenshot("not-sent-long-edit-sheet")
+        // Cancel changes nothing.
+        // Cancel stays on screen above the keyboard however long the words are.
+        let cancel = app.buttons["edit.cancel"]
+        XCTAssertTrue(cancel.isHittable)
+        cancel.tap()
+        XCTAssertTrue(field.waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["notSent.edit"].exists)
     }
+
 
     func testAViewOnlyPhoneStillReadsWhyTheTurnWaitsWithItsWaysOff() throws {
         let app = launch(into: "ios-limited", viewOnly: true)

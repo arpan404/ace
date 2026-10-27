@@ -93,31 +93,38 @@ extension ClientModel {
         struct Reply: Decodable { let text: String? }
         return try? await service(["type": "thread.sentText", "threadId": threadId, "older": older], as: Reply.self).text
     }
-    /// A queued message's full words, read from the daemon's queue. `takeBack` also removes it and
-    /// answers only once the daemon confirmed; a refusal leaves it queued and answers nil.
-    func queuedWords(_ messageId: String, takeBack: Bool) async -> WordsRequests.Answer {
+    /// A queued message's full words, read from the daemon's queue, for the edit sheet.
+    func queuedWords(_ messageId: String) async -> WordsRequests.Answer {
+        guard canOperate else { return WordsRequests.unsent }
+        let id = admissions.nextId()
+        return await wordRequests.wait(id: id) { threadAction(["type": "queueWords", "messageId": messageId, "requestId": id]) }
+    }
+    /// New words for a queued message, in place: nil once the daemon took them, else why not (the
+    /// message stays as it was).
+    func editQueuedWords(_ messageId: String, text: String) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
+        let id = admissions.nextId()
+        return await receipts.wait(id: id) {
+            threadAction(["type": "queue", "messageId": messageId, "change": ["kind": "words", "text": text], "requestId": id])
+        }
+    }
+    /// A failed send's full words, for the edit sheet.
+    func sendWords(_ commandId: String) async -> WordsRequests.Answer {
         guard canOperate else { return WordsRequests.unsent }
         let id = admissions.nextId()
         return await wordRequests.wait(id: id) {
-            threadAction(["type": "queueWords", "messageId": messageId, "takeBack": takeBack, "requestId": id])
+            action(["type": "inbox", "action": ["kind": "sendWords", "commandId": commandId], "requestId": id])
         }
     }
-    /// A failed send's full words, once its dismissal is saved on this phone.
-    func takeBackSend(_ commandId: String) async -> WordsRequests.Answer {
-        guard canOperate else { return WordsRequests.unsent }
+    /// New words for a failed send, saved in place in the outbox: nil once saved, else why not (the
+    /// original stays). Retry then sends them.
+    func editFailedSend(_ commandId: String, text: String) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
         let id = admissions.nextId()
-        return await wordRequests.wait(id: id) {
-            action(["type": "inbox", "action": ["kind": "takeBackSend", "commandId": commandId], "requestId": id])
+        let answer = await wordRequests.wait(id: id) {
+            action(["type": "inbox", "action": ["kind": "editSend", "commandId": commandId, "text": text], "requestId": id])
         }
-    }
-    /// Words taken back for `threadId`'s composer: they go into its saved draft, and the take-back
-    /// `record` is acknowledged once they are there.
-    func giveWords(_ text: String, to threadId: String, record: String?) {
-        givenWords.append(GivenWords(threadId: threadId, text: text, record: record))
-    }
-    /// The words are in the saved draft: the bridge can forget the record.
-    func acknowledgeWords(_ record: String) {
-        action(["type": "inbox", "action": ["kind": "takeBackAck", "id": record], "requestId": admissions.nextId()])
+        return answer.ok ? nil : answer.message
     }
     /// The queue's list shows its next page.
     func showMoreQueued() { threadAction(["type": "queueMore"]) }

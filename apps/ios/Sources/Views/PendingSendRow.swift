@@ -3,19 +3,25 @@ import SwiftUI
 /// A message the phone holds that hasn't reached the transcript yet, from the SDK's state: the
 /// bubble as it will read, then how its sending goes, as the web words it: "Sending…" (or the
 /// shared unsent wording, such as "Sends on reconnect"), or "Not sent" with Retry, Edit (its words
-/// back into the composer), Discard and the reason behind Details.
+/// changed in place in the outbox, then Retry sends them), Discard and the reason behind Details.
 struct PendingSendRow: View {
     let row: PendingRow
     let canRetry: Bool
     let retry: () async -> Bool
-    /// Takes the words back into the composer; nil when they can't be (the message carries files).
-    var edit: (() async -> Bool)? = nil
+    /// The failed send's full words, and saving new ones in place; nil offers no Edit.
+    var words: (() async -> WordsRequests.Answer)? = nil
+    var saveWords: ((String) async -> String?)? = nil
     var discard: (() async -> Bool)? = nil
+    @State private var editor: MessageEditor?
     var body: some View {
         if row.state == "failed" {
             NotSentMessage(text: row.text, attachments: row.files ?? 0, reason: "", detail: row.detail ?? "",
-                        canAct: canRetry, retryLabel: "Retry", removeLabel: "Discard",
-                        retry: retry, edit: (row.files ?? 0) == 0 ? edit : nil, remove: discard)
+                           canAct: canRetry, retryLabel: "Retry", removeLabel: "Discard", retry: retry,
+                           edit: words.flatMap { read in saveWords.map { write in {
+                               editor = MessageEditor(attachments: row.files ?? 0, read: read, write: write)
+                           } } },
+                           remove: discard)
+                .sheet(item: $editor) { MessageEditSheet(editor: $0) }
         } else {
             VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
                 UserBubble(text: row.text, id: row.id)
@@ -33,44 +39,26 @@ struct PendingSendRow: View {
 }
 
 /// The message a failed send or session start left at the head of the daemon's queue, where it
-/// was written: "Not sent · the short reason", Try again (resumes the held queue), Edit and Remove,
-/// and the provider's detail behind Details. The messages behind it wait for it.
+/// was written: "Not sent · the short reason", Try again (resumes the held queue), Edit (its words
+/// changed where it waits) and Remove, and the provider's detail behind Details. The messages
+/// behind it wait for it.
 struct HeldSendRow: View {
     let message: QueueRow.NotSent
     let canAct: Bool
     let act: (QueueRow.Action) async -> Bool
     let edit: (QueueRow.Message, [String: Any]) async -> Bool
-    /// The message's full words from the daemon's queue; `true` also removes it, answering once
-    /// the daemon confirmed (`bridge/take-back.ts`).
-    let words: (Bool) async -> WordsRequests.Answer
-    /// Words taken back go into the composer.
-    let restore: (String, String?) -> Void
-    @State private var rewording = false
-    @State private var draft = ""
-    @State private var problem: String?
+    /// The message's full words from the daemon's queue, and saving new ones in place.
+    let words: () async -> WordsRequests.Answer
+    let saveWords: (String) async -> String?
+    @State private var editor: MessageEditor?
     var body: some View {
         let queued = QueueRow.Message(id: message.id, text: message.text, delivery: "queue", state: "queued", attachments: message.attachments)
         NotSentMessage(text: message.text, attachments: message.attachments, reason: message.reason, detail: message.detail,
-                    canAct: canAct, retryLabel: "Try again", removeLabel: "Remove",
-                    retry: { await act(QueueRow.Action(id: "resume", label: "Try again")) },
-                    edit: {
-                        // Files stay with the message: its full words are changed where it waits.
-                        // Without files it is taken back, and its words come only once it is gone.
-                        let answer = await words(message.attachments == 0)
-                        guard let text = answer.text else { problem = answer.message; return false }
-                        if message.attachments > 0 { draft = text; rewording = true } else { restore(text, answer.record) }
-                        return true
-                    },
-                    remove: { await edit(queued, ["kind": "remove"]) })
-            .alert("Edit message", isPresented: $rewording) {
-                TextField("Message", text: $draft, axis: .vertical)
-                Button("Save") { Task { _ = await edit(queued, ["kind": "words", "text": draft]) } }
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button("Cancel", role: .cancel) {}
-            }
-            .alert("Couldn't edit the message", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
-                Button("OK") { problem = nil }
-            } message: { Text(problem ?? "") }
+                       canAct: canAct, retryLabel: "Try again", removeLabel: "Remove",
+                       retry: { await act(QueueRow.Action(id: "resume", label: "Try again")) },
+                       edit: { editor = MessageEditor(attachments: message.attachments, read: words, write: saveWords) },
+                       remove: { await edit(queued, ["kind": "remove"]) })
+            .sheet(item: $editor) { MessageEditSheet(editor: $0) }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("heldSend")
     }
@@ -87,7 +75,8 @@ struct NotSentMessage: View {
     let retryLabel: String
     let removeLabel: String
     let retry: () async -> Bool
-    let edit: (() async -> Bool)?
+    /// Opens the edit sheet.
+    let edit: (() -> Void)?
     let remove: (() async -> Bool)?
     @State private var busy = false
     @State private var details = false
@@ -115,7 +104,7 @@ struct NotSentMessage: View {
                             .buttonStyle(StripTextButtonStyle(prominent: true))
                             .accessibilityIdentifier("pending.retry")
                         if let edit {
-                            Button("Edit") { run(edit) }.buttonStyle(StripTextButtonStyle())
+                            Button("Edit") { edit() }.buttonStyle(StripTextButtonStyle())
                                 .accessibilityIdentifier("notSent.edit")
                         }
                         if remove != nil {

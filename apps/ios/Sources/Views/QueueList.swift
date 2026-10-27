@@ -11,11 +11,15 @@ struct QueueList: View {
     let edit: (QueueRow.Message, [String: Any]) async -> Bool
     var act: (QueueRow.Action) async -> Bool = { _ in false }
     var showMore: () -> Void = {}
+    /// A queued message's full words, and saving new ones where it waits (`MessageEditSheet`).
+    var words: (String) async -> WordsRequests.Answer = { _ in WordsRequests.unsent }
+    var saveWords: (String, String) async -> String? = { _, _ in "This phone can only view this machine." }
+    @State private var editor: MessageEditor?
+    /// Remove asks first: the message is gone once it's done.
+    @State private var removing: QueueRow.Message?
     @State private var acting = false
     @State private var toggled = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var editing: QueueRow.Message?
-    @State private var words = ""
     @State private var busy: String?
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
@@ -55,14 +59,18 @@ struct QueueList: View {
                     if canAct {
                         Menu {
                             if canSteer { Button("Send now", ace: .arrowBendUpRight) { run(message, ["kind": "steer"]) } }
-                            Button("Edit", ace: .pencilSimple) { words = message.text; editing = message }
+                            Button("Edit", ace: .pencilSimple) {
+                                editor = MessageEditor(attachments: message.attachments,
+                                                       read: { await words(message.id) },
+                                                       write: { await saveWords(message.id, $0) })
+                            }
                             if message.id != queue.messages.first?.id {
                                 Button("Move up", ace: .arrowUp) { run(message, ["kind": "move", "step": -1]) }
                             }
                             if message.id != queue.messages.last?.id {
                                 Button("Move down", ace: .arrowDown) { run(message, ["kind": "move", "step": 1]) }
                             }
-                            Button("Remove", ace: .trash, role: .destructive) { run(message, ["kind": "remove"]) }
+                            Button("Remove", ace: .trash, role: .destructive) { removing = message }
                         } label: {
                             AceIcon(.dotsThree, size: 20).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
                                 .foregroundStyle(AceTheme.Colours.mutedForeground).contentShape(Rectangle())
@@ -87,12 +95,12 @@ struct QueueList: View {
         .animation(reduceMotion ? nil : .smooth, value: queue.messages.map(\.id))
         .animation(reduceMotion ? nil : .smooth, value: queue.control)
         .sensoryFeedback(.impact(weight: .light), trigger: toggled)
-        .alert("Edit queued message", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
-            TextField("Message", text: $words, axis: .vertical)
-            Button("Save") { if let message = editing { run(message, ["kind": "words", "text": words]) } }
-                .disabled(words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .sheet(item: $editor) { MessageEditSheet(editor: $0) }
+        .confirmationDialog("Remove this message?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                            titleVisibility: .visible, presenting: removing) { message in
+            Button("Remove message", role: .destructive) { run(message, ["kind": "remove"]) }
             Button("Cancel", role: .cancel) {}
-        }
+        } message: { _ in Text("It won't be sent.") }
     }
     private func run(_ message: QueueRow.Message, _ change: [String: Any]) {
         busy = message.id

@@ -22,12 +22,11 @@ import Foundation
 /// Requests for a message's full words (`words` patches): resolves with the words, or nil and why.
 @MainActor final class WordsRequests {
     struct Answer: Sendable, Equatable {
+        var ok: Bool = true
         let text: String?
         let message: String
-        /// The take-back record to acknowledge once the words are in the draft.
-        var record: String? = nil
     }
-    static let unsent = Answer(text: nil, message: "Couldn't reach the bridge. Try again.")
+    nonisolated static let unsent = Answer(ok: false, text: nil, message: "Couldn't reach the bridge. Try again.")
     private var waiting: [String: CheckedContinuation<Answer, Never>] = [:]
     func wait(id: String, dispatch: () -> Bool) async -> Answer {
         await withCheckedContinuation { continuation in

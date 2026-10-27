@@ -106,11 +106,14 @@ struct QueueSheet: View {
     let edit: (QueueRow.Message, [String: Any]) async -> Bool
     var act: (QueueRow.Action) async -> Bool = { _ in false }
     var showMore: () -> Void = {}
+    var words: (String) async -> WordsRequests.Answer = { _ in WordsRequests.unsent }
+    var saveWords: (String, String) async -> String? = { _, _ in nil }
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
             ScrollView {
-                QueueList(queue: queue, canAct: canAct, canSteer: canSteer, edit: edit, act: act, showMore: showMore)
+                QueueList(queue: queue, canAct: canAct, canSteer: canSteer, edit: edit, act: act, showMore: showMore,
+                          words: words, saveWords: saveWords)
                     .padding(.horizontal, AceTheme.Spacing.xl).padding(.top, AceTheme.Spacing.sm)
             }
             .background(AceTheme.Colours.background)
