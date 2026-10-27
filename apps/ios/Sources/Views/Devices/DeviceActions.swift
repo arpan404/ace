@@ -55,9 +55,9 @@ struct DeviceMenu: View {
                 Button("UI tree", ace: .treeView) { open(.tree) }
             }
             Section {
-                Toggle(isOn: $screenOnly) { Label("Screen only", ace: .frameCorners) }
+                Button(screenOnly ? "Show device frame" : "Show screen only", ace: .frameCorners) { screenOnly.toggle() }
                     .accessibilityIdentifier("devices.screenOnly")
-                Toggle(isOn: $showStats) { Label("Stream stats", ace: .gauge) }
+                Button(showStats ? "Hide stream stats" : "Show stream stats", ace: .gauge) { showStats.toggle() }
                     .accessibilityIdentifier("devices.streamStats")
             }
             if let info {

@@ -52,21 +52,25 @@ import XCTest
         sleep(2)
         screenshot("devices-1-framed")
         let options = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'devices.options' OR label == 'Device options'")).firstMatch
-        options.tap()
-        app.buttons.matching(NSPredicate(format: "identifier == 'devices.screenOnly' OR label == 'Screen only'")).firstMatch.tap()
-        sleep(1)
-        options.tap()
-        app.buttons.matching(NSPredicate(format: "identifier == 'devices.streamStats' OR label == 'Stream stats'")).firstMatch.tap()
+        // A toggle in a menu leaves the menu open: the next item is tapped there, or the menu opened.
+        func pick(_ label: String) {
+            let item = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+            if !item.waitForExistence(timeout: 1) { options.tap() }
+            XCTAssertTrue(item.waitForExistence(timeout: 5), "\(label) never showed in the device menu")
+            item.tap()
+        }
+        pick("Show screen only")
+        pick("Show stream stats")
         let stats = app.descendants(matching: .any)["devices.stats"]
         XCTAssertTrue(stats.waitForExistence(timeout: 10))
+        // Close the menu if it stayed open, so the screen shows.
+        if options.exists == false { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap() }
         sleep(3)
         screenshot("devices-2-screen-only-stats")
         XCTAssertTrue(stats.label.contains("H.264"), stats.label)
         // Back as it was, for the next run.
-        options.tap()
-        app.buttons.matching(NSPredicate(format: "identifier == 'devices.screenOnly' OR label == 'Screen only'")).firstMatch.tap()
-        options.tap()
-        app.buttons.matching(NSPredicate(format: "identifier == 'devices.streamStats' OR label == 'Stream stats'")).firstMatch.tap()
+        pick("Show device frame")
+        pick("Hide stream stats")
         XCTAssertTrue(stats.waitForNonExistence(timeout: 10))
     }
 
