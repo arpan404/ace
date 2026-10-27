@@ -49,6 +49,7 @@ import { UnsentRows } from "./unsent-rows.tsx";
 import { useHomeSort, type HomeList } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
 import { useSettledPaging } from "./settled-paging.ts";
+import { useSidebarDevice } from "./device-filter-state.ts";
 import {
   useHomeSelection,
   useHomeSelectionState,
@@ -122,7 +123,8 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   const { pinned, active, recent, snoozed, settled } = props.list;
   const { snoozedOpen, settledOpen, project } = useOrganizerState();
   const organizer = useOrganizer();
-  const paging = useSettledPaging(project, settledOpen);
+  const device = useSidebarDevice();
+  const paging = useSettledPaging(project, settledOpen, device);
   const current = useParams({ strict: false, select: (params) => params.threadId });
   const [moving, setMoving] = useState<readonly string[]>();
   const settledTotal = props.settledTotal;

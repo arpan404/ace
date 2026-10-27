@@ -68,9 +68,44 @@ impl Rect {
     }
 }
 
-/// What to subtract from window-relative extents to get X window pixels, given the window's
-/// content box: the content sits centred in the X window (GTK4 surrounds it with an even
-/// shadow margin), so its left edge lands at half the spare width.
+/// How far a point may miss an element and still name it: the gaps between buttons, and GTK 4's
+/// element positions, which drift a few pixels inside nested containers.
+pub const HIT_SLOP: f64 = 8.0;
+
+/// The element a click at a point means, in the coordinates node frames use: the smallest
+/// element there that a click by id does something to, else the nearest such element within
+/// `HIT_SLOP`. Never a window or a container nothing clicks: a screenshot's x,y click becomes a
+/// click on that element, which reaches a background window.
+pub fn hit(nodes: &[Node], x: f64, y: f64) -> Option<u64> {
+    let distance = |f: &Rect| {
+        let dx = (f.x - x).max(0.0).max(x - (f.x + f.w));
+        let dy = (f.y - y).max(0.0).max(y - (f.y + f.h));
+        dx.hypot(dy)
+    };
+    let mut best: Option<(f64, f64, u64)> = None;
+    for node in nodes.iter().filter(|node| node.actionable) {
+        let Some(frame) = node.frame.filter(|f| f.w > 0.0 && f.h > 0.0) else { continue };
+        let key = (distance(&frame), frame.w * frame.h);
+        if key.0 <= HIT_SLOP && best.is_none_or(|(d, a, _)| key.0 < d || (key.0 == d && key.1 < a)) {
+            best = Some((key.0, key.1, node.id));
+        }
+    }
+    best.map(|(_, _, id)| id)
+}
+
+/// The smallest element of any kind at a point: where a scroll at x,y starts looking for the
+/// scroll area around it.
+pub fn innermost(nodes: &[Node], x: f64, y: f64) -> Option<u64> {
+    nodes
+        .iter()
+        .filter_map(|node| node.frame.filter(|f| x >= f.x && x < f.x + f.w && y >= f.y && y < f.y + f.h).map(|f| (f.w * f.h, node.id)))
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, id)| id)
+}
+
+/// What to subtract from window-relative extents to get pixels of a captured window frame,
+/// given the window's content box: the content sits centred in the frame (GTK4 surrounds it
+/// with an even shadow margin), so its left edge lands at half the spare width.
 pub fn content_offset(window: (f64, f64), content: Rect) -> (f64, f64) {
     let margin = |outer: f64, inner: f64| ((outer - inner) / 2.0).max(0.0);
     (
@@ -270,8 +305,9 @@ pub fn role_name(role: &str, states: &States, in_menu_bar: bool) -> String {
 
 pub fn flags(role: &str, states: &States) -> Vec<String> {
     let mut flags = Vec::new();
-    // GTK4 never sets ENABLED; SENSITIVE is what every toolkit sets on usable controls.
-    if !states.sensitive {
+    // GTK4 never sets ENABLED, and LibreOffice sets ENABLED without SENSITIVE on its cells and
+    // documents: a control is disabled only when it has neither.
+    if !states.sensitive && !states.enabled {
         flags.push("disabled");
     }
     if states.selected && !matches!(role, "frame" | "dialog" | "window") {

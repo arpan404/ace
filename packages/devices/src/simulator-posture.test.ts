@@ -66,3 +66,31 @@ it("an Xcode without the hinge service offers no posture at all", async () => {
   const { postures } = simulatedDuo({ helper: "unavailable" });
   expect(await postures.read(udid)).toBeUndefined();
 });
+
+it("an iPhone Duo that lists one screen while booting gains its posture once both screens appear", async () => {
+  let screens = 1;
+  const run: PostureCommand = async (command, args) => {
+    if (command === "xcrun") {
+      const displays = [display(true, false), display(false, true)].slice(0, screens);
+      return { code: 0, stdout: JSON.stringify({ result: { displays } }) };
+    }
+    if (args.includes("--check")) return { code: 0, stdout: '{"available":true}\n' };
+    return { code: 0, stdout: '{"done":true}\n' };
+  };
+  const postures = new SimulatorPostures({ helper: "helper", xcrun: async () => "xcrun", run });
+  expect(await postures.read(udid)).toBeUndefined();
+  expect(await postures.read(udid)).toBeUndefined();
+  screens = 2;
+  expect(await postures.read(udid)).toBe("open");
+});
+
+it("a phone that keeps listing one screen stops running devicectl", async () => {
+  const commands: string[] = [];
+  const run: PostureCommand = async (command) => {
+    commands.push(command);
+    return { code: 0, stdout: JSON.stringify({ result: { displays: [display(true, true)] } }) };
+  };
+  const postures = new SimulatorPostures({ helper: "helper", xcrun: async () => "xcrun", run });
+  for (let read = 0; read < 10; read++) expect(await postures.read(udid)).toBeUndefined();
+  expect(commands.length).toBeLessThan(10);
+});

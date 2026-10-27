@@ -1,4 +1,5 @@
 import type { Mention, ContentPart, MessageContextItem } from "@ace/protocol";
+import { triggerAt, type ComposerTrigger } from "@ace/ui-core";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 
 /** A message the composer hands over on Enter. */
@@ -36,26 +37,9 @@ export interface Draft {
   opposite: boolean;
 }
 
-/** The `@file` or `/command` being typed at the caret, if any. Pure. */
-export interface Trigger {
-  kind: "mention" | "command";
-  query: string;
-  /** Index of the `@` or `/`. */
-  start: number;
-  /** Caret index; the token runs from `start` to here. */
-  end: number;
-}
-
-export function triggerAt(text: string, caret: number): Trigger | undefined {
-  let start = caret;
-  while (start > 0 && !/\s/.test(text[start - 1] ?? "")) start--;
-  const word = text.slice(start, caret);
-  if (word.startsWith("@") && !word.slice(1).includes("@"))
-    return { kind: "mention", query: word.slice(1), start, end: caret };
-  if (word.startsWith("/") && !word.slice(1).includes("/"))
-    return { kind: "command", query: word.slice(1), start, end: caret };
-  return undefined;
-}
+/** The `@file` or `/command` being typed at the caret (shared with every client). */
+export type Trigger = ComposerTrigger;
+export { triggerAt };
 
 /** Replace the trigger's token with `insert` plus a space; returns the text and new caret. */
 export function accept(

@@ -14,6 +14,7 @@ import { readConfig } from "./config.ts";
 import { loadIdentity } from "./tls-identity.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { accessRequest } from "./client-access.ts";
+import { addressCheckMs } from "./remote-runtime.ts";
 
 async function runtime(
   overrides: {
@@ -25,6 +26,8 @@ async function runtime(
     runtime?: import("./server-options.ts").ServerOptions["runtime"];
     /** Reads of `remote.hostedPairingLink` wait for this; `onHold` runs as each one starts. */
     holdPairingLinkSetting?: { until: Promise<void>; onHold(): void };
+    /** This machine's Tailscale addresses, read on each status; undefined: Tailscale fails. */
+    tailnet?: { ips: string[] | undefined };
   } = {},
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-remote-runtime-"));
@@ -83,7 +86,9 @@ async function runtime(
       status: async () => {
         if (!networkAvailable) throw new Error("No Tailscale");
         if (!overrides.transport) throw new Error("No Tailscale");
-        return JSON.stringify({ BackendState: "Running", TailscaleIPs: ["127.0.0.1"] });
+        const tailnet = overrides.tailnet ? overrides.tailnet.ips : ["127.0.0.1"];
+        if (!tailnet) throw new Error("Tailscale isn't answering");
+        return JSON.stringify({ BackendState: "Running", TailscaleIPs: tailnet });
       },
       certificate: async () => {
         throw new Error("HTTPS certificates are off for this tailnet");
@@ -535,6 +540,64 @@ test("a pairing link is not issued for remote access that turned off while the l
       break;
     }
     expect(await f.local("/v1/status")).toMatchObject({ remote: null });
+  } finally {
+    await f.close();
+  }
+});
+
+test("remote access moves to this machine's new Tailscale address, and a failed check keeps it open", async () => {
+  const checks: (() => void)[] = [];
+  const tailnet: { ips: string[] | undefined } = { ips: ["0.0.0.0"] };
+  const f = await runtime({
+    enabled: true,
+    transport: "tailscale",
+    tailnet,
+    runtime: {
+      every(run, ms) {
+        if (ms === addressCheckMs) checks.push(run);
+        return () => {};
+      },
+    },
+  });
+  const check = async () => {
+    for (const run of checks) run();
+    // A settings write joins the same serialized queue as the check: once it answers, the
+    // check has run.
+    expect(await f.set("remote.enabled", true)).toMatchObject({ ok: true });
+  };
+  const linkOrigin = async () =>
+    new URL(PairingResponse.parse(await f.local("/v1/pairings", {})).url).origin;
+  try {
+    const before = await linkOrigin();
+    expect(new URL(before).hostname).toBe("0.0.0.0");
+
+    // Tailscale not answering for a moment never takes a working listener down.
+    tailnet.ips = undefined;
+    await check();
+    expect(await linkOrigin()).toBe(before);
+
+    // Tailscale gave this machine another address: links name it, and pairing works there.
+    tailnet.ips = ["127.0.0.1"];
+    await check();
+    const after = await linkOrigin();
+    expect(new URL(after).hostname).toBe("127.0.0.1");
+    const pairing = PairingResponse.parse(await f.local("/v1/pairings", {}));
+    const paired = DeviceCredential.parse(
+      await accessRequest(new URL(pairing.url).origin, "/v1/pair", {
+        fingerprint: f.identity.fingerprint,
+        method: "POST",
+        body: { code: codeOf(pairing.url), name: "Rijan's Mac" },
+      }),
+    );
+    expect(paired.device.name).toBe("Rijan's Mac");
+    // Nothing listens on the old address any more.
+    await expect(
+      accessRequest(`https://127.0.0.1:${new URL(before).port}`, "/v1/pair", {
+        fingerprint: f.identity.fingerprint,
+        method: "POST",
+        body: { code: "000000", name: "Old address" },
+      }),
+    ).rejects.toThrow();
   } finally {
     await f.close();
   }

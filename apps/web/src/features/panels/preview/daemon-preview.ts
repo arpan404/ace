@@ -209,6 +209,20 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   const binaryFrames = typeof client.onStream === "function";
   const listeners = new Map<() => void, string | undefined>();
   const views = new Map<string, BrowserView>();
+  /** A pane size waiting for the tab's current state (`fitPane`). */
+  const panes = new Map<string, () => void>();
+  /** Threads whose state arrived since their stream last started over: it is the current one. */
+  const currentState = new Set<string>();
+  /** Sends a waiting pane size, unless the shown tab has a device by now. */
+  const releasePane = (threadId: string) => {
+    const send = panes.get(threadId);
+    if (!send || !currentState.has(threadId) || !watches.get(threadId)?.subscribed) return;
+    if (client.state !== "ready") return;
+    panes.delete(threadId);
+    const known = views.get(threadId);
+    const shown = known?.tabs?.find((tab) => tab.tabId === known.activeTabId);
+    if (!shown?.emulation) send();
+  };
   const frames = new Map<string, LivePicture>();
   /** Each thread's tabs' last pictures from when they were shown (split view's other half). */
   const stills = new Map<string, Map<string, LivePicture>>();
@@ -312,6 +326,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     sounds.reset(threadId);
     // The next subscription sends every tab's page state again.
     pages.delete(threadId);
+    currentState.delete(threadId);
   };
   /** The page is gone (the browser closed): so is its picture. */
   const dropPicture = (threadId: string) => {
@@ -436,6 +451,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
               current.subscribed = true;
               // The subscribe carried the pane as it was; tell a change made since.
               if (captures.get(threadId) !== reported) sendCapture(threadId, current);
+              releasePane(threadId);
             } else if (!current && !disposed)
               void call("browser.unsubscribe", threadId).catch(() => {});
           },
@@ -510,6 +526,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           });
       }
       views.set(state.threadId, view(state));
+      currentState.add(state.threadId);
+      releasePane(state.threadId);
       if (state.tabs)
         pages.keep(
           state.threadId,
@@ -563,6 +581,28 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   } catch {
     // A closed client: nothing will arrive.
   }
+  const resizePage: PreviewSource["resize"] = (
+    threadId,
+    width,
+    height,
+    touch,
+    devicePixelRatio,
+  ) => {
+    void request({
+      type: "browser.execute",
+      threadId: ThreadId.parse(threadId),
+      command: {
+        action: "resize",
+        width: clamp(width),
+        height: clamp(height),
+        ...(touch ? { touch } : {}),
+        ...(devicePixelRatio === undefined
+          ? {}
+          : { devicePixelRatio: Math.min(4, Math.max(1, devicePixelRatio)) }),
+      },
+    }).catch(() => {});
+  };
+
   return {
     dispose() {
       if (disposed) return;
@@ -826,20 +866,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       });
       sendCapture(threadId, watches.get(threadId));
     },
-    resize(threadId, width, height, touch, devicePixelRatio) {
-      void request({
-        type: "browser.execute",
-        threadId: ThreadId.parse(threadId),
-        command: {
-          action: "resize",
-          width: clamp(width),
-          height: clamp(height),
-          ...(touch ? { touch } : {}),
-          ...(devicePixelRatio === undefined
-            ? {}
-            : { devicePixelRatio: Math.min(4, Math.max(1, devicePixelRatio)) }),
-        },
-      }).catch(() => {});
+    resize: resizePage,
+    fitPane(threadId, width, height, touch, devicePixelRatio) {
+      panes.set(threadId, () => resizePage(threadId, width, height, touch, devicePixelRatio));
+      releasePane(threadId);
     },
   };
 }

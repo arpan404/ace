@@ -1,5 +1,5 @@
 import { encodeEmbeddedVideo } from "@ace/browser/video-encoder";
-import { VideoChunkGate } from "./video-gate.ts";
+import { VideoChunkGate } from "@ace/browser/video-gate";
 
 /*
  * The app's video encoder events to the daemon (ADR 0088, embedded backend): one binary message

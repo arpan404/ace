@@ -2,6 +2,7 @@ import type { SidebarSource } from "@ace/client";
 import { useClient, useSidebarStore } from "@ace/client-react";
 import { isRemoved, isSettled, settledFirstRows, settledMoreRows } from "@ace/ui-core";
 import { useState } from "react";
+import { usePrimaryMachine } from "@/lib/machines.ts";
 
 /** Each "Show more" asks the daemon for at most this many pages before it stops. */
 const pagesPerReveal = 4;
@@ -29,10 +30,11 @@ interface Reveal {
  * next batch, loading older pages from the daemon as the batch needs them. Closing the section
  * or changing the project filter starts again from the first rows.
  */
-export function useSettledPaging(project: string | null, open: boolean) {
+export function useSettledPaging(project: string | null, open: boolean, device?: string) {
   const client = useClient();
+  const own = usePrimaryMachine().id;
   const store = useSidebarStore();
-  const key = `${project ?? ""}:${open}`;
+  const key = JSON.stringify([project, open, device]);
   const first: Reveal = { key, shown: settledFirstRows, loading: false, error: false };
   const [held, setReveal] = useState<Reveal>(first);
   const reveal = held.key === key ? held : first;
@@ -42,6 +44,10 @@ export function useSettledPaging(project: string | null, open: boolean) {
   const more = async () => {
     if (reveal.loading || !store) return;
     const target = reveal.shown + settledMoreRows;
+    if (device && device !== own) {
+      update({ shown: target, loading: false, error: false });
+      return;
+    }
     update({ shown: target, loading: true, error: false });
     try {
       for (

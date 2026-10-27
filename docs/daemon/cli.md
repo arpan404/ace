@@ -119,8 +119,8 @@ ace open ./repository --web
 `add` defaults to the current directory. The daemon applies its project policy and
 canonicalizes the path, so aliases register the same project. Listing includes
 projects with no threads and returns a bounded page with a `next` cursor. Removal
-unregisters a project and preserves its files and thread history. Active trees
-require explicit `--archive-threads`, using the same policy as the GUI.
+unregisters a project and deletes its threads; its files stay on disk. Running threads
+require explicit `--stop-threads`, using the same policy as the GUI.
 
 `open` registers the path and opens its project. `project open` selects an existing
 registered ID. Local opening starts the daemon if needed, then dispatches the

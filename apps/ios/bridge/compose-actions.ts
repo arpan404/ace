@@ -92,11 +92,7 @@ export class ComposeActions {
         break;
       case "attach":
         if (action.workspaceId === chatChoice) void this.#attachToChat(action.file);
-        else
-          this.#trayFor(action.workspaceId, action.workspaceId).attach(
-            action.file,
-            this.newThread.reader(),
-          );
+        else this.#trayFor(action.workspaceId, action.workspaceId).attach(action.file);
         break;
       case "detach":
         this.#tray?.tray.detach(action.localId);
@@ -154,7 +150,7 @@ export class ComposeActions {
   async #attachToChat(file: z.infer<typeof Picked>): Promise<void> {
     try {
       const workspaceId = await this.#chat.resolve();
-      this.#trayFor(workspaceId, chatChoice).attach(file, this.newThread.reader());
+      this.#trayFor(workspaceId, chatChoice).attach(file);
     } catch {
       this.#sink.put("compose:attachments", () => ({
         type: "compose.attachments",

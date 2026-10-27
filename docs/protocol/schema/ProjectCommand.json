@@ -270,7 +270,7 @@
     },
     {
       "properties": {
-        "archiveThreads": {
+        "stopRunning": {
           "default": false,
           "type": "boolean"
         },

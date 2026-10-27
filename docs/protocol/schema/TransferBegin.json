@@ -41,6 +41,9 @@
       ],
       "type": "object"
     },
+    "sourceWorkspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    },
     "transferId": {
       "$ref": "https://ace.local/protocol/v1/TransferKey.json"
     }

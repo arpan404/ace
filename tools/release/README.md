@@ -13,13 +13,13 @@ bun run --filter @ace/release build 1.0.0 darwin-x64 /secure/ace-public.pem
 
 ## Linux (linux-x64, linux-arm64)
 
-Linux releases are glibc-only and must run on Ubuntu 20.04+, Debian 11+, Fedora and Arch ([ADR 0093](../../docs/adr/0093-linux-release.md)). Everything ace compiles is therefore built inside a Debian 11 container (glibc 2.31, GCC 10), on a host of the target architecture: node-pty's `pty.node`, the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 24.13.0 itself needs glibc 2.28. `tools/release/linux/setup-debian11.sh` prepares a fresh `debian:11` container as root: it points apt at archive.debian.org (Debian 11 has left the regular mirrors), installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 24.13.0, Bun 1.4.0 and Rust 1.91.1. `.github/workflows/release.yml` runs the same steps on `ubuntu-24.04` and `ubuntu-24.04-arm`.
+Linux releases are glibc-only and must run on Ubuntu 24.04+, Debian 12+, Fedora and Arch (Omarchy) ([ADR 0093](../../docs/adr/0093-linux-release.md)). Everything ace compiles is therefore built inside a Debian 12 container (glibc 2.36, GCC 12), on a host of the target architecture: node-pty's `pty.node`, the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 24.13.0 itself needs glibc 2.28. `tools/release/linux/setup-debian12.sh` prepares a fresh `debian:12` container as root: it installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 24.13.0, Bun 1.4.0 and Rust 1.91.1. `.github/workflows/release.yml` runs the same steps on `ubuntu-24.04` and `ubuntu-24.04-arm`.
 
 node-pty 1.1.0 has no Linux prebuilds. `native linux-<arch>` rebuilds the locked package against Node 24.13.0 headers, records compiler provenance and writes checksum-pinned input JSON (`dist/native/linux-<arch>.json`) for the build. Do not reuse another host's binary, a different Node ABI or an unverified download.
 
 ```sh
-# Inside the debian:11 container on a host of the target architecture, from the checkout:
-sh tools/release/linux/setup-debian11.sh
+# Inside the debian:12 container on a host of the target architecture, from the checkout:
+sh tools/release/linux/setup-debian12.sh
 export PATH="$HOME/.cargo/bin:$PATH"
 bun install --frozen-lockfile
 node tools/release/src/native.ts linux-arm64

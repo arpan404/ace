@@ -39,7 +39,10 @@ export function ProjectPicker(props: {
   });
   const selected = choices.find((choice) => choice.id === props.project);
   const chat = props.project === chatChoice;
-  const value = chat ? "No project" : (selected?.name ?? "Choose a project");
+  // A project still to be copied here isn't in this machine's list, but it is the choice.
+  const value = chat
+    ? "No project"
+    : (selected?.name ?? (props.project ? props.projectName(props.project) : "Choose a project"));
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <Tip label="Change project" side="top">

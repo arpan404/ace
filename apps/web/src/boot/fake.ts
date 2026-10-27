@@ -33,6 +33,15 @@ const timer = {
   },
 };
 
+/**
+ * `origin` remotes for This Mac's checkouts. The build server has its own copy of relay (under
+ * another folder name) but not billing-api, so moving New thread there shows both outcomes.
+ */
+const origins: Record<string, string> = {
+  "/Users/dev/relay": "git@github.com:acme/relay.git",
+  "/Users/dev/billing-api": "https://github.com/acme/billing-api.git",
+};
+
 /** `bun run --filter @ace/web dev:fake`: the whole app against scripted scenarios in-page. */
 export function bootFake(): {
   client: Client;
@@ -82,6 +91,10 @@ export function bootFake(): {
   }
   // The folders the Add project dialog browses.
   const host = hostFolders(Date.now());
+  for (const folder of host.folders) {
+    const remote = origins[folder.path];
+    if (remote) folder.remote = remote;
+  }
   daemon.projects.seedFolders(host.home, host.folders);
   // The panels' terminals, browser and dev server, in the daemon's own services.
   if (!empty) seedPanels(daemon);
@@ -144,6 +157,8 @@ export function bootFake(): {
     projectScheduler: (callback) => void setTimeout(callback, 700),
   });
   server.projects.seedFolders("/home/ci", [
+    // This Mac's relay, cloned under another folder name: New thread finds it by its origin.
+    { path: "/home/ci/src/relay-ci", git: true, remote: "https://github.com/acme/relay" },
     { path: "/home/ci/services/api", git: true },
     { path: "/home/ci/services/billing-worker", git: true },
     { path: "/home/ci/services/web-gateway", git: true },
@@ -151,6 +166,7 @@ export function bootFake(): {
   ]);
   // One project there already, so New thread can start on the build server.
   if (!empty) {
+    server.projects.command({ type: "workspace.add", path: "/home/ci/src/relay-ci" });
     const added = server.projects.command({ type: "workspace.add", path: "/home/ci/services/api" });
     // A thread there, so Continue on… runs from the build server too.
     if (added?.workspace)

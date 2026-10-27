@@ -13,6 +13,11 @@ import Observation
     private(set) var page: BrowserPageInfo?
     /// The drawn picture's page size (CSS pixels); nil until the first picture is drawn.
     private(set) var pageSize: CGSize?
+    /// The devices the device toolbar offers (`bridge/browser-device.ts`).
+    private(set) var presets: [BrowserViewInfo.Device.Preset] = []
+    /// The person's zoom and move of the picture (`PageGeometry`), for what is drawn over it.
+    private(set) var pictureZoom: CGFloat = 1
+    private(set) var pictureOffset: CGPoint = .zero
     /// Whether the open thread has a browser with a tab open (its Browser entry).
     private(set) var live: (threadId: String, epoch: Int, value: Bool)?
     /// The tools' answers while the view is open: find's count, the newest screenshot, the
@@ -55,7 +60,16 @@ import Observation
         acks?.close()
         renderer = nil; latest = nil; acks = nil
         threadId = nil; view = nil; page = nil; pageSize = nil; generation = nil
+        pictureZoom = 1; pictureOffset = .zero
         find = nil; shot = nil; logs = nil; visits = []; visitCount = 0; problem = nil; upload = nil
+    }
+    func movePicture(zoom: CGFloat, offset: CGPoint) {
+        if pictureZoom != zoom { pictureZoom = zoom }
+        if pictureOffset != offset { pictureOffset = offset }
+    }
+    /// Where the picture is in a view of `size`, as the surface draws it.
+    func geometry(view size: CGSize) -> PageGeometry? {
+        pageSize.map { PageGeometry(view: size, page: $0, zoom: pictureZoom, offset: pictureOffset) }
     }
     func clearFind() { find = nil }
     func clearLogs() { logs = nil }
@@ -97,6 +111,7 @@ import Observation
         case .logs(let result): if threadId != nil { logs = result }
         case .problem(let result): if threadId != nil { problem = result }
         case .upload(let chooserId, let progress): if threadId != nil { upload = (chooserId, progress) }
+        case .presets(let list): if presets != list { presets = list }
         }
     }
 }

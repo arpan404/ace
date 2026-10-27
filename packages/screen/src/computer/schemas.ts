@@ -96,7 +96,7 @@ const text = {
     stateTitle: "Look at a desktop app",
     state: `Open a desktop app, without taking the person's focus, and read its window through accessibility as an outline: one numbered element per line. ${looks}`,
     actTitle: "Act in a desktop app",
-    act: `Act in an app, then get what changed. ${batching} Clicks by id, typing into fields, set_value and menus work with the window in the background. Key presses, x,y clicks, drags and pixel scrolls need the window in front: start the batch with activate, which interrupts the person. Linux shortcuts use ctrl, e.g. ctrl+s.`,
+    act: `Act in an app in the background, through accessibility, then get what changed. ${batching} Clicks (by id, or at screenshot x,y), typing, set_value, menus, menu shortcuts, copy/paste and Tab work without the window in front. Hover and drags can't be sent. Typing into Chromium and Electron apps, and keys with no accessible equivalent, need activate first in the same batch: they are then typed in front, taking the person's focus (GNOME, KDE). Linux shortcuts use ctrl, e.g. ctrl+s.`,
   },
   windows: {
     appsTitle: "List Windows apps",

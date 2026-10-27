@@ -115,7 +115,7 @@ const stopProgress = client.projects.onCloneProgress((event) => {
 });
 await client.projects.cancelClone(cloneId);
 await client.projects.rename({ workspaceId, name: "Renamed" });
-await client.projects.remove({ workspaceId, archiveThreads: true });
+await client.projects.remove({ workspaceId, stopRunning: true });
 ```
 
 `projects.inspect(path)` and add receipts return Git metadata and `suggestedRepoRoot` for subfolders.

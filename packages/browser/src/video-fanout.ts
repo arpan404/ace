@@ -8,7 +8,8 @@
  * encode's bit rate follows each viewer's link (`link-rate.ts`), which keeps the window from
  * filling; a delta that still doesn't fit is dropped, with every later delta until the next
  * keyframe, and a keyframe is asked for. Keyframes are never dropped: one that doesn't fit
- * waits in the viewer's queue (replacing an older one), and the deltas after it queue behind it.
+ * waits in the viewer's queue (replacing an older one), and the deltas after it queue behind it,
+ * up to the window's frames and bytes.
  */
 
 export interface VideoPiece {
@@ -51,6 +52,8 @@ interface Viewer<C extends VideoPiece> {
   inflightBytes: number;
   /** Starts with a keyframe whenever it isn't empty. */
   queue: C[];
+  /** Bytes of everything in the queue. */
+  queuedBytes: number;
   /** Deltas are dropped until the next keyframe. */
   needKey: boolean;
   /** A delta was dropped since the last keyframe this viewer got: it is falling behind. */
@@ -76,6 +79,7 @@ export class VideoFanout<C extends VideoPiece> {
       inflight: [],
       inflightBytes: 0,
       queue: [],
+      queuedBytes: 0,
       needKey: true,
       dropping: false,
       playing: false,
@@ -95,7 +99,7 @@ export class VideoFanout<C extends VideoPiece> {
     const viewer = this.viewers.get(id);
     if (!viewer || viewer.encode === encode) return;
     viewer.encode = encode;
-    viewer.queue = [];
+    setQueue(viewer, []);
     viewer.needKey = true;
     viewer.dropping = false;
     if (encode === undefined) this.stopPlaying(id, viewer);
@@ -105,7 +109,7 @@ export class VideoFanout<C extends VideoPiece> {
   stopAll(): void {
     for (const [id, viewer] of this.viewers) {
       viewer.encode = undefined;
-      viewer.queue = [];
+      setQueue(viewer, []);
       viewer.needKey = true;
       viewer.dropping = false;
       this.stopPlaying(id, viewer);
@@ -116,18 +120,26 @@ export class VideoFanout<C extends VideoPiece> {
       if (viewer.encode !== encode) continue;
       if (chunk.key) {
         // Everything queued is older than this picture.
-        viewer.queue = [chunk];
+        setQueue(viewer, [chunk]);
         viewer.needKey = false;
         viewer.dropping = false;
       } else if (viewer.needKey) {
         continue;
       } else if (viewer.queue.length || !this.fits(viewer, chunk)) {
         // Behind a waiting keyframe there is room for a window's worth of deltas; else drop.
-        if (viewer.queue.length && viewer.queue.length < this.window.frames)
+        const head = viewer.queue[0];
+        // The waiting keyframe may be bigger than the window on its own; deltas get the window.
+        const allowance = this.window.bytes + (head?.key ? head.bytes.length : 0);
+        if (
+          head &&
+          viewer.queue.length < this.window.frames &&
+          viewer.queuedBytes + chunk.bytes.length <= allowance
+        ) {
           viewer.queue.push(chunk);
-        else this.drop(viewer, encode);
+          viewer.queuedBytes += chunk.bytes.length;
+        } else this.drop(viewer, encode);
         continue;
-      } else viewer.queue = [chunk];
+      } else setQueue(viewer, [chunk]);
       this.flushViewer(viewer, encode);
     }
   }
@@ -146,7 +158,7 @@ export class VideoFanout<C extends VideoPiece> {
     const viewer = this.viewers.get(id);
     if (!viewer || viewer.encode === undefined) return;
     viewer.needKey = true;
-    viewer.queue = viewer.queue[0]?.key ? viewer.queue.slice(0, 1) : [];
+    setQueue(viewer, viewer.queue[0]?.key ? viewer.queue.slice(0, 1) : []);
     this.options.keyframe(viewer.encode);
   }
   /** Retries chunks the transport refused. */
@@ -176,8 +188,7 @@ export class VideoFanout<C extends VideoPiece> {
     this.options.dropped?.(viewer.id);
     viewer.needKey = true;
     viewer.dropping = true;
-    if (!viewer.queue[0]?.key) viewer.queue = [];
-    else viewer.queue = viewer.queue.slice(0, 1);
+    setQueue(viewer, viewer.queue[0]?.key ? viewer.queue.slice(0, 1) : []);
     this.options.keyframe(encode);
   }
   private flushViewer(viewer: Viewer<C>, encode: string): void {
@@ -187,6 +198,7 @@ export class VideoFanout<C extends VideoPiece> {
       // In flight before it goes: a transport that acknowledges inside `send` finds it there,
       // and the flush that ack starts never sends it again.
       viewer.queue.shift();
+      viewer.queuedBytes -= chunk.bytes.length;
       const entry = { sequence: chunk.sequence, bytes: chunk.bytes.length };
       viewer.inflight.push(entry);
       viewer.inflightBytes += entry.bytes;
@@ -220,4 +232,9 @@ export class VideoFanout<C extends VideoPiece> {
     viewer.playing = false;
     this.options.playing(id, false);
   }
+}
+
+function setQueue<C extends VideoPiece>(viewer: Viewer<C>, queue: C[]): void {
+  viewer.queue = queue;
+  viewer.queuedBytes = queue.reduce((total, chunk) => total + chunk.bytes.length, 0);
 }

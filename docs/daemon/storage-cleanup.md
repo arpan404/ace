@@ -236,6 +236,58 @@ unused attachments and rotated logs older than the window, through `StorageServi
 with the reviewer `storage:retention`. It uses the same protections and executor as reviewed
 cleanup. See ADR 0076.
 
+### Settled worktrees
+
+Worktrees have their own per-daemon preferences in Settings → Storage. They are
+independent of daily cleanup for other storage:
+
+- `storage.worktreeRetentionDays`: null by default, disabling automatic deletion.
+  A number from 1 to 3650 enables deletion after that many days since the latest
+  owning thread settled. Recent checkout files do not restart this window.
+- `storage.backupWorktrees`: false by default. When enabled, settled topic branches
+  outside `origin/main` are backed up to the repository's `origin` remote. This
+  works with any supported Git host. Tracked and untracked changes are committed
+  using the user's Git identity; ignored files are excluded, so any secret not
+  covered by `.gitignore` (for example an untracked `.env`) is pushed. Branches
+  with no local changes and nothing unpushed are skipped without a network call.
+  Pushes never force,
+  and use the user's existing Git credential helpers. Hooks and repository filters
+  do not execute during this unattended operation.
+
+Automatic removal requires every owner to be settled, no live work or pins, and
+a clean checkout. The branch must be contained in the locally recorded
+`origin/main`, or have the same tracked tree as that ref. A published topic branch
+with unmerged changes stays, even after a successful backup. Missing `origin/main`
+cannot prove eligibility, so repositories whose default branch is `master`,
+`develop` or anything else are never removed automatically. Cleanup does not fetch. Main checkouts, unmanaged
+worktrees and unknown Git state remain protected. A failed backup is reported
+in usage and keeps the worktree; the local backup commit survives a failed push
+for a later retry.
+
+Maintenance first runs 30 seconds after daemon startup, two seconds after a
+preference changes, and hourly thereafter. Worktree inspection, filesystem sizing,
+backup commits, pushes and removal run on a dedicated idle worker. The daemon
+retains ownership and admission fences, and the worker asks it to recheck
+permission immediately before mutations. Shutdown drains accepted operations.
+Backup and deletion are separate operations composed by the scheduler. Each has
+its own per-daemon cursor over managed creation records and examines at most 256
+records per pass. The cursors advance past protected or unavailable entries and
+wrap at the end, so an early protected checkout cannot starve later work.
+Manual usage and cleanup previews keep their existing bounded prefix scans and
+do not advance either maintenance cursor. Cursors reset when the daemon restarts.
+
+"Delete all settled worktrees" creates a worktree-only preview that ignores age.
+Unlike automatic removal it does not require `origin/main` to contain the branch:
+a clean branch whose commits are already pushed is removed, and its work stays on
+`origin`. It requires the existing explicit confirmation before applying. It preserves
+threads and other storage. Dirty or unpublished work still requires selecting
+the individual worktree's force option and reviewing a new preview. Active,
+pinned, locked and unmanaged worktrees cannot be forced.
+
+Settlement only frees a worktree in these settled modes. The regular cleanup
+preview and its `storage.retention.worktrees` window still treat a settled but
+unarchived thread as open and keep its worktree.
+
 Behavior tests are written for real temporary SQLite, files, Git repositories
 and a daemon process killed after its first deletion. Additional UI tests guard
 preview, protected explanations and confirmation. Tests, mutation runs and

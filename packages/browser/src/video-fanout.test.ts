@@ -103,6 +103,29 @@ describe("video to each viewer at its own pace", () => {
     expect(phone.received.slice(2)).toEqual([fresh, after]);
   });
 
+  it("deltas waiting behind a keyframe are held to the byte window too, then wait for the next keyframe", () => {
+    const { fanout, keyframes, viewer } = setup({ frames: 60, bytes: 1_000 });
+    const phone = viewer("phone");
+    fanout.publish("e1", key(900));
+    // The link stalls: the next keyframe waits, and big deltas pile up behind it.
+    const waiting = key(500);
+    fanout.publish("e1", waiting);
+    const kept = delta(600);
+    fanout.publish("e1", kept);
+    const asked = keyframes.length;
+    fanout.publish("e1", delta(600));
+    // Past the window's bytes the delta is dropped, and a keyframe asked for.
+    expect(keyframes.length).toBe(asked + 1);
+    fanout.publish("e1", delta(10));
+    phone.ack();
+    phone.ack();
+    expect(phone.received.slice(1)).toEqual([waiting]);
+    const next = key(100);
+    fanout.publish("e1", next);
+    phone.ack();
+    expect(phone.received.at(-1)).toBe(next);
+  });
+
   it("a lone keyframe larger than the byte window still goes, and fills it", () => {
     const { fanout, viewer } = setup({ frames: 8, bytes: 1_000 });
     const phone = viewer("phone");

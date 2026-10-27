@@ -29,6 +29,22 @@ test("Link all links every machine with every other, both ways", async () => {
   expect(within(machines).queryByRole("button", { name: "Link all" })).toBeNull();
 }, 30_000);
 
+test("a machine that can't make a pairing link says what to do, and the other direction still links", async () => {
+  const { app, remote } = withBuildServer();
+  remote.services.settings.write("remote.enabled", false);
+  await app.open("/settings/remote");
+  const machines = await screen.findByRole("region", { name: "Machines" });
+  await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  await userEvent.click(await within(machines).findByRole("button", { name: "Link all" }));
+  // The toast's card is aria-hidden; its words are announced through the live region.
+  expect(
+    (await screen.findAllByText(/Turn on remote access on Build server\./)).length,
+  ).toBeGreaterThan(0);
+  expect(screen.queryByText(/unavailable/)).toBeNull();
+  await waitFor(() => expect(linkedHosts(remote.services.fleet.links())).toEqual(["this-mac"]));
+  expect(linkedHosts(app.daemon.services.fleet.links())).toEqual([]);
+}, 30_000);
+
 test("unlinking two machines on a machine's page asks first, then removes both directions", async () => {
   const { app, remote } = withBuildServer();
   await app.open("/settings/remote");

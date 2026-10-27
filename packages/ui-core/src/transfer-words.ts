@@ -33,15 +33,26 @@ export function runningWords(transfer: Transfer): string {
   }
 }
 
-/** Done: where the work is now, and how many ignored files that project already had. */
+const files = (count: number, kind = "") => `${count} ${kind}${count === 1 ? "file" : "files"}`;
+
+/**
+ * Done: where the work is now, the branch it is on when the checkout there was busy and left
+ * alone, and how many files that project already had and kept.
+ */
 export function doneWords(transfer: Pick<Transfer, "kind" | "target" | "result">): string {
+  const result = transfer.result;
   const done =
     transfer.kind === "thread"
       ? `Continued on ${transfer.target.name}`
       : `Opened on ${transfer.target.name}`;
-  const kept = transfer.result?.ignoredSkipped ?? 0;
-  if (!kept) return done;
-  return `${done} · kept its own copy of ${kept} ignored ${kept === 1 ? "file" : "files"}`;
+  const parts = [
+    result?.branchOnly && result.branch ? `${done} on ${result.branch}` : done,
+    ...(result?.keptFiles ? [`kept its own copy of ${files(result.keptFiles)}`] : []),
+    ...(result?.ignoredSkipped
+      ? [`kept its own copy of ${files(result.ignoredSkipped, "ignored ")}`]
+      : []),
+  ];
+  return parts.join(" · ");
 }
 
 /**

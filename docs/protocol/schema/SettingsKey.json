@@ -4,6 +4,8 @@
   "enum": [
     "storage.retention",
     "storage.scheduledCleanup",
+    "storage.worktreeRetentionDays",
+    "storage.backupWorktrees",
     "storage.retentionDays",
     "logs.maxBytes",
     "sourceControl.preferences",
@@ -39,6 +41,7 @@
     "browser.downloadDefault",
     "browser.userChrome.storageReads",
     "computer.blockedApps",
+    "computer.lockedUse",
     "devices.emulatorWindow",
     "access.defaultMode",
     "access.nativeModes",

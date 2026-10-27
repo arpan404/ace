@@ -22,10 +22,16 @@ async function verdicts(context: DoctorContext, feature: DoctorFeature) {
 const running = (facts: ScreenFacts) =>
   computerUseFeature({ screen: async () => facts, helper: computerUsePorts.helper });
 
-it("computer use has no checks off macOS", async () => {
-  const { context, cleanup } = await doctorTestContext({ platform: "linux" });
+it("computer use on Windows needs no permission grants", async () => {
+  const { context, cleanup } = await doctorTestContext({ platform: "win32" });
   cleanups.push(cleanup);
-  expect(computerUseFeature().checks(context)).toEqual([]);
+  const checks = computerUseFeature().checks(context);
+  expect(checks.map((check) => check.id)).toEqual(["computer.grants"]);
+  const [grants] = checks;
+  expect(await grants?.run(new AbortController().signal)).toMatchObject({
+    status: "ok",
+    fix: "Nothing to do.",
+  });
 });
 
 it("a missing grant warns with its System Settings pane while computer use is on", async () => {

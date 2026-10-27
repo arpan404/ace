@@ -60,7 +60,18 @@ export interface LiveTail extends TailEdge {
   /** The first item of root turn `ordinal` if the tail holds it. */
   firstItemOf(ordinal: number): string | undefined;
   item?(id: string): Item | undefined;
+  /**
+   * Whether an item read from history reads in this transcript. Given, reading older keeps
+   * going until a page holds `laneFill` of them: one subagent's work can be sparse among its
+   * siblings', and a page of the thread may hold little or none of it.
+   */
+  itemInLane?(item: Item): boolean;
 }
+
+/** Lane items a read of older history brings at least, while there is older history. */
+export const laneFill = 40;
+/** Reads one gesture toward older history may make to fill a page of a sparse lane. */
+const fillReads = 8;
 
 /** Items kept before a jump target, so the turn before it gives context. */
 const contextBefore = 30;
@@ -326,20 +337,60 @@ export class JumpController {
         wholeTurns: true,
       });
       if (!reply || this.state.window) return;
-      const next = openWindow(reply);
+      const opened = await this.fill(openWindow(reply), 0, () => !this.state.window);
+      if (!opened) return;
       this.growth = "older";
-      this.set({ window: next, joined: meetsTail(next, this.tail()), loading: undefined });
+      this.set({ window: opened, joined: meetsTail(opened, this.tail()), loading: undefined });
       return;
     }
     const request = olderRequest(window);
     if (!request) return;
     const reply = await this.fetch("older", { threadId: this.threadId, ...request });
     if (!reply || this.state.window !== window) return;
-    const next = withOlder(window, reply, this.bounds);
+    const next = await this.fill(
+      withOlder(window, reply, this.bounds),
+      this.laneCount(window),
+      () => this.state.window === window,
+    );
+    if (!next) return;
     this.growth = "older";
     // Older items never join a window to the tail; trimming its newer end can part them.
     const joined = this.state.joined && meetsTail(next, this.tail());
     this.set({ window: next, joined, loading: undefined });
+  }
+
+  private laneCount(window: JumpWindow): number {
+    const inLane = this.tail().itemInLane;
+    if (!inLane) return 0;
+    let count = 0;
+    for (const item of window.items) if (inLane(item)) count++;
+    return count;
+  }
+
+  /**
+   * Keep reading older history until the window gained `laneFill` lane items over `had`, the
+   * thread's start, its bounds, or a few reads. Undefined when the read was replaced or failed
+   * (`current` says whether it still stands).
+   */
+  private async fill(
+    window: JumpWindow,
+    had: number,
+    current: () => boolean,
+  ): Promise<JumpWindow | undefined> {
+    if (!this.tail().itemInLane) return window;
+    let next = window;
+    for (let reads = 0; reads < fillReads; reads++) {
+      if (this.laneCount(next) - had >= laneFill) break;
+      if (next.items.length >= this.bounds.capacity) break;
+      const request = olderRequest(next);
+      if (!request) break;
+      const reply = await this.fetch("older", { threadId: this.threadId, ...request });
+      if (!reply || !current()) return undefined;
+      const grown = withOlder(next, reply, this.bounds);
+      if (grown.items[0]?.id === next.items[0]?.id) break;
+      next = grown;
+    }
+    return next;
   }
 
   /**
@@ -378,6 +429,15 @@ export class JumpController {
     });
     if (next.window !== window || next.joined !== joined)
       this.set({ window: next.window, joined: next.joined });
+  }
+
+  /**
+   * The reader follows the live end through a joined window that stays open (a subagent's
+   * page holds its lane so busy siblings never trim it): past its bounds it drops its oldest
+   * items and stays joined, rather than leaving the live end behind.
+   */
+  follow(): void {
+    if (this.state.window) this.growth = "newer";
   }
 
   /** Back to the live tail; the window is discarded at once. */

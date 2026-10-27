@@ -42,7 +42,15 @@
           "maxLength": 1024,
           "type": "string"
         },
+        "branchOnly": {
+          "type": "boolean"
+        },
         "ignoredSkipped": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "keptFiles": {
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer"

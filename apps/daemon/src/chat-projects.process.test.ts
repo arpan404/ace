@@ -149,8 +149,11 @@ test("a chat's hidden project can't be renamed, edited or removed like a project
       await f.command({ type: "workspace.rename", workspaceId: chat.id, name: "Renamed" }),
     ).toMatchObject({ ok: false, error: "chat_project" });
     expect(
-      await f.command({ type: "workspace.remove", workspaceId: chat.id, archiveThreads: false }),
-    ).toMatchObject({ ok: false, error: "chat_project" });
+      await f.command({ type: "workspace.remove", workspaceId: chat.id, stopRunning: false }),
+    ).toMatchObject({
+      ok: false,
+      error: "chat_project",
+    });
     expect(await exists(chat.path)).toBe(true);
   } finally {
     await f.close();
