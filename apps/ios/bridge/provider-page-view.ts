@@ -18,6 +18,7 @@ import {
   pluralCount,
   providerModelLists,
   providerModelProblems,
+  providerHasMcpServers,
   providerNames,
   readinessView,
   signInSteps,
@@ -108,6 +109,8 @@ export interface ProviderPage {
   off: boolean;
   /** The provider keeps ace accounts (its Accounts page applies). */
   accounts: boolean;
+  /** Its sessions take MCP servers ace can list and change (Advanced → MCP servers). */
+  mcp: boolean;
   /** Its CLI signs out from here (Advanced → Sign out). */
   signOut: boolean;
   /**
@@ -134,6 +137,8 @@ export interface ProviderPage {
 }
 
 const accountProviders = new Set<ProviderKind>(["claude", "codex", "opencode", "cursor", "pi"]);
+/** Providers whose Accounts page applies: Antigravity keeps accounts too, by sign-in method. */
+const accountPageProviders = new Set<ProviderKind>([...accountProviders, "antigravity"]);
 const aceModes = "";
 
 export interface ProviderPageInput {
@@ -229,7 +234,8 @@ export function providerPage(input: ProviderPageInput): ProviderPage {
     updateToo: updateWaiting && !!fix && fix !== "update" && fix !== "turn_on",
     missing,
     off,
-    accounts: accountProviders.has(provider) && !missing,
+    accounts: accountPageProviders.has(provider) && !missing,
+    mcp: providerHasMcpServers(provider) && !missing,
     signOut: !missing && !!view?.more.includes("sign_out"),
     apiKey:
       !missing && status?.apiKey?.supported

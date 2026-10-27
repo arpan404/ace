@@ -52,6 +52,10 @@ struct ProviderSettingsView: View {
             }
             .insetRowBackground()
             OtherProvidersSections(model: model, others: others)
+            Section {
+                NavigationLink { AcpRegistryView(model: model) } label: { InsetRow("Add agent", systemImage: "plus") }
+            }
+            .insetRowBackground()
             if let problem = model.providers?.problem { ServiceProblem(message: problem).listRowBackground(Color.clear) }
         }
         .insetGroupedList()
@@ -75,9 +79,6 @@ struct ProviderSignInView: View {
         Form {
             Group {
                 Section {
-                    if instance == nil, ["claude", "codex", "opencode", "cursor", "pi"].contains(provider) {
-                        NavigationLink("Accounts") { ProviderAccountsView(model: model, provider: provider, name: name) }
-                    }
                     Text("Sign in to the coding agent installed on your paired machine.")
                     Button("Sign in") { request(["type": "provider.login.start", "provider": provider]) }
                         .disabled(busy || progress.map { !$0.finished } == true || !model.canOperate)

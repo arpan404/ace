@@ -27,7 +27,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { cn } from "@/lib/cn.ts";
 import { AgentIcon } from "./agent-icon.tsx";
-import type { RegistryView } from "./registry-data.ts";
+import type { RegistryView } from "@ace/ui-core/acp-registry-data";
 
 interface Row {
   agent: RegistryAgent;

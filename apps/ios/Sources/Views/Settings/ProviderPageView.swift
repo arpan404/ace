@@ -39,6 +39,15 @@ struct ProviderPageView<Extra: View>: View {
                 if !page.missing { access(page) }
                 if let models = page.models, !page.off { ProviderBehaviourSection(model: model, provider: provider, models: models) }
                 extra(page)
+                if page.mcp {
+                    Section {
+                        NavigationLink { ProviderMcpView(model: model, provider: provider, name: page.name) } label: {
+                            InsetRow("MCP servers", systemImage: nil)
+                        }
+                        .accessibilityIdentifier("provider.mcp")
+                    }
+                    .insetRowBackground()
+                }
                 ProviderAdvancedSection(model: model, page: page, removeCLI: { plan("uninstall") }) { saved += 1 }
                 if !page.about.isEmpty { about(page) }
             } else if let problem {

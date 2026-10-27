@@ -67,6 +67,23 @@ test("native service bridge refuses thread commands so they cannot bypass durabl
   expect(sink.read("service:bad")).toMatchObject({ ok: false, value: null });
 });
 
+test("an API key never leaves the phone, because ADR 0002 allows keys only over provider_auth", async () => {
+  const { client } = sheetFixture();
+  close = () => client.close();
+  await client.start();
+  await until(() => client.state === "ready", "connected");
+  const sink = new RecordingSink();
+  new NativeServices(client, sink).handle({
+    type: "service",
+    id: "key",
+    request: { type: "provider.login.apiKey", session: "login-1", apiKey: "sk-test-123" },
+  });
+  await until(() => sink.read("service:key") !== undefined, "refused");
+  // Refused in the bridge: a forwarded request would come back with the daemon's own answer.
+  expect(sink.read("service:key")).toMatchObject({ ok: false, value: null });
+  expect(JSON.stringify(sink.read("service:key"))).not.toContain("sk-test-123");
+});
+
 test("phone search finds message content beyond the loaded inbox titles", async () => {
   const { client } = sheetFixture();
   close = () => client.close();

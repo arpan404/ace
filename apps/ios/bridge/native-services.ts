@@ -36,6 +36,7 @@ import { UsageLimitsRequest, readUsageLimits } from "./usage-limits.ts";
 import { HostCareRequest, type HostCare } from "./host-care.ts";
 import { HostProblem } from "./host-problem.ts";
 import { answerSettingsPage, settingsPageRequest } from "./settings-page-service.ts";
+import { answerSettingsManage, SettingsManageRequest } from "./settings-manage.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
 import { ForgeRequest, type ForgeService } from "./forge-service.ts";
@@ -68,6 +69,11 @@ const Request = z.union([
   TerminalRequest,
   UsageSummary,
 ]);
+/**
+ * ADR 0002 lets a paired device hand over an API key only on the relay's encrypted
+ * `provider_auth` channel, which this bridge doesn't have, so a key never leaves the phone here.
+ */
+const ApiKeyHandOver = z.object({ type: z.literal("provider.login.apiKey") });
 const DeviceRequestType = z.object({
   type: z.enum(["devices.request", "devices.gesture", "devices.tree"]),
 });
@@ -150,6 +156,7 @@ export class NativeServices {
     this.#pending.set(id, controller);
     if (read) this.#keeping.add(id);
     try {
+      if (ApiKeyHandOver.safeParse(raw).success) throw new Error("API keys stay off the phone");
       const screen = NativeScreenRequest.safeParse(raw);
       if (screen.success && this.screen) {
         try {
@@ -226,6 +233,16 @@ export class NativeServices {
       const page = settingsPageRequest(raw);
       if (page) {
         this.#answer(id, raw, await answerSettingsPage(this.owner, page, controller.signal), read);
+        return;
+      }
+      const manage = SettingsManageRequest.safeParse(raw);
+      if (manage.success) {
+        this.#reply(
+          id,
+          true,
+          await answerSettingsManage(this.owner, manage.data, controller.signal),
+          "",
+        );
         return;
       }
       const transcript = NativeTranscriptRequest.safeParse(raw);

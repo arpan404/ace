@@ -26,6 +26,7 @@ struct ProviderPageData: Decodable, Equatable {
     let missing: Bool
     let off: Bool
     let accounts: Bool
+    let mcp: Bool
     let signOut: Bool
     let apiKey: String?
     let terminal: Terminal?

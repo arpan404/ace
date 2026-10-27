@@ -11,29 +11,13 @@ import {
 } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { mcpServersNote, mcpServerWord, providerHasMcpServers } from "@ace/ui-core";
 import { providerMcpSource } from "./provider-mcp-source.ts";
 
 const AddMcpServer = lazy(() => import("./add-mcp-server.tsx"));
 
-/** The providers whose sessions hand ace their MCP controls. */
-const managed = new Set<ProviderKind>(["claude", "codex", "opencode"]);
-
-type Status = McpSources["servers"][number]["status"];
-/**
- * One plain word per state, in the same muted text: a server waiting for its own sign-in is the
- * server's business, never a problem with the provider.
- */
-const words: Record<Status, string | undefined> = {
-  connected: "Connected",
-  connecting: "Starting…",
-  disabled: "Off",
-  needs_auth: "Not signed in",
-  failed: "Couldn't start",
-  unknown: undefined,
-};
-
 export function ProviderMcpServers(props: { provider: ProviderKind; name: string }) {
-  if (!managed.has(props.provider)) return null;
+  if (!providerHasMcpServers(props.provider)) return null;
   return <McpServerList provider={props.provider} name={props.name} />;
 }
 
@@ -88,16 +72,7 @@ function McpServerList(props: { provider: ProviderKind; name: string }) {
   };
   const servers = data?.servers ?? [];
   return (
-    <SettingSection
-      label="MCP servers"
-      note={
-        data && !data.live
-          ? `${props.name}'s MCP servers show here while one of its threads is running.`
-          : data?.appliesNextTurn
-            ? "Changes apply on the next turn."
-            : undefined
-      }
-    >
+    <SettingSection label="MCP servers" note={data ? mcpServersNote(data, props.name) : undefined}>
       {failed && (
         <SettingNote role="status" className="flex items-center gap-2">
           Couldn't read the MCP servers.
@@ -108,7 +83,7 @@ function McpServerList(props: { provider: ProviderKind; name: string }) {
       )}
       <SettingList aria-label={`${props.name} MCP servers`}>
         {servers.map((server) => {
-          const word = words[server.status];
+          const word = mcpServerWord(server.status);
           const off = server.status === "disabled";
           return (
             <SettingListItem key={server.name}>
