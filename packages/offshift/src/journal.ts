@@ -8,8 +8,10 @@ import {
   type OffshiftResult,
   type OffshiftView,
 } from "@ace/protocol/offshift";
+import { OffshiftPersonOperation } from "@ace/protocol/offshift-person";
+import { personTransition, type PersonContext } from "./person.ts";
 import { playbookCatalogue } from "./playbooks.ts";
-import { OffshiftError, transition, view, type Context } from "./workflow.ts";
+import { OffshiftError, transition, view, type Context, type Observation } from "./workflow.ts";
 
 const stored = z.object({ body: z.string() });
 const receipt = z.object({ input: z.string() });
@@ -41,6 +43,71 @@ export class OffshiftJournal {
     `),
     );
   }
+  /**
+   * The person's change or read. `requestId` keys the receipt, so a retry after a lost response
+   * applies once; reusing it for another change is refused.
+   */
+  executePerson(input: unknown, requestId: string, context: PersonContext): Executed {
+    const op = OffshiftPersonOperation.parse(input);
+    return this.transactions.atomic((db): Executed => {
+      const current = this.read(db, context.threadId, op.runId);
+      if (op.action === "get") {
+        if (!current) throw new OffshiftError("This run no longer exists");
+        return { result: view(current, context) };
+      }
+      const encoded = JSON.stringify({ op, by: context.person });
+      const key = `person:${requestId}`;
+      const prior = db
+        .prepare(
+          "SELECT input FROM offshift_receipts WHERE thread_id=? AND run_id=? AND request_id=?",
+        )
+        .get(context.threadId, op.runId, key);
+      if (prior) {
+        if (receipt.parse(prior).input !== encoded)
+          throw new OffshiftError("requestId was already used for a different change");
+        if (!current) throw new OffshiftError("Run receipt has no run");
+        return { result: view(current, context) };
+      }
+      if (op.action === "start") this.admitStart(db, context.threadId);
+      if (current && current.version >= 512)
+        throw new OffshiftError("Run mutation limit reached; start a new run");
+      const next = personTransition(current, op, context);
+      return this.write(db, { threadId: context.threadId, requestId: key, encoded }, next, context);
+    });
+  }
+  private read(db: DatabaseSync, threadId: string, runId: string): OffshiftRun | undefined {
+    const row = db
+      .prepare("SELECT body FROM offshift_runs WHERE thread_id=? AND id=?")
+      .get(threadId, runId);
+    return row ? OffshiftRun.parse(JSON.parse(stored.parse(row).body)) : undefined;
+  }
+  private admitStart(db: DatabaseSync, threadId: string): void {
+    const count = z
+      .object({ n: z.number() })
+      .parse(db.prepare("SELECT count(*) AS n FROM offshift_runs WHERE thread_id=?").get(threadId));
+    if (count.n >= 32) throw new OffshiftError("Thread run limit reached");
+  }
+  /** Writes the run and its receipt together, within the run's byte budget. */
+  private write(
+    db: DatabaseSync,
+    receiptOf: { threadId: string; requestId: string; encoded: string },
+    next: OffshiftRun,
+    observation: Observation,
+  ): Executed {
+    const body = JSON.stringify(next);
+    if (Buffer.byteLength(body) > 49152)
+      throw new OffshiftError(
+        "Run exceeds the 48 KiB evidence budget; use concise summaries and artifact references",
+      );
+    db.prepare(
+      "INSERT INTO offshift_runs(thread_id,id,body) VALUES (?,?,?) ON CONFLICT(thread_id,id) DO UPDATE SET body=excluded.body",
+    ).run(receiptOf.threadId, next.id, body);
+    db.prepare(
+      "INSERT INTO offshift_receipts(thread_id,run_id,request_id,input) VALUES (?,?,?,?)",
+    ).run(receiptOf.threadId, next.id, receiptOf.requestId, receiptOf.encoded);
+    const changed = view(next, observation);
+    return { result: changed, changed };
+  }
   execute(input: unknown, context: Context): Executed {
     const request = OffshiftRequest.parse(input);
     if (request.action === "playbooks") return { result: playbookCatalogue() };
@@ -69,10 +136,7 @@ export class OffshiftJournal {
           });
         return { result };
       }
-      const row = db
-        .prepare("SELECT body FROM offshift_runs WHERE thread_id=? AND id=?")
-        .get(context.threadId, request.runId);
-      const current = row ? OffshiftRun.parse(JSON.parse(stored.parse(row).body)) : undefined;
+      const current = this.read(db, context.threadId, request.runId);
       if (request.action === "get") {
         if (!current)
           throw new OffshiftError(
@@ -98,32 +162,11 @@ export class OffshiftJournal {
         // A receipt prevents replay, but never replays a stale completion observation.
         return { result: view(current, context) };
       }
-      if (request.action === "start") {
-        const count = z
-          .object({ n: z.number() })
-          .parse(
-            db
-              .prepare("SELECT count(*) AS n FROM offshift_runs WHERE thread_id=?")
-              .get(context.threadId),
-          );
-        if (count.n >= 32) throw new OffshiftError("Thread run limit reached");
-      }
+      if (request.action === "start") this.admitStart(db, context.threadId);
       if (current && current.version >= 512)
         throw new OffshiftError("Run mutation limit reached; start a new run");
       const next = transition(current, request, context);
-      const body = JSON.stringify(next);
-      if (Buffer.byteLength(body) > 49152)
-        throw new OffshiftError(
-          "Run exceeds the 48 KiB evidence budget; use concise summaries and artifact references",
-        );
-      db.prepare(
-        "INSERT INTO offshift_runs(thread_id,id,body) VALUES (?,?,?) ON CONFLICT(thread_id,id) DO UPDATE SET body=excluded.body",
-      ).run(context.threadId, request.runId, body);
-      db.prepare(
-        "INSERT INTO offshift_receipts(thread_id,run_id,request_id,input) VALUES (?,?,?,?)",
-      ).run(context.threadId, request.runId, requestId, encoded);
-      const changed = view(next, context);
-      return { result: changed, changed };
+      return this.write(db, { threadId: context.threadId, requestId, encoded }, next, context);
     });
   }
 }

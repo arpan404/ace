@@ -30,7 +30,7 @@ export const offshiftPlaybookNames: Record<OffshiftPlaybookId, string> = {
 };
 
 /**
- * Where the run stands: blocked while a blocker is recorded; delivered in delivery with no
+ * Where the run stands: ended once the person ends it; blocked while a blocker is recorded; delivered in delivery with no
  * evidence pending and no delivery step to do; open otherwise.
  */
 export function runMark(card: OffshiftRunCard): OffshiftRunMark {
@@ -40,7 +40,7 @@ export function runMark(card: OffshiftRunCard): OffshiftRunMark {
     !card.steps.some((step) => step.state === "todo");
   return {
     phase: card.phase,
-    state: card.blocker ? "blocked" : delivered ? "delivered" : "open",
+    state: card.ended ? "ended" : card.blocker ? "blocked" : delivered ? "delivered" : "open",
     pendingCount: card.pendingCount,
     ...(card.playbook ? { playbook: card.playbook } : {}),
   };
@@ -63,7 +63,8 @@ export function runNotice(
   mark: OffshiftRunMark,
   tree: ThreadStatus["state"],
 ): RunNotice | undefined {
-  if (tree !== "done") return undefined;
+  // An ended run was the person's own call: the ordinary finished notice says enough.
+  if (tree !== "done" || mark.state === "ended") return undefined;
   const phase = offshiftPhaseNames[mark.phase];
   if (mark.state === "blocked")
     return { outcome: "blocked", phase: mark.phase, headline: `Run blocked at ${phase}` };
