@@ -11,6 +11,18 @@ struct MachineAdmissionInfo: Codable, Sendable, Equatable {
     let action: String
 }
 
+/// `machine.appUpdate` (`bridge/machine-app-update.ts`): the desktop app's update, read-only.
+/// `known` is false when the machine's ace predates the report; `version` reads "Unknown" when
+/// no desktop app has reported.
+struct MachineAppUpdateInfo: Codable, Sendable, Equatable {
+    let known: Bool
+    let version: String
+    /// "Up to date", "Update 1.4.2 available" or "Restart to finish updating".
+    let line: String?
+    /// Restart required: the one state that needs the person.
+    let needsYou: Bool
+}
+
 /// `host.storage` (`bridge/host-storage.ts`): one machine's Storage page, already worded.
 struct StoragePage: Decodable, Sendable, Equatable {
     struct Row: Decodable, Sendable, Equatable, Identifiable { let kind: String; let title: String; let detail: String; let size: String; var id: String { kind } }

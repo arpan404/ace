@@ -12,6 +12,10 @@ import XCTest
         let pause = element(app, "machine.admission")
         XCTAssertTrue(pause.waitForExistence(timeout: 20))
         XCTAssertTrue(pause.label.contains("Pause new work"))
+        // The desktop app's update, read-only: its version and the one line that needs the person.
+        let update = element(app, "machine.appUpdate")
+        XCTAssertTrue(update.waitForExistence(timeout: 10))
+        XCTAssertTrue(update.label.contains("1.4.1") && update.label.contains("Restart to finish updating"))
         screenshot("machine")
         pause.tap()
         let line = element(app, "machine.admission.line")

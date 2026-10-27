@@ -33,6 +33,7 @@ struct MachineDetailView: View {
                     LabeledContent("Address") { Text(address).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote) }
                 }
                 if let version = client?.providers?.version { LabeledContent("ace", value: version) }
+                if let update = client?.appUpdate, update.known { MachineAppUpdateRow(update: update) }
                 if let problem = facts.needsPairing ? nil : client?.problem {
                     // At accessibility sizes Retry goes under the message instead of squeezing it.
                     let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xs)) : AnyLayout(HStackLayout())

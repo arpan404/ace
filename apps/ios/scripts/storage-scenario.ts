@@ -63,3 +63,16 @@ export function seedStorage(daemon: FakeDaemon, now: number): void {
     ],
   });
 }
+
+/** The desktop app's update as the machine page shows it: downloaded, waiting for a restart. */
+export function seedAppUpdate(daemon: FakeDaemon): void {
+  daemon.seedServices({
+    appUpdate: {
+      version: "1.4.1",
+      available: "1.4.2",
+      downloaded: true,
+      restartRequired: true,
+      releaseUrl: "https://github.com/arpan404/ace/releases/tag/v1.4.2",
+    },
+  });
+}

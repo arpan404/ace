@@ -69,6 +69,8 @@ import QuartzCore
     var providers: MachineProvidersInfo?
     /// Whether the machine takes new work (`bridge/machine-admission.ts`).
     var admission: MachineAdmissionInfo?
+    /// The desktop app's update on this machine (`bridge/machine-app-update.ts`).
+    var appUpdate: MachineAppUpdateInfo?
     /// Each project's mark by workspace id, as rows draw it (`bridge/project-looks.ts`).
     var projectLooks: [String: ProjectMarkLook] = [:]
     /// The mark this machine chose; nil until it says (rows then draw a laptop).
@@ -132,7 +134,7 @@ import QuartzCore
         hostId = target.hostId
         inbox.removeAll(); pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         inboxLayout = .empty
-        machineStatus = nil; providers = nil; admission = nil; projectLooks = [:]; machineGlyph = nil
+        machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
@@ -353,6 +355,7 @@ import QuartzCore
             case .machineStatus(let info): machineStatus = info
             case .machineProviders(let info): providers = info
             case .machineAdmission(let info): admission = info
+            case .machineAppUpdate(let info): appUpdate = info
             case .projectLook(let id, let look): projectLooks[id] = look.map(ProjectMarkLook.init)
             case .machineIdentity(let glyph): machineGlyph = AceIcon.Name(rawValue: glyph)
             case .pending(let id, let row): pending[id] = row
