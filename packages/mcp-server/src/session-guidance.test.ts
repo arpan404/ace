@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { ProviderKind } from "@ace/protocol";
 import {
   acpInjection,
+  acpShowsServerInstructions,
   acpToolListing,
   aceInstructions,
   cursorSdkInjection,
@@ -60,6 +61,30 @@ it("an ACP agent's guidance follows the listing its tool refresh supports", () =
   ).developerInstructions;
   expect(antigravity).toContain("call_mcp_tool");
   expect(antigravity).not.toContain("tools_call");
+});
+
+/** What the daemon hands an ACP agent's own channel (system prompt or first prompt). */
+const ownChannel = (cli: string | undefined, provider: "antigravity" | "acp" = "acp") =>
+  acpInjection(
+    {
+      ...connection,
+      listing: acpToolListing(cli),
+      serverInstructions: acpShowsServerInstructions(cli),
+    },
+    provider,
+  ).developerInstructions;
+
+it("ace's guidance reaches an ACP agent once: in server instructions it shows, else its own channel", () => {
+  // Gemini CLI and Claude Code put server instructions in the model's context: no second copy.
+  for (const cli of ["gemini", "claude-acp"])
+    expect(ownChannel(cli), cli).not.toContain(aceInstructions);
+  // Antigravity only files them in instructions.md beside its tool definitions, and Qwen Code
+  // or an unreviewed agent may never read them: ace's guidance rides in their own channel.
+  expect(ownChannel("antigravity", "antigravity")).toContain(aceInstructions);
+  for (const cli of ["qwen-code", "goose", undefined])
+    expect(ownChannel(cli), cli ?? "unknown").toContain(aceInstructions);
+  // An Antigravity session the daemon renders with no agent facts still carries it.
+  expect(developerInstructions("antigravity")).toContain(aceInstructions);
 });
 
 it("a read-only session hears which ace tools still work, on every provider", () => {

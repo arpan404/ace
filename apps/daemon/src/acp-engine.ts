@@ -8,6 +8,7 @@ import {
   acpInjection,
   acpStdioInjection,
   acpClaudeToolListing,
+  acpShowsServerInstructions,
   acpToolListing,
 } from "@ace/mcp-server";
 import { claudeToolSearchFacts } from "@ace/adapter-claude/tool-search";
@@ -115,10 +116,13 @@ export function acpEngineOptions(input: {
               }),
             )
           : acpToolListing(cli);
+      // Agents that never show MCP server instructions (Antigravity files them away) get ace's
+      // guidance in their own channel instead.
       const connection = {
         url: input.mcp.url,
         bearer: lease.bearer,
         listing,
+        serverInstructions: acpShowsServerInstructions(cli),
         session: lease.session,
       };
       const instance: InstanceInput = {

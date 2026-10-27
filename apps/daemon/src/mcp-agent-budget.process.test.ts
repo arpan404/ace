@@ -121,10 +121,14 @@ function listedNames(provider: ProviderKind, { full }: Agents): string {
   return full.tools.map((tool) => tool.name).join(namesOnly.has(provider) ? ", " : " ");
 }
 const bareNames = (tools: ListedTool[]) => tools.map((tool) => bareToolName(tool.name)).toSorted();
-/** ace's guidance as one provider receives it: server instructions or its native channel. */
+/**
+ * ace's guidance as one provider receives it: server instructions or its native channel. A
+ * native copy names the session's own tools, so it is recognised by its opening line.
+ */
 function guidance(provider: ProviderKind, facts: SessionGuidance = {}): string {
   const native = developerInstructions(provider, facts);
-  return native.includes(aceInstructions) ? native : `${aceInstructions}\n${native}`;
+  const opening = aceInstructions.split("\n")[0] ?? aceInstructions;
+  return native.includes(opening) ? native : `${aceInstructions}\n${native}`;
 }
 /** The shipped skills as a provider's native skill listing shows them. */
 async function skillListing(): Promise<string> {
