@@ -96,6 +96,17 @@ export function startMachines(context: ServiceContext): void {
     .then((release) => resources.own(release))
     .catch((error: unknown) => log.log("warn", "Agent access not followed", logError(error)));
   services.engine?.bindExternalTaskStop("ace-guest:", (id, thread) => guests.stop(id, thread));
+  const commands = commandHost({
+    store,
+    engine,
+    guests,
+    threads,
+    dataDir: config.dataDir,
+    now,
+    log,
+  });
+  // A closing daemon ends the commands it runs: nothing would own them after the restart.
+  resources.own(() => commands.close(), "machine commands");
   // Deleting a guest session stops the calls it holds; their callers hear why.
   resources.own(
     store.subscribe((events) => {
@@ -104,8 +115,10 @@ export function startMachines(context: ServiceContext): void {
           event.payload.type === "thread.client.updated" &&
           typeof event.payload.changes.deletedAt === "number" &&
           guests.guest(event.threadId)
-        )
+        ) {
           guests.stopThread(event.threadId);
+          commands.forget(event.threadId);
+        }
     }),
   );
   const browser = new TargetBrowser({ store, browser: () => services.browser, guests });
@@ -125,17 +138,6 @@ export function startMachines(context: ServiceContext): void {
       if (capability === "screen") screen.release(session.threadId);
     }),
   );
-  const commands = commandHost({
-    store,
-    engine,
-    guests,
-    threads,
-    dataDir: config.dataDir,
-    now,
-    log,
-  });
-  // A closing daemon ends the commands it runs: nothing would own them after the restart.
-  resources.own(() => commands.close(), "machine commands");
   services.machineCalls = createMachineTarget({
     hostId,
     hostName,

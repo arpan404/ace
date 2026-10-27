@@ -19,6 +19,7 @@ import {
   timeoutFor,
   type CommandOutcome,
 } from "./command-rules.ts";
+import { CommandJobs, keptForMs } from "./command-jobs.ts";
 import {
   runCommand,
   type CommandClock,
@@ -46,7 +47,8 @@ export interface CommandHostDeps {
 
 interface Job {
   id: string;
-  session: GuestSession;
+  /** The guest session's thread, which owns the job. */
+  session: string;
   command: string;
   cwd: string;
   run: RunningCommand;
@@ -54,9 +56,8 @@ interface Job {
   controller: AbortController;
 }
 
-/** Background jobs one calling thread may run at once, and finished ones kept to read. */
+/** Background jobs one calling thread may run at once. */
 const runningPerSession = 8;
-const keptPerSession = 16;
 const Origin = z.object({ origin_host: z.string(), origin_thread: z.string() });
 
 const text = (value: string): MachineToolResult["content"][number] => ({
@@ -77,7 +78,7 @@ function invalid(error: z.ZodError): TargetRefusal {
  */
 export class CommandHost implements CapabilityHost {
   private deps: CommandHostDeps;
-  private jobs = new Map<string, Job>();
+  private jobs = new CommandJobs<Job>();
   constructor(deps: CommandHostDeps) {
     this.deps = deps;
   }
@@ -89,7 +90,7 @@ export class CommandHost implements CapabilityHost {
    * own it after the restart (its session's record is ended on the next start).
    */
   async close(): Promise<void> {
-    const running = [...this.jobs.values()].filter((job) => !job.outcome);
+    const running = this.jobs.live();
     for (const job of running) job.run.stop();
     await Promise.all(running.map((job) => job.run.done));
   }
@@ -103,6 +104,7 @@ export class CommandHost implements CapabilityHost {
     args: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<MachineToolResult> {
+    this.jobs.prune(this.deps.clock.now());
     switch (tool) {
       case "command_run":
         return this.run(session, args, signal);
@@ -167,14 +169,11 @@ export class CommandHost implements CapabilityHost {
     limits: { timeoutMs: number; tailBytes: number },
     signal: AbortSignal,
   ): Promise<MachineToolResult> {
-    const mine = [...this.jobs.values()].filter((job) => job.session.threadId === session.threadId);
-    if (mine.filter((job) => !job.outcome).length >= runningPerSession)
+    if (this.jobs.running(session.threadId).length >= runningPerSession)
       throw new TargetRefusal(
         "invalid",
         `At most ${runningPerSession} background commands run at once; stop one with command_stop.`,
       );
-    for (const old of mine.filter((job) => job.outcome).slice(0, -keptPerSession + 1))
-      this.jobs.delete(old.id);
     const id = `job-${this.deps.newId()}`.toLowerCase();
     const controller = new AbortController();
     const made: { job?: Job } = {};
@@ -191,7 +190,14 @@ export class CommandHost implements CapabilityHost {
       controller.signal,
       (stop) => {
         const run = runCommand(this.deps.spawn, this.deps.clock, spec, limits);
-        made.job = { id, session, command, cwd: spec.cwd, run, controller };
+        made.job = {
+          id,
+          session: session.threadId,
+          command,
+          cwd: spec.cwd,
+          run,
+          controller,
+        };
         stop.addEventListener("abort", () => run.stop(), { once: true });
         return run.done;
       },
@@ -202,11 +208,14 @@ export class CommandHost implements CapabilityHost {
       await held;
       throw new TargetRefusal("unavailable", "The command did not start.");
     }
-    this.jobs.set(id, started);
+    this.jobs.add(started);
     const key = `${commandPrefix}${id}`;
     this.record(session, key, command, spec.cwd, started.run.startedAt);
     void started.run.done.then((outcome) => {
       started.outcome = outcome;
+      this.jobs.finished(id, this.deps.clock.now());
+      // A finished job is readable for a while, then let go with its output.
+      this.deps.clock.schedule(keptForMs + 1, () => this.jobs.prune(this.deps.clock.now()));
       this.finished(session, key, command, spec.cwd, started.run, outcome);
     });
     return {
@@ -225,7 +234,7 @@ export class CommandHost implements CapabilityHost {
   /** One of this calling thread's jobs; another thread's ids name nothing. */
   private owned(session: GuestSession, id: string): Job {
     const job = this.jobs.get(id);
-    if (!job || job.session.threadId !== session.threadId)
+    if (!job || job.session !== session.threadId)
       throw new TargetRefusal("invalid", "No such command job from this thread.");
     return job;
   }
@@ -263,6 +272,13 @@ export class CommandHost implements CapabilityHost {
     job.run.stop();
     const outcome = await job.run.done;
     return { content: [text(`${job.id}: ${outcomeLine(outcome)}`)] };
+  }
+  /**
+   * The person deleted a session: its jobs are let go (running ones end with the session's
+   * Stop), so nothing of theirs stays in memory here.
+   */
+  forget(threadId: string): void {
+    for (const job of this.jobs.forget(threadId)) if (!job.outcome) job.run.stop();
   }
   private result(outcome: CommandOutcome, cwd: string, run: RunningCommand): MachineToolResult {
     const content = [text(`${outcomeLine(outcome)}\ncwd: ${cwd}`)];
