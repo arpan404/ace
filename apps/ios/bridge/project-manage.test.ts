@@ -240,43 +240,44 @@ describe("a thread's dev servers", () => {
   });
 });
 
-describe("a write the computer answers late", () => {
-  /**
-   * The real client, except each command's receipt reaches the bridge only once the test
-   * releases it: the computer answering after the bridge stopped waiting.
-   */
-  function late(client: ReturnType<typeof sheetFixture>["client"]) {
-    const held: (() => void)[] = [];
-    let released = false;
-    const owner: ProjectManageOwner = {
-      request: client.request.bind(client),
-      enqueue: client.enqueue.bind(client),
-      commandId: client.commandId.bind(client),
-      intent: (id) => {
-        const real = client.intent(id);
-        return {
-          getSnapshot: () => (released ? real.getSnapshot() : undefined),
-          subscribe: (listener: () => void) => {
-            held.push(listener);
-            return real.subscribe(() => {
-              if (released) listener();
-            });
-          },
-        } as ReturnType<ProjectManageOwner["intent"]>;
-      },
-    };
-    const release = () => {
-      released = true;
-      for (const listener of held) listener();
-    };
-    return { owner, release };
-  }
-  /** The wait for a receipt runs out at once. */
-  const impatient = (_delay: number, run: () => void) => {
-    run();
-    return () => {};
+/**
+ * The real client, except each command's receipt reaches the bridge only once the test
+ * releases it: the computer answering after the bridge stopped waiting.
+ */
+function late(client: ReturnType<typeof sheetFixture>["client"]) {
+  const held: (() => void)[] = [];
+  let released = false;
+  const owner: ProjectManageOwner = {
+    request: client.request.bind(client),
+    enqueue: client.enqueue.bind(client),
+    commandId: client.commandId.bind(client),
+    intent: (id) => {
+      const real = client.intent(id);
+      return {
+        getSnapshot: () => (released ? real.getSnapshot() : undefined),
+        subscribe: (listener: () => void) => {
+          held.push(listener);
+          return real.subscribe(() => {
+            if (released) listener();
+          });
+        },
+      } as ReturnType<ProjectManageOwner["intent"]>;
+    },
   };
+  const release = () => {
+    released = true;
+    for (const listener of held) listener();
+  };
+  return { owner, release };
+}
 
+/** The wait for a receipt runs out at once. */
+const impatient = (_delay: number, run: () => void) => {
+  run();
+  return () => {};
+};
+
+describe("a write the computer answers late", () => {
   test("a removal refused after the wait still reaches the phone with its reason", async () => {
     const { daemon, client } = sheetFixture();
     closers.push(() => client.close());

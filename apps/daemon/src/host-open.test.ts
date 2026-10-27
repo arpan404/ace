@@ -92,21 +92,21 @@ describe("opening a project on the machine running ace", () => {
   });
 });
 
-describe("an open that waits on the machine", () => {
-  /** Discovery that finishes only when the test says so, and a spawner that records starts. */
-  function held() {
-    const discovery = Promise.withResolvers<(typeof code)[]>();
-    const started: HostLaunch[] = [];
-    return {
-      finish: () => discovery.resolve([code]),
-      editors: () => discovery.promise,
-      spawn: async (launch: HostLaunch) => {
-        started.push(launch);
-      },
-      started,
-    };
-  }
+/** Discovery that finishes only when the test says so, and a spawner that records starts. */
+function held() {
+  const discovery = Promise.withResolvers<(typeof code)[]>();
+  const started: HostLaunch[] = [];
+  return {
+    finish: () => discovery.resolve([code]),
+    editors: () => discovery.promise,
+    spawn: async (launch: HostLaunch) => {
+      started.push(launch);
+    },
+    started,
+  };
+}
 
+describe("an open that waits on the machine", () => {
   test("a device revoked while editors are found never starts the editor", async () => {
     const root = await project();
     const machine = held();
