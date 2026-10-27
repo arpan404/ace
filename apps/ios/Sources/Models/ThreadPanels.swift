@@ -86,6 +86,13 @@ enum PanelPlace: Equatable {
         while order.count > 8 { views[order.removeFirst()] = nil }
     }
     func reset() { views = [:]; order = [] }
+
+    /// A file picked in the panel's Files, for that thread's composer to take as `@path`.
+    struct Mention: Equatable { let scope: String; let path: String; let id: Int }
+    private(set) var mentioned: Mention?
+    func mention(_ scope: String, path: String) {
+        mentioned = Mention(scope: scope, path: path, id: (mentioned?.id ?? 0) + 1)
+    }
 }
 
 extension ClientModel {

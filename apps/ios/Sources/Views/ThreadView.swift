@@ -33,7 +33,7 @@ struct ThreadView: View {
     @State private var showSearch = false
     @State private var showQueue = false
     /// Where the iPad's side panel goes; `.none` keeps every tool over the thread, as on a phone.
-    @State private var panelPlace = PanelPlace.none
+    @Environment(\.panelPlace) private var panelPlace
     /// The goal's sheet, named by the navigation generation it was opened on: its changes are for
     /// that one. The generation rides on the presentation itself, since a sheet keeps the content
     /// it was first built with and a value captured beside it would be the one before opening.
@@ -77,8 +77,6 @@ struct ThreadView: View {
     }
 
     var body: some View {
-        ThreadWorkspace(model: model, thread: thread, title: metadata?.title ?? "", subtitle: subtitle, openThread: openThread,
-                        mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil, place: $panelPlace) {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
                                                 openMedia: { media = $0 }, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
@@ -87,7 +85,6 @@ struct ThreadView: View {
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
-        }
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
@@ -183,6 +180,10 @@ struct ThreadView: View {
             }
             .environment(\.openBrowser, { open(.browser) })
             .panelCommands(panelCommands)
+            // A file picked in the side panel's Files goes into this composer.
+            .onChange(of: model.panels.mentioned) { _, picked in
+                if let picked, picked.scope == thread.id { mention = ComposerMention(path: picked.path) }
+            }
             .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
             #if ACE_FIXTURE
             .overlay(alignment: .topLeading) {

@@ -7,15 +7,26 @@ import UIKit
 /// sidebar, an extra row in the detail column's bar) and never give it back.
 struct TabBarPlace: UIViewControllerRepresentable {
     let hidden: Bool
+    /// Changes when something else lays the tabs out again (the side panel's inspector column
+    /// opening or closing shows the bar): the place is set once more after it settles.
+    var relayout = false
 
     func makeUIViewController(context: Context) -> Probe { Probe() }
     func updateUIViewController(_ probe: Probe, context: Context) {
         probe.hidden = hidden
         probe.apply()
+        if probe.relayout != relayout {
+            probe.relayout = relayout
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(450))
+                probe.apply()
+            }
+        }
     }
 
     final class Probe: UIViewController {
         var hidden = false
+        var relayout = false
         override func loadView() { view = UIView(); view.isUserInteractionEnabled = false }
         override func didMove(toParent parent: UIViewController?) { super.didMove(toParent: parent); apply() }
         override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); apply() }

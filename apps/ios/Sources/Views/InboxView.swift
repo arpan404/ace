@@ -196,6 +196,12 @@ struct InboxView: View {
                     client.open(child); path.wrappedValue.append(.thread(InboxKey(machineId: key.machineId, id: child)))
                 }
             }
+        } side: { key, part in
+            if let client = inbox.client(key.machineId) {
+                ThreadSidePanel(model: client, threadId: key.id, part: part) { child in
+                    client.open(child); path.wrappedValue.append(.thread(InboxKey(machineId: key.machineId, id: child)))
+                }
+            }
         }
     }
 

@@ -6,7 +6,7 @@ import SwiftUI
 /// the list a drawer over it, or the whole window while nothing is open. The split view stays the
 /// thread's home in both, so a resize or a fold keeps the thread, its scroll place, the draft and
 /// any open sheet. Pages pushed from the thread open on the detail column's own stack.
-struct InboxSplit<Sidebar: View, Page: View>: View {
+struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
     @Binding var path: [InboxRoute]
     @Binding var drawer: ThreadDrawer
     /// What the detail column says while nothing is open.
@@ -15,6 +15,8 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     let showing: Bool
     @ViewBuilder let list: () -> Sidebar
     @ViewBuilder let page: (InboxRoute) -> Page
+    /// The side panel of the thread showing, beside the detail's stack (`ThreadSidePanel`).
+    @ViewBuilder let side: (InboxKey, PanelPart) -> Side
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var visibility = NavigationSplitViewVisibility.all
@@ -30,8 +32,15 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     @State private var panelYield = false
     /// Each time the person brought the list back over such a panel.
     @State private var reclaimed = 0
-    /// The list column's width when it last showed.
+    /// The list column's width when it last showed fully.
     @State private var listColumn: CGFloat = ThreadColumns.listWidth.ideal
+    /// The list's width as it stepped aside, kept while it is away: measuring it as it slides
+    /// would tell the panel it has room again, bringing the list back, and round again.
+    @State private var yieldedList: CGFloat = 0
+    @State private var panelPlace = PanelPlace.none
+    @State private var panelColumn: PanelColumnWidth?
+    /// Each time the system closed the inspector itself.
+    @State private var panelDismissed = 0
 
     private var layout: ThreadDrawer.Layout { ThreadDrawer.layout(sizeClass, path: path) }
     /// The drawer settles with the system's spring; Reduce Motion fades it instead.
@@ -56,7 +65,7 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
         .toolbarVisibility(ThreadColumns.showsTabBar(sizeClass, path: path) ? .automatic : .hidden, for: .tabBar)
         // The tab bar controller itself follows the same rule, or its first layout keeps room for it.
         .background {
-            if showing { TabBarPlace(hidden: !ThreadColumns.showsTabBar(sizeClass, path: path)).frame(width: 0, height: 0) }
+            if showing { TabBarPlace(hidden: !ThreadColumns.showsTabBar(sizeClass, path: path), relayout: panelColumn != nil).frame(width: 0, height: 0) }
         }
         // Set outside any animation: a launch, a turn or a window resize never springs the list.
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
@@ -89,7 +98,12 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
             else if panelYield, now != .detailOnly { panelYield = false; reclaimed += 1 }
         }
         // Nothing open, nothing needs the room.
-        .onChange(of: path.isEmpty) { _, empty in if empty { yieldList(false) } }
+        .onChange(of: path.isEmpty) { _, empty in
+            guard empty else { return }
+            yieldList(false)
+            panelPlace = .none
+            panelColumn = nil
+        }
         .task(id: settling) {
             guard settling > 0 else { return }
             try? await Task.sleep(for: .milliseconds(800))
@@ -108,7 +122,7 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
                 if layout == .beside {
                     listed(onGlass: onSidebarGlass)
                         .background { SidebarPlain().frame(width: 0, height: 0) }
-                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { if $0 > 0 { listColumn = $0 } }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { if $0 >= ThreadColumns.listWidth.min, !panelYield { listColumn = $0 } }
                 } else {
                     Color.clear.accessibilityHidden(true)
                 }
@@ -139,6 +153,15 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
                     }
                 }
                 .navigationDestination(for: InboxRoute.self) { page($0) }
+            }
+            .environment(\.panelPlace, panelPlace)
+            // The decisions behind the open thread's side panel, and its column in the inspector.
+            .background { if let key = ThreadColumns.panelScope(path) { side(key, .state) } }
+            .inspector(isPresented: inspectorShown) {
+                Group {
+                    if let key = ThreadColumns.panelScope(path) { side(key, .column) } else { AceTheme.Colours.background }
+                }
+                .inspectorColumnWidth(min: panelColumn?.min ?? 320, ideal: panelColumn?.ideal ?? 400, max: panelColumn?.max ?? 560)
             }
             .environment(\.panelRoom, panelRoom)
         }
@@ -219,12 +242,19 @@ struct InboxSplit<Sidebar: View, Page: View>: View {
     private var panelRoom: PanelRoom? {
         guard layout == .beside else { return nil }
         let listShows = ThreadColumns.sideBySide(sizeClass, width: width) && visibility != .detailOnly
-        return PanelRoom(list: listShows || panelYield ? listColumn : 0, yielded: panelYield, reclaimed: reclaimed, yield: yieldList)
+        return PanelRoom(window: width, list: panelYield ? yieldedList : listShows ? listColumn : 0, reclaimed: reclaimed,
+                         dismissed: panelDismissed, yield: yieldList, place: $panelPlace, column: $panelColumn)
+    }
+    /// The inspector shows while the open thread's panel has a column; closing it from outside
+    /// (the system, a gesture) hides the thread's panel.
+    private var inspectorShown: Binding<Bool> {
+        Binding(get: { panelColumn != nil }, set: { shown in if !shown, panelColumn != nil { panelDismissed += 1 } })
     }
     /// The list steps aside for the panel, or comes back once it no longer needs the room.
     private func yieldList(_ wants: Bool) {
         guard wants != panelYield else { return }
         if wants, visibility == .detailOnly { return }
+        if wants { yieldedList = listColumn }
         withAnimation(motion) {
             panelYield = wants
             visibility = columns

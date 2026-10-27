@@ -30,6 +30,8 @@ enum ThreadColumns {
 
     /// The thread the list shows as open.
     static func selection(_ path: [InboxRoute]) -> InboxKey? { path.first?.thread }
+    /// The thread whose side panel shows: the last thread on the path, the one on screen.
+    static func panelScope(_ path: [InboxRoute]) -> InboxKey? { path.last { $0.thread != nil }?.thread }
     /// The pages pushed over the open thread in the detail column: child threads and the like.
     static func detail(_ path: [InboxRoute]) -> [InboxRoute] { Array(path.dropFirst()) }
     /// The whole path once the detail column's own stack changed.

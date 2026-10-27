@@ -14,7 +14,7 @@ struct InboxHeaderActions {
 /// there is a query. The Pulls tab holds the Pull requests and Issues lists (`Views/Forge`) and
 /// their pages. Beside an open page, or as the drawer over one, the list carries what the tab bar
 /// does: Threads and Pull requests sit at its foot, New thread in its bar or beside them.
-struct InboxStack<Destination: View>: View {
+struct InboxStack<Destination: View, Side: View>: View {
     @Bindable var inbox: MachineInbox
     @Binding var path: [InboxRoute]
     let pulls: Bool
@@ -32,6 +32,8 @@ struct InboxStack<Destination: View>: View {
     let actions: InboxRowActions
     let header: InboxHeaderActions
     @ViewBuilder let destination: (InboxKey) -> Destination
+    /// The thread's side panel beside it on iPad.
+    @ViewBuilder let side: (InboxKey, PanelPart) -> Side
     @State private var query = ""
     @State private var searching = false
     @State private var forgeKind = ForgeKind.pulls
@@ -57,9 +59,9 @@ struct InboxStack<Destination: View>: View {
     var body: some View {
         // The list beside the open page in a regular window, a stack in a compact one.
         if pulls {
-            InboxSplit(path: $path, drawer: $drawer, empty: "No pull request open", showing: tab == .pulls) { root } page: { page($0) }
+            InboxSplit(path: $path, drawer: $drawer, empty: "No pull request open", showing: tab == .pulls) { root } page: { page($0) } side: { _, _ in EmptyView() }
         } else {
-            InboxSplit(path: $path, drawer: $drawer, empty: "No thread open", showing: tab != .pulls) { root.inboxCommands(commands) } page: { page($0) }
+            InboxSplit(path: $path, drawer: $drawer, empty: "No thread open", showing: tab != .pulls) { root.inboxCommands(commands) } page: { page($0) } side: { side($0, $1) }
         }
     }
 
