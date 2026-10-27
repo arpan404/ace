@@ -813,9 +813,20 @@ it("observe forwards copies and subscriptions detach on release and pin failure"
   expect(innerUnsubs).toBe(unsubsBefore + 1);
   stop();
 
+  // Real SDK read shapes are plain JSON-derived data: rows, items, string
+  // arrays, numbers, booleans. Map/Set/typed arrays/Dates/class instances
+  // never appear there; when they do (synthetic inputs), the snapshot drops
+  // them instead of returning a live mutable alias. `Object.freeze` cannot
+  // stop `Map.set`, `Set.add`, or `Date.setTime`, so copying those
+  // containers would stay mutable across reads.
   const liveMap = new Map<string, { n: number }>([["k", { n: 1 }]]);
   const liveBytes = new Uint8Array([1, 2, 3]);
   const liveDate = new Date(1_700_000_000_000);
+  class Marker {
+    tag = "live";
+  }
+  const liveMarker = new Marker();
+  const liveFn = () => liveMarker.tag;
   const fakeThread = {
     error: undefined,
     syncing: false,
@@ -838,6 +849,8 @@ it("observe forwards copies and subscriptions detach on release and pin failure"
       set: liveSet,
       bytes: liveBytes,
       at: liveDate,
+      marker: liveMarker,
+      fn: liveFn,
     }),
     agent: () => undefined,
     run: () => undefined,
@@ -853,35 +866,189 @@ it("observe forwards copies and subscriptions detach on release and pin failure"
     observe: () => () => {},
   };
   const snap = snapshotThread(fakeThread as never);
-  const item = snap.item("i1") as unknown as {
-    extra: { deep: number[] };
-    map: Map<string, { n: number }>;
-    set: Set<string>;
-    bytes: Uint8Array;
-    at: Date;
-  };
-  expect(item.map).not.toBe(liveMap);
-  expect(item.set).not.toBe(liveSet);
-  expect(item.bytes).not.toBe(liveBytes);
-  expect([...item.bytes]).toEqual([1, 2, 3]);
-  expect(item.at).not.toBe(liveDate);
-  expect(item.at.getTime()).toBe(liveDate.getTime());
-  item.bytes[0] = 99;
-  expect(liveBytes[0]).toBe(1);
-  item.map.set("evil", { n: 2 });
-  expect(liveMap.has("evil")).toBe(false);
-  item.set.add("evil");
-  expect(liveSet.has("evil")).toBe(false);
-  const before = (snap.thread as unknown as { title: string }).title;
+  const item = snap.item("i1") as unknown as Record<string, unknown>;
+  // Plain nested values are isolated copies: frozen, and re-reads agree.
+  const extra = item["extra"] as { deep: number[] };
+  expect(Object.isFrozen(extra)).toBe(true);
+  expect(Object.isFrozen(extra.deep)).toBe(true);
+  expect(extra.deep).toEqual([1, 2]);
   try {
-    ((item as unknown as Record<string, unknown>)["extra"] as { deep: number[] }).deep.push(3);
+    extra.deep.push(3);
   } catch {
     /* Frozen nested array. */
   }
   expect((snap.item("i1") as unknown as { extra: { deep: number[] } }).extra.deep).toEqual([1, 2]);
+  // Unsupported values never escape as live references; they are dropped.
+  for (const key of ["map", "set", "bytes", "at", "marker", "fn"]) {
+    expect(key in item, `${key} must not escape`).toBe(false);
+    expect(item[key]).toBeUndefined();
+  }
+  expect(liveMap.has("evil")).toBe(false);
+  expect(liveSet.has("evil")).toBe(false);
+  expect(liveBytes[0]).toBe(1);
+  expect(liveDate.getTime()).toBe(1_700_000_000_000);
+  expect(liveMarker.tag).toBe("live");
+  const before = (snap.thread as unknown as { title: string }).title;
+  expect((snap.thread as unknown as { nested: { count: number } }).nested).toEqual({ count: 1 });
+  expect(Object.isFrozen((snap.thread as unknown as { nested: unknown }).nested)).toBe(true);
   expect((snap.thread as unknown as { title: string }).title).toBe(before);
   expect(snap.truncated("i1")).toBe(false);
   expect(snap.appended?.({} as never, {} as never)).toBe(false);
+});
+
+it("projected snapshots isolate actual nested rows; writes cannot reach the live store", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const produced = await pairLive(daemon);
+  try {
+    const reads = produced.runtimeForReading("host-1");
+    await until(() => reads.connectionState().getSnapshot() === "ready");
+    const inbox = reads.threads();
+    try {
+      await until(() => inbox.store.ids.includes(THREAD));
+      const row = inbox.store.thread(THREAD);
+      expect(row).toBeDefined();
+      expect(Object.isFrozen(row)).toBe(true);
+      const title = row?.title;
+
+      const snapshot = reads.cachedThreads();
+      expect(snapshot).toBeDefined();
+      const snapRow = snapshot?.thread(THREAD);
+      expect(snapRow?.title).toBe(title);
+      expect(Object.isFrozen(snapRow)).toBe(true);
+      expect(snapRow).not.toBe(row);
+      expect(snapRow).toEqual(row);
+      try {
+        (snapRow as unknown as Record<string, unknown>)["title"] = "evil";
+      } catch {
+        /* Frozen: the write cannot reach the live row. */
+      }
+      expect(snapshot?.thread(THREAD)?.title).toBe(title);
+      expect(inbox.store.thread(THREAD)?.title).toBe(title);
+
+      const ids = snapshot?.ids ?? [];
+      expect(Object.isFrozen(ids)).toBe(true);
+      expect([...ids]).toEqual(snapshot?.ids);
+      try {
+        (ids as unknown[]).push("evil");
+      } catch {
+        /* Frozen ids: the write cannot reach the live list. */
+      }
+      expect(snapshot?.ids).not.toContain("evil");
+      expect(inbox.store.ids).not.toContain("evil");
+    } finally {
+      inbox.release();
+    }
+  } finally {
+    await produced.disconnectAll();
+  }
+});
+
+it("a pin failure detaches every subscriber of a selection; teardown never throws", async () => {
+  const { wrapSelection } = await import("./read-projection.ts");
+  let liveValue = 1;
+  let innerUnsubs = 0;
+  const listeners = new Set<() => void>();
+  const inner = {
+    getSnapshot: () => liveValue,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        innerUnsubs += 1;
+        listeners.delete(listener);
+      };
+    },
+  };
+  let pinFails = false;
+  const check = () => {
+    if (pinFails) throw new Error("This machine is not connected.");
+  };
+  const sel = wrapSelection(check, inner as never);
+  let callsA = 0;
+  let callsB = 0;
+  const unsubA = sel.subscribe(() => {
+    callsA += 1;
+  });
+  const unsubB = sel.subscribe(() => {
+    callsB += 1;
+  });
+  expect(sel.getSnapshot()).toBe(1);
+  for (const listener of listeners) listener();
+  expect(callsA).toBe(1);
+  expect(callsB).toBe(1);
+
+  pinFails = true;
+  for (const listener of listeners) listener();
+  expect(listeners.size).toBe(0);
+  expect(innerUnsubs).toBe(2);
+  expect(callsA).toBe(1);
+  expect(callsB).toBe(1);
+  expect(() => sel.getSnapshot()).toThrow("not connected");
+  expect(() => unsubA()).not.toThrow();
+  expect(() => unsubB()).not.toThrow();
+  expect(() => unsubA()).not.toThrow();
+  liveValue = 2;
+});
+
+it("throwing releases and taps cannot break teardown or delivery", async () => {
+  const { wrapSelection, projectSidebar } = await import("./read-projection.ts");
+  const badInner = {
+    getSnapshot: () => 1,
+    subscribe: () => () => {
+      throw new Error("boom");
+    },
+  };
+  const sel = wrapSelection(() => {}, badInner as never);
+  const stop = sel.subscribe(() => {});
+  expect(() => stop()).not.toThrow();
+
+  const innerTaps: ((keys: ReadonlySet<string> | "all") => void)[] = [];
+  const fakeLive = {
+    observe: (tap: (keys: ReadonlySet<string> | "all") => void) => {
+      innerTaps.push(tap);
+      return () => {};
+    },
+  };
+  const view = projectSidebar(() => {}, fakeLive as never);
+  const seen: unknown[] = [];
+  view.observe(() => {
+    seen.push("first");
+    throw new Error("tap boom");
+  });
+  view.observe((keys) => {
+    seen.push(keys);
+  });
+  expect(innerTaps).toHaveLength(2);
+  for (const tap of innerTaps) expect(() => tap(new Set(["a"]))).not.toThrow();
+  expect(seen[0]).toBe("first");
+  expect([...(seen[1] as ReadonlySet<string>)]).toEqual(["a"]);
+});
+
+it("a throwing track rolls back the fresh inner subscription instead of leaking it", async () => {
+  const { projectSidebar } = await import("./read-projection.ts");
+  let innerUnsubs = 0;
+  const fakeLive = {
+    observe: () => () => {
+      innerUnsubs += 1;
+    },
+    select: (_keys: unknown, read: () => unknown) => ({
+      getSnapshot: () => read(),
+      subscribe: () => () => {
+        innerUnsubs += 1;
+      },
+    }),
+  };
+  let trackCalls = 0;
+  const throwingTrack = (): (() => void) => {
+    trackCalls += 1;
+    throw new Error("track boom");
+  };
+  const view = projectSidebar(() => {}, fakeLive as never, throwingTrack as never);
+  expect(() => view.observe(() => {})).toThrow("track boom");
+  expect(innerUnsubs).toBe(1);
+  const tracked = view.select([] as never, () => 1);
+  expect(() => tracked.subscribe(() => {})).toThrow("track boom");
+  expect(innerUnsubs).toBe(2);
+  expect(trackCalls).toBe(2);
 });
 
 it("a released lease detaches its selections; stale connection selections detach", async () => {

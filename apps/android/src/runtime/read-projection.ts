@@ -12,94 +12,46 @@ function isPlainObject(value: object): boolean {
   return proto === Object.prototype || proto === null;
 }
 
-function deepFreeze<T>(value: T, seen = new Set<object>()): T {
-  if (value === null || typeof value !== "object") return value;
-  const obj = value as unknown as object;
-  if (seen.has(obj)) return value;
-  seen.add(obj);
-  if (Array.isArray(value)) {
-    for (const entry of value) deepFreeze(entry as unknown, seen);
-    return Object.freeze(value);
-  }
-  if (value instanceof Date) return Object.freeze(value);
-  if (value instanceof Map) {
-    for (const [k, v] of value) {
-      deepFreeze(k as unknown, seen);
-      deepFreeze(v as unknown, seen);
-    }
-    return Object.freeze(value);
-  }
-  if (value instanceof Set) {
-    for (const entry of value) deepFreeze(entry as unknown, seen);
-    return Object.freeze(value);
-  }
-  if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(value)) return Object.freeze(value);
-  if (typeof ArrayBuffer !== "undefined" && value instanceof ArrayBuffer)
-    return Object.freeze(value);
-  if (!isPlainObject(obj)) return value;
-  for (const key of Reflect.ownKeys(obj) as (string | symbol)[]) {
-    try {
-      deepFreeze((obj as Record<string | symbol, unknown>)[key] as unknown, seen);
-    } catch {
-      /* Non-readable keys stay as-is; the container copy still isolates. */
-    }
-  }
-  return Object.freeze(value);
-}
+/**
+ * Read-projection copy policy.
+ *
+ * Real SDK read shapes are plain JSON-derived data (zod-inferred thread
+ * rows, items, intents, string arrays, numbers, booleans). They never
+ * contain Map/Set/Date/typed arrays, class instances, or functions, so the
+ * copier below only reproduces JSON-like values (primitives, arrays, plain
+ * objects) and drops anything else instead of returning a live reference.
+ * Dropping is fail-safe: exotic values only appear in synthetic inputs, and
+ * a snapshot must never hand out a mutable alias of the live store.
+ *
+ * `Object.freeze` does not stop `Map.set`, `Set.add`, or `Date.setTime`,
+ * so copying those containers would hand out values that stay mutable
+ * across reads; omitting them keeps every returned value truly immutable.
+ */
+const DROP: unique symbol = Symbol("dropReadValue");
 
-function cloneDeepInto<T>(value: T, seen = new Map<object, unknown>()): T {
-  if (value === null || typeof value !== "object") return value;
+function copyInner(value: unknown, seen: Map<object, unknown>): unknown {
+  if (value === null || value === undefined) return value;
+  const kind = typeof value;
+  if (kind === "string" || kind === "number" || kind === "boolean" || kind === "bigint")
+    return value;
+  if (kind !== "object") return DROP;
   const obj = value as unknown as object;
   const cached = seen.get(obj);
-  if (cached !== undefined) return cached as T;
-  if (value instanceof Date) {
-    const copy = new Date(value.getTime());
-    seen.set(obj, copy);
-    return Object.freeze(copy) as unknown as T;
-  }
-  if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(value)) {
-    if (value instanceof DataView) {
-      const buf = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
-      const copy = new DataView(buf);
-      seen.set(obj, copy);
-      return Object.freeze(copy) as unknown as T;
-    }
-    const Ctor = (value as unknown as { constructor: new (src: unknown) => unknown }).constructor;
-    try {
-      const copy = new Ctor(value as unknown as ArrayLike<unknown>) as object;
-      seen.set(obj, copy);
-      return Object.freeze(copy) as unknown as T;
-    } catch {
-      return value;
-    }
-  }
-  if (typeof ArrayBuffer !== "undefined" && value instanceof ArrayBuffer) {
-    const copy = value.slice(0);
-    seen.set(obj, copy);
-    return Object.freeze(copy) as unknown as T;
-  }
+  if (cached !== undefined) return cached;
   if (Array.isArray(value)) {
-    const copy: unknown[] = [];
-    seen.set(obj, copy);
-    for (const entry of value) copy.push(cloneDeepInto(entry as unknown, seen));
-    return Object.freeze(copy) as unknown as T;
+    const out: unknown[] = [];
+    seen.set(obj, out);
+    for (const entry of value) {
+      const copied = copyInner(entry, seen);
+      out.push(copied === DROP ? undefined : copied);
+    }
+    return Object.freeze(out);
   }
-  if (value instanceof Map) {
-    const copy = new Map<unknown, unknown>();
-    seen.set(obj, copy);
-    for (const [k, v] of value) copy.set(cloneDeepInto(k, seen), cloneDeepInto(v, seen));
-    return Object.freeze(copy) as unknown as T;
-  }
-  if (value instanceof Set) {
-    const copy = new Set<unknown>();
-    seen.set(obj, copy);
-    for (const entry of value) copy.add(cloneDeepInto(entry, seen));
-    return Object.freeze(copy) as unknown as T;
-  }
-  if (!isPlainObject(obj)) return value;
-  const copy = Object.create(Object.getPrototypeOf(obj)) as Record<string | symbol, unknown>;
-  seen.set(obj, copy);
+  if (!isPlainObject(obj)) return DROP;
+  const out = Object.create(Object.getPrototypeOf(obj)) as Record<string | symbol, unknown>;
+  seen.set(obj, out);
   for (const key of Reflect.ownKeys(obj) as (string | symbol)[]) {
+    if (key === "__proto__") continue;
     let desc: PropertyDescriptor | undefined;
     try {
       desc = Object.getOwnPropertyDescriptor(obj, key);
@@ -107,22 +59,31 @@ function cloneDeepInto<T>(value: T, seen = new Map<object, unknown>()): T {
       continue;
     }
     if (!desc || !desc.enumerable) continue;
+    let raw: unknown;
     try {
-      copy[key] = cloneDeepInto((obj as Record<string | symbol, unknown>)[key] as unknown, seen);
+      raw = (obj as Record<string | symbol, unknown>)[key];
     } catch {
-      /* Unreadable values stay absent; the copy still isolates what it holds. */
+      continue;
+    }
+    const copied = copyInner(raw, seen);
+    if (copied === DROP) continue;
+    try {
+      Object.defineProperty(out, key, {
+        value: copied,
+        enumerable: true,
+        writable: false,
+        configurable: false,
+      });
+    } catch {
+      /* A key that cannot be defined stays absent rather than live. */
     }
   }
-  return Object.freeze(copy) as unknown as T;
+  return Object.freeze(out);
 }
 
-function cloneFreeze<T>(value: T): T {
-  if (value === null || typeof value !== "object") return value;
-  try {
-    return deepFreeze(structuredClone(value));
-  } catch {
-    return cloneDeepInto(value);
-  }
+function freezeCopy<T>(value: T): T {
+  const copied = copyInner(value, new Map());
+  return (copied === DROP ? undefined : copied) as T;
 }
 
 function freezeError(error: ClientError | undefined): ClientError | undefined {
@@ -141,8 +102,36 @@ function copyTapKeys(keys: ReadonlySet<string> | "all"): ReadonlySet<string> | "
   return Object.freeze(new Set(keys));
 }
 
-export function wrapSelection<T>(check: ReadCheck, inner: Selection<T>): Selection<T> {
+/** Teardown never throws: a failing release must not break `release()` callers. */
+function teardown(fn: (() => void) | undefined): void {
+  if (fn === undefined) return;
+  try {
+    fn();
+  } catch {
+    /* Release is best effort. */
+  }
+}
+
+/**
+ * One projected selection. A pin failure detaches every subscriber of the
+ * wrapper (not just the notified one) so no stale inner subscription stays
+ * registered on the live store; every teardown path is idempotent and never
+ * throws. Listener exceptions are left to the live store, whose delivery
+ * already isolates observers, so a throwing view cannot break bookkeeping.
+ */
+function shellSelection<T>(
+  check: ReadCheck,
+  inner: Selection<T>,
+  track?: (release: () => void) => () => void,
+): Selection<T> {
   let current: Selection<T> | undefined = inner;
+  const actives = new Set<() => void>();
+  const detachAll = (): void => {
+    const pending = [...actives];
+    actives.clear();
+    current = undefined;
+    for (const detach of pending) teardown(detach);
+  };
   const out = Object.create(null) as {
     getSnapshot: () => T;
     subscribe: (listener: () => void) => () => void;
@@ -151,42 +140,62 @@ export function wrapSelection<T>(check: ReadCheck, inner: Selection<T>): Selecti
     check();
     const live = current;
     if (live === undefined) throw notConnected();
-    return cloneFreeze(live.getSnapshot());
+    return freezeCopy(live.getSnapshot());
   };
   out.subscribe = (listener: () => void) => {
     check();
     const live = current;
     if (live === undefined) throw notConnected();
     let stopped = false;
-    const detach = () => {
+    let unsub: (() => void) | undefined;
+    let untrack: (() => void) | undefined;
+    const detachOne = (): void => {
       if (stopped) return;
       stopped = true;
-      current = undefined;
-      try {
-        unsub();
-      } catch {
-        /* Detach is best effort. */
-      }
+      actives.delete(detachOne);
+      const stop = unsub;
+      unsub = undefined;
+      teardown(stop);
+      const un = untrack;
+      untrack = undefined;
+      teardown(un);
     };
-    const unsub = live.subscribe(() => {
-      if (stopped) return;
+    actives.add(detachOne);
+    let created: (() => void) | undefined;
+    try {
+      created = live.subscribe(() => {
+        if (stopped) return;
+        try {
+          check();
+        } catch {
+          detachAll();
+          return;
+        }
+        if (current === undefined || stopped) return;
+        listener();
+      });
+    } catch (error) {
+      actives.delete(detachOne);
+      throw error;
+    }
+    unsub = created;
+    if (track !== undefined) {
       try {
-        check();
-      } catch {
-        detach();
-        return;
+        untrack = track(detachOne);
+      } catch (error) {
+        detachOne();
+        throw error;
       }
-      if (current === undefined) return;
-      listener();
-    });
+    }
     return () => {
-      if (stopped) return;
-      stopped = true;
-      current = undefined;
-      unsub();
+      detachOne();
     };
   };
   return Object.freeze(out);
+}
+
+export function wrapSelection<T>(check: ReadCheck, inner: Selection<T>): Selection<T> {
+  return shellSelection(check, inner);
 }
 
 function wrapTrackedSelection<T>(
@@ -194,64 +203,68 @@ function wrapTrackedSelection<T>(
   inner: Selection<T>,
   track: (release: () => void) => () => void,
 ): Selection<T> {
-  let current: Selection<T> | undefined = inner;
-  const out = Object.create(null) as {
-    getSnapshot: () => T;
-    subscribe: (listener: () => void) => () => void;
+  return shellSelection(check, inner, track);
+}
+
+/**
+ * One projected `observe` tap. The key set is copied before delivery so a
+ * consumer cannot mutate the live set; a throwing consumer cannot interrupt
+ * delivery of committed facts. If `track` throws, the fresh inner tap is
+ * rolled back instead of leaking on the live store.
+ */
+function observeShell(
+  check: ReadCheck,
+  subscribeLive: (tap: (keys: ReadonlySet<string> | "all") => void) => () => void,
+  tap: (keys: ReadonlySet<string> | "all") => void,
+  track?: (release: () => void) => () => void,
+): () => void {
+  check();
+  let stopped = false;
+  let unsub: (() => void) | undefined;
+  let untrack: (() => void) | undefined;
+  const detach = (): void => {
+    if (stopped) return;
+    stopped = true;
+    const stop = unsub;
+    unsub = undefined;
+    teardown(stop);
+    const un = untrack;
+    untrack = undefined;
+    teardown(un);
   };
-  out.getSnapshot = () => {
-    check();
-    const live = current;
-    if (live === undefined) throw notConnected();
-    return cloneFreeze(live.getSnapshot());
-  };
-  out.subscribe = (listener: () => void) => {
-    check();
-    const live = current;
-    if (live === undefined) throw notConnected();
-    let stopped = false;
-    const detach = () => {
-      if (stopped) return;
-      stopped = true;
-      current = undefined;
-      try {
-        unsub();
-      } catch {
-        /* Detach is best effort. */
-      }
-    };
-    const unsub = live.subscribe(() => {
-      if (stopped) return;
-      try {
-        check();
-      } catch {
-        try {
-          untrack();
-        } catch {
-          /* Detach is best effort. */
-        }
-        detach();
-        return;
-      }
-      if (current === undefined) return;
-      listener();
-    });
-    const untrack = track(() => {
+  let created: (() => void) | undefined;
+  created = subscribeLive((keys) => {
+    if (stopped) return;
+    try {
+      check();
+    } catch {
       detach();
-    });
-    return () => {
-      if (stopped) return;
-      stopped = true;
-      current = undefined;
-      try {
-        untrack();
-      } catch {
-        /* Detach is best effort. */
-      }
-      unsub();
-    };
+      return;
+    }
+    let copied: ReadonlySet<string> | "all";
+    try {
+      copied = copyTapKeys(keys);
+    } catch {
+      return;
+    }
+    try {
+      tap(copied);
+    } catch {
+      /* Consumer exceptions cannot interrupt delivery of committed facts. */
+    }
+  });
+  unsub = created;
+  if (track !== undefined) {
+    try {
+      untrack = track(detach);
+    } catch (error) {
+      detach();
+      throw error;
+    }
+  }
+  return () => {
+    detach();
   };
-  return Object.freeze(out);
 }
 
 export function projectSidebar(
@@ -275,80 +288,20 @@ export function projectSidebar(
     if (track === undefined) return wrapSelection(check, inner);
     return wrapTrackedSelection(check, inner, track);
   };
-  const observeInner = (tap: (keys: ReadonlySet<string> | "all") => void): (() => void) => {
-    check();
-    let stopped = false;
-    let unsub: (() => void) | undefined;
-    const detach = () => {
-      if (stopped) return;
-      stopped = true;
-      const stop = unsub;
-      unsub = undefined;
-      try {
-        stop?.();
-      } catch {
-        /* Detach is best effort. */
-      }
-    };
-    unsub = live.observe((keys) => {
-      if (stopped) return;
-      try {
-        check();
-      } catch {
-        try {
-          untrack?.();
-        } catch {
-          /* Detach is best effort. */
-        }
-        detach();
-        return;
-      }
-      tap(copyTapKeys(keys));
-    });
-    if (track === undefined) {
-      return () => {
-        detach();
-      };
-    }
-    const untrack = track(() => {
-      detach();
-    });
-    return () => {
-      if (stopped) {
-        try {
-          untrack();
-        } catch {
-          /* Detach is best effort. */
-        }
-        return;
-      }
-      stopped = true;
-      try {
-        untrack();
-      } catch {
-        /* Detach is best effort. */
-      }
-      const stop = unsub;
-      unsub = undefined;
-      try {
-        stop?.();
-      } catch {
-        /* Detach is best effort. */
-      }
-    };
-  };
+  const observeInner = (tap: (keys: ReadonlySet<string> | "all") => void): (() => void) =>
+    observeShell(check, (forward) => live.observe(forward), tap, track);
   Object.defineProperties(view, {
     error: { enumerable: true, get: () => (check(), freezeError(live.error)) },
     syncing: { enumerable: true, get: () => (check(), live.syncing) },
     unconfirmed: { enumerable: true, get: () => (check(), live.unconfirmed) },
     loaded: { enumerable: true, get: () => (check(), live.loaded) },
-    ids: { enumerable: true, get: () => (check(), cloneFreeze(live.ids)) },
-    homeWindow: { enumerable: true, get: () => (check(), cloneFreeze(live.homeWindow)) },
-    window: { enumerable: true, get: () => (check(), cloneFreeze(live.window)) },
+    ids: { enumerable: true, get: () => (check(), freezeCopy(live.ids)) },
+    homeWindow: { enumerable: true, get: () => (check(), freezeCopy(live.homeWindow)) },
+    window: { enumerable: true, get: () => (check(), freezeCopy(live.window)) },
   });
   view["thread"] = (id: string) => {
     check();
-    return cloneFreeze(live.thread(id));
+    return freezeCopy(live.thread(id));
   };
   view["select"] = selectInner;
   view["observe"] = observeInner;
@@ -376,95 +329,35 @@ export function projectThread(
     if (track === undefined) return wrapSelection(check, inner);
     return wrapTrackedSelection(check, inner, track);
   };
-  const observeInner = (tap: (keys: ReadonlySet<string> | "all") => void): (() => void) => {
-    check();
-    let stopped = false;
-    let unsub: (() => void) | undefined;
-    const detach = () => {
-      if (stopped) return;
-      stopped = true;
-      const stop = unsub;
-      unsub = undefined;
-      try {
-        stop?.();
-      } catch {
-        /* Detach is best effort. */
-      }
-    };
-    unsub = live.observe((keys) => {
-      if (stopped) return;
-      try {
-        check();
-      } catch {
-        try {
-          untrack?.();
-        } catch {
-          /* Detach is best effort. */
-        }
-        detach();
-        return;
-      }
-      tap(copyTapKeys(keys));
-    });
-    if (track === undefined) {
-      return () => {
-        detach();
-      };
-    }
-    const untrack = track(() => {
-      detach();
-    });
-    return () => {
-      if (stopped) {
-        try {
-          untrack();
-        } catch {
-          /* Detach is best effort. */
-        }
-        return;
-      }
-      stopped = true;
-      try {
-        untrack();
-      } catch {
-        /* Detach is best effort. */
-      }
-      const stop = unsub;
-      unsub = undefined;
-      try {
-        stop?.();
-      } catch {
-        /* Detach is best effort. */
-      }
-    };
-  };
+  const observeInner = (tap: (keys: ReadonlySet<string> | "all") => void): (() => void) =>
+    observeShell(check, (forward) => live.observe(forward), tap, track);
   Object.defineProperties(view, {
     error: { enumerable: true, get: () => (check(), freezeError(live.error)) },
     syncing: { enumerable: true, get: () => (check(), live.syncing) },
     unconfirmed: { enumerable: true, get: () => (check(), live.unconfirmed) },
-    thread: { enumerable: true, get: () => (check(), cloneFreeze(live.thread)) },
-    queue: { enumerable: true, get: () => (check(), cloneFreeze(live.queue)) },
-    offshift: { enumerable: true, get: () => (check(), cloneFreeze(live.offshift)) },
-    context: { enumerable: true, get: () => (check(), cloneFreeze(live.context)) },
-    order: { enumerable: true, get: () => (check(), cloneFreeze(live.order)) },
+    thread: { enumerable: true, get: () => (check(), freezeCopy(live.thread)) },
+    queue: { enumerable: true, get: () => (check(), freezeCopy(live.queue)) },
+    offshift: { enumerable: true, get: () => (check(), freezeCopy(live.offshift)) },
+    context: { enumerable: true, get: () => (check(), freezeCopy(live.context)) },
+    order: { enumerable: true, get: () => (check(), freezeCopy(live.order)) },
     cursor: { enumerable: true, get: () => (check(), live.cursor) },
     itemsBefore: { enumerable: true, get: () => (check(), live.itemsBefore) },
   });
-  view["agentIds"] = () => (check(), cloneFreeze(live.agentIds()));
-  view["children"] = (agentId: string) => (check(), cloneFreeze(live.children(agentId)));
-  view["interactionIds"] = () => (check(), cloneFreeze(live.interactionIds()));
-  view["taskIds"] = () => (check(), cloneFreeze(live.taskIds()));
-  view["item"] = (id: string) => (check(), cloneFreeze(live.item(id)));
-  view["agent"] = (id: string) => (check(), cloneFreeze(live.agent(id)));
-  view["run"] = (id: string) => (check(), cloneFreeze(live.run(id)));
-  view["interaction"] = (id: string) => (check(), cloneFreeze(live.interaction(id)));
-  view["task"] = (id: string) => (check(), cloneFreeze(live.task(id)));
-  view["usage"] = (id: string) => (check(), cloneFreeze(live.usage(id)));
-  view["contextMeter"] = (id: string) => (check(), cloneFreeze(live.contextMeter(id)));
-  view["usageSnapshot"] = (key: string) => (check(), cloneFreeze(live.usageSnapshot(key)));
+  view["agentIds"] = () => (check(), freezeCopy(live.agentIds()));
+  view["children"] = (agentId: string) => (check(), freezeCopy(live.children(agentId)));
+  view["interactionIds"] = () => (check(), freezeCopy(live.interactionIds()));
+  view["taskIds"] = () => (check(), freezeCopy(live.taskIds()));
+  view["item"] = (id: string) => (check(), freezeCopy(live.item(id)));
+  view["agent"] = (id: string) => (check(), freezeCopy(live.agent(id)));
+  view["run"] = (id: string) => (check(), freezeCopy(live.run(id)));
+  view["interaction"] = (id: string) => (check(), freezeCopy(live.interaction(id)));
+  view["task"] = (id: string) => (check(), freezeCopy(live.task(id)));
+  view["usage"] = (id: string) => (check(), freezeCopy(live.usage(id)));
+  view["contextMeter"] = (id: string) => (check(), freezeCopy(live.contextMeter(id)));
+  view["usageSnapshot"] = (key: string) => (check(), freezeCopy(live.usageSnapshot(key)));
   view["truncated"] = (id: string) => (check(), live.truncated(id));
   if (typeof live.runIds === "function")
-    view["runIds"] = () => (check(), cloneFreeze(live.runIds?.()));
+    view["runIds"] = () => (check(), freezeCopy(live.runIds?.()));
   if (typeof live.itemSeq === "function")
     view["itemSeq"] = (id: string) => (check(), live.itemSeq?.(id));
   if (typeof live.deleted === "function")
@@ -481,23 +374,23 @@ export function projectThread(
 
 function staticSelection<T>(read: () => T): Selection<T> {
   return nullSealed<Selection<T>>({
-    getSnapshot: () => cloneFreeze(read()),
+    getSnapshot: () => freezeCopy(read()),
     subscribe: () => () => {},
   });
 }
 
 export function snapshotSidebar(live: SidebarSource): SidebarSource {
-  const ids = cloneFreeze(live.ids);
+  const ids = freezeCopy(live.ids);
   const rows = new Map<string, unknown>();
-  for (const id of live.ids) rows.set(id, cloneFreeze(live.thread(id)));
+  for (const id of ids) rows.set(id, freezeCopy(live.thread(id)));
   const data = {
     error: freezeError(live.error),
     syncing: live.syncing,
     unconfirmed: live.unconfirmed,
     loaded: live.loaded,
     ids,
-    homeWindow: cloneFreeze(live.homeWindow),
-    window: cloneFreeze(live.window),
+    homeWindow: freezeCopy(live.homeWindow),
+    window: freezeCopy(live.window),
   };
   const snap = Object.create(null) as Record<string, unknown>;
   Object.defineProperties(snap, {
@@ -565,41 +458,41 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
           : freezeError(new ClientError(exported.error.code, exported.error.message)),
       syncing: exported.syncing ?? live.syncing,
       unconfirmed: exported.unconfirmed ?? live.unconfirmed,
-      thread: cloneFreeze(view.thread),
-      queue: cloneFreeze(view.queue),
-      offshift: cloneFreeze(view.offshift),
-      context: cloneFreeze(context),
-      order: cloneFreeze(view.itemOrder ?? []),
+      thread: freezeCopy(view.thread),
+      queue: freezeCopy(view.queue),
+      offshift: freezeCopy(view.offshift),
+      context: freezeCopy(context),
+      order: freezeCopy(view.itemOrder ?? []),
       cursor: view.seq,
       itemsBefore: view.itemsBefore ?? null,
-      agentIds: cloneFreeze(Object.keys(view.agents ?? {})),
-      runIds: cloneFreeze(Object.keys(view.runs ?? {})),
-      interactionIds: cloneFreeze(Object.keys(view.interactions ?? {})),
-      taskIds: cloneFreeze(Object.keys(view.backgroundTasks ?? {})),
+      agentIds: freezeCopy(Object.keys(view.agents ?? {})),
+      runIds: freezeCopy(Object.keys(view.runs ?? {})),
+      interactionIds: freezeCopy(Object.keys(view.interactions ?? {})),
+      taskIds: freezeCopy(Object.keys(view.backgroundTasks ?? {})),
     };
     const items = new Map<string, unknown>();
-    for (const [id, entry] of Object.entries(view.items ?? {})) items.set(id, cloneFreeze(entry));
+    for (const [id, entry] of Object.entries(view.items ?? {})) items.set(id, freezeCopy(entry));
     const agents = new Map<string, unknown>();
-    for (const [id, entry] of Object.entries(view.agents ?? {})) agents.set(id, cloneFreeze(entry));
+    for (const [id, entry] of Object.entries(view.agents ?? {})) agents.set(id, freezeCopy(entry));
     const runs = new Map<string, unknown>();
-    for (const [id, entry] of Object.entries(view.runs ?? {})) runs.set(id, cloneFreeze(entry));
+    for (const [id, entry] of Object.entries(view.runs ?? {})) runs.set(id, freezeCopy(entry));
     const interactions = new Map<string, unknown>();
     for (const [id, entry] of Object.entries(view.interactions ?? {}))
-      interactions.set(id, cloneFreeze(entry));
+      interactions.set(id, freezeCopy(entry));
     const tasks = new Map<string, unknown>();
     for (const [id, entry] of Object.entries(view.backgroundTasks ?? {}))
-      tasks.set(id, cloneFreeze(entry));
+      tasks.set(id, freezeCopy(entry));
     const usage = new Map<string, unknown>();
-    for (const [id, entry] of Object.entries(view.usage ?? {})) usage.set(id, cloneFreeze(entry));
+    for (const [id, entry] of Object.entries(view.usage ?? {})) usage.set(id, freezeCopy(entry));
     const meters = new Map<string, unknown>();
     for (const [id, entry] of Object.entries(view.contextMeters ?? {}))
-      meters.set(id, cloneFreeze(entry));
+      meters.set(id, freezeCopy(entry));
     const usageSnapshots = new Map<string, unknown>();
     for (const [key, entry] of Object.entries(view.usageSnapshots ?? {}))
-      usageSnapshots.set(key, cloneFreeze(entry));
+      usageSnapshots.set(key, freezeCopy(entry));
     const children = new Map<string, unknown>();
     for (const [id, entry] of Object.entries(view.agentChildren ?? {}))
-      children.set(id, cloneFreeze(entry));
+      children.set(id, freezeCopy(entry));
     const seqs = new Map<string, number>();
     for (const [id, seq] of Object.entries(view.itemSeqs ?? {})) seqs.set(id, seq);
     const truncated = new Set<string>(exported.truncated ?? []);
@@ -625,10 +518,10 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
   const runIds = typeof live.runIds === "function" ? [...(live.runIds() ?? [])] : undefined;
   const interactionIds = [...live.interactionIds()];
   const taskIds = [...live.taskIds()];
-  const thread = cloneFreeze(live.thread);
-  const queue = cloneFreeze(live.queue);
-  const offshift = cloneFreeze(live.offshift);
-  const context = cloneFreeze(live.context);
+  const thread = freezeCopy(live.thread);
+  const queue = freezeCopy(live.queue);
+  const offshift = freezeCopy(live.offshift);
+  const context = freezeCopy(live.context);
   const data: Record<string, unknown> = {
     error: freezeError(live.error),
     syncing: live.syncing,
@@ -637,41 +530,41 @@ export function snapshotThread(live: ThreadSource): ThreadSource {
     queue,
     offshift,
     context,
-    order: cloneFreeze(order),
+    order: freezeCopy(order),
     cursor: live.cursor,
     itemsBefore: live.itemsBefore,
-    agentIds: cloneFreeze(agentIds),
-    runIds: runIds === undefined ? undefined : cloneFreeze(runIds),
-    interactionIds: cloneFreeze(interactionIds),
-    taskIds: cloneFreeze(taskIds),
+    agentIds: freezeCopy(agentIds),
+    runIds: runIds === undefined ? undefined : freezeCopy(runIds),
+    interactionIds: freezeCopy(interactionIds),
+    taskIds: freezeCopy(taskIds),
   };
   const items = new Map<string, unknown>();
-  for (const id of order) items.set(id, cloneFreeze(live.item(id)));
+  for (const id of order) items.set(id, freezeCopy(live.item(id)));
   const agents = new Map<string, unknown>();
-  for (const id of agentIds) agents.set(id, cloneFreeze(live.agent(id)));
+  for (const id of agentIds) agents.set(id, freezeCopy(live.agent(id)));
   const runs = new Map<string, unknown>();
   if (runIds !== undefined && typeof live.run === "function")
-    for (const id of runIds) runs.set(id, cloneFreeze(live.run(id)));
+    for (const id of runIds) runs.set(id, freezeCopy(live.run(id)));
   const interactions = new Map<string, unknown>();
-  for (const id of interactionIds) interactions.set(id, cloneFreeze(live.interaction(id)));
+  for (const id of interactionIds) interactions.set(id, freezeCopy(live.interaction(id)));
   const tasks = new Map<string, unknown>();
-  for (const id of taskIds) tasks.set(id, cloneFreeze(live.task(id)));
+  for (const id of taskIds) tasks.set(id, freezeCopy(live.task(id)));
   const usage = new Map<string, unknown>();
   if (typeof live.usage === "function")
     for (const id of agentIds) {
       const entry = live.usage(id);
-      if (entry !== undefined) usage.set(id, cloneFreeze(entry));
+      if (entry !== undefined) usage.set(id, freezeCopy(entry));
     }
   const meters = new Map<string, unknown>();
   if (typeof live.contextMeter === "function")
     for (const id of agentIds) {
       const entry = live.contextMeter(id);
-      if (entry !== undefined) meters.set(id, cloneFreeze(entry));
+      if (entry !== undefined) meters.set(id, freezeCopy(entry));
     }
   const usageSnapshots = new Map<string, unknown>();
   const children = new Map<string, unknown>();
   if (typeof live.children === "function")
-    for (const id of agentIds) children.set(id, cloneFreeze(live.children(id)));
+    for (const id of agentIds) children.set(id, freezeCopy(live.children(id)));
   const seqs = new Map<string, number>();
   if (typeof live.itemSeq === "function")
     for (const id of order) {
