@@ -23,14 +23,24 @@ async function appVersion(bundle: string): Promise<string | undefined> {
   return plist ? aceAppVersion(plist) : undefined;
 }
 
-async function cliSide(context: DoctorContext, entry: string | undefined): Promise<VersionSide> {
-  const stamped = context.env.ACE_VERSION;
-  if (stamped !== undefined)
-    return { kind: "cli", version: ReleaseVersion.safeParse(stamped).data ?? "development" };
+/**
+ * The running CLI's version: a stamped `ACE_VERSION`, else the release or app bundle its entry
+ * script lives in, else "development". `ace --version` and the doctor's version check share it.
+ */
+export async function cliVersion(
+  env: NodeJS.ProcessEnv,
+  entry: string | undefined,
+): Promise<string> {
+  const stamped = env.ACE_VERSION;
+  if (stamped !== undefined) return ReleaseVersion.safeParse(stamped).data ?? "development";
   const origin = cliOrigin(entry);
-  if (origin?.kind === "release") return { kind: "cli", version: origin.version };
+  if (origin?.kind === "release") return origin.version;
   const version = origin ? await appVersion(origin.bundle) : undefined;
-  return { kind: "cli", version: version ?? "development" };
+  return version ?? "development";
+}
+
+async function cliSide(context: DoctorContext, entry: string | undefined): Promise<VersionSide> {
+  return { kind: "cli", version: await cliVersion(context.env, entry) };
 }
 
 async function versionSides(
