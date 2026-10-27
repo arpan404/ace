@@ -276,6 +276,42 @@ export class MachineCaller {
     );
   }
   /**
+   * A command tool on another machine (ADR 0105). Commands always act, so a read-only thread
+   * here is refused before anything is sent; the target applies the same ceiling.
+   */
+  async command(
+    caller: McpAttribution,
+    machine: string,
+    tool: string,
+    args: Record<string, unknown>,
+    options: { timeoutMs: number; signal: AbortSignal },
+  ) {
+    const { directory } = this.deps;
+    if (this.deps.ceiling(caller.threadId) === "read")
+      throw directory.toolError(
+        machine,
+        new MachineFailure(
+          "refused",
+          "machine_forbidden",
+          "This thread is read-only, so it can't run commands on another machine.",
+        ),
+      );
+    const origin = { ...(await this.origin(caller.threadId)), agentId: caller.agentId };
+    try {
+      return MachineToolResult.parse(
+        await directory.call(
+          machine,
+          origin,
+          { op: "commands", tool, args },
+          { timeoutMs: options.timeoutMs, signal: options.signal, maxBytes: 2 * 1024 * 1024 },
+        ),
+      );
+    } catch (error) {
+      options.signal.throwIfAborted();
+      throw directory.toolError(machine, error);
+    }
+  }
+  /**
    * A browser tool on another machine. While it runs, that machine's requests for this call
    * (a private takeover there) show here too, so the person can answer from either one.
    */

@@ -15,6 +15,7 @@ import {
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices/tools";
 import { browserToolkit } from "../browser-toolkit.ts";
+import { commandToolkit } from "../machines/command-tools.ts";
 import { computerToolkit, screenToolkit, type ComputerPlatform } from "@ace/screen";
 import { cancelLockedUseWhenTurnedOff, computerLockedUseGate } from "../computer-locked-use.ts";
 import { handoffToolkit } from "./handoff-tools.ts";
@@ -145,6 +146,15 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         },
       }),
       ...(options.toolkits ?? []),
+      // Commands on other paired machines; a local agent uses its own shell (ADR 0105).
+      commandToolkit(async (caller, call, signal) => {
+        const machines = services.machines;
+        if (!machines) throw new PublicToolError("machine_unavailable");
+        return machines.caller.command(caller, call.machine, call.tool, call.args, {
+          timeoutMs: call.timeoutMs,
+          signal,
+        });
+      }),
       ...(services.browser
         ? [
             browserToolkit(
