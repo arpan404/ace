@@ -4,6 +4,16 @@ import { FlashList } from "@shopify/flash-list";
 import type { SidebarSource } from "@ace/client";
 import { inboxStatus } from "@ace/ui-core/mobile";
 import { AceButton, AceText } from "../components.tsx";
+import {
+  availableInboxActions,
+  type InboxActionKind,
+  type SnoozePresetId,
+} from "../inbox-actions.ts";
+import {
+  ProductionInboxActionBanner,
+  ProductionInboxRowActions,
+  useProductionInboxActions,
+} from "./production-inbox-actions-ui.tsx";
 import { textStyle, tokens, useTheme } from "../theme.tsx";
 import { displayAppearance } from "../status.ts";
 import {
@@ -34,17 +44,18 @@ import {
 import { ProductionThreadView } from "./production-thread-view.tsx";
 
 /**
- * Production inbox for the active machine, read-only.
+ * Production inbox for the active machine, readable while view-only.
  *
  * Mirrors the iOS inbox read path (rows stay readable while view-only) over
  * the reviewed `runtimeForReading` handle: only selection leases, the
  * connection selection and cached snapshots escape, never the raw SDK
- * `Client` and never a mutating or network-fetching call. Every lease is
- * released when the view unmounts, the host changes, or the route leaves
- * `paired`; a cached handle that fails its exact-owner pin surfaces "not
- * connected" instead of following a new owner. No admit path lives here:
- * mutations stay behind `runtimeForMutation`, which this viewer never
- * resolves.
+ * `Client` and never a network-fetching call. Every lease is released when
+ * the view unmounts, the host changes, or the route leaves `paired`; a cached
+ * handle that fails its exact-owner pin surfaces "not connected" instead of
+ * following a new owner. Organization (settle/archive/snooze/wake/undo) goes
+ * through `runtimeForMutation(hostId)` per tap with a fresh grant re-check
+ * (`production-inbox-actions.ts`); view-only phones keep the "View only"
+ * label and no row buttons.
  *
  * Liveness. Projected selections notify on pin failure (see
  * `read-projection.ts`), so a disconnect re-renders through the normal
@@ -63,6 +74,9 @@ function InboxRow({
   now,
   open,
   machineName = null,
+  canAct,
+  busy,
+  onAct,
 }: {
   id: string;
   store: SidebarSource;
@@ -70,6 +84,9 @@ function InboxRow({
   now: number;
   open(id: string): void;
   machineName?: string | null;
+  canAct: boolean;
+  busy: boolean;
+  onAct(kind: InboxActionKind, preset?: SnoozePresetId): void;
 }) {
   const theme = useTheme();
   const selection = useMemo(() => {
@@ -87,6 +104,7 @@ function InboxRow({
   const row = useFailClosedSelection(selection ?? noUndefined, undefined);
   if (!row) return null;
   const status = displayAppearance(inboxStatus(row, now), theme);
+  const offered = availableInboxActions(row.entry, now, canAct);
   return (
     <Pressable
       onPress={() => open(id)}
@@ -111,6 +129,9 @@ function InboxRow({
         </Text>
       ) : null}
       <Text style={{ ...textStyle("caption"), color: status.textColour }}>{status.label}</Text>
+      {canAct ? (
+        <ProductionInboxRowActions offered={offered} busy={busy} now={now} onAct={onAct} />
+      ) : null}
     </Pressable>
   );
 }
@@ -155,6 +176,7 @@ export function ActiveMachineInbox({
   const gatedOpenId = openIdForRoute(effectiveOpenId, route);
   const canOperate = startup.canOperate(hostId);
   const now = useNowTick(gatedOpenId === null);
+  const inboxActions = useProductionInboxActions(startup);
 
   const resolved = useMemo(() => {
     if (!inboxVisible) return { lease: null, problem: null as string | null };
@@ -279,6 +301,7 @@ export function ActiveMachineInbox({
         minHeight: INBOX_LIST_MIN_HEIGHT,
         maxHeight: INBOX_LIST_MAX_HEIGHT,
         flexShrink: 0,
+        position: "relative",
       }}
     >
       <View
@@ -335,6 +358,13 @@ export function ActiveMachineInbox({
               machineId={hostId}
               now={now}
               open={setOpenId}
+              canAct={canOperate}
+              busy={inboxActions.isBusy(hostId, entry.id)}
+              onAct={(kind, preset) => {
+                void inboxActions.act(hostId, kind, entry.id, preset).then((issue) => {
+                  if (issue) notify(issue);
+                });
+              }}
             />
           )
         }
@@ -349,6 +379,13 @@ export function ActiveMachineInbox({
             {connection === "ready" ? "No threads yet." : "Connecting to your machine…"}
           </Text>
         }
+      />
+      <ProductionInboxActionBanner
+        undo={inboxActions.undo}
+        failed={inboxActions.failed}
+        onUndo={() => void inboxActions.undoNow()}
+        onRetry={() => void inboxActions.retryFailed()}
+        onDismissFailed={inboxActions.dismissFailed}
       />
     </View>
   );

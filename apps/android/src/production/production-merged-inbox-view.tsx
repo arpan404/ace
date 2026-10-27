@@ -43,6 +43,16 @@ import {
   useNowTick,
 } from "./production-inbox-common.tsx";
 import { ProductionThreadView } from "./production-thread-view.tsx";
+import {
+  availableInboxActions,
+  type InboxActionKind,
+  type SnoozePresetId,
+} from "../inbox-actions.ts";
+import {
+  ProductionInboxActionBanner,
+  ProductionInboxRowActions,
+  useProductionInboxActions,
+} from "./production-inbox-actions-ui.tsx";
 
 /**
  * One machine's live rows for the merged inbox. Resolves only that machine's
@@ -50,8 +60,8 @@ import { ProductionThreadView } from "./production-thread-view.tsx";
  * reader), reports its projected rows up, renders nothing. A dead lease
  * reports no rows, so one machine's trouble never touches another's.
  *
- * No admit path lives here: only `runtimeForReading`, never
- * `runtimeForMutation` and never the raw client.
+ * Reads only: row organization resolves `runtimeForMutation(hostId)` per tap
+ * in the row view, never here and never the raw client.
  */
 const noInboxThreads = emptySelection<InboxThread[] | undefined>(undefined);
 
@@ -154,14 +164,21 @@ function MergedInboxRowView({
   now,
   machineName,
   open,
+  canAct,
+  busy,
+  onAct,
 }: {
   row: InboxThread;
   now: number;
   machineName: string | null;
   open(key: ProductionOpenKey): void;
+  canAct: boolean;
+  busy: boolean;
+  onAct(kind: InboxActionKind, preset?: SnoozePresetId): void;
 }) {
   const theme = useTheme();
   const status = displayAppearance(inboxStatus(row, now), theme);
+  const offered = availableInboxActions(row.entry, now, canAct);
   return (
     <Pressable
       onPress={() => open({ machineId: row.machineId, id: row.entry.id })}
@@ -186,6 +203,9 @@ function MergedInboxRowView({
         </Text>
       ) : null}
       <Text style={{ ...textStyle("caption"), color: status.textColour }}>{status.label}</Text>
+      {canAct ? (
+        <ProductionInboxRowActions offered={offered} busy={busy} now={now} onAct={onAct} />
+      ) : null}
     </Pressable>
   );
 }
@@ -199,7 +219,8 @@ function MergedInboxRowView({
  * rows merge by the shared grouping/ranking rules, and a row opens its own
  * machine's thread. One host's revocation or disconnect drops only its rows;
  * the open thread closes only when its own host leaves `paired`. Rows stay
- * readable while view-only; no admit path lives here.
+ * readable while view-only; organization goes through the per-host mutation
+ * gate per tap (`production-inbox-actions.ts`), never a cached handle.
  */
 export function MergedMachineInbox({
   startup,
@@ -279,6 +300,7 @@ export function MergedMachineInbox({
   const data: ProductionMergedEntry[] = useMemo(() => mergedEntriesFor(merged), [merged]);
   const showNames = showsMachineNames(paired.length);
   const allViewOnly = paired.length > 0 && paired.every((hostId) => !startup.canOperate(hostId));
+  const inboxActions = useProductionInboxActions(startup);
   function retry(hostId: string): void {
     retryReading(startup, hostId);
     setRetryTicks((prev) => ({ ...prev, [hostId]: (prev[hostId] ?? 0) + 1 }));
@@ -309,6 +331,7 @@ export function MergedMachineInbox({
         minHeight: INBOX_LIST_MIN_HEIGHT,
         maxHeight: INBOX_LIST_MAX_HEIGHT,
         flexShrink: 0,
+        position: "relative",
       }}
     >
       <View
@@ -376,6 +399,15 @@ export function MergedMachineInbox({
                   now={now}
                   machineName={showNames ? machineLabelFor(entry.machineId, names) : null}
                   open={setOpenKey}
+                  canAct={startup.canOperate(row.machineId)}
+                  busy={inboxActions.isBusy(row.machineId, row.entry.id)}
+                  onAct={(kind, preset) => {
+                    void inboxActions
+                      .act(row.machineId, kind, row.entry.id, preset)
+                      .then((issue) => {
+                        if (issue) notify(issue);
+                      });
+                  }}
                 />
               );
             })()
@@ -402,6 +434,13 @@ export function MergedMachineInbox({
           onChange={onChange}
         />
       ))}
+      <ProductionInboxActionBanner
+        undo={inboxActions.undo}
+        failed={inboxActions.failed}
+        onUndo={() => void inboxActions.undoNow()}
+        onRetry={() => void inboxActions.retryFailed()}
+        onDismissFailed={inboxActions.dismissFailed}
+      />
     </View>
   );
 }
