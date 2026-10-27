@@ -323,7 +323,7 @@ async function* staged(
   from: number,
   size: number,
 ): AsyncGenerator<Uint8Array> {
-  for (let offset = from; offset < size; ) {
+  for (let offset = from; offset < size;) {
     const bytes = decodeBase64(
       await read(localId, offset, Math.min(chunkBytes, size - offset)),
       chunkBytes,

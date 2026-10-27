@@ -228,7 +228,8 @@ export async function sendResumableUpload(
       keep = connectionLost(error) && !options.signal?.aborted;
       throw error;
     } finally {
-      if (!keep) await cancelUpload(lifetime.client, upload.input.threadId, ready.uploadId, options);
+      if (!keep)
+        await cancelUpload(lifetime.client, upload.input.threadId, ready.uploadId, options);
     }
   } finally {
     lifetime.close();

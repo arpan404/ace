@@ -104,7 +104,12 @@ export class CheckoutMemory {
           moveInList(recent, action.from, action.to),
           recentLimits,
         );
-        this.#open = putScoped(this.#open, key, moveInList(open, action.from, action.to), openLimits);
+        this.#open = putScoped(
+          this.#open,
+          key,
+          moveInList(open, action.from, action.to),
+          openLimits,
+        );
         break;
       case "files.forgot":
         this.#recent = putScoped(this.#recent, key, closeInList(recent, action.path), recentLimits);
