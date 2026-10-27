@@ -82,3 +82,77 @@ test.runIf(process.platform === "win32").each(["reads", "searches"])(
     expect(await inside.service.read({ path: "changing/file" })).toMatchObject({ text: "inside" });
   },
 );
+
+// A search pass holds the folder it reads from; Windows lets that folder move while no file in
+// it is open, and the held handle follows it out of the project.
+test.runIf(process.platform === "win32")(
+  "never searches outside bytes while a real child moves a held folder out of the project",
+  async () => {
+    const inside = await fixture();
+    const outside = await fixture();
+    const names = Array.from({ length: 40 }, (_, index) => `f${index}.txt`);
+    for (const name of names) await inside.file(`moving/${name}`, "inside");
+    const child = spawn(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+    import { renameSync, writeFileSync } from 'node:fs';
+    import { join } from 'node:path';
+    const [root, outside, ...names] = process.argv.slice(1);
+    const path = join(root, 'moving');
+    const away = join(outside, 'away');
+    let stopped = false;
+    process.on('message', () => { stopped = true; });
+    let cycles = 0;
+    const retry = async (step) => {
+      for (;;) {
+        try { return step(); } catch (error) {
+          if (error.code !== 'EPERM' && error.code !== 'EBUSY' && error.code !== 'EACCES') throw error;
+          await new Promise(resolve => setImmediate(resolve));
+        }
+      }
+    };
+    const fill = (text) => { for (const name of names) writeFileSync(join(away, name), text); };
+    while (!stopped) {
+      await retry(() => renameSync(path, away));
+      fill('OUTSIDE SECRET');
+      await new Promise(resolve => setImmediate(resolve));
+      fill('inside');
+      await retry(() => renameSync(away, path));
+      await new Promise(resolve => setImmediate(resolve));
+      if (++cycles === 1) process.send('ready');
+    }
+    process.disconnect();
+  `,
+        inside.root,
+        outside.root,
+        ...names,
+      ],
+      { stdio: ["ignore", "ignore", "pipe", "ipc"] },
+    );
+    const exited = once(child, "exit");
+    const errors: string[] = [];
+    child.stderr?.on("data", (chunk: Buffer) => errors.push(chunk.toString()));
+    try {
+      await once(child, "message");
+      for (let index = 0; index < 100; index++) {
+        try {
+          const result = await inside.service.search({ query: "SECRET", limit: 10 });
+          expect(result.matches).toEqual([]);
+        } catch (error) {
+          if (!(error instanceof WorkspaceError)) throw error;
+          expect(error.code, String(error)).toMatch(
+            /^(NOT_FOUND|NOT_DIRECTORY|PATH_ESCAPE|PATH_CHANGED|PERMISSION_DENIED)$/,
+          );
+        }
+      }
+    } finally {
+      child.send("stop");
+      const [code] = await exited;
+      expect(code, errors.join("")).toBe(0);
+    }
+    expect(await inside.service.read({ path: "moving/f0.txt" })).toMatchObject({ text: "inside" });
+  },
+);
