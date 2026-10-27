@@ -9561,90 +9561,60 @@ Example:
 
 ```json
 {
-  "seq": 4,
+  "seq": 8,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "agentChildren": {},
     "agents": {},
     "backgroundTasks": {},
-    "contextMeters": {},
     "entitiesBefore": {},
     "interactions": {},
     "itemOrder": [],
-    "itemSeqs": {},
     "items": {},
+    "itemsBefore": 6,
     "kind": "thread",
-    "queue": {
-      "lastFailure": {
-        "code": "example",
-        "title": "example"
-      },
-      "paused": false,
-      "reason": null,
-      "resumeAt": null,
-      "revision": 8
-    },
     "runs": {},
-    "seq": 4,
+    "seq": 8,
     "thread": {
-      "activityAt": 0,
-      "activitySeq": 3,
-      "autoSettleAt": 5,
-      "createdAt": 3,
+      "acpAgentId": "example",
+      "autoSettleAt": 7,
+      "backend": "cursor-sdk",
+      "createdAt": 0,
       "details": {
         "base": {
-          "head": "f289bc746f9f55c5f3b815e66cadc3ac65801c2a897ce46de2207188d9f145a1",
-          "ref": "example"
+          "head": "859f263653db23e4e406982d6680c219fd580b6eeefd2abd0fca515f6a608",
+          "ref": "example",
+          "remote": "84SmH"
         },
-        "baseBranch": "example",
-        "branch": "example",
-        "continuedFrom": {
-          "at": 5,
+        "continuedOn": {
+          "at": 8,
           "hostId": "example",
           "name": "example",
           "threadId": "example"
         },
-        "linkedIssues": [],
-        "pullRequestWorkspace": {
-          "baseBranch": "example",
-          "baseSha": "ca902ba29cf8496483011c51398956da6d049ad38a30c0f0ac5a05dc4b173a3f",
-          "context": "example",
-          "contextTruncated": true,
-          "headBranch": "example",
-          "headRepository": {
-            "forge": "gitlab",
-            "host": "GW7iE",
-            "name": "mcNP",
-            "owner": "Zcm_Gcz6a/TcRawxU/l5NPICgl"
-          },
-          "headSha": "efb2fe86bf8c88d8adb08fe21ba5d37152775883d68ef7495",
-          "ref": {
-            "number": 6,
-            "repository": {
-              "forge": "gitlab",
-              "host": "Uyi",
-              "name": "8-ZY",
-              "owner": "Y7taUa/v7xqc/_nftVn2qkn/SLy/__wPMmzX/K3GSjpEF/G83_/NZpdJfNnc7Y/L/db/qj3"
-            }
-          }
+        "diff": {
+          "additions": 0,
+          "deletions": 9,
+          "files": 4
         },
-        "worktreeMissing": true,
-        "worktreeSetup": {
-          "at": 3,
-          "details": [],
-          "reason": "read_only",
-          "state": "failed"
-        }
-      },
-      "execution": {
-        "options": {},
-        "provider": "antigravity"
+        "linkedPr": {
+          "draft": false,
+          "number": 1,
+          "state": "merged",
+          "url": "https://example.invalid/"
+        },
+        "workspace": {
+          "id": "example",
+          "kind": "chat",
+          "name": "example",
+          "path": "example"
+        },
+        "worktree": "example"
       },
       "id": "example",
-      "instanceId": "example",
       "lineage": {
-        "lossy": false,
+        "lossy": true,
         "mode": "portable",
         "parentAgentId": "example",
         "parentThreadId": "example",
@@ -9653,97 +9623,23 @@ Example:
           "type": "item"
         }
       },
-      "live": {
-        "account": "example",
-        "contextMeter": {
-          "at": 0,
-          "limit": 8,
-          "used": 8
-        },
-        "model": "example",
-        "step": "tests"
-      },
-      "movedFrom": {
-        "details": {
-          "base": {
-            "fetch": "fetched",
-            "head": "0be9214a4f129b3df40ee5a59b86729753d3b795",
-            "ref": "example",
-            "remote": "kaRU0twLQR4"
-          },
-          "baseBranch": "example",
-          "continuedOn": {
-            "at": 0,
-            "hostId": "example",
-            "name": "example",
-            "threadId": "example"
-          },
-          "pullRequestWorkspace": {
-            "baseBranch": "example",
-            "baseSha": "0071b600810c6057f4a42c38b00754ac1985d27859",
-            "context": "example",
-            "contextTruncated": true,
-            "headBranch": "example",
-            "headRepository": {
-              "forge": "gitlab",
-              "host": "NWTKpeHKs",
-              "name": "JuL1ATZ",
-              "owner": "pOAX-4Gp/4AhGD9xnS/AeWpqswmHa/mz/haRD/vZcXy4-8/pb_6o9dk0W/cDb6P/Ka.ohO0"
-            },
-            "headSha": "cc9856050192cf57dadf4000fd0677bf09685cfdfd426",
-            "ref": {
-              "number": 1,
-              "repository": {
-                "forge": "github",
-                "host": "06GLTCKXcM",
-                "name": "pmA",
-                "owner": "P8kopUZnRj/YMulmT37l/n3PQ/wGo/2bxj17dB/zwSds2/hh.TX/JHv.N9Y"
-              }
-            }
-          },
-          "worktree": "example",
-          "worktreeSetup": {
-            "at": 1,
-            "details": [],
-            "reason": "read_only",
-            "state": "skipped"
-          }
-        },
-        "workspaceId": "example"
-      },
-      "permission": {
-        "custom": "example",
-        "effective": "read-only",
-        "override": "ask",
-        "pending": false
-      },
-      "pinned": true,
-      "provider": "acp",
-      "queue": {
-        "lastFailure": null,
-        "paused": false,
-        "pendingCount": 6,
-        "reason": "model_unavailable",
-        "resumeAt": 7,
-        "revision": 3
+      "listOrder": 3,
+      "pinOrder": 3,
+      "provider": "cursor",
+      "queuedLaunch": {
+        "queuePosition": 1,
+        "slotLimit": 2,
+        "text": "example"
       },
       "rootAgentId": "example",
-      "settleWhenDone": true,
-      "snoozedUntil": 4,
-      "status": {
-        "agents": 6,
-        "state": "working"
+      "run": {
+        "pendingCount": 1,
+        "phase": "delivery",
+        "state": "open"
       },
-      "switch": {
-        "at": 1,
-        "error": "example",
-        "lossy": true,
-        "recommendation": "delegate",
-        "selection": {
-          "options": {},
-          "provider": "pi"
-        },
-        "state": "queued"
+      "settledReason": "inactivity",
+      "status": {
+        "state": "unresponsive"
       },
       "title": "example",
       "unread": false,
@@ -31751,100 +31647,77 @@ Example:
 {
   "activityAt": 4,
   "activitySeq": 2,
-  "archivedAt": 5,
-  "createdAt": 7,
+  "archivedAt": 6,
+  "createdAt": 6,
   "delegatedBy": "example",
-  "goal": {
-    "checks": 4,
-    "objective": "example",
-    "status": "active",
-    "timeUsedSeconds": 4,
-    "tokenBudget": 6
+  "effectiveCapabilities": {
+    "accessModes": [],
+    "approvals": "sandbox-only",
+    "backgroundTaskControl": false,
+    "backgroundVisibility": "partial",
+    "fork": true,
+    "forkSubagents": true,
+    "goals": true,
+    "imageInput": true,
+    "interruptCascades": true,
+    "planMode": true,
+    "resume": true,
+    "rewindFiles": true,
+    "steer": true,
+    "subagentTranscripts": false,
+    "tokenUsage": false
   },
-  "handoff": {
-    "bytes": 7,
-    "sourceThreadId": "example",
-    "truncated": false
+  "execution": {
+    "instanceId": "example",
+    "options": {},
+    "provider": "antigravity"
+  },
+  "goal": {
+    "checks": 7,
+    "objective": "example",
+    "status": "paused",
+    "tokenBudget": 8,
+    "tokensUsed": 1
   },
   "id": "example",
   "movedFrom": {
-    "details": {
-      "base": {
-        "head": "1dcd6180de1cc2c40dc349527dd525aaf9450e5ec500a5ab0f174d7db6a",
-        "ref": "example"
-      },
-      "behind": 1,
-      "head": null,
+    "links": {
       "linkedPr": {
-        "draft": false,
-        "number": 4,
-        "state": "closed",
+        "number": 1,
+        "state": "open",
         "url": "https://example.invalid/"
       },
       "linkedPrs": [],
-      "pullRequestWorkspace": {
-        "baseBranch": "example",
-        "baseSha": "8080e23baaac29373eb1c7e8e6547a413c3a42ca93b2e99324d198eb",
-        "context": "example",
-        "contextTruncated": false,
-        "headBranch": "example",
-        "headRepository": {
-          "forge": "github",
-          "host": "l",
-          "name": "FPXr",
-          "owner": "0LH66/C.xXJ/bagyv/zXpO/as1nIO_F"
-        },
-        "headSha": "1ae5d5d82f17ed05c5628befbd74d6069b09876142d17ad",
-        "ref": {
-          "number": 1,
-          "repository": {
-            "forge": "github",
-            "host": "ptHH.U",
-            "name": "I-cDa",
-            "owner": "C.k72pbO986/iB3uWSSnga"
-          }
-        }
-      },
       "repository": {
         "forge": "github",
-        "host": "el",
-        "name": "XqgnojY1f.",
-        "owner": "W.Wv3k9/MWjzgmbp/zHOV6VPL/s.Lc2QpNNA/a/yTP0/a_o-3C8hba/Vl/1Kh7oSK4"
-      },
-      "workspace": {
-        "defaultIcon": null,
-        "id": "example",
-        "name": "example",
-        "path": "example"
-      },
-      "worktree": "example"
+        "host": "ptHH.U",
+        "name": "I-cDa",
+        "owner": "C.k72pbO986/iB3uWSSnga"
+      }
     },
     "workspaceId": "example"
   },
   "pinOrder": 5,
-  "provider": "opencode",
+  "provider": "claude",
+  "queue": {
+    "exited": true,
+    "paused": true,
+    "reason": null,
+    "resumeAt": 6,
+    "revision": 5
+  },
   "run": {
-    "pendingCount": 7,
-    "phase": "verify",
+    "pendingCount": 5,
+    "phase": "review",
     "state": "delivered"
   },
   "settleWhenDone": true,
   "status": {
-    "interactions": 4,
-    "state": "needs_you"
-  },
-  "switch": {
-    "at": 5,
-    "lossy": true,
-    "recommendation": "delegate_task",
-    "selection": {
-      "provider": "pi"
-    },
-    "state": "applied"
+    "state": "unresponsive"
   },
   "title": "example",
   "unread": true,
-  "updatedAt": 5,
+  "updatedAt": 8,
   "workspaceId": "example"
 }
 ```
@@ -31941,41 +31814,14 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
-| details | yes | [ThreadDetails.json](schema/ThreadDetails.json) |  |
+| links | yes | object | {"properties":{"repository":{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},"linkedPrs":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/LinkedPullRequest.json"}},"linkedPr":{"anyOf":[{"type":"object","properties":{"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"state":{"type":"string","enum":["open","closed","merged"]},"draft":{"type":"boolean"},"url":{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":4096,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."}},"required":["number","state"]},{"type":"null"}]},"linkedIssues":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ForgeIssueRef.json"}}}} |
 
 Example:
 
 ```json
 {
-  "details": {
-    "continuedFrom": {
-      "at": 8,
-      "hostId": "example",
-      "name": "example",
-      "threadId": "example"
-    },
-    "continuedOn": {
-      "at": 5,
-      "hostId": "example",
-      "name": "example",
-      "threadId": "example"
-    },
-    "diff": {
-      "additions": 5,
-      "deletions": 0,
-      "files": 8
-    },
-    "head": "b49039a73b7eb055b751831dcb4bbe8c35e4d8df34604217",
-    "linkedIssues": [],
-    "linkedPr": {
-      "number": 4,
-      "state": "closed"
-    },
-    "machine": {
-      "host": "example",
-      "name": "example"
-    },
-    "mode": "worktree"
+  "links": {
+    "linkedPrs": []
   },
   "workspaceId": "example"
 }
@@ -32501,110 +32347,75 @@ Example:
   "interactions": {},
   "itemOrder": [],
   "items": {},
-  "itemsBefore": null,
   "kind": "thread",
   "runs": {},
   "seq": 7,
   "thread": {
-    "autoSettleAt": 9,
-    "continuation": {
-      "actionId": "thread.continue_new",
-      "reason": "cursor_cli_retired",
-      "state": "read_only"
+    "acpAgentId": "example",
+    "acpSupport": {
+      "capabilities": {
+        "imageInput": false,
+        "planMode": false,
+        "resume": true
+      },
+      "coverage": "generic",
+      "mcp": "stdio",
+      "modeSelection": false,
+      "modelSelection": true,
+      "raw": {
+        "json": "example",
+        "truncated": true
+      },
+      "visibility": "limited"
     },
-    "createdAt": 6,
+    "autoSettleAt": 9,
+    "createdAt": 1,
     "delegatedBy": "example",
     "deletedAt": 3,
     "id": "example",
-    "imported": {
-      "importedAt": 6,
-      "instanceId": "example",
-      "native": {
-        "acpAgentId": "example",
-        "nativeId": "example",
-        "provider": "cursor"
-      },
-      "sourceId": "example"
-    },
     "listOrder": 2,
     "movedFrom": {
-      "details": {
-        "ahead": 5,
-        "continuedFrom": {
-          "at": 6,
-          "hostId": "example",
-          "name": "example",
-          "threadId": "example"
-        },
-        "diff": {
-          "additions": 9,
-          "deletions": 4,
-          "files": 0
-        },
-        "pullRequestWorkspace": {
-          "baseBranch": "example",
-          "baseSha": "647fe533f1c69b2cccd122b9869e32ac9a84535ef74",
-          "context": "example",
-          "contextTruncated": true,
-          "headBranch": "example",
-          "headRepository": {
-            "forge": "github",
-            "host": "-ACUo",
-            "name": "dAMouK",
-            "owner": "GBSR/LvXGFrvUp/Ge73/R35yN3ZQU/vYpcvClDb66/Kma-mAP"
-          },
-          "headSha": "58a10ec67c0d6e74e01f900428c672ad531f334fab2",
-          "ref": {
-            "number": 9,
-            "repository": {
-              "forge": "gitlab",
-              "host": "kHVGbG",
-              "name": "u",
-              "owner": "3Y-loYV.P/2HSpFh/jIVTv0ddif/4uMm/cKfGz.nO/gzGsBZ6/s/SXiqafkan9"
-            }
-          }
-        },
+      "links": {
+        "linkedPr": null,
         "repository": {
           "forge": "gitlab",
-          "host": "ThfUD2CL8n",
-          "name": "k",
-          "owner": "scbfWpJ_Uv/jlQxl-04rY/umWYY5fp"
-        },
-        "workspaceChange": {
-          "at": 1,
-          "branch": "example",
-          "commandId": "example",
-          "error": "example",
-          "lossy": true,
-          "mode": "worktree",
-          "state": "failed"
-        },
-        "worktreeMissing": true
+          "host": "kHVGbG",
+          "name": "u",
+          "owner": "3Y-loYV.P/2HSpFh/jIVTv0ddif/4uMm/cKfGz.nO/gzGsBZ6/s/SXiqafkan9"
+        }
       },
       "workspaceId": "example"
     },
     "pinOrder": 3,
     "prSettled": 3,
-    "provider": "codex",
+    "provider": "pi",
+    "queue": {
+      "exited": true,
+      "lastFailure": null,
+      "paused": true,
+      "reason": null,
+      "resumeAt": 8,
+      "revision": 4
+    },
     "readAt": 0,
     "rootAgentId": "example",
     "run": {
-      "pendingCount": 9,
-      "phase": "plan",
-      "state": "open"
+      "pendingCount": 3,
+      "phase": "delivery",
+      "state": "delivered"
     },
     "settledReason": "inactivity",
     "status": {
-      "agents": 6,
-      "state": "working"
+      "interactions": 6,
+      "state": "needs_you"
     },
     "title": "example",
-    "titleSource": "person",
     "unread": true,
-    "updatedAt": 2,
+    "updatedAt": 8,
     "workspaceId": "example"
   },
-  "usage": {}
+  "usage": {},
+  "usageSnapshots": {}
 }
 ```
 

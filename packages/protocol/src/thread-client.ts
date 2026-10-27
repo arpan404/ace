@@ -202,13 +202,19 @@ export const ThreadRunMetadata = z.object({
 });
 export type ThreadRunMetadata = z.infer<typeof ThreadRunMetadata>;
 /**
- * What a move to another project left behind: the project it came from and its details there
- * (branch, pull requests, diff). Moving back to that project restores them, so Undo after Move
- * puts the thread back as it was.
+ * The forge links a move to another project left behind: the project it came from and the pull
+ * requests and issues linked there. Moving back to that project restores those links (Undo after
+ * Move); branch, head and diff are read again from the checkout, never restored. Cleared once
+ * used, and replaced by the next move.
  */
 export const ThreadMovedFrom = z.object({
   workspaceId: WorkspaceId,
-  details: ThreadDetails,
+  links: ThreadDetails.pick({
+    repository: true,
+    linkedPrs: true,
+    linkedPr: true,
+    linkedIssues: true,
+  }),
 });
 export type ThreadMovedFrom = z.infer<typeof ThreadMovedFrom>;
 export const ThreadClientFields = ThreadOrganization.extend({

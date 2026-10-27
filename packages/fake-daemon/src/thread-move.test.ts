@@ -80,27 +80,48 @@ test("the fake refuses missing projects and a tree that is still working", () =>
   expect(view(f.daemon)?.thread.workspaceId).toBe("old");
 });
 
-function view(daemon: FakeDaemon) {
-  const snapshot = daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("source") });
+function view(daemon: FakeDaemon, id = "source") {
+  const snapshot = daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(id) });
   if (!snapshot || !("thread" in snapshot)) throw new Error("Thread snapshot missing");
   return snapshot;
 }
 
-test("moving back to the project a thread left restores its branch and details there", () => {
+test("moving back restores the pull request links, never the old checkout's git state", () => {
   const f = world();
+  const linkedPr = { number: 7, state: "open" as const, url: "https://github.com/acme/app/pull/7" };
+  f.daemon.createThread({
+    id: "linked",
+    workspaceId: "old",
+    title: "Linked",
+    provider: "codex",
+    details: {
+      mode: "local",
+      worktree: "/fake/old",
+      branch: "old-branch",
+      head: "b".repeat(40),
+      linkedPr,
+    },
+  });
   const move = (workspaceId: string) =>
     f.command({
       type: "thread.move",
-      threadId: "source",
+      threadId: "linked",
       workspaceId: WorkspaceId.parse(workspaceId),
     });
+  const linked = () => view(f.daemon, "linked").thread;
   expect(move("new")).toMatchObject({ ok: true });
-  expect(view(f.daemon).thread.details?.branch).toBeUndefined();
+  // Only the links ride along, never branch or head.
+  expect(linked().movedFrom).toEqual({ workspaceId: "old", links: { linkedPr } });
+  expect(linked().details?.linkedPr).toBeUndefined();
+
+  // Meanwhile the old checkout moved to another branch: the move back must not claim the old one.
   expect(move("old")).toMatchObject({ ok: true });
-  expect(view(f.daemon).thread).toMatchObject({
-    workspaceId: "old",
-    details: { branch: "old-branch", head: "a".repeat(40), worktree: "/fake/old" },
-  });
+  const back = linked();
+  expect(back.details).toMatchObject({ linkedPr, worktree: "/fake/old", mode: "local" });
+  expect(back.details?.branch).toBeUndefined();
+  expect(back.details?.head).toBeUndefined();
+  // Used up: it no longer rides on the thread.
+  expect(back.movedFrom).toBeUndefined();
 });
 
 test("settling and taking it back leaves auto-settle and the thread's place as they were", () => {
