@@ -30,13 +30,14 @@ contract and implies no security the native transport does not yet provide.
 
 ## What is deliberately missing
 
-No native pinned HTTPS (A02.02), no native authenticated WSS (A02.03), no
-Keystore adapter wiring (A02.04), no QR capture (A02.06), no app lock
-(A02.07) and no production startup or ticket wiring (A02.08). Until the
-native trust adapter exists, nothing here may authorize a connection: the
-production entry point (`index.production.tsx`) stays unpaired, the
-fixture runtime stays debug-only, and the React Native default fetch or
-WebSocket must never carry pairing material.
+No native pinned HTTPS (A02.02), no native authenticated WSS (A02.03), no QR
+capture (A02.06), no app lock (A02.07) and no production startup or ticket
+wiring (A02.08). The Keystore adapter (A02.04) is wired (`keystore.ts` plus
+the `secure-store.ts` production entry); until the native trust adapter
+exists, nothing here may authorize a connection: the production entry point
+(`index.production.tsx`) stays unpaired, the fixture runtime stays
+debug-only, and the React Native default fetch or WebSocket must never
+carry pairing material.
 
 ## Integration needs
 
@@ -45,9 +46,22 @@ WebSocket must never carry pairing material.
    1 MiB response bound) behind `PairingTransport.redeem`.
 2. Native pinned WSS adapter with the same trust policy behind the ticket
    exchange and the `host.identity` read in `PairingTransport.readIdentity`.
-3. `expo-secure-store` wired through `adaptSecureStore` with
-   Keystore-backed, this-device-only, after-first-unlock options, plus
-   backup/restore and invalidation behavior.
+3. `expo-secure-store` wired through `createKeystoreCredentialStore`
+   (`keystore.ts`, production entry `secure-store.ts`) with the isolated
+   `app.ace.android.device-token` service, no authentication prompt,
+   SecureStore-safe key encoding, and Auto Backup exclusion
+   (`configureAndroidBackup` in `app.json`, pinned by `backup.test.ts`).
+   `keychainAccessible` is iOS-only and ignored by the Android native
+   module, so the adapter never sends it. Fail-closed reads, single-key
+   deletes and malformed-token handling are covered in `keystore.test.ts`.
 4. Production startup that routes empty, removed and revoked pairings to
    pairing again, requests a fresh ticket per connection, and keeps the
    fixture transport debug-only.
+
+## Verification limits (no emulator)
+
+- `backup.test.ts` pins the checked-in `app.json` flag that generates the
+  backup exclusion, not the generated manifest. After any Expo SDK bump or
+  `app.json` edit, run `expo prebuild --platform android` and confirm the
+  manifest references the SecureStore backup/data-extraction rules before
+  shipping.

@@ -1,6 +1,5 @@
 import { expect, it } from "vitest";
 import {
-  adaptSecureStore,
   createMemoryCredentialStore,
   deleteCredential,
   loadCredential,
@@ -71,21 +70,4 @@ it("refuses malformed tokens and unavailable stores without leaking material", a
     expect((error as Error).message).not.toContain(secret);
     expect((error as Error).message).not.toContain(TOKEN);
   }
-});
-
-it("adapts an expo-secure-store-shaped module without changing the contract", async () => {
-  const values = new Map<string, string>();
-  const store = adaptSecureStore({
-    getItemAsync: async (key: string) => values.get(key) ?? null,
-    setItemAsync: async (key: string, value: string) => {
-      values.set(key, value);
-    },
-    deleteItemAsync: async (key: string) => {
-      values.delete(key);
-    },
-  });
-  await saveCredential(store, ENTRY, TOKEN);
-  await expect(loadCredential(store, ENTRY)).resolves.toBe(TOKEN);
-  await deleteCredential(store, ENTRY);
-  await expect(loadCredential(store, ENTRY)).rejects.toThrow("needs pairing again");
 });

@@ -11,11 +11,11 @@ import { DeviceToken } from "@ace/protocol";
  * errors from this module never contain credential material.
  *
  * The store is injected so the logic stays testable without the device:
- * production wiring passes `expo-secure-store` behind this interface
- * (Keystore-backed, this device only, available after first unlock, never
- * synchronized or restored to another phone), while tests use the memory
- * store. The Keystore adapter itself is later native work (parity task
- * A02.04); this foundation only fixes the contract it must satisfy.
+ * production wiring passes the Keystore-backed adapter
+ * (`./keystore.ts` over `expo-secure-store`, via `./secure-store.ts`;
+ * AES-GCM ciphertext in the app-private `SecureStore` preferences with the
+ * key held by the Android Keystore, this device only, never synchronized
+ * or restored to another phone), while tests use the memory store.
  */
 
 export interface CredentialStore {
@@ -106,20 +106,5 @@ export function createMemoryCredentialStore(): CredentialStore {
     remove: async (key: string) => {
       values.delete(key);
     },
-  };
-}
-
-export interface ExpoSecureStoreAdapter {
-  getItemAsync(key: string): Promise<string | null>;
-  setItemAsync(key: string, value: string): Promise<void>;
-  deleteItemAsync(key: string): Promise<void>;
-}
-
-/** Adapt an `expo-secure-store`-shaped module to the `CredentialStore` contract. */
-export function adaptSecureStore(adapter: ExpoSecureStoreAdapter): CredentialStore {
-  return {
-    get: (key: string) => adapter.getItemAsync(key),
-    set: (key: string, value: string) => adapter.setItemAsync(key, value),
-    remove: (key: string) => adapter.deleteItemAsync(key),
   };
 }

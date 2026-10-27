@@ -14,7 +14,7 @@
     "plugins": [
       "expo-sqlite",
       "expo-font",
-      "expo-secure-store",
+      ["expo-secure-store", { "configureAndroidBackup": true }],
       "./plugins/with-ace-host.ts",
       "./plugins/with-ace-network.ts",
       "./plugins/with-ace-variant.ts",
