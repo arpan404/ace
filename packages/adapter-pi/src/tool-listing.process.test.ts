@@ -130,12 +130,13 @@ test("Pi declares ace's tools to the model and never hands them to its codemode 
   expect(host.scriptCallable().filter((name) => name.startsWith("ace_"))).toEqual([]);
 });
 
+/** The confirmation rule Pi's extension docs give a permission extension (Tool exposure). */
+const needsApproval = (hints: PiToolAnnotations | undefined) =>
+  hints?.destructiveHint === true ||
+  (!hints?.readOnlyHint && ((hints?.destructiveHint ?? true) || (hints?.openWorldHint ?? true)));
+
 test("a permission extension reading Pi's tool hints asks only before ace tools that overwrite work", async () => {
   const { host, tool } = await piSession();
-  // The rule Pi's extension docs give for confirming the calls Codex asks about.
-  const needsApproval = (hints: PiToolAnnotations | undefined) =>
-    hints?.destructiveHint === true ||
-    (!hints?.readOnlyHint && ((hints?.destructiveHint ?? true) || (hints?.openWorldHint ?? true)));
   expect(needsApproval(host.annotations("ace_guide"))).toBe(false);
   expect(needsApproval(host.annotations("ace_context"))).toBe(false);
   expect(needsApproval(host.annotations("ace_delegate"))).toBe(false);

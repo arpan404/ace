@@ -8,7 +8,7 @@ import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
  *   (`registry.ts`). A Claude Code session whose tool search is off gets `core`
  *   (`claudeToolListing`).
  * - `core`: clients that load every listed tool upfront and reload on `tools/list_changed`
- *   (OpenCode 2.0.32 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
+ *   (OpenCode 2.1.4 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
  *   start with the core tools, `tools_find` and `tools_call`; a guide, an entry point or a search
  *   adds a family, and `tools_call` reaches a found tool before the reload lands.
  * - `static`: clients that never reload (Cursor's SDK caches its list per connection; ACP agents

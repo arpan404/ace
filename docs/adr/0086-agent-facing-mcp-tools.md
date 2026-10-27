@@ -193,6 +193,38 @@ pays about 2,700 tokens of core schemas per request; its per-request ace context
 `call_mcp_tool` (server `ace`) after reading their definition. It shares Claude's always-loaded
 set.
 
+**OpenCode 2.1.4 and Pi 1.4.0 (2026-10-27).** Read from the installed OpenCode 2.1.4 binary's
+bundled source and Pi 1.4.0's package (`dist/core/agent-session.js`, `dist/extensions/codemode`,
+`pi-ai/dist/api`, `docs/mcp.md`, `docs/extensions.md`, CHANGELOG). Both keep the core listing:
+
+- OpenCode sends every direct MCP tool's schema on every request and reloads on
+  `tools/list_changed` after a 100 ms debounce. Its Code Mode, on by default per MCP server, puts
+  tools behind an `execute` script tool: the catalog shows each tool's full TypeScript signature
+  (input and output types) within about 2,000 tokens shared with OpenCode's own tools, the rest
+  found by `search()` inside a script, and nested calls reach the transcript only as `execute`
+  metadata. That is no cheaper than ace's core list and loses ace's per-tool rows and approvals,
+  so ace keeps `codemode: false`. OpenCode rewrites tool schemas per model only for Gemini
+  (required trimmed to known properties, tuple items, inlined refs) and Kimi (a type beside an
+  untyped enum); ace's advertised schemas pass both unchanged. It shows MCP server instructions
+  (without an `execute` line when Code Mode is off) whenever one of the server's tools is allowed,
+  and its Plan agent (ace's read-only) denies only edits, so ace's tools stay listed there.
+- Pi has had `codemode`, `tool_search` and an extension tool `exposure` since 0.99. Its tool
+  search lists no names (a query finds deferred tools), so it is no cheaper than ace's core list
+  with `tools_find`. While codemode is active (on by default once any of the person's MCP servers
+  connects), Pi hands active `direct` tools to scripts: it appends a script-call note to each
+  description, or with `codemode.mode: "only"` hides them behind its scripts. ace's extension now
+  registers its tools `model-only` (declared, never script-callable), passes ace's MCP hints as
+  Pi `annotations` for permission extensions, and, because the server's `tools/list_changed` can
+  land after the call's result, reloads its list before returning a call that may open a family,
+  so Pi's next request already declares it. Pi sends ace's schemas unchanged on every provider
+  (Gemini `parametersJsonSchema`, OpenAI strict only for tools that opt in); its Anthropic path
+  keeps only a root's `type`, `properties` and `required`, and no ace tool has other root keys.
+  `--tools` patterns still filter extension tools.
+
+Per-request ace context is unchanged by these fixes as measured (OpenCode about 2,650, Pi about
+2,880 tokens); a Pi session with codemode active no longer pays about 15 tokens of script-call
+note per declared ace tool.
+
 **Guidance per session.** The shared server text stays the same for everyone and under 315
 tokens. What differs goes in the provider's own channel, rendered once per session so its
 cached prefix holds: how to reach a tool the list may lack (Claude's tool search by exact name,

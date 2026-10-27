@@ -260,6 +260,7 @@ async function listen(
       const name = piToolName(tool.name);
       if (registered.has(name)) continue;
       registered.add(name);
+      const annotations = piAnnotations(tool);
       pi.registerTool({
         name,
         label: name,
@@ -272,7 +273,7 @@ async function listen(
         // ace tool's description, or with `codemode.mode: "only"` hide them all behind its
         // scripts, where ace's guidance and core list no longer describe what the model sees.
         exposure: "model-only",
-        ...(piAnnotations(tool) ? { annotations: piAnnotations(tool) } : {}),
+        ...(annotations ? { annotations } : {}),
         parameters: tool.inputSchema,
         async execute(_id, params, signal) {
           const args = z.record(z.string(), z.unknown()).parse(params);
