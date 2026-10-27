@@ -132,7 +132,7 @@ struct ConversationFeed: View {
                         HeldSendRow(message: held, canAct: model.canOperate, act: { await model.actOnQueue($0) },
                                     edit: { message, change in await model.editQueued(message, change: change) },
                                     words: { await model.queuedWords(held.id) },
-                                    saveWords: { await model.editQueuedWords(held.id, text: $0) })
+                                    saveWords: { await model.editQueuedWords(held.id, text: $0, revision: $1) })
                             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
                             .transition(.opacity)
                     }

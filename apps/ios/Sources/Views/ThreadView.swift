@@ -151,7 +151,7 @@ struct ThreadView: View {
                                edit: { message, change in await model.editQueued(message, change: change) },
                                act: { await model.actOnQueue($0) }, showMore: { model.showMoreQueued() },
                                words: { await model.queuedWords($0) },
-                               saveWords: { await model.editQueuedWords($0, text: $1) })
+                               saveWords: { await model.editQueuedWords($0, text: $1, revision: $2) })
                 }
             }
             // The next message continued this thread in a new one: open it once its row is here

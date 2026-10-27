@@ -167,6 +167,8 @@ struct PendingRow: Codable, Sendable, Identifiable {
     let label: String?; let token: String?
     /// Why it wasn't sent, behind Details, and the files on it; nil from older bridges.
     var detail: String? = nil; var files: Int? = nil
+    /// What runs on the send now ("editing", "retrying"): the other control waits for it.
+    var busy: String? = nil
 }
 /// A status the bridge has already worded; Swift only maps `token` to a theme colour.
 struct StatusDisplay: Codable, Sendable, Equatable { let label: String; let token: String }
@@ -220,7 +222,7 @@ enum BridgePatch: Decodable, Sendable {
     case admission(String, Bool, String)
     /// A message's full words for the edit sheet, or an edit's answer (`bridge/queued-words.ts`,
     /// `bridge/send-recovery.ts`): ok, the words when read, and why not when not.
-    case words(String, Bool, String?, String)
+    case words(String, Bool, String?, String, Int?)
     case block(String, Int, String, BlockRow?)
     case blockPosition(String, Int, String, Int?)
     case controls(String, Int, ControlsRow?)
@@ -263,7 +265,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph, text }
+    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph, text, revision }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -305,7 +307,7 @@ enum BridgePatch: Decodable, Sendable {
         case "words":
             let ok = try box.decode(Bool.self, forKey: .ok)
             self = .words(try box.decode(String.self, forKey: .id), ok, ok ? try box.decodeIfPresent(String.self, forKey: .text) : nil,
-                          try box.decode(String.self, forKey: .message))
+                          try box.decode(String.self, forKey: .message), try box.decodeIfPresent(Int.self, forKey: .revision))
         case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         case "thread.block":
             let (id, epoch) = try scope()

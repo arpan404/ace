@@ -356,7 +356,8 @@ import QuartzCore
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .notification(let patch): notificationSink?(patch)
-            case .words(let id, let ok, let text, let message): wordRequests.resolve(id, .init(ok: ok, text: text, message: message))
+            case .words(let id, let ok, let text, let message, let revision):
+                wordRequests.resolve(id, .init(ok: ok, text: text, message: message, revision: revision))
             case .receipt(let id, let ok, let message) where receipts.tracks(id):
                 // A goal change answers on its own sheet, never as the screen-wide error.
                 receipts.resolve(id, refused: ok ? nil : (message.isEmpty ? "Your computer refused that change." : message))

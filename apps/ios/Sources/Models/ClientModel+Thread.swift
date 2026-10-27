@@ -99,13 +99,15 @@ extension ClientModel {
         let id = admissions.nextId()
         return await wordRequests.wait(id: id) { threadAction(["type": "queueWords", "messageId": messageId, "requestId": id]) }
     }
-    /// New words for a queued message, in place: nil once the daemon took them, else why not (the
-    /// message stays as it was).
-    func editQueuedWords(_ messageId: String, text: String) async -> String? {
+    /// New words for a queued message, in place, fenced to the queue `revision` they were read at:
+    /// nil once the daemon took them, else why not (the message stays as it was).
+    func editQueuedWords(_ messageId: String, text: String, revision: Int?) async -> String? {
         guard canOperate else { return "This phone can only view this machine." }
         let id = admissions.nextId()
         return await receipts.wait(id: id) {
-            threadAction(["type": "queue", "messageId": messageId, "change": ["kind": "words", "text": text], "requestId": id])
+            var change: [String: Any] = ["kind": "words", "text": text]
+            if let revision { change["revision"] = revision }
+            return threadAction(["type": "queue", "messageId": messageId, "change": change, "requestId": id])
         }
     }
     /// A failed send's full words, for the edit sheet.

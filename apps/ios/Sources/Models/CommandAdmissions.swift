@@ -25,6 +25,8 @@ import Foundation
         var ok: Bool = true
         let text: String?
         let message: String
+        /// The queue revision the words were read at; nil for a send in the outbox.
+        var revision: Int? = nil
     }
     nonisolated static let unsent = Answer(ok: false, text: nil, message: "Couldn't reach the bridge. Try again.")
     private var waiting: [String: CheckedContinuation<Answer, Never>] = [:]

@@ -18,9 +18,11 @@ struct PendingSendRow: View {
             NotSentMessage(text: row.text, attachments: row.files ?? 0, reason: "", detail: row.detail ?? "",
                            canAct: canRetry, retryLabel: "Retry", removeLabel: "Discard", retry: retry,
                            edit: words.flatMap { read in saveWords.map { write in {
-                               editor = MessageEditor(attachments: row.files ?? 0, read: read, write: write)
+                               editor = MessageEditor(attachments: row.files ?? 0, read: read, write: { words, _ in await write(words) })
                            } } },
-                           remove: discard)
+                           remove: discard,
+                           // One at a time: Retry waits for an edit being saved, Edit for a retry.
+                           retryDisabled: row.busy == "editing", editDisabled: row.busy == "retrying")
                 .sheet(item: $editor) { MessageEditSheet(editor: $0) }
         } else {
             VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
@@ -49,7 +51,7 @@ struct HeldSendRow: View {
     let edit: (QueueRow.Message, [String: Any]) async -> Bool
     /// The message's full words from the daemon's queue, and saving new ones in place.
     let words: () async -> WordsRequests.Answer
-    let saveWords: (String) async -> String?
+    let saveWords: (String, Int?) async -> String?
     @State private var editor: MessageEditor?
     var body: some View {
         let queued = QueueRow.Message(id: message.id, text: message.text, delivery: "queue", state: "queued", attachments: message.attachments)
@@ -78,6 +80,9 @@ struct NotSentMessage: View {
     /// Opens the edit sheet.
     let edit: (() -> Void)?
     let remove: (() async -> Bool)?
+    /// Greyed while the other of the two runs on this send (`bridge/send-ops.ts`).
+    var retryDisabled = false
+    var editDisabled = false
     @State private var busy = false
     @State private var details = false
     @State private var confirming = false
@@ -102,9 +107,11 @@ struct NotSentMessage: View {
                     if canAct {
                         Button(retryLabel) { run(retry) }
                             .buttonStyle(StripTextButtonStyle(prominent: true))
+                            .disabled(retryDisabled)
                             .accessibilityIdentifier("pending.retry")
                         if let edit {
                             Button("Edit") { edit() }.buttonStyle(StripTextButtonStyle())
+                                .disabled(editDisabled)
                                 .accessibilityIdentifier("notSent.edit")
                         }
                         if remove != nil {

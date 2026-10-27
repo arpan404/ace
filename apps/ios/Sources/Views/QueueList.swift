@@ -13,7 +13,7 @@ struct QueueList: View {
     var showMore: () -> Void = {}
     /// A queued message's full words, and saving new ones where it waits (`MessageEditSheet`).
     var words: (String) async -> WordsRequests.Answer = { _ in WordsRequests.unsent }
-    var saveWords: (String, String) async -> String? = { _, _ in "This phone can only view this machine." }
+    var saveWords: (String, String, Int?) async -> String? = { _, _, _ in "This phone can only view this machine." }
     @State private var editor: MessageEditor?
     /// Remove asks first: the message is gone once it's done.
     @State private var removing: QueueRow.Message?
@@ -62,7 +62,7 @@ struct QueueList: View {
                             Button("Edit", ace: .pencilSimple) {
                                 editor = MessageEditor(attachments: message.attachments,
                                                        read: { await words(message.id) },
-                                                       write: { await saveWords(message.id, $0) })
+                                                       write: { await saveWords(message.id, $0, $1) })
                             }
                             if message.id != queue.messages.first?.id {
                                 Button("Move up", ace: .arrowUp) { run(message, ["kind": "move", "step": -1]) }

@@ -9,7 +9,10 @@ import QuartzCore
     @State private var production = ProductionApp.make()
     /// Unsent thread words, kept across navigation and relaunch (`ThreadDrafts`).
     @State private var drafts = (try? ProductionApp.storageDirectory()).map { directory in
-        ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
+        let drafts = ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
+        // Words an earlier build kept on their way back to a composer go into its draft (`LegacyTakeBacks`).
+        LegacyTakeBacks.drain(databases: directory, into: drafts)
+        return drafts
     }
     var body: some Scene {
         WindowGroup {

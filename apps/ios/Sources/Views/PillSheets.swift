@@ -107,7 +107,7 @@ struct QueueSheet: View {
     var act: (QueueRow.Action) async -> Bool = { _ in false }
     var showMore: () -> Void = {}
     var words: (String) async -> WordsRequests.Answer = { _ in WordsRequests.unsent }
-    var saveWords: (String, String) async -> String? = { _, _ in nil }
+    var saveWords: (String, String, Int?) async -> String? = { _, _, _ in nil }
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
