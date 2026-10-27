@@ -26,6 +26,7 @@ import {
   pageSource,
   type ModelPick,
   type PageChoice,
+  type PageClear,
   type PageRow,
   type ReadValues,
 } from "./settings-page-wire.ts";
@@ -202,6 +203,26 @@ function tierChoices(state: RoleState): PageChoice[] {
   return choices;
 }
 
+/** Clearing a role resets its model; when it also discards an effort or speed, it asks first. */
+function roleClear(role: Role, state: RoleState): PageClear {
+  const extra = [
+    state.effort !== "default" ? "effort" : "",
+    state.tier !== "default" ? "speed" : "",
+  ].filter(Boolean);
+  const title = agentSettingTitles[`roles.${role}`];
+  return {
+    label: "Clear",
+    destructive: true,
+    ask: extra.length
+      ? {
+          title: `Clear ${title}?`,
+          message: `Its model and ${extra.join(" and ")} go back to Not set.`,
+          confirm: "Clear",
+        }
+      : null,
+  };
+}
+
 /** A role's own page: its model, then effort and speed once a model is set. */
 export function roleRows(context: AgentsContext, role: Role): PageRow[] {
   const keys = roleKeys(role);
@@ -218,8 +239,7 @@ export function roleRows(context: AgentsContext, role: Role): PageRow[] {
         provider: state.provider ?? null,
         label: roleModelLabel(state),
         account: null,
-        clear: "Not set",
-        cleared: !state.provider,
+        clear: state.provider ? roleClear(role, state) : null,
       },
       value: state.provider
         ? { key: modelKey(state.provider, state.model ?? ""), account: state.found?.account ?? "" }
@@ -350,8 +370,7 @@ export function utilityRow(context: AgentsContext): PageRow {
       provider: provider ?? null,
       label,
       account: account ?? null,
-      clear: "Auto",
-      cleared: !choice,
+      clear: choice ? { label: "Use Auto", destructive: false, ask: null } : null,
     },
     value: choice
       ? { key: modelKey(choice.provider, choice.model), account: choice.instance ?? "" }

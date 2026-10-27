@@ -40,9 +40,16 @@ struct SettingsPageView: View {
                         ForEach(section.rows) { row in
                             SettingsPageRowView(
                                 model: model, row: row, pending: pending[row.id], others: differences(row),
+                                scoped: scope?.several == true,
                                 problem: rowProblems[row.id], enabled: model.canOperate && row.locked == nil,
                                 change: { change(row, $0) }, pick: { picking = row }
                             )
+                            if case .model(_, _, _, _, let clear?) = row.control {
+                                SettingsClearRow(row: row, clear: clear, enabled: model.canOperate && row.locked == nil) {
+                                    change(row, .pick(nil))
+                                }
+                                .transition(.opacity)
+                            }
                         }
                     } header: {
                         if let title = section.title { InsetHeader(title) }
@@ -58,7 +65,8 @@ struct SettingsPageView: View {
                 }
                 .insetRowBackground()
             } else {
-                SettingsPagePlaceholder()
+                // A role's page opens on its one model row; other pages hold a few rows.
+                SettingsPagePlaceholder(rows: page.hasPrefix("role.") ? 1 : 5)
             }
         }
         .insetGroupedList()
@@ -158,15 +166,39 @@ enum SettingsPageReply: Decodable, Sendable {
 
 /// Rows held in place while a page reads for the first time, so nothing jumps when it arrives.
 private struct SettingsPagePlaceholder: View {
+    let rows: Int
     var body: some View {
         Section {
-            ForEach(0..<5, id: \.self) { _ in
+            ForEach(0..<rows, id: \.self) { _ in
                 HStack { Text("Setting name here"); Spacer(); Text("Value") }
                     .aceFont(InsetStyle.label, relativeTo: .body)
             }
-        } header: { InsetHeader("Settings") }
+        }
         .insetRowBackground()
         .redacted(reason: .placeholder)
         .accessibilityHidden(true)
+    }
+}
+
+/// "Clear" in red, or "Use Auto", as its own row under a set model. It asks first only when
+/// clearing discards more than the model (the bridge says so).
+private struct SettingsClearRow: View {
+    let row: SettingsPageData.Row
+    let clear: SettingsPageData.Clear
+    let enabled: Bool
+    let run: () -> Void
+    @State private var asking = false
+    var body: some View {
+        // The list's own button, as Remove on a machine's page: red when it discards.
+        Button(clear.label, role: clear.destructive ? .destructive : nil) {
+            if clear.ask == nil { run() } else { asking = true }
+        }
+        .foregroundStyle(clear.destructive ? Color(uiColor: .systemRed) : AceTheme.Colours.foreground)
+        .disabled(!enabled)
+        .accessibilityIdentifier("setting.\(row.id).clear")
+        .confirmationDialog(clear.ask?.title ?? "", isPresented: $asking, titleVisibility: .visible) {
+            Button(clear.ask?.confirm ?? clear.label, role: .destructive, action: run)
+            Button("Cancel", role: .cancel) {}
+        } message: { Text(clear.ask?.message ?? "") }
     }
 }

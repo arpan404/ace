@@ -17,6 +17,13 @@ struct SettingsPageData: Decodable, Sendable, Equatable {
     struct Choice: Decodable, Sendable, Equatable, Identifiable, Hashable { let id: String; let label: String }
     struct Source: Decodable, Sendable, Equatable { let kind: String; let label: String }
     struct Pick: Codable, Sendable, Equatable, Hashable { let key: String; let account: String }
+    /// The row under a set model that puts it back, asking first when it discards more.
+    struct Clear: Decodable, Sendable, Equatable {
+        struct Ask: Decodable, Sendable, Equatable { let title: String; let message: String; let confirm: String }
+        let label: String
+        let destructive: Bool
+        let ask: Ask?
+    }
 
     enum Control: Decodable, Sendable, Equatable {
         case toggle
@@ -24,10 +31,10 @@ struct SettingsPageData: Decodable, Sendable, Equatable {
         case text(placeholder: String)
         case number
         case list(placeholder: String, add: String)
-        case model(picker: String, provider: String?, label: String, account: String?, clear: String, cleared: Bool)
+        case model(picker: String, provider: String?, label: String, account: String?, clear: Clear?)
         case link(page: String, provider: String?, label: String)
 
-        private enum Keys: String, CodingKey { case kind, style, choices, placeholder, add, picker, provider, label, account, clear, cleared, page }
+        private enum Keys: String, CodingKey { case kind, style, choices, placeholder, add, picker, provider, label, account, clear, page }
         init(from decoder: any Decoder) throws {
             let box = try decoder.container(keyedBy: Keys.self)
             switch try box.decode(String.self, forKey: .kind) {
@@ -43,8 +50,7 @@ struct SettingsPageData: Decodable, Sendable, Equatable {
                               provider: try box.decodeIfPresent(String.self, forKey: .provider),
                               label: try box.decode(String.self, forKey: .label),
                               account: try box.decodeIfPresent(String.self, forKey: .account),
-                              clear: try box.decode(String.self, forKey: .clear),
-                              cleared: try box.decode(Bool.self, forKey: .cleared))
+                              clear: try box.decodeIfPresent(Clear.self, forKey: .clear))
             case "link":
                 self = .link(page: try box.decode(String.self, forKey: .page),
                              provider: try box.decodeIfPresent(String.self, forKey: .provider),
@@ -107,7 +113,7 @@ struct SettingsPageData: Decodable, Sendable, Equatable {
             switch control {
             case .choice(_, let choices): choices.first { $0.id == value.text }?.label ?? value.text
             case .toggle: value.bool ? "On" : "Off"
-            case .model(_, _, let label, _, _, _), .link(_, _, let label): label
+            case .model(_, _, let label, _, _), .link(_, _, let label): label
             case .list: value.list.joined(separator: ", ")
             default: value.text
             }

@@ -33,11 +33,18 @@ export type PageControl =
       label: string;
       /** The account it runs on, when the provider has several. */
       account: string | null;
-      /** The choice that clears it: "Not set", "Auto". */
-      clear: string;
-      cleared: boolean;
+      /** How to put it back, or null when there is nothing set. */
+      clear: PageClear | null;
     }
   | { kind: "link"; page: string; provider: string | null; label: string };
+
+/** The row under a set model that puts it back: "Clear" (red) or "Use Auto". */
+export interface PageClear {
+  label: string;
+  destructive: boolean;
+  /** Asked first when clearing discards more than the model; null clears at once. */
+  ask: { title: string; message: string; confirm: string } | null;
+}
 
 /** Where a value comes from, in words. */
 export interface PageSource {
@@ -94,8 +101,10 @@ const sources: Record<SettingsProvenance, string> = {
   thread: "Thread",
   environment: "Environment override",
 };
+/** Where a value comes from; none for a shipped default, which needs no saying. */
 export function pageSource(entry: ReadEntry | undefined): PageSource | null {
-  return entry ? { kind: entry.provenance, label: sources[entry.provenance] } : null;
+  if (!entry || entry.provenance === "defaults") return null;
+  return { kind: entry.provenance, label: sources[entry.provenance] };
 }
 export const lockedByEnvironment =
   "An environment variable on this machine sets this, so it can't change here.";

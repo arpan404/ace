@@ -11,7 +11,8 @@ import XCTest
     func testTheAgentsPageSetsLimitsRolesAndSendsAChangeToEveryMachine() {
         let app = XCUIApplication()
         let ports = ProcessInfo.processInfo.environment["ACE_IOS_AGENTS_PORTS"] ?? "9886,9896"
-        app.launchArguments = ["--spike", "--spike-machines", ports]
+        // The app's own appearance preference wins over the simulator's; another test may leave it light.
+        app.launchArguments = ["--spike", "--spike-machines", ports, "-ace.appearance", "dark"]
         app.launch()
         defer { app.terminate() }
         XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30))
@@ -47,7 +48,12 @@ import XCTest
         firstModel.tap()
         app.buttons["modelSheet.done"].tap()
         XCTAssertTrue(element("setting.role.effort", in: app).waitForExistence(timeout: 20), "a set role offers its efforts")
+        let clear = element("setting.role.model.clear", in: app)
+        XCTAssertTrue(clear.waitForExistence(timeout: 10), "a set role offers Clear")
         screenshot("role-set")
+        clear.tap()
+        XCTAssertTrue(element("setting.role.effort", in: app).waitForNonExistence(timeout: 15), "Clear with no effort set asks nothing")
+        screenshot("role-cleared")
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         // All machines: the change goes to both, and the footer names them.

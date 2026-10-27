@@ -2,8 +2,8 @@ import SwiftUI
 
 /// One row of a machine settings page, drawn from its control: a switch, a menu or segmented
 /// choice, a text or number field, a list of names, a model that opens the model sheet, or a
-/// link to another page. Under the title, one quiet line says where the value comes from and,
-/// with All machines, which machines hold another value. A change shows at once while it saves.
+/// link to another page. Under the title, one quiet line says where a value that isn't the
+/// default comes from and, with All machines, which machines hold another value. A change shows at once while it saves.
 struct SettingsPageRowView: View {
     let model: ClientModel
     let row: SettingsPageData.Row
@@ -11,6 +11,8 @@ struct SettingsPageRowView: View {
     let pending: SettingsPageInput?
     /// "Mac mini: Steer" for each machine holding another value.
     let others: [String]
+    /// A scope control is showing, so "This machine" says something.
+    let scoped: Bool
     let problem: String?
     let enabled: Bool
     let change: (SettingsPageInput) -> Void
@@ -23,10 +25,8 @@ struct SettingsPageRowView: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             control
             if let note = row.note { caption(note).contentTransition(.opacity).accessibilityIdentifier("setting.\(row.id).note") }
-            if let locked = row.locked { caption(locked) }
             ServiceProblem(message: problem)
         }
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
         .disabled(!enabled || pending != nil && !isInstant)
         .onAppear(perform: reset)
         .onChange(of: row.value) { reset() }
@@ -37,7 +37,9 @@ struct SettingsPageRowView: View {
         switch row.control { case .toggle, .choice: true; default: false }
     }
     private var subtitle: String? {
-        let parts = [row.source?.label].compactMap { $0 } + others
+        // A default needs no saying; an environment override always does, as it locks the row.
+        let source = row.source.flatMap { $0.kind == "environment" || ($0.kind == "global" && scoped) ? $0.label : nil }
+        let parts = [source].compactMap { $0 } + others
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
@@ -63,25 +65,19 @@ struct SettingsPageRowView: View {
             field(row.title, keyboard: .numberPad)
         case .list(let placeholder, let add):
             list(placeholder: placeholder, add: add)
-        case .model(_, let provider, let label, let account, let clear, let cleared):
+        case .model(_, let provider, let label, let account, _):
             Button(action: pick) {
                 HStack(spacing: AceTheme.Spacing.sm) {
                     self.label
                     Spacer(minLength: AceTheme.Spacing.sm)
                     if let provider { ProviderMark(provider: provider, size: 16) }
-                    InsetValue(text: [label, account].compactMap { $0 }.joined(separator: " · "))
+                    InsetValue(text: [label, account].compactMap { $0 }.joined(separator: " · ")).contentTransition(.opacity)
                     Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("setting.\(row.id)")
-            if !cleared {
-                Button(clear == "Auto" ? "Use Auto" : "Clear") { change(.pick(nil)) }
-                    .buttonStyle(.borderless).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .accessibilityIdentifier("setting.\(row.id).clear")
-            }
         case .link(let page, let provider, let label):
             NavigationLink {
                 SettingsPageView(model: model, page: page, title: row.title)
@@ -126,27 +122,29 @@ struct SettingsPageRowView: View {
     private func menu(_ choices: [SettingsPageData.Choice]) -> some View {
         let selected = if case .choice(let id)? = pending { id } else { row.value.text }
         let shown = choices.first { $0.id == selected }?.label ?? selected
-        return HStack(spacing: AceTheme.Spacing.sm) {
-            label
-            Spacer(minLength: AceTheme.Spacing.sm)
-            Menu {
-                Picker(row.title, selection: Binding(get: { selected }, set: { change(.choice($0)) })) {
-                    ForEach(choices) { Text($0.label).tag($0.id) }
-                }
-                .pickerStyle(.inline)
-            } label: {
+        // The whole row opens the menu, so the target is the row, not just its value.
+        return Menu {
+            Picker(row.title, selection: Binding(get: { selected }, set: { change(.choice($0)) })) {
+                ForEach(choices) { Text($0.label).tag($0.id) }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: AceTheme.Spacing.sm) {
+                label
+                Spacer(minLength: AceTheme.Spacing.sm)
                 HStack(spacing: AceTheme.Spacing.xxs) {
                     Text(shown).multilineTextAlignment(.trailing).lineLimit(2).contentTransition(.opacity)
                     Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.medium))
                 }
                 .aceFont(InsetStyle.value, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
             }
-            .accessibilityIdentifier("setting.\(row.id)")
-            .accessibilityLabel(row.title)
-            .accessibilityValue(shown)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("setting.\(row.id)")
+        .accessibilityLabel(row.title)
+        .accessibilityValue(shown)
     }
 
     private func field(_ placeholder: String, keyboard: UIKeyboardType) -> some View {

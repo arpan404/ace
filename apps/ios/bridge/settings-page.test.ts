@@ -85,7 +85,7 @@ test("the Agents page names its sections and choices in the web's words", async 
     "Move to another account",
   ]);
   expect(limit.note).toBe("At the limit it stops until you choose what to do.");
-  expect(limit.source).toEqual({ kind: "defaults", label: "Default" });
+  expect(limit.source).toBeNull();
   const children = row(shown, "agents.maxRunningChildren");
   expect(children.title).toBe("Agents a thread runs at once");
   expect(labels(children)).toEqual(["No limit", "1", "2", "4", "8", "16", "32"]);
@@ -230,7 +230,7 @@ test("a role takes a model from the composer's picker, then its effort, and clea
   expect(row(picked.page!, "role.model").control).toMatchObject({
     kind: "model",
     label: model.label,
-    cleared: false,
+    clear: { label: "Clear", destructive: true, ask: null },
   });
   const effort = row(picked.page!, "role.effort");
   expect(labels(effort)).toEqual(["Default effort", ...model.efforts.map((entry) => entry.label)]);
@@ -243,6 +243,10 @@ test("a role takes a model from the composer's picker, then its effort, and clea
   });
   expect(tuned.ok).toBe(true);
   expect(p.daemon.services.settings.get("providers.reviewer.reasoningEffort")).toBe(high);
+  // With an effort set too, clearing the role asks before it discards both.
+  expect(row(tuned.page!, "role.model").control).toMatchObject({
+    clear: { ask: { title: "Clear Review?", message: "Its model and effort go back to Not set." } },
+  });
   const link = row(await page(p, "agents"), "roles.review");
   expect(link.control).toMatchObject({
     kind: "link",
@@ -277,7 +281,7 @@ test("the utility model reads Auto until one is picked, then names it with its a
   const p = await ports();
   const before = row(await page(p, "agents"), "generation.model");
   expect(before.title).toBe("Titles and commit messages");
-  expect(before.control).toMatchObject({ kind: "model", cleared: true, clear: "Auto" });
+  expect(before.control).toMatchObject({ kind: "model", clear: null });
   const sheet = await readSettingsModels(p, {
     type: "settings.models",
     page: "agents",
@@ -297,7 +301,7 @@ test("the utility model reads Auto until one is picked, then names it with its a
   });
   expect(row(written.page!, "generation.model").control).toMatchObject({
     label: model.label,
-    cleared: false,
+    clear: { label: "Use Auto", destructive: false, ask: null },
   });
   const auto = await writeSettingsPage(p, {
     type: "settings.page.set",
@@ -306,7 +310,7 @@ test("the utility model reads Auto until one is picked, then names it with its a
     value: null,
   });
   expect(p.daemon.services.settings.get("generation.model")).toBeNull();
-  expect(row(auto.page!, "generation.model").control).toMatchObject({ cleared: true });
+  expect(row(auto.page!, "generation.model").control).toMatchObject({ clear: null });
 });
 
 test("the machine's other pages save numbers, lists and text, refusing what the setting won't take", async () => {
