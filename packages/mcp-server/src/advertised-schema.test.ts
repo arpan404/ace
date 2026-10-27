@@ -95,13 +95,23 @@ function bounded() {
     capability: null,
     timeoutMs: 1000,
     input: z.strictObject({
-      ref: z.string().min(1).max(64).regex(/^[a-z]+$/),
+      ref: z
+        .string()
+        .min(1)
+        .max(64)
+        .regex(/^[a-z]+$/),
       seconds: z.number().int().min(1).max(3600).default(60),
       tags: z.array(z.string()).min(1).max(64).optional(),
-      kinds: z.array(z.enum(["a", "b"])).max(2).optional(),
+      kinds: z
+        .array(z.enum(["a", "b"]))
+        .max(2)
+        .optional(),
       mode: z.enum(["fast", "slow"]).default("fast").describe("Default: fast, or slow."),
       speed: z.enum(["fast", "slow"]).default("fast").describe("slow waits for the disk."),
-      items: z.union([Item, z.array(Item).max(4)]).optional().describe("One or several."),
+      items: z
+        .union([Item, z.array(Item).max(4)])
+        .optional()
+        .describe("One or several."),
     }),
     output: z.strictObject({ ok: z.boolean() }),
     async run(input) {

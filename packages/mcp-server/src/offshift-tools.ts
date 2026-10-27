@@ -11,7 +11,7 @@ import {
   OffshiftStepsInput,
   type OffshiftRequest,
 } from "@ace/protocol/offshift";
-import { controlResult, controlTool, controlToolTimeoutMs, fields } from "./control-tool.ts";
+import { controlResult, controlTool, controlToolTimeoutMs } from "./control-tool.ts";
 
 /** Each action's required fields, named in its description and checked before anything runs. */
 const mutation = ["runId", "version"] as const;
