@@ -490,3 +490,16 @@ function windowsTime(ticks: bigint): number {
 export function statWindowsFd(fd: number): Stats {
   return Object.assign(fstatSync(fd), windowsIdentity(windowsCall(() => windowsHot().statFd(fd))));
 }
+/** Win32: the exact volume serial and file id behind an open handle, without Node's fstat. */
+export function windowsFdId(fd: number): string {
+  return Buffer.from(windowsCall(() => windowsHot().statFd(fd)).id).toString("hex");
+}
+/** Win32: the exact id of `name` in `parent`; a junction or symlink gives its own id. */
+export function windowsIdAt(parent: number, name: string): string {
+  const entry = openMetadataAt(parent, name);
+  try {
+    return windowsFdId(entry.fd);
+  } finally {
+    closeSync(entry.fd);
+  }
+}

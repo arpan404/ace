@@ -1,5 +1,5 @@
-import { closeSync, constants, readSync, type Stats } from "node:fs";
-import { Descriptor, openAt, sameWindowsFile, statAt, statWindowsFd } from "./descriptor.ts";
+import { closeSync, constants, readSync } from "node:fs";
+import { Descriptor, openAt, statWindowsFd, windowsFdId, windowsIdAt } from "./descriptor.ts";
 
 /**
  * Win32: a pass file whose bytes are on this disk. Each async read or close costs a thread-pool
@@ -46,7 +46,7 @@ export class PassDirectories {
   private readonly root: Descriptor;
   private readonly limit: number;
   /** Map order is recency: the first key is evicted first. */
-  private readonly held = new Map<string, { handle: Descriptor; info: Stats }>();
+  private readonly held = new Map<string, { handle: Descriptor; id: string }>();
   private readonly closing: Promise<void>[] = [];
   private closed = false;
   constructor(root: Descriptor, limit = 256) {
@@ -67,18 +67,18 @@ export class PassDirectories {
     const parentPath = slash < 0 ? "" : path.slice(0, slash);
     const parent = this.directory(parentPath);
     const opened = openAt(parent, path.slice(slash + 1), constants.O_RDONLY);
-    let info: Stats;
+    let id: string;
     try {
-      info = statWindowsFd(opened.fd);
-      if (!info.isDirectory())
+      if (!statWindowsFd(opened.fd).isDirectory())
         throw Object.assign(new Error("Not a directory"), { code: "ENOTDIR" });
       // The open folder now pins its parent, which may have moved since it was checked.
       this.inPlace(parentPath);
+      id = windowsFdId(opened.fd);
     } catch (error) {
       this.closing.push(opened.close().catch(() => {}));
       throw error;
     }
-    this.held.set(path, { handle: opened, info });
+    this.held.set(path, { handle: opened, id });
     if (this.held.size > this.limit) {
       const [oldest, entry] = this.held.entries().next().value ?? [];
       if (oldest !== undefined && entry) {
@@ -91,11 +91,11 @@ export class PassDirectories {
   /** Throws unless the folder at `path` is still that name in its held parent. */
   private inPlace(path: string): void {
     if (!path) return;
-    const info = this.held.get(path)?.info;
-    if (!info) throw Object.assign(new Error("Folder is not held"), { code: "ENOENT" });
+    const id = this.held.get(path)?.id;
+    if (!id) throw Object.assign(new Error("Folder is not held"), { code: "ENOENT" });
     const slash = path.lastIndexOf("/");
     const parent = this.directory(slash < 0 ? "" : path.slice(0, slash));
-    if (!sameWindowsFile(statAt(parent, path.slice(slash + 1)), info))
+    if (windowsIdAt(parent, path.slice(slash + 1)) !== id)
       throw Object.assign(new Error("Folder moved during the search"), { code: "ESTALE" });
   }
   /** Opens a relative file path read-only; a link anywhere on it fails with ELOOP. */
