@@ -7,11 +7,14 @@ import { preparePairing } from "../pairing/pairing-flow.ts";
 import type { Storage } from "@ace/client";
 import { createProductionStartup, type StartupDatabase } from "../runtime/production-startup.ts";
 import {
+  PRODUCTION_THREAD_WINDOW,
   inboxEntriesFor,
   inboxThreadsFor,
   readingFailureCopy,
+  resolveOpenIdForHost,
   shouldShowInbox,
   threadHeadlineFor,
+  threadWindowFor,
 } from "./production-inbox.ts";
 
 const PIN = "9f".repeat(32);
@@ -263,4 +266,62 @@ it("fails the inbox closed after disconnect", async () => {
   expect(() => cached.thread(THREAD)).toThrow("not connected");
   const unused = ThreadId.parse(THREAD);
   expect(unused).toBe(THREAD);
+});
+
+it("states the thread window honestly instead of silently dropping history", () => {
+  expect(PRODUCTION_THREAD_WINDOW).toBe(50);
+  expect(threadWindowFor([])).toEqual({ shown: [], total: 0, truncated: 0 });
+  const three = threadWindowFor(["a", "b", "c"]);
+  expect(three.total).toBe(3);
+  expect(three.truncated).toBe(0);
+  expect([...three.shown]).toEqual(["a", "b", "c"]);
+  const order = Array.from({ length: 60 }, (_, index) => `item-${index}`);
+  const window = threadWindowFor(order);
+  expect(window.total).toBe(60);
+  expect(window.truncated).toBe(10);
+  expect([...window.shown]).toEqual(order.slice(-50));
+  expect(window.shown).not.toContain("item-0");
+});
+
+it("resolves the open thread synchronously on host change, never flashing the old owner", () => {
+  expect(resolveOpenIdForHost("host-1", "host-1", "thread-1")).toBe("thread-1");
+  expect(resolveOpenIdForHost("host-1", "host-1", null)).toBe(null);
+  expect(resolveOpenIdForHost("host-1", "host-2", "thread-1")).toBe(null);
+});
+
+it("keeps section headings alongside thread rows for parity with the fixture inbox", async () => {
+  const daemon = new TicketDaemon({ clock: Date.now, hostId: "host-1", token: "unused" });
+  const produced = createProductionStartup({
+    bridge: daemonBridge(),
+    credentials: createMemoryCredentialStore(),
+    directoryStorage: memoryStorage(),
+    database: memoryDatabase(),
+    identityReader: async () => ({ hostId: "host-1", displayName: "Studio", version: "1.0" }),
+    transportFor: () => fakeTransport(daemon),
+  });
+  expect(await produced.load()).toEqual([]);
+  daemon.createThread({
+    id: THREAD,
+    workspaceId: "ace",
+    title: "T",
+    provider: "codex",
+    hasSentMessage: true,
+  });
+  await produced.pair(preparePairing(LINK), "My phone");
+  try {
+    const reads = produced.runtimeForReading("host-1");
+    await until(() => reads.connectionState().getSnapshot() === "ready");
+    const lease = reads.threads();
+    try {
+      await until(() => lease.store.ids.includes(THREAD));
+      const entries = inboxEntriesFor(lease.store, "host-1", Date.now());
+      expect(entries.length).toBeGreaterThan(1);
+      expect(entries[0]?.kind).toBe("heading");
+      expect(entries.some((entry) => entry.kind === "thread" && entry.id === THREAD)).toBe(true);
+    } finally {
+      lease.release();
+    }
+  } finally {
+    await produced.disconnectAll();
+  }
 });

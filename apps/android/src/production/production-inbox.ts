@@ -61,3 +61,29 @@ export function readingFailureCopy(error: unknown): string {
 export function threadHeadlineFor(store: ThreadReader): { title: string; count: number } {
   return { title: store.thread?.title ?? "Thread", count: store.order.length };
 }
+
+/** Latest-N thread window. The read handle offers no paging, so the cap is stated, never silent. */
+export const PRODUCTION_THREAD_WINDOW = 50;
+
+export function threadWindowFor(
+  order: readonly string[],
+  limit: number = PRODUCTION_THREAD_WINDOW,
+): { shown: readonly string[]; total: number; truncated: number } {
+  const total = order.length;
+  const shown = total > limit ? order.slice(total - limit) : order.slice();
+  return { shown, total, truncated: total - shown.length };
+}
+
+/**
+ * Host-switch open-thread resolution, synchronous during render. The old
+ * `useEffect(setOpenId(null), [hostId])` ran after paint and flashed the old
+ * thread under the new host for one commit; resolving during render never
+ * paints the wrong machine's thread.
+ */
+export function resolveOpenIdForHost(
+  prevHostId: string,
+  hostId: string,
+  openId: string | null,
+): string | null {
+  return prevHostId === hostId ? openId : null;
+}

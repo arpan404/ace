@@ -274,9 +274,12 @@ function teardown(fn: (() => void) | undefined): void {
 /**
  * One projected selection. A pin failure detaches every subscriber of the
  * wrapper (not just the notified one) so no stale inner subscription stays
- * registered on the live store; every teardown path is idempotent and never
- * throws; Listener exceptions are left to the live store, whose delivery
- * already isolates observers, so a throwing view cannot break bookkeeping.
+ * registered on the live store, then notifies every wrapper listener once so
+ * `useSyncExternalStore` re-reads: `getSnapshot` throws `not connected` past
+ * the pin, and views resolve to their fail-closed copy instead of holding the
+ * last snapshot. Every teardown path is idempotent and never throws; Listener
+ * exceptions are left to the live store, whose delivery already isolates
+ * observers, so a throwing view cannot break bookkeeping.
  *
  * `getSnapshot` caches on live identity: React's `useSyncExternalStore`
  * requires `Object.is` stability while data is unchanged, so a fresh frozen
@@ -294,14 +297,29 @@ function shellSelection<T>(
   let lastFrozen: unknown;
   let hasSnapshot = false;
   const actives = new Set<() => void>();
+  const listeners = new Set<() => void>();
   const detachAll = (): void => {
     const pending = [...actives];
+    // Snapshot listeners before teardown: each `detachOne` removes its own
+    // listener, so collecting after would notify nobody.
+    const wake = [...listeners];
     actives.clear();
+    listeners.clear();
     current = undefined;
     lastLive = undefined;
     lastFrozen = undefined;
     hasSnapshot = false;
     for (const detach of pending) teardown(detach);
+    // Fail closed and visible: wake every wrapper listener once so the view
+    // re-reads `getSnapshot` (now throwing) instead of holding stale rows.
+    // Listener throws stay isolated; bookkeeping above already ran.
+    for (const notify of wake) {
+      try {
+        notify();
+      } catch {
+        /* A throwing view cannot break invalidation bookkeeping. */
+      }
+    }
   };
   const out = Object.create(null) as {
     getSnapshot: () => T;
@@ -330,6 +348,7 @@ function shellSelection<T>(
       if (stopped) return;
       stopped = true;
       actives.delete(detachOne);
+      listeners.delete(listener);
       const stop = unsub;
       unsub = undefined;
       teardown(stop);
@@ -338,6 +357,7 @@ function shellSelection<T>(
       teardown(un);
     };
     actives.add(detachOne);
+    listeners.add(listener);
     let created: (() => void) | undefined;
     try {
       created = live.subscribe(() => {
@@ -353,6 +373,7 @@ function shellSelection<T>(
       });
     } catch (error) {
       actives.delete(detachOne);
+      listeners.delete(listener);
       throw error;
     }
     unsub = created;
