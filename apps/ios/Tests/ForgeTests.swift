@@ -101,7 +101,7 @@ import Foundation
             "number": 42, "repository": ["forge": "github", "host": "github.com", "owner": "acme", "name": "ace"],
             "title": "Fix", "url": "https://github.com/acme/ace/pull/42", "state": ["word": "Open", "tone": "working"],
             "merged": false, "author": "a", "headBranch": "fix", "baseBranch": "main", "headSha": head,
-            "commits": 1, "changedFiles": 1, "body": "", "labels": [], "gates": [], "primary": "",
+            "commits": 1, "changedFiles": 1, "body": "", "bodyBlocks": [], "tasks": false, "conversation": "", "labels": [], "gates": [], "primary": "",
             "action": ["kind": "merge", "label": "Squash and merge"], "blockers": [],
             "methods": [], "method": "squash", "reviewers": [], "checks": [], "files": [], "threads": [],
         ]
