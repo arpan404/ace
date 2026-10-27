@@ -112,6 +112,8 @@ struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     var thought: String? = nil
     /// What a message's action row offers beyond Copy; nil on every other row.
     var actions: MessageActionsLine? = nil
+    /// A finished answer's formulas, marked where they sit; nil without math or while it streams.
+    var math: MarkdownRich.Prose? = nil
     /// Shared secondary line, such as the visualization fallback; empty when the row has none.
     let detail: String?
     let quiet: Bool?

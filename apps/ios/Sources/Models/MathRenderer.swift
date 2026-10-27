@@ -25,7 +25,8 @@ struct MathImage {
 @MainActor final class MathRenderer: NSObject, WKNavigationDelegate {
     static let shared = MathRenderer()
     private var web: WKWebView?
-    private var loading: CheckedContinuation<Void, Never>?
+    /// Everyone waiting for the page to load: a warm-up and the first formulas may all ask.
+    private var loading: [CheckedContinuation<Void, Never>] = []
     private var ready = false
     private var queue: Task<Void, Never>?
     private let images = NSCache<NSString, Box>()
@@ -38,6 +39,13 @@ struct MathImage {
     }
 
     private static func key(_ span: MathSpan, size: CGFloat) -> String { "\(span.display ? "D" : "I")\(Int(size * 10))\u{0}\(span.tex)" }
+
+    /// Load the page ahead of the first formula, once a thread is open and the screen has settled,
+    /// so an answer's math typesets as soon as it shows. The page runs in WebKit's own process.
+    func warm() {
+        guard web == nil else { return }
+        Task { _ = await page() }
+    }
 
     /// A formula already typeset at `size`, for drawing on the first frame.
     func cached(_ span: MathSpan, size: CGFloat) -> MathImage? {
@@ -133,7 +141,7 @@ struct MathImage {
             web = view
             view.loadFileURL(url, allowingReadAccessTo: url)
         }
-        if !ready { await withCheckedContinuation { loading = $0 } }
+        if !ready { await withCheckedContinuation { loading.append($0) } }
         return ready ? web : nil
     }
 
@@ -153,8 +161,9 @@ struct MathImage {
     private func finishLoading(ok: Bool) {
         ready = ok
         if !ok { web?.removeFromSuperview(); web = nil }
-        loading?.resume()
-        loading = nil
+        let waiting = loading
+        loading = []
+        for waiter in waiting { waiter.resume() }
     }
 }
 

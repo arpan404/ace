@@ -31,7 +31,9 @@ struct AnswerRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             if !shown.isEmpty {
                 let menu = !between && !live
-                let math = live ? nil : (withMath ?? rich?.knownProse(shown))
+                // The row's own marked text first: its formulas read in their text form from the
+                // first frame. A whole answer read later asks the bridge for its own.
+                let math = live ? nil : (withMath ?? (full == nil ? row.math : nil) ?? rich?.knownProse(shown))
                 MarkdownView(text: math?.text ?? shown, selectable: !menu)
                     .fileLinks(fileLinks, itemId: row.id)
                     .environment(\.markdownSettled, !live)
@@ -51,7 +53,7 @@ struct AnswerRow: View {
         .task(id: row.truncated && row.complete) { await load() }
         // Math is set once the answer stops streaming; a kept read draws on the first frame.
         .task(id: row.complete && !streaming ? shown : "") {
-            guard row.complete, !streaming, let rich, rich.knownProse(shown) == nil else { return }
+            guard row.complete, !streaming, full != nil || row.math == nil, let rich, rich.knownProse(shown) == nil else { return }
             if let read = await rich.prose(shown) { withMath = read }
         }
     }

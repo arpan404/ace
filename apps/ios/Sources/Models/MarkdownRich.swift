@@ -12,7 +12,7 @@ import UIKit
         let runs: [Int]
     }
     /// The answer with each formula marked where it sits, and the formulas (`mathSpans`).
-    struct Prose: Decodable, Equatable {
+    struct Prose: Codable, Sendable, Equatable {
         let text: String
         let math: [MathSpan]
     }
