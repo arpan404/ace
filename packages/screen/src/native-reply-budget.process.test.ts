@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { expect, it } from "vitest";
 import { probeOutput } from "@ace/provider-kit/process";
-import { windowsFixture } from "./testing/windows-fixture.ts";
+import { helperFixture } from "./testing/support.ts";
 
 // Build with cargo build --manifest-path native/screen-helper-windows/Cargo.toml --example wire_fixture.
 // Running the built serializer preserves the test's isolated home without toolchain downloads.
@@ -30,7 +30,7 @@ it.skipIf(!existsSync(nativeFixture) && process.env.CI !== "true")(
         const find = nativeReply.parse(JSON.parse(findLine)).data;
         const path = join(directory, "replies.json");
         await writeFile(path, JSON.stringify({ tree, find }));
-        const h = await windowsFixture({ env: { NATIVE_UI_REPLIES: path } });
+        const h = await helperFixture("win32", { env: { NATIVE_UI_REPLIES: path } });
         try {
           const session = await h.start();
           const inspected = await h.manager.uiTree(session.sessionId, { maxNodes: nodes });

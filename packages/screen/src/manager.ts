@@ -263,6 +263,31 @@ export class ScreenManager {
         ...(await this.windows.list(bundleId)),
       };
     }
+    if (this.isWindowsHost()) {
+      // Windows rejoins a running window only: no launch, and input is always foreground.
+      this.authorize({ kind: "app", bundleId });
+      await (await this.host.open()).negotiate();
+      signal.throwIfAborted();
+      const windows = await this.windows.ready(bundleId, signal, windowId);
+      if (windows.selectedWindowId === undefined)
+        throw new HelperCommandError(
+          "target_gone",
+          "No running window for this app",
+          "rejected-before-dispatch",
+        );
+      const state = await this.start(
+        { kind: "window", bundleId, windowId: windows.selectedWindowId },
+        10,
+        caller,
+      );
+      if (signal.aborted) {
+        await this.stop(state.sessionId);
+        signal.throwIfAborted();
+      }
+      this.mode(state.sessionId, "foreground");
+      this.delegateAgent(state.sessionId, caller);
+      return { ...this.state(state.sessionId), ...windows };
+    }
     await this.openApp(bundleId, signal);
     signal.throwIfAborted();
     const windows = await this.windows.ready(bundleId, signal, windowId);
@@ -404,6 +429,9 @@ export class ScreenManager {
     } finally {
       this.reservations--;
     }
+  }
+  isWindowsHost(): boolean {
+    return (this.options.platform ?? process.platform) === "win32";
   }
   async capabilities(_id?: string) {
     return (await this.host.open()).negotiate();

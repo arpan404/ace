@@ -14,6 +14,10 @@ export function androidSdkRoots(
     env.ANDROID_HOME,
     env.ANDROID_SDK_ROOT,
     ...(home ? [join(home, "Library/Android/sdk"), join(home, "Android/Sdk")] : []),
+    // Android Studio's default on Windows: %LOCALAPPDATA%\Android\Sdk.
+    ...(process.platform === "win32" && env.LOCALAPPDATA
+      ? [join(env.LOCALAPPDATA, "Android", "Sdk")]
+      : []),
   ];
   return [
     ...new Set(

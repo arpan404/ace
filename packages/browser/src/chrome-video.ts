@@ -180,8 +180,10 @@ export class ChromeVideo implements VideoHost {
     if (loaded.id !== videoExtensionId)
       throw new Error("The video extension loaded under another id");
     const worker = await this.attach(`${origin}worker.js`);
+    if (process.platform === "win32") await this.untilExport(worker, "ready");
     await evaluate(worker, "aceVideo.ready", []);
     const document = await this.attach(`${origin}offscreen.html`);
+    if (process.platform === "win32") await this.untilExport(document, "supported");
     document.on("Runtime.bindingCalled", (raw) => this.receive(raw));
     await document.send("Runtime.addBinding", { name: "aceVideoEvent" });
     return { worker, document };
@@ -202,6 +204,24 @@ export class ChromeVideo implements VideoHost {
         this.sessions.add(sessionId);
         return this.connection.session(sessionId);
       }
+      await this.delay(100);
+    }
+    throw new Error("The video extension did not start");
+  }
+  /**
+   * Windows: an attached extension target may not have run its script yet, so calling an
+   * `aceVideo` export would throw `ReferenceError`. Waits a few seconds for `aceVideo[method]`.
+   */
+  private async untilExport(session: BrowserCdp, method: string): Promise<void> {
+    await session.send("Runtime.runIfWaitingForDebugger", {});
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const reply = Evaluated.parse(
+        await session.send("Runtime.evaluate", {
+          expression: `typeof globalThis.aceVideo?.${method} === "function"`,
+          returnByValue: true,
+        }),
+      );
+      if (!reply.exceptionDetails && reply.result?.value === true) return;
       await this.delay(100);
     }
     throw new Error("The video extension did not start");

@@ -6,7 +6,7 @@ import { contentPolicy } from "./content-policy.ts";
 import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
 import { katexWoff2 } from "./katex-woff2.ts";
 import { phosphorWeights } from "./icon-weights.ts";
-import { initialChunk, initialPreloads } from "./initial-preloads.ts";
+import { initialChunk, initialPreloads, windowsEntryGuard } from "./initial-preloads.ts";
 import { mermaidChunk } from "./mermaid-chunk.ts";
 import { lazyIconChunk } from "./icon-chunk.ts";
 import { initialBundle } from "./initial-bundle.ts";
@@ -49,6 +49,10 @@ export default defineConfig(({ mode }) => ({
     initialBundle(),
     notificationWorker(),
     contentPolicy(),
+    // Windows: fail the build if the page entry ever joins a shared chunk (`initial-preloads.ts`).
+    ...(process.platform === "win32"
+      ? [windowsEntryGuard(fileURLToPath(new URL("./src/main.tsx", import.meta.url)))]
+      : []),
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   define: { "import.meta.env.VITE_ACE_BUILD": JSON.stringify(build) },

@@ -6,12 +6,22 @@ import { UserBrowserService } from "../user-browser.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
+/** Windows registers native messaging hosts under %LOCALAPPDATA%. */
+function windowsBrowserEnv() {
+  const env = {
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    LOCALAPPDATA: process.env.LOCALAPPDATA,
+  };
+  return env;
+}
+
 export async function startUserBrowser(context: ServiceContext): Promise<void> {
   const service = new UserBrowserService({
     dataDir: context.config.dataDir,
     platform: process.platform,
     home: homedir(),
     env: { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+    ...(process.platform === "win32" && { env: windowsBrowserEnv() }),
     node: process.execPath,
     devices: context.store.devices,
     now: context.now,

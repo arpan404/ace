@@ -42,6 +42,10 @@ export async function withSnapshotIndex<T>(
     const seeded = parseIndex(
       (await cli.call(root, ["ls-files", "--stage", "-z"], { env })).stdout,
     );
+    // Windows: a snapshot only records the checkout. A person's core.safecrlf=true must not
+    // refuse a file whose line endings Git would not round-trip.
+    if (cli.platform === "win32")
+      return operation({ ...env, GIT_CONFIG_PARAMETERS: "'core.safecrlf'='false'" }, seeded);
     return operation(env, seeded);
   });
 }

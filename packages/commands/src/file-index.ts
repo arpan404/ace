@@ -187,6 +187,11 @@ export class FileIndex {
       return;
     }
     const previous = this.nodes.get(slot);
+    // Windows stamps times from a clock that ticks about every 16 ms, so a folder changed in the
+    // same tick as its last scan keeps its version. Without a scan in flight, rescan it anyway;
+    // a rescan only enqueues children it hasn't seen, so surviving files aren't reread.
+    if (process.platform === "win32" && previous && stat.isDirectory() && !this.scans.has(slot))
+      previous.version = "";
     if (previous?.version === statVersion(stat)) {
       // A duplicate invalidation may replace the queued scan continuation.
       if (this.scans.has(slot)) this.queue({ ...job, kind: "scan" });

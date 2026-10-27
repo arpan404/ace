@@ -5,7 +5,7 @@ import { conditionProblem } from "./conditions.ts";
 export { ComputerAction } from "./actions.ts";
 
 /** Where the engine runs; tool text names that platform's apps and identities. */
-export type ComputerPlatform = "macos" | "linux";
+export type ComputerPlatform = "macos" | "linux" | "windows";
 
 const appIds = {
   macos: {
@@ -15,6 +15,10 @@ const appIds = {
   linux: {
     app: 'App name or desktop-file id, e.g. "Text Editor" or "org.gnome.TextEditor".',
     query: "Part of a name or desktop-file id; also searches installed apps.",
+  },
+  windows: {
+    app: 'App name, app id or .exe path, e.g. "Notepad", "notepad.exe" or "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App".',
+    query: "Part of a name or app id; also searches Start menu apps.",
   },
 } as const;
 
@@ -93,6 +97,14 @@ const text = {
     state: `Open a desktop app, without taking the person's focus, and read its window through accessibility as an outline: one numbered element per line. ${looks}`,
     actTitle: "Act in a desktop app",
     act: `Act in an app in the background, through accessibility, then get what changed. ${batching} Clicks (by id, or at screenshot x,y), typing, set_value, menus, menu shortcuts, copy/paste and Tab work without the window in front. Hover and drags can't be sent. Typing into Chromium and Electron apps, and keys with no accessible equivalent, need activate first in the same batch: they are then typed in front, taking the person's focus (GNOME, KDE). Linux shortcuts use ctrl, e.g. ctrl+s.`,
+  },
+  windows: {
+    appsTitle: "List Windows apps",
+    apps: "List Windows apps: the running ones, plus Start menu apps matching query. Pass a name or app id to screen_state.",
+    stateTitle: "Look at a Windows app",
+    state: `Open a Windows app without taking the person's focus, and read its window through UI Automation as an outline: one numbered element per line. ${looks}`,
+    actTitle: "Act in a Windows app",
+    act: `Act in an app in the background, then get what changed. ${batching} Clicks by id, set_value, select_text, typing into fields, menus, menu shortcuts and window steps work with the window in the background. Other shortcuts, x,y clicks on things missing from the outline, hover and drags need the window in front: start the batch with activate, which interrupts the person. Windows shortcuts use ctrl, e.g. ctrl+s; cmd means ctrl.`,
   },
 } as const;
 

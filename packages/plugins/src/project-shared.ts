@@ -1,9 +1,25 @@
 import { join } from "node:path";
+import { isAbsolute } from "node:path";
 import { limits, normalizePath } from "./manifest.ts";
 import type { PluginSnapshot, PluginProjection, ProjectedFile } from "./types.ts";
 
 export function expandRoot(value: string, root: string): string {
+  if (process.platform === "win32" && isAbsolute(root)) return expandWindowsRoot(value, root);
   return value.replace(/\$\{(?:ACE|CLAUDE|CURSOR)_PLUGIN_ROOT\}|\$\{PLUGIN_ROOT\}/g, () => root);
+}
+/**
+ * Windows: the path written after a real plugin root takes native separators, so cmd.exe, TOML
+ * and MCP readers see `C:\x\payload\scripts\server.js`, never `C:\x\payload/scripts/server.js`.
+ * Provider placeholder roots such as `${CLAUDE_PLUGIN_ROOT}/payload` are not absolute and keep
+ * the portable expansion the provider resolves itself.
+ */
+function expandWindowsRoot(value: string, root: string): string {
+  return value.replace(
+    // The tail stops at "$", ":" and "=" too, so `${ROOT}/a:${ROOT}/b` and `--x=${ROOT}/a`
+    // expand every placeholder.
+    /(?:\$\{(?:ACE|CLAUDE|CURSOR)_PLUGIN_ROOT\}|\$\{PLUGIN_ROOT\})([^\s"'`<>|;,()[\]{}$:=]*)/g,
+    (_match, tail: string) => root + tail.replaceAll("/", "\\"),
+  );
 }
 export { componentBody as body } from "./component-title.ts";
 export function textFile(plugin: PluginSnapshot, path: string): string {

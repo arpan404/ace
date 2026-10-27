@@ -8,6 +8,7 @@ import { GitCli, textOutput } from "./cli.ts";
 import { decode, hash } from "./decode.ts";
 import { CheckpointNumbers } from "./checkpoint-numbers.ts";
 import { parseRemotes, parseStatus, parseWorktrees } from "./parse.ts";
+import { nativeWorktreePaths } from "./parse.ts";
 import { GitError, type RepositoryInfo, type Status, type Worktree } from "./types.ts";
 
 export class Repository {
@@ -87,6 +88,12 @@ export class Repository {
   }
 
   async worktrees(repo: string, signal?: AbortSignal): Promise<Worktree[]> {
+    if (this.cli.platform === "win32")
+      return nativeWorktreePaths(
+        parseWorktrees(
+          (await this.cli.call(repo, ["worktree", "list", "--porcelain", "-z"], { signal })).stdout,
+        ),
+      );
     return parseWorktrees(
       (
         await this.cli.call(

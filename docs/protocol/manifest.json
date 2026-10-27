@@ -3125,16 +3125,16 @@
       "sha256": "2fc2de3a0b819f7fdc89aff972d5618cd68912235f5959fe4ea84e6f7aa1d1db"
     },
     "schema/ReleaseDirectory.json": {
-      "bytes": 260,
-      "sha256": "85e253e92bb18f9109f58468f979f78c3ef11a31e0dc9993e81e1c03bea517a6"
+      "bytes": 282,
+      "sha256": "840b5614bd0bcc063ecf4a1abc3c8f59c7df5d32419282dd156619c3453bfe6f"
     },
     "schema/ReleaseManifest.json": {
       "bytes": 865,
       "sha256": "21da20ca5ebb3b113c7972faf9ef66c108de4e72438f46b66e08981ac7972978"
     },
     "schema/ReleaseTarget.json": {
-      "bytes": 235,
-      "sha256": "0aa1c224837c936c8c2fbc3c94a7bfbf5ea025e87c338c5cc59958eb91dd450c"
+      "bytes": 271,
+      "sha256": "8ef61ba84ba2ed22a5f185e430c91c1d2d24191b2dcfae525995a7ea961e5109"
     },
     "schema/ReleaseVersion.json": {
       "bytes": 218,
@@ -4621,10 +4621,10 @@
       "sha256": "571045442f6b19fd7ecf97ce180c84085c282b10849598f40e85882a4be2f437"
     },
     "types.md": {
-      "bytes": 948086,
-      "sha256": "3be2dab903457d62ff465c2f75ba768cfc67750a948cbf2a97b7f4288bd7f05f"
+      "bytes": 948110,
+      "sha256": "48c1155afc4020873e9815f7c0805e7324428a033c0b326eac4f58724186af8f"
     }
   },
-  "input": "1bbcb6fb0848256be7783218561d3b763c14e58fd66b6e98b5ed72252f9528b2",
+  "input": "0831234b78e5fe201e3a7152abadd92e1eb3441d4fbb0a7cec241262dca3d24e",
   "version": 1
 }

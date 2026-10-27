@@ -293,3 +293,40 @@ test("symlinked database and ownership marker paths cannot modify a user file", 
   ).rejects.toThrow("Symlink");
   expect(await readFile(userFile, "utf8")).toBe("unchanged");
 });
+
+// Windows has no executable bits, so these cover the trust rules that do not depend on modes.
+const onWindows = process.platform === "win32";
+test.runIf(onWindows)("on Windows accepted trust survives reopening", async () => {
+  const f = await setup();
+  const review = await f.prepare();
+  await f.reopen();
+  await f.manager.accept(review);
+  await f.reopen();
+  expect(f.manager.list()).toEqual([
+    { name: "sample", version: "1.0", commit: review.commit, hash: review.hash, acceptedAt: 123 },
+  ]);
+  expect((await f.manager.installed())[0]?.manifest.commands[0]?.name).toBe("check");
+});
+test.runIf(onWindows)(
+  "on Windows staged or accepted content tampering cannot acquire or retain trust",
+  async () => {
+    const f = await setup();
+    const review = await f.prepare();
+    await writeFile(join(f.managerRoot, "staging", review.id, "rules/style.md"), "Tampered");
+    await expect(f.manager.accept(review)).rejects.toThrow("Integrity mismatch");
+    expect(f.manager.list()).toEqual([]);
+    await f.manager.cancel(review.id);
+    const next = await f.prepare();
+    await f.manager.accept(next);
+    expect(await f.manager.installed()).toHaveLength(1);
+    await writeFile(join(f.managerRoot, "versions", next.hash, "scripts/start.js"), "tampered");
+    await expect(f.manager.installed()).rejects.toThrow("Integrity mismatch");
+  },
+);
+test.runIf(onWindows)("on Windows the package hash changes when a path is renamed", async () => {
+  const f = await setup();
+  const path = join(f.repo, "plugins/sample");
+  const first = await inspectPackage(path);
+  await rename(join(path, "rules/style.md"), join(path, "rules/renamed.md"));
+  expect((await inspectPackage(path)).hash).not.toBe(first.hash);
+});

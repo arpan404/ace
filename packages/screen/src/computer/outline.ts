@@ -131,6 +131,12 @@ const sessionWords: Record<ComputerPlatform, { locked: string; unavailable: stri
     unavailable:
       "This computer’s desktop session is not in front (another user’s session is, or it ended). Stop computer actions until it returns, then observe again.",
   },
+  windows: {
+    locked:
+      "Windows is locked or showing a secure screen (sign-in or an administrator prompt). Every computer action is refused until the person deals with it; use another tool meanwhile and observe again afterwards.",
+    unavailable:
+      "This PC’s desktop session is not available (another user is signed in, or it is disconnected). Stop computer actions until it returns, then observe again.",
+  },
 };
 
 export function stateHeader(state: ComputerState, platform: ComputerPlatform = "macos"): string {

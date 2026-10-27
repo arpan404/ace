@@ -23,6 +23,7 @@ import { nativeCursorOptions } from "./agent-options.ts";
 import { sdkFailure, safeCursorErrorMessage } from "./sdk-failure.ts";
 import { sdkInput } from "./sdk-input.ts";
 import { HostRefusal } from "./host-refusal.ts";
+import { noWindowsSandboxMessage } from "./sandbox-helper.ts";
 
 export type { SdkModule } from "./runtime-boundary.ts";
 import type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
@@ -265,6 +266,9 @@ export class HostRuntime {
       let sandboxSupported = false;
       if (agentOptions.local?.sandboxOptions?.enabled) {
         let refusal: string | undefined;
+        // @cursor/sdk 1.0.35 refuses its sandbox on Windows only when a key is configured, so
+        // ace refuses first: a sandboxed mode must never run unsandboxed.
+        if (process.platform === "win32") throw new Error(noWindowsSandboxMessage);
         if (this.sdk.sandboxSupport) {
           const admission = await this.sdk.sandboxSupport(agentOptions);
           sandboxSupported = admission.supported;

@@ -276,6 +276,9 @@ export class WorkspaceCache {
       source.on("change", (_event, filename) => {
         if (this.closed || this.cache.get(root) !== entry || entry.watcher !== source) return;
         const parsed = WatchedPath.safeParse(filename);
+        // Windows reports src\a.ts; the index and the .git filter below use "/".
+        if (process.platform === "win32" && parsed.success)
+          parsed.data = parsed.data.replaceAll("\\", "/");
         if (!parsed.success || pending.size >= 4096) {
           pending.clear();
           entry.rebuild = true;

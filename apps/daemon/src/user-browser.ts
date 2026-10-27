@@ -23,7 +23,8 @@ export interface UserBrowserOptions {
   dataDir: string;
   platform: NodeJS.Platform;
   home: string;
-  env: { XDG_CONFIG_HOME?: string | undefined };
+  /** `LOCALAPPDATA`: Windows only, where browsers keep user data and ace its host launchers. */
+  env: { XDG_CONFIG_HOME?: string | undefined; LOCALAPPDATA?: string | undefined };
   /** The Node that runs the native host; the daemon passes its own executable. */
   node: string;
   devices: Devices;

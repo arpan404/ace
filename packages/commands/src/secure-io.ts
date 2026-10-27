@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { fstat, read, close, write, fsync } from "node:fs";
 import { promisify } from "node:util";
 import { dirname, relative, resolve, sep } from "node:path";
+import { isAbsolute } from "node:path";
 import type { Stats } from "node:fs";
 import type { DiscoveryRoot } from "./roots.ts";
 import {
@@ -57,6 +58,9 @@ export class SecureCommandIo implements CommandFileIo {
     const tail = relative(anchor, resolve(path));
     if (tail === ".." || tail.startsWith(`..${sep}`) || tail.startsWith(sep) || tail.includes("\0"))
       throw new Error("Command escaped its trusted root");
+    // A different drive is an absolute path on Windows, never a `..` one.
+    if (process.platform === "win32" && isAbsolute(tail))
+      throw new Error("Command escaped its trusted root");
     let parent = await this.openChild(await this.anchor(anchor), ".", directoryFlags);
     try {
       const parts = tail.split(sep).filter(Boolean);
@@ -109,6 +113,8 @@ export class SecureCommandIo implements CommandFileIo {
     const target = resolve(dirname(path), await readCommandLink(parent, name));
     const tail = relative(resolve(home), target);
     if (tail === ".." || tail.startsWith(`..${sep}`) || tail.startsWith(sep))
+      throw new EntryUnavailable("Skill link outside home");
+    if (process.platform === "win32" && isAbsolute(tail))
       throw new EntryUnavailable("Skill link outside home");
     // Target ancestors and descendants still use O_NOFOLLOW: chains and nested links fail closed.
     return this.open({ ...root, trustedRoot: home, skillLinkHome: undefined }, target, flags);
@@ -174,6 +180,7 @@ export class SecureCommandIo implements CommandFileIo {
     const tail = relative(anchor, resolve(path));
     if (tail.startsWith("..") || tail.startsWith(sep) || tail.includes("\0"))
       throw new Error("prompt_unavailable");
+    if (process.platform === "win32" && isAbsolute(tail)) throw new Error("prompt_unavailable");
     const parts = tail.split(sep).filter(Boolean);
     if (parts.length > 128 || !/^[a-zA-Z0-9.-]+$/.test(temporary))
       throw new Error("prompt_unavailable");
