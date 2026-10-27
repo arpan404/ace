@@ -3,11 +3,15 @@ import type { DesktopDaemonStatus, DiagnosticCheck } from "@/boot/desktop.ts";
 /** A cause the desktop reported by the daemon's exit code, in plain words. */
 export function startupCause(cause: DesktopDaemonStatus["cause"]): string | undefined {
   if (cause === "port-in-use") return "Another app is using ace's port. Quit it, then try again.";
+  if (cause === "lock-held")
+    return "Waiting for another ace process to finish starting or stopping.";
   return undefined;
 }
 
 /** Startup failures cross the desktop bridge; keep technical details in Show logs. */
 export function startupFailure(reason: string, cause?: DesktopDaemonStatus["cause"]): string {
+  if (cause === "lock-held")
+    return "Another ace process is still using ace's data. Quit it, then try again.";
   const known = startupCause(cause);
   if (known) return known;
   if (/legacy|older (?:ace|data)/i.test(reason))

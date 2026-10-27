@@ -42,6 +42,8 @@ export function DesktopFailureScreen(props: { reason: string; daemon: DesktopDae
   }, [daemon]);
   const busy = status !== undefined && busyStates.has(status.state);
   const retry = busy ? status.retry : undefined;
+  // Another ace process still holds ace's data: the desktop waits for it on its own.
+  const waiting = busy && status.cause === "lock-held";
   const restart = async () => {
     setStatus({ state: "restarting" });
     try {
@@ -64,7 +66,13 @@ export function DesktopFailureScreen(props: { reason: string; daemon: DesktopDae
   return (
     <ConnectCard labelledBy="desktop-failure-title" wide={Array.isArray(checks)}>
       <h1 id="desktop-failure-title" className="mt-4 text-xl font-semibold tracking-title">
-        {retry ? "ace is retrying" : busy ? "Trying again" : "ace didn't start"}
+        {retry
+          ? "ace is retrying"
+          : waiting
+            ? "ace is waiting"
+            : busy
+              ? "Trying again"
+              : "ace didn't start"}
       </h1>
       {!busy && (
         <p className="mt-1.5 text-ui leading-normal text-muted-foreground">
