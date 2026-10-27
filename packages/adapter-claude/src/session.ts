@@ -366,6 +366,9 @@ export async function openSession(
       let pushed = 0;
       try {
         ensureOpen();
+        // A narrowing whose reconnect failed is retried before the turn; a second failure
+        // leaves the turn on the old list and the next turn tries again.
+        if (aceListing?.unsettled) await aceListing.settle(baseControls).catch(() => {});
         // Validate every admission before the first one can reach the harness.
         const messages = admissions(parts).map((body) => {
           const message: SDKUserMessage & { uuid: string } = {
