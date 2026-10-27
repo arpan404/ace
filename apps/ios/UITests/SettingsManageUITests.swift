@@ -30,16 +30,16 @@ import XCTest
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Gemini CLI'")).firstMatch.waitForExistence(timeout: 10))
         screenshot("registry-search")
         search.buttons["Clear text"].firstMatch.tap()
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Amp'")).firstMatch.tap()
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Factory Droid'")).firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Install plan"].waitForExistence(timeout: 20))
         screenshot("agent")
         app.buttons["Install"].firstMatch.tap()
         screenshot("agent-installing")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == 'Installed'")).firstMatch.waitForExistence(timeout: 30) || app.buttons.matching(NSPredicate(format: "label CONTAINS 'Installed'")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Installed"].firstMatch.waitForExistence(timeout: 30))
         screenshot("agent-installed")
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
-        app.buttons["Add by command"].firstMatch.tap()
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Add by command'")).firstMatch.tap()
         let name = app.textFields["Name"]
         XCTAssertTrue(name.waitForExistence(timeout: 10))
         name.tap(); name.typeText("My agent")
@@ -55,7 +55,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Add My agent?"].waitForExistence(timeout: 10))
         screenshot("manual-confirm")
         app.buttons["Add agent"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["Add by command"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Add by command'")).firstMatch.waitForExistence(timeout: 20))
     }
 
     func testAnAccountsBadgeChangesAsItIsEditedAndRemoveOffersItsFiles() {

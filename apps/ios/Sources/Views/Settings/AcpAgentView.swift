@@ -73,9 +73,12 @@ struct AcpAgentView: View {
                 Text(agent.description).foregroundStyle(AceTheme.Colours.foreground)
             }
             .padding(.vertical, AceTheme.Spacing.xs)
-            if let standing = agent.standing { InsetRow("Here", systemImage: nil, value: standing) }
+            if let standing = agent.standing { InsetRow("On this machine", systemImage: nil, value: standing) }
             if let install { progress(install) }
-            else if let label = agent.actionLabel, model.canOperate {
+            if let installProblem { ServiceProblem(message: installProblem) }
+        }
+        if install == nil, let label = agent.actionLabel, model.canOperate {
+            Section {
                 Button { Task { await start(agent) } } label: {
                     Text(label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: 44)
                 }
@@ -85,7 +88,6 @@ struct AcpAgentView: View {
                 .listRowInsets(EdgeInsets())
                 .disabled(agent.planProblem != nil)
             }
-            if let installProblem { ServiceProblem(message: installProblem) }
         }
         if !agent.facts.isEmpty || agent.planProblem != nil {
             Section {
@@ -177,7 +179,6 @@ struct AcpAgentView: View {
         if install?.succeeded == true {
             model.refreshMachine()
             await read()
-            try? await Task.sleep(for: .seconds(1.2))
             install = nil
         }
     }
