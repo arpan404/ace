@@ -34,7 +34,7 @@ struct ForgeConflictsPageView: View {
                 ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
             }
         }
-        .animation(.smooth, value: page)
+        .animation(AceMotion.smooth, value: page)
         .background(AceTheme.Colours.background)
         .refreshable { await load() }
         .navigationTitle("Merge conflicts")

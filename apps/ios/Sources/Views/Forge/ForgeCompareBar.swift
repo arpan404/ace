@@ -63,7 +63,7 @@ struct ForgeRangeSheet: View {
                     ProgressView().padding(.top, 80).frame(maxWidth: .infinity)
                 }
             }
-            .animation(.smooth, value: list == nil)
+            .animation(AceMotion.smooth, value: list == nil)
             .background(AceTheme.Colours.background)
             .navigationTitle("Show changes from")
             .navigationBarTitleDisplayMode(.inline)

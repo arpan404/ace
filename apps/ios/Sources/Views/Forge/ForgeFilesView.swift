@@ -45,7 +45,7 @@ struct ForgeFilesView: View {
                 ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
             }
         }
-        .animation(.smooth, value: list)
+        .animation(AceMotion.smooth, value: list)
         .background(AceTheme.Colours.background)
         .refreshable { await load() }
         .navigationTitle("Files changed")
@@ -53,7 +53,7 @@ struct ForgeFilesView: View {
         .task(id: TaskKey(range: range, generation: client.readGeneration(request))) { await load() }
         .sheet(isPresented: $choosing) {
             ForgeRangeSheet(client: client, route: route, current: range) { picked in
-                withAnimation(.smooth) { range = picked }
+                withAnimation(AceMotion.smooth) { range = picked }
             }
         }
     }

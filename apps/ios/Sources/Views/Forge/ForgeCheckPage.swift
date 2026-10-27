@@ -45,7 +45,7 @@ struct ForgeCheckPageView: View {
                 .padding(AceTheme.Spacing.lg).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .animation(.smooth, value: page)
+        .animation(AceMotion.smooth, value: page)
         .background(AceTheme.Colours.background)
         .refreshable { await load(fresh: true) }
         .navigationTitle(page?.name ?? "Check")

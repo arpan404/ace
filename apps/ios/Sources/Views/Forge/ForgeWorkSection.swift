@@ -52,9 +52,9 @@ struct ForgeWorkSection: View {
                 .transition(.opacity)
             }
         }
-        .animation(.smooth, value: work)
-        .animation(.smooth, value: failure)
-        .animation(.smooth, value: stack)
+        .animation(AceMotion.smooth, value: work)
+        .animation(AceMotion.smooth, value: failure)
+        .animation(AceMotion.smooth, value: stack)
         .task(id: client.readGeneration(request)) { await load(fresh: false) }
         .task(id: client.readGeneration(stackRequest)) {
             stack = try? await client.forgeWorkRead(stackRequest, as: ForgeStackPage.self)

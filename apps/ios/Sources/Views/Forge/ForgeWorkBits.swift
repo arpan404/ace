@@ -28,7 +28,7 @@ struct ForgeTextAction: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AceTheme.Spacing.lg)
-        .animation(.smooth, value: busy)
+        .animation(AceMotion.smooth, value: busy)
     }
 }
 
@@ -50,7 +50,7 @@ struct ForgeOutcomeLine: View {
                     .accessibilityIdentifier(identifier)
             }
         }
-        .animation(.smooth, value: outcome)
+        .animation(AceMotion.smooth, value: outcome)
     }
 
     private func text(_ outcome: ForgeWorkOutcome) -> String {
@@ -115,4 +115,12 @@ struct ForgeWordButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == ForgeWordButtonStyle {
     static var forgeWord: ForgeWordButtonStyle { ForgeWordButtonStyle() }
+}
+
+/// The forge and Work pages' state changes: the system's smooth spring, or under Reduce Motion
+/// a short ease with no overshoot, so things fade in place rather than travel.
+enum AceMotion {
+    @MainActor static var smooth: Animation {
+        UIAccessibility.isReduceMotionEnabled ? .easeInOut(duration: 0.2) : .smooth
+    }
 }

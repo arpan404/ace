@@ -51,7 +51,7 @@ struct ForgeFileView: View {
                 ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
             }
         }
-        .animation(.smooth, value: file == nil)
+        .animation(AceMotion.smooth, value: file == nil)
         .background(AceTheme.Colours.background)
         .refreshable { await load() }
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { bottom }
@@ -69,9 +69,9 @@ struct ForgeFileView: View {
     @ViewBuilder private var bottom: some View {
         if let pick, composing == nil {
             ForgeLinePickStrip(pick: pick, note: pickNote, extend: {
-                withAnimation(.smooth) { self.pick?.extending.toggle(); pickNote = nil }
+                withAnimation(AceMotion.smooth) { self.pick?.extending.toggle(); pickNote = nil }
             }, comment: { if let file, let desk { comment(file, desk) } }, clear: {
-                withAnimation(.smooth) { self.pick = nil; pickNote = nil }
+                withAnimation(AceMotion.smooth) { self.pick = nil; pickNote = nil }
             })
             .transition(.opacity)
         } else if let message = desk?.message, composing == nil {
@@ -94,7 +94,7 @@ struct ForgeFileView: View {
             }
             .padding(.horizontal, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.sm)
             ForgeCodeToolbar(wrap: $wrap, split: $split,
-                             rendered: file.rendered ? $renderedOn.animation(.smooth) : nil,
+                             rendered: file.rendered ? $renderedOn.animation(AceMotion.smooth) : nil,
                              wide: wide && file.show == "patch", viewed: file.viewed, lines: file.show != "image",
                              canMark: client.canOperate, marking: !desk.ready) { markViewed(file, desk) }
             Divider().overlay(AceTheme.Colours.separator)
@@ -125,15 +125,15 @@ struct ForgeFileView: View {
                 .padding(.top, AceTheme.Spacing.lg)
             }
         }
-        .animation(.smooth, value: wrap)
-        .animation(.smooth, value: split)
+        .animation(AceMotion.smooth, value: wrap)
+        .animation(AceMotion.smooth, value: split)
     }
 
     /// A tap on a line: it extends the span while Select more is on, else picks that line.
     private func tap(_ index: Int, in file: ForgeFileDiff) {
         let line = file.lines[index]
         guard let anchor = line.anchor else { return }
-        withAnimation(.smooth) {
+        withAnimation(AceMotion.smooth) {
             if var current = pick, current.extending {
                 if current.extend(to: anchor, hunk: line.hunk) {
                     pick = current
@@ -178,7 +178,7 @@ struct ForgeFileView: View {
         // A suggestion replaces lines of the new side; deleted lines have none to change.
         let suggestion = pick.side == "RIGHT" ? picked.map(\.text).joined(separator: "\n") : nil
         let done: (Bool) -> Bool = { ok in
-            if ok { withAnimation(.smooth) { self.pick = nil } }
+            if ok { withAnimation(AceMotion.smooth) { self.pick = nil } }
             return ok
         }
         composing = ForgeCompose(

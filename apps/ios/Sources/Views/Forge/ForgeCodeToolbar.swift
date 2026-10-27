@@ -66,7 +66,7 @@ struct ForgeCodeToolbar: View {
                 .overlay(AceShape.capsule.strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
-                .animation(.smooth, value: on)
+                .animation(AceMotion.smooth, value: on)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])

@@ -40,7 +40,7 @@ struct ForgeLogView: View {
             .onChange(of: jump) { _, line in
                 guard let line else { return }
                 want(line)
-                withAnimation(.smooth) { proxy.scrollTo(line, anchor: .top) }
+                withAnimation(AceMotion.smooth) { proxy.scrollTo(line, anchor: .top) }
             }
             .task(id: focus) {
                 // Opening on the failure: the lines around it are read first, then shown.

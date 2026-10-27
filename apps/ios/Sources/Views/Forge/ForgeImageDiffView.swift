@@ -54,7 +54,7 @@ struct ForgeImageDiffView: View {
                 }
             }
             .transition(.opacity)
-            .animation(.smooth, value: layout)
+            .animation(AceMotion.smooth, value: layout)
         } else {
             let added = sides.after.image != nil
             if let only = sides.after.image ?? sides.before.image {

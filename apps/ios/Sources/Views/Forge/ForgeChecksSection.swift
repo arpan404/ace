@@ -41,7 +41,7 @@ struct ForgeChecksSection: View {
                 }
             }
         }
-        .animation(.smooth, value: checks)
+        .animation(AceMotion.smooth, value: checks)
         .task(id: client.readGeneration(request)) { await load(fresh: false) }
         .task(id: checks?.local?.action?.kind == "cancel") { await follow() }
         .sensoryFeedback(.success, trigger: outcome) { _, now in now?.ok == true }

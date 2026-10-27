@@ -95,7 +95,7 @@ struct ForgeLinePickStrip: View {
         .aceGlass(in: AceShape.capsule)
         .padding(.horizontal, AceTheme.Spacing.md)
         .padding(.bottom, AceTheme.Spacing.sm)
-        .animation(.smooth, value: pick)
-        .animation(.smooth, value: note)
+        .animation(AceMotion.smooth, value: pick)
+        .animation(AceMotion.smooth, value: note)
     }
 }

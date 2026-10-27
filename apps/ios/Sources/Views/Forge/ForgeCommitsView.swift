@@ -36,7 +36,7 @@ struct ForgeCommitsView: View {
                 ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
             }
         }
-        .animation(.smooth, value: list == nil)
+        .animation(AceMotion.smooth, value: list == nil)
         .background(AceTheme.Colours.background)
         .refreshable { await load() }
         .navigationTitle("Commits")
@@ -90,8 +90,8 @@ struct ForgeCommitPicker: View {
             }
         }
         .sensoryFeedback(.selection, trigger: picked)
-        .animation(.smooth, value: comparing)
-        .animation(.smooth, value: after)
+        .animation(AceMotion.smooth, value: comparing)
+        .animation(AceMotion.smooth, value: after)
     }
 
     private var compareBar: some View {

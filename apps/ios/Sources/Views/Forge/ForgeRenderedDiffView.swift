@@ -34,7 +34,7 @@ struct ForgeRenderedDiffView: View {
                 ProgressView().padding(.top, 60).frame(maxWidth: .infinity)
             }
         }
-        .animation(.smooth, value: blocks == nil)
+        .animation(AceMotion.smooth, value: blocks == nil)
         .task(id: route) { await load() }
     }
 

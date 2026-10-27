@@ -146,7 +146,7 @@ struct InboxStack<Destination: View>: View {
     private var commands: InboxCommands {
         InboxCommands(
             newThread: inbox.canStartThreads ? forge.startThread : nil,
-            search: { withAnimation(.smooth) { searching = true } },
+            search: { withAnimation(AceMotion.smooth) { searching = true } },
             next: { step(1) }, previous: { step(-1) })
     }
     private func step(_ step: Int) {
@@ -174,7 +174,7 @@ struct InboxStack<Destination: View>: View {
         // narrow column (a window beside its controls) still shows them all.
         if #available(iOS 26, *), !holdsTabs { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
         ToolbarItem(placement: .topBarTrailing) {
-            Button { withAnimation(.smooth) { searching = true } } label: { Image(systemName: "magnifyingglass") }
+            Button { withAnimation(AceMotion.smooth) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
         }
         // The phone's floating New thread button, in the Threads sidebar's own bar.
@@ -245,7 +245,7 @@ private struct InboxSearchField: ViewModifier {
             .onAppear { if searching { shown = true } }
             .onChange(of: searching) { _, now in
                 // The field joins the bar in the same animation the system uses to focus it.
-                if now { withAnimation(.smooth) { shown = true } } else { query = ""; shown = false }
+                if now { withAnimation(AceMotion.smooth) { shown = true } } else { query = ""; shown = false }
             }
     }
 }
