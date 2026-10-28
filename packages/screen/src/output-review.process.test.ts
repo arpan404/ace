@@ -1,4 +1,5 @@
 import { dirname } from "node:path";
+import { Writable } from "node:stream";
 import { access } from "node:fs/promises";
 import { expect, it } from "vitest";
 import { spawnSupervised } from "@ace/provider-kit/process";
@@ -26,6 +27,35 @@ it("an unterminated oversized POSIX helper reply kills the process before readli
     await expect(helper.request({ op: "permissions" })).rejects.toThrow("exited");
     await exited.promise;
     expect(await failed.promise).toBeInstanceOf(Error);
+  } finally {
+    await helper.close();
+  }
+});
+it("a request whose write hears EPIPE from a dying helper fails as the helper's exit", async () => {
+  const failed = deferred<Error>();
+  const helper = await Helper.open({
+    command: process.execPath,
+    args: ["-e", 'process.stdin.once("data", () => process.exit(3));'],
+    platform: "darwin",
+    nextId: ids(),
+    spawn: (options) => {
+      const child = spawnSupervised(options);
+      // The write reaches the helper, which exits; the pipe reports EPIPE before the exit lands.
+      const stdin = new Writable({
+        write(chunk, _encoding, done) {
+          child.stdin.write(chunk);
+          done(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+        },
+      });
+      stdin.on("error", () => {});
+      return { ...child, stdin };
+    },
+    onFrame: () => {},
+    onFailure: failed.resolve,
+  });
+  try {
+    await expect(helper.request({ op: "permissions" })).rejects.toThrow("Screen helper exited");
+    expect((await failed.promise).message).toBe("Screen helper exited");
   } finally {
     await helper.close();
   }
