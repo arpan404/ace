@@ -108,6 +108,19 @@ private struct SuggestionRowView: View {
 
 /// Each row's symbol: what it points at, or what kind of catalog entry it is.
 enum SuggestionSymbol {
+    /// Catalogs from older daemons can name builtins by their raw command id.
+    static func menuTitle(_ row: SuggestionRow) -> String {
+        guard row.label == row.action else { return row.label }
+        switch row.action {
+        case "review": return "Review changes"
+        case "model": return "Change model"
+        case "plan": return "Plan mode"
+        case "goal": return "Set goal"
+        case "files": return "Files and folders"
+        default: return row.label
+        }
+    }
+
     static func icon(_ row: SuggestionRow) -> AceIcon.Name {
         if let action = row.action { return icon(action: action) }
         switch row.icon {

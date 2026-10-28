@@ -53,6 +53,13 @@ export class HostSnapshots implements ReadSnapshotStorage {
     }
   }
 
+  deletePrefix(prefix: string): Promise<void> {
+    if (this.#forgotten || this.#host === undefined) return Promise.resolve();
+    return (
+      this.#storage.deletePrefix?.(`${this.#host}/${prefix}`).catch(() => {}) ?? Promise.resolve()
+    );
+  }
+
   /**
    * Drop every record of this scope and keep reading and writing afterwards: the person cleared
    * what the phone keeps, and what they open next is kept again.

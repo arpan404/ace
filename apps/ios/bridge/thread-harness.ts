@@ -1,3 +1,4 @@
+import type { TurnStepsStore } from "@ace/client/turn-steps";
 import { native } from "./test-host.ts";
 import { ClientCore, type Lease, type ReadSnapshotStorage, type ThreadSource } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
@@ -189,6 +190,7 @@ export function open(
   threadId: string,
   chunks?: ChunkReader,
   retries?: SubagentRetries,
+  keptSteps?: TurnStepsStore,
 ): ThreadSession {
   lease = owner.thread(threadId);
   stop = followThread(lease.store, threadId, 1, pump);
@@ -203,6 +205,7 @@ export function open(
     undefined,
     undefined,
     retries,
+    keptSteps,
   );
   return session;
 }

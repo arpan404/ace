@@ -6,6 +6,23 @@ import XCTest
 @MainActor final class TranscriptEndUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
+    func testReadingOlderMessagesStaysVisibleAndStillWhileTheTailStreams() {
+        let app = open("ios-stream")
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(newest(in: app).waitForExistence(timeout: 30))
+        for _ in 0..<8 { transcript.fling(older: true) }
+        XCTAssertTrue(app.descendants(matching: .any)["transcript.paging"].waitForNonExistence(timeout: 15))
+        let frame = transcript.frame
+        let visible = app.staticTexts.allElementsBoundByIndex.first {
+            $0.isHittable && $0.label.count > 20 && $0.frame.maxY > frame.minY + 100 && $0.frame.minY < frame.maxY - 200
+        }
+        guard let visible else { return XCTFail("Reading history left an empty viewport") }
+        let y = visible.frame.minY
+        sleep(1) // The fixture keeps streaming while the person reads older messages.
+        XCTAssertTrue(visible.isHittable, "Live updates must not replace the message being read")
+        XCTAssertEqual(visible.frame.minY, y, accuracy: 4, "Reading position must stay still without another gesture")
+    }
+
     func testScrollToEndAfterReadingFarBackShowsTheNewestMessage() {
         let app = open("ios-stream")
         let transcript = app.scrollViews["transcript"]

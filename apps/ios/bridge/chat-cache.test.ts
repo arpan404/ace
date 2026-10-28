@@ -11,7 +11,7 @@ import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
 import type { HostRequest } from "@ace/native-host";
 import { DeviceId, ThreadId } from "@ace/protocol";
 import { handleCacheAction, type CacheAction } from "./chat-cache.ts";
-import { nativeReadSnapshots } from "./read-snapshots.ts";
+import { forgetNativeTurnSteps, nativeReadSnapshots } from "./read-snapshots.ts";
 import { RecordingSink, until } from "./sheet-fixture.ts";
 import { nativeStore } from "./snapshot-store-fixture.ts";
 
@@ -272,3 +272,32 @@ test.each<[string, CacheAction]>([
     expect([...store.items.keys()].filter((key) => key.endsWith("thread:one"))).toEqual([]);
   },
 );
+
+test("reloading a chat removes its saved tool logs before the reopened view can read them", async () => {
+  const daemon = machine();
+  const { call } = nativeStore();
+  const { client, snapshots } = phone(daemon, call, new Map(), offline);
+  await client.start();
+  const key = `turn-steps/${daemon.hostId}/one/1`;
+  await snapshots.set(key, { saved: true });
+  let shown: unknown = "not reopened";
+  let reopened = Promise.resolve();
+  await handleCacheAction(
+    { type: "cache.reload", threadId: "one" },
+    {
+      client,
+      snapshots,
+      sink: new RecordingSink(),
+      openThread: () => "one",
+      leave() {},
+      forgetSteps: (threadId) => forgetNativeTurnSteps(call, snapshots, daemon.hostId, threadId),
+      reopen() {
+        reopened = snapshots.get(key).then((value) => {
+          shown = value;
+        });
+      },
+    },
+  );
+  await reopened;
+  expect(shown).toBeUndefined();
+});

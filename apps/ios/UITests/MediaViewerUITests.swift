@@ -7,6 +7,51 @@ import XCTest
 @MainActor final class MediaViewerUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
+    func testTheAddMenuStaysOutsideTheMessageFieldWhenTheComposerExpands() {
+        let app = launchIntoThread()
+        let add = app.buttons["composer.attach"]
+        let field = app.otherElements["composer.surface"].firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 10))
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        XCTAssertLessThan(add.frame.maxX, field.frame.minX)
+        XCTAssertGreaterThanOrEqual(add.frame.width, 44)
+        app.textViews["composer.input"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertLessThan(add.frame.maxX, field.frame.minX)
+        add.tap()
+        XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Choose File"].exists)
+        XCTAssertTrue(app.buttons["Choose Folder"].exists)
+        screenshot("composer-separate-add-menu")
+    }
+
+    func testTheAddMenuClosesCleanlyAndCanBeOpenedAgain() {
+        let app = launchIntoThread()
+        let add = app.buttons["composer.attach"]
+        let library = app.buttons["Photo Library"]
+        for _ in 0..<3 {
+            add.tap()
+            XCTAssertTrue(library.waitForExistence(timeout: 5))
+            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+            XCTAssertTrue(library.waitForNonExistence(timeout: 5))
+            XCTAssertTrue(add.isHittable)
+        }
+        screenshot("composer-menu-dismissed")
+    }
+
+    func testThePhotoPickerOpensOnTheFirstSelectionFromAFocusedComposer() {
+        let app = launchIntoThread()
+        app.textViews["composer.input"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.buttons["composer.attach"].tap()
+        let library = app.buttons["Photo Library"]
+        XCTAssertTrue(library.waitForExistence(timeout: 5))
+        library.tap()
+        let presented = app.buttons["Cancel"].waitForExistence(timeout: 10)
+        screenshot("photo-picker-first-open")
+        XCTAssertTrue(presented, "Selecting Photo Library once must present the picker even as the keyboard closes")
+    }
+
     func testAPickedPhotoShowsAsAThumbnailAndOpensFittedAndZoomable() {
         let app = launchIntoThread()
         app.buttons["composer.attach"].tap()
@@ -113,17 +158,12 @@ import XCTest
 
     private func launchIntoThread() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-open", "ios-attachments"]
         app.launch()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
-        // The fixture's first thread asks for notifications once; answer it so it can't cover the screen.
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 25))
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let allow = springboard.alerts.buttons["Allow"]
         if allow.waitForExistence(timeout: 4) { allow.tap() }
-        let row = app.buttons["thread.ios-attachments"]
-        for _ in 0..<12 where !row.isHittable { app.swipeUp() }
-        row.tap()
-        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
         return app
     }
     private func screenshot(_ name: String) {

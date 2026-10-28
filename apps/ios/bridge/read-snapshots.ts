@@ -69,3 +69,15 @@ export function nativeSnapshotRows(call: HostRequest): SnapshotRows {
     },
   };
 }
+
+/** Reloading a chat also drops its separately kept finished tool logs. */
+export async function forgetNativeTurnSteps(
+  call: HostRequest,
+  snapshots: RowSnapshots,
+  hostId: string,
+  threadId: string,
+): Promise<void> {
+  const prefix = `turn-steps/${hostId}/${threadId}/`;
+  for (const entry of await nativeSnapshotRows(call).index())
+    if (entry.key.startsWith(prefix)) await snapshots.delete(entry.key);
+}

@@ -12,4 +12,6 @@ export interface ReadSnapshotStorage {
   clear?(): Promise<void>;
   /** Drop one record, so the next read of it is a miss (ADR 0105). */
   delete?(key: string): Promise<void>;
+  /** Drop related history reads when a thread is reloaded. */
+  deletePrefix?(prefix: string): Promise<void>;
 }

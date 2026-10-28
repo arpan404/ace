@@ -15,7 +15,7 @@ struct CachedChatsView: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("cache.total")
             } footer: {
-                Text("Chats are kept for 7 days after you last open them. Settled ones: only the 20 you opened last.")
+                Text("Messages, older pages and opened message content are kept for up to 7 days. Of settled chats, the 20 most recently opened are kept.")
             }
             .insetRowBackground()
             if inbox.sessions.count > 1 {
@@ -24,7 +24,7 @@ struct CachedChatsView: View {
                         InsetRow(systemImage: nil, title: inbox.name(session.hostId), subtitle: usage(session)) {
                             Button("Clear", role: .destructive) { clearing = session }
                                 .buttonStyle(.borderless)
-                                .disabled(session.client.cacheUsage?.threads == 0)
+                                .disabled(session.client.cacheUsage?.bytes == 0)
                                 .accessibilityIdentifier("cache.clear.\(session.hostId)")
                         }
                     }

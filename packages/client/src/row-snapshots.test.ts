@@ -378,3 +378,30 @@ test("a read answered after its thread expired neither restores it nor corrupts 
   await snapshots.set("host/thread:t", value);
   expect(await new RowSnapshots(rows, { now: () => clock.at }).get("host/thread:t")).toEqual(value);
 });
+
+test("reloading history deletes only the chosen thread's saved pages", async () => {
+  const clock = { at: day };
+  const rows = new MemoryRows(clock);
+  const snapshots = new RowSnapshots(rows, { now: () => clock.at });
+  await snapshots.set("host/history/one/page-1", { text: "first" });
+  await snapshots.set("host/history/one/page-2", { text: "second" });
+  await snapshots.set("host/history/two/page-1", { text: "another" });
+  await snapshots.deletePrefix("host/history/one/");
+  expect(await snapshots.get("host/history/one/page-1")).toBeUndefined();
+  expect(await snapshots.get("host/history/one/page-2")).toBeUndefined();
+  expect(await snapshots.get("host/history/two/page-1")).toEqual({ text: "another" });
+});
+
+test("history content writes prune old records even when no thread snapshot is written", async () => {
+  const clock = { at: day };
+  const rows = new MemoryRows(clock);
+  const snapshots = new RowSnapshots(rows, {
+    now: () => clock.at,
+    policy: { maxAgeMs: 7 * day, settledThreads: 20, maxBytes: 200 },
+  });
+  await snapshots.set("history/old", { text: "x".repeat(120) });
+  clock.at++;
+  await snapshots.set("history/new", { text: "y".repeat(120) });
+  await expect.poll(() => rows.records.has("history/old")).toBe(false);
+  expect(await snapshots.get("history/new")).toEqual({ text: "y".repeat(120) });
+});

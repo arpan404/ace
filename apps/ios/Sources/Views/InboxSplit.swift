@@ -50,7 +50,7 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
             // split view takes what is left, and puts its list away below its side-by-side width.
             HStack(spacing: AceTheme.Spacing.none) {
                 split
-                    .modifier(DrawerPlace(part: .page, hold: hold, stop: drawer.stop, window: width, reduceMotion: reduceMotion))
+                    .modifier(DrawerPlace(part: .chrome, hold: hold, stop: drawer.stop, window: width, reduceMotion: reduceMotion))
                     // Behind the drawer the page is one element, the closer over it.
                     .accessibilityHidden(layout == .list || (layout == .page && drawer.isOpen))
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { splitWidth = $0 }
@@ -141,6 +141,10 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
                     }
                     else { EmptyState(icon: nil, title: empty).frame(maxHeight: .infinity) }
                 }
+                .environment(\.threadDrawerOpen, layout == .page && drawer.isOpen)
+                // Shift the rendered thread, never its navigation controller: system bars
+                // keep their Duo rail while the rounded page follows the drawer.
+                .modifier(DrawerPlace(part: .page, hold: hold, stop: drawer.stop, window: width, reduceMotion: reduceMotion))
                 // Only the open page's root opens the list; pages pushed over it go back.
                 .navigationBarBackButtonHidden(sizeClass != .regular)
                 // VoiceOver's escape at the page's root goes back to the list, as the drawer.
@@ -167,7 +171,7 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
         ZStack(alignment: .topLeading) {
             DrawerCloser(hold: hold, layout: layout, stop: drawer.stop, window: width, listWidth: listWidth, reduceMotion: reduceMotion,
                          close: closeDrawer, ended: { release(velocity: $0) })
-            NavigationStack { listed(onGlass: false) }
+            NavigationStack { listed(onGlass: false).background { DrawerViewport().frame(width: 0, height: 0) } }
                 .modifier(DrawerPlace(part: .list, hold: hold, stop: drawer.stop, window: width, reduceMotion: reduceMotion))
             if layout == .page && drawer.isOpen { Color.clear.frame(width: 0, height: 0).escapeCloses(closeDrawer) }
         }
@@ -184,6 +188,7 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
             .environment(\.openForgeRow, highlightsOpen ? path.first?.forge : nil)
             .environment(\.onSidebarGlass, onGlass)
             .environment(\.listHoldsTabs, ThreadDrawer.listHoldsTabs(layout))
+            .environment(\.listIsDrawer, layout == .page)
             .environment(\.headerLead, ThreadColumns.headerLead(sizeClass, windowControls: windowControls))
     }
 
@@ -255,6 +260,10 @@ extension EnvironmentValues {
     @Entry var closeOpenThread: CloseOpenThread?
     /// The list carries Threads, Pull requests and New thread itself (`ThreadDrawer.listHoldsTabs`).
     @Entry var listHoldsTabs = false
+    /// Set by the window layout: a split sidebar can itself have a compact size class.
+    @Entry var listIsDrawer = false
+    /// The shifted detail is covered by the compact sidebar.
+    @Entry var threadDrawerOpen = false
 }
 
 struct CloseOpenThread {

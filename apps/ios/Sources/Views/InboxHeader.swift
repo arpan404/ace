@@ -50,13 +50,20 @@ struct InboxHeading<Choices: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let choices {
-                Menu { choices } label: { label(chevron: true) }
-                    .accessibilityIdentifier(identifier)
-                    .accessibilityHint("Chooses what the list shows")
+                Menu { choices } label: {
+                    VStack(alignment: .leading, spacing: 0) {
+                        label(chevron: true)
+                        if problem == nil { InboxTitle(scope: scope, problem: nil, openMachines: openMachines) }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(identifier)
+                .accessibilityHint("Chooses what the list shows")
+                if problem != nil { InboxTitle(scope: scope, problem: problem, openMachines: openMachines) }
             } else {
                 label(chevron: false)
+                InboxTitle(scope: scope, problem: problem, openMachines: openMachines)
             }
-            InboxTitle(scope: scope, problem: problem, openMachines: openMachines)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -64,7 +71,7 @@ struct InboxHeading<Choices: View>: View {
     private func label(chevron: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(title).aceFont(AceTheme.TypeStyle(size: 20, lineHeight: 24, weight: 700, tracking: -0.3), relativeTo: .title3)
+                Text(title).accessibilityIdentifier("inbox.heading.title").aceFont(AceTheme.TypeStyle(size: 20, lineHeight: 24, weight: 700, tracking: -0.3), relativeTo: .title3)
                     .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
                 if chevron {
                     Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold))
@@ -103,7 +110,7 @@ struct InboxTitle: View {
                 .accessibilityHint("Opens Machines")
                 .accessibilityIdentifier(shown.identifier)
             } else if let scope {
-                Text(scope).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                Text(scope).accessibilityIdentifier("inbox.heading.scope").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
             }
         }

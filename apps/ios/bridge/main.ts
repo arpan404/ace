@@ -1,4 +1,7 @@
 import { host } from "./polyfills.ts";
+import { turnStepsStoreIn } from "@ace/client/kept-turn-steps";
+import { forgetNativeTurnSteps } from "./read-snapshots.ts";
+import type { TurnStepsStore } from "@ace/client/turn-steps";
 import { ClientCore } from "@ace/client";
 import { z } from "zod";
 import { DeviceId, HostId, SettingsValues } from "@ace/protocol";
@@ -129,6 +132,8 @@ const sheets = new Sheets(pump, preview, {
 });
 /** Subagent retries asked from this phone, kept across visits to their threads. */
 const retries = new SubagentRetries();
+let keptSteps: TurnStepsStore | undefined;
+let stepsHostId: string | undefined;
 /** The thread open on the phone, and what else follows it. */
 const visit = new ThreadVisit(
   pump,
@@ -144,6 +149,7 @@ const visit = new ThreadVisit(
       transfers?.follow({ threadId, epoch, store });
     },
     reading: (threadId) => services?.transcript.source(threadId),
+    keptSteps: () => keptSteps,
   },
   (id) => suggest?.entries(id),
   undefined,
@@ -163,6 +169,12 @@ function error(): void {
 async function start(json: string): Promise<void> {
   const config = Config.parse(JSON.parse(json));
   snapshots = nativeReadSnapshots(call, () => host.now());
+  const storage = snapshots;
+  stepsHostId = config.hostId;
+  keptSteps = turnStepsStoreIn(async () => storage, {
+    hostId: config.hostId,
+    build: "ios-turn-steps-v1",
+  });
   const paired = config.paired;
   client = new ClientCore({
     deviceId: config.deviceId,
@@ -450,6 +462,10 @@ function action(json: string): void {
           client,
           snapshots,
           sink: pump,
+          async forgetSteps(threadId) {
+            if (snapshots && stepsHostId)
+              await forgetNativeTurnSteps(call, snapshots, stepsHostId, threadId);
+          },
           ...visit.reloads(client),
         });
       else error();

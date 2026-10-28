@@ -1,5 +1,23 @@
 import SwiftUI
 
+/// A stable add-menu presenter beside the message field, in its own round surface.
+struct ComposerDock<Leading: View, Content: View>: View {
+    @ViewBuilder var leading: () -> Leading
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        HStack(alignment: .bottom, spacing: AceTheme.Spacing.sm) {
+            leading()
+                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                .foregroundStyle(AceTheme.Colours.foreground)
+                .tint(AceTheme.Colours.foreground)
+                .buttonStyle(.plain)
+                .aceGlass(in: Circle(), interactive: true)
+                .padding(.bottom, AceTheme.Spacing.xxs)
+            content()
+        }
+    }
+}
+
 /// The first message's composer card. Follow-ups use `ComposerView`, which shares its send button.
 struct ComposerSurface<Content: View>: View {
     @ViewBuilder var content: () -> Content

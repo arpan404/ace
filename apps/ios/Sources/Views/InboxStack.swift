@@ -355,7 +355,8 @@ struct InboxStack<Destination: View, Side: View>: View {
             .aceGlass(in: AceShape.capsule, interactive: true)
         }
         .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.xs)
+        .padding(.top, AceTheme.Spacing.md)
+        .padding(.bottom, AceTheme.Spacing.sm)
     }
     private func headerButton(_ symbol: String, label: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -414,9 +415,9 @@ private struct InboxSearchField: ViewModifier {
 /// window's thread, where the split view sets them, under this stack.
 private struct HoldsTabs<Content: View>: View {
     @Environment(\.listHoldsTabs) private var holds
-    @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.listIsDrawer) private var inDrawer
     @ViewBuilder let content: (Bool, Bool) -> Content
-    var body: some View { content(holds, holds && sizeClass != .regular) }
+    var body: some View { content(holds, inDrawer) }
 }
 
 /// Steps the list's header in by `ThreadColumns.headerLead`, read where the header is drawn: the

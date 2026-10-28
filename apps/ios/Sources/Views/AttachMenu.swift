@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// thread's next one or New thread's first), then the catalog's other builtins the phone can run
 /// (`more`: files to mention, plan mode, the model, ...). It copies and hashes the picked bytes on
 /// the phone and hands them on; every check (size, how many) is the bridge's.
-struct AttachMenu<Title: View>: View {
+struct AttachMenu: View {
     let stage: (StagedAttachment) -> Void
     /// Why the last pick couldn't be read; nil when it could.
     @Binding var problem: String?
@@ -20,37 +20,21 @@ struct AttachMenu<Title: View>: View {
     var recall = false
     /// Set from elsewhere ("Attach files" picked from the `/` list): offers the same three sources.
     var ask: Binding<Bool> = .constant(false)
-    @ViewBuilder var title: () -> Title
     @State private var photos: [PhotosPickerItem] = []
     @State private var choosingPhotos = false
     @State private var choosingFiles = false
     /// Files picks a folder instead: the files inside it go (`ComposerIntake.folder`).
     @State private var choosingFolder = false
     @State private var usingCamera = false
+    init(stage: @escaping (StagedAttachment) -> Void, problem: Binding<String?>, identifier: String = "composer.attach",
+         staging: AttachmentStaging = AttachmentStaging(), more: [SuggestionRow] = [],
+         pickMore: @escaping (SuggestionRow) -> Void = { _ in }, recall: Bool = false, ask: Binding<Bool> = .constant(false)) {
+        self.stage = stage; _problem = problem; self.identifier = identifier
+        self.staging = staging; self.more = more; self.pickMore = pickMore; self.recall = recall; self.ask = ask
+    }
     var body: some View {
-        Menu {
-            Button("Photo Library", ace: .images) { choosingPhotos = true }
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                Button("Take Photo", ace: .camera) { usingCamera = true }
-            }
-            Button("Choose File", ace: .file) { choosingFolder = false; choosingFiles = true }
-            Button("Choose Folder", ace: .folder) { choosingFolder = true; choosingFiles = true }
-            if recall {
-                Button("Previous message", ace: .clockCounterClockwise) { pickMore(.recall) }
-                    .accessibilityIdentifier("composer.recall")
-            }
-            ComposerAddRows(rows: more, pick: pickMore)
-        } label: {
-            title().frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
-        }
-        .accessibilityLabel("Add files and context")
-        .accessibilityIdentifier(identifier)
-        .confirmationDialog("Attach files", isPresented: ask, titleVisibility: .hidden) {
-            Button("Photo Library") { choosingPhotos = true }
-            if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Take Photo") { usingCamera = true } }
-            Button("Choose File") { choosingFolder = false; choosingFiles = true }
-            Button("Choose Folder") { choosingFolder = true; choosingFiles = true }
-        }
+        AttachmentMenuButton(identifier: identifier, actions: actions, ask: ask)
+            .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
         .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: 8, matching: .any(of: [.images, .videos]))
         .onChange(of: photos) { _, picked in
             guard !picked.isEmpty else { return }
@@ -65,6 +49,19 @@ struct AttachMenu<Title: View>: View {
         .fullScreenCover(isPresented: $usingCamera) {
             CameraPicker { image in Task { await stageCamera(image) } }.ignoresSafeArea()
         }
+    }
+    private var actions: [AttachmentMenuAction] {
+        var choices = [AttachmentMenuAction(id: "photos", title: "Photo Library", icon: .images) { choosingPhotos = true }]
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            choices.append(AttachmentMenuAction(id: "camera", title: "Take Photo", icon: .camera) { usingCamera = true })
+        }
+        choices.append(AttachmentMenuAction(id: "file", title: "Choose File", icon: .file) { choosingFolder = false; choosingFiles = true })
+        choices.append(AttachmentMenuAction(id: "folder", title: "Choose Folder", icon: .folder) { choosingFolder = true; choosingFiles = true })
+        if recall { choices.append(AttachmentMenuAction(id: "composer.recall", title: "Previous message", icon: .clockCounterClockwise) { pickMore(.recall) }) }
+        for row in more where row.action != "attach" {
+            choices.append(AttachmentMenuAction(id: "composer.add.\(row.action ?? row.id)", title: SuggestionSymbol.menuTitle(row), icon: SuggestionSymbol.icon(row), group: 1) { pickMore(row) })
+        }
+        return choices
     }
     /// Anything Photos holds: a picture (HEIC re-encoded so the agent sees it) or a video.
     private func stagePhoto(_ item: PhotosPickerItem) async {
@@ -100,11 +97,81 @@ struct AttachMenu<Title: View>: View {
     }
 }
 
-extension AttachMenu where Title == AceIcon {
-    /// The composer's bare + button.
-    init(stage: @escaping (StagedAttachment) -> Void, problem: Binding<String?>, identifier: String = "composer.attach",
-         more: [SuggestionRow] = [], pickMore: @escaping (SuggestionRow) -> Void = { _ in }, recall: Bool = false, ask: Binding<Bool> = .constant(false)) {
-        self.init(stage: stage, problem: problem, identifier: identifier, more: more, pickMore: pickMore, recall: recall, ask: ask) { AceIcon(.plus, size: 20) }
+/// A stable native menu anchor: keyboard and composer relayouts do not replace its menu actions.
+private struct AttachmentMenuAction {
+    let id: String
+    let title: String
+    let icon: AceIcon.Name
+    var group = 0
+    let run: () -> Void
+}
+
+private struct AttachmentMenuButton: UIViewRepresentable {
+    let identifier: String
+    let actions: [AttachmentMenuAction]
+    let ask: Binding<Bool>
+    @Environment(\.isEnabled) private var enabled
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> Anchor {
+        let button = Anchor(type: .custom)
+        var appearance = UIButton.Configuration.plain()
+        appearance.image = UIImage(named: "ph-plus")
+        appearance.contentInsets = .zero
+        button.configuration = appearance
+        button.showsMenuAsPrimaryAction = true
+        button.accessibilityLabel = "Add files and context"
+        return button
+    }
+    func updateUIView(_ button: Anchor, context: Context) {
+        let owner = context.coordinator
+        button.tintColor = UIColor(AceTheme.Colours.foreground)
+        button.isEnabled = enabled
+        button.accessibilityIdentifier = identifier
+        owner.actions = Dictionary(actions.map { ($0.id, $0.run) }, uniquingKeysWith: { _, last in last })
+        let signature = actions.map { "\($0.group):\($0.id):\($0.title):\($0.icon.rawValue)" }
+        if signature != owner.signature {
+            owner.signature = signature
+            let groups = [0, 1].compactMap { group -> UIMenu? in
+                let rows = actions.filter { $0.group == group }.map { choice in
+                    UIAction(title: choice.title, image: UIImage(named: "ph-\(choice.icon.rawValue)"), identifier: UIAction.Identifier(choice.id)) { [weak owner] _ in
+                        owner?.actions[choice.id]?()
+                    }
+                }
+                return rows.isEmpty ? nil : UIMenu(options: .displayInline, children: rows)
+            }
+            button.menu = UIMenu(children: groups)
+        }
+        if ask.wrappedValue && !owner.asked {
+            owner.asked = true
+            Task { @MainActor [weak button, weak owner] in
+                ask.wrappedValue = false
+                button?.performPrimaryAction()
+                owner?.asked = false
+            }
+        }
+    }
+    static func dismantleUIView(_ button: Anchor, coordinator: Coordinator) {
+        button.contextMenuInteraction?.dismissMenu()
+        coordinator.actions.removeAll()
+    }
+    final class Anchor: UIButton {
+        private var windowSize: CGSize?
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            let size = window?.bounds.size
+            if let old = windowSize, let size, old != size { contextMenuInteraction?.dismissMenu() }
+            windowSize = size
+        }
+        override func willMove(toWindow newWindow: UIWindow?) {
+            if window !== newWindow { contextMenuInteraction?.dismissMenu(); windowSize = nil }
+            super.willMove(toWindow: newWindow)
+        }
+    }
+    final class Coordinator {
+        var signature: [String] = []
+        var actions: [String: () -> Void] = [:]
+        var asked = false
     }
 }
 

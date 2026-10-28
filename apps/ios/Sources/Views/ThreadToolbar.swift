@@ -42,6 +42,7 @@ struct ThreadToolbar: ToolbarContent {
     let openWork: () -> Void
     /// Nil where the panel has no room: a phone, a narrow window.
     var panel: PanelToggle? = nil
+    var coveredByDrawer = false
 
     private var headingWidth: CGFloat {
         max(0, min(AceTheme.Dimensions.touchTarget * 5,
@@ -51,10 +52,11 @@ struct ThreadToolbar: ToolbarContent {
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
             ToolbarItem(placement: .principal) { heading }.sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarTrailing) { EquatableView(content: menu) }
+            ToolbarItem(placement: .topBarTrailing) { displayedMenu }
+                .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
         } else {
             ToolbarItem(placement: .principal) { heading }
-            ToolbarItem(placement: .topBarTrailing) { EquatableView(content: menu) }
+            ToolbarItem(placement: .topBarTrailing) { displayedMenu }
         }
         if let panel {
             ToolbarItem(placement: .topBarTrailing) {
@@ -63,6 +65,12 @@ struct ThreadToolbar: ToolbarContent {
                     .accessibilityIdentifier("thread.panel")
             }
         }
+    }
+    private var displayedMenu: some View {
+        EquatableView(content: menu)
+            .opacity(coveredByDrawer ? 0 : 1)
+            .allowsHitTesting(!coveredByDrawer)
+            .accessibilityHidden(coveredByDrawer)
     }
     /// The title opens its own menu, Rename first, as the system's documents do; a small chevron
     /// beside it says so. The "project · branch" line under it opens Work.

@@ -1,3 +1,5 @@
+import { structuredCopy } from "./structured-copy.ts";
+
 export {
   MissingSequenceError,
   inRootLane,
@@ -97,10 +99,6 @@ export function createThreadListView(threads: Thread[] = [], seq = 0): ThreadLis
 function sidebarEntry(thread: Thread): ThreadListEntry {
   const { rootAgentId: _root, ...entry } = structuredCopy(thread);
   return entry;
-}
-// JSON copy keeps the package usable on runtimes without structuredClone.
-function structuredCopy<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
 }
 function get<T>(record: Record<string, T>, id: string): T | undefined {
   return Object.hasOwn(record, id) ? record[id] : undefined;

@@ -113,54 +113,55 @@ struct NewThreadComposer: View {
         .onDisappear { suggester.active = false }
     }
     private var surface: some View {
-        ComposerSurface {
-            if !files.isEmpty {
-                ComposerMediaStrip(files: files, staging: drafts.staging, inset: AceTheme.Spacing.md) { id in
-                    client?.composeDetach(id)
-                    drafts.remove(id)
-                }
-            }
-            // The thread composer's text view: a few lines tall while focused, and it grows to five
-            // lines, then scrolls.
-            NativeTextInput(text: text, inputBegan: {},
-                            submit: { if blocker == nil && !sending { send() } }, card: true, focused: focused,
-                            onFocus: { focus, duration in
-                                if !focus { suggester.close() } else { suggester.readAhead() }
-                                withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus }
-                            },
-                            identifier: "newThread.message", focusOnAppear: true,
-                            onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: (draft.picks ?? ComposerPicks()).held) }, place: place)
-                .overlay(alignment: .topLeading) {
-                    if draft.text.isEmpty {
-                        Text("Describe a task").aceFont(AceTheme.Typography.body, relativeTo: .body)
-                            .foregroundStyle(AceTheme.Colours.subtleForeground)
-                            .padding(.top, AceTheme.Spacing.md)
-                            .allowsHitTesting(false).accessibilityHidden(true)
+        ComposerDock {
+            AttachMenu(stage: { staged in
+                guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
+                drafts.picked(staged, workspaceId: project)
+                client.composeAttach(staged, workspaceId: project)
+            }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging,
+               more: suggester.adding, pickMore: pick, ask: $askAttach)
+            // The new thread takes only the files it was sent with: none joins while it starts.
+            .disabled(draft.projectId == nil || client?.canOperate != true || sending)
+        } content: {
+            ComposerSurface {
+                if !files.isEmpty {
+                    ComposerMediaStrip(files: files, staging: drafts.staging, inset: AceTheme.Spacing.md) { id in
+                        client?.composeDetach(id)
+                        drafts.remove(id)
                     }
                 }
-                .accessibilityLabel("Describe a task")
-                .padding(.horizontal, AceTheme.Spacing.lg)
-            HStack(spacing: AceTheme.Spacing.xs) {
-                AttachMenu(stage: { staged in
-                    guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
-                    drafts.picked(staged, workspaceId: project)
-                    client.composeAttach(staged, workspaceId: project)
-                }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging,
-                   more: suggester.adding, pickMore: pick, ask: $askAttach) {
-                    Image(systemName: "plus").font(.title3).foregroundStyle(AceTheme.Colours.foreground)
+                // The thread composer's text view: a few lines tall while focused, and it grows to five
+                // lines, then scrolls.
+                NativeTextInput(text: text, inputBegan: {},
+                                submit: { if blocker == nil && !sending { send() } }, card: true, focused: focused,
+                                onFocus: { focus, duration in
+                                    if !focus { suggester.close() } else { suggester.readAhead() }
+                                    withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus }
+                                },
+                                identifier: "newThread.message", focusOnAppear: true,
+                                onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: (draft.picks ?? ComposerPicks()).held) }, place: place)
+                    .overlay(alignment: .topLeading) {
+                        if draft.text.isEmpty {
+                            Text("Describe a task").aceFont(AceTheme.Typography.body, relativeTo: .body)
+                                .foregroundStyle(AceTheme.Colours.subtleForeground)
+                                .padding(.top, AceTheme.Spacing.md)
+                                .allowsHitTesting(false).accessibilityHidden(true)
+                        }
+                    }
+                    .accessibilityLabel("Describe a task")
+                    .padding(.horizontal, AceTheme.Spacing.lg)
+                HStack(spacing: AceTheme.Spacing.xs) {
+                    accessChip
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    ModelEffortChip(provider: choice.agent?.provider, model: modelName, effort: tune,
+                                    loading: agentsState != "ready" && agentsState != "failed",
+                                    modelID: "newThread.agent", effortID: "newThread.tune",
+                                    openModel: chooseModel, openEffort: chooseTune)
+                    ComposerActionButton(saving: sending, disabled: blocker != nil || sending, label: "Start thread", action: send)
+                        .accessibilityHint(blocker ?? "").accessibilityIdentifier("newThread.start")
                 }
-                // The new thread takes only the files it was sent with: none joins while it starts.
-                .disabled(draft.projectId == nil || client?.canOperate != true || sending)
-                accessChip
-                Spacer(minLength: AceTheme.Spacing.sm)
-                ModelEffortChip(provider: choice.agent?.provider, model: modelName, effort: tune,
-                                loading: agentsState != "ready" && agentsState != "failed",
-                                modelID: "newThread.agent", effortID: "newThread.tune",
-                                openModel: chooseModel, openEffort: chooseTune)
-                ComposerActionButton(saving: sending, disabled: blocker != nil || sending, label: "Start thread", action: send)
-                    .accessibilityHint(blocker ?? "").accessibilityIdentifier("newThread.start")
+                .padding(.horizontal, AceTheme.Spacing.sm)
             }
-            .padding(.horizontal, AceTheme.Spacing.sm)
         }
     }
     private var modelName: String { choice.model?.label ?? (agentsState == "failed" ? "Couldn't read agents" : "Choose model") }

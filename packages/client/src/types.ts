@@ -85,13 +85,14 @@ export interface ClientOptions {
   storage: Storage;
   /**
    * Where thread and thread-list views keep read snapshots between sessions, so a reload paints
-   * before the daemon answers (ADR 0030). None: views start empty.
+   * before the daemon answers (ADR 0030). Adapters with deletePrefix plus a supplied clock also
+   * keep opened history pages and expanded text (ADR 0105). None: views start empty.
    */
   readSnapshots?: import("./read-snapshot-storage.ts").ReadSnapshotStorage;
   scheduler: Scheduler;
   random(): number;
   id(): string;
-  /** Wall-clock milliseconds for `connectionInfo()` timestamps; without it they are left out. */
+  /** Wall-clock milliseconds for connection timestamps and durable history expiry. */
   now?(): number;
   /** Where connection drops and recoveries are reported. None: they go unreported. */
   report?(event: DiagnosticEvent): void;

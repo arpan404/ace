@@ -7,8 +7,18 @@ import XCTest
     override func setUp() { continueAfterFailure = false }
 
     func testAThreadReloadsFromItsMachineAndSettingsClearsWhatIsKept() {
+        // Other fixture tests may already have opened chats on this simulator.
+        var app = launch([])
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30))
+        app.buttons["inbox.settings"].tap()
+        XCTAssertTrue(app.buttons["settings.cache"].waitForExistence(timeout: 10))
+        app.buttons["settings.cache"].tap()
+        clearKeptChats(in: app)
+        XCTAssertTrue(waitFor(element(app, "cache.total"), contains: "0 chats"))
+        app.terminate()
+
         // Opening the finished thread keeps it on the phone.
-        var app = launch(["--spike-open", "ios-done"])
+        app = launch(["--spike-open", "ios-done"])
         let message = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Dynamic Type")).firstMatch
         XCTAssertTrue(message.waitForExistence(timeout: 30))
 
@@ -48,6 +58,14 @@ import XCTest
         screenshot("cache-settings-cleared")
     }
 
+    private func clearKeptChats(in app: XCUIApplication) {
+        XCTAssertTrue(app.buttons["cache.clearAll"].waitForExistence(timeout: 10))
+        app.buttons["cache.clearAll"].tap()
+        let confirm = app.buttons["cache.clearAll.confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+    }
+
     private func launch(_ extra: [String]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"] + extra
@@ -66,5 +84,9 @@ import XCTest
         attachment.name = "ios-\(name)"
         attachment.lifetime = .keepAlways
         add(attachment)
+        if let directory = ProcessInfo.processInfo.environment["ACE_IOS_SHOTS"] {
+            try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
+        }
     }
 }
