@@ -137,9 +137,9 @@ test("the sidebar shows a plain ace label and profile connection actions", async
       .getAllByRole("menuitem")
       .map((item) => item.textContent),
   ).toEqual([
-    "Automations",
-    "Skills",
-    "Usage",
+    expect.stringMatching(/^Automations/),
+    expect.stringMatching(/^Skills/),
+    expect.stringMatching(/^Usage/),
     "Archived threads",
     expect.stringMatching(/^Keyboard shortcuts/),
     "Connection",
@@ -205,6 +205,7 @@ test("every view's shortcut opens it from anywhere", async () => {
   for (const [keys, heading] of [
     ["gu", "Automations"],
     ["gs", "Skills"],
+    ["go", "Usage"],
     ["{Meta>},{/Meta}", "Settings"],
     ["gh", "Home"],
   ] as const) {

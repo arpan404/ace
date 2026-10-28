@@ -146,8 +146,9 @@ export const keymap = {
     fixed: true,
   },
   goHome: { keys: "g h", label: "Go to Home" },
-  goAutomations: { keys: "g u", label: "Go to Automations" },
-  goSkills: { keys: "g s", label: "Go to Skills" },
+  goAutomations: { keys: "alt+mod+a", also: ["g u"], label: "Go to Automations" },
+  goSkills: { keys: "alt+mod+s", also: ["g s"], label: "Go to Skills" },
+  goUsage: { keys: "alt+mod+u", also: ["g o"], label: "Go to Usage" },
   goPullRequests: { keys: "g p", label: "Go to Pull requests" },
   goIssues: { keys: "g i", label: "Go to Issues" },
   // The Home thread list (features/home): plain keys on the focused row.

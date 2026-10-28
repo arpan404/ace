@@ -53,6 +53,26 @@ test("a rebound shortcut works at once, its old keys stop, and the palette shows
   expect(row.textContent).toMatch(/Shift\+Ctrl\+Y$/);
 });
 
+test("the shortcut sheet searches its rows", async () => {
+  await harness().open("/new");
+  await heading("New thread");
+  await userEvent.keyboard("{Control>}/{/Control}");
+  const sheet = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+  const search = within(sheet).getByRole("searchbox", { name: "Search shortcuts" });
+  expect(document.activeElement).toBe(search);
+
+  await userEvent.type(search, "Usage");
+  expect(within(sheet).getByText("Go to Usage")).toBeTruthy();
+  expect(within(sheet).queryByText("Command palette")).toBeNull();
+
+  await userEvent.clear(search);
+  await userEvent.type(search, "zzz-no-such-shortcut");
+  expect(within(sheet).getByText(/No shortcut matches/)).toBeTruthy();
+
+  await userEvent.clear(search);
+  expect(within(sheet).getByText("Command palette")).toBeTruthy();
+});
+
 test("Reset brings the default keys back", async () => {
   await harness().open("/settings/keyboard");
   const paletteRow = await screen.findByRole("button", { name: "Command palette shortcut" });
@@ -145,8 +165,8 @@ test("a row shows its own stored keys, even when they spell another shortcut's d
   await harness().open("/settings/keyboard");
   const files = await recorder("Open a file");
   await userEvent.click(files);
-  record(files, { key: "u", code: "KeyU", ctrlKey: true, altKey: true });
-  await waitFor(() => expect(files.textContent).toBe("Alt+Ctrl+U"));
+  record(files, { key: "y", code: "KeyY", ctrlKey: true, altKey: true });
+  await waitFor(() => expect(files.textContent).toBe("Alt+Ctrl+Y"));
 
   // Ctrl+P is free now, and it is also how "Open a file" was spelled by default.
   const settings = await recorder("Settings");
