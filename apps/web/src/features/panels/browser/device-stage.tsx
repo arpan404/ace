@@ -1,11 +1,5 @@
-import {
-  useLayoutEffect,
-  useRef,
-  useState,
-  type PointerEvent,
-  type ReactNode,
-  type Ref,
-} from "react";
+import { useClientSize } from "@/lib/client-size.ts";
+import { useLayoutEffect, useRef, type PointerEvent, type ReactNode, type Ref } from "react";
 import { cn } from "@/lib/cn.ts";
 import {
   draggedSize,
@@ -51,17 +45,7 @@ export function DeviceStage(props: {
 }) {
   const { tools, frame, children } = props;
   const stage = useRef<HTMLDivElement>(null);
-  const [room, setRoom] = useState<{ width: number; height: number }>();
-  useLayoutEffect(() => {
-    const element = stage.current;
-    if (!element) return;
-    const measure = () => setRoom({ width: element.clientWidth, height: element.clientHeight });
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
+  const room = useClientSize(stage);
   const size = tools.size;
   // A toolbar shown for the first time starts at the room there is, Responsive.
   const { startAt } = tools;

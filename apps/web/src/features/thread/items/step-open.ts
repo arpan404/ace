@@ -1,52 +1,78 @@
-import { createContext, use, useMemo, useState } from "react";
+import { createContext, use, useCallback, useMemo, useState, useSyncExternalStore } from "react";
 
-/*
- * Which of a work log's disclosures the reader opened, by step and group id rather than by where
- * they are drawn. A live log regroups as steps arrive (a lone step joins a group, a group grows),
- * which redraws its rows; what the reader opened stays open through it.
- */
-
+/** One log's disclosures, kept by id when streaming steps regroup. */
 interface OpenSteps {
-  readonly open: ReadonlyMap<string, boolean>;
+  get(id: string): boolean | undefined;
   set(id: string, open: boolean): void;
+  subscribe(ids: readonly string[], changed: () => void): () => void;
+}
+
+function createOpenSteps(): OpenSteps {
+  const open = new Map<string, boolean>();
+  const listeners = new Map<string, Set<() => void>>();
+  return {
+    get: (id) => open.get(id),
+    set(id, value) {
+      if (open.get(id) === value) return;
+      open.set(id, value);
+      for (const changed of listeners.get(id) ?? []) changed();
+    },
+    subscribe(ids, changed) {
+      const keys = new Set(ids);
+      for (const id of keys) {
+        let readers = listeners.get(id);
+        if (!readers) listeners.set(id, (readers = new Set()));
+        readers.add(changed);
+      }
+      return () => {
+        for (const id of keys) {
+          const readers = listeners.get(id);
+          readers?.delete(changed);
+          if (!readers?.size) listeners.delete(id);
+        }
+      };
+    },
+  };
 }
 
 export const OpenStepsContext = createContext<OpenSteps | undefined>(undefined);
 
-/** One log's open disclosures, for `OpenStepsContext`. */
+/** A stable store: toggling a disclosure only wakes readers of that id. */
 export function useOpenSteps(): OpenSteps {
-  const [open, setOpen] = useState<ReadonlyMap<string, boolean>>(() => new Map());
-  return useMemo(
-    () => ({
-      open,
-      set: (id, value) => setOpen((current) => new Map(current).set(id, value)),
-    }),
-    [open],
-  );
+  return useState(createOpenSteps)[0];
 }
 
-/** Whether the reader opened a step (undefined until they toggle it), kept by its item id. */
+/** Whether the reader opened a step, undefined until they toggle it. */
 export function useStepOpen(itemId: string): [boolean | undefined, (open: boolean) => void] {
   const store = use(OpenStepsContext);
   const [local, setLocal] = useState<boolean>();
-  if (!store) return [local, setLocal];
-  return [store.open.get(`step:${itemId}`), (open) => store.set(`step:${itemId}`, open)];
+  const key = `step:${itemId}`;
+  const subscribe = useCallback(
+    (changed: () => void) => store?.subscribe([key], changed) ?? (() => {}),
+    [store, key],
+  );
+  const read = useCallback(() => (store ? store.get(key) : local), [store, key, local]);
+  const open = useSyncExternalStore(subscribe, read, read);
+  return [open, (value) => (store ? store.set(key, value) : setLocal(value))];
 }
 
-/**
- * Whether a group is open: as the reader left it, else open while it holds a step they opened
- * (a step they expanded before more steps joined it stays in view, expanded).
- */
+/** A group follows its opened children until the reader explicitly toggles it. */
 export function useGroupOpen(
   key: string,
   ids: readonly string[],
 ): [boolean, (open: boolean) => void] {
   const store = use(OpenStepsContext);
   const [local, setLocal] = useState(false);
-  if (!store) return [local, setLocal];
-  const chosen = store.open.get(`group:${key}`);
-  return [
-    chosen ?? ids.some((id) => store.open.get(`step:${id}`) === true),
-    (open) => store.set(`group:${key}`, open),
-  ];
+  const group = `group:${key}`;
+  const steps = useMemo(() => ids.map((id) => `step:${id}`), [ids]);
+  const subscribe = useCallback(
+    (changed: () => void) => store?.subscribe([group, ...steps], changed) ?? (() => {}),
+    [store, group, steps],
+  );
+  const read = useCallback(
+    () => (store ? (store.get(group) ?? steps.some((id) => store.get(id) === true)) : local),
+    [store, group, steps, local],
+  );
+  const open = useSyncExternalStore(subscribe, read, read);
+  return [open, (value) => (store ? store.set(group, value) : setLocal(value))];
 }

@@ -8,6 +8,7 @@ import { createContext, useContext, useSyncExternalStore } from "react";
 interface Ticker {
   subscribe(changed: () => void): () => void;
   read(): number;
+  readWall(): number;
 }
 
 const hidden = () => typeof document === "object" && document.visibilityState === "hidden";
@@ -17,16 +18,19 @@ const hidden = () => typeof document === "object" && document.visibilityState ==
  * so a snapshot stays the same until the period turns.
  */
 function ticker(now: () => number, periodMs: number, exact: boolean): Ticker {
-  const round = () => (exact ? now() : Math.floor(now() / periodMs) * periodMs);
-  let current = round();
+  const round = (value: number) => (exact ? value : Math.floor(value / periodMs) * periodMs);
+  let wall = now();
+  let current = round(wall);
   const listeners = new Set<() => void>();
   let timer: ReturnType<typeof setInterval> | undefined;
   const tick = () => {
-    const next = round();
+    const sampled = now();
+    const next = round(sampled);
     // An exact clock moves only once it is half a period stale, so a new reader rarely
     // re-renders the others, and a timer firing a little early still moves it.
     if (next === current || (exact && next - current < periodMs / 2)) return;
     current = next;
+    wall = sampled;
     for (const listener of listeners) listener();
   };
   const start = () => {
@@ -57,6 +61,7 @@ function ticker(now: () => number, periodMs: number, exact: boolean): Ticker {
       };
     },
     read: () => current,
+    readWall: () => wall,
   };
 }
 
@@ -66,6 +71,7 @@ export function createTimeSource(now: () => number) {
     minutes: ticker(now, 60_000, true),
     seconds: ticker(now, 1_000, false),
     read: () => Math.floor(now() / 1_000) * 1_000,
+    wall: now,
   };
 }
 export const TimeContext = createContext(createTimeSource(() => Date.now()));
@@ -96,4 +102,15 @@ export function useSeconds(live: boolean): number {
     live ? seconds.read : read,
     live ? seconds.read : read,
   );
+}
+
+/** Precise wall time at an I/O boundary, for frame timestamps and stream sampling. */
+export function useWallClock(): () => number {
+  return useContext(TimeContext).wall;
+}
+
+/** The precise time of the shared second tick, held still between samples. */
+export function useSampleTime(live: boolean): number {
+  const { seconds } = useContext(TimeContext);
+  return useSyncExternalStore(live ? seconds.subscribe : none, seconds.readWall, seconds.readWall);
 }

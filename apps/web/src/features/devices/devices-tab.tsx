@@ -1,5 +1,6 @@
+import { useNow } from "@/lib/time.ts";
 import type { DeviceRow } from "@ace/ui-core";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -26,16 +27,6 @@ export const deviceTab = (row: Pick<DeviceRow, "id" | "name">) => ({
   id: row.id,
   title: row.name,
 });
-
-/** The wall clock, read once a minute, for "used 2h ago". */
-function useMinute(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
 
 const platforms: readonly { value: PlatformFilter; label: string }[] = [
   { value: "all", label: "All" },
@@ -74,7 +65,7 @@ export function DevicesTab(props: { threadId: string }) {
   const [setUp, setSetUp] = useState(false);
   const [disabling, setDisabling] = useState(false);
   const search = useRef<HTMLDivElement>(null);
-  const now = useMinute();
+  const now = useNow();
   const { view } = devices;
   const ready = view.connected && view.enabled;
   useHotkey("/", () => search.current?.querySelector("input")?.focus(), {

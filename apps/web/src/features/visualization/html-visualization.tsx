@@ -8,7 +8,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { desktopVisualizations } from "@/boot/desktop-visualizations.ts";
-import { useLayout, type SessionKey } from "@/lib/layout.tsx";
+import { useLayoutServices, type SessionKey } from "@/lib/layout.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { HtmlFrame } from "./html-frame.tsx";
 import { useLiveFrame } from "./live-frames.ts";
@@ -45,7 +45,7 @@ export function HtmlVisualizationView(props: {
   const attach = useCallback((node: HTMLElement | null) => setElement(node), []);
   const id = useId();
   const live = useLiveFrame(id, element);
-  const heights = useLayout().sessionValue(heightsKey, keptHeights);
+  const heights = useLayoutServices().sessionValue(heightsKey, keptHeights);
   const page = `${props.threadId}\u0000${visualization.document.sha256}`;
   const [known, setKnown] = useState(() => ({ page, height: heights.get(page) }));
   if (known.page !== page) setKnown({ page, height: heights.get(page) });

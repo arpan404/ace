@@ -1,3 +1,4 @@
+import { useSeconds } from "@/lib/time.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { DeviceClientError } from "@ace/client/devices";
 import type {
@@ -40,19 +41,6 @@ function problem(error: unknown): DeviceProblem {
       permission: error.permission,
     });
   return { message: error instanceof Error ? error.message : "That didn't work.", hint: "" };
-}
-
-/** The wall clock, ticking once a second while `active` so a control lease counts down. */
-function useSeconds(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const tick = () => setNow(Date.now());
-    tick();
-    const timer = setInterval(tick, 1000);
-    return () => clearInterval(timer);
-  }, [active]);
-  return now;
 }
 
 export interface DevicesView {

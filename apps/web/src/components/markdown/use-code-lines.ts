@@ -19,10 +19,13 @@ const ready = new LruCache<string, CodeLines>({
  * being built, when the result exceeds the token budget, or when there is no code. The caller
  * keeps its exact plain source in each case; compact plain results are cached too.
  */
-export function useCodeLines(code: string | undefined, lang: string | undefined) {
+function useHighlightResult(code: string | undefined, lang: string | undefined) {
   const hash = useMemo(() => (code === undefined ? undefined : codeHash(code, lang)), [code, lang]);
-  const [done, setDone] = useState<CodeLines | undefined>(undefined);
   const cached = hash ? ready.get(hash) : undefined;
+  const [done, setDone] = useState(() => ({ result: cached, latest: rich(cached) }));
+  // A cache hit becomes the retained result before the caller commits its new source.
+  if (cached && cached !== done.result)
+    setDone({ result: cached, latest: rich(cached) ?? done.latest });
   useEffect(() => {
     if (code === undefined || !hash || ready.get(hash)) return;
     let live = true;
@@ -32,7 +35,7 @@ export function useCodeLines(code: string | undefined, lang: string | undefined)
         // A code job answers with rich lines or a compact plain result.
         if (!lines || !live) return;
         ready.set(hash, lines);
-        if (live) setDone(lines);
+        setDone((previous) => ({ result: lines, latest: rich(lines) ?? previous.latest }));
       },
       // Highlighting is a nicety: the plain text stays on screen.
       () => undefined,
@@ -42,8 +45,17 @@ export function useCodeLines(code: string | undefined, lang: string | undefined)
       lease.release();
     };
   }, [code, lang, hash]);
-  const result = cached ?? (done?.hash === hash ? done : undefined);
+  const result = cached ?? (done.result?.hash === hash ? done.result : undefined);
+  return { current: rich(result), latest: rich(cached) ?? done.latest };
+}
+
+function rich(result: CodeLines | undefined) {
   return result && "lines" in result ? result : undefined;
+}
+
+/** Highlighted lines for exactly this source, undefined until they are ready. */
+export function useCodeLines(code: string | undefined, lang: string | undefined) {
+  return useHighlightResult(code, lang).current;
 }
 
 /**
@@ -52,11 +64,5 @@ export function useCodeLines(code: string | undefined, lang: string | undefined)
  * text, so a caller checks each line still matches before drawing its tokens (`tokensFit`).
  */
 export function useLatestCodeLines(code: string | undefined, lang: string | undefined) {
-  const current = useCodeLines(code, lang);
-  const [latest, setLatest] = useState(current);
-  useEffect(() => {
-    // oxlint-disable-next-line react-compiler/set-state-in-effect -- keeps the last result shown.
-    if (current) setLatest(current);
-  }, [current]);
-  return current ?? latest;
+  return useHighlightResult(code, lang).latest;
 }
