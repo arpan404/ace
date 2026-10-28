@@ -68,11 +68,19 @@ export function NewThreadIn(props: { onBack: () => void; close(): void; onAddPro
         }}
         onBack={() => setPicking(false)}
         empty="No machines match"
+        onSwitchMachines={() => setPicking(false)}
+        switchLabel="Projects"
       />
     );
   const chip = several ? (
-    <MachineChip name={machine.name} onClick={() => setPicking(true)} />
+    <MachineChip
+      name={machine.name}
+      icon={machine.icon}
+      primary={machine.primary}
+      onClick={() => setPicking(true)}
+    />
   ) : undefined;
+  const switchMachines = several ? () => setPicking(true) : undefined;
   return (
     <MachineScope
       key={machine.id}
@@ -83,6 +91,7 @@ export function NewThreadIn(props: { onBack: () => void; close(): void; onAddPro
           empty={machineAwayText(machine)}
           onBack={props.onBack}
           chip={chip}
+          onSwitchMachines={switchMachines}
         />
       }
     >
@@ -90,6 +99,7 @@ export function NewThreadIn(props: { onBack: () => void; close(): void; onAddPro
         machine={machine}
         chip={chip}
         onBack={props.onBack}
+        onSwitchMachines={switchMachines}
         onChoose={(project) => {
           if (project === addProject) return props.onAddProject();
           const on = machine.primary ? undefined : machine.id;
@@ -110,6 +120,7 @@ function MachineProjects(props: {
   machine: Machine;
   chip: ReactNode;
   onBack(): void;
+  onSwitchMachines?: (() => void) | undefined;
   onChoose(project: string): void;
 }) {
   const directory = useProjectDirectory();
@@ -146,6 +157,7 @@ function MachineProjects(props: {
       empty={empty}
       onBack={props.onBack}
       chip={props.chip}
+      onSwitchMachines={props.onSwitchMachines}
       onChoose={props.onChoose}
     />
   );
@@ -156,6 +168,7 @@ function Projects(props: {
   empty: ReactNode;
   chip: ReactNode;
   onBack(): void;
+  onSwitchMachines?: (() => void) | undefined;
   onChoose?(project: string): void;
 }) {
   return (
@@ -168,6 +181,8 @@ function Projects(props: {
       onBack={props.onBack}
       empty={props.empty}
       trailing={props.chip}
+      onSwitchMachines={props.onSwitchMachines}
+      switchLabel="Machine"
     />
   );
 }

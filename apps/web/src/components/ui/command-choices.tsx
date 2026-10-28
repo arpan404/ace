@@ -29,7 +29,8 @@ export interface CommandChoice {
 /**
  * A palette step that is one short list to choose from (Add project's sources, a machine, a
  * project): the field narrows it, ↑ ↓ move, Enter or a click chooses. The first row is
- * highlighted from the start.
+ * highlighted from the start. With `onSwitchMachines`, Ctrl+M flips between the project list
+ * and the machine list without leaving the keyboard; the chip stays Tab-reachable too.
  */
 export function CommandChoices(props: {
   fieldLabel: string;
@@ -40,6 +41,9 @@ export function CommandChoices(props: {
   onBack: (() => void) | undefined;
   empty: ReactNode;
   trailing?: ReactNode;
+  /** Flip to the other list (projects ↔ machines); shown as a ⌃M hint in the footer. */
+  onSwitchMachines?: (() => void) | undefined;
+  switchLabel?: string | undefined;
 }) {
   const [text, setText] = useState("");
   const [active, setActive] = useState<number | undefined>(0);
@@ -85,6 +89,18 @@ export function CommandChoices(props: {
             setActive(0);
           }}
           onKeyDown={(event) => {
+            // Ctrl+M flips between projects and machines (⌘M would minimize the window).
+            if (
+              props.onSwitchMachines &&
+              (event.key === "m" || event.key === "M") &&
+              event.ctrlKey &&
+              !event.metaKey &&
+              !event.altKey
+            ) {
+              event.preventDefault();
+              props.onSwitchMachines();
+              return;
+            }
             if (stepFieldKey(event, { text, onBack: props.onBack, onClear: () => setText("") }))
               return;
             if (event.key === "ArrowDown" || event.key === "ArrowUp")
@@ -131,6 +147,9 @@ export function CommandChoices(props: {
       <KeyHints
         hints={[
           ...(rows.length ? [navigateHint, selectHint] : []),
+          ...(props.onSwitchMachines
+            ? [{ keys: ["ctrl+m"] as const, label: props.switchLabel ?? "Machine" }]
+            : []),
           ...(props.onBack ? [backHint] : []),
           escapeHint(text),
         ]}
