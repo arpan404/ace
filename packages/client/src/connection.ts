@@ -4,6 +4,7 @@ import { fitsUtf8 } from "./bounds.ts";
 import { FragmentAssembly, matchesFragments, type FragmentPart } from "./fragment-assembly.ts";
 import { Heartbeat } from "./heartbeat.ts";
 import { HeldFrames, type Frame } from "./held-frames.ts";
+import { supportedWireTrims, WireRestorer } from "@ace/projection/wire-trim";
 import type { ClientMessage, ServerMessage as Message } from "@ace/protocol";
 import type { WireCodec } from "./wire-codec.ts";
 import {
@@ -41,7 +42,9 @@ export class Connection {
   error: ClientError | undefined;
   #options: ClientOptions;
   #limits: Limits;
-  #received: (message: Message) => void;
+  #deliver: (message: Message) => void;
+  /** Puts back what the daemon left out of this socket's messages; a socket starts it anew. */
+  #restorer = new WireRestorer();
   #changed: () => void;
   #disconnected: () => void;
   #transport: Transport | undefined;
@@ -74,7 +77,7 @@ export class Connection {
     this.#binary = binary;
     this.#codec = codec;
     this.#limits = limits;
-    this.#received = received;
+    this.#deliver = received;
     this.#changed = changed;
     this.#disconnected = disconnected;
     this.#heartbeat = new Heartbeat(options.scheduler, limits.heartbeatMs);
@@ -84,6 +87,10 @@ export class Connection {
       options.scheduler,
       limits.fragmentMs,
     );
+  }
+  #received(message: Message): void {
+    const whole = this.#restorer.restore(message);
+    if (whole) this.#deliver(whole);
   }
   get supportsBinary(): boolean {
     return this.#transport?.supportsBinary === true;
@@ -241,6 +248,7 @@ export class Connection {
       return;
     }
     this.#setState(this.#attempt ? "reconnecting" : "connecting");
+    this.#restorer = new WireRestorer();
     const epoch = this.#epoch;
     this.#cancel = this.#options.scheduler.set(this.#limits.handshakeMs, () =>
       this.#lost(1006, "Handshake timed out"),
@@ -259,6 +267,7 @@ export class Connection {
                   type: "hello",
                   protocolVersion: 1,
                   deviceId: this.#options.deviceId,
+                  trims: [...supportedWireTrims],
                   ...parseCredential(credential),
                 });
             })

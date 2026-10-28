@@ -61,11 +61,6 @@ function details(
     machine: seed.remote ? buildBox : here,
     ...(seed.pr
       ? {
-          linkedPr: {
-            number: seed.pr,
-            state: seed.merged ? ("merged" as const) : ("open" as const),
-            url: `https://github.com/acme/${workspaceId}/pull/${seed.pr}`,
-          },
           linkedPrs: [
             {
               number: seed.pr,

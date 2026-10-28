@@ -2403,6 +2403,14 @@
         "token": {
           "type": "string"
         },
+        "trims": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
         "type": {
           "const": "hello",
           "type": "string"

@@ -127,7 +127,7 @@ async function link(reference: string) {
 
 const linked = (app: ReturnType<typeof harness>) => {
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
-  return view && "thread" in view ? view.thread.details?.linkedPr : undefined;
+  return view && "thread" in view ? (view.thread.details?.linkedPrs?.[0] ?? null) : undefined;
 };
 const links = (app: ReturnType<typeof harness>) => {
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });

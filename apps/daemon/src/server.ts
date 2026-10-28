@@ -24,6 +24,7 @@ import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/pr
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { busyRefusal } from "./busy-refusal.ts";
 import { defaultPressure, Outbox } from "./outbox.ts";
+import { WireTrimmer } from "@ace/projection/wire-trim";
 import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
 import { readCore } from "./socket-reads.ts";
@@ -229,8 +230,11 @@ export async function startServer(options: ServerOptions): Promise<{
       runtime.now,
       encoder,
     );
-    const send = (message: ServerMessage | PluginServerMessage) =>
-      outbox.send(busyRefusal(message));
+    // What this client's hello said it can put back stays out of its snapshots and pages.
+    let trimmer = new WireTrimmer(undefined);
+    const send = (message: ServerMessage | PluginServerMessage) => {
+      for (const frame of trimmer.outgoing(busyRefusal(message))) outbox.send(frame);
+    };
     const fail = (
       code: string,
       message: string,
@@ -356,6 +360,7 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         }
         device = actor.id;
+        trimmer = new WireTrimmer(message.trims);
         peer.access = !actor.revocable
           ? "host"
           : actor.scopes.includes("desktop") || actor.scopes.includes("user-browser")

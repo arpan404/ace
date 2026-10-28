@@ -361,7 +361,7 @@ test("the card's git actions walk the branch from Commit & push to Create PR, an
   expect(details && "thread" in details && details.thread.details).toMatchObject({
     ahead: 0,
     diff: { files: 0 },
-    linkedPr: { number: 1, state: "open" },
+    linkedPrs: [{ number: 1, state: "open" }],
   });
 });
 

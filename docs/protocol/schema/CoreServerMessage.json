@@ -16,6 +16,28 @@
     },
     {
       "properties": {
+        "capabilities": {
+          "$ref": "https://ace.local/protocol/v1/Capabilities.json"
+        },
+        "key": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.capabilities",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "capabilities"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "removed": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/ThreadId.json"

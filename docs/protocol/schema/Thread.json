@@ -38,6 +38,11 @@
     "capabilities": {
       "$ref": "https://ace.local/protocol/v1/Capabilities.json"
     },
+    "capabilitiesRef": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
     "continuation": {
       "properties": {
         "actionId": {

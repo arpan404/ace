@@ -93,8 +93,8 @@ const ItemBase = z.object({
   /** Exact inclusive native fork boundary, only when the adapter can establish it. */
   nativeId: z.string().max(256).optional(),
   executionSource: ExecutionSource.optional(),
-  /** False while the provider is still streaming into this item. */
-  complete: z.boolean(),
+  /** False while the provider is still streaming into this item. Omitted on the wire when true. */
+  complete: z.boolean().default(true),
   /** The source thread's, in a fork: ace's copy of its message, or a turn its provider brought. */
   inherited: InheritedItem.optional(),
 });
