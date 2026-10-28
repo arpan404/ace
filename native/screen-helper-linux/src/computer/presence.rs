@@ -219,7 +219,51 @@ fn locker_running() -> bool {
             Err(_) => return false,
         }) == uid;
         owned
-            && std::fs::read_to_string(path.join("comm"))
-                .is_ok_and(|comm| LOCKERS.contains(&comm.trim()))
+            && std::fs::read_to_string(path.join("comm")).is_ok_and(|comm| LOCKERS.contains(&comm.trim()))
+            && std::fs::read_to_string(path.join("stat")).is_ok_and(|stat| alive(&stat))
     })
+}
+
+/// Whether `/proc/<pid>/stat` describes a live process. A locker that exited but was not yet
+/// reaped stays in /proc as a zombie (Z) or dying (X) entry under its name, and locks nothing.
+fn alive(stat: &str) -> bool {
+    // The state follows the command's closing parenthesis; the command itself may hold one.
+    stat.rfind(')')
+        .and_then(|end| stat[end + 1..].split_whitespace().next())
+        .is_some_and(|state| !matches!(state, "Z" | "X" | "x"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reaped_or_dying_locker_locks_nothing_while_a_running_or_sleeping_one_does() {
+        assert!(alive("4242 (hyprlock) S 1 4242 4242 0 -1 4194560"));
+        assert!(alive("4242 (swaylock) R 1 4242 4242 0 -1 4194560"));
+        assert!(!alive("4242 (hyprlock) Z 1 4242 4242 0 -1 4194560"));
+        assert!(!alive("4242 (hyprlock) X 1 4242 4242 0 -1 4194560"));
+        // A command name holding ") Z" is still read from the last parenthesis.
+        assert!(alive("4242 (a) Z (b) S 1 4242"));
+        assert!(!alive("garbage"));
+    }
+
+    #[test]
+    fn an_unreaped_child_named_like_a_locker_is_not_a_lock() {
+        let stand_in = std::env::temp_dir().join(format!("hyprlock-{}", std::process::id()));
+        std::fs::create_dir_all(&stand_in).unwrap();
+        let program = stand_in.join("hyprlock");
+        std::fs::copy("/bin/sleep", &program).unwrap();
+        let mut child = std::process::Command::new(&program).arg("30").spawn().unwrap();
+        assert!(locker_running());
+        child.kill().unwrap();
+        // Not reaped yet: the zombie keeps its name in /proc.
+        let stat = format!("/proc/{}/stat", child.id());
+        while !std::fs::read_to_string(&stat).is_ok_and(|text| !alive(&text)) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(!locker_running());
+        child.wait().unwrap();
+        std::fs::remove_dir_all(&stand_in).unwrap();
+    }
 }
