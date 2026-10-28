@@ -628,6 +628,19 @@ impl Actor<'_> {
 
     /// Presses a menu item by its path without opening the menu on screen.
     async fn menu(&mut self, step: &Step) -> CuResult<String> {
+        let mut opened = None;
+        let result = self.menu_path(step, &mut opened).await;
+        // A menu ace opened to read its items stays open when no item in it was chosen.
+        if result.is_err() {
+            if let Some(menu) = opened {
+                self.toggle_menu(&menu).await;
+            }
+        }
+        result
+    }
+
+    /// `menu` itself; `opened` gets the outermost menu it had to open to read its items.
+    async fn menu_path(&mut self, step: &Step, opened: &mut Option<Obj>) -> CuResult<String> {
         let path: Vec<String> = step
             .get("path")
             .and_then(Value::as_array)
@@ -649,7 +662,14 @@ impl Actor<'_> {
         let mut trail: Vec<String> = Vec::new();
         for (index, wanted) in path.iter().enumerate() {
             self.check.check()?;
-            let items = self.menu_items(&container).await;
+            let mut items = self.menu_items(&container).await;
+            if items.is_empty() && index > 0 {
+                // GTK 3 apps such as Thunar build a menu's items only when it opens.
+                items = self.open_menu(&container).await?;
+                if !items.is_empty() && opened.is_none() {
+                    *opened = Some(container.clone());
+                }
+            }
             let titles: Vec<String> = items.iter().map(|(_, title)| title.clone()).collect();
             let place = if trail.is_empty() {
                 "the menu bar".to_owned()
@@ -702,6 +722,36 @@ impl Actor<'_> {
             container = obj;
         }
         Ok(format!("chose {}", trail.join(" > ")))
+    }
+
+    /// Opens a menu whose items are built on opening, and returns them once they appear.
+    async fn open_menu(&mut self, menu: &Obj) -> CuResult<Vec<(Obj, String)>> {
+        if !self.toggle_menu(menu).await {
+            return Ok(Vec::new());
+        }
+        for _ in 0..20 {
+            pause(50, self.check).await?;
+            let items = self.menu_items(menu).await;
+            if !items.is_empty() {
+                return Ok(items);
+            }
+        }
+        // Opened, but nothing to show: close it again.
+        self.toggle_menu(menu).await;
+        Ok(Vec::new())
+    }
+
+    /// Clicks a menu's title, which opens it, or closes it when open. False when it can't.
+    async fn toggle_menu(&self, menu: &Obj) -> bool {
+        let actions = element::action_names(self.bus, menu).await.unwrap_or_default();
+        let Some(index) = outline::press_action(&actions) else {
+            return false;
+        };
+        let done = element::do_action(self.bus, menu, index).await.unwrap_or(false);
+        if done {
+            self.changed();
+        }
+        done
     }
 
     pub async fn menu_items(&self, container: &Obj) -> Vec<(Obj, String)> {
