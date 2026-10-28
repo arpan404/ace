@@ -52,13 +52,18 @@ export function AccountMenuContent() {
         <MenuItem
           key={view.id}
           icon={<Icon icon={view.icon} />}
+          {...(view.shortcut ? { shortcut: view.shortcut } : {})}
           onClick={() => void navigate({ to: view.to })}
         >
           {view.label}
         </MenuItem>
       ))}
       <MenuSeparator />
-      <MenuItem icon={<ChartBarIcon aria-hidden />} onClick={() => void navigate({ to: "/usage" })}>
+      <MenuItem
+        icon={<ChartBarIcon aria-hidden />}
+        shortcut="goUsage"
+        onClick={() => void navigate({ to: "/usage" })}
+      >
         Usage
       </MenuItem>
       <MenuItem

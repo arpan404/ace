@@ -54,11 +54,11 @@ test("rebindings survive leaving Settings › Keyboard, and Reset all restores e
   await harness().open("/settings/keyboard");
   const agents = await shortcut("Summary");
   await userEvent.click(agents);
-  press(agents, { key: "u", code: "KeyU", ctrlKey: true, altKey: true });
+  press(agents, { key: "y", code: "KeyY", ctrlKey: true, altKey: true });
   const nav = screen.getByRole("navigation", { name: "Settings pages" });
   await userEvent.click(within(nav).getByRole("link", { name: "General" }));
   await userEvent.click(within(nav).getByRole("link", { name: "Keyboard" }));
-  expect((await shortcut("Summary")).textContent).toBe("Alt+Ctrl+U");
+  expect((await shortcut("Summary")).textContent).toBe("Alt+Ctrl+Y");
 
   await userEvent.click(screen.getByRole("button", { name: "Reset all shortcuts" }));
   expect((await shortcut("Summary")).textContent).toBe("Ctrl+Shift+A");
@@ -153,7 +153,7 @@ test("retrying an older refused change never undoes a newer one that was saved",
   app.daemon.failRequests("settings.set");
   const agents = await shortcut("Summary");
   await userEvent.click(agents);
-  press(agents, { key: "u", code: "KeyU", ctrlKey: true, altKey: true });
+  press(agents, { key: "y", code: "KeyY", ctrlKey: true, altKey: true });
   await waitFor(async () => expect((await shortcut("Summary")).textContent).toBe("Ctrl+Shift+A"));
 
   // B: saved.
@@ -186,7 +186,7 @@ test("retrying an older refused change never undoes a newer one that was saved",
   await waitFor(() =>
     expect(app.daemon.services.settings.get("clients.keybindings")).toEqual({
       settings: "shift+mod+y",
-      agents: "alt+mod+u",
+      agents: "alt+mod+y",
     }),
   );
 });

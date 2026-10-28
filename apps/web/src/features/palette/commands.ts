@@ -184,7 +184,13 @@ export function usePaletteGroups(
             run: go("/issues"),
           },
           { id: "go-setup", label: "Setup", icon: "view", run: go("/setup") },
-          { id: "go-usage", label: "Usage", icon: "view", run: go("/usage") },
+          {
+            id: "go-usage",
+            label: "Usage",
+            icon: "view",
+            run: go("/usage"),
+            keys: keymap.goUsage.keys,
+          },
           { id: "go-archived", label: "Archived threads", icon: "view", run: go("/archived") },
           {
             id: "go-settings",

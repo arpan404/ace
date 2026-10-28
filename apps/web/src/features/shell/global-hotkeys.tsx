@@ -38,6 +38,7 @@ export function GlobalHotkeys(props: {
   useHotkey(keymap.goHome.keys, () => void navigate({ to: "/" }));
   useHotkey(keymap.goAutomations.keys, () => void navigate({ to: "/automations" }));
   useHotkey(keymap.goSkills.keys, () => void navigate({ to: "/skills" }));
+  useHotkey(keymap.goUsage.keys, () => void navigate({ to: "/usage" }));
   useHotkey(keymap.goPullRequests.keys, () => void navigate({ to: "/pulls" }));
   useHotkey(keymap.goIssues.keys, () => void navigate({ to: "/issues" }));
   // ⌘. stops the showing thread's agent tree from anywhere in it, as the composer's Stop does.
