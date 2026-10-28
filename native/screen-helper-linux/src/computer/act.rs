@@ -220,8 +220,16 @@ impl Actor<'_> {
                 element.role.as_str(),
                 "list item" | "table cell" | "tree item" | "table row"
             );
-            if (element.states.selectable || row) && self.select_in_parent(&element).await {
-                return Ok(format!("selected {label}"));
+            if element.states.selectable || row {
+                let window = self.session.window.as_ref().map(|w| w.obj.clone());
+                let before = match &window {
+                    Some(window) => element::action_names(self.bus, window).await.unwrap_or_default(),
+                    None => Vec::new(),
+                };
+                let shown = shown_text(&self.refresh().await);
+                if self.select_in_parent(&element).await {
+                    return self.after_row_selected(&label, count, window, before, shown).await;
+                }
             }
         }
         if element.states.focusable && plain && grab(self.bus, &element.obj).await {
@@ -242,6 +250,63 @@ impl Actor<'_> {
         ))
     }
 
+    /// What a click on a list row that has no action of its own did. Selecting it is all
+    /// accessibility can do, and GTK 4 lists (a settings sidebar, a file list) open a row only on
+    /// activation, which needs a real click or Enter. A double click runs the open action its
+    /// window gained from the selection (Files' "open-with-default-application"); otherwise the
+    /// reply says honestly when nothing but the selection changed, and names what the window
+    /// now offers for the selected row.
+    async fn after_row_selected(
+        &mut self,
+        label: &str,
+        count: i64,
+        window: Option<Obj>,
+        before: Vec<String>,
+        shown: Vec<String>,
+    ) -> CuResult<String> {
+        pause(300, self.check).await?;
+        let after = match &window {
+            Some(window) => element::action_names(self.bus, window).await.unwrap_or_default(),
+            None => Vec::new(),
+        };
+        if count == 2 {
+            // The selection is now this row, so the window's open action opens it.
+            if let (Some(window), Some(index)) = (&window, open_action(&after)) {
+                let open = after[index].clone();
+                let target = element::read(self.bus, window).await.map_err(|_| self.busy("open"))?;
+                self.perform(&target, index, &open, label).await?;
+                return Ok(format!("opened {label} (selected it, then ran its window's {open})"));
+            }
+        }
+        let gained: Vec<String> = after.into_iter().filter(|name| !before.contains(name)).collect();
+        let offers = if gained.is_empty() {
+            String::new()
+        } else {
+            let window_id = window
+                .as_ref()
+                .and_then(|window| self.session.ids.existing(&crate::computer::bus::key(window)));
+            let target = window_id.map_or("its window".to_owned(), |id| format!("its window (id {id})"));
+            format!(
+                " Selecting it gave {target} these actions: {}; run one with action.",
+                gained.iter().take(12).cloned().collect::<Vec<_>>().join(", ")
+            )
+        };
+        let nodes = self.refresh().await;
+        if count == 2 {
+            return Ok(format!(
+                "selected {label}, but did not open it: it has no activate action, and opening a row needs a real double click, which Wayland does not let ace send.{offers}"
+            ));
+        }
+        if shown_text(&nodes) == shown {
+            return Ok(format!(
+                "selected {label}, but nothing else in the window changed: it has no click action, and lists that open a row on a real click (a settings sidebar, say) ignore a selection made through accessibility.{offers}"
+            ));
+        }
+        Ok(format!("selected {label}{}", if offers.is_empty() { String::new() } else { format!(".{offers}") }))
+    }
+
+    /// Selects a row in the list around it, as a plain click would: the selection becomes this
+    /// row alone. True only once the row reads as selected (or its state can't be read).
     async fn select_in_parent(&self, element: &Element) -> bool {
         let Some(parent) = element::parent(self.bus, &element.obj).await else {
             return false;
@@ -253,15 +318,83 @@ impl Actor<'_> {
         else {
             return false;
         };
-        let selected = self
-            .bus
-            .atspi::<_, bool>(&parent, "Selection", "SelectChild", &(index,))
-            .await
-            .unwrap_or(false);
+        let selected = self.select_row(&parent, &element.obj, index).await;
         if selected {
             self.changed();
         }
         selected
+    }
+
+    /// SelectChild takes a position in the list's items, which GTK 4 does not keep equal to the
+    /// row's place among the list's children: a list or column view builds children only for
+    /// the rows around its scroll position, and a list box leaves out hidden rows and keeps its
+    /// children in insertion order however it sorts them. So the position is found and checked.
+    async fn select_row(&self, list: &Obj, row: &Obj, index: i32) -> bool {
+        if !self.select_only(list, index).await {
+            return false;
+        }
+        if self.is_selected(row).await != Some(false) {
+            return true;
+        }
+        let Ok(children) = self.bus.children(list).await else {
+            return false;
+        };
+        let built = i32::try_from(children.len()).unwrap_or(i32::MAX).max(1);
+        // A scrolled view: positions run on from its first child's. Positions `index`,
+        // `index + built`, … can't all miss the built rows; where one lands gives the offset.
+        for probe in 0..64 {
+            if self.check.check().is_err() {
+                return false;
+            }
+            let position = index.saturating_add(probe * built);
+            if probe > 0 && !self.select_only(list, position).await {
+                break;
+            }
+            let Some(landed) = self.selected_child(list, &children).await else {
+                continue;
+            };
+            let guess = position - landed + index;
+            if guess >= 0 && self.select_only(list, guess).await && self.is_selected(row).await == Some(true) {
+                return true;
+            }
+            break;
+        }
+        // A list box: try each position in turn.
+        for position in 0..512 {
+            if self.check.check().is_err() || !self.select_only(list, position).await {
+                return false;
+            }
+            if self.is_selected(row).await == Some(true) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Clears a list's selection and selects the item at `position`.
+    async fn select_only(&self, list: &Obj, position: i32) -> bool {
+        // SelectChild alone adds to a multiple selection, and an open action that follows would
+        // open every selected row.
+        let _ = self.bus.atspi::<_, bool>(list, "Selection", "ClearSelection", &()).await;
+        self.bus
+            .atspi::<_, bool>(list, "Selection", "SelectChild", &(position,))
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn is_selected(&self, obj: &Obj) -> Option<bool> {
+        let set = self.bus.atspi::<_, atspi::StateSet>(obj, "Accessible", "GetState", &()).await.ok()?;
+        Some(element::states(&set).selected)
+    }
+
+    /// Which of `children` the list says is selected now, by its place among them.
+    async fn selected_child(&self, list: &Obj, children: &[Obj]) -> Option<i32> {
+        let selected = self
+            .bus
+            .atspi::<_, Obj>(list, "Selection", "GetSelectedChild", &(0i32,))
+            .await
+            .ok()?;
+        children.iter().position(|child| *child == selected).and_then(|at| i32::try_from(at).ok())
     }
 
     async fn focus(&mut self, step: &Step) -> CuResult<String> {
@@ -625,5 +758,75 @@ pub async fn set_selection(bus: &Bus, obj: &Obj, start: i32, end: i32) -> Result
         Ok(())
     } else {
         Err(BusError::Failed("refused".into()))
+    }
+}
+
+/// The text a window shows, without states such as which row is selected: a click that only
+/// moved the selection leaves it as it was.
+fn shown_text(nodes: &[Node]) -> Vec<String> {
+    let mut shown: Vec<String> = nodes
+        .iter()
+        .map(|node| {
+            format!(
+                "{}|{}|{}",
+                node.role,
+                node.name.as_deref().unwrap_or_default(),
+                node.value.as_deref().unwrap_or_default()
+            )
+        })
+        .collect();
+    shown.sort();
+    shown
+}
+
+/// The window action that opens the selection, by index: one named
+/// "open-with-default-application", "open-selection" or "open-selected" (any `group.` prefix).
+/// Never a bare "open", which in most apps shows a file chooser rather than opening a row.
+fn open_action(actions: &[String]) -> Option<usize> {
+    ["open-with-default-application", "open-selection", "open-selected"]
+        .iter()
+        .find_map(|wanted| actions.iter().position(|name| name.rsplit('.').next() == Some(*wanted)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(role: &str, name: &str, flags: &[&str]) -> Node {
+        Node {
+            id: 1,
+            depth: 0,
+            role: role.into(),
+            flags: flags.iter().map(|flag| (*flag).into()).collect(),
+            name: Some(name.into()),
+            value: None,
+            detail: None,
+            placeholder: None,
+            actions: Vec::new(),
+            frame: None,
+            actionable: false,
+        }
+    }
+
+    #[test]
+    fn a_selection_moving_leaves_the_shown_text_as_it_was_and_a_new_panel_does_not() {
+        let before = [node("button", "Network", &["selected"]), node("button", "Displays", &[])];
+        let moved = [node("button", "Network", &[]), node("button", "Displays", &["selected"])];
+        assert_eq!(shown_text(&before), shown_text(&moved));
+        let opened = [node("button", "Displays", &["selected"]), node("label", "Resolution", &[])];
+        assert_ne!(shown_text(&before), shown_text(&opened));
+    }
+
+    #[test]
+    fn the_open_action_is_found_by_its_name_after_any_group() {
+        let files: Vec<String> = ["default.activate", "view.open-item-new-tab", "view.open-with-default-application"]
+            .map(String::from)
+            .into();
+        assert_eq!(open_action(&files), Some(2));
+        let settings: Vec<String> = ["default.activate", "window.close"].map(String::from).into();
+        assert_eq!(open_action(&settings), None);
+        // An editor's "Open…" shows a file chooser: never taken for opening a row.
+        let editor: Vec<String> = ["win.open", "view.open-with-other-application"].map(String::from).into();
+        assert_eq!(open_action(&editor), None);
     }
 }
