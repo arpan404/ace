@@ -8,6 +8,7 @@ pub mod conditions;
 pub mod desktop;
 pub mod error;
 pub mod guard;
+pub mod held;
 pub mod hyprland;
 pub mod identity;
 pub mod ids;

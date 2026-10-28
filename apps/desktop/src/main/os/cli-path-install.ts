@@ -104,7 +104,10 @@ async function addToWindowsPath(target: CliPathTarget): Promise<TerminalCommand>
     : { state: "ready", command: target.file };
 }
 
-/** The first `ace` on PATH, and whether it is this shim (or a link to it). */
+/**
+ * The first `ace` on PATH, and whether it is this shim (or a link to it, or a copy of it: the
+ * Linux deb installs the same script as `/usr/bin/ace`, so the command works before first launch).
+ */
 async function firstAce(
   path: string,
   target: CliPathTarget,
@@ -118,10 +121,22 @@ async function firstAce(
       const candidate = join(entry, name);
       if (!(await runnable(candidate, windows))) continue;
       const real = await realpath(candidate).catch(() => candidate);
-      return { path: candidate, ours: real === shim };
+      return { path: candidate, ours: real === shim || (await sameScript(real, shim)) };
     }
   }
   return undefined;
+}
+
+/** Both small files with the same content: a copy of the shim runs the same command. */
+async function sameScript(file: string, shim: string): Promise<boolean> {
+  try {
+    const [a, b] = await Promise.all([stat(file), stat(shim)]);
+    if (a.size !== b.size || a.size > 4096) return false;
+    const [left, right] = await Promise.all([readFile(file), readFile(shim)]);
+    return left.equals(right);
+  } catch {
+    return false;
+  }
 }
 
 async function runnable(file: string, windows: boolean): Promise<boolean> {

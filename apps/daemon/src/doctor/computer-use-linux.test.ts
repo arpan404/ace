@@ -123,3 +123,41 @@ it("ace running without its screen helper warns", async () => {
     message: "ace is running without its screen helper, so computer use is unavailable",
   });
 });
+
+it("on X11 the helper check says the daemon never started it, not that it didn't answer", async () => {
+  const x11 = { HOME: "/home/p", PATH: "", DISPLAY: ":0" };
+  const results = await verdicts(x11, gnome, {
+    kind: "failed",
+    message:
+      "This Linux desktop runs an X11 session. ace's computer use and live view work on Wayland desktops only.",
+  });
+  const helper = results.get("computer.helper");
+  expect(helper).toMatchObject({
+    status: "warn",
+    message:
+      "Screen helper not started: this desktop runs an X11 session, and computer use on Linux needs Wayland",
+  });
+  expect(helper?.message).not.toContain("didn't answer");
+  expect(helper?.fix).toContain("Wayland");
+  expect(helper?.fix).not.toContain("Turn computer use off and on");
+});
+
+it("with nobody logged in to a desktop, the helper check names that instead", async () => {
+  const results = await verdicts({ HOME: "/home/p", PATH: "" }, gnome, {
+    kind: "failed",
+    message: "No graphical session: this Linux machine has no desktop session ace can reach.",
+  });
+  expect(results.get("computer.helper")).toMatchObject({
+    status: "warn",
+    message: "Screen helper not started: nobody is logged in to a desktop session ace can reach",
+  });
+});
+
+it("on Wayland a helper that fails still says it didn't answer", async () => {
+  const results = await verdicts(wayland, gnome, { kind: "failed", message: "socket closed" });
+  expect(results.get("computer.helper")).toMatchObject({
+    status: "warn",
+    message: "The screen helper didn't answer: socket closed",
+  });
+  expect(results.get("computer.helper")?.fix).toContain("Turn computer use off and on");
+});

@@ -74,8 +74,16 @@ export async function controlCommand(args: Args, client: Client, signal: AbortSi
       : { op: `mcp.${verb}`, id: args.words[2] },
   );
   const response = await client.request({ type: "cli.request", operation }, { signal });
-  if (!response.result.ok)
+  if (!response.result.ok) {
+    if (verb === "revoke" && response.result.code === "not_found")
+      throw new CliFailure(
+        "refused",
+        `No MCP enrollment ${args.words[2]}: it may have expired or been revoked already`,
+      );
     throw new CliFailure("refused", response.result.code ?? "MCP enrollment refused");
+  }
+  if (verb === "revoke" && !args.flags.json && !args.flags.jq)
+    return mutationResult(args, `Revoked MCP enrollment ${args.words[2]}`);
   if (verb === "enroll" && !args.flags.json && !args.flags.jq) {
     const { z } = await import("zod");
     const data = z

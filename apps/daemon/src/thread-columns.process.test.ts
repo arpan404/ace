@@ -395,6 +395,8 @@ function runSeed(seed: number) {
     DROP TRIGGER thread_cold_owner_delete;
     DROP TRIGGER thread_cold_owner_rekey;
     DROP TABLE thread_cold;
+    -- Schema 16 had no machine_children columns from later steps; those steps add them again.
+    DROP TABLE IF EXISTS machine_children;
     UPDATE schema_version SET version = 16 WHERE id = 1;
   `);
   old.close();

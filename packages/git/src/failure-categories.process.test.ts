@@ -111,6 +111,9 @@ test("a push the remote refuses as non-fast-forward fails as push_rejected", asy
   const { root, remote } = await published();
   const collaborator = join(await scratch(), "collaborator");
   await git(root, "clone", "--quiet", remote, collaborator);
+  // A clone has no identity of its own; the test home has no global one either.
+  await git(collaborator, "config", "user.name", "Collaborator");
+  await git(collaborator, "config", "user.email", "collaborator@ace.local");
   await git(collaborator, "commit", "--quiet", "--allow-empty", "-m", "Theirs");
   await git(collaborator, "push", "--quiet", "origin", "main");
   await git(root, "commit", "--quiet", "--allow-empty", "-m", "Ours");

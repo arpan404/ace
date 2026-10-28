@@ -20,7 +20,17 @@ export type StatusReader = (caller: McpAttribution) => {
   /** Registered tools unavailable until their backing service is offered. */
   unavailableTools?: readonly string[];
   disabled?: Partial<Record<McpCapability, string>>;
+  /** Why the groups off for this caller are off, where the defaults would mislead. */
+  offReasons?: GroupOffReasons;
 };
+
+/**
+ * Why a group is off when nothing disabled it. `unregistered`: this server registers no tool in
+ * the group. That means the daemon isn't running it, except on a server built with a fixed
+ * subset (the external MCP endpoint), which says so. `withheld`: the group is registered but
+ * the caller's lease doesn't carry it.
+ */
+export type GroupOffReasons = { unregistered?: string; withheld?: string };
 
 /**
  * MCP server instructions: the always-on part of ace's guidance, kept under about 315 tokens.
@@ -66,15 +76,18 @@ export function mcpStatusGroups(
   registered: ReadonlySet<McpCapability>,
   capabilities: readonly McpCapability[],
   disabled?: Partial<Record<McpCapability, string>>,
+  reasons: GroupOffReasons = {},
 ): McpStatus["groups"] {
   return [
     { name: "thread", enabled: true },
     ...McpCapability.options.map((name) => {
       const reason =
         disabled?.[name] ??
-        (!registered.has(name) ? "This ace daemon is not running this tool group." : undefined) ??
+        (!registered.has(name)
+          ? (reasons.unregistered ?? "This ace daemon is not running this tool group.")
+          : undefined) ??
         (!capabilities.includes(name)
-          ? "ace does not offer this tool group to this provider session."
+          ? (reasons.withheld ?? "ace does not offer this tool group to this provider session.")
           : undefined);
       return reason === undefined ? { name, enabled: true } : { name, enabled: false, reason };
     }),

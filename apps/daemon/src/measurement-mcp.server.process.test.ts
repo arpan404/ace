@@ -97,7 +97,8 @@ it("daemon MCP exposes bounded measurement and enforces capability and controlle
       .object({ tools: z.array(z.looseObject({ name: z.string(), inputSchema: z.unknown() })) })
       .parse(await request(lease.bearer, "tools/list"));
     expect(tools.tools.find((tool) => tool.name === "screen_measure")?.inputSchema).toMatchObject({
-      properties: { observeMs: { maximum: 10000 }, repeat: { maximum: 5 } },
+      // Advertised schemas drop maxima as generous as observeMs's 10 s cap.
+      properties: { observeMs: { type: "integer" }, repeat: { maximum: 5 } },
     });
     const session = await screen.start({ kind: "window", bundleId: "dev.ace.test", windowId: 1 });
     const response = z

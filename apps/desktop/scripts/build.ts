@@ -6,7 +6,12 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { z } from "zod";
-import { bundleDaemon, linuxScreenHelperName, stageLinuxScreenHelper } from "@ace/release";
+import {
+  bundleDaemon,
+  linuxScreenHelperName,
+  RustToolchainError,
+  stageLinuxScreenHelper,
+} from "@ace/release";
 import { stageNodeRuntime } from "@ace/release/node-runtime";
 import { stageWindowsNodeRuntime } from "@ace/release/node-runtime";
 import { DesktopApp, desktopAppMarker } from "@ace/service/desktop-update";
@@ -204,7 +209,10 @@ async function stageRipgrep(bin: string): Promise<void> {
 /**
  * macOS: the Swift helper as a signed `.app` with a stable bundle id, plus the manifest the
  * daemon verifies before installing it. Windows and Linux: the Rust helpers via cargo.
- * A missing toolchain skips the helper with a warning; screen use is then unavailable.
+ * A missing toolchain skips the helper with a warning; screen use is then unavailable. On
+ * Linux a Rust older than the crate's `rust-version` fails the build: that toolchain is there
+ * to be used, so a package quietly without screen use would be a mistake. A release package
+ * (`ACE_REQUIRE_SCREEN_HELPER=1`) fails on any reason.
  */
 async function stageScreenHelper(helpers: string): Promise<void> {
   await mkdir(helpers, { recursive: true });
@@ -231,8 +239,18 @@ async function stageScreenHelper(helpers: string): Promise<void> {
     }
   } catch (error) {
     if (process.env.ACE_REQUIRE_SCREEN_HELPER === "1") throw error;
+    if (error instanceof RustToolchainError && error.reason === "too-old") throw error;
+    const reason = error instanceof Error ? error.message : String(error);
     console.warn(
-      `[build] screen helper skipped: ${error instanceof Error ? error.message : String(error)}`,
+      [
+        "",
+        "[build] ************************************************************************",
+        "[build] SCREEN HELPER SKIPPED: this build cannot see or use the screen.",
+        `[build] ${reason}`,
+        "[build] Set ACE_REQUIRE_SCREEN_HELPER=1 to make this an error.",
+        "[build] ************************************************************************",
+        "",
+      ].join("\n"),
     );
   }
 }

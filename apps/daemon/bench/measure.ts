@@ -1,7 +1,7 @@
 import { writeSync } from "node:fs";
 import { fork, execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
@@ -37,8 +37,9 @@ function mark(next: string) {
 }
 const warmupCycles = z.coerce.number().int().min(0).max(128).parse(argument("warmup-cycles", "0"));
 const home = await mkdtemp(join(tmpdir(), "ace-perf-"));
-const telemetry = join(home, "telemetry");
-await mkdir(telemetry);
+// Beside the home, not in it: a non-empty unversioned ACE_HOME is backed up to `<home>-v0` at
+// startup (ADR 0081), which would move the telemetry directory out from under the daemon.
+const telemetry = await mkdtemp(join(tmpdir(), "ace-perf-telemetry-"));
 const started = performance.now();
 const child = fork(
   resolve(argument("entry", join(import.meta.dirname, "entry.ts"))),
@@ -369,6 +370,7 @@ await measureWithCleanup(
       await once(child, "exit");
     }
     await rm(home, { recursive: true, force: true });
+    await rm(telemetry, { recursive: true, force: true });
   },
   (marker) => writeSync(2, `${marker}\n`),
 );

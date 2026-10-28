@@ -85,7 +85,10 @@ PTY session ownership and already clean up on daemon death.
 MCP enrollment is a separate loopback `/mcp` endpoint built on ace's existing MCP
 server. Its lease identity is external and grants no internal agent impersonation.
 Read leases expose bounded project inspection. Operate adds thread starts/messages
-and delegated task control. Neither exposes approvals or administration. TTL is at
+and delegated task control. Neither exposes approvals or administration. Clients
+also get ace's `context` (status: access and the groups that are off, which external
+clients are not offered) and `tools_find`, plus `tools_call` when they ask for a core
+or static listing; `ace capabilities --json` lists all of them under `externalMcp`. TTL is at
 most 24 hours; revoke aborts active tools, and restart invalidates all bearers.
 Only local host administrators can enroll/list/revoke. Enrollment writes the ace
 bearer to a private 0600 file. The setup command loads `ACE_MCP_TOKEN` from that file;

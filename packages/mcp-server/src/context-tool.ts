@@ -64,9 +64,12 @@ export function createContextRegistry(
           access: state.access,
           ...(state.project ? { project: state.project } : {}),
           // Only what is off, with why: a group that is on needs no words.
-          groups: mcpStatusGroups(registry.capabilities(), capabilities, state.disabled).filter(
-            (group) => !group.enabled,
-          ),
+          groups: mcpStatusGroups(
+            registry.capabilities(),
+            capabilities,
+            state.disabled,
+            state.offReasons,
+          ).filter((group) => !group.enabled),
         },
         ...known,
       };

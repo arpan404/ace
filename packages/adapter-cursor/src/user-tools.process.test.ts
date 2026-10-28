@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { createCursorAdapter } from "./index.ts";
+import { writeGitIncludes } from "./user-tools.ts";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -183,4 +184,20 @@ it("on Linux and Windows, a Cursor session's private home gets no keychain link"
       code: "ENOENT",
     });
   }
+});
+
+it("git's includes land in a private home that doesn't exist yet, created private to the person", async () => {
+  const root = await tempRoot();
+  const userHome = await personWithGitConfig(root);
+  const privateHome = join(root, "instance", "user");
+  await writeGitIncludes({
+    platform: "linux",
+    userEnv: { HOME: userHome },
+    userHome,
+    launch: {},
+    privateHome,
+  });
+  const includes = await readFile(join(privateHome, ".gitconfig"), "utf8");
+  expect(includes).toContain(`path = "${join(userHome, ".gitconfig")}"`);
+  expect((await stat(privateHome)).mode & 0o777).toBe(0o700);
 });

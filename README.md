@@ -60,7 +60,8 @@ The generated [protocol reference](docs/protocol/README.md) covers WebSocket mes
 - **macOS:** the Xcode Command Line Tools (`xcode-select --install`) for git, `cc` and `swiftc`
   (native addons and the screen helper). Full Xcode only for the iOS Simulator.
 - **Optional:** the Android SDK (`ANDROID_HOME`) for emulators; Rust (`cargo`) to build the
-  Windows or Linux screen helper.
+  Windows or Linux screen helper: **Rust 1.87+** for Linux (`rust-version` in
+  `native/screen-helper-linux/Cargo.toml`; `rustup update stable`), 1.82+ for Windows.
 - The provider CLIs you want to use, installed and logged in on their own (`claude`, `codex`,
   `opencode`, `agent`, …). the CLI owns credential storage.
 
@@ -126,7 +127,8 @@ has no prebuilds: run `bun run desktop:rebuild-native` before `desktop:build` th
   `~/.ace/dev/daemon-endpoint` within 15 seconds. The window reloads by itself once the daemon
   is up; check the `daemon │` lines meanwhile.
 - **Screen helper skipped during a build:** the Swift (macOS) or Rust (Windows, Linux) toolchain
-  is missing. The app works without it; screen and computer use stay off.
+  is missing. The app works without it; screen and computer use stay off. On Linux a Rust older
+  than 1.87 fails the desktop build instead of skipping the helper; update Rust and build again.
 
 `bun run typecheck` uses incremental declaration builds and checks the original
 package programs, root test tooling, and browser-only client runtime. One native

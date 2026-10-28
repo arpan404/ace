@@ -8,7 +8,7 @@
 //! wait for that: it returns the outline and asks the agent to look again once approved.
 use crate::computer::image::Rgb;
 use crate::computer::portal_call::{Dict, PATH, SERVICE, close, request, text};
-use crate::computer::pw_frame::{NO_FRAME, Watch};
+use crate::computer::pw_frame::{NO_FRAME, Picture, Watch};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -32,6 +32,9 @@ const KEEP: Duration = Duration::from_secs(120);
 pub struct Frame {
     pub picture: Rgb,
     pub logical: (u32, u32),
+    /// Where the window's opaque body sits in `picture` (its shadow around it), when the
+    /// stream carries alpha.
+    pub opaque: Option<crate::computer::pw_frame::Bounds>,
     /// The frame is exactly one window (not a whole monitor).
     pub window: bool,
 }
@@ -282,11 +285,13 @@ impl ScreenCast {
         }
     }
 
-    fn frame(&self, picture: Rgb, logical: Option<(u32, u32)>) -> Frame {
+    fn frame(&self, picture: Picture, logical: Option<(u32, u32)>) -> Frame {
+        let Picture { rgb: picture, opaque } = picture;
         let logical = logical_size(logical, (picture.width, picture.height));
         Frame {
             picture,
             logical,
+            opaque,
             window: self.window_sources(),
         }
     }
@@ -352,7 +357,7 @@ impl ScreenCast {
 }
 
 /// The stream's latest picture, waiting up to `timeout` for a first one.
-async fn latest(watch: &Arc<Watch>, timeout: Duration) -> Result<Rgb, String> {
+async fn latest(watch: &Arc<Watch>, timeout: Duration) -> Result<Picture, String> {
     let watch = watch.clone();
     tokio::task::spawn_blocking(move || watch.latest(timeout))
         .await

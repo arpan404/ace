@@ -13,6 +13,7 @@ ace task spawn [PROMPT|-] --parent ID [--provider PROVIDER] [--model MODEL]
 ace task status|cancel ID
 ace task wait ID... [--any|--all]
 ace start|status|token|devices list|revoke ID
+ace version|--version|-v
 ace pair [SCOPES] [--label NAME] [--ttl 5m|1h|24h|7d] [--device-ttl 1d|7d|30d]
 ace service install|uninstall|start|stop|status
 ace accounts add|list|status|discover
@@ -51,6 +52,16 @@ export async function main(input: string[]): Promise<void> {
   try {
     args = parseArgs(input);
     await validateOutput(args);
+    if (
+      args.flags.version ||
+      args.flags.v ||
+      (args.words[0] === "version" && args.words.length === 1)
+    ) {
+      const { cliVersion } = await import("../doctor/install.ts");
+      const version = await cliVersion(process.env, process.argv[1]);
+      await print(args, args.flags.json || args.flags.jq ? { version } : version);
+      return;
+    }
     if (args.flags.help) {
       const text =
         args.words[0] === "sim" ? (await import("./sim-args.ts")).simHelp : help.trimEnd();

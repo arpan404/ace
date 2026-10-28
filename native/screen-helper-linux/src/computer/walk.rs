@@ -22,6 +22,34 @@ pub struct FrameMap {
     pub dy: f64,
 }
 
+/// What an element's window frame is checked against: its parent's and grandparent's raw
+/// window extents, and the shift its ancestors' frames were corrected by
+/// (`outline::forwarded_offset`).
+#[derive(Clone, Copy, Debug, Default)]
+struct Ancestry {
+    parent: Option<Rect>,
+    grandparent: Option<Rect>,
+    shift: (f64, f64),
+}
+
+impl Ancestry {
+    /// The element's own correction, and what its children inherit, from its raw frame.
+    fn place(self, raw: Option<Rect>) -> ((f64, f64), Ancestry) {
+        let mut shift = self.shift;
+        if let (Some(frame), Some(parent), Some(grandparent)) = (raw, self.parent, self.grandparent)
+            && let Some((dx, dy)) = outline::forwarded_offset(frame, parent, grandparent)
+        {
+            shift = (shift.0 + dx, shift.1 + dy);
+        }
+        let children = Ancestry {
+            parent: raw,
+            grandparent: raw.and(self.parent),
+            shift,
+        };
+        (shift, children)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Focused {
     pub id: Option<u64>,
@@ -101,7 +129,7 @@ impl<'a> Walker<'a> {
     pub async fn walk(&mut self, root: &Obj, depth: usize) {
         let read = element::read(self.bus, root).await;
         let children = self.bus.children(root).await;
-        self.visit(root.clone(), read, children, None, depth, true, None).await;
+        self.visit(root.clone(), read, children, None, depth, true, None, Ancestry::default()).await;
     }
 
     pub fn finish(mut self) -> Tree {
@@ -126,6 +154,7 @@ impl<'a> Walker<'a> {
         depth: usize,
         root: bool,
         parent_name: Option<String>,
+        ancestry: Ancestry,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + '_>> {
         Box::pin(async move {
             if self.exhausted() {
@@ -170,7 +199,8 @@ impl<'a> Walker<'a> {
                 Some(found) => found,
                 None => facts(self.bus, &element, self.frames).await,
             };
-            let Some(node) = self.describe(&element, element_facts, depth, children.len()) else {
+            let (shift, ancestry) = ancestry.place(element_facts.frame);
+            let Some(node) = self.describe(&element, element_facts, depth, children.len(), shift) else {
                 return;
             };
             let mut inherited = parent_name.clone();
@@ -221,7 +251,8 @@ impl<'a> Walker<'a> {
                     self.tree.truncated = true;
                     break;
                 }
-                self.visit(child, read, grandchildren, found, child_depth, false, inherited.clone()).await;
+                self.visit(child, read, grandchildren, found, child_depth, false, inherited.clone(), ancestry)
+                    .await;
             }
         })
     }
@@ -257,7 +288,14 @@ impl<'a> Walker<'a> {
     }
 
     /// Decides from what was read whether the element gets a line.
-    fn describe(&mut self, element: &Element, facts: Facts, depth: usize, children: usize) -> Option<Described> {
+    fn describe(
+        &mut self,
+        element: &Element,
+        facts: Facts,
+        depth: usize,
+        children: usize,
+        shift: (f64, f64),
+    ) -> Option<Described> {
         let role = element.role.as_str();
         let structural_only = is_structural_only(role);
         let text_input = outline::is_text_input(role, &element.states);
@@ -306,8 +344,8 @@ impl<'a> Walker<'a> {
             .then(|| format!("{role}|{}", name.clone().unwrap_or_default()));
         let id = self.ids.id(&key(obj), obj.clone(), fingerprint);
         let frame = frame.zip(frames).map(|(r, map)| Rect {
-            x: r.x - map.dx,
-            y: r.y - map.dy,
+            x: r.x - map.dx - shift.0,
+            y: r.y - map.dy - shift.1,
             w: r.w,
             h: r.h,
         });
@@ -438,5 +476,29 @@ mod reuse_tests {
         // Another window, or now with frames for a screenshot.
         assert!(!still_current(&walked, &WalkStamp { window: Some("x".into()), ..later(0.5) }));
         assert!(!still_current(&walked, &WalkStamp { framed: true, ..later(0.5) }));
+    }
+}
+
+#[cfg(test)]
+mod ancestry_tests {
+    use super::*;
+
+    #[test]
+    fn the_shift_found_at_a_stack_page_child_carries_to_its_subtree() {
+        let rect = |x: f64, y: f64, w: f64, h: f64| Some(Rect { x, y, w, h });
+        // GNOME Calculator's raw window extents, from the window down to the "C" button.
+        let (_, window) = Ancestry::default().place(rect(0.0, 0.0, 360.0, 616.0));
+        let (_, stack) = window.place(rect(0.0, 356.0, 360.0, 260.0));
+        let (page_shift, page) = stack.place(rect(12.0, 368.0, 336.0, 236.0));
+        assert_eq!(page_shift, (0.0, 0.0));
+        let (child_shift, child) = page.place(rect(24.0, 380.0, 336.0, 236.0));
+        assert_eq!(child_shift, (12.0, 12.0));
+        let (grid_shift, grid) = child.place(rect(24.0, 380.0, 336.0, 236.0));
+        assert_eq!(grid_shift, (12.0, 12.0));
+        let (button_shift, _) = grid.place(rect(24.0, 380.0, 64.0, 44.0));
+        assert_eq!(button_shift, (12.0, 12.0));
+        // Siblings of the page's child, outside the stack, keep their positions.
+        let (header_shift, _) = window.place(rect(0.0, 0.0, 360.0, 46.0));
+        assert_eq!(header_shift, (0.0, 0.0));
     }
 }

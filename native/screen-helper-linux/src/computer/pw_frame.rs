@@ -34,14 +34,55 @@ struct Raw {
     crop: Option<(i32, i32, u32, u32)>,
 }
 
+/// A picture, and where in it the window's opaque body sits (`opaque_box`).
+pub struct Picture {
+    pub rgb: Rgb,
+    pub opaque: Option<Bounds>,
+}
+
+/// left, top, width, height in picture pixels.
+pub type Bounds = (u32, u32, u32, u32);
+
 impl Raw {
-    fn picture(&self) -> Result<Rgb, String> {
+    fn picture(&self) -> Result<Picture, String> {
         let frame = to_rgb(&self.bytes, self.width, self.height, self.stride, self.format)?;
-        Ok(match self.crop {
+        let region = crate::pipewire::visible_region(self.width, self.height, self.crop);
+        let opaque = opaque_box(&self.bytes, self.stride, self.format, region);
+        let rgb = match self.crop {
             Some((x, y, w, h)) => crop(frame, x, y, w, h),
             None => frame,
-        })
+        };
+        Ok(Picture { rgb, opaque })
     }
+}
+
+/// The window's opaque body inside a frame with alpha, relative to `region` (the part of the
+/// buffer the picture shows): the first and last fully opaque pixels along the region's middle
+/// row and column. A GTK window's stream includes its client-side shadow, which is translucent
+/// and not even on all sides (Adwaita's falls further below than above), so the body can't be
+/// assumed centred. `None` for formats without alpha (RGBx, BGRx) or no opaque pixel there.
+pub fn opaque_box(source: &[u8], stride: usize, format: u32, region: Bounds) -> Option<Bounds> {
+    if !matches!(format, 11 | 12) {
+        return None;
+    }
+    let (left, top, width, height) = region;
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let alpha = |x: u32, y: u32| {
+        source
+            .get((top + y) as usize * stride + (left + x) as usize * 4 + 3)
+            .copied()
+            .unwrap_or(0)
+    };
+    let span = |len: u32, at: &dyn Fn(u32) -> u8| {
+        let first = (0..len).find(|&i| at(i) == 255)?;
+        let last = (0..len).rev().find(|&i| at(i) == 255)?;
+        Some((first, last + 1 - first))
+    };
+    let (x, w) = span(width, &|x| alpha(x, height / 2))?;
+    let (y, h) = span(height, &|y| alpha(width / 2, y))?;
+    Some((x, y, w, h))
 }
 
 #[derive(Default)]
@@ -97,7 +138,7 @@ impl Watch {
 
     /// The desktop's latest picture, waiting up to `timeout` for a first one. `Err(NO_FRAME)`:
     /// none has come yet and the stream is still open.
-    pub fn latest(&self, timeout: Duration) -> Result<Rgb, String> {
+    pub fn latest(&self, timeout: Duration) -> Result<Picture, String> {
         if let Ok(mut until) = self.shared.idle_until.lock() {
             *until = Instant::now() + self.shared.idle;
         }
@@ -245,7 +286,7 @@ fn run(remote: OwnedFd, node: u32, shared: Arc<Shared>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Rgb, crop, to_rgb};
+    use super::{Rgb, crop, opaque_box, to_rgb};
 
     #[test]
     fn a_window_inside_a_larger_buffer_is_cut_out_and_kept_inside_it() {
@@ -273,5 +314,25 @@ mod tests {
         let frame = to_rgb(&source, 2, 1, 12, 8).unwrap();
         assert_eq!(frame.pixels, vec![30, 20, 10, 60, 50, 40]);
         assert!(to_rgb(&source, 2, 1, 12, 99).is_err());
+    }
+
+    #[test]
+    fn the_opaque_body_is_found_inside_a_translucent_shadow_deeper_below() {
+        // 8×10 BGRA buffer in a 40-byte stride; the window region is its left 7×9. Body opaque
+        // at x 2..5, y 1..6; the shadow around it translucent, deeper below; outside, clear.
+        let (stride, height) = (40usize, 10u32);
+        let mut source = vec![0u8; stride * height as usize];
+        for y in 0..9u32 {
+            for x in 0..7u32 {
+                let body = (2..5).contains(&x) && (1..6).contains(&y);
+                source[y as usize * stride + x as usize * 4 + 3] = if body { 255 } else { 40 };
+            }
+        }
+        assert_eq!(opaque_box(&source, stride, 12, (0, 0, 7, 9)), Some((2, 1, 3, 5)));
+        // Relative to a region that starts inside the buffer.
+        assert_eq!(opaque_box(&source, stride, 12, (1, 1, 6, 8)), Some((1, 0, 3, 5)));
+        // RGBx/BGRx carry no alpha; a clear frame has no body.
+        assert_eq!(opaque_box(&source, stride, 8, (0, 0, 7, 9)), None);
+        assert_eq!(opaque_box(&vec![0u8; stride * 10], stride, 11, (0, 0, 7, 9)), None);
     }
 }

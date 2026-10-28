@@ -10,6 +10,9 @@ const switches = new Set([
   "tree",
   "worktree",
   "help",
+  // `ace --version` / `-v`: print this build's version.
+  "version",
+  "v",
   "linger",
   "include-threads",
   "follow",
@@ -44,7 +47,7 @@ export function parseArgs(input: readonly string[]): Args {
       words.push(...input.slice(i + 1));
       break;
     }
-    if (!value.startsWith("--") && value !== "-f") {
+    if (!value.startsWith("--") && value !== "-f" && value !== "-v") {
       words.push(value);
       continue;
     }

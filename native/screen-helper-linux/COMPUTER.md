@@ -24,6 +24,8 @@ answered `bad_request` by its id, and the next request still runs.
 - `cancel {target}` is answered at once by the stdin thread with `{cancelled}`. The target stops
   at its next check (between steps, and every 50 ms inside waits and typing) and reports
   `cancelled` with the steps it finished.
+- When stdin closes, the running request and any queued ones are cancelled the same way and the
+  helper exits; it exits within 3 s even if the running request is somewhere that doesn't check.
 
 Arguments: `--computer [--data-dir <absolute dir>]`. The daemon passes `<ACE_HOME>/screen`; the
 helper keeps Wayland screen-sharing restore tokens under `<dir>/portal/`. Without it, tokens last
@@ -58,7 +60,9 @@ for its window.
 - **Apps that read accessibility only at start** (Firefox) and were started before it was on are
   not on the bus: instead of opening them again, `state` answers `app_inaccessible`, asking the
   person to quit and reopen them. A process younger than 20 s is still starting, so it is waited
-  for (up to 15 s) rather than reported. The daemon turns accessibility on for the session as soon
+  for (up to 15 s) rather than reported; if it still shows no window, `state` answers
+  `launch_failed` asking to try again in a moment (it may just be slow), and only an older
+  process gets `app_inaccessible`. The daemon turns accessibility on for the session as soon
   as computer use is on, so apps opened afterwards are seen.
 - **Suites in one process.** LibreOffice runs every module in `soffice.bin`: each module with a
   window is its own app (`libreoffice-writer`, `libreoffice-calc`), named by the window title's
@@ -104,7 +108,7 @@ X11 session before it starts the helper.
 | `type`, `paste` into a text element                                | in the background (EditableText); into a document, its paragraph with the caret                       |
 | `type`/`paste` with nothing editable focused                       | unsupported, with the reason                                                                          |
 | `type`/`paste` into a Chromium field                               | after `activate` in the batch, in front with the keyboard; otherwise unsupported, saying so           |
-| `key`: Return, Backspace, Delete, arrows, Home/End, ctrl+A in text | in the background                                                                                     |
+| `key`: Return, Backspace, Delete, arrows, Home/End, ctrl+A in text | in the background (GTK 4: selection and caret held by ace for the next edit, see Known gaps)          |
 | `key`: ctrl+C / ctrl+X / ctrl+V in text                            | the text's own CopyText / CutText / PasteText                                                         |
 | `key`: Tab                                                         | a tab in multi-line text; otherwise the focus moves to the next control (where the toolkit allows it) |
 | `key`: a shortcut an app's menu lists (ctrl+s, F5, …)              | presses that menu item, in the background (GTK 3, Qt, LibreOffice accelerators)                       |
@@ -283,10 +287,13 @@ notifications invokeLast`). The lock screen is left out: only the person's passw
 
 ## Known gaps
 
-- GTK4 reports element positions only relative to its window, and those positions drift by a few
-  pixels inside nested containers, so id marks on GTK4 screenshots can sit slightly off their
-  controls. GTK3 and Qt report screen positions and are exact. Wayland window frames don't change
-  this: the drift is in GTK4's own extents.
+- GTK4 reports element positions only relative to its window. Inside a `GtkStack` they come
+  shifted by the stack child's offset (GTK 4 adds each accessible ancestor's bounds, and a
+  `GtkStackPage` reports its child's bounds, so that offset counts twice); the walk finds that
+  case (a child the page's size, offset by the page's own offset) and takes the shift off the
+  subtree (`outline::forwarded_offset`). A GTK4 window's stream includes its shadow, which is
+  deeper below than above, so marks are placed at the window body found in the frame's alpha,
+  not centred in the frame. GTK3 and Qt report screen positions and are exact.
 - The portal doesn't say which app a window stream shows. If the person picks another window in
   the dialog, that window is what the agent sees for that app until the grant is revoked.
 - The restore path was verified in a headless GNOME Shell with a seeded grant, and end to end on
@@ -309,3 +316,14 @@ notifications invokeLast`). The lock screen is left out: only the person's passw
 - GTK 4 refuses to move the focus in a background window, so Tab between controls works only
   where the toolkit allows it.
 - LibreOffice Calc's cells take no typed text; its "Input line" field does, with Return to enter.
+- GTK 4 apps can't show a selection or caret ace sets in a background window. Selecting
+  claims the Wayland primary selection; Mutter cancels that claim for any client without the
+  keyboard focus, and GTK answers the cancel by collapsing the selection (sometimes after the
+  step has read it back, which made ctrl+A fail in about one headless session in three, when
+  Calculator rather than Text Editor got the focus). GTK 4 text views before 4.22 also refuse
+  `Text.SetSelection`/`AddSelection`/`SetCaretOffset` outright, so ctrl+A runs the view's own
+  `selection.select-all` action. In both cases ace holds the range it selected (`held.rs`)
+  and applies it to the next typing, delete, cut, copy or paste in that text, which take
+  explicit ranges; the step's reply says so, and screenshots don't show it. The held range
+  lasts only through consecutive `type`/`paste`/`key`/`wait` steps and while the text's length
+  is unchanged.

@@ -46,9 +46,6 @@ node apps/daemon/bench/measure.ts --entry=.ace-dev/perf-release/ace.mjs --node=.
 # Fresh thread identities exercise cache eviction and lifecycle ownership.
 node apps/daemon/bench/measure.ts --entry=.ace-dev/perf-current/ace.mjs --warmup-cycles=16 --fresh-cycles --collect --soak-ms=180000 --output=soak.json.gz
 
-# Synthetic history and EXPLAIN QUERY PLAN for indexed reconciliation.
-node apps/daemon/bench/inventory.ts --files=5000 --output=history.json
-
 # Only the daemon budget measurement, without the repository test suites.
 node apps/daemon/bench/check.ts
 # Optional five-minute budget soak.
@@ -73,7 +70,7 @@ Only a subprocess killed by its deadline or a measured startup, throughput, deli
 
 This rule tolerates one transient load spike without averaging away a repeatable slowdown. Sustained host saturation still fails; a passing repeat must independently meet every original budget. The short measurement counts receipt of all 1,000 deltas through the real socket, rather than extrapolating from a smaller sample. See [the main/#94 comparison](perf-regression-report.md) for the measurements behind this rule.
 
-`inventory.ts --full-scans` selects authoritative full scans and can also run against main before the incremental API exists. Copy `inventory.ts` and `output.ts` into that worktree's bench directory to keep workspace package imports attached to the baseline. `inventory.ts` uses a real provider-home directory containing synthetic Claude JSONL files. It records up to eight delayed startup invalidation batches separately, then waits for an observed native change before measuring incremental reconciliation. An unsupported watcher can still leave the unchanged sample as a full scan; the raw file-visit counts show that fallback. Explicit refreshes and restarts always verify the inventory; directory mtimes cannot prove that transcript files were not edited in place while ace was stopped. Live watch batches are capped at 4,096 paths across all instances. Missing, failed or uncertain watchers fall back to a full scan. This preserves correctness but leaves O(change) restart scanning unresolved.
+The history inventory and idle-scan benches (`inventory.ts`, `history-idle.ts`) were removed in c30658b86: the daemon no longer scans provider history at startup or while idle, only when someone asks from Settings > Providers > Past sessions. `history.json`, `history-main-baseline.json`, `history-settled.json` and related files remain as historical records.
 
 Raw measurements are checked in beside this file. Single-run startup, throughput and p99 values are sensitive to machine load and cold filesystem caches; intermediate runs are diagnostic observations, not statistical speedup claims. `baseline.json` is the source checkout before these changes; `compiled.json` isolates minified bundling, and `lazy.json` adds the worker/SDK lifecycle changes. `sqlite.json`, `soak.json.gz` and `after.json.gz` record later stages. `fresh-after.json.gz` caught RSS growth after merging #82; `final.json.gz` records the subsequent hot-path fixes. `native.json.gz` and `policy.json.gz` isolate the native growth that survives a flat main heap; `watch-pool-after.json.gz` measures shared settings watches after merging #83. `merge-fixes-after.json.gz`, `gate-merge-fixes.json` and `history-merge-fixes.json` repeat the measurements after the #86 merge failure repairs. The supported release-runtime sample is recorded separately to avoid comparing different Node versions as an implementation improvement.
 

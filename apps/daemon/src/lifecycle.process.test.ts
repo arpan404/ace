@@ -9,6 +9,7 @@ import { DeviceId, type ServerMessage } from "@ace/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { startDaemon } from "./index.ts";
 import { readConfig } from "./config.ts";
+import { exitCodes } from "./cli/output.ts";
 import { launchDaemon } from "./process-test-support.ts";
 import { Client } from "./socket-test-support.ts";
 
@@ -100,7 +101,7 @@ describe("daemon lifecycle", () => {
     const second = launch(home);
     // Read the failure through the public CLI process outcome.
     await expect(second.ready).rejects.toThrow("Cannot acquire daemon lock");
-    expect((await second.exited)[0]).toBe(1);
+    expect((await second.exited)[0]).toBe(exitCodes["lock-held"]);
     const client = await connect(url, home);
     const welcome = await client.next();
     // The dev thread is committed. The organizer may also have scheduled its auto-settle

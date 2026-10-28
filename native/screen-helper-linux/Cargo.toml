@@ -2,6 +2,9 @@
 name = "ace-screen-helper-linux"
 version = "0.1.0"
 edition = "2024"
+# zbus 5 and zvariant (D-Bus for AT-SPI and the portals) need 1.87. Keep in step with
+# tools/release/src/screen-helper-assets.ts, which checks it before a desktop or release build.
+rust-version = "1.87"
 license = "Apache-2.0"
 
 [dependencies]

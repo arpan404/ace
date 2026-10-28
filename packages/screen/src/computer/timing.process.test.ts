@@ -10,11 +10,12 @@ afterEach(async () => {
 it("diagnostics separate cold helper startup from the next request's queue wait", async () => {
   let now = 0;
   const { promise: gate, resolve: release } = Promise.withResolvers<void>();
+  const { promise: starting, resolve: started } = Promise.withResolvers<void>();
   const timings: ComputerRequestTiming[] = [];
   const world = await computerWorld({
     client: {
       helper: async () => {
-        now = 10;
+        started();
         await gate;
         now = 40;
         return "fixture";
@@ -24,6 +25,10 @@ it("diagnostics separate cold helper startup from the next request's queue wait"
   });
   cleanups.push(world.close);
   const first = world.client.request("state", { app: "com.apple.calculator" });
+  // The test owns the clock: the second request queues at 10, once the first is starting the
+  // helper, however many awaits the client takes before resolving the helper's command.
+  await starting;
+  now = 10;
   const second = world.client.request("state", { app: "com.apple.calculator" });
   release();
   await Promise.all([first, second]);
