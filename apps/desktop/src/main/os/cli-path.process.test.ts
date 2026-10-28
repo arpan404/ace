@@ -24,10 +24,17 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
-/** A home folder with the app's `ace` shim in `~/.ace/bin`, for a person whose shell is `shell`. */
+/**
+ * A home folder with the app's `ace` shim in `~/.ace/bin`, for a person whose shell is `shell`,
+ * and `system`: stand-ins for `/usr/bin:/bin` that hold no `ace`, so a real install on the
+ * machine running the tests (the deb's /usr/bin/ace) never answers for them.
+ */
 async function machine(shell = "/bin/zsh", homeName = "home") {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-cli-path-")));
   roots.push(root);
+  const systemDirectories = [join(root, "system", "usr-bin"), join(root, "system", "bin")];
+  for (const folder of systemDirectories) await mkdir(folder, { recursive: true });
+  const system = systemDirectories.join(":");
   const home = join(root, homeName);
   const directory = join(home, ".ace", "bin");
   const file = join(directory, "ace");
@@ -41,7 +48,7 @@ async function machine(shell = "/bin/zsh", homeName = "home") {
     file,
     env: { SHELL: shell },
   };
-  return { root, home, target };
+  return { root, home, target, system, usrBin: systemDirectories[0]! };
 }
 
 /** What a terminal prints for `ace` after reading `startup` (or with `path` alone). */
@@ -57,40 +64,40 @@ async function terminalRuns(home: string, path: string, startup?: string): Promi
 
 describe("putting the ace command on a terminal's PATH", () => {
   it("adds a PATH line to .zshrc that a new terminal picks up, and takes only it back", async () => {
-    const { home, target } = await machine();
+    const { home, target, system } = await machine();
     const zshrc = join(home, ".zshrc");
     const own = "export EDITOR=vim\n";
     await writeFile(zshrc, own);
 
-    await expect(putCliOnPath(target, "/usr/bin:/bin")).resolves.toEqual({
+    await expect(putCliOnPath(target, system)).resolves.toEqual({
       state: "added",
       files: [zshrc],
     });
-    await putCliOnPath(target, "/usr/bin:/bin");
-    expect(await terminalRuns(home, "/usr/bin:/bin", zshrc)).toBe("ace-from-app");
+    await putCliOnPath(target, system);
+    expect(await terminalRuns(home, system, zshrc)).toBe("ace-from-app");
 
     await expect(takeCliOffPath(target)).resolves.toEqual({ state: "off", command: target.file });
     expect(await readFile(zshrc, "utf8")).toBe(own);
   });
 
   it("edits the file a dotfiles link points to and keeps the link", async () => {
-    const { root, home, target } = await machine();
+    const { root, home, target, system } = await machine();
     const dotfiles = join(root, "dotfiles", "zshrc");
     await mkdir(join(root, "dotfiles"));
     await writeFile(dotfiles, "# mine\n");
     await symlink(dotfiles, join(home, ".zshrc"));
 
-    await putCliOnPath(target, "/usr/bin:/bin");
+    await putCliOnPath(target, system);
 
     expect(await readlink(join(home, ".zshrc"))).toBe(dotfiles);
     expect(await readFile(dotfiles, "utf8")).toContain(target.directory.slice(home.length));
   });
 
   it("links into ~/.local/bin when that folder is on PATH, so open terminals run it too", async () => {
-    const { home, target } = await machine();
+    const { home, target, system } = await machine();
     const localBin = join(home, ".local", "bin");
     await mkdir(localBin, { recursive: true });
-    const path = `/usr/bin:/bin:${localBin}`;
+    const path = `${system}:${localBin}`;
 
     await expect(putCliOnPath(target, path)).resolves.toEqual({
       state: "ready",
@@ -106,13 +113,13 @@ describe("putting the ace command on a terminal's PATH", () => {
   });
 
   it("leaves PATH and startup files alone when another ace is first on PATH", async () => {
-    const { root, home, target } = await machine();
+    const { root, home, target, usrBin } = await machine();
     const other = join(root, "brew", "bin");
     await mkdir(other, { recursive: true });
     await writeFile(join(other, "ace"), "#!/bin/sh\necho other\n");
     await chmod(join(other, "ace"), 0o755);
 
-    await expect(putCliOnPath(target, `${other}:/usr/bin`)).resolves.toEqual({
+    await expect(putCliOnPath(target, `${other}:${usrBin}`)).resolves.toEqual({
       state: "other",
       command: join(other, "ace"),
     });
@@ -134,22 +141,22 @@ describe("putting the ace command on a terminal's PATH", () => {
   });
 
   it("puts a folder with spaces and quotes on PATH once, however often bash reads it", async () => {
-    const { home, target } = await machine("/bin/bash", 'my $home "x"');
-    await putCliOnPath(target, "/usr/bin:/bin");
+    const { home, target, system } = await machine("/bin/bash", 'my $home "x"');
+    await putCliOnPath(target, system);
     const bashrc = join(home, ".bashrc");
     const { stdout } = await run(
       "/bin/sh",
       ["-c", '. "$1"; . "$1"; printf %s "$PATH"', "sh", bashrc],
-      { env: { HOME: home, PATH: "/usr/bin:/bin" } },
+      { env: { HOME: home, PATH: system } },
     );
-    expect(stdout.split(":")).toEqual([target.directory, "/usr/bin", "/bin"]);
+    expect(stdout.split(":")).toEqual([target.directory, ...system.split(":")]);
   });
 
   it("takes back the line from bash's .profile after the person moved to zsh", async () => {
-    const { home, target } = await machine("/bin/bash");
+    const { home, target, usrBin } = await machine("/bin/bash");
     const profile = join(home, ".profile");
     await writeFile(profile, "umask 022\n");
-    await expect(putCliOnPath(target, "/usr/bin")).resolves.toEqual({
+    await expect(putCliOnPath(target, usrBin)).resolves.toEqual({
       state: "added",
       files: [join(home, ".bashrc"), profile],
     });
@@ -161,12 +168,12 @@ describe("putting the ace command on a terminal's PATH", () => {
   });
 
   it("never overwrites a fish file of the person's own", async () => {
-    const { home, target } = await machine("/usr/local/bin/fish");
+    const { home, target, usrBin } = await machine("/usr/local/bin/fish");
     const file = join(home, ".config", "fish", "conf.d", "ace.fish");
     await mkdir(join(home, ".config", "fish", "conf.d"), { recursive: true });
     await writeFile(file, "set -gx ACE 1\n");
 
-    await expect(putCliOnPath(target, "/usr/bin")).resolves.toMatchObject({
+    await expect(putCliOnPath(target, usrBin)).resolves.toMatchObject({
       state: "manual",
       directory: target.directory,
     });
@@ -177,7 +184,7 @@ describe("putting the ace command on a terminal's PATH", () => {
 
 describe("the ace command setting", () => {
   it("turned back on, adds the line again even though launch's PATH already had the folder", async () => {
-    const { home, target } = await machine();
+    const { home, target, system, usrBin } = await machine();
     let enabled = true;
     const control = terminalCommand({
       shim: Promise.resolve({ state: "unchanged", file: target.file, directory: target.directory }),
@@ -185,8 +192,8 @@ describe("the ace command setting", () => {
       save: async (on) => void (enabled = on),
       target: { platform: target.platform, home, env: target.env },
       // Launch read the PATH while ace's line was still in .zshrc.
-      launchPath: async () => `${target.directory}:/usr/bin`,
-      freshPath: async () => "/usr/bin:/bin",
+      launchPath: async () => `${target.directory}:${usrBin}`,
+      freshPath: async () => system,
       log: () => {},
     });
     await expect(control.status()).resolves.toMatchObject({ state: "ready" });
@@ -197,18 +204,18 @@ describe("the ace command setting", () => {
       files: [join(home, ".zshrc")],
     });
     expect(enabled).toBe(true);
-    expect(await terminalRuns(home, "/usr/bin:/bin", join(home, ".zshrc"))).toBe("ace-from-app");
+    expect(await terminalRuns(home, system, join(home, ".zshrc"))).toBe("ace-from-app");
   });
 
   it("changes nothing on launch while it is off", async () => {
-    const { home, target } = await machine();
+    const { home, target, system } = await machine();
     const control = terminalCommand({
       shim: Promise.resolve({ state: "created", file: target.file, directory: target.directory }),
       enabled: () => false,
       save: async () => {},
       target: { platform: target.platform, home, env: target.env },
-      launchPath: async () => "/usr/bin:/bin",
-      freshPath: async () => "/usr/bin:/bin",
+      launchPath: async () => system,
+      freshPath: async () => system,
       log: () => {},
     });
     await expect(control.status()).resolves.toEqual({ state: "off", command: target.file });
