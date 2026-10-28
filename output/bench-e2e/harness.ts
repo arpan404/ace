@@ -73,6 +73,7 @@ export interface Profile {
 export const PROFILES: Profile[] = [
   { name: "direct", bps: 125_000_000, rttMs: 1 },
   { name: "4G", bps: 1_500_000, rttMs: 70 },
+  { name: "5G", bps: 37_500_000, rttMs: 25 },
   { name: "slow3G", bps: 50_000, rttMs: 400 },
 ];
 export interface ConnCounters {

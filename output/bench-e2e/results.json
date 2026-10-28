@@ -418,5 +418,113 @@
       "wireUp": 14,
       "snapshotBytes": 100314
     }
+  },
+  "5G.raw": {
+    "profile": "5G",
+    "compression": "raw",
+    "negotiatedA": [
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)",
+      "(none)"
+    ],
+    "coldBig": {
+      "scenario": "cold-big",
+      "ms": 179.980417,
+      "parseMs": 0.21466699999996308,
+      "wireDown": 128112,
+      "wireUp": 377,
+      "snapshotBytes": 100307
+    },
+    "reconnect": {
+      "scenario": "reconnect",
+      "ms": 85.1680409999999,
+      "parseMs": 0.057542000000012195,
+      "wireDown": 27709,
+      "wireUp": 169,
+      "snapshotBytes": 27628
+    },
+    "openSmall": {
+      "scenario": "open-small",
+      "ms": 27.051750000000084,
+      "parseMs": 0.014583000000129687,
+      "wireDown": 5795,
+      "wireUp": 120,
+      "snapshotBytes": 5791
+    },
+    "openMedium": {
+      "scenario": "open-medium",
+      "ms": 29.02883399999996,
+      "parseMs": 0.05408399999987523,
+      "wireDown": 44771,
+      "wireUp": 117,
+      "snapshotBytes": 44767
+    },
+    "openBig": {
+      "scenario": "open-big",
+      "ms": 32.27687500000002,
+      "parseMs": 0.14720799999986411,
+      "wireDown": 100324,
+      "wireUp": 117,
+      "snapshotBytes": 100314
+    }
+  },
+  "5G.deflate": {
+    "profile": "5G",
+    "compression": "permessage-deflate",
+    "negotiatedA": [
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate",
+      "permessage-deflate"
+    ],
+    "coldBig": {
+      "scenario": "cold-big",
+      "ms": 169.89137500000015,
+      "parseMs": 0.16170800000008967,
+      "wireDown": 9507,
+      "wireUp": 300,
+      "snapshotBytes": 100307
+    },
+    "reconnect": {
+      "scenario": "reconnect",
+      "ms": 83.36500000000024,
+      "parseMs": 0.03804200000013225,
+      "wireDown": 3235,
+      "wireUp": 140,
+      "snapshotBytes": 27628
+    },
+    "openSmall": {
+      "scenario": "open-small",
+      "ms": 27.224958000000242,
+      "parseMs": 0.01579100000026301,
+      "wireDown": 1629,
+      "wireUp": 84,
+      "snapshotBytes": 5791
+    },
+    "openMedium": {
+      "scenario": "open-medium",
+      "ms": 27.790333000000373,
+      "parseMs": 0.04904100000021572,
+      "wireDown": 3703,
+      "wireUp": 14,
+      "snapshotBytes": 44767
+    },
+    "openBig": {
+      "scenario": "open-big",
+      "ms": 28.210250000000087,
+      "parseMs": 0.09312499999987267,
+      "wireDown": 5986,
+      "wireUp": 14,
+      "snapshotBytes": 100314
+    }
   }
 }
