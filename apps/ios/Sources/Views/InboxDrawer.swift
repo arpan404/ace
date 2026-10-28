@@ -18,11 +18,11 @@ struct DrawerButton: View {
     }
 }
 
-/// Places the page or the list for the drawer: offset, width, fade, dimming and corners. It is
+/// Places the thread content and list for the drawer: offset, width, fade and dimming. It is
 /// the only reader of the finger's hold (`DrawerHold`), so each frame of a drag redraws these
 /// modifiers over content built once outside them, never the thread's or the list's own body.
 struct DrawerPlace: ViewModifier {
-    enum Part { case page, list }
+    enum Part { case page, list, chrome }
     let part: Part
     let hold: DrawerHold
     let stop: ThreadDrawer.Stop
@@ -35,9 +35,19 @@ struct DrawerPlace: ViewModifier {
         let resting = ThreadDrawer.resting(stop, full: ThreadDrawer.full(window: window))
         let place = ThreadDrawer.placement(layout, progress: hold.progress ?? resting, window: window, reduceMotion: reduceMotion)
         switch part {
+        case .chrome:
+            content.overlay {
+                // Only the shifted card is dimmed; its rounded corners reveal the list's
+                // background. The native bars themselves never change coordinate space.
+                veil(place.dim)
+                    .displayCorners(place.rounded, edge: Color.clear)
+                    .offset(x: place.pageOffset)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
         case .page:
             content
-                .overlay { veil(place.dim).ignoresSafeArea().allowsHitTesting(false) }
+                .background(AceTheme.Colours.background.ignoresSafeArea())
                 .displayCorners(place.rounded, edge: AceTheme.Colours.decoration.opacity(0.3 * place.dim))
                 .offset(x: place.pageOffset)
         case .list:
@@ -140,6 +150,46 @@ struct DrawerEdgePan: UIGestureRecognizerRepresentable {
         }
     }
 }
+
+/// Normalize the hosting root to this drawer's own visible navigation viewport, not window insets.
+struct DrawerViewport: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Probe { Probe() }
+    func updateUIViewController(_ probe: Probe, context: Context) { probe.apply() }
+    static func dismantleUIViewController(_ probe: Probe, coordinator: ()) { probe.restore() }
+    final class Probe: UIViewController {
+        private weak var adjusted: UIViewController?
+        private var owned = UIEdgeInsets.zero
+        override func loadView() { view = UIView(); view.isUserInteractionEnabled = false }
+        override func didMove(toParent parent: UIViewController?) { super.didMove(toParent: parent); apply() }
+        override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); apply() }
+        override func viewSafeAreaInsetsDidChange() { super.viewSafeAreaInsetsDidChange(); apply() }
+        func apply() {
+            guard let target = parent, let navigation = navigationController, target !== navigation,
+                  target.view.window != nil else { return }
+            if adjusted !== target { restore(); adjusted = target }
+            let bounds = target.view.bounds
+            let viewport = target.view.convert(navigation.view.safeAreaLayoutGuide.layoutFrame, from: navigation.view)
+            let current = target.view.safeAreaInsets
+            let wantedLeft = max(0, min(viewport.minX - bounds.minX, bounds.width))
+            let wantedRight = max(0, min(bounds.maxX - viewport.maxX, bounds.width))
+            let left = wantedLeft - current.left, right = wantedRight - current.right
+            guard abs(left) > 0.5 || abs(right) > 0.5 else { return }
+            owned.left += left; owned.right += right
+            var insets = target.additionalSafeAreaInsets
+            insets.left += left; insets.right += right
+            target.additionalSafeAreaInsets = insets
+        }
+        func restore() {
+            if let target = adjusted {
+                var insets = target.additionalSafeAreaInsets
+                insets.left -= owned.left; insets.right -= owned.right
+                target.additionalSafeAreaInsets = insets
+            }
+            adjusted = nil; owned = .zero
+        }
+    }
+}
+
 
 extension View {
     /// The page's clip while it is out of place: the display's own rounded corners, with a

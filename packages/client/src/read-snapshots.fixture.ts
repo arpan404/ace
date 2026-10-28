@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { createThreadView } from "@ace/projection";
-import { CoreClientMessage, DeviceId, HostId, Item, Thread, ThreadListView } from "@ace/protocol";
+import { ClientMessage, DeviceId, HostId, Item, Thread, ThreadListView } from "@ace/protocol";
 import { ClientCore, type ReadSnapshotStorage, type TransportEvents } from "./index.ts";
 
 export const thread = Thread.parse({
@@ -86,15 +86,16 @@ export function memory() {
 export function harness(
   storage: ReadSnapshotStorage,
   threads = 32,
-  options: { host?: string | undefined } = { host: hostId },
+  options: { host?: string | undefined; now?: () => number } = { host: hostId },
 ) {
   let socket: TransportEvents | undefined;
   let nextId = 0;
-  const sent: ReturnType<typeof CoreClientMessage.parse>[] = [];
+  const sent: ReturnType<typeof ClientMessage.parse>[] = [];
   const scheduled = new Set<{ ms: number; callback: () => void }>();
   const client = new ClientCore({
     deviceId: DeviceId.parse("device"),
     readSnapshots: storage,
+    ...(options.now ? { now: options.now } : {}),
     storage: { load: async () => null, save: async () => {} },
     credential: async () => "a".repeat(64),
     random: () => 0.5,
@@ -116,7 +117,7 @@ export function harness(
         events.open();
       },
       send(text) {
-        sent.push(CoreClientMessage.parse(JSON.parse(text)));
+        sent.push(ClientMessage.parse(JSON.parse(text)));
       },
       close() {},
     }),

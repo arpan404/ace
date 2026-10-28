@@ -6,7 +6,7 @@ import {
   ThreadId,
   ThreadListEntry,
 } from "@ace/protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createThreadListView, createThreadView } from "./index.ts";
 import { supportedWireTrims, WireRestorer, WireTrimmer } from "./wire-trim.ts";
 
@@ -63,6 +63,30 @@ function threadSnapshot(caps: Capabilities | undefined) {
 }
 
 describe("wire trims", () => {
+  it("restores independent capabilities on native runtimes without structuredClone", () => {
+    const original = threadSnapshot(capabilities(true));
+    const sent = overTheWire(new WireTrimmer(everyTrim).outgoing(original));
+    const restorer = new WireRestorer();
+    vi.stubGlobal("structuredClone", undefined);
+    try {
+      const received = sent
+        .map((frame) => restorer.restore(frame))
+        .filter((frame) => frame !== undefined);
+      expect(received).toEqual(overTheWire([original]));
+      const snapshot = received[0];
+      if (snapshot?.type !== "snapshot" || snapshot.view.kind !== "thread")
+        throw new Error("shape");
+      const launchOptions = snapshot.view.thread.capabilities?.launchOptions;
+      if (!launchOptions) throw new Error("missing launch options");
+      launchOptions.push("serviceTier");
+      const again = overTheWire(new WireTrimmer(everyTrim).outgoing(original));
+      const next = again[1];
+      if (!next) throw new Error("missing snapshot");
+      expect(restorer.restore(next)).toEqual(overTheWire([original])[0]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("gives a client that asked for every trim the same thread snapshot in fewer bytes", () => {
     const original = threadSnapshot(capabilities(true));
     const sent = new WireTrimmer(everyTrim).outgoing(original);

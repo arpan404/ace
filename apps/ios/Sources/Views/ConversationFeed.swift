@@ -100,11 +100,6 @@ struct ConversationFeed: View {
     private func feed(_ proxy: ScrollViewProxy) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                if reading.loading, reading.operation == "older" || reading.operation == "newer" {
-                    AceShape.capsule.fill(AceTheme.Colours.fill).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Spacing.sm)
-                        .padding(AceTheme.Spacing.lg).frame(maxWidth: .infinity)
-                        .accessibilityLabel("Loading messages").accessibilityIdentifier("transcript.paging")
-                }
                 if let problem = reading.problem {
                     ServiceProblem(message: problem)
                     Button("Retry loading messages") { reading.retry(model: model, live: thread) }
@@ -143,7 +138,7 @@ struct ConversationFeed: View {
                 // scroll offset, so only this row grows and shrinks.
                 Color.clear.frame(height: barHeight + keyboardLift + AceTheme.Spacing.xxl).accessibilityHidden(true)
                 // The end of the feed: scrolling to it puts the room above at the bottom.
-                TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving { toEnd(proxy) } }
+                TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving && !intent.active { toEnd(proxy) } }
             }
             .modifier(TranscriptTextSize())
             .padding(.top, AceTheme.Spacing.sm)
@@ -157,6 +152,13 @@ struct ConversationFeed: View {
         .coordinateSpace(name: "transcript.viewport")
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         .background(AceTheme.Colours.background)
+        .overlay(alignment: .top) {
+            if reading.loading, reading.operation == "older" || reading.operation == "newer" {
+                AceShape.capsule.fill(AceTheme.Colours.fill).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Spacing.sm)
+                    .padding(AceTheme.Spacing.lg).allowsHitTesting(false)
+                    .accessibilityLabel("Loading messages").accessibilityIdentifier("transcript.paging")
+            }
+        }
         .scrollDismissesKeyboard(.interactively)
         .modifier(TapPutsKeyboardAway(up: keyboardLift > 0))
         // ⇧⌥⌘↑ and ↓ on a hardware keyboard, as on the web: the turn before and after the one on
@@ -168,9 +170,12 @@ struct ConversationFeed: View {
             switch phase {
             case .tracking:
                 settle.cancel()
+                model.beginReadingScroll()
                 intent.begin()
             // A quick drag can skip tracking: a new gesture is one that starts from rest.
             case .interacting where old == .idle || old == .decelerating || old == .animating:
+                settle.cancel()
+                model.beginReadingScroll()
                 intent.begin(); intent.active = true
             case .interacting, .decelerating: intent.active = true
             case .idle:
@@ -178,6 +183,7 @@ struct ConversationFeed: View {
                 // feed's animated scrolls (the keyboard, the composer) settle while text streams.
                 let touched = intent.active
                 intent.active = false
+                model.endReadingScroll()
                 if touched, reading.thread == nil { following = intent.metrics.bottom <= AceTheme.Spacing.xxl }
             case .animating: break
             @unknown default: break
@@ -262,7 +268,7 @@ struct ConversationFeed: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
             keyboardMoving = false
             // Text that streamed in while the keyboard moved.
-            if pinned { toEnd(proxy) }
+            if pinned && !intent.active { toEnd(proxy) }
         }
         .onDisappear { settle.cancel(); reading.cancel(model: model); model.readingWillMove = nil; model.readingMoved = nil }
         .onChange(of: !following || reading.thread != nil, initial: true) { _, away in if behind != away { behind = away } }
@@ -277,7 +283,7 @@ struct ConversationFeed: View {
     /// the last row moves with it, in the same motion; reading elsewhere, the rows stay put and
     /// are covered, unless the smaller room would park the view past the end.
     private func roomChanged(by growth: CGFloat, motion: Animation?, proxy: ScrollViewProxy) {
-        guard growth != 0, pinned || intent.metrics.bottom + growth < 0 else { return }
+        guard !intent.active, growth != 0, pinned || intent.metrics.bottom + growth < 0 else { return }
         // The room has its new height in this same update, so the end is where the scroll lands,
         // starting in the same frame as the keyboard.
         withAnimation(motion) { toEnd(proxy) }

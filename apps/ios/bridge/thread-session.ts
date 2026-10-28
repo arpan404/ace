@@ -1,3 +1,4 @@
+import type { TurnStepsStore } from "@ace/client/turn-steps";
 import {
   retryOf,
   retrySend,
@@ -122,6 +123,7 @@ export class ThreadSession {
     kept?: AttachmentTray,
     /** Asks to retry a subagent, kept by the bridge across visits to the thread. */
     retries: SubagentRetries = new SubagentRetries(),
+    keptSteps?: TurnStepsStore,
   ) {
     this.#retries = retries;
     this.#catalog = catalog;
@@ -144,7 +146,7 @@ export class ThreadSession {
       (count, held) => this.#pill.queued(count, held),
       () => host.now(),
     );
-    this.#steps = new StepsFollower(client, store, this.#threadId, put);
+    this.#steps = new StepsFollower(client, store, this.#threadId, put, keptSteps);
     this.#transitions = new ThreadTransitions(client, store, this.#threadId, {
       put,
       reading,

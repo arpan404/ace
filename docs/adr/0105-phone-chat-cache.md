@@ -129,5 +129,42 @@ out. That is where a faster reopen has to come from.
 - Unsettled threads are never pushed out by count. Threads the phone never opened are not
   fetched ahead: caching every unsettled thread up front would hold a subscription per thread and
   is left for later.
-- History pages read beyond the snapshot window are not kept on disk; scrolling far back after a
-  relaunch still reads them from the machine.
+- Opened history pages and expanded text are also kept on disk, under the policy below.
+
+### Finished tool logs on iOS
+
+The phone also supplies the shared `TurnStepsCache` with its read-snapshot storage. Opened
+finished turns' tool logs survive leaving the thread and relaunching the app. Records are
+scoped to the paired daemon and stamped with the iOS tool-log format version. The shared cache
+validates their schema and compares the saved `endSeq` with the turn's current summary before
+accepting them as current. These records share SQLite retention, byte accounting and Clear
+cached chats with transcript snapshots. Reload from machine drops that thread's saved logs
+before reopening it. Older message pages outside the live snapshot window follow the policy below.
+
+### Older pages and expanded message content
+
+The owner extended the cache on 2026-10-28 to include opened history pages and full message
+content. iOS uses the SDK's `KeptHistory` through its existing `RowSnapshots` SQLite adapter.
+Both `itemsPage` and `itemsWindow` keep their validated responses. Each query has its own
+record, scoped to the verified daemon and thread. Expanded text is keyed by the daemon's
+revision-bearing stream descriptor, byte extent and starting offset. An edit gets a different
+stream id; an append changes the byte extent. UTF-16 lengths are checked as code units,
+including surrogate pairs. Text reads up to 8 MiB are kept; larger reads continue streaming.
+
+Records expire seven days after fetching. The existing last-use eviction and shared 64 MiB
+budget may remove them earlier. Generic record writes now trigger byte-budget sweeps too,
+so browsing history without opening new threads still bounds storage. Pages are fetched only
+when opened, not downloaded ahead for every thread.
+
+A saved page is reused only after the subscribed thread has a confirmed cursor equal to the
+page's revision. Changed, syncing or unconfirmed threads read the daemon again. This is
+conservative: even a new event at the live tail invalidates an older page. The protocol does
+not yet provide a separate history revision. It avoids presenting edits or deletions from an
+old disk response as current. Offline startup still uses the existing unconfirmed tail
+snapshot; this change does not make arbitrary older pages available offline.
+
+Settings → Cached chats counts their bytes and clears them with the other read snapshots,
+per machine or for all machines. A clear fences reads already in flight so their replies
+cannot refill the discarded cache. Reload from machine deletes that thread's saved pages
+before reopening it. Immutable text descriptors remain reusable until expiry or a Settings
+clear. Unsent messages, drafts and pairing are untouched.

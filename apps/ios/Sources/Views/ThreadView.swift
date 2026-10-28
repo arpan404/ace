@@ -4,6 +4,7 @@ struct ThreadView: View {
     @Environment(\.dismiss) private var dismiss
     /// Closes the thread open beside the list, which has no page under it to go back to.
     @Environment(\.closeOpenThread) private var closeOpenThread
+    @Environment(\.threadDrawerOpen) private var drawerOpen
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.aceReduceMotion) private var reduceMotion
@@ -121,7 +122,7 @@ struct ThreadView: View {
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, hasActivity: activityRow != nil, activityRow: { activityRow },
                                                open: open, opensInPanel: panelPlace != .none, problem: { activityProblem = $0 }, leave: leave),
                               openWork: { showWork = true },
-                              panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) })
+                              panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) }, coveredByDrawer: drawerOpen)
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)

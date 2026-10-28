@@ -1,4 +1,7 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+import { turnStepsStoreIn } from "@ace/client/kept-turn-steps";
+import { forgetNativeTurnSteps, nativeReadSnapshots } from "./read-snapshots.ts";
+import { nativeStore } from "./snapshot-store-fixture.ts";
 import { facts } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import {
@@ -6,6 +9,7 @@ import {
   fixture,
   latest,
   native,
+  pump,
   open,
   reset,
   rows,
@@ -13,6 +17,7 @@ import {
   until,
 } from "./thread-harness.ts";
 
+import { ThreadVisit } from "./thread-visit.ts";
 /*
  * A finished turn's full steps read on demand, a native subagent's lane grouped like the
  * transcript, and moving a queued follow-up, over the real SDK and the fake daemon. No provider
@@ -300,3 +305,73 @@ test("a queued follow-up moves down past the next one, fenced to the queue it sa
   await until(() => queue()?.messages[0]?.text === "Second", "the new order");
   expect(queue()?.messages.map((message) => message.text)).toEqual(["Second", "First"]);
 });
+
+test("a relaunched phone shows its saved tool log while the daemon's steps read is stalled", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "kept", workspaceId: "ace", title: "Kept", provider: "codex" });
+  fake.apply("kept", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    ...reads(3),
+    facts.endTurn("root"),
+  ]);
+  const { call } = nativeStore();
+  const storage = nativeReadSnapshots(call, () => 1_000);
+  const scope = { hostId: "ios-test-host", build: "ios-turn-steps-v1" };
+  const kept = turnStepsStoreIn(async () => storage, scope);
+  const first = open(connect(fake), "kept", undefined, undefined, kept);
+  const head = await until(
+    () => rows("thread.block").find((row) => row.kind === "work" && row.ordinal !== null),
+    "a work head",
+  );
+  const ordinal = Number(head.ordinal);
+  first.handle({ type: "steps.open", ordinal, block: "work" });
+  await until(() => latest("thread.steps")?.state === "ready", "first tool log");
+  await expect.poll(() => kept.get(`kept/${ordinal}`)).toBeDefined();
+  await reset();
+
+  const nextStorage = nativeReadSnapshots(call, () => 1_000);
+  const nextKept = turnStepsStoreIn(async () => nextStorage, scope);
+  const client = connect(fake);
+  const request = client.request.bind(client);
+  vi.spyOn(client, "request").mockImplementation((input, options) =>
+    input.type === "turn.steps" ? new Promise(() => {}) : request(input, options),
+  );
+  const next = open(client, "kept", undefined, undefined, nextKept);
+  await until(() => rows("thread.block").some((row) => row.kind === "work"), "reopened thread");
+  next.handle({ type: "steps.open", ordinal, block: "work" });
+  await until(() => latest("thread.steps")?.state === "ready", "restored tool log");
+  const pages = await until(
+    () => native.frames.find((frame) => frame.type === "thread.stepsPage"),
+    "restored rows",
+  );
+  expect((pages.rows as { text: string }[]).map((row) => row.text)).toEqual([
+    "Read file-0.ts",
+    "Read file-1.ts",
+    "Read file-2.ts",
+  ]);
+  await nextKept.set("other/1", { version: 1 });
+  await forgetNativeTurnSteps(call, nextStorage, scope.hostId, "kept");
+  expect(await nextKept.get(`kept/${ordinal}`)).toBeUndefined();
+  expect(await nextKept.get("other/1")).toEqual({ version: 1 });
+  await nextStorage.clear();
+  expect(await nextKept.get("other/1")).toBeUndefined();
+});
+
+test.each([false, true])(
+  "a cache reload reopens its thread unless the phone navigated meanwhile: %s",
+  (moved) => {
+    const fake = fixture();
+    for (const id of ["one", "two"])
+      fake.createThread({ id, workspaceId: "ace", title: id, provider: "codex" });
+    const client = connect(fake);
+    const visit = new ThreadVisit(pump, { leaving() {}, opened() {} });
+    visit.open(client, "one", false);
+    const reload = visit.reloads(client);
+    reload.leave();
+    if (moved) visit.open(client, "two", false);
+    reload.reopen("one");
+    expect(visit.threadId).toBe(moved ? "two" : "one");
+    visit.back();
+  },
+);

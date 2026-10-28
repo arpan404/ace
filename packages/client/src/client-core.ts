@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { KeptHistory } from "./kept-history.ts";
 import { SendOps } from "./send-ops.ts";
 import { HostId } from "@ace/protocol";
 import { attachmentReadScope } from "./attachment-scope.ts";
@@ -19,6 +21,7 @@ import type {
 } from "./long-thread.ts";
 import { ReadMarkers } from "./read-markers.ts";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
+import { textChunks } from "./utf16.ts";
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
@@ -30,6 +33,8 @@ import {
   TextSource,
   CommandResult,
   ItemsPage,
+  ItemsWindowRequest,
+  ItemsWindowResponse,
   type RegistryResult,
   type ServerMessage,
   type CommandPayload,
@@ -159,6 +164,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #hostId: string | undefined;
   /** Read snapshots under the verified host id; forgotten once the daemon refuses us. */
   #snapshots: HostSnapshots | undefined;
+  #history: KeptHistory | undefined;
   #binding: Promise<void> | undefined;
   #pendingSendEntries = new Map<string, PendingSend>();
   #waitingHints = new Map<string, () => void>();
@@ -168,6 +174,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     this.#hostId = options.expectedHostId;
     this.#snapshots =
       options.readSnapshots && new HostSnapshots(options.readSnapshots, options.expectedHostId);
+    if (this.#snapshots && options.readSnapshots?.deletePrefix && options.now)
+      this.#history = new KeptHistory(this.#snapshots, options.now);
     const limits = { ...defaultLimits, ...options.limits };
     for (const value of Object.values(limits))
       if (!Number.isSafeInteger(value) || value <= 0) throw new ClientError("limit");
@@ -535,7 +543,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
    */
   forgetThread(id: string): Promise<void> {
     this.#subscriptions.discard(id);
-    return this.#snapshots?.delete(`thread:${id}`) ?? Promise.resolve();
+    return Promise.all([this.#snapshots?.delete(`thread:${id}`), this.#history?.forget(id)]).then(
+      () => {},
+    );
   }
   /**
    * Drop every read snapshot and every thread store no view holds. Threads still open stay live
@@ -543,6 +553,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
    */
   clearReadSnapshots(): Promise<void> {
     this.#subscriptions.discardUnheld();
+    this.#history?.clear();
     return this.#snapshots?.clearAll() ?? Promise.resolve();
   }
   cachedThread(id: string): ThreadSource | undefined {
@@ -896,8 +907,27 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   turnsPage(input: TurnsPageInput, options: RequestOptions = {}) {
     return this.#threadReply({ type: "turns.page", ...input }, options);
   }
-  itemsWindow(input: ItemsWindowInput, options: RequestOptions = {}) {
-    return this.#threadReply({ type: "items.window", ...input }, options);
+  async itemsWindow(input: ItemsWindowInput, options: RequestOptions = {}) {
+    if (this.state !== "ready" || this.closed) throw new ClientError("offline");
+    const parsed = ItemsWindowRequest.safeParse({
+      type: "items.window",
+      requestId: "cache",
+      ...input,
+    });
+    if (!parsed.success) throw new ClientError("protocol", "Invalid read parameters");
+    const payload = parsed.data;
+    const load = () => this.#threadReply({ type: "items.window", ...input }, options);
+    return (
+      this.#history?.read(
+        input.threadId,
+        JSON.stringify(payload),
+        ItemsWindowResponse,
+        (page) =>
+          page.threadId === input.threadId && this.#historyRevision(input.threadId) === page.seq,
+        load,
+        options.signal,
+      ) ?? load()
+    );
   }
   threadSearch(input: ThreadSearchInput, options: RequestOptions = {}) {
     return this.#threadReply({ type: "thread.search", ...input }, options);
@@ -932,19 +962,50 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     if (!parsed.success) return Promise.reject(new ClientError("protocol", "Invalid read mark"));
     return this.#readMarkers.mark(parsed.data, options);
   }
-  itemsPage(
+  async itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },
     options: RequestOptions = {},
   ) {
-    return this.#readCore(
-      { type: "items.page", ...payload, before: payload.before ?? Number.MAX_SAFE_INTEGER },
-      (value) => {
-        const page = ItemsPage.parse(value);
-        if (page.threadId !== payload.threadId) throw new ClientError("protocol");
-        return page;
-      },
-      options,
+    if (this.state !== "ready" || this.closed) throw new ClientError("offline");
+    const request = {
+      type: "items.page" as const,
+      ...payload,
+      before: payload.before ?? Number.MAX_SAFE_INTEGER,
+    };
+    if (!CoreClientMessage.safeParse({ ...request, requestId: "cache" }).success)
+      throw new ClientError("protocol", "Invalid read parameters");
+    const load = () =>
+      this.#readCore(
+        request,
+        (value) => {
+          const page = ItemsPage.parse(value);
+          if (page.threadId !== payload.threadId) throw new ClientError("protocol");
+          return page;
+        },
+        options,
+      );
+    return (
+      this.#history?.read(
+        payload.threadId,
+        JSON.stringify(request),
+        ItemsPage.refine((page) =>
+          page.items.every(
+            (item) => page.itemSeqs !== undefined && Object.hasOwn(page.itemSeqs, item.id),
+          ),
+        ),
+        (page) =>
+          page.threadId === payload.threadId &&
+          this.#historyRevision(payload.threadId) === page.seq,
+        load,
+        options.signal,
+      ) ?? load()
     );
+  }
+  #historyRevision(threadId: string): number | undefined {
+    const thread = this.#subscriptions.held(threadId);
+    return this.state === "ready" && thread && !thread.syncing && !thread.unconfirmed
+      ? thread.cursor
+      : undefined;
   }
   async loadOlder(threadId: string, limit: number, options: RequestOptions = {}): Promise<void> {
     const store = this.#subscriptions.held(threadId);
@@ -983,24 +1044,55 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   async *text(source: TextSource, options: TextReadOptions = {}): AsyncGenerator<string> {
     const parsed = TextSource.safeParse(source);
     if (!parsed.success || parsed.data.bytes % 2) throw new ClientError("protocol");
-    let offset = options.offset ?? 0;
+    const offset = options.offset ?? 0;
     if (!Number.isSafeInteger(offset) || offset < 0 || offset % 2 || offset > parsed.data.bytes)
       throw new ClientError("protocol", "Invalid text offset");
+    if (offset === parsed.data.bytes) return;
+    if (this.state !== "ready" || this.closed) throw new ClientError("offline");
+    const cache =
+      parsed.data.bytes <= 8 * 1024 * 1024
+        ? this.#history?.entry(
+            `text:${parsed.data.streamId}`,
+            `${parsed.data.bytes}/${offset}`,
+            z.string().refine((value) => value.length === (parsed.data.bytes - offset) / 2),
+            () => !this.closed && this.state === "ready",
+            options.signal,
+          )
+        : undefined;
+    const kept = await cache?.get();
+    if (kept !== undefined) {
+      yield* textChunks(kept);
+      return;
+    }
+    const chunks: string[] = [];
+    for await (const chunk of this.#textChunks(parsed.data, offset, options)) {
+      if (cache) chunks.push(chunk);
+      yield chunk;
+    }
+    await cache?.set(chunks.join(""));
+  }
+
+  async *#textChunks(
+    source: TextSource,
+    start: number,
+    options: TextReadOptions,
+  ): AsyncGenerator<string> {
+    let offset = start;
     let carry = "";
-    while (offset < parsed.data.bytes) {
+    while (offset < source.bytes) {
       const result = await this.outputRead(
         {
-          streamId: parsed.data.streamId,
+          streamId: source.streamId,
           offset,
-          limit: Math.min(256 * 1024, parsed.data.bytes - offset),
+          limit: Math.min(256 * 1024, source.bytes - offset),
         },
         options,
       );
       if (!result.bytes.length || result.bytes.length % 2) throw new ClientError("stale");
       offset = result.nextOffset;
       const decoded = decodeUtf16(result.bytes, carry);
-      carry = offset === parsed.data.bytes ? "" : decoded.carry;
-      const text = offset === parsed.data.bytes ? decoded.text + decoded.carry : decoded.text;
+      carry = offset === source.bytes ? "" : decoded.carry;
+      const text = offset === source.bytes ? decoded.text + decoded.carry : decoded.text;
       if (text.length) yield text;
     }
   }

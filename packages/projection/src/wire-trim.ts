@@ -1,5 +1,6 @@
 import type { Item, ServerMessage, Thread, ThreadListEntry } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
+import { structuredCopy } from "./structured-copy.ts";
 
 /*
  * Bytes a snapshot or page repeats for every item and thread, left out for a client that says it
@@ -135,6 +136,6 @@ export class WireRestorer {
     if (key === undefined) return;
     delete thread.capabilitiesRef;
     const capabilities = this.#capabilities.get(key);
-    if (capabilities !== undefined) thread.capabilities = structuredClone(capabilities);
+    if (capabilities !== undefined) thread.capabilities = structuredCopy(capabilities);
   }
 }

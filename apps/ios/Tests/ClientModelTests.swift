@@ -3,6 +3,39 @@ import Foundation
 @testable import Ace
 
 @Suite @MainActor struct ClientModelTests {
+    @Test func aSettledHistoryPageWaitsForTheReadersScrollToStop() throws {
+        let model = ClientModel(now: { 0 })
+        let reading = ThreadModel(id: "a")
+        reading.epoch = -1
+        model.reading = reading
+        var patch = item("older", text: "Earlier message", index: 0)
+        patch["epoch"] = -1
+        model.beginReadingScroll()
+        model.holdReading()
+        model.receive(try frame([patch, ["type": "reading.settled", "threadId": "a", "epoch": -1]]))
+        #expect(reading.items.isEmpty)
+        model.endReadingScroll()
+        #expect(reading.order == ["older"])
+        #expect(reading.items["older"]?.row.text == "Earlier message")
+    }
+
+    @Test func stoppingAScrollDoesNotExposeAPartialHistoryPage() throws {
+        let model = ClientModel(now: { 0 })
+        let reading = ThreadModel(id: "a")
+        reading.epoch = -1
+        model.reading = reading
+        var first = item("first", text: "First", index: 0)
+        first["epoch"] = -1
+        var second = item("second", text: "Second", index: 1)
+        second["epoch"] = -1
+        model.beginReadingScroll()
+        model.holdReading()
+        model.receive(try frame([first]))
+        model.endReadingScroll()
+        #expect(reading.items.isEmpty)
+        model.receive(try frame([second, ["type": "reading.settled", "threadId": "a", "epoch": -1]]))
+        #expect(reading.order == ["first", "second"])
+    }
     @Test func aDeltaUpdatesOnlyItsVisibleRowAndKeepsHistory() throws {
         let model = ClientModel(now: { 0 })
         model.open("a")

@@ -8,6 +8,48 @@ import XCTest
 @MainActor final class ThreadDrawerUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
+    func testRepeatedDrawerTransitionsKeepTheToolbarInItsOriginalPlace() throws {
+        let app = try launch()
+        open("thread.ios-form", in: app)
+        let sidebar = app.buttons["thread.sidebar"]
+        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
+        let original = sidebar.frame
+        screenshot("rail-before")
+        for cycle in 0..<3 {
+            sidebar.tap()
+            let closer = app.buttons["drawer.close"]
+            XCTAssertTrue(closer.waitForHittable(timeout: 10))
+            screenshot("rail-open-\(cycle)")
+            closer.tap()
+            XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
+            XCTAssertEqual(sidebar.frame.minX, original.minX, accuracy: 2)
+            XCTAssertEqual(sidebar.frame.minY, original.minY, accuracy: 2)
+            screenshot("rail-closed-\(cycle)")
+        }
+    }
+
+    func testTheDrawerKeepsThreadAndSearchRowsInsideItsVisibleEdges() throws {
+        let app = try launch()
+        open("thread.ios-form", in: app)
+        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
+        let sidebar = app.buttons["thread.sidebar"]
+        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
+        sidebar.tap()
+        let row = app.buttons["thread.ios-question"]
+        XCTAssertTrue(row.waitForHittable(timeout: 10))
+        let edge = app.buttons["drawer.close"]
+        XCTAssertTrue(edge.waitForExistence(timeout: 5))
+        screenshot("drawer-row-insets")
+        XCTAssertGreaterThanOrEqual(row.frame.minX, app.windows.firstMatch.frame.minX - 1)
+        XCTAssertLessThanOrEqual(row.frame.maxX, edge.frame.minX + 1)
+        app.buttons["inbox.search"].tap()
+        let command = app.buttons["search.command.new-thread"]
+        XCTAssertTrue(command.waitForHittable(timeout: 10))
+        screenshot("drawer-search-insets")
+        XCTAssertGreaterThanOrEqual(command.frame.minX, app.windows.firstMatch.frame.minX - 1)
+        XCTAssertLessThanOrEqual(command.frame.maxX, edge.frame.minX + 1)
+    }
+
     func testALongThreadTitleStaysBetweenTheSidebarAndMenuButtons() throws {
         let app = try launch()
         open("thread.ios-agents", in: app)

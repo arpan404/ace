@@ -18,16 +18,23 @@ struct TabBarPlace: UIViewControllerRepresentable {
         probe.apply()
         if probe.relayout != relayout {
             probe.relayout = relayout
-            Task { @MainActor in
+            probe.pending?.cancel()
+            probe.pending = Task { @MainActor [weak probe] in
                 for wait in [150, 450, 1000] {
-                    try? await Task.sleep(for: .milliseconds(wait))
+                    do { try await Task.sleep(for: .milliseconds(wait)) } catch { return }
+                    guard let probe, probe.viewIfLoaded?.window != nil else { return }
                     probe.apply()
                 }
             }
         }
     }
 
+    static func dismantleUIViewController(_ probe: Probe, coordinator: ()) {
+        probe.pending?.cancel()
+    }
+
     final class Probe: UIViewController {
+        var pending: Task<Void, Never>?
         var hidden = false
         var relayout = ""
         override func loadView() { view = UIView(); view.isUserInteractionEnabled = false }
@@ -43,6 +50,7 @@ struct TabBarPlace: UIViewControllerRepresentable {
         }
         override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); apply() }
         func apply() {
+            guard viewIfLoaded?.window != nil else { return }
             guard let tabs = tabBarController ?? sequence(first: parent, next: { $0?.parent }).compactMap({ $0 as? UITabBarController }).first else { return }
             guard tabs.isTabBarHidden != hidden else { return }
             tabs.setTabBarHidden(hidden, animated: false)

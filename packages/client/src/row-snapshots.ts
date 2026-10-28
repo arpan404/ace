@@ -140,7 +140,14 @@ export class RowSnapshots implements ReadSnapshotStorage {
       if (text === undefined) return Promise.resolve();
       // A listing taken before this write must not judge the record by its older use.
       this.#bump(key);
-      return this.#rows.setRecord(key, text).catch(() => {});
+      this.#grown += text.length;
+      const due = this.#grown >= this.#policy.maxBytes / 16;
+      return this.#rows.setRecord(key, text).then(
+        () => {
+          if (due) void this.#sweep();
+        },
+        () => {},
+      );
     }
     let write: ThreadWrite | undefined;
     try {
@@ -180,6 +187,16 @@ export class RowSnapshots implements ReadSnapshotStorage {
   delete(key: string): Promise<void> {
     this.#forget(key);
     return this.#rows.drop([key]);
+  }
+
+  async deletePrefix(prefix: string): Promise<void> {
+    const epoch = this.#epoch;
+    const keys = (await this.#rows.index())
+      .filter((entry) => entry.key.startsWith(prefix))
+      .map((entry) => entry.key);
+    if (epoch !== this.#epoch) return;
+    for (const key of keys) this.#forget(key);
+    if (keys.length) await this.#rows.drop(keys);
   }
 
   #version(key: string): number {

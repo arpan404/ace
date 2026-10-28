@@ -1,5 +1,5 @@
 import type { ChangeTap, ClientCore, ThreadSource } from "@ace/client";
-import { TurnStepsCache, type TurnStepsEntry } from "@ace/client/turn-steps";
+import { TurnStepsCache, type TurnStepsEntry, type TurnStepsStore } from "@ace/client/turn-steps";
 import type { Item, ThreadId } from "@ace/protocol";
 import { rootRunOf } from "@ace/ui-core";
 import { scheduler } from "./host.ts";
@@ -60,10 +60,17 @@ export class StepsFollower {
   readonly #slots = new Map<number, Slot>();
   readonly #stop: () => void;
 
-  constructor(client: ClientCore, store: ThreadSource, threadId: ThreadId, put: Put) {
+  constructor(
+    client: ClientCore,
+    store: ThreadSource,
+    threadId: ThreadId,
+    put: Put,
+    kept?: TurnStepsStore,
+  ) {
     this.#client = client;
     this.#cache = new TurnStepsCache({
       read: (input, options) => client.request(input, options),
+      store: kept,
       maxSteps: 2000,
       maxTurnSteps: 500,
       // JavaScriptCore has no timers of its own; the host's run loop keeps the grace period.

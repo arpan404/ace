@@ -1,13 +1,9 @@
 import SwiftUI
 
-/// The thread's composer. At rest it is one slim capsule: +, the message, a settings button and the
-/// round Send. Once it is big (tapped into, or the message wraps or holds words) it opens like the
-/// web's: the message on top and, inside the same glass, one row of + and the access mode on the
-/// left, the model, its effort and Send on the right; the settings button goes, its controls now
-/// showing. The message keeps its place in both, so focus and the draft never drop. While the agent works an empty composer's round
-/// button stops the whole tree; a typed message goes the way the bridge says (steer or queue), and
-/// a long press offers the other delivery where the provider can steer. Files on the next message
-/// sit above the field.
+/// The thread's composer with a separate add-menu button on its left. The message field
+/// expands to show access, model and effort controls while the add-menu presenter stays put.
+/// An empty composer's action stops the working tree; a typed message steers or queues as the
+/// bridge directs. Files on the next message sit above the field.
 struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Settings: View>: View {
     let controls: ControlsRow?
     let stopping: Bool
@@ -76,52 +72,54 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                     .padding(.horizontal, AceTheme.Spacing.lg).padding(.bottom, AceTheme.Spacing.xs)
             }
             top()
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                HStack(alignment: .center, spacing: AceTheme.Spacing.none) {
-                    if !big { plus }
-                    input
-                    if !big {
-                        settings()
-                            .frame(width: ComposerControlRow.height, height: ComposerControlRow.height)
-                            .background(AceTheme.Colours.fill, in: Circle())
-                            .padding(.trailing, AceTheme.Spacing.xxs)
-                        action
+            ComposerDock { leading(pick) } content: {
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    HStack(alignment: .center, spacing: AceTheme.Spacing.none) {
+                        input
+                        if !big {
+                            settings()
+                                .frame(width: ComposerControlRow.height, height: ComposerControlRow.height)
+                                .background(AceTheme.Colours.fill, in: Circle())
+                                .padding(.trailing, AceTheme.Spacing.xxs)
+                            action
+                        }
+                    }
+                    .padding(.horizontal, big ? AceTheme.Spacing.none : AceTheme.Spacing.xs)
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs)
+                    if big {
+                        HStack(spacing: AceTheme.Spacing.none) {
+                            access()
+                            Spacer(minLength: AceTheme.Spacing.xs)
+                            model()
+                            action
+                        }
+                        .padding(.horizontal, AceTheme.Spacing.xs)
+                        .padding(.bottom, AceTheme.Spacing.xxs)
+                        // The row keeps its height when a tall request and the keyboard leave little room.
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
                     }
                 }
-                .padding(.horizontal, big ? AceTheme.Spacing.none : AceTheme.Spacing.xs)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs)
-                if big {
-                    HStack(spacing: AceTheme.Spacing.none) {
-                        plus
-                        access()
-                        Spacer(minLength: AceTheme.Spacing.xs)
-                        model()
-                        action
+                .aceContainerShape(AceShape.field)
+                .composerGlass(in: AceShape.field)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("composer.surface")
+                // A file dragged over the composer: its edge brightens where it will land.
+                .overlay {
+                    if dropping {
+                        AceShape.field.strokeBorder(AceTheme.Colours.foreground.opacity(0.35), lineWidth: AceTheme.Dimensions.border * 2)
+                            .allowsHitTesting(false).transition(.opacity)
                     }
-                    .padding(.horizontal, AceTheme.Spacing.xs)
-                    .padding(.bottom, AceTheme.Spacing.xxs)
-                    // The row keeps its height when a tall request and the keyboard leave little room.
-                    .fixedSize(horizontal: false, vertical: true)
-                    .transition(.opacity)
                 }
-            }
-            .aceContainerShape(AceShape.field)
-            .composerGlass(in: AceShape.field)
-            // A file dragged over the composer: its edge brightens where it will land.
-            .overlay {
-                if dropping {
-                    AceShape.field.strokeBorder(AceTheme.Colours.foreground.opacity(0.35), lineWidth: AceTheme.Dimensions.border * 2)
-                        .allowsHitTesting(false).transition(.opacity)
+                .onDrop(of: intake == nil ? [] : [.item], isTargeted: $dropping) { providers in
+                    guard let intake else { return false }
+                    intake(providers)
+                    feedback += 1
+                    return true
                 }
+                .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: dropping)
+                .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: big)
             }
-            .onDrop(of: intake == nil ? [] : [.item], isTargeted: $dropping) { providers in
-                guard let intake else { return false }
-                intake(providers)
-                feedback += 1
-                return true
-            }
-            .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: dropping)
-            .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: big)
         }
         .padding(.horizontal, bar.composer).padding(.bottom, bar.bottom)
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: wraps)
@@ -162,11 +160,6 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
             case .skipped: break
             }
         }
-    }
-    private var plus: some View {
-        leading(pick)
-            .frame(width: ComposerControlRow.height, height: ComposerControlRow.height)
-            .contentShape(Rectangle())
     }
     private var input: some View {
         NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } },

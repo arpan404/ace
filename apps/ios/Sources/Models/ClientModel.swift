@@ -56,9 +56,11 @@ import QuartzCore
     /// Around each frame that moves the reading rows, so the feed keeps the reader's place.
     @ObservationIgnored var readingWillMove: (() -> Void)?
     @ObservationIgnored var readingMoved: (() -> Void)?
-    /// A requested page's reading patches, held until the bridge says the read settled, so a
-    /// page lands as one change rather than one per frame. Nil while nothing is requested.
+    /// Reading patches wait for both page completion and the end of user scrolling, then
+    /// land together so anchor restoration cannot fight a drag or deceleration.
     @ObservationIgnored private var readingHeld: [BridgePatch]?
+    @ObservationIgnored private var readingScrolling = false
+    @ObservationIgnored private var readingPageHeld = false
     /// An item a search hit asked to show once its thread is open.
     var focusOnOpen: ThreadFocus?
     var inboxLoaded = false
@@ -300,15 +302,28 @@ import QuartzCore
         return nil
     }
     /// Hold the reading rows from here until the page asked for settles.
-    func holdReading() { if readingHeld == nil { readingHeld = [] } }
+    func holdReading() { readingPageHeld = true; if readingHeld == nil { readingHeld = [] } }
+    func beginReadingScroll() {
+        readingScrolling = true
+        if reading != nil, readingHeld == nil { readingHeld = [] }
+    }
+    func endReadingScroll() {
+        readingScrolling = false
+        flushReading()
+    }
     /// Apply what was held now: the read failed or was cancelled, so no settle will come.
     func releaseReading() {
+        readingPageHeld = false
+        flushReading()
+    }
+    private func flushReading() {
+        guard !readingScrolling, !readingPageHeld else { return }
         guard let held = readingHeld else { return }
         readingHeld = nil
         if !held.isEmpty { apply(held) }
     }
     /// The reading view ended: what it held goes with it.
-    func dropReading() { readingHeld = nil; reading = nil }
+    func dropReading() { readingHeld = nil; readingPageHeld = false; readingScrolling = false; reading = nil }
     private func apply(_ patches: [BridgePatch]) {
         var reorder = false
         var added: [String] = []

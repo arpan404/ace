@@ -1,3 +1,4 @@
+import type { TurnStepsStore } from "@ace/client/turn-steps";
 import { SubagentRetries } from "./subagent-retries.ts";
 import type { CatalogEntry } from "@ace/protocol";
 import type { ClientCore, Lease, ThreadSource } from "@ace/client";
@@ -22,6 +23,7 @@ export interface VisitHooks {
   opened(threadId: string, epoch: number, store: ThreadSource): void;
   /** The history window the person reads in `threadId`, when one is open. */
   reading?(threadId: string): ThreadSource | undefined;
+  keptSteps?(): TurnStepsStore | undefined;
 }
 
 export class ThreadVisit {
@@ -92,6 +94,7 @@ export class ThreadVisit {
       () => this.#hooks.reading?.(threadId),
       kept,
       this.#retries,
+      this.#hooks.keptSteps?.(),
     );
     this.#hooks.opened(threadId, this.#epoch, lease.store);
   }
@@ -106,14 +109,18 @@ export class ThreadVisit {
   /** The reload hooks `chat-cache.ts` drives for this phone's open thread. */
   reloads(client: ClientCore): Pick<ChatCacheHost, "openThread" | "leave" | "reopen"> {
     let kept: AttachmentTray | undefined;
+    let reloadEpoch = this.#epoch;
     return {
       openThread: () => this.#threadId,
       leave: () => {
         // The message's files stay on it while the transcript is read again.
         kept = this.#session?.keepTray();
         this.#leave();
+        reloadEpoch = this.#epoch;
       },
       reopen: (threadId) => {
+        // Storage may finish after the person navigated somewhere else.
+        if (this.#epoch !== reloadEpoch) return;
         this.open(client, threadId, false, kept);
         kept = undefined;
       },

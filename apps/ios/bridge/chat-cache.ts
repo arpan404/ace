@@ -28,6 +28,8 @@ export interface ChatCacheHost {
   leave(): void;
   /** Open `threadId` cold, as native asked by `cache.reload`. */
   reopen(threadId: string): void;
+  /** Drop persisted tool logs when forcing a fresh read of this thread. */
+  forgetSteps?(threadId: string): Promise<void>;
 }
 
 export function handleCacheAction(action: CacheAction, host: ChatCacheHost): Promise<void> {
@@ -45,6 +47,13 @@ export function handleCacheAction(action: CacheAction, host: ChatCacheHost): Pro
       // read, so that read is a miss and the thread comes from the machine.
       if (open) host.leave();
       const forgotten = host.client.forgetThread(action.threadId).catch(() => {});
+      if (host.forgetSteps)
+        return forgotten
+          .then(() => host.forgetSteps?.(action.threadId).catch(() => {}))
+          .then(() => {
+            if (open) host.reopen(action.threadId);
+            return publishUsage(host);
+          });
       if (open) host.reopen(action.threadId);
       return forgotten.then(() => publishUsage(host));
     }
