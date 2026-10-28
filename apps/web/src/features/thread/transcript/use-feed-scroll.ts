@@ -18,7 +18,7 @@ import {
   type ScrollMode,
 } from "./scroll-mode.ts";
 import { useDockShift, useStayPinned } from "./scroll.ts";
-import { useLayout, type SessionKey } from "@/lib/layout.tsx";
+import { useLayoutServices, type SessionKey } from "@/lib/layout.tsx";
 import {
   createScrollMemory,
   restoreAt,
@@ -81,7 +81,7 @@ const threadScrollsKey: SessionKey<ScrollMemory> = { name: "thread scrolls" };
 
 /** Reading positions of the threads left in this app's session. */
 export function useThreadScrolls(): ScrollMemory {
-  return useLayout().sessionValue(threadScrollsKey, createScrollMemory);
+  return useLayoutServices().sessionValue(threadScrollsKey, createScrollMemory);
 }
 
 const distanceToEnd = (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight;

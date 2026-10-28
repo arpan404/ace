@@ -1,3 +1,4 @@
+import { useSampleTime, useWallClock } from "@/lib/time.ts";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -32,14 +33,11 @@ type Devices = ReturnType<typeof useDevices>;
 /** The stream's subtitle numbers, read once a second from the frames the screen drew. */
 function useStreamStats(sameClock: boolean, live: boolean) {
   const meter = useMemo(() => new StreamMeter({ sameClock }), [sameClock]);
-  const [stats, setStats] = useState<StreamStats>();
-  useEffect(() => {
-    if (!live) return;
-    const timer = setInterval(() => setStats(meter.read(Date.now())), 1000);
-    return () => clearInterval(timer);
-  }, [meter, live]);
+  const now = useSampleTime(live);
+  const clock = useWallClock();
+  const stats = useMemo(() => (live ? meter.read(now) : undefined), [meter, now, live]);
   const onFrame = (shown: ShownScreen) =>
-    meter.add({ capturedAt: shown.capturedAt, shownAt: Date.now() });
+    meter.add({ capturedAt: shown.capturedAt, shownAt: clock() });
   return { stats: live ? stats : undefined, onFrame, meter };
 }
 

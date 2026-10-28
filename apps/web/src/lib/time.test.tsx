@@ -1,6 +1,6 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { useSeconds } from "./time.ts";
+import { createTimeSource, TimeContext, useSampleTime, useSeconds } from "./time.ts";
 
 let state: DocumentVisibilityState = "visible";
 const setVisibility = (next: DocumentVisibilityState) => {
@@ -30,5 +30,27 @@ test("a live clock stops rendering while the page is hidden and catches up when 
   expect(renders).toBe(hiddenAt);
   act(() => setVisibility("visible"));
   expect(view.container.textContent).toBe("2026-10-03T12:01:03.000Z");
+  view.unmount();
+});
+
+function Samples() {
+  return (
+    <output>
+      {useSeconds(true)}:{useSampleTime(true)}
+    </output>
+  );
+}
+
+test("shared second ticks preserve millisecond sampling precision", () => {
+  vi.useFakeTimers({ now: 10_375 });
+  const time = createTimeSource(() => Date.now());
+  const view = render(
+    <TimeContext value={time}>
+      <Samples />
+    </TimeContext>,
+  );
+  expect(view.container.textContent).toBe("10000:10375");
+  act(() => vi.advanceTimersByTime(1_000));
+  expect(view.container.textContent).toBe("11000:11375");
   view.unmount();
 });

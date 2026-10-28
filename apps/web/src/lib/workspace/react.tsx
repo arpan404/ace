@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
-import { useLayout } from "@/lib/layout.tsx";
+import { useLayoutServices } from "@/lib/layout.tsx";
 import { workspaceActions, type WorkspaceActions } from "./actions.ts";
 import { emptyWorkspace, type ScopeWorkspace } from "./model.ts";
 import type { PanelPlace } from "./places.ts";
@@ -11,7 +11,7 @@ import { WorkspaceStore } from "./store.ts";
  * `<LayoutProvider>`, persisted to that provider's storage.
  */
 export function useWorkspaceStore(): WorkspaceStore {
-  const { storage, workspaceStore } = useLayout();
+  const { storage, workspaceStore } = useLayoutServices();
   return workspaceStore(() => new WorkspaceStore({ storage }));
 }
 

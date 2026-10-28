@@ -110,6 +110,8 @@ export interface SessionKey<T> {
   /** Never set: carries `T` for the compiler. */
   readonly holds?: T;
 }
+type LayoutServices = Pick<LayoutValue, "storage" | "workspaceStore" | "sessionValue">;
+const ServicesContext = createContext<LayoutServices | undefined>(undefined);
 const LayoutContext = createContext<LayoutValue | undefined>(undefined);
 
 export function LayoutProvider(props: {
@@ -165,6 +167,10 @@ export function LayoutProvider(props: {
       return values.get(key) as T;
     };
   });
+  const services = useMemo(
+    () => ({ storage, workspaceStore, sessionValue }),
+    [storage, workspaceStore, sessionValue],
+  );
   const change = useCallback(
     (next: (previous: ShellLayout) => ShellLayout) =>
       setLayout((previous) => {
@@ -221,7 +227,11 @@ export function LayoutProvider(props: {
       sessionValue,
     ],
   );
-  return <LayoutContext.Provider value={value}>{props.children}</LayoutContext.Provider>;
+  return (
+    <ServicesContext.Provider value={services}>
+      <LayoutContext.Provider value={value}>{props.children}</LayoutContext.Provider>
+    </ServicesContext.Provider>
+  );
 }
 
 export function useLayout(): LayoutValue {
@@ -235,5 +245,12 @@ export function useLayout(): LayoutValue {
  * workspace on its own) keep their state in memory there instead.
  */
 export function useOptionalStorage(): KeyValueStorage | undefined {
-  return useContext(LayoutContext)?.storage;
+  return useContext(ServicesContext)?.storage;
+}
+
+/** Stable app services, independent of shell visibility and action registrations. */
+export function useLayoutServices(): LayoutServices {
+  const value = useContext(ServicesContext);
+  if (!value) throw new Error("useLayoutServices needs a <LayoutProvider>");
+  return value;
 }

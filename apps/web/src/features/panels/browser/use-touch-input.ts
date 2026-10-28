@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useMediaQuery } from "@/lib/media.ts";
+import { useEffect, useRef, type PointerEvent } from "react";
 import type { ForwardedInput } from "../sources.ts";
 import {
   TouchGestures,
@@ -9,20 +10,7 @@ import {
 
 /** The device's main pointer is a finger: the page should lay out and behave as on a phone. */
 export function useTouchScreen(): boolean {
-  const [touch, setTouch] = useState(() => coarse()?.matches === true);
-  useEffect(() => {
-    const query = coarse();
-    if (!query) return;
-    const changed = () => setTouch(query.matches);
-    changed();
-    query.addEventListener("change", changed);
-    return () => query.removeEventListener("change", changed);
-  }, []);
-  return touch;
-}
-
-function coarse(): MediaQueryList | undefined {
-  return typeof matchMedia === "function" ? matchMedia("(pointer: coarse)") : undefined;
+  return useMediaQuery("(pointer: coarse)", false);
 }
 
 /**
