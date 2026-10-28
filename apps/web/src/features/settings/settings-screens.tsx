@@ -179,10 +179,10 @@ export function ComputerUseSettingsScreen() {
 
 /**
  * `/settings`: on a narrow window, where the sidebar is a sheet, the page list is the page (and
- * leaves the sheet to the threads); wider, Overview.
+ * leaves the sheet to the threads); wider, General.
  */
 export function SettingsIndexScreen() {
-  return <ViewListPage title="Settings" fallback={<Navigate to="/settings/agents" replace />} />;
+  return <ViewListPage title="Settings" fallback={<Navigate to="/settings/general" replace />} />;
 }
 
 const Prompts = lazy(() =>
