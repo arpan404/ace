@@ -84,20 +84,22 @@ Example:
 ```json
 {
   "thread": {
+    "acpAgentId": "example",
     "acpSupport": {
       "capabilities": {
         "imageInput": true,
         "planMode": false,
-        "resume": true
+        "resume": false
       },
-      "coverage": "generic",
-      "mcp": "http",
+      "coverage": "legacy",
+      "mcp": "unavailable",
       "modeSelection": false,
       "modelSelection": true,
       "raw": {
         "json": "example",
         "truncated": true
       },
+      "subagentSessions": false,
       "visibility": "limited"
     },
     "archivedAt": 3,
@@ -131,26 +133,11 @@ Example:
       "subagentTranscripts": true,
       "tokenUsage": true
     },
-    "createdAt": 3,
-    "delegatedBy": "example",
+    "createdAt": 0,
     "deletedAt": 5,
-    "effectiveCapabilities": {
-      "approvals": "none",
-      "backgroundTaskControl": true,
-      "backgroundVisibility": "partial",
-      "childControls": "read-only",
-      "fork": true,
-      "forkMode": "none",
-      "forkPoints": [],
-      "imageInput": true,
-      "interruptCascades": true,
-      "permissionModes": [],
-      "planMode": true,
-      "resume": true,
-      "rewindFiles": true,
-      "steer": true,
-      "subagentTranscripts": true,
-      "tokenUsage": false
+    "execution": {
+      "model": "example",
+      "provider": "acp"
     },
     "goal": {
       "lastReason": "example",
@@ -159,7 +146,17 @@ Example:
     },
     "hasSentMessage": true,
     "id": "example",
-    "installationId": "example",
+    "instanceId": "example",
+    "lineage": {
+      "lossy": true,
+      "mode": "native",
+      "parentAgentId": "example",
+      "parentThreadId": "example",
+      "point": {
+        "itemId": "example",
+        "type": "item"
+      }
+    },
     "live": {
       "step": "tests",
       "watching": [],
@@ -184,11 +181,20 @@ Example:
     "settledReason": "manual",
     "snoozedUntil": 2,
     "status": {
-      "state": "limited",
-      "until": 6
+      "state": "unresponsive"
+    },
+    "switch": {
+      "at": 0,
+      "lossy": false,
+      "selection": {
+        "model": "example",
+        "options": {},
+        "provider": "codex"
+      },
+      "state": "queued"
     },
     "title": "example",
-    "updatedAt": 2,
+    "updatedAt": 1,
     "workspaceId": "example"
   },
   "type": "thread.created"
@@ -431,7 +437,6 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "complete": false,
     "createdAt": 6,
     "diagnostic": false,
     "id": "example",
@@ -487,7 +492,6 @@ Example:
     "accountId": "example",
     "agentId": "example",
     "childThreadId": "example",
-    "complete": false,
     "createdAt": 5,
     "generation": 0,
     "id": "example",

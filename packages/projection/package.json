@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./activity-reads": "./src/activity-reads.ts",
-    "./offshift-mark": "./src/offshift-mark.ts"
+    "./offshift-mark": "./src/offshift-mark.ts",
+    "./wire-trim": "./src/wire-trim.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

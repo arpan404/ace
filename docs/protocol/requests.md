@@ -3290,13 +3290,12 @@ Semantic rule: Exactly one of token and ticket is required.
 | token | no | string |  |
 | ticket | no | string |  |
 | compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
+| trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
 
 Example:
 
 ```json
 {
-  "channel": "browser",
-  "compression": [],
   "deviceId": "example",
   "protocolVersion": 1,
   "ticket": "example",

@@ -8,6 +8,7 @@
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -48,7 +49,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "visualization"
       ],
@@ -60,6 +60,7 @@
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -100,7 +101,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "image"
       ],
@@ -119,6 +119,7 @@
           "type": "array"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -183,7 +184,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "role",
         "parts"
@@ -204,6 +204,7 @@
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -314,7 +315,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "origin",
         "childThreadId",
@@ -334,6 +334,7 @@
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -390,7 +391,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "origin",
         "results",
@@ -404,6 +404,7 @@
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -451,7 +452,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "text"
       ],
@@ -466,6 +466,7 @@
           "$ref": "https://ace.local/protocol/v1/ToolCall.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -499,7 +500,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "call"
       ],
@@ -517,6 +517,7 @@
           "$ref": "https://ace.local/protocol/v1/CommandId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -589,7 +590,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type",
         "level",
         "text"
@@ -602,6 +602,7 @@
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
         "complete": {
+          "default": true,
           "type": "boolean"
         },
         "createdAt": {
@@ -642,7 +643,6 @@
         "id",
         "agentId",
         "createdAt",
-        "complete",
         "type"
       ],
       "type": "object"

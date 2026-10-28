@@ -30,28 +30,13 @@ export class WorkspacePrLinks {
     const thread = this.store.getThread(id);
     if (!thread || thread.deletedAt !== undefined) return;
     const linkedPrs = this.links.summaries(id);
-    const first = linkedPrs[0];
-    const linkedPr = first
-      ? {
-          number: first.number,
-          state: first.state === "draft" ? ("open" as const) : first.state,
-          draft: first.state === "draft",
-          url: first.url,
-        }
-      : null;
-    if (
-      sameJson(thread.details?.linkedPrs, linkedPrs) &&
-      sameJson(thread.details?.linkedPr, linkedPr)
-    )
-      return;
+    // `linkedPrs` is the one record. The single-PR `linkedPr` older builds mirrored into it is
+    // dropped on the next publish, so a thread stops carrying the same PR twice.
+    const { linkedPr: mirror, ...details } = thread.details ?? {};
+    if (sameJson(thread.details?.linkedPrs, linkedPrs) && mirror === undefined) return;
     this.store.appendEvents(
       id,
-      [
-        {
-          type: "thread.client.updated",
-          changes: { details: { ...thread.details, linkedPrs, linkedPr } },
-        },
-      ],
+      [{ type: "thread.client.updated", changes: { details: { ...details, linkedPrs } } }],
       this.now(),
     );
   }

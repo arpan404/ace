@@ -135,7 +135,7 @@ test("a successful merge followed by a failed detail refresh stays disabled unti
     kind: "thread",
     threadId: ThreadId.parse("thread-retry-budget"),
   });
-  expect(view && "thread" in view && view.thread.details?.linkedPr?.state).toBe("merged");
+  expect(view && "thread" in view && view.thread.details?.linkedPrs?.[0]?.state).toBe("merged");
   expect((await menuItem("Request review…")).getAttribute("aria-disabled")).toBe("true");
   expect(
     screen.getByRole("menuitem", { name: /^Enable auto-merge/ }).getAttribute("aria-disabled"),

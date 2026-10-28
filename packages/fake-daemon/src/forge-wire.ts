@@ -85,11 +85,6 @@ export class FakeForgeWire {
         details: {
           ...thread.details,
           linkedPrs: [...made, ...kept],
-          linkedPr: {
-            number: status.ref.number,
-            state: status.state === "draft" ? "open" : status.state,
-            url: status.url,
-          },
         },
       },
     });
@@ -138,9 +133,6 @@ export class FakeForgeWire {
                   (pr.number !== p.number ||
                     (p.repo && JSON.stringify(pr.repo) !== JSON.stringify(p.repo))),
               ) ?? [],
-            linkedPr: this.status(id)
-              ? { number: this.status(id)?.ref.number ?? 0, state: "open" }
-              : null,
           },
         },
       });

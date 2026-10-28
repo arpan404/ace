@@ -36,13 +36,7 @@ export function checkout(options: {
     behind: 0,
     baseBranch: "main",
     repository,
-    linkedPr: options.pr
-      ? {
-          ...options.pr,
-          url: `https://github.com/acme/${options.workspaceId}/pull/${options.pr.number}`,
-        }
-      : null,
-    // The daemon publishes every link in `linkedPrs`; `linkedPr` mirrors the first.
+    // The daemon publishes every link in `linkedPrs`, and nothing else.
     ...(options.pr
       ? {
           linkedPrs: [

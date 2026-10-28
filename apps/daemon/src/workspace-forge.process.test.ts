@@ -152,6 +152,13 @@ test("a draft PR stays identified until unlink, which survives restart and in-fl
     updatedAt: 1,
   });
   store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+  // A thread published by an older build carries the single-PR mirror beside `linkedPrs`.
+  store.appendEvents(thread.id, [
+    {
+      type: "thread.client.updated",
+      changes: { details: { linkedPr: { number: 1, state: "closed" } } },
+    },
+  ]);
   const started = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let hold = false;
@@ -200,11 +207,12 @@ test("a draft PR stays identified until unlink, which survives restart and in-fl
         Command.parse({ id: "link", deviceId: "device", payload: { type: "forge.pr.link", link } }),
       ),
     ).toMatchObject({ ok: true });
-    expect(store.getThread(thread.id)?.details?.linkedPr).toMatchObject({
+    expect(store.getThread(thread.id)?.details?.linkedPrs?.[0]).toMatchObject({
       number: 7,
-      state: "open",
-      draft: true,
+      state: "draft",
     });
+    // The pull request is recorded once: the older mirror is gone, not left stale.
+    expect(store.getThread(thread.id)?.details).not.toHaveProperty("linkedPr");
     hold = true;
     const reading = runtime.read({
       type: "workspace.request",
@@ -223,7 +231,7 @@ test("a draft PR stays identified until unlink, which survives restart and in-fl
     ).toMatchObject({ ok: true });
     release.resolve();
     await reading;
-    expect(store.getThread(thread.id)?.details?.linkedPr).toBeNull();
+    expect(store.getThread(thread.id)?.details?.linkedPrs).toEqual([]);
   } finally {
     release.resolve();
     await runtime.close();
@@ -234,7 +242,7 @@ test("a draft PR stays identified until unlink, which survives restart and in-fl
     forgeRunner: () => async () => ({ code: 1, stdout: "unavailable", truncated: false }),
   });
   try {
-    expect(reopened.getThread(thread.id)?.details?.linkedPr).toBeNull();
+    expect(reopened.getThread(thread.id)?.details?.linkedPrs).toEqual([]);
     expect(
       await resumed.read({
         type: "workspace.request",

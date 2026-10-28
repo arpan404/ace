@@ -34,7 +34,19 @@ async function organized(...facts: Fact[]) {
       [
         {
           type: "thread.client.updated",
-          changes: { details: { linkedPr: { number: 42, state: "merged" } } },
+          changes: {
+            details: {
+              linkedPrs: [
+                {
+                  number: 42,
+                  state: "merged",
+                  repo: { forge: "github", host: "github.com", owner: "acme", name: "ace" },
+                  url: "https://github.com/acme/ace/pull/42",
+                  updatedAt: 1,
+                },
+              ],
+            },
+          },
         },
       ],
       h.clock.now(),
