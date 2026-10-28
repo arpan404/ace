@@ -1,6 +1,6 @@
 import { stepHighlight } from "@ace/ui-core";
 import { compareRanked, rankCommand } from "@ace/ui-core/command-rank";
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import {
   CommandOption,
@@ -22,6 +22,8 @@ export interface CommandChoice {
   /** The row's accessible name when the aside adds to the label ("Studio, Offline"). */
   spoken?: string | undefined;
   disabled?: boolean;
+  /** A hairline above the row, separating it from the rows above (an action after items). */
+  separatorBefore?: boolean | undefined;
 }
 
 /**
@@ -97,24 +99,28 @@ export function CommandChoices(props: {
       </CommandStepRow>
       <CommandStepList id={listId} label={props.listLabel}>
         {rows.map((choice, at) => (
-          <CommandOption
-            key={choice.id}
-            id={`${listId}-${at}`}
-            active={at === current}
-            label={choice.spoken ?? choice.label}
-            disabled={choice.disabled}
-            onPoint={() => setActive(at)}
-            onPick={() => choose(choice)}
-          >
-            <Icon icon={choice.icon} />
-            <span className="min-w-0 flex-1 truncate">
-              {choice.label}
-              {choice.detail && (
-                <span className="ml-1.5 text-sm text-muted-foreground">{choice.detail}</span>
-              )}
-            </span>
-            {choice.aside}
-          </CommandOption>
+          <Fragment key={choice.id}>
+            {at > 0 && choice.separatorBefore ? (
+              <div aria-hidden="true" className="mx-2 my-1 border-t border-border" />
+            ) : null}
+            <CommandOption
+              id={`${listId}-${at}`}
+              active={at === current}
+              label={choice.spoken ?? choice.label}
+              disabled={choice.disabled}
+              onPoint={() => setActive(at)}
+              onPick={() => choose(choice)}
+            >
+              <Icon icon={choice.icon} />
+              <span className="min-w-0 flex-1 truncate">
+                {choice.label}
+                {choice.detail && (
+                  <span className="ml-1.5 text-sm text-muted-foreground">{choice.detail}</span>
+                )}
+              </span>
+              {choice.aside}
+            </CommandOption>
+          </Fragment>
         ))}
         {rows.length === 0 && (
           <div role="status" className="py-8 text-center text-ui text-muted-foreground">

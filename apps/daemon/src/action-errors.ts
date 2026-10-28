@@ -42,11 +42,15 @@ export function actionErrorCode(error: unknown): string {
       "workspace_change_in_progress",
       "workspace_preparing",
       "workspace_root_changed",
+      "diff_changed",
       "thread_not_found",
       "engine_unavailable",
       "script_not_found",
       "script_shell_unsupported",
       "editor_not_found",
+      "path_not_found",
+      "path_not_openable",
+      "owner_only",
       "terminal_limit",
     ].includes(error.message)
   )

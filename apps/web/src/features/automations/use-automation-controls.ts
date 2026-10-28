@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { entrySource, type AutomationEntry } from "@/features/automation-data/index.ts";
-import { runSummary } from "./labels.ts";
+import { duplicateAutomation, runSummary } from "@ace/ui-core/automations";
 import { staleDeleteMessage, staleWriteMessage } from "@/features/automation-data/index.ts";
 import { clearRunIntent, ensureRunIntent, getRunIntent } from "@/features/automation-data/index.ts";
 import { useAutomationActions, useAutomationLists } from "@/features/automation-data/index.ts";
@@ -148,12 +148,7 @@ export function useAutomationControls(
     },
     duplicate() {
       if (!guard()) return;
-      const copy = {
-        ...entry.automation,
-        id: `auto-${crypto.randomUUID()}`,
-        title: `${entry.automation.title.slice(0, 251)} copy`,
-        enabled: false,
-      };
+      const copy = duplicateAutomation(entry.automation, `auto-${crypto.randomUUID()}`);
       save(copy, null).then(
         () => {
           release();

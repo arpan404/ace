@@ -168,6 +168,37 @@ export const SettingsValues = z.object({
         "Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.",
       examples: ["", "wss://relay.example.invalid/"],
     }),
+  /**
+   * Whether this machine wakes paired phones through ace's push gateway when their app is
+   * suspended or closed (ADR 0106). The gateway sees only encrypted alerts. Off: phones get
+   * alerts while the app runs and catch up when it opens.
+   */
+  "notifications.remotePush": z.boolean(),
+  /** The push gateway's HTTPS origin; ace's own by default. HTTP only on 127.0.0.1. */
+  "notifications.pushGatewayUrl": z
+    .string()
+    .max(2048)
+    .refine((value) => {
+      try {
+        const url = new URL(value);
+        return (
+          (url.protocol === "https:" ||
+            (url.protocol === "http:" && url.hostname === "127.0.0.1")) &&
+          !url.username &&
+          !url.password &&
+          url.pathname === "/" &&
+          !url.search &&
+          !url.hash
+        );
+      } catch {
+        return false;
+      }
+    }, "Use an HTTPS origin without a path")
+    .meta({
+      "x-ace-constraint":
+        "An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.",
+      examples: ["https://push.acehq.dev"],
+    }),
   "automations.enabled": z.boolean(),
   /**
    * Delegated children one parent runs at once on this machine; further children wait queued
@@ -238,6 +269,21 @@ export const SettingsSet = z.object({
   value: JsonValue,
   layer: SettingsLayer,
 });
+/**
+ * Several settings on one layer, all or none: every entry is validated before any is written,
+ * then they are written in one commit, so subscribers see them change together. Settings with
+ * their own handling (project folders, the downloads folder, host and remote) are set one at a
+ * time with `settings.set`.
+ */
+export const SettingsSetMany = z.object({
+  type: z.literal("settings.setMany"),
+  requestId,
+  entries: z
+    .array(z.object({ key: z.string().min(1).max(256), value: JsonValue }))
+    .min(1)
+    .max(32),
+  layer: SettingsLayer,
+});
 /** Reset global preferences atomically; host/remote preferences are local-only. */
 export const SettingsReset = z.object({ type: z.literal("settings.reset"), requestId });
 export const SettingsSubscribe = z.object({
@@ -255,6 +301,7 @@ export const SettingsUnsubscribe = z.object({
 export const SettingsRequest = z.discriminatedUnion("type", [
   SettingsGet,
   SettingsSet,
+  SettingsSetMany,
   SettingsReset,
   SettingsSubscribe,
   SettingsUnsubscribe,

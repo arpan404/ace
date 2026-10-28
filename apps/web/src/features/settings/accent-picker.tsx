@@ -9,9 +9,9 @@ import {
   accentNames,
   themedPalette,
   type AccentId,
-} from "@/theme/accent.ts";
-import { nearStatus } from "@/theme/accent-fit.ts";
-import { themes } from "@/theme/palettes.ts";
+  nearStatus,
+  themes,
+} from "@ace/themes";
 import { useTheme } from "@/theme/theme-provider.tsx";
 
 const swatch =

@@ -49,6 +49,16 @@
         "live": {
           "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"
         },
+        "movedFrom": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ThreadMovedFrom.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "pinOrder": {
           "anyOf": [
             {

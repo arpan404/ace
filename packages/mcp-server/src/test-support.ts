@@ -1,3 +1,5 @@
+import type { Transport as LegacyWire } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { StreamableHTTPClientTransport as LegacyTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { randomBytes } from "node:crypto";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { AgentId, McpScope, Thread, ThreadId } from "@ace/protocol";
@@ -82,4 +84,21 @@ export function toolHeaders(bearer: string, name: string) {
     "Mcp-Method": "tools/call",
     "Mcp-Name": name,
   };
+}
+
+/** v1's optional sessionId getter is incompatible with exactOptionalPropertyTypes. */
+export function legacyWire(transport: LegacyTransport): LegacyWire {
+  const wire: LegacyWire = {
+    start: () => transport.start(),
+    close: () => transport.close(),
+    send: (message, options) => transport.send(message, options),
+  };
+  // SDK transports use callback properties.
+  // oxlint-disable-next-line unicorn/prefer-add-event-listener
+  transport.onmessage = (message) => wire.onmessage?.(message);
+  // oxlint-disable-next-line unicorn/prefer-add-event-listener
+  transport.onerror = (error) => wire.onerror?.(error);
+  // oxlint-disable-next-line unicorn/prefer-add-event-listener
+  transport.onclose = () => wire.onclose?.();
+  return wire;
 }

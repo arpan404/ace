@@ -28,8 +28,16 @@ export const ReleaseManifest = z.object({
 });
 export type ReleaseManifest = z.infer<typeof ReleaseManifest>;
 export const MaintenanceStatus = z.object({
+  /** True while any hold keeps admission closed. */
   draining: z.boolean(),
   blockers: z.number().int().nonnegative(),
+  /** Of `blockers`, the threads waiting on a person. Older daemons omit it. */
+  waiting: z.number().int().nonnegative().optional(),
+  /** What holds admission closed (`MaintenanceHold`). Older daemons omit it. */
+  holds: z
+    .array(z.enum(["user", "update", "kill", "stop"]))
+    .max(4)
+    .optional(),
 });
 export const DaemonHealth = z
   .object({

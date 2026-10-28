@@ -77,45 +77,26 @@ private struct StepsSkeleton: View {
     }
 }
 
-/// A native subagent's own lane, its blocks grouped like the main transcript ("Worked for" heads,
-/// its own subagents, its answer), from the bridge's per-agent grouping.
+/// A native subagent opened from the transcript, in its own sheet: its whole view
+/// (`SubagentView`), with its own subagents pushing on top.
 struct AgentLaneSheet: View {
     let entry: BlockRow.Agents.Entry
     let model: ClientModel
     let thread: ThreadModel
     let openThread: (String) -> Void
+    @State private var path: [SubagentRoute] = []
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        NavigationStack {
-            List {
-                let lane = thread.screen.lane
-                if let lane, lane.agentId == entry.agentId, !lane.order.isEmpty {
-                    let links = TranscriptLinks(openThread: { child in dismiss(); openThread(child) }, openAgent: { _ in })
-                    ForEach(lane.order, id: \.self) { id in
-                        if let block = lane.blocks[id] { BlockView(block: block, thread: thread, links: links).listRowSeparator(.hidden) }
-                    }
-                } else {
-                    EmptyState(icon: .graph, title: "Nothing from this agent yet")
-                        .listRowSeparator(.hidden)
-                }
-            }
-            .listStyle(.plain)
-            .accessibilityIdentifier("lane.transcript")
-            .navigationTitle(entry.title).navigationBarTitleDisplayMode(.inline)
-            .escapeCloses { dismiss() }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: AceTheme.Spacing.xxs) {
-                        Text(entry.title).aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
-                        Text(entry.label).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(StateStyle.text(entry.token))
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
+        NavigationStack(path: $path) {
+            page(SubagentRoute(agentId: entry.agentId, title: entry.title))
+                .navigationDestination(for: SubagentRoute.self) { page($0) }
         }
-        .onAppear { model.openLane(entry.agentId) }
-        .onDisappear { model.closeLane(epoch: thread.epoch) }
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
+    private func page(_ route: SubagentRoute) -> some View {
+        SubagentView(route: route, model: model, thread: thread, push: { path.append($0) },
+                     openThread: { child in dismiss(); openThread(child) })
+            .escapeCloses { dismiss() }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
     }
 }

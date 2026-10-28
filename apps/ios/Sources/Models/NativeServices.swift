@@ -6,7 +6,7 @@ let serviceSignposter = OSSignposter(subsystem: "app.ace.ios", category: "servic
 let serviceLog = Logger(subsystem: "app.ace.ios", category: "service")
 
 /// Schema-validated SDK service replies. Each screen decodes the fields it uses into its DTO.
-indirect enum ServiceValue: Codable, Sendable {
+indirect enum ServiceValue: Codable, Sendable, Equatable {
     case object([String: ServiceValue]), array([ServiceValue]), string(String), number(Double), bool(Bool), null
     init(from decoder: any Decoder) throws {
         let box = try decoder.singleValueContainer()
@@ -29,6 +29,22 @@ indirect enum ServiceValue: Codable, Sendable {
         }
     }
     func decode<T: Decodable>(_ type: T.Type) throws -> T { try JSONDecoder().decode(type, from: JSONEncoder().encode(self)) }
+    /// The answer as a JSON object again, to hand one machine's answer to another runtime.
+    var json: Any {
+        switch self {
+        case .object(let fields): fields.mapValues(\.json)
+        case .array(let items): items.map(\.json)
+        case .string(let text): text
+        case .number(let value): value
+        case .bool(let value): value
+        case .null: NSNull()
+        }
+    }
+    /// A field of an object answer.
+    subscript(_ key: String) -> ServiceValue? {
+        if case .object(let fields) = self { fields[key] } else { nil }
+    }
+    var string: String? { if case .string(let text) = self { text } else { nil } }
 }
 struct ServiceReply: Decodable, Sendable {
     /// Names a kept read's answer (`bridge/native-reads.ts`).

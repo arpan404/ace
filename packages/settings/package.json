@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./defaults": "./src/defaults.ts",
-    "./roles": "./src/roles.ts"
+    "./roles": "./src/roles.ts",
+    "./batch": "./src/batch.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

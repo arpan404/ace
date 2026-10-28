@@ -1,4 +1,6 @@
 import { ForgeMediaCache, forgeMediaRoot } from "./forge-media/media-cache.ts";
+import { diffPage, filePatchBytes } from "./git-diff-page.ts";
+import { FilePatchCache } from "./git-diff-cache.ts";
 import { ForgeMediaService } from "./forge-media/media-service.ts";
 import type { ForgeMediaGrants } from "./forge-media/media-grants.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
@@ -16,7 +18,7 @@ import {
   type PrRemotes,
 } from "./pr-worktree-resolution.ts";
 import { readPrConflicts, runPrConflictStep } from "./pr-conflicts.ts";
-import type { ForgePrStatus, ForgeRepository } from "@ace/protocol";
+import type { ForgePrStatus, ForgeRepository, InstalledEditor } from "@ace/protocol";
 import type { CreationWorkspace } from "./creation-workspace.ts";
 import { decodeProjectRow, projectSelect } from "./project-storage.ts";
 import { OriginCache, sameOriginProject } from "./project-origin.ts";
@@ -44,7 +46,9 @@ import {
   type WorkspaceActionResult,
 } from "@ace/protocol";
 import { listScripts, shellQuote } from "./workspace-scripts.ts";
-import { editorLocations, installedEditors } from "./installed-editors.ts";
+import { editorLocations, installedEditors, registryAppPath } from "./installed-editors.ts";
+import { fileManagerName, openOnHost, spawnDetached, type HostSpawner } from "./host-open.ts";
+import { openableProjectFolders } from "./host-open-places.ts";
 import { createCommandRunner, type CommandRunner } from "@ace/forge";
 import { pushWorkspace } from "./workspace-push.ts";
 import { actionErrorCode, rejectedRemoteHead } from "./action-errors.ts";
@@ -87,6 +91,14 @@ export interface WorkspaceRuntimeOptions {
   /** A handle identifies one shell lifetime, including across daemon restarts. */
   terminalId?: () => string;
   editorPath?: string;
+  /** Starts `host.open`'s editor or file manager; a detached process by default. */
+  hostSpawn?: HostSpawner;
+  /** The personal skill folders `host.open` lets an `operate` device open in. */
+  hostSkillRoots?: () => readonly string[];
+  /** The home folder `host.open` expands `~` from; this user's by default. */
+  home?: string;
+  /** Finds `host.open`'s editors; this machine's installed ones by default. */
+  hostEditors?: () => Promise<readonly InstalledEditor[]>;
   /** Launcher folders searched after PATH; the platform's usual ones by default. */
   editorLocations?: readonly string[];
   platform?: NodeJS.Platform;
@@ -132,6 +144,8 @@ export class WorkspaceRuntime {
   private now: () => number;
   /** Checkouts' `origin`, read once for a while: New thread asks on every machine move. */
   private origins: OriginCache;
+  /** One file's patch, read once for all its pages (`git.diff` with `path`). */
+  private filePatches: FilePatchCache;
   private options: WorkspaceRuntimeOptions;
   private prLifetime = new AbortController();
   private manager: TerminalManager;
@@ -156,6 +170,7 @@ export class WorkspaceRuntime {
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
     this.origins = new OriginCache(this.git.transfer, now);
+    this.filePatches = new FilePatchCache(now);
     this.defaultBranches = new DefaultBranches(now);
     this.media = lazyMedia(
       options.forgeMedia ?? forgeMedia(directory, now, options.forgeMediaGrants),
@@ -448,9 +463,30 @@ export class WorkspaceRuntime {
     await this.manager.release(terminal);
     this.terminals.delete(id);
   }
+  /**
+   * This machine's editors: on PATH and the usual launcher folders, or on Windows only each
+   * editor's own .exe from App Paths and its standard install folders.
+   */
+  #editors() {
+    const platform = this.options.platform ?? process.platform;
+    return installedEditors(
+      this.options.editorPath ?? process.env.PATH,
+      platform,
+      this.options.editorLocations ?? editorLocations(platform, homedir(), process.env),
+      platform === "win32"
+        ? { env: process.env, appPath: registryAppPath(process.env) }
+        : { env: {} },
+    );
+  }
   async read(
     request: WorkspaceActionRequest,
     signal: AbortSignal = new AbortController().signal,
+    /**
+     * Whether the caller may still act with `scope` (the request's own when absent), asked
+     * again right before an effect on this machine (`host.open`): its device can be revoked
+     * while the read waits on I/O.
+     */
+    still?: (scope?: "read" | "operate" | "admin") => boolean,
   ): Promise<WorkspaceActionResult> {
     const op = request.operation;
     const wrap = (result: WorkspaceActionResult["result"]): WorkspaceActionResult => ({
@@ -558,13 +594,42 @@ export class WorkspaceRuntime {
     if (op.op === "editors.list")
       return wrap({
         kind: "editors",
-        editors: await installedEditors(
-          this.options.editorPath ?? process.env.PATH,
-          this.options.platform ?? process.platform,
-          this.options.editorLocations ??
-            editorLocations(this.options.platform ?? process.platform, homedir(), process.env),
-        ),
+        fileManager: fileManagerName(this.options.platform ?? process.platform),
+        editors: await this.#editors(),
       });
+    if (op.op === "host.open") {
+      const named = [op.threadId, op.workspaceId, op.hostPath].filter((at) => at !== undefined);
+      if (named.length !== 1 || (op.hostPath !== undefined && op.path !== undefined))
+        throw new Error("invalid");
+      const root = op.threadId
+        ? this.root(op.threadId)
+        : op.workspaceId && this.store.getWorkspacePath(op.workspaceId);
+      if (op.hostPath === undefined && !root) throw new Error("workspace_not_found");
+      const platform = this.options.platform ?? process.platform;
+      await openOnHost({
+        place:
+          op.hostPath !== undefined
+            ? {
+                kind: "host",
+                path: op.hostPath,
+                home: this.options.home ?? homedir(),
+                places: () => ({
+                  projects: openableProjectFolders(this.store),
+                  skills: this.options.hostSkillRoots?.() ?? [],
+                }),
+              }
+            : { kind: "inside", root: root || "", path: op.path },
+        line: op.line,
+        app: op.app,
+        platform,
+        editors: this.options.hostEditors ?? (() => this.#editors()),
+        spawn: this.options.hostSpawn ?? spawnDetached,
+        systemRoot: process.env.SystemRoot,
+        allowed: still ?? (() => true),
+        signal,
+      });
+      return wrap({ kind: "opened" });
+    }
     if (op.op === "workspaces.list")
       return this.store.atomic((db) => {
         const rows = db
@@ -639,14 +704,31 @@ export class WorkspaceRuntime {
     }
     if (op.op === "git.diff") {
       const root = this.root(op.threadId);
-      const diff = await this.git.diff({
-        worktree: root,
-        from: { kind: "commit", ref: "HEAD" },
-        to: { kind: "working-tree" },
-        maxPatchBytes: 262144,
+      if (op.path === undefined) {
+        const diff = await this.git.diff({
+          worktree: root,
+          from: { kind: "commit", ref: "HEAD" },
+          to: { kind: "working-tree" },
+          maxPatchBytes: 262144,
+        });
+        if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
+        return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
+      }
+      const paths = [op.path, ...(op.from ? [op.from] : [])];
+      const key = JSON.stringify([op.threadId, root, paths]);
+      const file = await this.filePatches.read(key, op.expected, async () => {
+        const diff = await this.git.diff({
+          worktree: root,
+          from: { kind: "commit", ref: "HEAD" },
+          to: { kind: "working-tree" },
+          maxPatchBytes: filePatchBytes,
+          paths,
+        });
+        if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
+        return { patch: diff.patch, truncated: diff.truncated };
       });
-      if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
-      return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
+      const page = diffPage(file.patch, file.truncated, op.offset ?? 0);
+      return wrap({ kind: "gitDiff", ...page, validator: file.validator });
     }
     if (op.op === "git.status") {
       const root = this.root(op.threadId);
@@ -823,14 +905,7 @@ export class WorkspaceRuntime {
         return { ok: true };
       }
       if (p.type === "workspace.editor.open") {
-        const editor = (
-          await installedEditors(
-            this.options.editorPath ?? process.env.PATH,
-            this.options.platform ?? process.platform,
-            this.options.editorLocations ??
-              editorLocations(this.options.platform ?? process.platform, homedir(), process.env),
-          )
-        ).find((entry) => entry.id === p.editorId);
+        const editor = (await this.#editors()).find((entry) => entry.id === p.editorId);
         if (!editor) throw new Error("editor_not_found");
         if (!allowed()) return { ok: false, error: "forbidden" };
         return { ok: true, editor: { editor, path: cwd } };

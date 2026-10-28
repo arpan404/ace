@@ -20,9 +20,5 @@ struct StateLabel: View {
     }
 }
 extension View {
-    @ViewBuilder func floatingGlass() -> some View {
-        let shape = AceShape.field
-        if #available(iOS 26, *) { self.glassEffect(.regular, in: shape) }
-        else { self.background(.regularMaterial, in: shape).overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border)) }
-    }
+    func floatingGlass() -> some View { aceGlass(in: AceShape.field) }
 }

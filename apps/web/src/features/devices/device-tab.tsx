@@ -24,7 +24,7 @@ import { DeviceStage, type Bounds } from "./device-stage.tsx";
 import type { ShownScreen } from "./device-screen.tsx";
 import { DevicesMenu } from "./devices-menu.tsx";
 import { KeyboardField } from "./keyboard-field.tsx";
-import { StreamMeter, streamDetails, streamSummary, type StreamStats } from "./stream-stats.ts";
+import { StreamMeter, streamDetails, streamSummary, type StreamStats } from "@ace/ui-core/devices";
 import { useDevices, type DeviceProblem } from "./use-devices.ts";
 
 type Devices = ReturnType<typeof useDevices>;

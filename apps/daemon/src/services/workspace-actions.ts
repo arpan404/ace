@@ -45,6 +45,7 @@ export async function startWorkspaceActions({
   }
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     log: (message, error) => log.log("warn", message, logError(error)),
+    hostSkillRoots: () => services.skillLibrary?.personalRoots() ?? [],
     ...options.workspaceActions,
     ...(configuredTimeout != null ? { preparationTimeoutMs: configuredTimeout } : {}),
     git: {
@@ -290,7 +291,9 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
       if (message.type !== "workspace.request") return false;
       const op = message.operation;
       const scope =
-        op.op === "git.draft.generate" || op.op === "git.draft.cancel" ? "operate" : "read";
+        op.op === "git.draft.generate" || op.op === "git.draft.cancel" || op.op === "host.open"
+          ? "operate"
+          : "read";
       if (
         !authorize(scope) ||
         ("threadId" in op && op.threadId !== undefined && !canReadThread(op.threadId))
@@ -345,7 +348,15 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
         generations.set(op.input.generationId, { threadId: op.threadId, controller });
       const read = () => {
         const task = runtime
-          .read(message, AbortSignal.any([lifetime.signal, controller.signal]))
+          .read(
+            message,
+            AbortSignal.any([lifetime.signal, controller.signal]),
+            // `host.open` outside every project needs the owner's `admin`, decided on the host.
+            (need = scope) =>
+              connected() &&
+              authorize(need) &&
+              (!("threadId" in op) || op.threadId === undefined || canReadThread(op.threadId)),
+          )
           .then((result) => {
             if (
               connected() &&

@@ -10,6 +10,7 @@ import {
 } from "@ace/notify";
 import type { DeviceId, Notification } from "@ace/protocol";
 import { allows } from "./devices.ts";
+import { createAckTracker } from "./notification-ack.ts";
 import { failureDelay, maySleep, wakeDelay } from "./notification-wake.ts";
 import type { Store } from "./store.ts";
 import { acceptIntents, dropIntents, isNotice } from "./notification-intents.ts";
@@ -35,7 +36,10 @@ export type NotificationAccess = Pick<
   | "revoke"
   | "drain"
   | "close"
->;
+> & {
+  /** A phone took a live `notification` frame; waiting deliveries may skip the push. */
+  acknowledge(device: DeviceId, id: string): void;
+};
 export interface DaemonNotifications {
   service: NotificationAccess;
   setSender(sender: (device: DeviceId, notification: Notification) => boolean): void;
@@ -101,9 +105,19 @@ export function createDaemonNotifications(
   const quietMs = runtime.quietMs ?? 60_000;
   let send: (device: DeviceId, notification: Notification) => boolean = offline;
   let connected = nobody;
+  /**
+   * Phones with a push address prove they are awake: the live frame goes to their foreground
+   * sockets and the router falls through to the gateway unless `notification.ack` arrives in
+   * time. A suspended app can keep its socket open, so a sent frame alone is no delivery.
+   */
+  const acks = createAckTracker(runtime.delay ?? unrefDelay);
   const delivery = createNotificationRouter({
     ...channels,
     websocket: (device, notification) => send(device, notification),
+    acknowledged: async (device, notification) => {
+      if (!send(device, notification)) return false;
+      return acks.wait(device, notification.id);
+    },
   });
   const report = (error: unknown) => {
     if (signal.aborted && error instanceof Error && error.name === "AbortError") return;
@@ -388,6 +402,9 @@ export function createDaemonNotifications(
     snooze: (thread, until) => use((worker) => worker.snooze(thread, until)),
     updatePresence: (session, device, update) =>
       use((worker) => worker.updatePresence(session, device, update)),
+    acknowledge: (device, id) => {
+      acks.resolve(device, id);
+    },
     feed: (device, afterCursor) => use((worker) => worker.feed(device, afterCursor)),
     disconnect: (session) => ifAwake((worker) => worker.disconnect(session)),
     revoke: (device, abort) => ifAwake((worker) => worker.revoke(device, abort)),

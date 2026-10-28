@@ -23,7 +23,7 @@ struct QuietRow<Content: View>: View {
 /// approval steps aside: the request is the composer's.
 struct StepRow: View {
     @Environment(\.openStep) private var openStep
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let step: StepLine
     /// The item it reads, which keeps its open state through regrouping.
     var id = ""
@@ -241,7 +241,7 @@ private struct StepDiff: View {
 /// turn's steps ahead of a tap, and lets them go when it scrolls away; the bridge bounds how many
 /// turns stay read.
 struct WorkBlockView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let row: BlockRow
     let blockId: String
     let thread: ThreadModel
@@ -308,7 +308,7 @@ struct WorkBlockView: View {
 /// A light sweep across live text. Off with Reduce Motion, where the text simply stays put.
 private struct Shimmer: ViewModifier {
     let active: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
     func body(content: Content) -> some View {
         if active && !reduceMotion {
             content.overlay {

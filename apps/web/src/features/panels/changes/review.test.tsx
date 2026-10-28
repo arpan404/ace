@@ -1,10 +1,11 @@
-import { coldStartReplay } from "@ace/fake-daemon";
+import { coldStartReplay, replayTs } from "@ace/fake-daemon";
 import { Command, ThreadId } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { showUncommitted, wholeFilePatch } from "@/test/uncommitted.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -14,12 +15,17 @@ const path = "apps/server/src/replay.ts";
 async function openChanges() {
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");
+  // The checkout holds the file as turn 2 left it: its uncommitted lines take comments.
+  app.daemon.workspace.setGitDiff(
+    threadId,
+    wholeFilePatch(path, replayTs.original, replayTs.afterTurn2),
+  );
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
   await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
   await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  const replay = await within(panel).findByRole("region", { name: path });
+  const replay = await within(await showUncommitted(panel)).findByRole("region", { name: path });
   let serial = 0;
   const remote = (payload: unknown) =>
     app.daemon.command(

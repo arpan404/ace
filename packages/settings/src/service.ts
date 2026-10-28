@@ -183,6 +183,39 @@ export class SettingsService {
   }
 
   async set<K extends SettingsKey>(key: K, value: SettingsValues[K], layer: Layer): Promise<void> {
+    const parsed = this.assignment(key, value, layer);
+    const lease = await this.file(layer);
+    try {
+      await lease.file.set(key, parsed);
+    } finally {
+      lease.release();
+    }
+  }
+  /**
+   * Several settings on one layer, all or none: every entry is checked first, then one file
+   * commit writes them, so subscribers see them change together.
+   */
+  async setMany(
+    entries: readonly { key: SettingsKey; value: unknown }[],
+    layer: Layer,
+  ): Promise<void> {
+    if (entries.length < 1 || entries.length > 32)
+      throw new SettingsError("limit", "Set between 1 and 32 settings at once");
+    if (new Set(entries.map((entry) => entry.key)).size !== entries.length)
+      throw new SettingsError("validation", "Each setting can be set once per change");
+    const parsed = entries.map((entry) => ({
+      key: entry.key,
+      value: this.assignment(entry.key, entry.value, layer),
+    }));
+    const lease = await this.file(layer);
+    try {
+      await lease.file.setMany(parsed);
+    } finally {
+      lease.release();
+    }
+  }
+  /** A value checked for its key and layer, before anything is written. */
+  private assignment(key: SettingsKey, value: unknown, layer: Layer): unknown {
     SettingsKey.parse(key);
     if (key === "providers.configuration" && layer.kind !== "global")
       throw new SettingsError("validation", "Provider configuration is a global user setting");
@@ -198,13 +231,7 @@ export class SettingsService {
       throw new SettingsError("validation", "Roles are a global setting");
     if (key.startsWith("generation.") && layer.kind !== "global")
       throw new SettingsError("validation", "Generation settings belong to the daemon");
-    const parsed = validateValue(key, value);
-    const lease = await this.file(layer);
-    try {
-      await lease.file.set(key, parsed);
-    } finally {
-      lease.release();
-    }
+    return validateValue(key, value);
   }
   /** One global file commit: subscribers see the complete reset together. */
   async reset(keys: readonly SettingsKey[]): Promise<void> {

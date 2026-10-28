@@ -24,8 +24,17 @@ function stepToDo(run: OffshiftView["run"]): string | undefined {
  * the version to send, so the agent never has to dig it out of the run or count its calls.
  */
 export function nextStep(view: Omit<OffshiftView, "next">, children?: number): string {
-  return runStep(view) ?? treeStep(view, children);
+  if (view.run.ended)
+    return "The person ended this run. Leave it as it is: report the outcome and end your turn.";
+  const step = runStep(view) ?? treeStep(view, children);
+  // The person's change is the latest write: name it so the agent builds on it.
+  const theirs = view.run.personChanges.at(-1);
+  return theirs?.version === view.run.version
+    ? `The person ${lower(theirs.summary)}. ${step}`
+    : step;
 }
+
+const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
 /** What the run itself asks for next, or undefined when only the tree is left to settle. */
 function runStep(view: Omit<OffshiftView, "next">): string | undefined {

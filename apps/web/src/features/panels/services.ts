@@ -1,7 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
-import type { ReviewDraft } from "./changes/drafts.ts";
+import type { ReviewDraft } from "@ace/ui-core/review";
 import { reconcileCompositions, type Compositions } from "./changes/compositions.ts";
 import type { ClearedLines } from "./logs/cleared.ts";
 import type { PreviewSource } from "./sources.ts";

@@ -1,0 +1,53 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftCardAuthor.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "properties": {
+        "device": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "const": "person",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "device"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ],
+      "type": "object"
+    }
+  ]
+}

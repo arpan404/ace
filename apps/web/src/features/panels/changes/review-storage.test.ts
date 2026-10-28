@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
 import { LocalStore } from "../store.ts";
 import { type DiffPrefs, type ViewedFiles } from "../services.ts";
-import type { ReviewDraft } from "./drafts.ts";
-import { discardDraft, saveDraft } from "./drafts.ts";
+import type { ReviewDraft } from "@ace/ui-core/review";
+import { discardDraft, saveDraft } from "@ace/ui-core/review";
 import { persistReview } from "./review-store.ts";
 
 function memory() {

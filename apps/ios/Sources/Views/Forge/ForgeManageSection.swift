@@ -13,6 +13,7 @@ struct ForgeManageSection: View {
     @State private var writing = false
     @State private var deleting = false
     @State private var linking = false
+    @State private var reverting = false
     private var client: ClientModel { desk.client }
     private var request: [String: Any] { ClientModel.forgeManageRead(project: desk.target.project, number: desk.target.number, repository: route.repository) }
 
@@ -35,6 +36,13 @@ struct ForgeManageSection: View {
         } message: { Text("It's deleted on GitHub. Branches and worktrees on your machines stay.") }
         .sheet(isPresented: $linking) {
             ForgeLinkIssueSheet(completer: desk.completer) { number in apply(["kind": "issue.link", "issue": number]) }
+        }
+        .sheet(isPresented: $reverting) {
+            if let draft = manage?.revert, let version = manage?.version {
+                ForgeRevertSheet(number: desk.target.number, draft: draft, create: { title, body in await revert(version, title, body) }) { number in
+                    open(ForgeRoute(kind: .pull, machineId: route.machineId, project: route.project, number: number, repository: route.repository))
+                }
+            }
         }
     }
 
@@ -61,6 +69,14 @@ struct ForgeManageSection: View {
             }
             if let branch = manage.branch { branchRow(branch) }
             if let conversation = manage.conversation { lockRow(conversation, manage.reasons) }
+            if manage.revert != nil, client.canOperate {
+                Button("Revert") { reverting = true }
+                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                    .foregroundStyle(AceTone.failed.text)
+                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                    .disabled(!ready)
+                    .accessibilityIdentifier("forge.manage.revert")
+            }
             if let message {
                 Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
                     .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
@@ -169,6 +185,16 @@ struct ForgeManageSection: View {
             message = outcome.ok ? nil : outcome.message
             writing = false
         }
+    }
+
+    /// The revert, pinned to the version shown; the section reads GitHub again after it.
+    private func revert(_ version: String, _ title: String, _ body: String) async -> ForgeWorkOutcome {
+        let target = desk.target
+        let outcome = await client.forgeWorkWrite(["type": "forge.manage", "project": target.project, "number": target.number,
+                                                   "repository": target.repository.json,
+                                                   "operation": ["kind": "apply", "version": version, "action": ["kind": "revert", "title": title, "body": body]]])
+        await load()
+        return outcome
     }
 
     private func load() async {

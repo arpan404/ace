@@ -54,8 +54,22 @@ import Observation
     var access: ThreadAccessRow?
     /// Files on the next message and their uploads.
     var attachments: [AttachmentFile] = []
+    /// Why no file can be added now, while a message starting a new thread is on its way.
+    var attachmentsLocked: String?
+    /// Browser annotations on the next message.
+    var annotations: [AnnotationChip] = []
     /// The native subagent lane open in its sheet.
     var lane: LaneModel?
+    /// What the menu and messages offer (`thread.transitions`).
+    var transitions: TransitionsRow?
+    /// The fork the composer writes; nil while it writes to this thread.
+    var fork: ForkDraftRow?
+    /// Bring back to parent's starting summary, once read.
+    var mergeDraft: MergeDraftRow?
+    /// What stops the checkout, shown above the composer.
+    var work: WorkLine?
+    /// The thread's latest Offshift run, worded against the whole tree; nil while it has none.
+    var offshift: OffshiftRun?
     @ObservationIgnored private var positions: [String: Int] = [:]
     @ObservationIgnored private var reorder = false
 
@@ -67,10 +81,17 @@ import Observation
         queue = nil
         pill = nil
         goal = nil
+        offshift = nil
         steps = [:]
         tune = nil
         access = nil
         attachments = []
+        transitions = nil
+        fork = nil
+        mergeDraft = nil
+        work = nil
+        attachmentsLocked = nil
+        annotations = []
         hasOlder = false
     }
     /// Opening a kept thread again: what belonged to the last visit's bridge session goes (its
@@ -79,7 +100,12 @@ import Observation
         steps = [:]
         lane = nil
         attachments = []
+        attachmentsLocked = nil
+        annotations = []
         modelList = ThreadModels()
+        // The last visit's fork was its bridge session's; a new one starts on this thread.
+        fork = nil
+        mergeDraft = nil
         stopping = false
         stopRequest = nil
     }

@@ -62,7 +62,7 @@ export function subagentState(status: AgentStatus): SubagentState {
       return "working";
     case "blocked":
       if (status.on === "queue") return "queued";
-      return status.on === "human" ? "human" : status.on === "subagents" ? "working" : "waiting";
+      return status.on === "human" ? "human" : "waiting";
     case "unresponsive":
       return "unresponsive";
     case "failed":
@@ -186,16 +186,34 @@ export function subagentBranchStates(
   const ids = new Set(agents.map((agent) => agent.id));
   const root = agents.find((agent) => agent.origin === "root");
   const superseded = agentRuns(agents).latest;
+  const children = new Map<string, RunAgent[]>();
+  for (const agent of agents) {
+    if (!agent.parentId || superseded.has(agent.id)) continue;
+    const group = children.get(agent.parentId) ?? [];
+    group.push(agent);
+    children.set(agent.parentId, group);
+  }
+  const cache = new Map<string, SubagentState>();
+  const visiting = new Set<string>();
+  const branch = (agent: RunAgent): SubagentState => {
+    const known = cache.get(agent.id);
+    if (known) return known;
+    if (visiting.has(agent.id)) return "waiting";
+    visiting.add(agent.id);
+    let state = subagentState(agent.status);
+    for (const child of children.get(agent.id) ?? []) state = rollupSubagent(state, branch(child));
+    if (work.needsYou.has(agent.id)) state = "human";
+    else if (subagentTerminal(state) && work.running.has(agent.id)) state = "working";
+    visiting.delete(agent.id);
+    cache.set(agent.id, state);
+    return state;
+  };
   return agents.flatMap((agent): SubagentState[] => {
     // An earlier run of an agent that ran again counts once, as its latest run.
     if (agent.origin === "root" || superseded.has(agent.id)) return [];
     // Under another loaded subagent: its branch already counts it.
     const parent = agent.parentId;
     if (parent && parent !== root?.id && ids.has(parent)) return [];
-    if (work.needsYou.has(agent.id)) return ["human"];
-    const own = subagentState(agent.status);
-    // A child queued for its parent's run slot is unsettled, but not working yet.
-    if (work.running.has(agent.id) && own !== "queued") return ["working"];
-    return [own];
+    return [branch(agent)];
   });
 }

@@ -9,6 +9,18 @@
       "$ref": "https://ace.local/protocol/v1/StorageResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/AdmissionResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/AdmissionChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/AppUpdateResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/AppUpdateChanged.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/UserBrowserSettingsResult.json"
     },
     {
@@ -109,6 +121,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/VerifyChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/OffshiftClientResult.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/QueueResult.json"
@@ -1112,6 +1127,28 @@
       },
       "required": [
         "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "capabilities": {
+          "$ref": "https://ace.local/protocol/v1/Capabilities.json"
+        },
+        "key": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.capabilities",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "capabilities"
       ],
       "type": "object"
     },

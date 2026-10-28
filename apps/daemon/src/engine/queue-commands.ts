@@ -28,6 +28,22 @@ export function handleQueue(
     const entry =
       "messageId" in p ? dependencies.repo.queue.editable(p.threadId, p.messageId) : undefined;
     if ("messageId" in p && !entry) return fail("message_already_claimed");
+    // A failed send keeps its message at the head of a held queue. Once the person removes or
+    // edits that message, the failure is gone: release the hold so the head (the edited message,
+    // or the one behind it) is tried in order. Any other message leaves the hold as it is.
+    const releasesHold =
+      entry !== undefined &&
+      queue.paused &&
+      (queue.reason === "not_sent" || queue.reason === "model_unavailable") &&
+      !queue.continuation &&
+      !queue.limited &&
+      dependencies.repo.queue.head(p.threadId) === entry.id;
+    const release = () =>
+      dependencies.repo.queue.set(
+        p.threadId,
+        { paused: false, reason: null },
+        dependencies.clock.now(),
+      );
     if (p.type === "queue.edit" && entry) {
       if (entry.uncertain) return fail("uncertain_delivery");
       if (Buffer.byteLength(JSON.stringify(p)) > maxMessageBytes) return fail("message_too_large");
@@ -51,22 +67,11 @@ export function handleQueue(
       dependencies.repo.queue.edit(entry.id, edited);
       dependencies.repo.reviseInput(edited, p.threadId, dependencies.clock.now());
       queueSteerSelection(dependencies.repo, p.threadId, steer, dependencies.clock.now());
+      if (releasesHold) release();
     } else if (p.type === "queue.remove" && entry) {
       dependencies.repo.queue.remove(entry.id);
       dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
-      // Removing (or taking back) the last message a failed send kept leaves nothing to retry:
-      // release that hold, or the next message would wait behind a failure that is gone.
-      if (
-        queue.paused &&
-        (queue.reason === "not_sent" || queue.reason === "model_unavailable") &&
-        !queue.continuation &&
-        dependencies.repo.queue.count(p.threadId) === 0
-      )
-        dependencies.repo.queue.set(
-          p.threadId,
-          { paused: false, reason: null },
-          dependencies.clock.now(),
-        );
+      if (releasesHold) release();
       if (["thread.resume", "queue.resume", "thread.limit"].includes(entry.command.payload.type)) {
         dependencies.repo.pending.finishContinuation(p.threadId);
         dependencies.repo.queue.set(

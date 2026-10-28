@@ -164,6 +164,12 @@ export class SettingsFile {
   set(key: SettingsKey, value: unknown): Promise<void> {
     return this.update((source) => assign(source, key, value));
   }
+  /** Several values in one write; any failure leaves the file as it was. */
+  setMany(entries: readonly { key: SettingsKey; value: unknown }[]): Promise<void> {
+    return this.update((source) =>
+      entries.reduce((document, entry) => assign(document, entry.key, entry.value), source),
+    );
+  }
   reset(keys: readonly SettingsKey[]): Promise<void> {
     return this.update((source) => resetPreferences(source, keys));
   }

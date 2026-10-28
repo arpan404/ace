@@ -3,9 +3,15 @@ import { open } from "node:fs/promises";
 import { assertTestHomeIsolation } from "@ace/provider-kit/test-isolation";
 import {
   createApnsTransport,
+  createPushGatewayTransport,
   createWebPushTransport,
   type NotificationChannels,
+  type PushGatewayTarget,
 } from "@ace/notify";
+import { SettingsValues } from "@ace/protocol";
+import { defaults } from "@ace/settings/defaults";
+import type { SettingsService } from "@ace/settings";
+import { loadHostId, loadPushKey } from "./local-files.ts";
 
 /** Startup-only key reads. Provider CLI credentials are never involved. */
 const noop = () => {};
@@ -27,11 +33,46 @@ async function signingKey(path: string): Promise<string> {
   }
 }
 
-export async function loadNotificationChannels(env: NodeJS.ProcessEnv = process.env): Promise<{
+/** The push switch and gateway origin, read live so a settings change applies at once. */
+export async function pushTarget(
+  settings: Pick<SettingsService, "get"> | undefined,
+): Promise<PushGatewayTarget> {
+  const fallback = {
+    enabled: defaults["notifications.remotePush"],
+    origin: defaults["notifications.pushGatewayUrl"],
+  };
+  if (!settings) return fallback;
+  try {
+    const [enabled, origin] = await Promise.all([
+      settings.get("notifications.remotePush"),
+      settings.get("notifications.pushGatewayUrl"),
+    ]);
+    const parsedEnabled = SettingsValues.shape["notifications.remotePush"].safeParse(enabled.value);
+    const parsedOrigin = SettingsValues.shape["notifications.pushGatewayUrl"].safeParse(
+      origin.value,
+    );
+    return {
+      enabled: parsedEnabled.success ? parsedEnabled.data : fallback.enabled,
+      origin: parsedOrigin.success ? parsedOrigin.data : fallback.origin,
+    };
+  } catch {
+    // An unreadable value keeps the default, as settings keep the last good file.
+    return fallback;
+  }
+}
+
+export async function loadNotificationChannels(options: {
+  env?: NodeJS.ProcessEnv;
+  /** The daemon's data directory: holds its push identity key (ADR 0106). */
+  dataDir: string;
+  /** Live settings for the per-machine push switch; defaults apply without them. */
+  settings?: Pick<SettingsService, "get"> | undefined;
+}): Promise<{
   channels: Omit<NotificationChannels, "websocket">;
   publicKey?: string;
   close(): void;
 }> {
+  const { env = process.env, dataDir, settings } = options;
   const channels: Omit<NotificationChannels, "websocket"> = {};
   let close = noop;
   let publicKey: string | undefined;
@@ -68,6 +109,16 @@ export async function loadNotificationChannels(env: NodeJS.ProcessEnv = process.
         Date.now,
       );
     }
+    // Phones with a push address wake through ace's push gateway (ADR 0106). The daemon's
+    // own key is its identity there; every alert leaves encrypted to the phone's key.
+    channels.push = createPushGatewayTransport(
+      {
+        privateKey: loadPushKey(dataDir),
+        hostId: loadHostId(dataDir),
+        target: () => pushTarget(settings),
+      },
+      Date.now,
+    );
   } catch (error) {
     close();
     throw error;

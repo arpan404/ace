@@ -4,6 +4,7 @@ import type { ForgeLifecycleSnapshot, ForgeLifecycleAction } from "@ace/protocol
 import { Button } from "@/components/ui/button.tsx";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { revertDraft } from "@ace/ui-core";
 const Draft = z.object({ title: z.string().max(256), body: z.string().max(60_000) });
 export function PrRevertForm(props: {
   snapshot: ForgeLifecycleSnapshot;
@@ -18,10 +19,7 @@ export function PrRevertForm(props: {
     } catch {
       /* Use the reviewable default. */
     }
-    return {
-      title: `Revert "${props.snapshot.metadata.title}"`.slice(0, 256),
-      body: `Reverts #${props.snapshot.pr.number}.\n\nThis draft proposes undoing the merged change. Review the generated diff and required checks before merging.`,
-    };
+    return revertDraft({ number: props.snapshot.pr.number, title: props.snapshot.metadata.title });
   });
   const save = (next: z.infer<typeof Draft>) => {
     setDraft(next);

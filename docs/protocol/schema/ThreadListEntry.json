@@ -38,6 +38,11 @@
     "capabilities": {
       "$ref": "https://ace.local/protocol/v1/Capabilities.json"
     },
+    "capabilitiesRef": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
     "continuation": {
       "properties": {
         "actionId": {
@@ -130,6 +135,9 @@
     },
     "live": {
       "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"
+    },
+    "movedFrom": {
+      "$ref": "https://ace.local/protocol/v1/ThreadMovedFrom.json"
     },
     "permission": {
       "$ref": "https://ace.local/protocol/v1/PermissionState.json"

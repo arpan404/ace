@@ -112,28 +112,118 @@ struct FileBytes: Decodable, Sendable {
     let data: String
 }
 
-/// Files screens read again when the computer says any checkout changed.
+/// A save to the phone in progress or done (`files.download`, `bridge/FILES-CONTRACT.md`).
+struct FileDownload: Decodable, Sendable, Equatable, Identifiable {
+    let id: String
+    let name: String
+    /// `saving`, `saved`, `failed` or `stopped`.
+    let phase: String
+    let received: Int
+    let size: Int?
+    let filePath: String?
+    let message: String?
+}
+/// Picked files going into a checkout folder (`files.upload`).
+struct FileUpload: Decodable, Sendable, Equatable, Identifiable {
+    struct Item: Decodable, Sendable, Equatable, Identifiable {
+        let localId: String
+        let name: String
+        let path: String
+        let size: Int
+        let sent: Int
+        /// `queued`, `sending`, `conflict`, `waiting`, `done`, `skipped`, `failed` or `stopped`.
+        let state: String
+        let message: String?
+        var id: String { localId }
+    }
+    let id: String
+    let threadId: String
+    let folder: String
+    /// `sending`, `asking`, `waiting`, `done`, `failed` or `stopped`.
+    let phase: String
+    let sent: Int
+    let size: Int
+    let items: [Item]
+}
+/// Recent and open files of one thread or project folder, kept on this phone.
+struct FileMemory: Decodable, Sendable, Equatable {
+    let key: String
+    let recent: [String]
+    let open: [String]
+}
+/// The quick-open answer: ranked matches, or with nothing typed, recent then changed files.
+struct QuickOpen: Decodable, Sendable {
+    struct Row: Decodable, Sendable, Identifiable, Hashable {
+        let path: String
+        let name: String
+        let folder: String
+        let isFolder: Bool
+        let positions: [Int]
+        let group: String
+        var id: String { path }
+        var search: FileSearchRow { FileSearchRow(path: path, name: name, folder: folder, isFolder: isFolder, positions: positions) }
+    }
+    let text: String
+    let query: String
+    let line: Int?
+    let rows: [Row]
+}
+/// A folder's archive before it is saved (`archive` request).
+struct ArchivePreview: Decodable, Sendable, Equatable {
+    let previewId: String
+    let entries: Int
+    let bytes: Int
+    let name: String
+    let summary: String
+    let leavesOut: String
+}
+
+/// Files screens read again when the computer says any checkout changed; saves, uploads and the
+/// recent and open files arrive as their own patches.
 enum FilesPatch: Decodable, Sendable {
     case changed(Int)
+    case download(FileDownload)
+    case upload(FileUpload)
+    case memory(FileMemory)
     private enum Keys: String, CodingKey { case type, seq }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch try box.decode(String.self, forKey: .type) {
         case "files.changed": self = .changed(try box.decode(Int.self, forKey: .seq))
+        case "files.download": self = .download(try FileDownload(from: decoder))
+        case "files.upload": self = .upload(try FileUpload(from: decoder))
+        case "files.memory": self = .memory(try FileMemory(from: decoder))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown files patch")
         }
     }
 }
 
-/// How many times the computer said files changed; screens read again when it moves.
+/// How many times the computer said files changed (screens read again when it moves), and the
+/// saves, uploads and remembered files the bridge reports.
 @MainActor @Observable final class ThreadFilesModel {
     var revision = 0
+    var downloads: [String: FileDownload] = [:]
+    var uploads: [String: FileUpload] = [:]
+    var memory: [String: FileMemory] = [:]
     func apply(_ patch: FilesPatch) {
         switch patch {
         case .changed(let seq): revision = seq
+        case .download(let download): downloads[download.id] = download
+        case .upload(let upload): uploads[upload.id] = upload
+        case .memory(let memory): self.memory[memory.key] = memory
         }
     }
-    func reset() { revision = 0 }
+    func reset() { revision = 0; downloads = [:]; uploads = [:]; memory = [:] }
+}
+
+extension FilesScope {
+    /// The key the bridge files this scope's recent and open files under.
+    var memoryKey: String {
+        switch self {
+        case .thread(let id): "thread:\(id)"
+        case .project(let id): "project:\(id)"
+        }
+    }
 }
 
 extension ClientModel {

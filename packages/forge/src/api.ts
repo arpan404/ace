@@ -98,6 +98,7 @@ export interface ForgeBrowser {
       headSha: string;
       baseSha: string;
       commit?: string | undefined;
+      since?: string | undefined;
     },
     signal: AbortSignal,
   ): Promise<import("@ace/protocol/forge-browser").ForgePrFiles>;

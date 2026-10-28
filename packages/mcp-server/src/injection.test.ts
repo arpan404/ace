@@ -37,7 +37,11 @@ it("builds Claude Agent SDK HTTP mcpServers with bearer headers", () => {
     ace: {
       type: "http",
       url: connection.url,
-      headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
+      headers: {
+        Authorization: `Bearer ${connection.bearer}`,
+        "X-Ace-Notifications": "stream",
+        "X-Ace-Call-Budget": "240",
+      },
     },
   });
   // Claude loads a deferred ace tool through its own tool search, by exact name.
@@ -67,8 +71,10 @@ for (const provider of ["cursor", "antigravity", "acp"] as const) {
         headers: [
           { name: "Authorization", value: `Bearer ${connection.bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
-          // Antigravity and Cursor defer tools they don't load upfront, so they list every tool.
-          ...(provider === "acp" ? [{ name: "X-Ace-Tools", value: "static" }] : []),
+          // Antigravity reloads a growing list; an unknown ACP agent keeps a fixed list.
+          ...(provider === "cursor"
+            ? []
+            : [{ name: "X-Ace-Tools", value: provider === "acp" ? "static" : "core" }]),
         ],
       },
     ]);
@@ -164,11 +170,11 @@ it("each client asks for the tool listing its tool-list refresh supports", () =>
     );
   expect(acpHeaders("gemini")).toContainEqual(core);
   expect(acpHeaders("claude-acp")?.map(([name]) => name)).not.toContain("X-Ace-Tools");
-  // Antigravity loads only its always-load tools and reads the rest on demand, as Claude does.
-  expect(acpHeaders("antigravity")?.map(([name]) => name)).not.toContain("X-Ace-Tools");
+  // Antigravity grows its list regardless of the selected model's deferral flag.
+  expect(acpHeaders("antigravity")).toContainEqual(core);
   expect(
     acpStdioInjection({ ...connection, listing: acpToolListing("antigravity") }).mcpServers[0]?.env,
-  ).toContainEqual({ name: "ACE_MCP_BRIDGE_TOOLS", value: "all" });
+  ).toContainEqual({ name: "ACE_MCP_BRIDGE_TOOLS", value: "core" });
   expect(
     acpStdioInjection({ ...connection, listing: acpToolListing("gemini") }).mcpServers[0]?.env,
   ).toContainEqual({ name: "ACE_MCP_BRIDGE_TOOLS", value: "core" });

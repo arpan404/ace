@@ -37,12 +37,14 @@ export function runCard(run: OffshiftRun, revision: string, next?: string): Offs
         kind,
         state,
         recordedAt: found?.recordedAt ?? null,
-        by: found?.by
-          ? {
-              provider: found.by.provider,
-              model: found.by.model === null ? null : clip(found.by.model, 64),
-            }
-          : null,
+        by: !found?.by
+          ? null
+          : found.by.kind === "person"
+            ? { kind: "person" as const, device: found.by.device && clip(found.by.device, 64) }
+            : {
+                provider: found.by.provider,
+                model: found.by.model === null ? null : clip(found.by.model, 64),
+              },
       };
     });
     if (criteria.length < 16)
@@ -79,5 +81,7 @@ export function runCard(run: OffshiftRun, revision: string, next?: string): Offs
       })),
     ...(run.playbook ? { playbook: run.playbook } : {}),
     ...(next ? { next: clip(next, 512) } : {}),
+    ...(run.ended ? { ended: true } : {}),
+    ...(run.personChanges.at(-1)?.version === run.version ? { byPerson: true } : {}),
   });
 }

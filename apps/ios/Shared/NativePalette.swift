@@ -14,15 +14,37 @@ struct NativePalette: Codable, Equatable, Sendable {
 }
 enum PaletteError: Error { case invalid }
 
+/// A custom accent fitted to every theme by `@ace/themes` (through the bridge): theme id → role
+/// (accent, onAccent) → light and dark colours. Kept so a theme switch needs no runtime.
+struct CustomAccent: Codable, Equatable, Sendable {
+    var colour: String
+    var themes: [String: [String: NativePalette.Pair]]
+}
+
 /// App-owned UI preferences, registered with the token adapter by PhoneAppearance.
 /// The generated theme holds no palette state of its own: widget extensions never
 /// register a model and keep the shared token defaults.
 @MainActor @Observable final class NativePaletteModel {
     private(set) var palette: NativePalette
+    /// The chosen theme and accent (Settings › Appearance); colour only, kept on this phone.
+    private(set) var theme: String
+    private(set) var accent: String
+    /// The last custom colour picked, with its fit; nil until one is picked.
+    private(set) var custom: CustomAccent?
     @ObservationIgnored private let defaults: UserDefaults
     static let key = "ace.palette"
+    static let themeKey = "ace.theme"
+    static let accentKey = "ace.accent"
+    static let customKey = "ace.customAccent"
     init(defaults: UserDefaults) {
         self.defaults = defaults
+        let theme = defaults.string(forKey: Self.themeKey) ?? "ace"
+        self.theme = AceTheme.themeOverrides[theme] == nil ? "ace" : theme
+        let custom = defaults.data(forKey: Self.customKey).flatMap { try? JSONDecoder().decode(CustomAccent.self, from: $0) }
+        self.custom = custom
+        let accent = defaults.string(forKey: Self.accentKey) ?? "theme"
+        let known = AceTheme.themeOverrides["ace"]?[accent] != nil || (accent == "custom" && custom != nil)
+        self.accent = known ? accent : "theme"
         if let data = defaults.data(forKey: Self.key), data.count <= 8192,
            let read = try? JSONDecoder().decode(NativePalette.self, from: data), let valid = try? read.validated() { palette = valid }
         else { palette = NativePalette() }
@@ -33,6 +55,34 @@ enum PaletteError: Error { case invalid }
         palette = valid
     }
     func reset() { defaults.removeObject(forKey: Self.key); palette = NativePalette() }
+    /// Unknown ids (from a newer build) are ignored rather than stored.
+    func choose(theme next: String) {
+        guard AceTheme.themeOverrides[next] != nil, next != theme else { return }
+        defaults.set(next, forKey: Self.themeKey)
+        theme = next
+    }
+    func choose(accent next: String) {
+        let known = AceTheme.themeOverrides["ace"]?[next] != nil || (next == "custom" && custom != nil)
+        guard known, next != accent else { return }
+        defaults.set(next, forKey: Self.accentKey)
+        accent = next
+    }
+    /// Keep a newly fitted custom accent and show it.
+    func choose(custom next: CustomAccent) {
+        if let data = try? JSONEncoder().encode(next) { defaults.set(data, forKey: Self.customKey) }
+        custom = next
+        defaults.set("custom", forKey: Self.accentKey)
+        accent = "custom"
+    }
+    /// A role's colours as this phone shows them: an earlier custom palette, then the theme's.
+    func pair(for key: String) -> NativePalette.Pair? {
+        palette.colours[key] ?? preview(key, theme: theme, accent: accent)
+    }
+    /// A role's colours in any theme and accent, the custom one included, for picker previews.
+    func preview(_ key: String, theme: String, accent: String) -> NativePalette.Pair? {
+        if accent == "custom", let fit = custom?.themes[theme]?[key] { return fit }
+        return AceTheme.themeOverrides[theme]?[accent == "custom" ? "theme" : accent]?[key]
+    }
 }
 
 /// Live bridge between the injected palette model and the generated token adapter.
@@ -54,7 +104,7 @@ enum PaletteError: Error { case invalid }
         set { registration.model = newValue }
     }
     static func pair(for key: String, light: UInt32, dark: UInt32) -> NativePalette.Pair {
-        if let override = registration.model?.palette.colours[key] { return override }
+        if let override = registration.model?.pair(for: key) { return override }
         return NativePalette.Pair(light: light, dark: dark)
     }
 }

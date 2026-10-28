@@ -150,7 +150,7 @@ test("Codex starts with a lifetime-scoped ace lease and redacts the native conne
       (frame) => frame.dir === "send" && obj(frame.data)["method"] === "thread/start",
     );
     expect(obj(obj(started?.data)["params"])["developerInstructions"]).toContain(
-      "How-tos and more tools: guide with topic",
+      "guide with topic ace-agents",
     );
     expect(
       obj(obj(obj(obj(started?.data)["params"])["config"])["mcp_servers.ace"])["http_headers"],
@@ -180,6 +180,35 @@ test("a native fork shows inherited asks and answers before its first new turn",
     expect(text).not.toContain("private native future secret");
     expect(messages.filter((i) => i.type === "message" && i.role === "user")).toHaveLength(2);
     expect(messages.filter((i) => i.type === "message" && i.role === "assistant")).toHaveLength(2);
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("a Codex model change with ace tools requests a fresh connection before changing native settings", async () => {
+  const h = await sessionHarness(false, "", undefined, undefined, {
+    url: "http://127.0.0.1:12345/mcp",
+    bearer: "b".repeat(64),
+    signal: new AbortController().signal,
+    end: () => {},
+  });
+  try {
+    const outcome = await h.session.configure?.({
+      provider: "codex",
+      model: "gpt-oss:20b",
+      options: {},
+    });
+    expect(outcome).toBe("reopen");
+    const updates = h.frames.filter(
+      (frame) => frame.dir === "send" && obj(frame.data)["method"] === "thread/settings/update",
+    );
+    expect(updates.some((frame) => obj(obj(frame.data)["params"])["model"] === "gpt-oss:20b")).toBe(
+      false,
+    );
+    // Returning to the current selection, including effort-only changes, stays live.
+    expect(
+      await h.session.configure?.({ provider: "codex", options: { effort: "low" } }),
+    ).toBeUndefined();
   } finally {
     await h.dispose();
   }

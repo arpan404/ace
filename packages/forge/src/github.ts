@@ -287,6 +287,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
       headSha: string;
       baseSha: string;
       commit?: string | undefined;
+      since?: string | undefined;
     },
     signal: AbortSignal,
   ) {

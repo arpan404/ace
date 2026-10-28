@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { Client as LegacyClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport as LegacyTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from "./index.ts";
 import type { Scheduler } from "./index.ts";
-import { deferred, scope } from "./test-support.ts";
+import { deferred, legacyWire, scope } from "./test-support.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -76,3 +78,30 @@ it.each([
     expect(progress).toEqual([1, 2]);
   },
 );
+
+it("a Claude-style v1 client receives progress throughout a long call", async () => {
+  const { server, lease, beats, release, started } = await longCall();
+  const client = new LegacyClient({ name: "claude-code", version: "1" });
+  cleanups.push(() => client.close());
+  cleanups.push(() => release.resolve());
+  await client.connect(
+    legacyWire(
+      new LegacyTransport(new URL(server.url), {
+        requestInit: {
+          headers: { Authorization: `Bearer ${lease.bearer}`, "X-Ace-Notifications": "stream" },
+        },
+      }),
+    ),
+  );
+  const progress: number[] = [];
+  const result = client.callTool({ name: "ace_long", arguments: {} }, undefined, {
+    onprogress: (update) => progress.push(update.progress),
+    resetTimeoutOnProgress: true,
+  });
+  await started.promise;
+  beats.shift()?.();
+  beats.shift()?.();
+  await expect.poll(() => progress).toEqual([1, 2]);
+  release.resolve();
+  expect(await result).toMatchObject({ structuredContent: { done: true } });
+});

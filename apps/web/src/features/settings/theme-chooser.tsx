@@ -1,5 +1,5 @@
 import { onRadioKeys } from "@/components/ui/radio-keys.ts";
-import { themeIds, themes } from "@/theme/palettes.ts";
+import { themeIds, themes } from "@ace/themes";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { AppPreview } from "./app-preview.tsx";
 import { PickerCard } from "./picker-card.tsx";

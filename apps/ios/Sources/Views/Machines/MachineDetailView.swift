@@ -33,6 +33,7 @@ struct MachineDetailView: View {
                     LabeledContent("Address") { Text(address).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote) }
                 }
                 if let version = client?.providers?.version { LabeledContent("ace", value: version) }
+                if let update = client?.appUpdate, update.known { MachineAppUpdateRow(update: update) }
                 if let problem = facts.needsPairing ? nil : client?.problem {
                     // At accessibility sizes Retry goes under the message instead of squeezing it.
                     let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xs)) : AnyLayout(HStackLayout())
@@ -44,9 +45,27 @@ struct MachineDetailView: View {
                 }
             }
             .insetRowBackground()
+            if let client, client.admission?.known == true {
+                Section { MachineAdmissionRow(model: client) }.insetRowBackground()
+            }
             providers
             if let client {
                 Section {
+                    NavigationLink { MachineDevicesView(model: client, machine: facts.name) } label: {
+                        InsetRow("Devices", systemImage: "iphone.and.arrow.forward", subtitle: "Pair, review and revoke devices")
+                    }
+                    .accessibilityIdentifier("machine.devices")
+                    NavigationLink { MachineLinksView(inbox: inbox, hostId: hostId) } label: {
+                        InsetRow("Linked machines", systemImage: "point.3.connected.trianglepath.dotted", subtitle: "Machines its agents can reach")
+                    }
+                    .accessibilityIdentifier("machine.links")
+                } header: { InsetHeader("Fleet") }
+                .insetRowBackground()
+                Section {
+                    NavigationLink { StorageView(model: client) } label: { InsetRow("Storage", systemImage: "internaldrive") }
+                        .accessibilityIdentifier("machine.storage")
+                    NavigationLink { HostDiagnosticsView(model: client) } label: { InsetRow("Diagnostics", systemImage: "stethoscope") }
+                        .accessibilityIdentifier("machine.diagnostics")
                     ForEach(RemoteSettingsCategory.all + (client.transfers.linked ? [.fleet] : [])) { category in
                         NavigationLink { RemoteSettingsView(model: client, category: category) } label: {
                             InsetRow(category.title, systemImage: category.symbol)

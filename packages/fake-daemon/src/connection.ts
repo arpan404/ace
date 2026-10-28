@@ -1,4 +1,5 @@
 import { sidebarPage, isSidebarEvent } from "@ace/projection";
+import { WireTrimmer } from "@ace/projection/wire-trim";
 import {
   ThreadId,
   ClientMessage,
@@ -23,6 +24,8 @@ export interface Host {
   readonly displayName?: string;
   readonly icon?: import("@ace/protocol").MachineIcon | undefined;
   readonly version?: string;
+  /** The OS host.identity reports; absent, as an older daemon's. */
+  readonly platform?: string | undefined;
   readonly head: number;
   readonly duplicateEvents: boolean;
   accepts(credential: { token?: string | undefined; ticket?: string | undefined }): boolean;
@@ -85,6 +88,8 @@ export class Connection {
   private session: FakeWireSession;
   private device = "fake";
   private ready = false;
+  /** Leaves out what this client's hello said it can put back, as the daemon does. */
+  private trimmer = new WireTrimmer(undefined);
   /** Past `hello`: the daemon's broadcasts reach it. */
   get authenticated(): boolean {
     return this.ready;
@@ -129,6 +134,7 @@ export class Connection {
         return;
       }
       this.ready = true;
+      this.trimmer = new WireTrimmer(message.trims);
       this.device = message.deviceId;
       this.session.authenticated?.(this.device);
       this.send({
@@ -171,6 +177,7 @@ export class Connection {
             displayName: this.host.displayName ?? "Fake machine",
             ...(this.host.icon ? { icon: this.host.icon } : {}),
             version: this.host.version ?? "fake",
+            ...(this.host.platform ? { platform: this.host.platform } : {}),
           },
         });
         return;
@@ -402,7 +409,8 @@ export class Connection {
     this.send({ type: "error", code, message: code, ...scope });
   }
   private send(message: ServerMessage): void {
-    if (!this.closed) this.wire.send(JSON.stringify(message));
+    if (this.closed) return;
+    for (const frame of this.trimmer.outgoing(message)) this.wire.send(JSON.stringify(frame));
   }
   close(code = 1000): void {
     if (this.closed) return;

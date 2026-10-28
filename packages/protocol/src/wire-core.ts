@@ -15,6 +15,7 @@ import { ForgePrRef, ForgePrStatus } from "./forge.ts";
 import { CommandId, DeviceId, HostId, ThreadId } from "./ids.ts";
 import { Interaction } from "./interactions.ts";
 import { Item } from "./items.ts";
+import { Capabilities } from "./provider.ts";
 import { OmittedItem } from "./omitted-items.ts";
 import { QueueState } from "./queue.ts";
 import { OffshiftRunCard } from "./offshift.ts";
@@ -214,6 +215,14 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * are ignored.
        */
       compression: z.array(z.string().max(32)).max(8).optional(),
+      /**
+       * Redundant bytes this client can put back, so the daemon may leave them out of snapshots
+       * and pages: `item-defaults` (items without `complete`, `synthetic` or `raw` when they hold
+       * their defaults), `provider-capabilities` (threads that name their capabilities by a key
+       * sent once in `provider.capabilities`). Unknown names are ignored; without a name the
+       * daemon sends the full shape.
+       */
+      trims: z.array(z.string().max(32)).max(16).optional(),
     })
     .refine((hello) => (hello.token !== undefined) !== (hello.ticket !== undefined), {
       message: "Exactly one credential is required",
@@ -269,6 +278,16 @@ export type CoreClientMessage = z.infer<typeof CoreClientMessage>;
 /** The core server messages, in the order the full `ServerMessage` lists them. */
 export const CoreServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("starting") }),
+  /**
+   * One provider's capabilities, under a key that threads on this connection name in
+   * `capabilitiesRef`. Sent before the first message that uses the key, only to a connection
+   * whose hello asked for the `provider-capabilities` trim.
+   */
+  z.object({
+    type: z.literal("provider.capabilities"),
+    key: z.string().min(1).max(64),
+    capabilities: Capabilities,
+  }),
   z.object({
     type: z.literal("threads.patch"),
     subscriptionId: z.string(),
@@ -409,6 +428,7 @@ export const coreClientTypes: ReadonlySet<string> = new Set([
 /** `type` of every core server message. */
 export const coreServerTypes: ReadonlySet<string> = new Set([
   "starting",
+  "provider.capabilities",
   "welcome",
   "threads.patch",
   "snapshot",

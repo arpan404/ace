@@ -5,10 +5,26 @@ import {
   type ThreadClientUpdated,
   type EventPayload,
   type SettingsEntry,
+  type ThreadDetails,
 } from "@ace/protocol";
+
+/**
+ * The first linked pull request, as settling reads it. `linkedPrs` leads; the single `linkedPr`
+ * that older builds mirrored beside it stands in for a thread not published since. A draft is
+ * open as far as settling goes.
+ */
+function leadPullRequest(
+  details: ThreadDetails | undefined,
+): { number: number; state: "open" | "closed" | "merged" } | undefined {
+  const first = details?.linkedPrs?.[0];
+  if (first) return { number: first.number, state: first.state === "draft" ? "open" : first.state };
+  const legacy = details?.linkedPr;
+  return legacy ? { number: legacy.number, state: legacy.state } : undefined;
+}
 
 export const organizationCommands = [
   "thread.rename",
+  "thread.title.regenerate",
   "thread.archive",
   "thread.unarchive",
   "thread.delete",
@@ -60,6 +76,11 @@ export function organizationDecision(
         changes: { settledAt: at, settledReason: "manual", snoozedUntil: null, autoSettleAt: null },
       };
     case "thread.unsettle":
+      if (p.undo)
+        return {
+          type: "thread.client.updated",
+          changes: { settledAt: null, settledReason: null },
+        };
       // The person wants it in the list: the rules that settled it must not settle it again.
       return {
         type: "thread.client.updated",
@@ -152,7 +173,7 @@ function automaticSettle(
       : undefined;
   // A pull request settles its thread once. Reopened after that, the thread stays open until
   // the person settles it, it goes inactive, or another linked pull request merges or closes.
-  const pr = thread.details?.linkedPr;
+  const pr = leadPullRequest(thread.details);
   const prReason =
     !pr || pr.number === thread.prSettled
       ? undefined

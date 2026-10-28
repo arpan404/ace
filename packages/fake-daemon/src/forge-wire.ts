@@ -59,31 +59,35 @@ export class FakeForgeWire {
         status,
       );
     const thread = this.context.thread(id)?.thread;
-    if (thread && status.state !== "unknown")
-      this.context.update(id, {
-        type: "thread.client.updated",
-        changes: {
-          details: {
-            ...thread.details,
-            linkedPrs: [...this.links]
-              .filter(([key]) => key.startsWith(`${id}:`))
-              .map(([, pr]) => ({
-                number: pr.ref.number,
-                repo: pr.ref.repository,
-                url: pr.url,
-                state: pr.state === "unknown" ? "open" : pr.state,
-                title: pr.title,
-                updatedAt: this.context.now(),
-              }))
-              .toReversed(),
-            linkedPr: {
-              number: status.ref.number,
-              state: status.state === "draft" ? "open" : status.state,
-              url: status.url,
-            },
-          },
+    if (!thread || status.state === "unknown") return;
+    const made = [...this.links]
+      .filter(([key]) => key.startsWith(`${id}:`))
+      .map(([, pr]) => ({
+        number: pr.ref.number,
+        repo: pr.ref.repository,
+        url: pr.url,
+        state: pr.state === "unknown" ? ("open" as const) : pr.state,
+        title: pr.title,
+        updatedAt: this.context.now(),
+      }))
+      .toReversed();
+    // Links a thread already had (seeded with it) stay beside the ones made here, as GitHub keeps them.
+    const kept = (thread.details?.linkedPrs ?? []).filter(
+      (pr) =>
+        !made.some(
+          (each) =>
+            each.number === pr.number && JSON.stringify(each.repo) === JSON.stringify(pr.repo),
+        ),
+    );
+    this.context.update(id, {
+      type: "thread.client.updated",
+      changes: {
+        details: {
+          ...thread.details,
+          linkedPrs: [...made, ...kept],
         },
-      });
+      },
+    });
   }
   private open(id: string, ref: ForgePrRef, title: string, draft = false): ForgePrStatus {
     const thread = this.context.thread(id)?.thread;
@@ -129,9 +133,6 @@ export class FakeForgeWire {
                   (pr.number !== p.number ||
                     (p.repo && JSON.stringify(pr.repo) !== JSON.stringify(p.repo))),
               ) ?? [],
-            linkedPr: this.status(id)
-              ? { number: this.status(id)?.ref.number ?? 0, state: "open" }
-              : null,
           },
         },
       });

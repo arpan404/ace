@@ -9,6 +9,12 @@
       "$ref": "https://ace.local/protocol/v1/StorageRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/AdmissionRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/AppUpdateRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/UserBrowserSettings.json"
     },
     {
@@ -377,6 +383,37 @@
     {
       "additionalProperties": false,
       "properties": {
+        "acpAgentId": {
+          "maxLength": 256,
+          "pattern": "^official:[a-z0-9-]+$",
+          "type": "string"
+        },
+        "agent": {
+          "$ref": "https://ace.local/protocol/v1/InstallAgent.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "provider.install.active",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "requestId": {
           "maxLength": 128,
           "minLength": 1,
@@ -676,6 +713,9 @@
       "$ref": "https://ace.local/protocol/v1/VerifyRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/OffshiftClientRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/QueueGet.json"
     },
     {
@@ -722,6 +762,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/SettingsSet.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SettingsSetMany.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/SettingsReset.json"
@@ -2325,6 +2368,9 @@
       "$ref": "https://ace.local/protocol/v1/NotificationFeedRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/NotificationAck.json"
+    },
+    {
       "properties": {
         "channel": {
           "enum": [
@@ -2356,6 +2402,14 @@
         },
         "token": {
           "type": "string"
+        },
+        "trims": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
         },
         "type": {
           "const": "hello",

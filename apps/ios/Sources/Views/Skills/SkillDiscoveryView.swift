@@ -52,17 +52,7 @@ struct SkillDiscoveryView: View {
     }
     private func readProjects() async {
         do {
-            var after: String?
-            var all: [NativeProject] = []
-            for _ in 0..<10 {
-                var operation: [String: Any] = ["op": "workspace.list", "limit": 100]
-                if let after { operation["after"] = after }
-                let reply = try await model.service(["type": "projects.request", "operation": operation], as: ProjectListReply.self)
-                guard reply.result.kind == "projects" else { throw ServiceFailure(message: "This pairing needs Projects access to discover CLI skills.") }
-                all += reply.result.projects ?? []
-                after = reply.result.next
-                if after == nil { break }
-            }
+            let all = try await model.allProjects()
             projects = all
             if !all.contains(where: { $0.id == project }) { project = all.first?.id ?? "" }
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }

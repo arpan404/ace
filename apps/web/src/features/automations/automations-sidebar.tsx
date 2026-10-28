@@ -16,7 +16,7 @@ import {
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { localTimeZone } from "@/features/automation-schedule/index.ts";
-import { sidebarGroups, type SidebarRow } from "./sidebar-rows.ts";
+import { sidebarGroups, type SidebarRow } from "@ace/ui-core/automations";
 import { useAutomationLists } from "@/features/automation-data/index.ts";
 
 /**

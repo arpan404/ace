@@ -25,12 +25,13 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
     private let deviceId: String
     private let present: @Sendable (NativeDevicePicture) -> Void
     private let acknowledge: @Sendable (NativeDeviceAck) -> Void
+    private let sampler: StreamSampler?
     private var streamId: String?
     private var sequence = -1
     private var decoder: H264Decoder?
     private var closed = false
-    init(deviceId: String, present: @escaping @Sendable (NativeDevicePicture) -> Void, acknowledge: @escaping @Sendable (NativeDeviceAck) -> Void) {
-        self.deviceId = deviceId; self.present = present; self.acknowledge = acknowledge
+    init(deviceId: String, sampler: StreamSampler? = nil, present: @escaping @Sendable (NativeDevicePicture) -> Void, acknowledge: @escaping @Sendable (NativeDeviceAck) -> Void) {
+        self.deviceId = deviceId; self.sampler = sampler; self.present = present; self.acknowledge = acknowledge
     }
     func receiveVideo(_ chunk: DeviceFrameChunk) {
         guard chunk.isLiveVideo else { return }
@@ -42,6 +43,7 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
     }
     private func receive(_ chunk: DeviceFrameChunk) {
         guard chunk.deviceId == deviceId else { return }
+        sampler?.arrived(bytes: chunk.bytes.count)
         queue.async { [self] in
             guard !closed else { return }
             if streamId != chunk.streamId { streamId = chunk.streamId; sequence = -1; decoder = nil }
@@ -62,6 +64,7 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
                     else { needsKeyframe = true }
                 }
             } catch { decoder = nil; needsKeyframe = true }
+            if needsKeyframe { sampler?.keyframeAsked() }
             acknowledge(NativeDeviceAck(deviceId: deviceId, streamId: chunk.streamId, sequence: chunk.sequence, keyframe: needsKeyframe))
         }
     }
@@ -73,12 +76,14 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
     private(set) var deviceId: String?
     private var renderer: NativeRemotePictureRenderer?
     private var streams: BrowserStreamHub?
+    /// The stream's counts while its stats show (`StreamSampler`).
+    let sampler = StreamSampler()
     func open(deviceId: String, session: any ClientSession) {
         close()
         self.deviceId = deviceId
         let latest = LatestDevicePicture()
         self.latest = latest
-        let renderer = NativeRemotePictureRenderer(deviceId: deviceId, present: { latest.put($0) }) { ack in
+        let renderer = NativeRemotePictureRenderer(deviceId: deviceId, sampler: sampler, present: { latest.put($0) }) { ack in
             var value: [String: Any] = ["type": "devices.ack", "deviceId": ack.deviceId, "streamId": ack.streamId, "sequence": ack.sequence]
             if ack.keyframe { value["keyframe"] = true }
             ClientModel.action(value, to: session)

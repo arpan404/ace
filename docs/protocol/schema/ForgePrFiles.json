@@ -29,6 +29,10 @@
     "ref": {
       "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
     },
+    "since": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
     "truncated": {
       "type": "boolean"
     }

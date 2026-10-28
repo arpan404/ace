@@ -135,7 +135,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.11",
+      "version": "0.0.12",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -169,10 +169,14 @@
         "@ace/design-tokens": "workspace:*",
         "@ace/html": "workspace:*",
         "@ace/native-host": "workspace:*",
+        "@ace/notify": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/settings": "workspace:*",
+        "@ace/themes": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "gemoji": "^8.1.0",
+        "katex": "^0.19.0",
         "marked": "^18.0.14",
         "zod": "^4.6.5",
       },
@@ -196,6 +200,15 @@
         "@phosphor-icons/core": "2.1.1",
         "astro": "7.4.2",
         "simple-icons": "16.36.0",
+        "zod": "^4.6.5",
+      },
+    },
+    "apps/push-gateway": {
+      "name": "@ace/push-gateway",
+      "dependencies": {
+        "@ace/notify": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/relay": "workspace:*",
         "zod": "^4.6.5",
       },
     },
@@ -228,6 +241,7 @@
         "@ace/protocol": "workspace:*",
         "@ace/secure-channel": "workspace:*",
         "@ace/settings": "workspace:*",
+        "@ace/themes": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "@base-ui/react": "^1.8.0",
         "@noble/hashes": "2.0.1",
@@ -412,6 +426,7 @@
       "dependencies": {
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "jsonc-parser": "^3.3.1",
         "tar-stream": "3.2.1",
         "unbzip2-stream": "1.4.3",
         "yauzl": "3.4.0",
@@ -566,6 +581,9 @@
       "name": "@ace/design-tokens",
       "dependencies": {
         "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/themes": "workspace:*",
       },
     },
     "packages/devices": {
@@ -903,10 +921,17 @@
         "node-pty": "^1.1.0",
       },
     },
+    "packages/themes": {
+      "name": "@ace/themes",
+      "devDependencies": {
+        "@ace/design-tokens": "workspace:*",
+      },
+    },
     "packages/ui-core": {
       "name": "@ace/ui-core",
       "dependencies": {
         "@ace/accounts": "workspace:*",
+        "@ace/automations": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/forge": "workspace:*",
@@ -1185,6 +1210,8 @@
 
     "@ace/provider-kit": ["@ace/provider-kit@workspace:packages/provider-kit"],
 
+    "@ace/push-gateway": ["@ace/push-gateway@workspace:apps/push-gateway"],
+
     "@ace/real-smoke": ["@ace/real-smoke@workspace:tools/real-smoke"],
 
     "@ace/recorder": ["@ace/recorder@workspace:tools/recorder"],
@@ -1208,6 +1235,8 @@
     "@ace/settings": ["@ace/settings@workspace:packages/settings"],
 
     "@ace/terminal": ["@ace/terminal@workspace:packages/terminal"],
+
+    "@ace/themes": ["@ace/themes@workspace:packages/themes"],
 
     "@ace/ui-core": ["@ace/ui-core@workspace:packages/ui-core"],
 

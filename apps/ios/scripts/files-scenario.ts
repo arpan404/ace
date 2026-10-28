@@ -4,7 +4,11 @@ import { facts, type FakeDaemon } from "@ace/fake-daemon";
  * The spike's `ios-files` thread for the Files screens: the relay checkout in a worktree with
  * uncommitted changes (one file modified, one added, one deleted) so the tree letters them and
  * the viewer marks changed lines, and an answer linking a checkout file at a line and a note
- * outside the checkout the host serves because the message links it. No provider CLI runs.
+ * outside the checkout the host serves because the message links it. For saving and sending
+ * files: nested folders (`docs/guides/setup/`), a folder whose archive is about 5 MB
+ * (`assets/recordings/`, noise that doesn't compress), and `uploads/` with `notes.md` already
+ * there so a picked `notes.md` asks to replace or keep both. Uploads land in the fake's memory
+ * (16 MiB in all, with the seeded files). No provider CLI runs.
  */
 
 const thread = "ios-files";
@@ -56,6 +60,36 @@ const patch = [
   "",
 ].join("\n");
 
+/** Bytes that don't compress, the same every run. */
+function noise(size: number, seed: number): Uint8Array {
+  const bytes = new Uint8Array(size);
+  let state = seed;
+  for (let index = 0; index < size; index++) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    bytes[index] = state & 0xff;
+  }
+  return bytes;
+}
+
+/** Folders to browse, save and send files into. */
+function seedTransfers(daemon: FakeDaemon): void {
+  daemon.checkouts.seed(thread, "docs/guides/setup/install.md", lines("# Install", "", "bun i"));
+  daemon.checkouts.seed(thread, "docs/guides/setup/phone.md", lines("# Pair a phone"));
+  daemon.checkouts.seed(thread, "docs/guides/reference/wire.md", lines("# Wire format"));
+  daemon.checkouts.seed(thread, "uploads/notes.md", lines("# Notes", "", "Kept on the host."));
+  daemon.checkouts.seedBytes(thread, "assets/recordings/soak-1.bin", noise(3 * 1024 * 1024, 7));
+  daemon.checkouts.seedBytes(thread, "assets/recordings/soak-2.bin", noise(2 * 1024 * 1024, 11));
+  // About 3 MB of text: past the 2 MB a file shows whole, so the phone reads it in pages.
+  const log = Array.from(
+    { length: 48_000 },
+    (_, index) =>
+      `${String(index + 1).padStart(6, "0")} replay window=${index % 512} acked=${index * 3} dropped=0 ok`,
+  ).join("\n");
+  daemon.checkouts.seedBytes(thread, "logs/replay-soak.log", new TextEncoder().encode(`${log}\n`));
+}
+
 type Details = NonNullable<Parameters<FakeDaemon["createThread"]>[0]["details"]>;
 
 export function seedFiles(daemon: FakeDaemon, details: (branch: string) => Details): void {
@@ -92,6 +126,7 @@ export function seedFiles(daemon: FakeDaemon, details: (branch: string) => Detai
     diff: { files: 3, additions: 12, deletions: 2 },
   });
   daemon.checkouts.seed(thread, retry, retrySource);
+  seedTransfers(daemon);
   daemon.workspace.setGitStatus(thread, [
     { path: outbox, status: "modified", additions: 2, deletions: 1, binary: false },
     { path: retry, status: "added", additions: 10, deletions: 0, binary: false },

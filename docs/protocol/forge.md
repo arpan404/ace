@@ -397,7 +397,7 @@ Example:
   "value": {
     "author": "example",
     "canDismiss": true,
-    "canRequest": false,
+    "canRequest": true,
     "requested": [],
     "reviews": [],
     "suggested": []
@@ -735,7 +735,6 @@ Example:
     "baseSha": "Db1ABeadeC76f12AFe06aa5eBaa66BF1925C0B74E8cCEfd9dcb3Cb4",
     "files": [],
     "headSha": "5dfDF87aFda34be8e6E2017DA5EcEFB4f199a0B652eEBe89B8aCDfE",
-    "nextPage": 4,
     "ref": {
       "number": 1,
       "repository": {
@@ -745,6 +744,7 @@ Example:
         "owner": "3xZ5mUjT/QC/MWVSxz-4/RnWby/4gDUHVm/iyFneqUOww./l5QFG1PxX/UQ8U2z/tt"
       }
     },
+    "since": "e638cb1Db9A203C732914bAc5FE68fF2cDD4BcB6fB77A15cB",
     "truncated": true
   }
 }
@@ -963,6 +963,8 @@ Example:
 
 [JSON Schema](schema/ForgeCheckAction.json), input validation.
 
+### rerun
+
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | kind | yes | `"rerun"` |  |
@@ -978,6 +980,24 @@ Example:
   "jobs": "failed",
   "kind": "rerun",
   "runId": 4
+}
+```
+
+### cancel
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"cancel"` |  |
+| runId | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| attempt | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "attempt": 1,
+  "kind": "cancel",
+  "runId": 2
 }
 ```
 
@@ -2000,8 +2020,7 @@ Example:
 {
   "action": {
     "attempt": 2,
-    "jobs": "all",
-    "kind": "rerun",
+    "kind": "cancel",
     "runId": 8
   },
   "pr": {
@@ -2805,6 +2824,7 @@ Example:
 | avatarUrl | no | string | {"maxLength":65536} |
 | state | yes | ["APPROVED","CHANGES_REQUESTED","COMMENTED","DISMISSED","PENDING"] |  |
 | submittedAt | yes | union | {"anyOf":[{"type":"string","maxLength":65536},{"type":"null"}]} |
+| commitSha | no | union | {"anyOf":[{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"},{"type":"null"}]} |
 
 Example:
 
@@ -3704,6 +3724,7 @@ Example:
 | baseSha | yes | string | {"pattern":"^[a-fA-F0-9]{40,64}$"} |
 | headSha | yes | string | {"pattern":"^[a-fA-F0-9]{40,64}$"} |
 | commit | no | string | {"pattern":"^[a-fA-F0-9]{40,64}$"} |
+| since | no | string | {"pattern":"^[a-fA-F0-9]{40,64}$"} |
 | files | yes | array | {"maxItems":25,"items":{"$ref":"https://ace.local/protocol/v1/ForgeFile.json"}} |
 | nextPage | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | truncated | yes | boolean |  |
@@ -3824,6 +3845,7 @@ Example:
 | reviews | yes | array | {"maxItems":100,"items":{"$ref":"https://ace.local/protocol/v1/ForgeLatestReview.json"}} |
 | suggested | yes | array | {"maxItems":100,"items":{"type":"object","properties":{"login":{"type":"string","minLength":1,"maxLength":100},"name":{"type":"string","maxLength":256},"avatarUrl":{"type":"string","maxLength":65536},"isAuthor":{"type":"boolean"},"isCommenter":{"type":"boolean"}},"required":["login","isAuthor","isCommenter"]}} |
 | author | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":100},{"type":"null"}]} |
+| viewer | no | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":100},{"type":"null"}]} |
 | canRequest | yes | boolean |  |
 | canDismiss | yes | boolean |  |
 
@@ -3836,7 +3858,8 @@ Example:
   "canRequest": true,
   "requested": [],
   "reviews": [],
-  "suggested": []
+  "suggested": [],
+  "viewer": null
 }
 ```
 

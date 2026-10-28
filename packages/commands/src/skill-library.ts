@@ -153,6 +153,12 @@ export class SkillLibrary {
     this.watchers.clear();
     await this.updates?.close();
   }
+  /** The personal skill folders every agent reads, from this library's own homes. */
+  personalRoots(): string[] {
+    return skillRoots(this.options.homes)
+      .filter((root) => root.scope === "personal")
+      .map((root) => root.path);
+  }
   /** Sources outside the watched folders changed, such as installed plugins. */
   invalidate(): void {
     this.notify();

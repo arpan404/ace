@@ -38,8 +38,9 @@ export function useHeldTurn(threadId: string, held: HeldQueue | undefined): Held
   const running = !!useActiveRootRun(threadId);
   const now = useNow();
   const leaving = useLeavesLimit(threadId);
+  const failureProvider = failure?.details?.provider;
   const view =
-    failure && !running
+    failure && !running && (!failureProvider || failureProvider === provider)
       ? describeProviderError({
           text: failure.message,
           code: failure.code,
@@ -49,7 +50,8 @@ export function useHeldTurn(threadId: string, held: HeldQueue | undefined): Held
         })
       : undefined;
   const who = provider ? providerNames[provider] : "The provider";
-  return leaving ? undefined : heldTurn(held?.notice, view, who, now);
+  const explicitlyHeld = held && !["limited", "resuming", "snoozed"].includes(held.notice.kind);
+  return leaving || explicitlyHeld ? undefined : heldTurn(held?.notice, view, who, now);
 }
 
 /**

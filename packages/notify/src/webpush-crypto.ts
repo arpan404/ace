@@ -61,23 +61,32 @@ export function signJwt(key: KeyObject, header: object, claims: object): string 
   const body = `${Buffer.from(JSON.stringify(header)).toString("base64url")}.${Buffer.from(JSON.stringify(claims)).toString("base64url")}`;
   return `${body}.${sign("sha256", Buffer.from(body), { key, dsaEncoding: "ieee-p1363" }).toString("base64url")}`;
 }
-export function vapidAuthorization(
-  key: KeyObject,
-  endpoint: string,
-  subject: string,
-  now: number,
-): string {
+/** The uncompressed P-256 point of a signing key, base64url: VAPID's `k`. */
+export function p256PublicPoint(key: KeyObject): string {
   const publicKey = createPublicKey(key).export({ format: "jwk" });
   if (!publicKey.x || !publicKey.y) throw new Error("Invalid VAPID public key");
-  const point = Buffer.concat([
+  return Buffer.concat([
     Buffer.from([4]),
     Buffer.from(publicKey.x, "base64url"),
     Buffer.from(publicKey.y, "base64url"),
   ]).toString("base64url");
+}
+/** RFC 8292 authorization for `endpoint`'s origin, valid for an hour. `subject` is optional. */
+export function vapidAuthorization(
+  key: KeyObject,
+  endpoint: string,
+  subject: string | undefined,
+  now: number,
+): string {
+  const point = p256PublicPoint(key);
   const token = signJwt(
     key,
     { typ: "JWT", alg: "ES256" },
-    { aud: new URL(endpoint).origin, exp: Math.floor(now / 1000) + 3600, sub: subject },
+    {
+      aud: new URL(endpoint).origin,
+      exp: Math.floor(now / 1000) + 3600,
+      ...(subject ? { sub: subject } : {}),
+    },
   );
   return `vapid t=${token}, k=${point}`;
 }

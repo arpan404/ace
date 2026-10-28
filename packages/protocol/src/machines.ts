@@ -46,4 +46,5 @@ export {
   HostIdentity,
   HostIdentityRequest,
   HostIdentityResult,
+  HostPlatform,
 } from "./host-identity.ts";

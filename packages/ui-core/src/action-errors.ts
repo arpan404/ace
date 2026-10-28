@@ -133,6 +133,8 @@ const copy: Record<string, string> = {
   forge_write_refused: "GitHub refused the change: refresh the pull request, then retry.",
   forge_validation_failed:
     "GitHub rejected the request as invalid: check what you entered, then retry.",
+  forge_run_attempt_moved:
+    "This run was re-run since you looked, so nothing was cancelled: refresh to see the new attempt.",
   forge_head_moved:
     "The pull request's branch moved since you looked: refresh and review its new commits, then retry.",
   forge_version_mismatch:

@@ -1,12 +1,11 @@
 import SwiftUI
 
 /// A list row's press (DESIGN.md §3 list rows, §5 press): no dividers; while pressed, or while
-/// `selected`, the row takes a soft fill, concentric with its container and never
-/// rounder than its 12pt padding. Rows
-/// stay flat: no shadow, no tint.
+/// `selected` (the page open beside or under the list), the row takes a soft fill, concentric
+/// with its container and never rounder than its 12pt padding. Rows stay flat: no shadow, no tint.
 struct RowPressStyle: ButtonStyle {
     var selected = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

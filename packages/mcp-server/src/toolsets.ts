@@ -3,13 +3,13 @@ import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
 
 /**
  * How a client lists ace's tools, chosen by its `X-Ace-Tools` header:
- * - `all` (no header): Claude Code, Codex, Antigravity and Cursor defer MCP tools (behind a tool
- *   search, Antigravity's definition files, or Cursor's GetMcpTools), so every tool is listed and
+ * - `all` (no header): Claude Code, Codex and Cursor defer MCP tools (behind a tool
+ *   search or Cursor's GetMcpTools), so every tool is listed and
  *   only a few load upfront (`registry.ts`). A Claude Code session whose tool search is off gets
  *   `core` (`claudeToolListing`); a Codex session whose model has no tool search gets `static`,
  *   since Codex never reloads (`codexToolListing` in the Codex adapter).
  * - `core`: clients that load every listed tool upfront and reload on `tools/list_changed`
- *   (OpenCode 2.1.4 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
+ *   (OpenCode 2.1.4 debounces a reload; Pi re-registers; Gemini CLI and Antigravity reload). They
  *   start with the core tools, `tools_find` and `tools_call`; a guide, an entry point or a search
  *   adds a family, and `tools_call` reaches a found tool before the reload lands.
  * - `static`: clients that never reload and load every listed tool upfront (ACP agents not known
@@ -74,13 +74,14 @@ export function toolListingHeader(
  * - Antigravity (checked live on 1.4.2; agy 1.4.8 and agy_acp_server 1.4.3 read the same way)
  *   loads only tools marked `antigravity/alwaysLoad` in full; it writes every other tool's
  *   definition to a file its agent reads, then calls the tool through its own `call_mcp_tool`.
- *   So it lists every tool, as Claude does. It also refreshes on `tools/list_changed`.
+ *   Deferral depends on a backend model flag. Since it refreshes on `tools/list_changed`, ace
+ *   uses the growing core list on every model to bound the cost when deferral is off.
  * - Every other agent stays static: a conservative default for agents not verified to reload,
  *   not a claim that they never refresh.
  */
 export function acpToolListing(cli: string | undefined): ToolListing {
-  if (cli === "gemini") return "core";
-  return cli === "claude-acp" || cli === "antigravity" ? "all" : "static";
+  if (cli === "gemini" || cli === "antigravity") return "core";
+  return cli === "claude-acp" ? "all" : "static";
 }
 
 /**

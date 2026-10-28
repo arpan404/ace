@@ -102,6 +102,12 @@ export const Thread = z.object({
     })
     .optional(),
   capabilities: Capabilities.optional(),
+  /**
+   * Stands in for `capabilities` on a connection that asked for the `provider-capabilities` trim:
+   * the key of a `provider.capabilities` message sent earlier on the same connection. A client
+   * puts the capabilities back before it hands the thread on, so no reader sees this field.
+   */
+  capabilitiesRef: z.string().min(1).max(64).optional(),
   permission: PermissionState.optional(),
   handoff: z
     .object({

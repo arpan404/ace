@@ -144,8 +144,30 @@ import XCTest
         let app = try longThreadApp()
         app.launch()
         XCTAssertTrue(app.openThread("ios-stream"))
+        measureTranscriptScroll(app, list: app.scrollViews.firstMatch, name: "transcript scroll")
+    }
+
+    /// The same swipes on iPad with the thread's side panel open beside the transcript (Changes,
+    /// its first tab): the panel must not cost the transcript its frames.
+    func testScrollingTheLongTranscriptWithThePanelOpenKeepsFramesOnTime() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("the side panel is iPad's") }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = try longThreadApp()
+        app.launch()
+        XCTAssertTrue(app.openThread("ios-stream"))
+        let toggle = app.buttons["thread.panel"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        toggle.tap()
+        XCTAssertTrue(app.buttons["panel.tab.changes"].waitForExistence(timeout: 10), "the panel opened")
+        measureTranscriptScroll(app, list: app.scrollViews["transcript"], name: "transcript scroll beside the panel")
+        XCTAssertTrue(app.buttons["panel.tab.changes"].exists, "the panel stayed open while measured")
+    }
+
+    /// Late-frame time lost during runs of fast swipes on `list`, per second of swiping, held to
+    /// the scroll budget.
+    private func measureTranscriptScroll(_ app: XCUIApplication, list: XCUIElement, name: String) {
         let windowsBefore = app.probe["frames.windows"]
-        let list = app.scrollViews.firstMatch
         let options = XCTMeasureOptions()
         options.iterationCount = 5
         // Late-frame time lost during each run of swipes alone: the sampler's running total,
@@ -163,10 +185,10 @@ import XCTest
         }
         // The sampler ran while the thread was on screen (it reports every five seconds).
         XCTAssertTrue(app.waitForCount("frames.windows", from: windowsBefore, timeout: 10), "frame sampler never reported")
-        report("transcript scroll lost frame time per run (ms)", lostMs)
-        report("transcript scroll run length (s)", spentS)
+        report("\(name) lost frame time per run (ms)", lostMs)
+        report("\(name) run length (s)", spentS)
         let hitches = lostMs.reduce(0, +) / max(spentS.reduce(0, +), 0.001)
-        report("transcript scroll hitch time (ms per s)", [hitches])
+        report("\(name) hitch time (ms per s)", [hitches])
         XCTAssertLessThan(hitches, PerfBudget.scrollHitchMsPerS)
     }
 

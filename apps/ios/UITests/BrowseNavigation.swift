@@ -19,13 +19,52 @@ extension XCUIApplication {
         XCTAssertTrue(control.waitForExistence(timeout: timeout), "\(identifier) never showed in the composer")
         return control
     }
-    /// An item of the thread's ⋯ menu. iOS 27 drops a menu item's identifier and keeps its label,
-    /// so the item is found by either.
-    func threadMenuItem(_ identifier: String) -> XCUIElement {
+    /// An item of the thread's ⋯ panel. iOS 27 drops a menu item's identifier and keeps its label,
+    /// so the item is found by either. Secondary actions are grouped in native menus.
+    @MainActor func threadMenuItem(_ identifier: String) -> XCUIElement {
         let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
                       "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
-                      "thread.terminal": "Terminal", "thread.tools": "Skills and tools"]
-        return buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, labels[identifier] ?? identifier)).firstMatch
+                      "thread.terminal": "Terminal", "thread.tools": "Skills and tools",
+                      "thread.reload": "Reload from machine", "thread.scripts": "Run and preview",
+                      "thread.work": "Work", "thread.attachments": "Attachments",
+                      "thread.computer": "Computer use", "thread.openIn": "Open in",
+                      "thread.turns": "Turns", "thread.logs": "Logs", "thread.offshift": "Offshift run",
+                      "thread.menu.rename": "Rename", "thread.forkLast": "Fork from the last turn",
+                      "thread.merge": "Bring back to parent", "thread.continueOn": "Continue on"]
+        // A menu item with a second line reads both in its label: match its first words.
+        let item = buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
+                                                labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch
+        if item.waitForExistence(timeout: 2) && item.isHittable { return item }
+        let conversation: Set<String> = ["thread.search", "thread.turns", "thread.attachments", "thread.menu.rename", "thread.forkLast", "thread.merge"]
+        let group = identifier == "thread.continueOn" || identifier.hasPrefix("thread.action.") ? "organize"
+            : conversation.contains(identifier) ? "conversation" : "tools"
+        let category = buttons["thread.options.\(group)"]
+        if category.waitForExistence(timeout: 2) { category.tap() }
+        _ = item.waitForExistence(timeout: 3)
+        let menu = collectionViews.firstMatch
+        for _ in 0..<4 where menu.exists && !(item.exists && item.isHittable) { menu.swipeUp() }
+        return item
+    }
+    /// Pull requests and Issues: the tab bar's Pulls on a phone, the sidebar's on a wide window
+    /// (iPad, an opened foldable), whichever the layout shows.
+    @MainActor func openPulls() {
+        // Some runtimes (iOS 27, the folded Duo) show the tab bar's items without a TabBar
+        // around them, so the tab is found by its label too.
+        let tab = tabBars.buttons["Pulls"].firstMatch, side = buttons["sidebar.pulls"]
+        let labelled = buttons.matching(NSPredicate(format: "label == 'Pulls'")).firstMatch
+        if tab.waitForExistence(timeout: 3) { tab.tap(); return }
+        if side.exists { side.tap(); return }
+        XCTAssertTrue(labelled.waitForExistence(timeout: 10), "no Pulls tab or sidebar entry showed")
+        labelled.tap()
+    }
+    /// The system back button of a pushed page. Some runtimes (iOS 27, the folded Duo) show it
+    /// without a NavigationBar around it, so it is found by its usual identifier or label too.
+    @MainActor func tapBack() {
+        let inBar = navigationBars.buttons.firstMatch
+        if inBar.waitForExistence(timeout: 2) { inBar.tap(); return }
+        let back = buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Back'")).firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button showed")
+        back.tap()
     }
     /// The inbox's New thread button, the round tab at the tab bar's trailing end.
     var newThreadButton: XCUIElement { tabBars.buttons["New thread"].firstMatch }

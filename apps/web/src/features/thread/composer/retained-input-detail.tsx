@@ -1,4 +1,5 @@
 import type { ThreadReader } from "@ace/client";
+import { retainedInputNotice } from "@ace/ui-core";
 import { useCallback } from "react";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 
@@ -16,12 +17,8 @@ export function useRetainedInputDetail(
   const read = useCallback(
     (reader: ThreadReader): Watched<string | undefined> => {
       if (!commandId) return none;
-      for (let at = reader.order.length - 1; at >= 0; at--) {
-        const item = reader.item(reader.order[at] ?? "");
-        if (item?.type === "notice" && item.code === "input_queued" && item.commandId === commandId)
-          return { value: item.detail, watch: [`item:${item.id}`] };
-      }
-      return none;
+      const item = retainedInputNotice(reader, commandId);
+      return item ? { value: item.detail, watch: [`item:${item.id}`] } : none;
     },
     [commandId],
   );

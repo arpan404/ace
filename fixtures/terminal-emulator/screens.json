@@ -1,0 +1,147 @@
+{
+ "cases": [
+  {
+   "name": "full-screen programs use the alternate screen and leave the shell as it was",
+   "columns": 20,
+   "rows": 3,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "$ vim\r\n"
+    },
+    {
+     "feed": "\u001b[?1049h\u001b[H~\r\n~\r\n~ file"
+    },
+    {
+     "feed": "\r\n\r\n\r\n"
+    },
+    {
+     "feed": "\u001b[?1049l"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "$ vim",
+     "",
+     ""
+    ],
+    "cursor": [
+     1,
+     0
+    ],
+    "history": 0,
+    "alternate": false
+   }
+  },
+  {
+   "name": "the alternate screen keeps no history",
+   "columns": 20,
+   "rows": 3,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "$ vim\r\n\u001b[?1049h\u001b[H~\r\n~\r\n~ file"
+    }
+   ],
+   "expect": {
+    "lines": [
+     "~",
+     "~",
+     "~ file"
+    ],
+    "alternate": true,
+    "history": 0
+   }
+  },
+  {
+   "name": "resizing keeps the newest rows and brings history back",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "1\r\n2\r\n3\r\n4\r\n5"
+    },
+    {
+     "resize": [
+      20,
+      3
+     ]
+    }
+   ],
+   "expect": {
+    "lines": [
+     "3",
+     "4",
+     "5"
+    ],
+    "history": 2,
+    "cursor": [
+     2,
+     1
+    ]
+   }
+  },
+  {
+   "name": "growing again brings history back down",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "1\r\n2\r\n3\r\n4\r\n5"
+    },
+    {
+     "resize": [
+      20,
+      3
+     ]
+    },
+    {
+     "resize": [
+      20,
+      5
+     ]
+    }
+   ],
+   "expect": {
+    "lines": [
+     "1",
+     "2",
+     "3",
+     "4",
+     "5"
+    ],
+    "history": 0
+   }
+  },
+  {
+   "name": "a full-screen program keeps its top rows when the screen shrinks",
+   "columns": 20,
+   "rows": 5,
+   "scrollback": 100,
+   "steps": [
+    {
+     "feed": "\u001b[?1049h\u001b[1;1Htitle\u001b[2;1Hrow\u001b[5;1Hkeys"
+    },
+    {
+     "resize": [
+      20,
+      3
+     ]
+    }
+   ],
+   "expect": {
+    "lines": [
+     "title",
+     "row",
+     ""
+    ],
+    "cursor": [
+     2,
+     4
+    ]
+   }
+  }
+ ]
+}
