@@ -94,6 +94,20 @@ test("with one machine New thread in lists its projects and names no machine", a
   expect(within(step).queryByRole("button", { name: /^Machine:/ })).toBeNull();
 });
 
+test("Ctrl+M flips between projects and machines without leaving the field", async () => {
+  const { made } = world([{ hostId: "build", name: "Build server" }]);
+  const step = await openStep(made);
+  await waitFor(async () => expect(await projectNames(step)).toEqual(["weather"]));
+
+  await userEvent.keyboard("{Control>}m{/Control}");
+  await within(step).findByRole("combobox", { name: "Search machines" });
+  await within(step).findByRole("listbox", { name: "Machines" });
+
+  await userEvent.keyboard("{Control>}m{/Control}");
+  await within(step).findByRole("combobox", { name: "Search projects" });
+  await waitFor(async () => expect(await projectNames(step)).toEqual(["weather"]));
+});
+
 test("a folder created from the project picker on Build server is made there and stays chosen", async () => {
   const { made, build } = world([{ hostId: "build", name: "Build server" }]);
   if (!build) throw new Error("no build server");

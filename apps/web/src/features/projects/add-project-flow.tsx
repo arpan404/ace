@@ -63,11 +63,19 @@ export function AddProjectFlow(props: {
         }}
         onBack={chosen ? () => setPicking(false) : props.onBack}
         empty="No machines match"
+        onSwitchMachines={() => setPicking(false)}
+        switchLabel="Sources"
       />
     );
   const chip = several ? (
-    <MachineChip name={machine.name} onClick={() => setPicking(true)} />
+    <MachineChip
+      name={machine.name}
+      icon={machine.icon}
+      primary={machine.primary}
+      onClick={() => setPicking(true)}
+    />
   ) : undefined;
+  const switchMachines = several ? () => setPicking(true) : undefined;
 
   if (props.page === "add-local")
     return (
@@ -134,6 +142,8 @@ export function AddProjectFlow(props: {
       onBack={props.onBack}
       empty="No sources match"
       trailing={chip}
+      onSwitchMachines={switchMachines}
+      switchLabel="Machine"
     />
   );
 }
