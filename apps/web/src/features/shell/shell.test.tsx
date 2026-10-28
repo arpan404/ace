@@ -28,7 +28,7 @@ test("every view and settings page opens in the shell under its own title", asyn
     view.unmount();
   }
   await harness().open("/settings");
-  await screen.findByRole("heading", { level: 2, name: "Agents" });
+  await screen.findByRole("heading", { level: 2, name: "General" });
   const pagesNav = screen.getByRole("navigation", { name: "Settings pages" });
   for (const page of ["General", "Appearance", "Providers", "Fleet", "Keyboard", "Advanced"]) {
     await userEvent.click(within(pagesNav).getByRole("link", { name: page }));
