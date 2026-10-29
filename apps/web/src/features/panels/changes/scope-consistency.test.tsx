@@ -14,7 +14,8 @@ async function openChanges(app = harness()) {
   await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  await within(panel).findByRole("tab", { name: /^Changes/, selected: true });
   await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
   return panel;
 }
