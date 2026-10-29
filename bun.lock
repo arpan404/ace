@@ -1096,6 +1096,7 @@
         "@ace/client": "workspace:*",
         "@ace/client-worker": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
+        "@ace/html": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@playwright/test": "1.63.0",
         "zod": "^4.6.5",
