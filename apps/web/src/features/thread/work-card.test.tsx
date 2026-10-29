@@ -75,7 +75,8 @@ test("the Changes header offers the details card's git action and opens the same
   await userEvent.keyboard("{Escape}");
   await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  await within(panel).findByRole("tab", { name: /^Changes/, selected: true });
   const toolbar = await within(panel).findByRole("toolbar", { name: "Changes" });
   await userEvent.click(await within(toolbar).findByRole("button", { name: "Commit & push" }));
   const dialog = await screen.findByRole("dialog", { name: "Commit to fix/restart-retry" });

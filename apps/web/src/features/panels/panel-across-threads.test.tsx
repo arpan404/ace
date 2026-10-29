@@ -24,7 +24,8 @@ test("another thread starts with its panel hidden and keeps its own selected too
   await twoThreads();
   await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await userEvent.click(await within(panel).findByRole("tab", { name: /^Changes/ }));
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  await within(panel).findByRole("tab", { name: /^Changes/, selected: true });
 
   await switchTo(/Migrate settings schema/);
   expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
@@ -43,7 +44,8 @@ test("returning to a thread restores its open panel even when the previous threa
   await twoThreads();
   await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await userEvent.click(await within(panel).findByRole("tab", { name: /^Changes/ }));
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  await within(panel).findByRole("tab", { name: /^Changes/, selected: true });
 
   await switchTo(/Migrate settings schema/);
   expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();

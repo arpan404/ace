@@ -89,7 +89,8 @@ test("a page that floated while another tool showed comes back over that tool wh
   const { panel, browser, thread } = await openThreadBrowser();
   act(() => browser.agentWorks(thread, { agentId: "worker" }));
   // Another tool takes the panel: the Browser is out of sight, so its page floats.
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  await within(panel).findByRole("tab", { name: /^Changes/, selected: true });
   const floating = await screen.findByRole("region", { name: /^Picture in picture/ });
   await userEvent.click(
     within(floating).getByRole("img", { name: "Live view of localhost:5173/settings/devices" }),
