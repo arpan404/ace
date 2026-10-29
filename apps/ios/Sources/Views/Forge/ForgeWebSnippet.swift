@@ -93,7 +93,7 @@ struct ForgeMermaidView: View {
                 .frame(height: height)
                 .accessibilityLabel("Diagram")
         } else {
-            MarkdownCodeBlock(language: "mermaid", text: source)
+            AceMarkdown(text: AceMarkdown.fenced(source, language: "mermaid"))
         }
     }
 }

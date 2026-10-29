@@ -24,7 +24,7 @@ struct SkillDiscoveryView: View {
                     NavigationLink {
                         ScrollView {
                             VStack(alignment: .leading, spacing: AceTheme.Spacing.lg) {
-                                MarkdownView(text: entry.description)
+                                AceMarkdown(text: entry.description)
                                 Text("Use this entry from a conversation's Skills and commands menu.").foregroundStyle(AceTheme.Colours.mutedForeground)
                             }.padding(AceTheme.Spacing.lg)
                         }.navigationTitle(entry.title ?? entry.name).navigationBarTitleDisplayMode(.inline)

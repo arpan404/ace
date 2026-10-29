@@ -10,7 +10,6 @@ import {
   checkoutEditLimit,
   checkoutError,
   checkoutViewLimit,
-  fileLanguage,
   fromCode,
   imageType,
   isCheckoutPath,
@@ -24,7 +23,7 @@ import {
 import { checkoutLinkPath, localLinkLine, localLinkPath } from "@ace/ui-core/file-references";
 import { z } from "zod";
 import { base64, gather } from "./bytes.ts";
-import { changedLines, colourRuns } from "./checkout-colours.ts";
+import { changedLines, highlightLanguage } from "./checkout-marks.ts";
 import {
   Listing,
   Stat,
@@ -351,10 +350,7 @@ export class CheckoutFiles {
       return { kind: "image", path, size, version, editable: false, data: base64(bytes) };
     if (!isText(bytes)) return { kind: "binary", path, size, version, editable: false };
     const text = new TextDecoder().decode(bytes);
-    const [colours, marks] = await Promise.all([
-      colourRuns(text, fileLanguage(path)),
-      "threadId" in scope ? this.#marks(scope.threadId, path, signal) : Promise.resolve([]),
-    ]);
+    const marks = "threadId" in scope ? await this.#marks(scope.threadId, path, signal) : [];
     return {
       kind: "text",
       path,
@@ -363,8 +359,7 @@ export class CheckoutFiles {
       text,
       markdown: isMarkdownPath(path),
       editable: editable && size <= checkoutEditLimit,
-      colours: colours?.colours ?? [],
-      runs: colours?.runs ?? [],
+      language: highlightLanguage(path) ?? null,
       marks,
     };
   }

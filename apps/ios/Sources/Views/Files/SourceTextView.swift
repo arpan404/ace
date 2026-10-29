@@ -1,14 +1,13 @@
 import SwiftUI
 import UIKit
 
-/// What a file screen hands its source view: the text with the web's grammar colours (runs over
-/// UTF-16 units, colour N is `colours[N - 1]`) and the lines changed since the last commit.
+/// What a file screen hands its source view: the text, the language markit colours it in (nil
+/// shows it plain) and the lines changed since the last commit.
 struct SourceDocument: Equatable {
     /// Changes when a different text loads (another file, version or an edit session).
     let key: String
     let text: String
-    let colours: [[String]]
-    let runs: [Int]
+    let language: String?
     let marks: [Int: String]
 }
 
@@ -168,27 +167,25 @@ final class SourceContainer: UIView {
         return [.font: font, .foregroundColor: UIColor(AceTheme.Colours.foreground), .paragraphStyle: paragraph]
     }
 
+    /// Colours being read for the text on screen, off the main thread.
+    private var colouring: Task<Void, Never>?
+
     func load(_ document: SourceDocument) {
         let base = attributes()
-        let attributed = NSMutableAttributedString(string: document.text, attributes: base)
-        let length = attributed.length
-        let palette = document.colours.map { pair in
-            let light = UIColor(hex: pair.first ?? ""), dark = UIColor(hex: pair.last ?? "")
-            return UIColor { $0.userInterfaceStyle == .dark ? dark : light }
-        }
-        var at = 0
-        attributed.beginEditing()
-        for index in stride(from: 0, to: document.runs.count - 1, by: 2) {
-            let run = document.runs[index], colour = document.runs[index + 1]
-            if at + run > length { break }
-            if colour > 0, colour <= palette.count {
-                attributed.addAttribute(.foregroundColor, value: palette[colour - 1], range: NSRange(location: at, length: run))
-            }
-            at += run
-        }
-        attributed.endEditing()
+        colouring?.cancel()
+        colouring = nil
         text.typingAttributes = base
-        text.attributedText = attributed
+        // The text shows plain at once; its colours land over the same glyphs when read.
+        text.attributedText = NSAttributedString(string: document.text, attributes: base)
+        if let language = document.language, !language.isEmpty, !document.text.isEmpty {
+            colouring = Task { [weak self, theme = AceMarkdownTheme.current()] in
+                let colours = await SourceColours.read(document.text, language: language, theme: theme)
+                // Only over the text it was read for: not another file, nor one being edited since.
+                guard let self, !Task.isCancelled, let colours, self.text.text == document.text else { return }
+                colours.apply(to: self.text.textStorage)
+                self.colouring = nil
+            }
+        }
         marks = document.marks
         countLines()
         highlight.isHidden = true

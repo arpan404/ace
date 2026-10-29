@@ -86,7 +86,7 @@ private struct LogStepContent: View {
     var body: some View {
         switch row.type {
         case "message":
-            MarkdownView(text: row.text).stepNarration(true)
+            AceMarkdown(text: row.text).stepNarration(true)
         case "reasoning":
             ReasoningRow(row: row, thought: source.thoughts[row.id], thread: source.thread, openMessage: source.openMessage)
         case "html", "image":

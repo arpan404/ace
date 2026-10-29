@@ -32,7 +32,6 @@ import { NativeAttachmentRequest, readNativeAttachment } from "./native-attachme
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
-import { NativeRichRequest, readNativeRich } from "./native-rich.ts";
 import {
   ThreadFileIndex,
   NativeThreadFilesRequest,
@@ -314,11 +313,6 @@ export class NativeServices {
       const sent = SentPromptRequest.safeParse(raw);
       if (sent.success) {
         this.#reply(id, true, readSentPrompt(this.owner, sent.data), "");
-        return;
-      }
-      const rich = NativeRichRequest.safeParse(raw);
-      if (rich.success) {
-        this.#reply(id, true, await readNativeRich(rich.data), "");
         return;
       }
       const turns = NativeTurnsRequest.safeParse(raw);

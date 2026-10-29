@@ -102,7 +102,7 @@ struct PlanReviewCard: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-                    MarkdownView(text: plan?.markdown ?? "")
+                    AceMarkdown(text: plan?.markdown ?? "")
                     ForEach(Array((plan?.todos ?? []).enumerated()), id: \.offset) { _, todo in
                         Label(todo.text, ace: todo.status == "completed" ? .checkCircle : todo.status == "in_progress" ? .circleHalf : .circle)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)

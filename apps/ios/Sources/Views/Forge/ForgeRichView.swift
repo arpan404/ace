@@ -36,7 +36,7 @@ private struct ForgeRichBlockView: View {
                 .accessibilityAddTraits(.isHeader)
                 .padding(.top, AceTheme.Spacing.xs)
         case .code(let lang, let text):
-            MarkdownCodeBlock(language: lang, text: text)
+            AceMarkdown(text: AceMarkdown.fenced(text, language: lang))
         case .mermaid(let text):
             ForgeMermaidView(source: text)
         case .quote(let blocks):

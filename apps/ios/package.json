@@ -6,8 +6,7 @@
   "scripts": {
     "bundle": "bun build bridge/main.ts --target browser --format iife --minify --outfile Resources/client.js",
     "markit": "bun scripts/build-markit.ts",
-    "math": "bun scripts/build-math.ts",
-    "generate": "bun run theme && bun run keymap && bun run marks && bun run icons && bun run markit && bun run bundle && bun run mermaid && bun run math && bun run bundle:tests && /opt/homebrew/bin/xcodegen generate",
+    "generate": "bun run theme && bun run keymap && bun run marks && bun run icons && bun run markit && bun run bundle && bun run mermaid && bun run bundle:tests && /opt/homebrew/bin/xcodegen generate",
     "spike:daemon": "bun scripts/spike-daemon.ts",
     "e2e:pairing": "bun scripts/pairing-e2e.ts",
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
@@ -31,7 +30,6 @@
     "@ace/themes": "workspace:*",
     "@ace/ui-core": "workspace:*",
     "gemoji": "^8.1.0",
-    "katex": "^0.19.0",
     "marked": "^18.0.14",
     "zod": "^4.6.5"
   },

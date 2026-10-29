@@ -123,8 +123,10 @@ import XCTest
         let app = launch()
         open("ios-markdown", in: app)
         XCTAssertTrue(waitForAny(prefix: "message.copy.", in: app))
-        // Display math typesets once the answer has finished, as the web sets it.
-        XCTAssertTrue(app.descendants(matching: .any)["markdown.math.typeset"].waitForExistence(timeout: 20))
+        // markit draws the answer natively: its fenced code as a block with its own Copy, its math
+        // typeset as images in the text (no web view), from the first frame of a finished answer.
+        XCTAssertTrue(app.buttons["Copy code"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertEqual(app.webViews.count, 0)
         sleep(1)
         screenshot("markdown-math-code-diff")
     }

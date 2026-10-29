@@ -137,12 +137,12 @@ struct FileScreen: View {
             ContentUnavailableView("Empty file", systemImage: "doc.text", description: Text("\(name) has no content."))
         } else if markdownPreview {
             ScrollView {
-                MarkdownView(text: text).padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg)
+                AceMarkdown(text: text).padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg)
             }
             .accessibilityIdentifier("preview.markdown")
         } else {
             SourceTextView(document: SourceDocument(key: "\(path)|\(content.version ?? "")|\(editSession)", text: text,
-                                                    colours: content.colours ?? [], runs: content.runs ?? [],
+                                                    language: content.language,
                                                     marks: Dictionary((content.marks ?? []).map { ($0.line, $0.kind) }, uniquingKeysWith: { a, _ in a })),
                            wrap: wrap, editable: editing, line: target.line, handle: handle, dirty: { dirty = $0 },
                            selected: mention == nil ? nil : { selectedLines = $0 },

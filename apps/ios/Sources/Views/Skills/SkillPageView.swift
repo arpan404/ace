@@ -38,7 +38,7 @@ struct SkillPageView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xs, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.xs))
                 details(page)
                 Section {
-                    MarkdownView(text: page.instructions.isEmpty ? "_No instructions yet._" : page.instructions)
+                    AceMarkdown(text: page.instructions.isEmpty ? "_No instructions yet._" : page.instructions)
                         .padding(.vertical, AceTheme.Spacing.sm)
                 } header: {
                     HStack {

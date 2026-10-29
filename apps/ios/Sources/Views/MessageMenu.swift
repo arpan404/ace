@@ -37,8 +37,7 @@ private struct MessageMenu: ViewModifier {
                         }
                     }
                 } preview: {
-                    MarkdownView(text: String(text.prefix(600)), selectable: false)
-                        .foregroundStyle(AceTheme.Colours.foreground)
+                    AceMarkdown(text: String(text.prefix(600)), selectable: false)
                         .padding(AceTheme.Spacing.lg)
                         .frame(width: 340, alignment: .topLeading)
                         .frame(maxHeight: 360, alignment: .top)

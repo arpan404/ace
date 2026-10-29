@@ -36,7 +36,7 @@ struct ReasoningRow: View {
             .accessibilityValue(text.isEmpty ? "" : open ? "Expanded" : "Collapsed")
             if open, !text.isEmpty {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                    MarkdownView(text: text).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    AceMarkdown(text: text, tone: .muted)
                     if row.truncated, let openMessage {
                         Button("Read full thought") { openMessage(row) }
                             .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
