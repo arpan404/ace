@@ -84,6 +84,47 @@ test("lookups kept by an earlier session show at once and are asked for again", 
   next.stop();
 });
 
+test("storage usage survives a reload while reviewed cleanup plans stay private to the page", async () => {
+  const m = memory();
+  const earlier = session(m.storage);
+  const usage = { measuredAt: 123, databaseBytes: 480_000, complete: false };
+  earlier.queries.setQueryData(["storage", "usage"], usage);
+  earlier.queries.setQueryData(["storage", "plan"], { id: "reviewed-plan" });
+  earlier.time.flush();
+  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true));
+  earlier.stop();
+
+  const next = session(m.storage);
+  await vi.waitFor(() => expect(next.queries.getQueryData(["storage", "usage"])).toEqual(usage));
+  expect(next.queries.getQueryData(["storage", "plan"])).toBeUndefined();
+  expect(await observe(next.queries, ["storage", "usage"], { ...usage, measuredAt: 456 })).toEqual(
+    usage,
+  );
+  next.stop();
+});
+
+test("a failed storage refresh cannot evict the last measurement from the next persisted record", async () => {
+  const m = memory();
+  const earlier = session(m.storage);
+  const usage = { measuredAt: 123, databaseBytes: 480_000, complete: true };
+  earlier.queries.setQueryData(["storage", "usage"], usage);
+  await expect(
+    earlier.queries.fetchQuery({
+      queryKey: ["storage", "usage"],
+      queryFn: async () => {
+        throw new Error("Measurement failed");
+      },
+    }),
+  ).rejects.toThrow("Measurement failed");
+  earlier.queries.setQueryData(["projects"], ["ace"]);
+  earlier.time.flush();
+  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true));
+  earlier.stop();
+  const next = session(m.storage);
+  await vi.waitFor(() => expect(next.queries.getQueryData(["storage", "usage"])).toEqual(usage));
+  next.stop();
+});
+
 test("only lookups worth keeping are written: file contents, diffs and searches never are", async () => {
   const m = memory();
   const s = session(m.storage);

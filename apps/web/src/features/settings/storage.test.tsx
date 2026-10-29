@@ -1,6 +1,55 @@
 import { screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { createQueryClient } from "@/app.tsx";
+import { fakeClient } from "@/test/fake-client.ts";
+import { storageUsageKey } from "@/lib/storage-usage-policy.ts";
+
+test("storage keeps the previous rows while a forced measurement runs and reports a failed refresh", async () => {
+  const queries = createQueryClient();
+  queries.setQueryData(storageUsageKey, {
+    categories: [],
+    databaseBytes: 2_000_000,
+    reclaimableDatabaseBytes: 0,
+    measuredAt: 60_000,
+    complete: true,
+    backups: [],
+  });
+  const gate = Promise.withResolvers<void>();
+  const scans: unknown[] = [];
+  const app = harness({
+    queryClient: queries,
+    uiClock: () => 120_000,
+    client(daemon) {
+      const client = fakeClient(daemon);
+      const request = client.request.bind(client);
+      vi.spyOn(client, "request").mockImplementation(async (input, options) => {
+        if (input.type === "storage.request" && input.operation.op === "storage.usage") {
+          scans.push(input.operation);
+          await gate.promise;
+          throw new Error("Scan interrupted");
+        }
+        return request(input, options);
+      });
+      return client;
+    },
+  });
+  await app.open("/settings/storage");
+  expect(await screen.findByText("2.0 MB")).toBeTruthy();
+  expect(screen.getByText("Measured 1m ago.")).toBeTruthy();
+  const refresh = screen.getByRole("button", { name: "Refresh usage" });
+  await userEvent.click(refresh);
+  expect(scans).toEqual([{ op: "storage.usage", force: true }]);
+  expect(screen.getByText("2.0 MB")).toBeTruthy();
+  expect(screen.getByText("Updating storage usage…")).toBeTruthy();
+  expect(refresh).toHaveProperty("disabled", true);
+  await userEvent.click(refresh);
+  expect(scans).toHaveLength(1);
+  gate.resolve();
+  expect(await screen.findByText(/Couldn't update storage usage/)).toBeTruthy();
+  expect(screen.getByText("2.0 MB")).toBeTruthy();
+  await waitFor(() => expect(refresh).toHaveProperty("disabled", false));
+});
 import { harness } from "@/test/harness.tsx";
 
 test("storage scans through the browser worker client", async () => {
