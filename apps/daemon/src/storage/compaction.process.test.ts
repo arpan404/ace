@@ -63,7 +63,7 @@ test("compacting after purging threads shrinks the database file and leaves no r
     incrementalUnavailable: false,
     checkpointed: true,
   });
-  const after = await f.storage.usage();
+  const after = await f.storage.usage(true);
   expect(after.databaseBytes).toBeLessThan(before.databaseBytes - 2 * 1024 * 1024);
   expect(after.reclaimableDatabaseBytes).toBeLessThan(64 * 1024);
 });
@@ -162,7 +162,7 @@ test("a kill mid-compaction leaves an intact database whose journal resumes to c
     "running",
   );
   await restarted.storage.resume();
-  const after = await restarted.storage.usage();
+  const after = await restarted.storage.usage(true);
   expect(after.reclaimableDatabaseBytes).toBeLessThan(64 * 1024);
   expect(after.databaseBytes).toBeLessThan(before.databaseBytes - 2 * 1024 * 1024);
   expect(restarted.store.statement("SELECT state FROM storage_compactions").get()?.state).toBe(
