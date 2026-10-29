@@ -29,6 +29,7 @@ import type { PatchSink } from "./agents.ts";
 import type { CheckoutFiles } from "./checkout-files.ts";
 import { NativeFilesRequest } from "./checkout-request.ts";
 import { NativeAttachmentRequest, readNativeAttachment } from "./native-attachment.ts";
+import { NativeImageRequest, readNativeImage } from "./native-image.ts";
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
@@ -411,6 +412,11 @@ export class NativeServices {
       const media = NativeMediaRequest.safeParse(raw);
       if (media.success) {
         this.#reply(id, true, await readNativeMedia(this.owner, media.data, controller.signal), "");
+        return;
+      }
+      const image = NativeImageRequest.safeParse(raw);
+      if (image.success) {
+        this.#reply(id, true, await readNativeImage(this.owner, image.data, controller.signal), "");
         return;
       }
       const attachment = NativeAttachmentRequest.safeParse(raw);

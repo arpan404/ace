@@ -244,7 +244,14 @@ thought's header (`thoughtLabel`); event blocks carry the web's own event decisi
 divider), re-read when the order around them changes; answer blocks say whether they still
 stream. A truncated finished answer reads its whole text in place (`native.message`).
 
-SwiftUI renders blocks with native Markdown (`Models/Markdown.swift`, SF Mono code blocks),
+Markdown, math and code colours are drawn natively by markit (`packages/markit`, Rust behind
+its Swift package; `bun run generate` builds its `MarkitCore.xcframework` from the submodule
+with `bun run markit`, which needs Rust with the `aarch64-apple-ios` and `aarch64-apple-ios-sim`
+targets). `Views/Markdown/AceMarkdown.swift` wraps `MarkitInline` in ace's look
+(`AceMarkdownTheme`): code blocks with Copy and a fold past 22 lines, diff fences, tables and
+math typeset as images without a web view. A streaming answer reaches markit 10 to 20 times a
+second (`Models/StreamPace.swift`); finished text shows at once. An image an answer names draws
+when the thread captured it (`native.image`, the daemon's `image.resolve`). SwiftUI renders
 work logs on a step rail, inline subagent rows worded as the web's (`@ace/ui-core`
 subagent-row: meta, live detail, elapsed; a delegated child thread pushes, a native
 subagent's lane opens a sheet), question and approval cards on the strip above the composer
@@ -571,8 +578,8 @@ web's Files tool. Each screen asks one `native.files` service request at a time.
 the daemon's listing (at most 1,000 paths) in the web's order, folders opened in place, with
 `git.status` letters (M, A, D, R, U from `changeLetters`); folders holding a change start open.
 The system search field is quick open through `mention.complete`. A file reads like the web's
-viewer: up to 2 MB (`checkoutViewLimit`), coloured by the shared grammar highlighter
-(`@ace/ui-core/source-highlight`, sent as compact runs for the first 256 KiB of text) with
+viewer: up to 2 MB (`checkoutViewLimit`), coloured by markit off the main thread
+(`Views/Files/SourceColours.swift`, in the language `bridge/checkout-marks.ts` names) with
 change bars from `git.diff` (`lineMarks`), in a TextKit 2 view with a fixed line-number gutter
 and the system find navigator. Markdown renders with its source a tap away; images draw;
 binary and larger files offer Share. Text up to 1 MB edits and saves with `write` over the

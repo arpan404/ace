@@ -1,4 +1,8 @@
 import SwiftUI
+import UIKit
+
+/// An image an answer names, as `native.image` reads it.
+private struct ProseImage: Decodable { let mimeType: String; let data: String }
 
 /// What a block opens: another thread (a delegated child or a started conversation) or a
 /// native subagent's own lane inside this thread.
@@ -53,12 +57,24 @@ struct BlockView: View {
                 }
             }
             .environment(\.readMessage, reader)
+            .environment(\.readImage, imageReader)
         default:
             VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
                 ForEach(row.items, id: \.self) { id in
                     if let item = thread.items[id] { ItemRowView(item: item, openMedia: links.openMedia, openMessage: links.openMessage) }
                 }
             }
+        }
+    }
+    /// Where an answer reads an image it names (`native.image`): only a picture the thread itself
+    /// captured before that answer resolves.
+    private var imageReader: (@MainActor (String, String) async -> UIImage?)? {
+        guard let model = links.steps?.model else { return nil }
+        let threadId = thread.id
+        return { id, reference in
+            guard let read = try? await model.service(["type": "native.image", "threadId": threadId, "itemId": id, "reference": reference], as: ProseImage.self),
+                  let data = Data(base64Encoded: read.data) else { return nil }
+            return UIImage(data: data)
         }
     }
     /// Where a long answer reads its whole text: the thread's own model, when the feed has one.

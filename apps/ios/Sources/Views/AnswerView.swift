@@ -1,9 +1,13 @@
 import SwiftUI
+import UIKit
 
 extension EnvironmentValues {
     /// Reads an item's whole text from its source (`native.message`), for answers and thoughts
     /// longer than a row carries. Nil where nothing can read it.
     @Entry var readMessage: (@MainActor (String) async throws -> String)? = nil
+    /// Reads an image an answer names (item id, the reference as written); nil leaves images as
+    /// their alt text.
+    @Entry var readImage: (@MainActor (String, String) async -> UIImage?)? = nil
 }
 
 /// Agent prose as the web draws it: bare full-width Markdown, a pulsing caret while it streams,
@@ -16,6 +20,7 @@ struct AnswerRow: View {
     var between = false
     var openMessage: ((TranscriptRow) -> Void)? = nil
     @Environment(\.readMessage) private var readMessage
+    @Environment(\.readImage) private var readImage
     @Environment(\.fileLinks) private var fileLinks
     @State private var full: String?
     @State private var problem: String?
@@ -27,7 +32,7 @@ struct AnswerRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             if !shown.isEmpty {
                 let menu = !between && !live
-                AceMarkdown(text: shown, streaming: live, selectable: !menu)
+                AceMarkdown(text: shown, streaming: live, selectable: !menu, resolveImage: images(of: row.id))
                     .fileLinks(fileLinks, itemId: row.id)
                     .messageMenu(menu ? shown : "", title: "Answer", row: row)
             }
@@ -43,6 +48,11 @@ struct AnswerRow: View {
         .task(id: row.truncated && row.complete) { await load() }
     }
     private var shown: String { full ?? row.text }
+    /// Draws an image the answer names from the thread's own captures; nil outside a thread.
+    private func images(of itemId: String) -> (@MainActor (String) async -> UIImage?)? {
+        guard let readImage else { return nil }
+        return { reference in await readImage(itemId, reference) }
+    }
     @ViewBuilder private var partial: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             if let problem {
