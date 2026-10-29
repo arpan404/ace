@@ -222,7 +222,11 @@ export function selectNewThreadAgent(
     account: choice.account,
   });
   if (!model) return { ok: false, reason: `${row.name}: No models listed on this computer` };
-  const effort = resolveEffort(model.efforts, choice.effort, model.defaultEffort);
+  // A picked effort belongs to the picked model: when the account serves another one (or
+  // another agent steps in), start from the new model's default instead of carrying stale
+  // thinking over.
+  const wanted = choice.model === undefined || choice.model === model.key ? choice : undefined;
+  const effort = resolveEffort(model.efforts, wanted?.effort, model.defaultEffort);
   const speed = model.speeds.find((tier) => tier.speed === choice.speed)?.speed;
   const serviceTier = speed ? speedOption(model.speeds, speed) : undefined;
   return { ok: true, provider: row.provider, model, effort, serviceTier };
