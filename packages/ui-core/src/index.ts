@@ -191,6 +191,7 @@ export * from "./repeated-events.ts";
 export * from "./background-groups.ts";
 export * from "./transcript-groups.ts";
 export * from "./system-events.ts";
+export { mergeReceipts, receiptEntry, receiptResults } from "./delegation-receipts.ts";
 export * from "./handoff-marker.ts";
 export * from "./system-input.ts";
 export * from "./approvals.ts";

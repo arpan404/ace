@@ -1,4 +1,5 @@
-import type { ThreadKey } from "@ace/client";
+import type { ThreadKey, ThreadReader } from "@ace/client";
+import { mergeReceipts } from "@ace/ui-core";
 import { useThreadMeta } from "@ace/client-react";
 import { useMemo, useState } from "react";
 import { useServerQueue } from "@/lib/server-queue.ts";
@@ -25,7 +26,14 @@ function useBlockKeys(threadId: string, agentId?: string): readonly ThreadKey[] 
  * screen remounts per thread, so one reader serves one thread.
  */
 export function useBlocks(threadId: string): readonly Block[] {
-  const [read] = useState(() => createBlockReader());
+  const [read] = useState(() => {
+    const blocks = createBlockReader();
+    // Back-to-back receipts of delegated work read as one row.
+    return (reader: ThreadReader) => {
+      const built = blocks(reader);
+      return { ...built, value: mergeReceipts(built.value, (id) => reader.item(id)) };
+    };
+  });
   const blocks = useWatched(threadId, useBlockKeys(threadId), read, blocksEqual) ?? none;
   const queued = useServerQueue(threadId).page?.messages;
   return useMemo(() => withoutQueued(blocks, queued), [blocks, queued]);

@@ -726,6 +726,7 @@ test("a delivered agent result shows who it's from, never the raw marker", async
     ]),
   );
   const card = await within(feed).findByRole("region", { name: "Delegated work finished" });
+  await userEvent.click(within(card).getByRole("button", { name: "1 subagent ran" }));
   expect(within(card).getByText("Added greet() with tests")).toBeTruthy();
   expect(within(card).getAllByRole("link").length).toBeGreaterThan(0);
   expect(within(feed).queryByText(/ace-origin/)).toBeNull();

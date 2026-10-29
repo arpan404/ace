@@ -117,7 +117,12 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
       return <HandoffDivider marker={view.marker} at={view.at} />;
     case "delegation":
       return (
-        <DelegationCard threadId={props.threadId} results={view.results} received={view.received} />
+        <DelegationCard
+          threadId={props.threadId}
+          results={view.results}
+          received={view.received}
+          deliveredAt={stored.createdAt}
+        />
       );
     case "event":
       return (
