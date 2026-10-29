@@ -53,7 +53,7 @@ export function CodeBlock(props: {
   code: string;
   /** The fence's info string: a language, a file name, or both. */
   lang?: string | undefined;
-  /** Tokens highlighted in the markdown worker; nested blocks highlight here. */
+  /** Tokens highlighted for a settled fence; nested blocks highlight here. */
   tokens?: CodeToken[];
   /** Still being written: plain text until it settles, rather than highlighting each update. */
   plain?: boolean;

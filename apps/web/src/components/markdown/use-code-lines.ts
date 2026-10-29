@@ -15,7 +15,7 @@ const ready = new LruCache<string, CodeLines>({
 });
 
 /**
- * A source file's highlighted lines, built in the highlighting worker. Undefined while they are
+ * A source file's highlighted lines, built in markit's worker. Undefined while they are
  * being built, when the result exceeds the token budget, or when there is no code. The caller
  * keeps its exact plain source in each case; compact plain results are cached too.
  */

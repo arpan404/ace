@@ -58,7 +58,7 @@ const markWords: Record<LineMark, string> = {
 
 /**
  * A source file with line numbers: 13px mono on a 22px pitch, numbers right-aligned in their
- * own gutter (left out of a copy), highlighted in the markdown worker and plain until then.
+ * own gutter (left out of a copy), highlighted by markit's worker and plain until then.
  * Only the lines near the viewport mount, so a 50,000-line file scrolls like a short one.
  * Lines changed since the last commit carry a bar at the gutter's edge.
  */
