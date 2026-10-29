@@ -53,6 +53,7 @@ finally { await scanner.close(); }
       throw cause;
     });
     const usage = StorageUsage.parse(JSON.parse(result.stdout.trim()));
+    expect(usage.complete).toBe(true);
     expect(usage.categories.find((category) => category.kind === "logs")).toEqual({
       kind: "logs",
       bytes: Buffer.byteLength(contents),
