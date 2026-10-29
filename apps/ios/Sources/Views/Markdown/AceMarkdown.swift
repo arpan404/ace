@@ -67,6 +67,12 @@ struct AceMarkdown: View {
                 _ = pace.finish(text)
                 paced = nil
             }
+            // Off screen the timer stops; back on screen the newest text that arrived meanwhile
+            // shows (or waits its turn), never the text left from before.
+            .onAppear {
+                guard streaming else { return }
+                take(pace.due(now: Self.now(), late: 0))
+            }
             .onDisappear { stop() }
     }
 

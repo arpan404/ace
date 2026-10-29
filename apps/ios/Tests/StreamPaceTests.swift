@@ -57,7 +57,8 @@ import Testing
         var pace = StreamPace()
         _ = pace.push("One", now: 0)
         #expect(pace.push("One two", now: 0.01) == .wait(0.05 - 0.01))
-        #expect(pace.push("One two three", now: 0.02) == .wait(0.05 - 0.02))
+        // The wait already asked for draws it; no second wait is asked for.
+        #expect(pace.push("One two three", now: 0.02) == .idle)
         #expect(pace.due(now: 0.05, late: 0) == .show("One two three"))
         #expect(pace.due(now: 0.06, late: 0) == .idle)
     }
@@ -107,5 +108,14 @@ import Testing
         var final = run.drawn.last?.text
         if case .show(let text) = pace.due(now: 10, late: 0) { final = text }
         #expect(final == run.text)
+    }
+
+    @Test func aStreamWhoseTimerWasDroppedDrawsItsNewestTextWhenPickedUpAgain() {
+        var pace = StreamPace()
+        _ = pace.push("Off", now: 0)
+        #expect(pace.push("Off screen", now: 0.01) == .wait(0.05 - 0.01))
+        // The view left the screen and dropped its timer; more text arrived meanwhile.
+        #expect(pace.push("Off screen and back", now: 0.5) == .idle)
+        #expect(pace.due(now: 2, late: 0) == .show("Off screen and back"))
     }
 }
