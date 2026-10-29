@@ -4,6 +4,7 @@ import { PinnedDirectory } from "@ace/workspace";
 import { ThreadId, type StorageKind } from "@ace/protocol";
 import type { OwnedStorageCandidate, StorageOwner } from "./types.ts";
 import { storageProtections } from "./ownership.ts";
+import { storageFileRoots as roots, excludedStoragePath } from "./usage-walk-roots.ts";
 import { withProjectionLock } from "@ace/plugins";
 import {
   clearSkillRoot,
@@ -48,14 +49,6 @@ function skillRootCandidate(name: string, facts: SkillRootFacts): OwnedStorageCa
     target: { type: "skill_root", name },
   };
 }
-const roots = [
-  ["logs", "logs"],
-  ["support/artifacts", "logs"],
-  ["artifacts", "artifacts"],
-  ["browser", "artifacts"],
-  ["cache", "caches"],
-  ["caches", "caches"],
-] satisfies [string, StorageKind][];
 
 /** All descendant reads and unlinks are no-follow operations relative to a pinned inode. */
 export class StorageFiles {
@@ -217,12 +210,7 @@ export class StorageFiles {
           return;
         }
         const childPath = `${path}/${name}`;
-        if (
-          childPath.startsWith("browser/profiles/") ||
-          childPath === "browser/profiles" ||
-          childPath.startsWith("browser/ephemeral-")
-        )
-          continue;
+        if (excludedStoragePath(childPath)) continue;
         const info = directory.metadata(name);
         if ((info.mode & 0o170000) === 0o120000) {
           candidates.push({
