@@ -1,10 +1,11 @@
+import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { StorageUsage } from "@ace/protocol";
 import { Store } from "../store.ts";
-import { UsageCache, USAGE_INTERVAL } from "./usage-cache.ts";
+import { UsageCache, USAGE_INTERVAL, USAGE_PARTIAL_RETRY } from "./usage-cache.ts";
 import { UsageCoordinator, type Activity } from "./usage-schedule.ts";
 
 const homes: string[] = [];
@@ -129,7 +130,7 @@ test("a reopened SQLite snapshot keeps its completion deadline and partial flag"
     await reopened.close();
   });
   const durable = new UsageCache(reopened, f.root, "host-a");
-  expect(durable.load(10000)).toEqual({ usage: usage(10, false), due: 9000 + USAGE_INTERVAL });
+  expect(durable.load(10000)).toEqual({ usage: usage(10, false), due: 9000 + USAGE_PARTIAL_RETRY });
   expect(new UsageCache(reopened, f.root, "host-b").load(10000)).toEqual({ due: 10000 });
   expect(new UsageCache(reopened, join(f.root, "other"), "host-a").load(10000)).toEqual({
     due: 10000,
@@ -196,11 +197,17 @@ test("cleanup invalidates a running generation and refresh waits until mutations
   const forced = f.coordinator.read(true);
   await f.started();
   const effects = deferred<void>();
-  const mutation = f.coordinator.mutation(() => effects.promise);
+  let effectStarted = false;
+  const mutation = f.coordinator.mutation(() => {
+    effectStarted = true;
+    return effects.promise;
+  });
   expect(f.signals[1]?.aborted).toBe(true);
+  expect(effectStarted).toBe(false);
   f.scans[1]?.resolve(usage(999));
   for (let index = 0; index < 10; index++) await Promise.resolve();
   expect(f.scans).toHaveLength(2);
+  expect(effectStarted).toBe(true);
   expect(await f.coordinator.read()).toEqual(usage(10));
   expect(f.cache.load(0).usage).toEqual(usage(10));
   effects.resolve();
@@ -316,4 +323,107 @@ test("shutdown has a bounded wait even when a scanner fails to close", async () 
   await f.tick();
   await rejected;
   expect(f.cache.load(0).usage).toEqual(usage(10));
+});
+
+test("a worker that cannot cancel prevents mutation effects instead of racing SQLite readers", async () => {
+  const f = await fixture();
+  const initial = f.coordinator.read();
+  await f.started();
+  f.scans[0]?.resolve(usage(10));
+  await initial;
+  const forced = f.coordinator.read(true);
+  await f.started();
+  let changed = false;
+  const mutation = f.coordinator.mutation(async () => {
+    changed = true;
+  });
+  const rejected = expect(mutation).rejects.toThrow("storage_scan_cancel_timeout");
+  expect(changed).toBe(false);
+  f.time(6000);
+  await f.tick();
+  await rejected;
+  expect(changed).toBe(false);
+  expect(f.cache.load(0).usage).toEqual(usage(10));
+  // Once the old worker settles, the waiting refresh can start its replacement scan.
+  f.scans[1]?.reject(new Error("cancelled"));
+  await f.started();
+  f.scans[2]?.resolve(usage(20));
+  expect(await forced).toEqual(usage(20));
+});
+
+test("a persisted partial scan retries soon after restart and can become complete", async () => {
+  const f = await fixture();
+  const initial = f.coordinator.read();
+  await f.started();
+  f.scans[0]?.resolve(usage(10, false));
+  await initial;
+  expect(f.cache.load(0).due).toBe(1000 + USAGE_PARTIAL_RETRY);
+  await f.coordinator.close();
+  const restarted = new UsageCoordinator(
+    new UsageCache(f.store, f.root, "host-a"),
+    f.scanner,
+    f.runtime,
+  );
+  closers.push(() => restarted.close());
+  restarted.start();
+  f.time(1000 + USAGE_PARTIAL_RETRY - 1);
+  await f.tick();
+  expect(f.scans).toHaveLength(1);
+  f.time(1000 + USAGE_PARTIAL_RETRY);
+  await f.tick();
+  expect(f.scans).toHaveLength(2);
+  const joined = restarted.read(true);
+  f.scans[1]?.resolve(usage(20));
+  await joined;
+  expect(await restarted.read()).toEqual(usage(20));
+  expect(f.cache.load(0).due).toBe(1000 + USAGE_PARTIAL_RETRY + USAGE_INTERVAL);
+});
+
+test("compaction waits for a cancelled scanner to release a real SQLite read transaction", async () => {
+  const f = await fixture();
+  f.store.statement("CREATE TABLE usage_reader_probe(value TEXT)").run();
+  f.store.statement("INSERT INTO usage_reader_probe VALUES ('before')").run();
+  f.cache.save(usage(10), 1000);
+  const released = deferred<void>();
+  const opened = deferred<void>();
+  const cancelled = deferred<void>();
+  let reader: DatabaseSync | undefined;
+  const scanner = {
+    scan: async (signal?: AbortSignal) => {
+      reader = new DatabaseSync(join(f.root, "events.sqlite"), { readOnly: true });
+      reader.exec("BEGIN");
+      reader.prepare("SELECT * FROM usage_reader_probe").all();
+      signal?.addEventListener("abort", () => cancelled.resolve(), { once: true });
+      opened.resolve();
+      await released.promise;
+      reader.close();
+      reader = undefined;
+      signal?.throwIfAborted();
+      return usage(20);
+    },
+    close: async () => {
+      released.resolve();
+      reader?.close();
+      reader = undefined;
+    },
+  };
+  const coordinator = new UsageCoordinator(f.cache, scanner, f.runtime);
+  closers.push(() => coordinator.close());
+  const forced = coordinator.read(true);
+  await opened.promise;
+  f.store.statement("INSERT INTO usage_reader_probe VALUES ('after')").run();
+  let checkpointed = false;
+  const mutation = coordinator.mutation(async () => {
+    expect(f.store.statement("PRAGMA wal_checkpoint(TRUNCATE)").get()?.busy).toBe(0);
+    checkpointed = true;
+  });
+  await cancelled.promise;
+  expect(checkpointed).toBe(false);
+  // Close the cancelled refresh before it can begin a replacement read transaction.
+  coordinator.stop();
+  const rejected = expect(forced).rejects.toThrow();
+  released.resolve();
+  await mutation;
+  await rejected;
+  expect(checkpointed).toBe(true);
 });

@@ -358,7 +358,12 @@ from the existing backup journal.
 The daemon atomically saves the measurement and its next deadline in SQLite.
 The binding includes the data root and host, so a copied database cannot supply
 another root or host's measurement. Invalid persisted data is ignored. The next
-automatic scan is due four hours after the last successful scan completes.
+automatic scan is due four hours after the last complete scan finishes.
+A valid partial result is displayed and persisted, but retries after 15 minutes,
+subject to the same idle gate. Restart preserves that retry deadline. Each scan
+starts afresh; Refresh does not advance a traversal cursor or promise to cover
+more data. A root that exceeds the scanner limits can continue to report a
+partial measurement.
 Restarting does not extend that deadline. A failed or cancelled scan keeps the
 previous snapshot. These measurements never authorize cleanup; planning and
 apply still inspect and validate their own current inventory.
@@ -378,8 +383,10 @@ they retain the scanner's resource limits.
 
 Cleanup and compaction invalidate the measurement generation before effects
 begin. The previous snapshot remains visible, but a scan from before those
-effects cannot replace it. A refresh waits until mutations finish and scans
-again. Mutations make the automatic deadline due immediately, including after
+effects cannot replace it. Before effects begin, the mutation waits for the
+actual scanner to settle and release its read handles. A five-second cancellation
+deadline refuses the mutation if the scanner cannot stop. This wait is separate
+from the refresh promise, which waits for mutations and then scans again. Mutations make the automatic deadline due immediately, including after
 partial failures. Scans receive an abort signal after ten minutes. Shutdown
 aborts probes and scans, calls the worker's close method, and bounds the wait
 for usage shutdown to five seconds. Worker cancellation must settle promptly

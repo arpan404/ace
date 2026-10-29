@@ -1,5 +1,5 @@
 import { StorageUsage } from "@ace/protocol";
-import { UsageCache, USAGE_INTERVAL } from "./usage-cache.ts";
+import { UsageCache, USAGE_INTERVAL, USAGE_PARTIAL_RETRY } from "./usage-cache.ts";
 import type { StorageSchedule } from "./schedule.ts";
 
 export interface UsageScannerPort {
@@ -38,6 +38,7 @@ export class UsageCoordinator {
   private releaseMutation: (() => void) | undefined;
   private mutationDone: Promise<void> = Promise.resolve();
   private flight: Promise<StorageUsage> | undefined;
+  private scanCompletion: Promise<void> | undefined;
   private controller: AbortController | undefined;
   private probe: AbortController | undefined;
   private cancel: (() => void) | undefined;
@@ -72,6 +73,7 @@ export class UsageCoordinator {
     this.due = this.runtime.now();
     try {
       this.cache.save(this.snapshot, this.due);
+      await this.waitForScan();
       return await run();
     } finally {
       if (--this.mutations === 0) {
@@ -79,6 +81,20 @@ export class UsageCoordinator {
         this.releaseMutation = undefined;
       }
       this.next();
+    }
+  }
+  /** Wait for the actual scanner, never the refresh loop that waits for this mutation. */
+  private async waitForScan(): Promise<void> {
+    const completion = this.scanCompletion;
+    if (!completion) return;
+    let cancel = () => {};
+    const deadline = new Promise<never>((_, reject) => {
+      cancel = this.runtime.schedule(5000, () => reject(new Error("storage_scan_cancel_timeout")));
+    });
+    try {
+      await Promise.race([completion, deadline]);
+    } finally {
+      cancel();
     }
   }
   private refresh(): Promise<StorageUsage> {
@@ -108,12 +124,19 @@ export class UsageCoordinator {
       const controller = new AbortController();
       this.controller = controller;
       const cancelTimeout = this.runtime.schedule(10 * 60 * 1000, () => controller.abort());
+      let completion: Promise<void> | undefined;
       try {
-        const usage = StorageUsage.parse(await this.scanner.scan(controller.signal));
+        const scan = this.scanner.scan(controller.signal);
+        completion = scan.then(
+          () => {},
+          () => {},
+        );
+        this.scanCompletion = completion;
+        const usage = StorageUsage.parse(await scan);
         if (this.closed) break;
         if (generation !== this.generation) continue;
         if (controller.signal.aborted) throw new Error("storage_scan_cancelled");
-        const due = this.runtime.now() + USAGE_INTERVAL;
+        const due = this.runtime.now() + (usage.complete ? USAGE_INTERVAL : USAGE_PARTIAL_RETRY);
         this.cache.save(usage, due);
         this.snapshot = usage;
         this.due = due;
@@ -124,6 +147,7 @@ export class UsageCoordinator {
         throw error;
       } finally {
         cancelTimeout();
+        if (this.scanCompletion === completion) this.scanCompletion = undefined;
       }
     }
     throw new Error("storage_closed");

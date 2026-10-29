@@ -6,6 +6,7 @@ import { StorageUsage } from "@ace/protocol";
 import type { Store } from "../store.ts";
 
 export const USAGE_INTERVAL = 4 * 60 * 60 * 1000;
+export const USAGE_PARTIAL_RETRY = 15 * 60 * 1000;
 const record = z.object({
   document: z
     .string()
