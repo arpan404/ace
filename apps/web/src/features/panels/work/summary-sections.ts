@@ -1,7 +1,6 @@
-/** What the thread has to show in its Summary. */
+/** What the thread has to show in its Summary. A request that needs the person reads in the
+ * status line and on its agent's row, so it takes no section of its own. */
 export interface SummaryFacts {
-  /** Requests, failed or silent agents waiting on the person. */
-  needsYou: number;
   /** An Offshift run that is not done yet. A done run has nothing left to act on. */
   offshift: boolean;
   /** The thread has a turn to sum up. */
@@ -27,7 +26,6 @@ export interface SummaryFacts {
 }
 
 export interface SummarySections {
-  needsYou: boolean;
   offshift: boolean;
   working: boolean;
   prs: boolean;
@@ -49,7 +47,6 @@ export interface SummarySections {
  */
 export function summarySections(facts: SummaryFacts): SummarySections {
   const shown = {
-    needsYou: facts.needsYou > 0,
     offshift: facts.offshift,
     working: facts.working > 0 || facts.background,
     prs: facts.prs > 0,

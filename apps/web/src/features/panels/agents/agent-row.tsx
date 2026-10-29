@@ -204,11 +204,6 @@ export function AgentRow(props: {
             {note}
           </span>
         )}
-        {details.model && !props.earlierRun && (
-          <span className="hidden min-w-0 shrink-[8] truncate text-xs text-subtle-foreground @[30rem]/summary:inline">
-            {details.model}
-          </span>
-        )}
         {pr && <PrChip pr={pr} />}
         <CapsuleChevron expanded={props.expanded} opens={!root} />
       </div>

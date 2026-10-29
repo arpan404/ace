@@ -82,66 +82,6 @@ test("a background command row offers Stop and Open in terminal", async () => {
   expect(await screen.findByRole("tab", { name: /^Watch/, selected: true })).toBeTruthy();
 });
 
-test("Needs you lists a pending question, Show takes it to the composer, and it goes once answered", async () => {
-  const { app, scenario, work } = await open();
-  expect(within(work).queryByRole("region", { name: "Needs you" })).toBeNull();
-  act(() =>
-    app.daemon.apply(scenario.thread.id, [
-      {
-        type: "interaction.opened",
-        agent: "root",
-        interaction: "scope-question",
-        blocking: true,
-        request: {
-          kind: "question",
-          questions: [
-            {
-              id: "scope",
-              text: "Which cases?",
-              multiSelect: false,
-              allowOther: true,
-              secret: false,
-              options: [],
-            },
-          ],
-        },
-      },
-    ]),
-  );
-  const needs = await within(work).findByRole("region", { name: "Needs you" });
-  const row = within(needs).getByRole("listitem", { name: "Which cases?" });
-  await userEvent.click(within(row).getByRole("button", { name: "Show Which cases?" }));
-  await waitFor(() =>
-    expect(document.activeElement?.closest("[data-composer-strip]")).toBeTruthy(),
-  );
-  act(() =>
-    app.daemon.apply(scenario.thread.id, [
-      {
-        type: "interaction.closed",
-        interaction: "scope-question",
-        state: "resolved",
-        resolution: { kind: "question", answers: { scope: ["all"] } },
-      },
-    ]),
-  );
-  await waitFor(() => expect(within(work).queryByRole("region", { name: "Needs you" })).toBeNull());
-});
-
-test("Needs you lists a failed subagent with Open", async () => {
-  const app = harness();
-  const scenario = workCardScenario("failed");
-  app.play(scenario).runUntilBlocked();
-  await app.open(`/t/${scenario.thread.id}`);
-  const work = await openWorkPanel();
-  const needs = await within(work).findByRole("region", { name: "Needs you" });
-  const row = within(needs).getByRole("listitem", { name: "Check supervisor logs failed" });
-  expect(row.textContent).toContain("The test command failed. Check its output.");
-  await userEvent.click(within(row).getByRole("button", { name: "Open Check supervisor logs" }));
-  expect(
-    await screen.findByRole("heading", { level: 1, name: "Check supervisor logs" }),
-  ).toBeTruthy();
-});
-
 test.each(["completed", "interrupted"] as const)(
   "an %s parent stays waiting until its child finishes",
   async (outcome) => {

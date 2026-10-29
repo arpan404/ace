@@ -19,10 +19,11 @@ async function openRestarted(label?: string) {
 
 test("a failure is shown while it is the agent's latest state", async () => {
   const { work } = await openRestarted("restart-failed");
-  const needs = await within(work).findByRole("region", { name: "Needs you" });
-  const row = await within(needs).findByRole("listitem", { name: "Fix ack buffer replay failed" });
-  expect(row.textContent).toContain("Daemon restarted; previous provider work stopped");
-  expect(within(needs).getByRole("listitem", { name: "Recover stale leases failed" })).toBeTruthy();
+  // No separate Needs-you section: failures read on their rows, folded under Done.
+  expect(within(work).queryByRole("region", { name: "Needs you" })).toBeNull();
+  const done = await openDoneAgents(work);
+  await within(done).findByRole("treeitem", { name: "Fix ack buffer replay: Failed" });
+  expect(within(done).getByRole("treeitem", { name: "Recover stale leases: Failed" })).toBeTruthy();
 });
 
 test("a subagent resumed after a restart reads as working once, and the thread is not done", async () => {
@@ -98,6 +99,23 @@ test("the main agent never reads as done while a resumed subagent still works", 
   );
 });
 
+test("a Summary pull request unlinks from its row after asking", async () => {
+  const app = harness();
+  app.play(summaryFleet()).runUntilBlocked();
+  await app.open("/t/thread-fleet");
+  const work = await openWorkPanel();
+  const prs = await within(work).findByRole("region", { name: "Pull requests" });
+  // The × shows on hover; jsdom has no hover, but the button is in the row regardless.
+  await userEvent.click(within(prs).getByRole("button", { name: "Unlink pull request #1066" }));
+  const dialog = await screen.findByRole("dialog", { name: "Unlink pull request #1066?" });
+  expect(within(dialog).getByText(/stays on GitHub/)).toBeTruthy();
+  await userEvent.click(within(dialog).getByRole("button", { name: "Unlink" }));
+  await waitFor(() =>
+    expect(within(prs).queryByRole("button", { name: /^Pull request #1066/ })).toBeNull(),
+  );
+  expect(within(prs).getByRole("button", { name: /^Pull request #1065/ })).toBeTruthy();
+});
+
 test("the pull requests the thread's agents opened list in review first, each opening its PR", async () => {
   const app = harness();
   app.play(summaryFleet()).runUntilBlocked();
@@ -119,33 +137,39 @@ test("the pull requests the thread's agents opened list in review first, each op
   expect(await screen.findByRole("tab", { name: /^#1066/, selected: true })).toBeTruthy();
 });
 
-test("a fleet with resumed agents counts each agent once and asks only for the real approval", async () => {
+test("a fleet with resumed agents counts each agent once and keeps the real approval on its row", async () => {
   const app = harness();
   app.play(summaryFleet()).runUntilBlocked();
   await app.open("/t/thread-fleet");
   const work = await openWorkPanel();
-  const needs = await within(work).findByRole("region", { name: "Needs you" });
-  expect(within(needs).getAllByRole("listitem")).toHaveLength(1);
-  expect(within(needs).getByRole("button", { name: /^Show Run gh pr merge 1065/ })).toBeTruthy();
+  // No separate Needs-you section: the approval reads on the main agent's row.
+  expect(within(work).queryByRole("region", { name: "Needs you" })).toBeNull();
+  const working = await within(work).findByRole("region", { name: "Working" });
+  const main = within(working).getByRole("treeitem", { name: "Main agent: Needs you" });
+  expect(main.textContent).toContain("waiting on approval");
   const figures = within(work).getByLabelText("Thread figures");
-  expect(figures.textContent).toContain("PRs merged24");
-  expect(figures.textContent).toContain("In review2");
-  expect(figures.textContent).toContain("Agents332 live");
+  expect(figures.textContent).toContain("24 PRs merged");
+  expect(figures.textContent).toContain("2 PRs in review");
+  expect(figures.textContent).toContain("33 agents (2 live)");
   expect(within(work).getByRole("button", { name: "31 done" })).toBeTruthy();
 });
 
-test("each agent row names its provider and model, and the status line what the thread runs on", async () => {
+test("each agent row names its provider, and the status line what the thread runs on", async () => {
   const app = harness();
   app.play(summaryFleet()).runUntilBlocked();
   await app.open("/t/thread-fleet");
   const work = await openWorkPanel();
   expect(within(work).getByTitle("Claude Code · Opus 5.5 · High")).toBeTruthy();
   const working = await within(work).findByRole("region", { name: "Working" });
+  // A row shows its provider's mark; the model lives in its tooltip (and the status line), so a
+  // narrow panel never truncates it to a letter or two.
   const main = within(working).getByRole("treeitem", { name: /^Main agent: / });
-  expect(main.textContent).toContain("Opus 5.5 · High");
+  expect(within(main).getByRole("img", { name: "Claude Code" })).toBeTruthy();
+  expect(main.textContent).not.toContain("Opus 5.5");
+  expect(main.getAttribute("title")).toMatch(/Claude Code · Opus 5\.5/);
   const devices = within(working).getByRole("treeitem", { name: /^Devices panel redesign: / });
   expect(within(devices).getByRole("img", { name: "Claude Code" })).toBeTruthy();
-  expect(devices.textContent).toContain("Opus 5.5");
+  expect(devices.textContent).not.toContain("Opus 5.5");
   // A subagent's effort isn't recorded, so none is shown.
   expect(devices.textContent).not.toContain("High");
   expect(devices.getAttribute("title")).toMatch(/Claude Code · Opus 5\.5\nStarted /);

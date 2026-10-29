@@ -1,7 +1,7 @@
 import type { Agent, Interaction, InteractionRequest } from "@ace/protocol";
 import { isActionableInteraction } from "@ace/core/human";
 import { agentRuns } from "./agent-runs.ts";
-import { approvalCopy } from "./approval-copy.ts";
+import { approvalCopy, commandFromTitle, commandRisk } from "./approval-copy.ts";
 
 /*
  * Everything in a thread's agent tree that waits on the person, in one list: requests to answer
@@ -16,6 +16,10 @@ export type NeedsYouItem =
       agentId: string;
       request: InteractionRequest["kind"];
       title: string;
+      /** The shell command an approval would run: from its target, else read back out of its title. */
+      command?: string | undefined;
+      /** How careful approving is, when the command says. */
+      risk?: "high" | "medium" | undefined;
     }
   | {
       /** An agent waiting on the person for a request this thread doesn't hold (a delegated child's). */
@@ -68,13 +72,27 @@ export function needsYou(
   const asking = new Set(requests.map((interaction) => interaction.agentId));
   const superseded = agentRuns(agents).latest;
   const current = superseded.size ? agents.filter((agent) => !superseded.has(agent.id)) : agents;
-  const items: NeedsYouItem[] = requests.map((interaction) => ({
-    kind: "request",
-    id: interaction.id,
-    agentId: interaction.agentId,
-    request: interaction.request.kind,
-    title: requestTitle(interaction.request),
-  }));
+  const items: NeedsYouItem[] = requests.map((interaction) => {
+    const item: NeedsYouItem = {
+      kind: "request",
+      id: interaction.id,
+      agentId: interaction.agentId,
+      request: interaction.request.kind,
+      title: requestTitle(interaction.request),
+    };
+    if (interaction.request.kind === "approval") {
+      const copy = approvalCopy(interaction.request);
+      // A tool approval names its own action; only a shell approval's title holds its command.
+      const command =
+        copy.command ?? (copy.tool === undefined ? commandFromTitle(copy.title) : undefined);
+      if (command !== undefined) {
+        item.command = command;
+        const risk = copy.risk ?? commandRisk(command);
+        if (risk !== undefined) item.risk = risk.level;
+      }
+    }
+    return item;
+  });
   for (const agent of current)
     if (
       agent.status.state === "blocked" &&
