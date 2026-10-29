@@ -83,9 +83,6 @@ test("counts every category beyond cleanup's candidate page without inspecting G
         tree_ino: tree.ino,
       }),
     );
-    f.store
-      .statement("INSERT INTO storage_worktree_backups VALUES(?,?)")
-      .run(path, JSON.stringify({ path, state: "failed", updatedAt: 123, error: "test_failure" }));
     let linkBytes = 0;
     if (process.platform !== "win32") {
       const target = join(outside, "external");
@@ -106,9 +103,6 @@ test("counts every category beyond cleanup's candidate page without inspecting G
     expect(bytes(usage, "worktrees")).toBe(8);
     expect(bytes(usage, "threads")).toBe(expectedTranscript);
     expect(usage.categories.find((entry) => entry.kind === "threads")?.items).toBe(270);
-    expect(usage.backups).toEqual([
-      { path, state: "failed", updatedAt: 123, error: "test_failure" },
-    ]);
     expect(usage.measuredAt).toBeGreaterThanOrEqual(started);
     expect(usage.databaseBytes).toBeGreaterThan(0);
     expect(f.store.statement("PRAGMA data_version").get()).toEqual(before);

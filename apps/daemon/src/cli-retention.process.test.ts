@@ -21,6 +21,18 @@ test("clean previews daemon retention and applies the reviewed batch durably wit
     expect(StorageUsage.parse(JSON.parse(usage.stdout)).categories).toContainEqual(
       expect.objectContaining({ kind: "logs", items: expect.any(Number) }),
     );
+    const beforeBytes = StorageUsage.parse(JSON.parse(usage.stdout)).categories.find(
+      (category) => category.kind === "logs",
+    )?.bytes;
+    if (beforeBytes === undefined) throw new Error("Missing measured logs");
+    await writeFile(join(home, "logs", "fresh.jsonl"), "x".repeat(4096));
+    const refreshed = await invoke(home, ["storage", "usage", "--json"]);
+    expect(refreshed.code, refreshed.stderr).toBe(0);
+    expect(
+      StorageUsage.parse(JSON.parse(refreshed.stdout)).categories.find(
+        (category) => category.kind === "logs",
+      )?.bytes,
+    ).toBeGreaterThanOrEqual(beforeBytes + 4096);
     const preview = await invoke(home, ["clean", "--dry-run", "--kinds", "logs", "--json"]);
     expect(preview.code, preview.stderr).toBe(0);
     const plan = StoragePlan.parse(JSON.parse(preview.stdout));

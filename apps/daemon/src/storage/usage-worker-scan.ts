@@ -240,18 +240,6 @@ export async function scanUsage(
             await setTimeout(1);
           }
         }
-        if (has("storage_worktree_backups") && has("managed_worktrees")) {
-          usage.backups = connection
-            .prepare(
-              "SELECT b.result FROM storage_worktree_backups b JOIN managed_worktrees m ON m.path=b.path WHERE m.removed=0 ORDER BY (json_extract(b.result,'$.state')='failed') DESC,b.path LIMIT 256",
-            )
-            .all()
-            .map((row) =>
-              StorageUsage.shape.backups
-                .unwrap()
-                .element.parse(JSON.parse(z.string().parse(row.result))),
-            );
-        }
       } catch {
         usage.complete = false;
       }

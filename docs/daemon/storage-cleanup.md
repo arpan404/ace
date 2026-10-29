@@ -350,7 +350,8 @@ scan, and enables idle retries even if the attempt fails. A persisted valid
 snapshot enables automatic scheduling immediately after restart.
 Explicit Refresh sends `{"op":"storage.usage","force":true}` and awaits a new
 scan, or joins the scan already running. All clients and automatic scans share
-one scanner. Usage and explicit refresh both retain read authority. Concurrent
+one scanner. The explicit `ace storage usage` CLI command also requests a forced
+measurement. Usage and explicit refresh both retain read authority. Concurrent
 refreshes join the active scan rather than queueing scans. A cached read stays
 available while that scanner works. No push
 event announces a new measurement; a client sees it on its next usage read.
@@ -399,3 +400,27 @@ before a later scan starts.
 
 Disk counter formats follow the [Linux kernel I/O statistics documentation](https://cdn.kernel.org/doc/html/latest/admin-guide/iostats.html)
 and Microsoft's [physical disk performance counters](<https://learn.microsoft.com/en-us/previous-versions/aa394262(v=vs.85)>).
+
+### Worker resource limits
+
+The scanner forks one read-only Node process per measurement and reaps it before
+admitting another. Filesystem operations are sequential. Traversal pauses for one
+millisecond every 32 steps; transcript and registry pages also yield. Usage only
+measures registered worktrees, without Git status or cleanup inspection. Cleanup
+retains its separate ownership and Git validation.
+
+Default measurement limits are 10 seconds, 250,000 traversal steps, depth 64, and
+10,000 names in any one directory. Results that hit a limit or an unreadable path
+are lower bounds with `complete: false`. Each attempt starts afresh. A partial
+measurement does not imply that another refresh will cover additional paths.
+
+Cancellation gives the child one second to cooperate, then sends a kill and waits
+at most two seconds for exit. Missing exit evidence rejects the caller but keeps
+the scanner slot occupied. Mutation admission separately waits for actual exit,
+so a rejected scan never serves as proof that its read handles were released.
+
+Run the temporary-fixture benchmark with
+`node apps/daemon/src/storage/usage-worker.bench.ts`. One macOS run on Node 26.7.0
+measured 20,000 files and 2,560,000 log bytes completely in 1,552 ms, with daemon
+event-loop p99 delay 6.71 ms and cancellation in 12 ms. These are fixture results;
+filesystem latency, directory shape, and host activity affect real measurements.
