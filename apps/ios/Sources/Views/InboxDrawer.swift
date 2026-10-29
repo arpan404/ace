@@ -159,33 +159,56 @@ struct DrawerViewport: UIViewControllerRepresentable {
     final class Probe: UIViewController {
         private weak var adjusted: UIViewController?
         private var owned = UIEdgeInsets.zero
+        private var applying = false
+        private var geometry: Geometry?
+        private struct Geometry: Equatable {
+            let bounds: CGRect
+            let frame: CGRect
+            let viewport: CGRect
+            let windowInsets: UIEdgeInsets
+        }
         override func loadView() { view = UIView(); view.isUserInteractionEnabled = false }
         override func didMove(toParent parent: UIViewController?) { super.didMove(toParent: parent); apply() }
         override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); apply() }
         override func viewSafeAreaInsetsDidChange() { super.viewSafeAreaInsetsDidChange(); apply() }
         func apply() {
-            guard let target = parent, let navigation = navigationController, target !== navigation,
-                  target.view.window != nil else { return }
+            guard !applying, let target = parent, let navigation = navigationController, target !== navigation,
+                  let window = target.view.window else { return }
+            applying = true
+            defer { applying = false }
             if adjusted !== target { restore(); adjusted = target }
+            let observed = Geometry(bounds: target.view.bounds,
+                                    frame: target.view.convert(target.view.bounds, to: window),
+                                    viewport: target.view.convert(navigation.view.safeAreaLayoutGuide.layoutFrame, from: navigation.view),
+                                    windowInsets: window.safeAreaInsets)
+            guard observed != geometry else { return }
+            // Insets clamp at zero. Once geometry changes, current - owned cannot recover the
+            // inherited inset: a former negative adjustment can otherwise survive a fold forever.
+            var baseline = target.additionalSafeAreaInsets
+            baseline.left -= owned.left; baseline.right -= owned.right
+            owned = .zero
+            target.additionalSafeAreaInsets = baseline
+            target.view.layoutIfNeeded()
             let bounds = target.view.bounds
             let viewport = target.view.convert(navigation.view.safeAreaLayoutGuide.layoutFrame, from: navigation.view)
-            let current = target.view.safeAreaInsets
-            let wantedLeft = max(0, min(viewport.minX - bounds.minX, bounds.width))
-            let wantedRight = max(0, min(bounds.maxX - viewport.maxX, bounds.width))
-            let left = wantedLeft - current.left, right = wantedRight - current.right
-            guard abs(left) > 0.5 || abs(right) > 0.5 else { return }
-            owned.left += left; owned.right += right
-            var insets = target.additionalSafeAreaInsets
-            insets.left += left; insets.right += right
+            let inherited = target.view.safeAreaInsets
+            owned.left = max(0, min(viewport.minX - bounds.minX, bounds.width)) - inherited.left
+            owned.right = max(0, min(bounds.maxX - viewport.maxX, bounds.width)) - inherited.right
+            var insets = baseline
+            insets.left += owned.left; insets.right += owned.right
             target.additionalSafeAreaInsets = insets
+            geometry = observed
         }
         func restore() {
+            let wasApplying = applying
+            applying = true
+            defer { applying = wasApplying }
             if let target = adjusted {
                 var insets = target.additionalSafeAreaInsets
                 insets.left -= owned.left; insets.right -= owned.right
                 target.additionalSafeAreaInsets = insets
             }
-            adjusted = nil; owned = .zero
+            adjusted = nil; owned = .zero; geometry = nil
         }
     }
 }

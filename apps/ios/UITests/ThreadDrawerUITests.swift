@@ -1,4 +1,5 @@
 import XCTest
+import Vision
 
 /// A compact window's list as a drawer over the open thread, against the spike fixture: the
 /// thread's sidebar button brings the list out from the leading edge and pushes the thread
@@ -26,6 +27,34 @@ import XCTest
             XCTAssertEqual(sidebar.frame.minY, original.minY, accuracy: 2)
             screenshot("rail-closed-\(cycle)")
         }
+    }
+
+    func testDrawerLabelsStayInsideTheScreenAfterResizing() throws {
+        let app = try launch()
+        open("thread.ios-form", in: app)
+        for cycle in 0..<3 {
+            XCUIDevice.shared.orientation = cycle % 2 == 0 ? .landscapeLeft : .portrait
+            let sidebar = app.buttons["thread.sidebar"]
+            XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
+            sidebar.tap()
+            let closer = app.buttons["drawer.close"]
+            XCTAssertTrue(closer.waitForHittable(timeout: 10))
+            let heading = app.staticTexts["inbox.heading.title"].firstMatch
+            XCTAssertTrue(heading.waitForExistence(timeout: 5), app.debugDescription)
+            XCTAssertGreaterThanOrEqual(heading.frame.minX, app.windows.firstMatch.frame.minX + 8)
+            screenshot("drawer-resized-\(cycle)")
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            let shot = XCUIScreen.main.screenshot().image
+            let image = try XCTUnwrap(shot.cgImage)
+            try VNImageRequestHandler(cgImage: image).perform([request])
+            let headings = (request.results ?? []).filter { $0.boundingBox.midY > 0.86 }.compactMap { $0.topCandidates(1).first?.string }
+            XCTAssertTrue(headings.contains { $0.contains("Threads") }, "Visible header was clipped: \(headings)")
+            let headingBox = try XCTUnwrap((request.results ?? []).first { $0.boundingBox.midY > 0.86 && $0.topCandidates(1).first?.string.contains("Threads") == true })
+            XCTAssertGreaterThan(headingBox.boundingBox.minX, 0.025, "Visible heading touches the clipped screen edge")
+            closer.tap()
+        }
+        XCUIDevice.shared.orientation = .portrait
     }
 
     func testTheDrawerKeepsThreadAndSearchRowsInsideItsVisibleEdges() throws {

@@ -69,3 +69,23 @@ The unfolded Duo composer test also passed with the keyboard shown: the separate
 remains left of the message field, meets the touch-target size, and opens the file/photo menu.
 The corresponding full-screen attachment is black on this multi-display simulator; this is
 accessibility/frame-test evidence, not a visual sign-off of the inner display.
+
+## Follow-up: stale inset after resizing
+
+The original incremental correction could retain a negative horizontal additional inset after
+its inherited inset disappeared. UIKit clamps the effective safe area to zero, so comparing
+that value to the desired zero cannot detect the leftover compensation. A focused UIKit
+boundary test reproduced a retained −40-point left inset after a geometry change.
+
+The probe now removes only its own previous correction, measures the inherited safe area
+again, and applies a fresh correction when local geometry or window insets change. Unchanged
+geometry does no work. Application and restoration guard against reentrant layout callbacks.
+
+The new regression failed before the fix and passed afterwards. The complete native drawer
+suite passed all 16 tests. Three Duo UI tests passed for repeated transitions, thread/search
+row edges, and resize cycles with OCR checks of the visible heading and its distance from
+the screen edge. A manual fold/unfold fixture check also passed, but rotation and folding
+alone did not reliably reproduce the user's exact left-clipped screenshot. This patch fixes
+the demonstrated stale-inset mechanism; it does not claim every reported Duo issue is solved.
+Temporary geometry logging was removed. The existing full repository test failures documented
+above remain outside this Swift-only follow-up.
