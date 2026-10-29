@@ -113,7 +113,7 @@ jobs:
           xcodebuild build-for-testing -project Ace.xcodeproj -scheme Ace -configuration Debug \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
             -derivedDataPath .build/DerivedData > .build/build.log 2>&1 \
-            || { grep -E "error:" .build/build.log | sort -u | head -150; tail -40 .build/build.log; exit 1; }
+            || { grep -n -i -E "error|stack dump|please submit|assertion|terminated|killed" .build/build.log | grep -v -i "warning:" | head -150; exit 1; }
           tail -5 .build/build.log
 
       # Bridge contract tests talk to the loopback fixture; it spends no provider quota.
