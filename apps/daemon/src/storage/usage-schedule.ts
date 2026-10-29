@@ -87,14 +87,14 @@ export class UsageCoordinator {
   private async waitForScan(): Promise<void> {
     const completion = this.scanCompletion;
     if (!completion) return;
-    let cancel = () => {};
+    let cancel: (() => void) | undefined;
     const deadline = new Promise<never>((_, reject) => {
       cancel = this.runtime.schedule(5000, () => reject(new Error("storage_scan_cancel_timeout")));
     });
     try {
       await Promise.race([completion, deadline]);
     } finally {
-      cancel();
+      cancel?.();
     }
   }
   private refresh(): Promise<StorageUsage> {
