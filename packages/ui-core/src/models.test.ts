@@ -344,6 +344,15 @@ test("a thread's effort can change only where the provider takes it as a session
     current: undefined,
   });
   expect([inferred.current, inferred.reported]).toEqual(["medium", false]);
+  // A level the thread carried from another model (a switch from a provider with more
+  // levels) is not this model's level: it falls back to the default, unreported.
+  const carried = threadEffortControl({
+    choice: opus,
+    capabilities: sessionOptions,
+    current: "ultra",
+  });
+  expect([carried.current, carried.reported]).toEqual(["medium", false]);
+  expect(carried.efforts).toEqual(["low", "medium", "high"]);
   expect(
     threadEffortControl({
       choice: opus,

@@ -167,24 +167,31 @@ export function ThreadModelControl(props: {
     setKnown({ key: selectionKey, choice: current });
   const remembered = known?.key === selectionKey ? known.choice : undefined;
   const shown = current ?? (online ? undefined : remembered) ?? recordedChoice(selection);
-  const tuning = threadTuning({ thread: meta, choice: shown, pending });
-  const { base, options, preset, effort, speed } = tuning;
+  const continuedTo = props.continued?.choice;
+  // What the chip names: a new thread's model, the switch just chosen here, else what the thread
+  // runs on next. Tune against the target, so a pending switch to another provider lists the new
+  // model's own levels at its default instead of the old model's thinking.
+  const target = continuedTo ?? moving.chosen ?? shown;
+  const tuning = threadTuning({ thread: meta, choice: target ?? shown, pending });
+  const { options, preset, effort, speed } = tuning;
   const pick = (next: ExecutionOptions | undefined) =>
     props.next.onChange(next && { identity: selectionKey, options: next });
   // The thread moved since effort or speed was picked: keep what its model still takes.
+  // Reconcile against what it runs on now (`shown`), not a switch target picked here.
   const stale = props.next.pending?.identity !== selectionKey ? props.next.pending : undefined;
   const catalogued = current !== undefined;
   const reconciled = useRef<PendingTurn>(undefined);
   useEffect(() => {
     if (!stale || !shown || !catalogued || reconciled.current === stale) return;
     reconciled.current = stale;
+    const actual = threadTuning({ thread: meta, choice: shown, pending: undefined });
     const { options: kept, dropped } = reconcileNextOptions({
-      base,
+      base: actual.base,
       pending: stale.options,
       efforts: shown.efforts,
-      effortAllowed: effort.reason === undefined,
+      effortAllowed: actual.effort.reason === undefined,
       speeds: shown.speeds,
-      speedAllowed: speed.reason === undefined,
+      speedAllowed: actual.speed.reason === undefined,
     });
     props.next.onChange(kept && { identity: selectionKey, options: kept });
     if (dropped.length)
@@ -193,7 +200,6 @@ export function ThreadModelControl(props: {
         description: "What you picked doesn't apply to the model the thread runs on now.",
       });
   });
-  const continuedTo = props.continued?.choice;
   const { storage } = useLayout();
   const catalogModels = useModelCatalog();
   // Files in the message being written that the new thread's model can't take, said in the
@@ -212,18 +218,16 @@ export function ThreadModelControl(props: {
   const switchTo = (choice: ModelChoice) => {
     setAsking(undefined);
     props.continued?.onChange(undefined);
-    // The chip shows the new model at once. Effort and speed picked for the old one stay until
-    // the switch lands; then they're checked against the new model (a refused switch takes the
-    // choice back and keeps them as they were).
+    // The chip and its Tune pane switch to the new model at once; a refused switch takes the
+    // choice back. Effort and speed picked for the old model stay held until the switch lands,
+    // then they're checked against the new model.
     moving
       .switchTo(choice)
       .catch((error: unknown) =>
         toast.error({ title: "Couldn't switch the model", description: failureMessage(error) }),
       );
   };
-  // What the chip names: a new thread's model, the switch just chosen here, else what the thread
-  // runs on next.
-  const target = continuedTo ?? moving.chosen ?? shown;
+  // The chip already names the switch target; the controls below tune it.
   const account = target?.account ? accountDisplayName(target.account) : undefined;
   const details = {
     model: target?.model ?? "",
@@ -297,9 +301,9 @@ export function ThreadModelControl(props: {
     speed: speed.speed,
     speedReason: speed.reason,
     canReset: optionEffort(options) !== undefined && optionEffort(options) !== preset,
-    accounts: shown?.account
+    accounts: target?.account
       ? choices
-          .filter((choice) => choice.key === shown.key && choice.account)
+          .filter((choice) => choice.key === target.key && choice.account)
           .map((choice) => ({
             id: choice.id,
             label: accountDisplayName(choice.account),

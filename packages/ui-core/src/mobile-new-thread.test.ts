@@ -1,5 +1,6 @@
 import { CatalogModel, type ProviderKind, type ProviderStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { modelKey } from "./models.ts";
 import {
   newThreadAgents,
   newThreadModelList,
@@ -120,6 +121,19 @@ test("with nothing chosen the first ready agent starts on its default model and 
     model: start.ok ? agents().providers[0]?.models[1]?.key : undefined,
   });
   expect(picked.ok && picked.model.id).toBe("sonnet");
+});
+
+test("an effort picked for another provider's model doesn't carry over to the ready agent", () => {
+  const start = selectNewThreadAgent(agents(), {
+    model: modelKey("codex", "gpt-6"),
+    effort: "high",
+  });
+  // Codex can't start here, so Claude's default does, at its own default effort.
+  expect(start.ok && [start.provider, start.model.id, start.effort]).toEqual([
+    "claude",
+    "opus",
+    "low",
+  ]);
 });
 
 test("projects with recent threads come first, newest activity on top, then the rest by name", () => {
