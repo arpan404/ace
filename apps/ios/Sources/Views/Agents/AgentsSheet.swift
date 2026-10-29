@@ -92,7 +92,7 @@ struct AgentsSheet: View {
                     .accessibilityIdentifier("agents.stopAll")
                 }
             }
-            .confirmationDialog(stop.asking?.title ?? "", isPresented: Binding(get: { stop.asking != nil }, set: { if !$0 { stop.cancel() } }), titleVisibility: .visible) {
+            .confirmationDialog(stop.asking?.title ?? "", isPresented: asking, titleVisibility: .visible) {
                 Button("Stop", role: .destructive) { Task { await stop.confirm(send: send) } }.accessibilityIdentifier("agents.confirmStop")
                 Button("Cancel", role: .cancel) { stop.cancel() }
             } message: { Text(stop.asking?.message ?? "") }
@@ -100,6 +100,10 @@ struct AgentsSheet: View {
         .tint(AceTheme.Colours.foreground)
         .onAppear { model.sheet(["kind": "agents", "open": true]) }
         .onDisappear { model.sheet(["kind": "agents", "open": false]) }
+    }
+    /// Whether a stop is waiting for its confirmation; dismissing the dialog cancels it.
+    private var asking: Binding<Bool> {
+        Binding(get: { stop.asking != nil }, set: { shown in if !shown { stop.cancel() } })
     }
     @ViewBuilder private func agentRow(_ row: AgentSheet.Row) -> some View {
         Group {

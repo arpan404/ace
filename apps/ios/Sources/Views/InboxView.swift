@@ -107,7 +107,10 @@ struct InboxView: View {
     /// The tab role the system draws as its own round button at the bar's trailing end, apart from
     /// Threads and Pulls: iOS 27's prominent tab; before it, the search tab.
     private static var detachedRole: TabRole {
+        // `.prominent` exists only in the iOS 27 SDK (SwiftUI 8); CI builds with Xcode 26.
+        #if canImport(SwiftUI, _version: 8.0)
         if #available(iOS 27, *) { return .prominent }
+        #endif
         return .search
     }
 
