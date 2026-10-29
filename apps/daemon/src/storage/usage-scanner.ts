@@ -39,7 +39,12 @@ export class UsageScanner {
     const cancel = () => {
       if (cancelled) return;
       cancelled = true;
-      if (worker.connected) worker.send({ op: "cancel" }, () => {});
+      try {
+        if (worker.connected) worker.send({ op: "cancel" }, () => {});
+      } catch {
+        // The IPC channel can close between the connected check and send. Cancellation
+        // still owns its deadline and reaps the child below.
+      }
       // Give cooperative walks time to close. A stalled syscall or SQLite statement cannot
       // acknowledge cancellation; kill the process, which also closes its native descriptors.
       cancelTimer = setTimeout(() => result.reject(new Error("storage_usage_cancelled")), 1000);

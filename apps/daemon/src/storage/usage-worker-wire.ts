@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { StorageUsage } from "@ace/protocol";
 
+/** Partial sizes are lower bounds. Repeating a scan starts over, without a resume cursor.
+ * A broad directory past the shared descriptor helper's 10,000-name cap stays partial.
+ */
 export const UsageLimits = z.object({
   maxEntries: z.number().int().positive().max(1_000_000).default(250_000),
   maxMs: z.number().int().positive().max(30_000).default(10_000),

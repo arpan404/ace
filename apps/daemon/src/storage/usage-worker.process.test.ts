@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fork, spawn, type ChildProcess } from "node:child_process";
+import { fork, spawn, type ChildProcess, type Serializable } from "node:child_process";
 import { expect, test } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { storageFixture } from "./test-support.ts";
@@ -173,7 +173,11 @@ test("refuses managed records outside its root and symlinked category directorie
     f.store
       .statement("INSERT INTO managed_worktrees VALUES(?,?,0)")
       .run(path, JSON.stringify({ path, parent_dev: 0, parent_ino: 0, tree_dev: 0, tree_ino: 0 }));
-    if (process.platform !== "win32") await symlink(outside, join(f.root, "cache"));
+    await symlink(
+      outside,
+      join(f.root, "cache"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
     const usage = await scanner.scan();
     expect(usage.complete).toBe(false);
     expect(bytes(usage, "worktrees")).toBe(0);
@@ -318,5 +322,42 @@ test("a missing or corrupt database keeps measured files and reports incomplete 
   } finally {
     await scanner.close();
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an IPC close race during cancellation still rejects and reaps the worker", async () => {
+  const f = await storageFixture();
+  const tracking = trackingRuntime("setInterval(() => {}, 1000)");
+  const controller = new AbortController();
+  const scanner = new UsageScanner(f.root, {
+    spawn(entry) {
+      const worker = tracking.spawn(entry);
+      const send = worker.send.bind(worker);
+      Object.defineProperty(worker, "send", {
+        value(message: Serializable, callback: (error: Error | null) => void) {
+          if (
+            typeof message === "object" &&
+            message !== null &&
+            "op" in message &&
+            message.op === "cancel"
+          ) {
+            worker.kill("SIGKILL");
+            throw new Error("IPC channel closed during cancellation");
+          }
+          return send(message, callback);
+        },
+      });
+      return worker;
+    },
+  });
+  try {
+    const scanning = scanner.scan(controller.signal);
+    const rejected = expect(scanning).rejects.toThrow("storage_usage_cancelled");
+    expect(() => controller.abort()).not.toThrow();
+    await rejected;
+    expect(tracking.workers[0]?.signalCode).toBe("SIGKILL");
+  } finally {
+    await scanner.close();
+    await f.close();
   }
 });
