@@ -134,3 +134,62 @@ it("reading older work on a subagent's page fills a page with that subagent's ow
     lease.release();
   }
 });
+
+it("settling back at the live end keeps the older rows the reader paged in, and drops a window the tail already shows", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, snapshotItems: 200 });
+  daemon.createThread({ id: "settle", workspaceId: "ace", title: "Settle", provider: "codex" });
+  daemon.apply("settle", [
+    facts.rootAgent("codex"),
+    ...Array.from({ length: 700 }, (_, i) =>
+      facts.message("root", `m-${i}`, "user", `Message ${i}`),
+    ),
+  ]);
+  const client = fakeClient(daemon);
+  await client.start();
+  const lease = client.thread("settle");
+  const live = lease.store;
+  await vi.waitFor(() => expect(live.order).toHaveLength(200));
+  const jump = new Jump(client, "settle");
+  jump.setTail(() => ({
+    order: live.order,
+    before: live.itemsBefore,
+    firstItemOf: () => undefined,
+    seq: (id) => live.itemSeq(id),
+    item: (id) => live.item(id),
+    inLane: () => true,
+  }));
+  try {
+    // Scrolled away and straight back: the window holds only what the tail shows.
+    jump.hold();
+    await vi.waitFor(() => expect(jump.snapshot().window).toBeDefined());
+    jump.release();
+    expect(jump.snapshot().window).toBeUndefined();
+
+    // Scrolled up far enough to page older history in, then back to the live end.
+    jump.hold();
+    await jump.older();
+    const paged = jump.snapshot().window;
+    if (!paged) throw new Error("No historical window");
+    const oldest = paged.items[0];
+    if (!oldest) throw new Error("Empty window");
+    // Rows older than anything the tail holds: going back to the tail alone would drop them.
+    expect(live.order).not.toContain(oldest.id);
+    jump.release();
+    expect(jump.snapshot().window?.items[0]).toBe(paged.items[0]);
+    expect(jump.snapshot().joined).toBe(true);
+    // It still follows live output.
+    daemon.apply("settle", [facts.message("root", "fresh", "user", "Fresh live message")]);
+    await vi.waitFor(() =>
+      expect(text(live.item(live.order.at(-1) ?? ""))).toBe("Fresh live message"),
+    );
+    jump.tailMoved();
+    const window = jump.snapshot().window;
+    if (!window) throw new Error("Window was dropped");
+    const source = jump.source(live, window, jump.snapshot().joined);
+    expect(source?.order[0]).toBe(oldest.id);
+    expect(text(source?.item(source.order.at(-1) ?? ""))).toBe("Fresh live message");
+  } finally {
+    jump.dispose();
+    lease.release();
+  }
+});

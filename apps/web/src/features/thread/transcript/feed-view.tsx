@@ -237,8 +237,10 @@ export function FeedView(props: FeedViewProps) {
     if (!had || window || scroll.isFollowing()) return;
     scroll.toLive("now");
   }, [window, scroll]);
-  useEffect(() => nav.following.set(pinned && !window), [nav.following, pinned, window]);
-  // A joined window the reader follows past is no longer needed: back to the tail alone.
+  // A joined window shows the live end too: a reader pinned to it follows live output.
+  useEffect(() => nav.following.set(pinned && !detached), [nav.following, pinned, detached]);
+  // A joined window the reader follows past is no longer needed: back to the tail alone, unless
+  // that would drop older rows the reader paged in (the list would shrink and jump under them).
   useEffect(() => {
     if (!window || !jump.joined || !pinned) return;
     const timer = setTimeout(() => nav.leaveWindow(), 1_500);

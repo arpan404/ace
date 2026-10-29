@@ -10,6 +10,7 @@ import {
   olderRequest,
   openWindow,
   slideSize,
+  tailCovers,
   tailLaneBefore,
   windowHas,
   withNewer,
@@ -219,11 +220,16 @@ export class JumpController {
 
   /**
    * The reader left the live end: hold the rows the tail shows as the window, so the tail
-   * trimming its oldest items never takes them from under the reader. Nothing while a window
-   * is open or a read is in flight.
+   * trimming its oldest items never takes them from under the reader. A window already open
+   * that was following the live end stops dropping its oldest rows, which the reader now reads.
+   * Nothing else while a window is open or a read is in flight.
    */
   hold(): void {
-    if (this.state.window || this.state.loading) return;
+    if (this.state.window) {
+      if (this.growth === "newer" && this.state.joined) this.growth = "hold";
+      return;
+    }
+    if (this.state.loading) return;
     const tail = this.heldTail();
     const window = tail && holdTail(tail);
     if (!window) return;
@@ -438,6 +444,19 @@ export class JumpController {
    */
   follow(): void {
     if (this.state.window) this.growth = "newer";
+  }
+
+  /**
+   * The reader settled at the live end of a joined window. When the tail holds every row the
+   * window shows, back to the tail alone: nothing on screen goes. A window grown by older
+   * history keeps its rows instead (discarding it would pull them out from under the reader and
+   * shrink the scroll), and follows the live end (`follow`).
+   */
+  release(): void {
+    const { window, joined, loading } = this.state;
+    if (!window || !joined || loading) return;
+    if (tailCovers(window, this.tail())) this.live();
+    else this.follow();
   }
 
   /** Back to the live tail; the window is discarded at once. */

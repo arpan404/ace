@@ -59,7 +59,8 @@ export interface ThreadNav {
   searchFocus: Watched<number>;
   /**
    * The reader followed a joined window to the live end. The thread's transcript goes back to
-   * the tail alone; a subagent's keeps holding its lane, which busy siblings would trim.
+   * the tail alone when that drops none of the rows shown, else keeps them and follows the live
+   * end; a subagent's keeps holding its lane, which busy siblings would trim.
    */
   leaveWindow(): void;
 }
@@ -150,7 +151,7 @@ export function ThreadNavProvider(props: {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchFocus] = useState(() => new Watched(0));
   const leaveWindow = useCallback(
-    () => (agentId === undefined ? jump.live() : jump.follow()),
+    () => (agentId === undefined ? jump.release() : jump.follow()),
     [jump, agentId],
   );
   const value = useMemo<ThreadNav>(
