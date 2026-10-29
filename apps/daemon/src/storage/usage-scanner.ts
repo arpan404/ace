@@ -13,7 +13,7 @@ export interface UsageScannerOptions {
 export class UsageScanner {
   private root: string;
   private options: UsageScannerOptions;
-  private active: { cancel(): void; done: Promise<void> } | undefined;
+  private active: { cancel(): void; done: Promise<void>; exited: Promise<void> } | undefined;
   private closed = false;
   constructor(root: string, options: UsageScannerOptions = {}) {
     this.root = root;
@@ -54,7 +54,7 @@ export class UsageScanner {
       // acknowledge cancellation; kill the process, which also closes its native descriptors.
       cancelTimer = setTimeout(() => result.reject(new Error("storage_usage_cancelled")), 1000);
     };
-    const active = { cancel, done: released.promise };
+    const active = { cancel, done: released.promise, exited: exited.promise };
     this.active = active;
     worker.on("error", () => result.reject(new Error("storage_usage_worker_failed")));
     const observeExit = () => {
@@ -128,6 +128,10 @@ export class UsageScanner {
         clearTimeout(reapTimer);
       }
     }
+  }
+  /** Actual exit evidence for mutation admission, independent of scan/reap deadlines. */
+  waitForIdle(): Promise<void> {
+    return this.active?.exited ?? Promise.resolve();
   }
   async close(): Promise<void> {
     this.closed = true;

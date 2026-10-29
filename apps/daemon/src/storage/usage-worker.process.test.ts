@@ -13,10 +13,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fork, spawn, type ChildProcess, type Serializable } from "node:child_process";
 import { expect, test } from "vitest";
-import { ThreadId } from "@ace/protocol";
 import { storageFixture } from "./test-support.ts";
 import { UsageScanner } from "./usage-scanner.ts";
-import { transcriptBytes, transcriptQueries } from "./transcript.ts";
 
 const put = async (root: string, path: string, contents: string) => {
   const parts = path.split("/");
@@ -47,15 +45,15 @@ test("counts every category beyond cleanup's candidate page without inspecting G
   const outside = await mkdtemp(join(tmpdir(), "usage-outside-"));
   try {
     for (let i = 0; i < 270; i++) f.thread(`usage-${String(i).padStart(4, "0")}`);
-    let expectedTranscript = 0;
-    const queries = f.store.atomic((db) => transcriptQueries(db));
-    for (let i = 0; i < 270; i++)
-      expectedTranscript +=
-        (await transcriptBytes(
-          (sql) => f.store.statement(sql),
-          ThreadId.parse(`usage-${String(i).padStart(4, "0")}`),
-          queries,
-        )) ?? 0;
+    // Each thread seeds its created event and a long-history header, with no item/blob rows.
+    // The header is 27 bytes: ten-byte id, ordinal "0", and sixteen-byte done status.
+    // Read event payloads directly, independently of either transcript helper.
+    const expectedTranscript =
+      Number(
+        f.store.statement("SELECT SUM(octet_length(payload)) AS bytes FROM events").get()?.bytes,
+      ) +
+      270 * 27;
+    expect(expectedTranscript).toBeGreaterThan(0);
     await put(f.root, "logs/current", "logs");
     await put(f.root, "support/artifacts/diagnostics", "support");
     await put(f.root, "artifacts/image", "image");
@@ -397,14 +395,24 @@ test("a missing exit notification bounds scan cleanup and blocks replacements un
   const tracking = withheldExitWorker();
   const scanner = new UsageScanner("unused", { spawn: tracking.spawn });
   try {
+    await scanner.waitForIdle();
     const started = performance.now();
-    await expect(scanner.scan()).rejects.toThrow("storage_usage_cleanup_timeout");
+    const scanning = scanner.scan();
+    let idle = false;
+    const actualExit = scanner.waitForIdle().then(() => {
+      idle = true;
+    });
+    await expect(scanning).rejects.toThrow("storage_usage_cleanup_timeout");
+    expect(idle).toBe(false);
     expect(performance.now() - started).toBeLessThan(4000);
     await expect(scanner.scan()).rejects.toThrow("storage_busy");
     expect(tracking.workers).toHaveLength(1);
     tracking.notifyExit();
     tracking.notifyExit();
+    await actualExit;
+    expect(idle).toBe(true);
     await expect(scanner.scan()).rejects.toThrow("storage_usage_failed");
+    await scanner.waitForIdle();
     expect(tracking.workers).toHaveLength(2);
   } finally {
     tracking.notifyExit();
