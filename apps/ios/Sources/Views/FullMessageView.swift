@@ -14,7 +14,8 @@ struct FullMessageView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
                     // The row's own text shows at once; the whole text replaces it when it arrives.
-                    AceMarkdown(text: text ?? item.text, tone: item.type == "reasoning" ? .muted : .body).onAppear { DisclosureTrace.shared.shown(item.id) }
+                    AceMarkdown(text: text ?? item.text, streaming: text == nil && !item.complete,
+                                tone: item.type == "reasoning" ? .muted : .body).onAppear { DisclosureTrace.shared.shown(item.id) }
                     if text == nil && problem == nil {
                         Text("Reading the rest…").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.subtleForeground)
