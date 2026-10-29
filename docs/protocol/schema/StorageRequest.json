@@ -6,6 +6,9 @@
       "oneOf": [
         {
           "properties": {
+            "force": {
+              "type": "boolean"
+            },
             "op": {
               "const": "storage.usage",
               "type": "string"
