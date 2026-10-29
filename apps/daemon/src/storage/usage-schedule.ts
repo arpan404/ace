@@ -4,6 +4,8 @@ import type { StorageSchedule } from "./schedule.ts";
 
 export interface UsageScannerPort {
   scan(signal?: AbortSignal): Promise<StorageUsage>;
+  /** Resolves only after owned worker processes have exited, even if scan() rejected earlier. */
+  waitForIdle(): Promise<void>;
   close(): Promise<void>;
 }
 export type Activity = { cpu: number | null; disk: number | null };
@@ -38,12 +40,12 @@ export class UsageCoordinator {
   private releaseMutation: (() => void) | undefined;
   private mutationDone: Promise<void> = Promise.resolve();
   private flight: Promise<StorageUsage> | undefined;
-  private scanCompletion: Promise<void> | undefined;
   private controller: AbortController | undefined;
   private probe: AbortController | undefined;
   private cancel: (() => void) | undefined;
   private closed = false;
   private started = false;
+  private requested = false;
   private closing: Promise<void> | undefined;
   constructor(cache: UsageCache, scanner: UsageScannerPort, runtime: UsageRuntime) {
     this.cache = cache;
@@ -51,6 +53,7 @@ export class UsageCoordinator {
     this.runtime = runtime;
     const loaded = cache.load(runtime.now());
     this.snapshot = loaded.usage;
+    this.requested = loaded.usage !== undefined;
     this.due = loaded.due;
   }
   start(): void {
@@ -59,6 +62,7 @@ export class UsageCoordinator {
   }
   read(force = false): Promise<StorageUsage> {
     if (this.closed) return Promise.reject(new Error("storage_closed"));
+    this.requested = true;
     if (!force && this.snapshot) return Promise.resolve(this.snapshot);
     return this.refresh();
   }
@@ -85,14 +89,12 @@ export class UsageCoordinator {
   }
   /** Wait for the actual scanner, never the refresh loop that waits for this mutation. */
   private async waitForScan(): Promise<void> {
-    const completion = this.scanCompletion;
-    if (!completion) return;
     let cancel: (() => void) | undefined;
     const deadline = new Promise<never>((_, reject) => {
       cancel = this.runtime.schedule(5000, () => reject(new Error("storage_scan_cancel_timeout")));
     });
     try {
-      await Promise.race([completion, deadline]);
+      await Promise.race([this.scanner.waitForIdle(), deadline]);
     } finally {
       cancel?.();
     }
@@ -124,15 +126,8 @@ export class UsageCoordinator {
       const controller = new AbortController();
       this.controller = controller;
       const cancelTimeout = this.runtime.schedule(10 * 60 * 1000, () => controller.abort());
-      let completion: Promise<void> | undefined;
       try {
-        const scan = this.scanner.scan(controller.signal);
-        completion = scan.then(
-          () => {},
-          () => {},
-        );
-        this.scanCompletion = completion;
-        const usage = StorageUsage.parse(await scan);
+        const usage = StorageUsage.parse(await this.scanner.scan(controller.signal));
         if (this.closed) break;
         if (generation !== this.generation) continue;
         if (controller.signal.aborted) throw new Error("storage_scan_cancelled");
@@ -147,21 +142,20 @@ export class UsageCoordinator {
         throw error;
       } finally {
         cancelTimeout();
-        if (this.scanCompletion === completion) this.scanCompletion = undefined;
       }
     }
     throw new Error("storage_closed");
   }
   private next(delay?: number): void {
     this.cancel?.();
-    if (!this.started || this.closed || this.flight || this.mutations) return;
+    if (!this.started || !this.requested || this.closed || this.flight || this.mutations) return;
     this.cancel = this.runtime.schedule(delay ?? Math.max(1, this.due - this.runtime.now()), () => {
       this.cancel = undefined;
       void this.automatic();
     });
   }
   private async automatic(): Promise<void> {
-    if (this.closed || this.flight || this.mutations) return;
+    if (!this.requested || this.closed || this.flight || this.mutations) return;
     const controller = new AbortController();
     this.probe = controller;
     let retry = 60000;
