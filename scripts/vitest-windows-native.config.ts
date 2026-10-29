@@ -193,6 +193,8 @@ export default defineConfig({
       "packages/workspace/src/pinned-directory.process.test.ts",
       "packages/workspace/src/confinement.process.test.ts",
       "apps/daemon/src/local-files.test.ts",
+      // Usage measurement must stay confined and cancellable on native Windows too.
+      "apps/daemon/src/storage/usage-*.test.ts",
       // Daemon lifecycle from the real `ace` CLI: stop, lock refusal, crash restart, Ctrl+Break,
       // and startup recovery of escaped provider trees and skill leases.
       "apps/daemon/src/daemon-stop-restart.process.test.ts",
