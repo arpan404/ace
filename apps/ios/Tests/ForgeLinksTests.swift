@@ -47,4 +47,17 @@ import Testing
         #expect(links.image("data:image/png;base64,AAAA") == nil)
         #expect(links.image("file:///private/var/shot.png") == nil)
     }
+
+    @Test func pullRequestLinksOpenTheirPageAndNothingElseDoes() {
+        let pull = "https://github.com/acme/ace/pull/1508"
+        #expect(links.reference(kind: "pull_request", target: pull) == url(pull))
+        #expect(links.reference(kind: "pull_request", target: "javascript:alert(1)//github.com/x/pull/1") == nil)
+    }
+
+    @Test func aFileNamedInCodeOpensInTheRepositoryAtItsLine() {
+        #expect(links.reference(kind: "file", target: "apps/ios/README.md") == url("https://github.com/acme/ace/blob/HEAD/apps/ios/README.md"))
+        #expect(links.reference(kind: "file", target: "./src/app.ts:12") == url("https://github.com/acme/ace/blob/HEAD/src/app.ts#L12"))
+        #expect(links.reference(kind: "file", target: "../secrets.env") == nil)
+        #expect(links.reference(kind: "file", target: "/etc/hosts") == nil)
+    }
 }

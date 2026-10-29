@@ -76,10 +76,13 @@ struct AceMarkdown: View {
             .onDisappear { stop() }
     }
 
-    /// A file reference opens as the link it would be written as (`fileLinks` asks the thread);
-    /// anything else as its target.
+    /// A file reference opens as the link it would be written as (`fileLinks` asks the thread); a
+    /// `thread://` link as the app's own `ace://thread/` link; anything else as its target.
     static func url(for reference: MarkitReference) -> URL {
-        let target = reference.target
+        var target = reference.target
+        if reference.kind == "thread", target.lowercased().hasPrefix("thread://") {
+            target = "ace://thread/" + target.dropFirst("thread://".count)
+        }
         let encoded = target.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? target
         if reference.kind == "file" { return URL(string: encoded) ?? URL(fileURLWithPath: target) }
         return URL(string: target) ?? URL(string: encoded) ?? URL(fileURLWithPath: target)

@@ -26,6 +26,9 @@ struct ForgeText: View {
                     },
                     route: MarkdownRoute(link: { links?.link($0) ?? ForgeLinks.web($0) },
                                          reference: { links?.reference(kind: $0.kind, target: $0.target) }))
+            // markit asks for a diagram once per source; a new appearance draws the text, and its
+            // diagrams in the new scheme, again.
+            .id(scheme)
     }
 
     /// A tapped box asks for its state at its mark's offset.

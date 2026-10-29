@@ -1,9 +1,10 @@
 import Foundation
 
 /// Where taps in GitHub text go, pure. A link opens only as http(s) or mailto (a root path on the
-/// forge's host first made absolute); `@user`, `@org/team`, `#123`, `owner/repo#123` and commit
-/// references (markit's GitHub flavour) open their pages on the forge; an image loads only from
-/// an http(s) address, through the daemon. Anything else stays inert.
+/// forge's host first made absolute); `@user`, `@org/team`, `#123`, `owner/repo#123`, commit and
+/// pull request references (markit's GitHub flavour) open their pages on the forge, and a file
+/// named in code (`src/app.ts:12`) opens in the repository at its default branch; an image loads
+/// only from an http(s) address, through the daemon. Anything else stays inert.
 struct ForgeLinks: Equatable, Sendable {
     let host: String
     let owner: String
@@ -37,6 +38,11 @@ struct ForgeLinks: Equatable, Sendable {
 
     /// The page a GitHub reference opens: a person or team, an issue or pull request, a commit.
     func reference(kind: String, target: String) -> URL? {
+        switch kind {
+        case "pull_request": return URL(string: target).flatMap { link($0) }
+        case "file": return file(target)
+        default: break
+        }
         let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./@#"))
         guard !target.isEmpty, target.unicodeScalars.allSatisfy(safe.contains) else { return nil }
         switch kind {
@@ -59,6 +65,17 @@ struct ForgeLinks: Equatable, Sendable {
         default:
             return nil
         }
+    }
+
+    /// A path in the repository, with an optional `:line`, at the default branch on the forge.
+    private func file(_ target: String) -> URL? {
+        let parts = target.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        let path = parts[0].hasPrefix("./") ? parts[0].dropFirst(2) : parts[0]
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./"))
+        guard !path.isEmpty, !path.hasPrefix("/"), path.unicodeScalars.allSatisfy(allowed.contains),
+              !path.split(separator: "/").contains("..") else { return nil }
+        let line = parts.count == 2 ? Int(parts[1].prefix { $0.isNumber }) : nil
+        return URL(string: "\(repository)/blob/HEAD/\(path)" + (line.map { "#L\($0)" } ?? ""))
     }
 
     /// The address an image may load from, or nil when it may not.
