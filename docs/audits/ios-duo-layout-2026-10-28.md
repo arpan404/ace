@@ -89,3 +89,18 @@ alone did not reliably reproduce the user's exact left-clipped screenshot. This 
 the demonstrated stale-inset mechanism; it does not claim every reported Duo issue is solved.
 Temporary geometry logging was removed. The existing full repository test failures documented
 above remain outside this Swift-only follow-up.
+
+## Composer controls after separating the add button
+
+The expanded composer formerly forced access, model and effort labels into one row even when
+the separate add button left too little width. The controls could draw outside the card and
+overlap add. It now measures full labels, then icon-only access, and finally falls back to the
+existing model/access settings button. Send/Stop reserves its own width outside that fitting
+area. Model and effort labels can truncate instead of imposing an unshrinkable width.
+
+The first-message composer also adapts access to its icon and reserves Start's width. Its
+surface is identified for bounds checks. Duo UI tests passed for both composers at the largest
+accessibility text size with controls inside the surface and before Send/Start; the narrow
+follow-up's settings button was tapped and its model row appeared. The existing separate-add
+keyboard/menu test passed too. The initial first-message test used an old tab-bar-only lookup
+and failed before opening the composer; it now finds Duo's actual New thread action.

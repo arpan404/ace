@@ -77,9 +77,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                     HStack(alignment: .center, spacing: AceTheme.Spacing.none) {
                         input
                         if !big {
-                            settings()
-                                .frame(width: ComposerControlRow.height, height: ComposerControlRow.height)
-                                .background(AceTheme.Colours.fill, in: Circle())
+                            settingsButton
                                 .padding(.trailing, AceTheme.Spacing.xxs)
                             action
                         }
@@ -88,10 +86,13 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                     .frame(minHeight: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs)
                     if big {
                         HStack(spacing: AceTheme.Spacing.none) {
-                            access()
-                            Spacer(minLength: AceTheme.Spacing.xs)
-                            model()
-                            action
+                            ViewThatFits(in: .horizontal) {
+                                expandedOptions
+                                expandedOptions.environment(\.composerRoomy, false)
+                                settingsButton
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            action.fixedSize().layoutPriority(1)
                         }
                         .padding(.horizontal, AceTheme.Spacing.xs)
                         .padding(.bottom, AceTheme.Spacing.xxs)
@@ -143,6 +144,18 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         .onChange(of: focusRequest) { _, _ in place = CaretPlacement(offset: (draft.text as NSString).length, focus: true) }
         .onChange(of: scenePhase) { _, phase in if phase != .active { draft.flush() } }
         .onDisappear { draft.flush() }
+    }
+    private var expandedOptions: some View {
+        HStack(spacing: AceTheme.Spacing.xs) {
+            access()
+            model()
+        }
+        .fixedSize(horizontal: true, vertical: true)
+    }
+    private var settingsButton: some View {
+        settings()
+            .frame(width: ComposerControlRow.height, height: ComposerControlRow.height)
+            .background(AceTheme.Colours.fill, in: Circle())
     }
     private func pick(_ row: SuggestionRow) {
         if row.action == "recall" { recallPrevious(); return }

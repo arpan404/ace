@@ -151,17 +151,23 @@ struct NewThreadComposer: View {
                     .accessibilityLabel("Describe a task")
                     .padding(.horizontal, AceTheme.Spacing.lg)
                 HStack(spacing: AceTheme.Spacing.xs) {
-                    accessChip
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                    ViewThatFits(in: .horizontal) {
+                        accessChip.fixedSize()
+                        accessChip.environment(\.composerRoomy, false)
+                    }
+                    Spacer(minLength: AceTheme.Spacing.xs)
                     ModelEffortChip(provider: choice.agent?.provider, model: modelName, effort: tune,
                                     loading: agentsState != "ready" && agentsState != "failed",
                                     modelID: "newThread.agent", effortID: "newThread.tune",
                                     openModel: chooseModel, openEffort: chooseTune)
                     ComposerActionButton(saving: sending, disabled: blocker != nil || sending, label: "Start thread", action: send)
+                        .fixedSize().layoutPriority(1)
                         .accessibilityHint(blocker ?? "").accessibilityIdentifier("newThread.start")
                 }
                 .padding(.horizontal, AceTheme.Spacing.sm)
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("newThread.surface")
         }
     }
     private var modelName: String { choice.model?.label ?? (agentsState == "failed" ? "Couldn't read agents" : "Choose model") }

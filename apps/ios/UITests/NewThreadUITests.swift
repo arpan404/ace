@@ -5,6 +5,28 @@ import XCTest
 @MainActor final class NewThreadUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
+    func testFirstMessageControlsStayInsideTheComposerWithLargeText() {
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let compose = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "inbox.compose", "New thread")).firstMatch
+        XCTAssertTrue(compose.waitForExistence(timeout: 25))
+        compose.tap()
+        let surface = app.otherElements["newThread.surface"].firstMatch
+        XCTAssertTrue(surface.waitForExistence(timeout: 10))
+        let start = app.buttons["newThread.start"]
+        XCTAssertTrue(start.waitForExistence(timeout: 10))
+        for identifier in ["newThread.access", "newThread.agent", "newThread.tune", "newThread.start"] {
+            let button = app.buttons[identifier]
+            if button.exists {
+                XCTAssertGreaterThanOrEqual(button.frame.minX, surface.frame.minX, identifier)
+                XCTAssertLessThanOrEqual(button.frame.maxX, surface.frame.maxX, identifier)
+                if identifier != "newThread.start" {
+                    XCTAssertLessThanOrEqual(button.frame.maxX, start.frame.minX, identifier)
+                }
+            }
+        }
+        screenshot("newthread-large-text-fit")
+    }
+
     func testStartingAThreadWithAMentionOpensIt() {
         let app = launch()
         XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
@@ -270,9 +292,9 @@ import XCTest
     }
 
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
-    private func launch() -> XCUIApplication {
+    private func launch(extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"] + extra
         app.launch()
         return app
     }
