@@ -69,8 +69,7 @@ struct NativeTextInput: UIViewRepresentable {
         guard let width = proposal.width else { return nil }
         let line = UIFontMetrics(forTextStyle: .body).scaledValue(for: AceTheme.Typography.body.lineHeight, compatibleWith: uiView.traitCollection)
         let content = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-        let fit = ComposerFit(line: line, inset: AceTheme.Spacing.md * 2, minimum: AceTheme.Dimensions.touchTarget,
-                              largeType: uiView.traitCollection.preferredContentSizeCategory.isAccessibilityCategory)
+        let fit = ComposerFit(line: line, inset: AceTheme.Spacing.md * 2, minimum: AceTheme.Dimensions.touchTarget)
         return CGSize(width: width, height: fit.height(content: content, focused: focused))
     }
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
