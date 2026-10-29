@@ -33,8 +33,6 @@ import {
   TextSource,
   CommandResult,
   ItemsPage,
-  ItemsWindowRequest,
-  ItemsWindowResponse,
   type RegistryResult,
   type ServerMessage,
   type CommandPayload,
@@ -49,7 +47,7 @@ import type {
 import { Connection, sameConnectionInfo } from "./connection.ts";
 import { StreamMessages } from "./stream-messages.ts";
 import { isStreamPiece, type StreamMessage } from "@ace/browser/stream";
-import { WireCodec, type ServiceWire } from "./wire-codec.ts";
+import { WireCodec, loadServiceWire, type ServiceWire } from "./wire-codec.ts";
 import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
@@ -909,7 +907,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   async itemsWindow(input: ItemsWindowInput, options: RequestOptions = {}) {
     if (this.state !== "ready" || this.closed) throw new ClientError("offline");
-    const parsed = ItemsWindowRequest.safeParse({
+    // Lazily loaded with the service wire so packages/protocol/src/long-thread.ts
+    // stays out of the client worker's eager startup path (apps/web/worker-bundle.ts).
+    const service = await loadServiceWire();
+    const parsed = service.ItemsWindowRequest.safeParse({
       type: "items.window",
       requestId: "cache",
       ...input,
@@ -921,7 +922,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       this.#history?.read(
         input.threadId,
         JSON.stringify(payload),
-        ItemsWindowResponse,
+        service.ItemsWindowResponse,
         (page) =>
           page.threadId === input.threadId && this.#historyRevision(input.threadId) === page.seq,
         load,
