@@ -41,7 +41,14 @@ export function contentSecurityPolicy(options: {
   const hashes = (options.inlineScripts ?? []).map((hash) => `'${hash}'`);
   const directives: Record<string, string[]> = {
     "default-src": ["'self'"],
-    "script-src": ["'self'", ...hashes, ...(dev ? [dev, "'unsafe-inline'"] : [])],
+    // `'wasm-unsafe-eval'` lets markit's worker compile its WebAssembly renderer; it does not
+    // allow `eval` or any other string-to-code.
+    "script-src": [
+      "'self'",
+      "'wasm-unsafe-eval'",
+      ...hashes,
+      ...(dev ? [dev, "'unsafe-inline'"] : []),
+    ],
     "style-src": ["'self'", "'unsafe-inline'", ...(dev ? [dev] : [])],
     // The ACP registry's agent icons (one-colour SVGs, drawn as images; never scripts).
     "img-src": [

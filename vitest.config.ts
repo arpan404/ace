@@ -15,6 +15,7 @@ const browserStartupSuites = [
   "tools/real-smoke/src/browser.process.test.ts",
   "tools/web-perf/src/search-jump.process.test.ts",
   "tools/web-perf/src/live-motion.process.test.ts",
+  "tools/web-perf/src/markit-policy.process.test.ts",
 ];
 const historyScaleSuite = "packages/history-import/src/scale.process.test.ts";
 // Four workers by default; ACE_TEST_WORKERS raises it on machines with more cores.
