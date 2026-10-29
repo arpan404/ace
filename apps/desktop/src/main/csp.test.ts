@@ -24,6 +24,15 @@ describe("renderer content security policy", () => {
     }
   });
 
+  it("lets markit compile its WebAssembly renderer without allowing eval", () => {
+    // Desktop sends this policy on every response, the markdown worker's included: without
+    // 'wasm-unsafe-eval' its WebAssembly never compiles and agent answers render blank.
+    const sources = directive(contentSecurityPolicy({}), "script-src");
+    expect(sources).toContain("'wasm-unsafe-eval'");
+    expect(sources).not.toContain("'unsafe-eval'");
+    expect(sources).not.toContain("'unsafe-inline'");
+  });
+
   it("never lets the page reach the network beyond its daemons", () => {
     const sources = directive(contentSecurityPolicy({}), "connect-src");
     expect(sources).not.toContain("https:");

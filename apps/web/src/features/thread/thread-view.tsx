@@ -97,8 +97,8 @@ export interface ThreadTarget {
 
 /**
  * A thread: the transcript and composer in the main column; in the header its title, the ⋯
- * menu, the thread details icon and the side panel toggle; its panel tabs include Summary, Changes,
- * terminals, Files and Browser. A long
+ * menu, the thread details icon and the side panel toggle; its panel starts with Summary, and
+ * opens Changes, terminals, Files and Browser on demand. A long
  * thread adds its turns and search.
  */
 export function ThreadView(props: {
