@@ -525,13 +525,14 @@ test("delegated work reads in the turn it came back in, the same whether or not 
       turnOf: (id) => items.find((item) => item.id === id)?.runId,
       run: () => ({ state: "completed", trigger: "user", endedAt: 6 }),
     });
-  const latestTurn = (blocks: readonly Block[]) =>
+  const latestTurns = [build(0), build(3)].map((blocks) =>
     shown(
       blocks.slice(blocks.findIndex((block) => "itemId" in block && block.itemId === "continue")),
-    );
+    ),
+  );
   // The launch's turn loaded or paged out: the later turn shows its delivered result either way.
-  expect(latestTurn(build(0))).toContain("settled-audit");
-  expect(latestTurn(build(3))).toEqual(latestTurn(build(0)));
+  expect(latestTurns[0]).toContain("settled-audit");
+  expect(latestTurns[1]).toEqual(latestTurns[0]);
 });
 
 test("results delivered back to back read as one row listing every child", () => {
