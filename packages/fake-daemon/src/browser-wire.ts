@@ -16,6 +16,13 @@ export function fakeBrowserSession(
   send: (message: ServerMessage) => void,
   connectionId: string,
   binary?: (bytes: Uint8Array) => void,
+  options: {
+    /**
+     * The thread's engine choice, as the daemon's `backendPreference` reads it (a thread-layer
+     * `browser.backend` over the default). Omitted: the fixture's historical default.
+     */
+    backendPreference?: (threadId: string) => "auto" | "embedded" | "headless";
+  } = {},
 ) {
   const recording = new Set<string>();
   let streamIds = 0;
@@ -148,11 +155,16 @@ export function fakeBrowserSession(
             await download.done;
             progress("ready", download.total);
           }
-          if (!browser.view(id) || browser.view(id)?.closed)
-            browser.drive(id, {
-              url: "about:blank",
-              backend: message.options.background ? "headless" : "embedded",
-            });
+          if (!browser.view(id) || browser.view(id)?.closed) {
+            // As the daemon's `backendCandidates`: an explicit engine wins, otherwise the
+            // fixture's historical default (its embedded stand-in for the desktop's view).
+            const preference = options.backendPreference?.(id) ?? "auto";
+            const backend =
+              preference === "headless" || (preference === "auto" && message.options.background)
+                ? "headless"
+                : "embedded";
+            browser.drive(id, { url: "about:blank", backend });
+          }
           browser.reopen(id);
           result = BrowserState.parse(browser.view(id));
           break;

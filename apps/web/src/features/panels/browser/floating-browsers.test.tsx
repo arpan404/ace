@@ -17,7 +17,7 @@ const box = (window: HTMLElement) => {
     right: parseFloat(window.style.right),
     bottom: parseFloat(window.style.bottom),
     width: parseFloat(window.style.width),
-    height: parseFloat(page?.style.height ?? "0") + 28,
+    height: parseFloat(page?.style.height ?? "0"),
   };
 };
 

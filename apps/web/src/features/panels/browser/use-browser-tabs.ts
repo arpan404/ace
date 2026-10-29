@@ -1,6 +1,7 @@
 import { useConnectionState, useThreadMeta } from "@ace/client-react";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
+import { activateTab, shownTab, tabKey, useWorkspaceStore } from "@/lib/workspace/index.ts";
 import type { BrowserTabView, BrowserView, PreviewSource } from "../sources.ts";
 import { reason } from "./use-browser-features.ts";
 
@@ -18,6 +19,16 @@ function useLive(source: PreviewSource, threadId: string) {
   const view = source.view(threadId);
   return view && !view.closed ? view : undefined;
 }
+
+/** Threads whose browser is moving engines: opens wait for the move, not a blank page. */
+const engineSwitches = new Map<string, Promise<void>>();
+
+/**
+ * Finished engine switches, by thread: the reloaded daemon tab the panel shows again, so the
+ * person lands back on the tab they switched instead of the fallback the close left behind.
+ * One shot; `ThreadBrowser` consumes and drops it.
+ */
+export const switchFollows = new Map<string, string>();
 
 /** A fresh browser's only tab, still blank: an address goes there instead of a second tab. */
 function blankOnly(view: BrowserView | undefined): string | undefined {
@@ -37,6 +48,7 @@ function blankOnly(view: BrowserView | undefined): string | undefined {
 export function useBrowserTabs(source: PreviewSource, threadId: string, ownId: string | undefined) {
   const live = useLive(source, threadId);
   const toast = useToast();
+  const store = useWorkspaceStore();
   const workspaceId = useThreadMeta(threadId)?.workspaceId;
   const online = useConnectionState() === "ready";
   const tabs: readonly BrowserTabView[] = live?.tabs ?? [];
@@ -54,10 +66,17 @@ export function useBrowserTabs(source: PreviewSource, threadId: string, ownId: s
 
   /**
    * A browser to put a page in: the thread's own, opened (downloading Chromium the first time)
-   * when it has none. Throws when the thread's project isn't known yet.
+   * when it has none. While its engine moves, the move's own browser wins: opening beside it
+   * would start a blank one the move then replaces. Throws when the thread's project isn't
+   * known yet.
    */
   const ensure = async (): Promise<BrowserView | undefined> => {
-    if (live && live.status !== "paused") return live;
+    const moving = engineSwitches.get(threadId);
+    if (moving) {
+      await moving.catch(() => {});
+      const current = source.view(threadId);
+      if (current && current.status !== "paused") return current;
+    } else if (live && live.status !== "paused") return live;
     if (!workspaceId) throw new Error("The thread's project isn't known yet.");
     return (await source.open(threadId, workspaceId)) ?? source.view(threadId);
   };
@@ -91,12 +110,20 @@ export function useBrowserTabs(source: PreviewSource, threadId: string, ownId: s
     /** A browser that lost its pages opens them again at their last addresses. */
     reopen: () =>
       void attempt("Couldn't reopen the browser", async () => {
+        const moving = engineSwitches.get(threadId);
+        if (moving) await moving.catch(() => {});
         if (!workspaceId) throw new Error("The thread's project isn't known yet.");
         await source.open(threadId, workspaceId);
       }),
     /** Show this tab to the person, on every device (the daemon's shown tab). */
     select: (tabId: string) => {
       if (tabId === live?.activeTabId) return;
+      // An engine switch owns the daemon's shown tab while it moves, and until the panel
+      // lands on the reloaded tab: a panel tab mounting meanwhile must not select its own
+      // tab back over the move.
+      if (engineSwitches.has(threadId)) return;
+      const follow = switchFollows.get(threadId);
+      if (follow !== undefined && tabId !== follow) return;
       void attempt("Couldn't show the tab", () => source.selectTab(threadId, tabId));
     },
     close: (tabId: string) =>
@@ -106,6 +133,41 @@ export function useBrowserTabs(source: PreviewSource, threadId: string, ownId: s
         value ? "Couldn't keep agents out of the tab" : "Couldn't let agents into the tab",
         () => source.keepPrivate(threadId, tabId, value),
       ),
+    /**
+     * Run this thread's browser on another engine: its tabs load again at their addresses on
+     * the new one. Only in the desktop app, where the in-app browser lives. Opens hold while
+     * the move runs, so none starts a blank browser beside it.
+     */
+    switchEngine: (engine: "embedded" | "headless") =>
+      void attempt("Couldn't switch the browser engine", async () => {
+        if (!workspaceId) throw new Error("The thread's project isn't known yet.");
+        if (!source.switchEngine) throw new Error("Switching engines needs a newer app.");
+        let release!: () => void;
+        const done = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        engineSwitches.set(threadId, done);
+        try {
+          const moved = await source.switchEngine(threadId, engine, workspaceId);
+          // Show the reloaded tab again, instead of the fallback the close left behind.
+          // The panel tab usually exists already (the state push lands before this
+          // resolves); otherwise ThreadBrowser picks it up from `switchFollows`.
+          const follow = moved.activeTabId;
+          if (follow) {
+            const current = store.get(threadId);
+            const key = tabKey("browser", follow);
+            const placed = current.open && current.tabs.some((tab) => tab.key === key);
+            if (placed && shownTab(current)?.id !== follow) {
+              store.update(threadId, (workspace) => activateTab(workspace, key));
+            } else if (!placed) {
+              switchFollows.set(threadId, follow);
+            }
+          }
+        } finally {
+          if (engineSwitches.get(threadId) === done) engineSwitches.delete(threadId);
+          release();
+        }
+      }),
   };
 }
 

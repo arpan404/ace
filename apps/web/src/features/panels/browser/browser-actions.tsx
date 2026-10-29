@@ -13,6 +13,7 @@ import {
   FileCodeIcon,
   GearSixIcon,
   EyeIcon,
+  GlobeIcon,
   MagnifyingGlassIcon,
   PrinterIcon,
   PuzzlePieceIcon,
@@ -30,6 +31,8 @@ import {
   MenuCheckboxItem,
   MenuContent,
   MenuItem,
+  MenuRadioGroup,
+  MenuRadioItem,
   MenuSeparator,
   MenuSub,
   MenuSubTrigger,
@@ -42,6 +45,7 @@ import { useLocal } from "../store.ts";
 import type { BrowserTabView } from "../sources.ts";
 import { roundButton } from "./page-toolbar.tsx";
 import { recordingThreads, type BrowserFeatures } from "./use-browser-features.ts";
+import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
 import { extensionsHidden } from "./extensions-menu.tsx";
 import { useAlwaysShowDevices } from "./device-settings.ts";
 import type { PageActions } from "./use-page-actions.ts";
@@ -75,6 +79,10 @@ export function BrowserActions(props: {
   onSettings(): void;
   onKeepPrivate(value: boolean): void;
   onCloseTab(): void;
+  /** Where this thread's pages run; undefined before its browser opens. */
+  engine: "embedded" | "headless" | "user" | undefined;
+  /** Move the thread's browser to another engine, reopening its tabs there. */
+  onEngine(engine: "embedded" | "headless"): void;
   /** The console and network drawer shows under the page. */
   drawer: boolean;
   onDrawer(open: boolean): void;
@@ -136,6 +144,10 @@ export function BrowserActions(props: {
       }),
     );
   const pageTool = usable && actions.available;
+  // The in-app browser lives in the desktop app only; elsewhere there is nothing to pick.
+  const desktop = desktopBrowserViews() !== undefined;
+  // The group stays controlled (nothing checked) before the thread has a browser.
+  const picked = props.engine === "embedded" || props.engine === "headless" ? props.engine : "";
   return (
     <Menu>
       <MenuTrigger
@@ -248,6 +260,28 @@ export function BrowserActions(props: {
         >
           {recording ? "Stop recording" : "Record the page"}
         </MenuItem>
+        {desktop && (
+          <MenuSub>
+            <MenuSubTrigger icon={icon(GlobeIcon)} disabled={!props.online}>
+              Engine
+            </MenuSubTrigger>
+            <MenuContent side="inline-start" align="start" sideOffset={4}>
+              <MenuRadioGroup
+                value={picked}
+                onValueChange={(next: unknown) => {
+                  if (next === "embedded" || next === "headless") props.onEngine(next);
+                }}
+              >
+                <MenuRadioItem value="embedded" disabled={!props.online}>
+                  In-app browser
+                </MenuRadioItem>
+                <MenuRadioItem value="headless" disabled={!props.online}>
+                  ace&apos;s Chrome
+                </MenuRadioItem>
+              </MenuRadioGroup>
+            </MenuContent>
+          </MenuSub>
+        )}
         <MenuItem
           icon={icon(CopyIcon)}
           disabled={!shownUrl}

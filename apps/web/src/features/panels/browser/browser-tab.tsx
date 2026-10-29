@@ -15,7 +15,12 @@ import {
   type KeyboardEvent,
 } from "react";
 import { cn } from "@/lib/cn.ts";
-import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
+import {
+  tabKey,
+  useScopeWorkspace,
+  useWorkspaceActions,
+  type TabViewProps,
+} from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
 import { useLocal } from "../store.ts";
 import { WithServices } from "../with-services.tsx";
@@ -89,14 +94,18 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   const pageCursor = usePageCursor(source, threadId, shown?.tabId);
 
   // Showing this panel tab shows its daemon tab, here and on the person's other devices. Only
-  // showing it asks: when the daemon later shows another tab, the panel follows it instead.
+  // the shown one asks: a tab that merely mounts (switch churn, list reconciliation) must not
+  // reselect the daemon behind the shown tab's back. When the daemon later shows another tab,
+  // the panel follows it instead.
   const reachable = !!live && live.status !== "paused";
+  const scope = useScopeWorkspace(threadId);
+  const panelShown = pane ? (pane.focused ?? true) : scope.active === tabKey("browser", ownId);
   useEffect(() => {
     // In split view only the half the person works in is the shown tab.
-    if (ownId && reachable && (pane?.focused ?? true)) tabs.select(ownId);
+    if (ownId && reachable && panelShown) tabs.select(ownId);
     // `tabs.select` reads the daemon's shown tab of this render.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownId, reachable, pane?.focused]);
+  }, [ownId, reachable, panelShown, pane?.focused]);
   // A tab kept from before a daemon restart: its browser opens again, with the same tabs.
   const unopened = ownId !== undefined && !live && online && tabs.reachable;
   useEffect(() => {
@@ -416,6 +425,8 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
               onSettings={chrome.openSettings}
               onKeepPrivate={(value) => shown && tabs.keepPrivate(shown.tabId, value)}
               onCloseTab={() => shown && tabs.close(shown.tabId)}
+              engine={live?.backend}
+              onEngine={(engine) => tabs.switchEngine(engine)}
               drawer={drawer !== undefined}
               onDrawer={(open) => page.save({ drawer: open ? "console" : undefined })}
               onScreenshotSizes={() => setSizing(true)}

@@ -1,9 +1,16 @@
-import { ArrowsOutSimpleIcon, GlobeSimpleIcon, XIcon } from "@phosphor-icons/react";
+import {
+  ArrowsOutSimpleIcon,
+  GlobeSimpleIcon,
+  SpeakerHighIcon,
+  SpeakerSlashIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import { readJson, writeJson } from "@ace/ui-core";
 import * as z from "zod/mini";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useCaptureSize } from "../preview/use-capture-size.ts";
@@ -15,7 +22,6 @@ import { pageSize } from "./page-size.ts";
 import {
   clampPip,
   defaultPipGeometry,
-  pipLimits,
   placePip,
   type PipBox,
   type PipGeometry,
@@ -36,10 +42,12 @@ const dragSlop = 4;
 /**
  * The page in a small floating window inside the ace window, while the Browser is out of sight
  * and an agent browses or the page plays sound; one per thread, so several agents' pages can
- * stream at once. Drag it by its bar, resize it from its top-left corner; it remembers where
- * it was, and a new one stacks beside the others. A click on its bar or its page brings that
- * thread's Browser back in the panel; only × puts it away.
+ * stream at once. Drag it by its title chip, resize it from its top-left corner; it remembers
+ * where it was, and a new one stacks beside the others. A click on its title or its page
+ * brings that thread's Browser back in the panel; only × puts it away.
  *
+ * The video fills the window: titles, state and controls float over it as glass chips and
+ * show on hover or keyboard focus (always on touch screens), so the page gets every pixel.
  * It always draws the page's live video, in the desktop app too: a native view paints above
  * the whole window, so it can't be clipped to this box's rounded corners and it takes clicks
  * for itself. Meanwhile the desktop's page keeps running out of sight at its panel size, so
@@ -54,8 +62,17 @@ export function BrowserPip(props: {
    */
   frame: ScreenFrame | undefined;
   page: PipPage;
-  /** The thread's name, shown first in the bar. */
+  /** The thread's name, shown first in the title chip. */
   threadTitle?: string | undefined;
+  /** Why the page floats: an agent browses, or the shown tab plays sound. */
+  status: "browsing" | "playing";
+  /** The thread's browser is being recorded. */
+  recording: boolean;
+  /** The shown tab's sound: playing, heard here, or muted for everyone. */
+  audible: boolean;
+  muted: boolean;
+  playing: boolean;
+  onMute(): void;
   onRestore(): void;
   onDismiss(): void;
 }) {
@@ -69,10 +86,7 @@ export function BrowserPip(props: {
     const others = [...open].flatMap(([id, box]) => (id === props.threadId ? [] : [box]));
     const place = placePip(base, others, windowSize(), aspect);
     // Taken at once, so another window opening in the same commit starts elsewhere.
-    open.set(props.threadId, {
-      ...place,
-      height: Math.round(place.width * aspect) + pipLimits.header,
-    });
+    open.set(props.threadId, { ...place, height: Math.round(place.width * aspect) });
     return place;
   });
   const save = (next: PipGeometry) => {
@@ -140,58 +154,36 @@ export function BrowserPip(props: {
 
   const height = Math.round(geometry.width * aspect);
   useEffect(() => {
-    open.set(threadId, { ...geometry, height: height + pipLimits.header });
+    open.set(threadId, { ...geometry, height });
     return () => void open.delete(threadId);
   }, [threadId, geometry, height]);
+  const MuteGlyph = props.muted ? SpeakerSlashIcon : SpeakerHighIcon;
+  // The chrome shows while the person points at the window or tabs into it, and always where
+  // nothing hovers (touch screens). State, not `:hover`: tests and touch drive real events.
+  const [revealed, setRevealed] = useState(false);
+  const [touch] = useState(
+    () => typeof matchMedia === "function" && matchMedia("(hover: none)").matches,
+  );
+  const shown = revealed || touch;
+  // Glass over the video, never glass on glass: the window itself is solid.
+  const chip = shown
+    ? "absolute visible opacity-100 transition-opacity duration-(--motion-fast)"
+    : "absolute invisible opacity-0 transition-opacity duration-(--motion-fast)";
   return createPortal(
     <section
       aria-label={`Picture in picture: ${props.page.title}`}
       data-browser-pip=""
       style={{ right: geometry.right, bottom: geometry.bottom, width: geometry.width }}
       onPointerDownCapture={() => frontPip.set(() => threadId)}
+      onPointerEnter={() => setRevealed(true)}
+      onPointerLeave={() => setRevealed(false)}
+      onFocus={() => setRevealed(true)}
+      onBlur={() => setRevealed(false)}
       className={cn(
         "fixed flex flex-col overflow-hidden rounded-lg ace-floating-solid shadow-glass",
         front ? "z-41" : "z-40",
       )}
     >
-      {/* The bar drags; a click on it is a mouse shortcut, "Show in the panel" the keyboard path. */}
-      <div
-        data-pip-bar=""
-        onPointerDown={gesture("move")}
-        className="flex h-7 shrink-0 cursor-grab touch-none items-center gap-1 pr-0.5 pl-1.5 select-none active:cursor-grabbing"
-      >
-        {props.page.favicon ? (
-          <img
-            src={props.page.favicon}
-            alt=""
-            aria-hidden
-            draggable={false}
-            className="size-3.5 shrink-0 rounded-xs"
-          />
-        ) : (
-          <GlobeSimpleIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
-        )}
-        <span className="flex min-w-0 flex-1 items-baseline gap-1.5 px-0.5 text-xs">
-          {props.threadTitle && (
-            <span className="max-w-[60%] shrink-0 truncate text-foreground">
-              {props.threadTitle}
-            </span>
-          )}
-          <span className="min-w-0 truncate text-muted-foreground">{props.page.title}</span>
-        </span>
-        <IconButton
-          size="sm"
-          icon={ArrowsOutSimpleIcon}
-          label={`Show ${props.page.title} in the panel`}
-          onClick={props.onRestore}
-        />
-        <IconButton
-          size="sm"
-          icon={XIcon}
-          label="Close picture in picture"
-          onClick={props.onDismiss}
-        />
-      </div>
       {/* A click on the picture is a mouse shortcut; "Show in the panel" is the keyboard path. */}
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- see above */}
       <div
@@ -209,12 +201,101 @@ export function BrowserPip(props: {
           />
         )}
       </div>
+      {/* The title chip drags; a click on it is a mouse shortcut, "Show in the panel" the keyboard path. */}
+      <div
+        data-pip-bar=""
+        onPointerDown={gesture("move")}
+        className={cn(
+          chip,
+          "top-2 left-7 flex h-7 max-w-[calc(100%-3.5rem)] cursor-grab touch-none items-center gap-1.5 rounded-full pr-2.5 pl-1.5 select-none ace-floating active:cursor-grabbing",
+        )}
+      >
+        {props.page.favicon ? (
+          <img
+            src={props.page.favicon}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="size-4 shrink-0 rounded-xs"
+          />
+        ) : (
+          <GlobeSimpleIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
+        )}
+        <span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-xs">
+          {props.threadTitle && (
+            <span className="max-w-[55%] shrink-0 truncate font-medium text-foreground">
+              {props.threadTitle}
+            </span>
+          )}
+          <span className="min-w-0 truncate text-muted-foreground">{props.page.title}</span>
+        </span>
+      </div>
+      <div
+        role="status"
+        className={cn(
+          chip,
+          "top-2 right-2 flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs ace-floating",
+        )}
+      >
+        {props.recording ? (
+          <>
+            <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-destructive" />
+            Recording
+          </>
+        ) : props.status === "browsing" ? (
+          <>
+            <StatusGlyph state="working" />
+            Agent browsing
+          </>
+        ) : (
+          <>
+            <SpeakerHighIcon aria-hidden size={12} className="shrink-0 text-muted-foreground" />
+            Playing
+          </>
+        )}
+      </div>
+      <div
+        className={cn(
+          chip,
+          "bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full p-1 ace-floating",
+        )}
+      >
+        <IconButton
+          size="sm"
+          icon={ArrowsOutSimpleIcon}
+          label={`Show ${props.page.title} in the panel`}
+          onClick={props.onRestore}
+        />
+        {(props.audible || props.muted || props.playing) && (
+          <IconButton
+            size="sm"
+            icon={MuteGlyph}
+            label={props.muted ? "Unmute tab" : "Mute tab"}
+            onClick={props.onMute}
+          />
+        )}
+        <IconButton
+          size="sm"
+          icon={XIcon}
+          label="Close picture in picture"
+          onClick={props.onDismiss}
+        />
+      </div>
       <div
         role="separator"
         aria-label="Resize picture in picture"
         onPointerDown={gesture("resize")}
-        className="absolute top-0 left-0 size-3 cursor-nwse-resize"
-      />
+        className={cn(chip, "top-1 left-1 size-4 cursor-nwse-resize text-muted-foreground")}
+      >
+        <svg viewBox="0 0 14 14" aria-hidden className="size-full">
+          <path
+            d="M2 12 L12 2 M5.5 12 L12 5.5 M9.5 12 L12 9.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      </div>
     </section>,
     document.body,
   );

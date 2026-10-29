@@ -45,12 +45,13 @@ export interface PipGeometry {
   width: number;
 }
 
-export const pipLimits = { minWidth: 240, defaultWidth: 320, margin: 8, header: 28 } as const;
+export const pipLimits = { minWidth: 240, defaultWidth: 320, margin: 8, header: 0 } as const;
 export const defaultPipGeometry: PipGeometry = { right: 16, bottom: 112, width: 320 };
 
 /**
  * The window kept inside the app window: at least `minWidth` wide and at most half the window,
- * its whole box (header and page at `aspect` height/width) within `margin` of every edge.
+ * its whole box (the page at `aspect` height/width; titles and controls float over it) within
+ * `margin` of every edge.
  */
 export function clampPip(
   geometry: PipGeometry,
