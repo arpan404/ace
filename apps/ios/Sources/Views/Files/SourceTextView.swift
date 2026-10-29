@@ -177,13 +177,15 @@ final class SourceContainer: UIView {
         text.typingAttributes = base
         // The text shows plain at once; its colours land over the same glyphs when read.
         text.attributedText = NSAttributedString(string: document.text, attributes: base)
-        if let language = document.language, !language.isEmpty, !document.text.isEmpty {
+        if let language = document.language, !language.isEmpty, !document.text.isEmpty,
+           document.text.utf16.count <= SourceColours.limit {
+            // Cancelled by the next load: a file opened after it never waits on its colours.
             colouring = Task { [weak self, theme = AceMarkdownTheme.current()] in
                 let colours = await SourceColours.read(document.text, language: language, theme: theme)
                 // Only over the text it was read for: not another file, nor one being edited since.
                 guard let self, !Task.isCancelled, let colours, self.text.text == document.text else { return }
-                colours.apply(to: self.text.textStorage)
-                self.colouring = nil
+                let storage = self.text.textStorage
+                await colours.apply(to: storage) { [weak self] in self?.text.isEditable == false || self?.text.text == document.text }
             }
         }
         marks = document.marks
