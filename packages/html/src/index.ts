@@ -3,6 +3,7 @@ export { hasScript, resolveHtmlMode } from "./mode.ts";
 export {
   visualizationDocument,
   visualizationUrl,
+  inlineVisualizationUrl,
   visualizationWindow,
   themeMessage,
   htmlCsp,
