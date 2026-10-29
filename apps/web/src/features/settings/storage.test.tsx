@@ -1,4 +1,4 @@
-import { screen, within, waitFor } from "@testing-library/react";
+import { act, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { createQueryClient } from "@/app.tsx";
@@ -257,4 +257,65 @@ test("forcing one worktree keeps the delete-all preview scoped to worktrees and 
   await userEvent.click(within(dialog).getByRole("button", { name: "Remove items" }));
   expect(await within(list).findByText("Removed")).toBeTruthy();
   expect(within(list).getByText("Keep · Pinned thread")).toBeTruthy();
+});
+
+test("reopening storage paints an old measurement while the normal cached response is delayed", async () => {
+  const queries = createQueryClient();
+  const app = harness({ queryClient: queries, uiClock: () => 120_000 });
+  app.daemon.seedServices({ storageDatabase: { bytes: 2_000_000, reclaimable: 0 } });
+  await app.open("/settings/storage");
+  expect(await screen.findByText("2.0 MB")).toBeTruthy();
+  await userEvent.click(screen.getByRole("link", { name: "Appearance" }));
+  await screen.findByRole("heading", { name: /^Appearance$/ });
+  await queries.invalidateQueries({ queryKey: storageUsageKey, refetchType: "none" });
+  const gate = Promise.withResolvers<void>();
+  const operations: unknown[] = [];
+  const request = app.client.request.bind(app.client);
+  vi.spyOn(app.client, "request").mockImplementation(async (input, options) => {
+    if (input.type === "storage.request" && input.operation.op === "storage.usage") {
+      operations.push(input.operation);
+      await gate.promise;
+    }
+    return request(input, options);
+  });
+  app.daemon.seedServices({ storageDatabase: { bytes: 3_000_000, reclaimable: 0 } });
+  await userEvent.click(screen.getByRole("link", { name: "Storage" }));
+  expect(await screen.findByText("2.0 MB")).toBeTruthy();
+  expect(screen.getByText("Updating storage usage…")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Preview cleanup" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("spinbutton", { name: "Worktrees retention days" })).toBeTruthy();
+  expect(operations).toEqual([{ op: "storage.usage" }]);
+  gate.resolve();
+  expect(await screen.findByText("3.0 MB")).toBeTruthy();
+});
+
+test("offline storage keeps its last measurement and reconnect reads the saved cache without forcing", async () => {
+  const app = harness();
+  app.daemon.seedServices({ storageDatabase: { bytes: 2_000_000, reclaimable: 0 } });
+  await app.open("/settings/storage");
+  expect(await screen.findByText("2.0 MB")).toBeTruthy();
+  act(() => {
+    app.daemon.refuseConnections(true);
+    app.daemon.disconnectAll();
+  });
+  expect(await screen.findByText("Offline. Showing the previous measurement.")).toBeTruthy();
+  expect(screen.getByText("2.0 MB")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Refresh usage" })).toHaveProperty("disabled", true);
+  const gate = Promise.withResolvers<void>();
+  const operations: unknown[] = [];
+  const request = app.client.request.bind(app.client);
+  vi.spyOn(app.client, "request").mockImplementation(async (input, options) => {
+    if (input.type === "storage.request" && input.operation.op === "storage.usage") {
+      operations.push(input.operation);
+      await gate.promise;
+    }
+    return request(input, options);
+  });
+  app.daemon.seedServices({ storageDatabase: { bytes: 3_000_000, reclaimable: 0 } });
+  app.daemon.refuseConnections(false);
+  await waitFor(() => expect(operations).toEqual([{ op: "storage.usage" }]));
+  expect(screen.getByText("2.0 MB")).toBeTruthy();
+  gate.resolve();
+  expect(await screen.findByText("3.0 MB")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Refresh usage" })).toHaveProperty("disabled", false);
 });
