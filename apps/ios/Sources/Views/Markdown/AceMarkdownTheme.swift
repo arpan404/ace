@@ -73,6 +73,15 @@ import UIKit
         theme.tableBorder = colour("separator")
         theme.tableHeaderBackground = colour("fill")
         theme.ruleColor = colour("separator")
+        // GitHub alerts stay monochrome, as ace drew them: colour means state (DESIGN.md), so the
+        // kind reads from its title word, in the ink.
+        let alert = colour("foreground")
+        theme.alertNote = alert
+        theme.alertTip = alert
+        theme.alertImportant = alert
+        theme.alertWarning = alert
+        theme.alertCaution = alert
+        theme.footnoteFont = .scaled(.systemFont(ofSize: type.caption.size * scale, weight: .regular), relativeTo: .footnote)
         theme.diffAddition = UIColor(AceTheme.Colours.diffAdd)
         theme.diffDeletion = UIColor(AceTheme.Colours.diffDelete)
         // markit's grammar colours, with plain code in the page's own ink.

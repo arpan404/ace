@@ -10,8 +10,8 @@ struct ForgeComment: Decodable, Sendable, Equatable, Identifiable {
     let source: String
     let author: String
     let at: Double?
+    /// The comment as shown, drawn by markit; task boxes are named by offsets into it.
     let body: String
-    let blocks: [ForgeRichBlock]
     let hidden: String?
     let reactions: [Reaction]
     let url: String

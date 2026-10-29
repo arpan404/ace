@@ -1,7 +1,7 @@
 import Markit
 import SwiftUI
 
-/// Markdown as ace draws it everywhere outside forge text: markit's native rendering (CommonMark,
+/// Markdown as ace draws it everywhere: markit's native rendering (CommonMark,
 /// tables, task lists, code blocks with grammar colours, Copy and a "Show all" fold past 22 lines,
 /// diff fences, inline and display math) in ace's look (`AceMarkdownTheme`). It takes the width it
 /// is offered and the height its content needs.
@@ -9,7 +9,8 @@ import SwiftUI
 /// A streaming message reaches markit at a steady pace (`StreamPace`) rather than on every delta,
 /// and markit reparses only its open last blocks; finished text shows at once. Links open through
 /// the environment's `openURL` (a thread routes local links to its files, `fileLinks`); a file
-/// reference opens as such a link.
+/// reference opens as such a link. Forge text (`ForgeText`) uses GitHub's flavour with its own
+/// link rules (`route`), ticks task boxes (`onTask`) and draws diagrams (`renderDiagram`).
 struct AceMarkdown: View {
     let text: String
     /// Still arriving: updates are paced, and the open last block may change.
@@ -20,6 +21,15 @@ struct AceMarkdown: View {
     var tone: AceMarkdownTheme.Tone = .body
     /// Draws an image the text names; nil leaves images as their alt text.
     var resolveImage: (@MainActor (String) async -> UIImage?)? = nil
+    /// `.github` for pull request, issue and comment bodies.
+    var flavor: MarkitFlavor = .standard
+    /// GitHub flavour: a task box was tapped; nil shows boxes without letting them tick.
+    var onTask: ((MarkitTask) -> Void)? = nil
+    /// GitHub flavour: draws a closed diagram fence; nil (or a nil view) keeps its code.
+    var renderDiagram: (@MainActor (_ language: String, _ source: String) async -> UIView?)? = nil
+    /// Where links and references go instead of straight to `openURL`; nil returned leaves the
+    /// tap inert.
+    var route: MarkdownRoute? = nil
 
     @Environment(\.openURL) private var openURL
     @Environment(\.transcriptScale) private var scale
@@ -34,12 +44,17 @@ struct AceMarkdown: View {
 
     var body: some View {
         let open = openURL
-        MarkitInline(markdown: streaming ? (paced ?? text) : text, finalized: !streaming,
+        let route = route
+        MarkitInline(markdown: streaming ? (paced ?? text) : text, finalized: !streaming, flavor: flavor,
                      theme: AceMarkdownTheme.current(scale: scale, tone: tone),
                      isTextSelectable: selectable, codeCollapse: Self.collapse,
-                     onLink: { open($0) },
-                     onReference: { open(Self.url(for: $0)) },
-                     resolveImage: resolveImage)
+                     onLink: { url in
+                         if let route { if let target = route.link(url) { open(target) } } else { open(url) }
+                     },
+                     onReference: { reference in
+                         if let route { if let target = route.reference(reference) { open(target) } } else { open(Self.url(for: reference)) }
+                     },
+                     resolveImage: resolveImage, onTask: onTask, renderDiagram: renderDiagram)
             .frame(maxWidth: .infinity, alignment: .leading)
             .onChange(of: text, initial: true) { _, latest in
                 guard streaming else { return }
@@ -92,17 +107,9 @@ struct AceMarkdown: View {
     private static func now() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
 }
 
-extension AceMarkdown {
-    /// `text` as one fenced code block in `language`: its fence is longer than any run of
-    /// backticks inside it, so the text can never close it early.
-    static func fenced(_ text: String, language: String) -> String {
-        var longest = 0, run = 0
-        for character in text {
-            run = character == "`" ? run + 1 : 0
-            longest = max(longest, run)
-        }
-        let fence = String(repeating: "`", count: max(3, longest + 1))
-        let info = language.filter { !$0.isWhitespace && $0 != "`" }
-        return "\(fence)\(info)\n\(text)\n\(fence)"
-    }
+/// Where taps in a piece of Markdown go: each link or reference to the address it opens, nil to
+/// leave it inert.
+struct MarkdownRoute {
+    let link: (URL) -> URL?
+    let reference: (MarkitReference) -> URL?
 }

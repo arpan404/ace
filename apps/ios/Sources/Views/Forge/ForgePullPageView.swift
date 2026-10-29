@@ -109,8 +109,8 @@ struct ForgePullPageView: View {
                 .padding(.horizontal, AceTheme.Spacing.lg)
             }
             ForgeThreadsSection(threads: page.threads, machineId: route.machineId, openThread: openThread)
-            if !page.bodyBlocks.isEmpty, let desk {
-                ForgeRichView(blocks: page.bodyBlocks, scope: desk.scope, tick: descriptionTicker(page, desk))
+            if !page.body.isEmpty, let desk {
+                ForgeText(text: page.body, scope: desk.scope, tick: descriptionTicker(page, desk))
                     .padding(.horizontal, AceTheme.Spacing.lg)
                 if let message = desk.message {
                     Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)

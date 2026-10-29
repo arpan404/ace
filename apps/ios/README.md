@@ -381,13 +381,14 @@ an older head reads "Changed since viewed". Images compare side by side or by sw
 through the daemon. A tapped line, extended with Select more, takes one comment across the span.
 `bridge/forge-code-review.test.ts` and `ForgeCodeReviewUITests` cover them.
 
-Pull request and issue text draws natively from blocks `bridge/forge-rich.ts` builds with the
-web's rules (`@ace/ui-core/forge-rich`): GitHub's HTML subset through the web's allowlist,
-alerts, emoji, mentions, references, footnotes, tables, details, light and dark pictures and
-task boxes that tick through `forge.task`. Images and videos come only through the daemon's
-media path (`forge.media`), private uploads included. SVG, WebM and mermaid draw in a small
-offline web view; `bun run generate` copies mermaid's standalone build to
-`Resources/mermaid.js`. The Inbox segment lists GitHub notifications (`forge.inbox`); pull
+Pull request and issue text is drawn by markit in GitHub's flavour (`Views/Forge/ForgeText.swift`
+over the text the bridge remembers as shown): GitHub's HTML allowlist, alerts, emoji, mentions,
+issue and commit references (opening on the forge, `Models/ForgeLinks.swift`), footnotes, tables
+and task boxes that tick through `forge.task` at markit's offset of the mark. Images come only
+through the daemon's media path (`forge.media`), private uploads included; SVG images, videos
+and bare upload links stay links. Mermaid diagrams draw in a small offline web view handed to
+markit once drawn (`MermaidDiagram.swift`); `bun run generate` copies mermaid's standalone build
+to `Resources/mermaid.js`. The Inbox segment lists GitHub notifications (`forge.inbox`); pull
 requests and issues open in the app, from other repositories too.
 
 ## Several machines
