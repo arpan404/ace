@@ -31,6 +31,9 @@ const OPERATIONAL_ENV = new Set([
   "XDG_SESSION_DESKTOP",
   "XDG_CURRENT_DESKTOP",
   "DESKTOP_SESSION",
+  // How the daemon listens ("local", "lan", "tailscale"): redacting it garbled fix-it text
+  // such as "Run `sudo tailscale set --operator=$USER`" into "Run `sudo <ENV> set ...`".
+  "ACE_LISTEN",
 ]);
 function sensitiveEnvironment(ctx: RedactionContext): Array<[string, string]> {
   return Object.entries(ctx.env ?? {}).filter(

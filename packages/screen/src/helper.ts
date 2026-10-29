@@ -427,7 +427,20 @@ export class Helper {
         replyLimit: request.op === "measure_interaction" ? 128 * 1024 : 64 * 1024,
       });
       this.proc.stdin.write(line, (error) => {
-        if (error) this.fail(error);
+        if (!error) return;
+        if ((error as NodeJS.ErrnoException).code !== "EPIPE") {
+          this.fail(error);
+          return;
+        }
+        // A helper that died closed its stdin on the way out: its exit, which the exit handler
+        // reports as "Screen helper exited", is the failure; EPIPE is only how the write heard
+        // of it first. A pipe closed by a helper that keeps running still fails, a moment later.
+        const settle = () => this.fail(error);
+        const stopWaiting = (this.options.scheduler ?? nodeScheduler).schedule(settle, 1_000);
+        void this.proc.exited.then(() => {
+          stopWaiting();
+          settle();
+        });
       });
     });
   }

@@ -236,6 +236,8 @@ def lock(helper: Helper) -> None:
         locked(helper, look)
     finally:
         locker.kill()
+        # Reap it: an unreaped locker stays in /proc as a zombie under its name.
+        locker.wait()
     look = helper.result("state", app="calculator", outline=False)
     check("unlocked again, looks say so", look.get("screenLocked") is False, look)
 

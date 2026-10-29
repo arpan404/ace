@@ -37,6 +37,8 @@ export interface BackgroundOptions {
 
 /** How long Quit waits for the daemon link to close before it moves on. */
 const stopGraceMs = 2_000;
+/** How long the Linux screen lock check waits for the session bus to list its services. */
+const screenLockCheckMs = 2_000;
 
 const timers = {
   set(delayMs: number, callback: () => void) {
@@ -189,13 +191,25 @@ export class Background {
       { readDesktopCredential },
       { EmbeddedViews },
       { VideoEncoderHost },
+      { screenLock },
+      { runProgram },
+      { powerMonitor },
     ] = await Promise.all([
       import("./browser/backend.ts"),
       import("./browser/connection.ts"),
       import("./browser/credential.ts"),
       import("./browser/views.ts"),
       import("./browser/video-encoder.ts"),
+      import("./os/screen-lock.ts"),
+      import("./os/tray-host.ts"),
+      import("electron"),
     ]);
+    // On Linux an idle screen the X screen saver blanked reads as "locked" too (os/screen-lock.ts).
+    const locked = await screenLock({
+      platform: process.platform,
+      chromiumLocked: () => powerMonitor.getSystemIdleState(1) === "locked",
+      run: runProgram(screenLockCheckMs),
+    });
     if (this.stopped) return;
     const { runtime, log } = this.options;
     // Remote viewers watch the views as video from the app's own encoder (ADR 0088).
@@ -214,11 +228,10 @@ export class Background {
       // The person's chosen folder, else the system's Downloads folder.
       downloadFolder: () => this.options.settings().browserDownloads ?? this.options.downloads,
     });
-    const { powerMonitor } = await import("electron");
     const backend = new BrowserBackend(views, {
       log,
       // A locked screen draws no frames, so a view opened then never shows a picture.
-      drawable: () => powerMonitor.getSystemIdleState(1) !== "locked",
+      drawable: () => !locked(),
       ...(video ? { video } : {}),
     });
     const connection = new BackendConnection(
@@ -238,7 +251,7 @@ export class Background {
     );
     this.browser = { connection, views, video };
     // While the screen is locked the daemon moves these pages to ace's own Chromium.
-    connection.setDrawable(powerMonitor.getSystemIdleState(1) !== "locked");
+    connection.setDrawable(!locked());
     powerMonitor.on("lock-screen", () => connection.setDrawable(false));
     powerMonitor.on("unlock-screen", () => connection.setDrawable(true));
     connection.onState((state) => log(`Embedded browser backend: ${state}`));
