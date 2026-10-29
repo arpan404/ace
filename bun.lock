@@ -175,9 +175,6 @@
         "@ace/settings": "workspace:*",
         "@ace/themes": "workspace:*",
         "@ace/ui-core": "workspace:*",
-        "gemoji": "^8.1.0",
-        "katex": "^0.19.0",
-        "marked": "^18.0.14",
         "zod": "^4.6.5",
       },
       "devDependencies": {

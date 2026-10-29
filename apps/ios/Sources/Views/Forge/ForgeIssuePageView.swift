@@ -90,8 +90,8 @@ struct ForgeIssuePageView: View {
             .padding(.horizontal, AceTheme.Spacing.lg)
             .accessibilityIdentifier("forge.issue.header")
             ForgeThreadsSection(threads: page.threads, machineId: route.machineId, openThread: actions.openThread)
-            if !page.bodyBlocks.isEmpty {
-                ForgeRichView(blocks: page.bodyBlocks, scope: scope(page), tick: bodyTicker(page))
+            if !page.body.isEmpty {
+                ForgeText(text: page.body, scope: scope(page), tick: bodyTicker(page))
                     .padding(.horizontal, AceTheme.Spacing.lg)
                 if let tickMessage {
                     Text(tickMessage).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
@@ -199,7 +199,7 @@ struct ForgeIssuePageView: View {
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
-            if event.comment, !event.blocks.isEmpty, let page { ForgeRichView(blocks: event.blocks, scope: scope(page)) }
+            if event.comment, let body = event.body, !body.isEmpty, let page { ForgeText(text: body, scope: scope(page)) }
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.vertical, AceTheme.Spacing.sm)

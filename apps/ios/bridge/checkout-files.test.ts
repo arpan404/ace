@@ -107,14 +107,16 @@ test("the tree lists the checkout with each uncommitted change lettered, deleted
   expect(tree.open).toEqual(["apps/", "apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
 });
 
-test("a source file reads with grammar colours spelling its text and its changed lines marked", async () => {
+test("a source file reads with the language the phone colours it in and its changed lines marked", async () => {
   const { ask } = await connect();
   const file = await ask({ op: "read", path: outbox });
-  expect(file).toMatchObject({ ok: true, kind: "text", editable: true, marks: [[4, "modified"]] });
-  const runs = file.runs as number[];
-  const covered = runs.filter((_, index) => index % 2 === 0).reduce((sum, n) => sum + n, 0);
-  expect(covered).toBe(String(file.text).length);
-  expect((file.colours as unknown[]).length).toBeGreaterThan(2);
+  expect(file).toMatchObject({
+    ok: true,
+    kind: "text",
+    editable: true,
+    language: "ts",
+    marks: [[4, "modified"]],
+  });
 });
 
 test("a binary file and a missing one say so instead of sending text", async () => {

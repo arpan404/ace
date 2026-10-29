@@ -1,7 +1,6 @@
 import "./test-host.ts";
 import { expect, test } from "vitest";
 import type { MediaReply } from "./forge-media-read.ts";
-import type { RichBlock } from "./forge-rich.ts";
 import type { TimelineReply } from "./forge-timeline.ts";
 import { connected } from "./forge-test-fixture.ts";
 
@@ -17,13 +16,10 @@ const media = async (ask: Ask, url: string, role = "image") =>
   (await ask({ type: "forge.media", project: "ace", url, role })) as MediaReply;
 const timeline = async (ask: Ask) =>
   (await ask({ type: "forge.pull.timeline", project: "ace", number: 245 })) as TimelineReply;
-const tasksOf = (reply: TimelineReply, id: string) => {
+const commentOf = (reply: TimelineReply, id: string) => {
   const row = reply.rows.find((each) => each.kind === "comment" && each.comment.id === id);
   if (row?.kind !== "comment") throw new Error("no comment");
-  const list = row.comment.blocks.find(
-    (block): block is Extract<RichBlock, { k: "list" }> => block.k === "list",
-  );
-  return { comment: row.comment, items: list?.items ?? [] };
+  return row.comment;
 };
 
 test("a private upload arrives as bytes through the daemon; a missing one and a plain link say what they are", async () => {
@@ -46,10 +42,11 @@ test("a private upload arrives as bytes through the daemon; a missing one and a 
 
 test("ticking a box in your own comment rewrites only that box, and the next read shows it ticked", async () => {
   const { ask, sent } = await connected();
-  const before = tasksOf(await timeline(ask), "issue:2452");
-  expect(before.comment.tasks).toBe(true);
-  expect(before.items.map((item) => item.task?.checked)).toEqual([false, true]);
-  const offset = before.items[0]?.task?.offset;
+  const before = commentOf(await timeline(ask), "issue:2452");
+  expect(before.tasks).toBe(true);
+  expect(before.body).toContain("- [ ] Rebase on main");
+  // The phone (markit) names a box by the UTF-16 offset of the character inside its `[ ]`.
+  const offset = before.body.indexOf("- [ ] Rebase on main") + 3;
   const written = (await ask({
     type: "forge.task",
     project: "ace",
@@ -63,9 +60,10 @@ test("ticking a box in your own comment rewrites only that box, and the next rea
   expect(sent[0]).toMatchObject({ action: { kind: "comment.edit", commentId: 2452 } });
   const action = sent[0]?.type === "forge.hosted.review" ? sent[0].action : undefined;
   expect(action?.kind === "comment.edit" && action.body).toContain("- [x] Rebase on main");
-  expect(
-    tasksOf(await timeline(ask), "issue:2452").items.map((item) => item.task?.checked),
-  ).toEqual([true, true]);
+  const after = commentOf(await timeline(ask), "issue:2452").body;
+  expect(after).toContain("- [x] Rebase on main");
+  // Only that box changed.
+  expect(after.replace("- [x] Rebase on main", "- [ ] Rebase on main")).toBe(before.body);
 });
 
 test("someone else's comment shows its boxes without letting them tick", async () => {

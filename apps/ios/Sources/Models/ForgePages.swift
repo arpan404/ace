@@ -32,8 +32,8 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
     let deletions: Int?
     let commits: Int
     let changedFiles: Int
+    /// The description as shown, drawn by markit; task boxes are named by offsets into it.
     let body: String
-    let bodyBlocks: [ForgeRichBlock]
     let tasks: Bool
     let conversation: String
     let labels: [ForgeLabel]
@@ -106,7 +106,6 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
         let event: String
         let at: Double?
         let body: String?
-        let blocks: [ForgeRichBlock]
     }
     struct IssueRef: Codable, Sendable, Equatable, Hashable {
         let repository: ForgeRepository
@@ -123,8 +122,8 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
     let author: String
     let createdAt: Double?
     let updatedAt: Double?
+    /// The body as shown, drawn by markit; task boxes are named by offsets into it.
     let body: String
-    let bodyBlocks: [ForgeRichBlock]
     let tasks: Bool
     let labels: [ForgeLabel]
     let assignees: [String]

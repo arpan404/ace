@@ -1,0 +1,180 @@
+name: iOS
+
+on:
+  pull_request:
+    paths:
+      - "apps/ios/**"
+      - "packages/markit"
+      - "packages/ui-core/**"
+      - "packages/client/**"
+      - "packages/protocol/**"
+      - "packages/themes/**"
+      - "packages/settings/**"
+      - "packages/design-tokens/**"
+      - "packages/html/**"
+      - "packages/fake-daemon/**"
+      - "bun.lock"
+      - "package.json"
+      - ".github/workflows/ios.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/ios/**"
+      - "packages/markit"
+      - "packages/ui-core/**"
+      - "packages/client/**"
+      - "packages/protocol/**"
+      - "packages/themes/**"
+      - "packages/settings/**"
+      - "packages/design-tokens/**"
+      - "packages/html/**"
+      - "packages/fake-daemon/**"
+      - "bun.lock"
+      - "package.json"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Build and unit tests (simulator)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      # Build with the newest Xcode installed (GitHub's runners have Xcode 26.x; the app also
+      # builds with the iOS 27 SDK locally, where `TabRole.prominent` exists).
+      - name: Select the newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          newest=$(ls -d /Applications/Xcode*.app | grep -v -i beta | sort -V | tail -1)
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-version
+
+      - name: Read required Node major
+        id: node
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const { engines } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const major = engines.node.match(/\d+/)[0];
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${major}.x\n`);
+          NODE
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+          package-manager-cache: false
+
+      - name: Install Bun
+        id: bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Cache Bun installs
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-
+
+      - name: Rust for markit's iOS core
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
+
+      - name: Cache markit's Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/markit
+
+      # The root postinstall builds native and Wasm parts the iOS app never uses.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the project (theme, bridge bundle, markit core, Xcode project)
+        run: bun run --cwd apps/ios generate
+
+      - name: Pick an iPhone simulator
+        id: simulator
+        run: |
+          # An iPhone on the runtime matching the SDK the app builds with, else the newest.
+          sdk=$(xcrun --sdk iphonesimulator --show-sdk-version)
+          udid=$(xcrun simctl list devices available -j | SDK="$sdk" python3 -c '
+          import json, os, re, sys
+          devices = json.load(sys.stdin)["devices"]
+          sdk = tuple(int(part) for part in os.environ["SDK"].split(".")[:2])
+          def version(runtime):
+              found = re.search(r"iOS-(\d+)-(\d+)", runtime)
+              return tuple(int(part) for part in found.groups()) if found else (0, 0)
+          phones = [(version(runtime), device["udid"]) for runtime, listed in devices.items() if "iOS" in runtime
+                    for device in listed if device["name"].startswith("iPhone")]
+          matching = [phone for phone in phones if phone[0] == sdk]
+          print(max(matching or phones)[1])
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+
+      - name: Build for testing
+        working-directory: apps/ios
+        run: |
+          xcodebuild build-for-testing -project Ace.xcodeproj -scheme Ace -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -derivedDataPath .build/DerivedData > .build/build.log 2>&1 \
+            || { grep -n -i -E "error|stack dump|please submit|assertion|terminated|killed" .build/build.log | grep -v -i "warning:" | head -150;
+                 grep -n -E "^[0-9]+\.\s|While |LLVM ERROR|fatal error|Program arguments" .build/build.log | cut -c1-400 | head -80; exit 1; }
+          tail -5 .build/build.log
+
+      # Bridge contract tests talk to the loopback fixture; it spends no provider quota.
+      - name: Start the fixture daemon
+        working-directory: apps/ios
+        run: |
+          nohup bun run spike:daemon > .build/spike.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf http://127.0.0.1:9841/health > /dev/null && exit 0
+            sleep 1
+          done
+          cat .build/spike.log
+          exit 1
+
+      - name: Unit tests
+        working-directory: apps/ios
+        run: |
+          xcodebuild test-without-building -project Ace.xcodeproj -scheme Ace -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -derivedDataPath .build/DerivedData -only-testing:AceTests -parallel-testing-enabled NO \
+            -resultBundlePath .build/AceTests.xcresult > .build/test.log 2>&1 \
+            && { grep -E "Test run with|Executed [0-9]+ tests" .build/test.log || true; exit 0; }
+          grep -E "error:|✘|failed|Fatal|crash" .build/test.log | head -200
+          tail -60 .build/test.log
+          exit 1
+
+      - name: Upload logs and test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-logs
+          path: |
+            apps/ios/.build/build.log
+            apps/ios/.build/spike.log
+            apps/ios/.build/test.log
+            apps/ios/.build/AceTests.xcresult
+          if-no-files-found: ignore

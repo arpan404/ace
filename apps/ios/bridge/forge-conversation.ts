@@ -11,7 +11,6 @@ import {
   threadPlace,
 } from "@ace/ui-core";
 import type { Preview } from "./agents.ts";
-import { repositoryBlocks, type RichBlock } from "./forge-rich.ts";
 
 /*
  * A pull request's comments and line conversations as the phone draws them, with what this
@@ -36,9 +35,8 @@ export interface CommentView {
   source: "issue" | "inline" | "review";
   author: string;
   at: number | null;
+  /** The text as shown, which the phone draws (markit) and task offsets index. */
   body: string;
-  /** The text as the phone draws it. */
-  blocks: RichBlock[];
   /** "Hidden as off topic" while GitHub hides it; its text then waits behind Show. */
   hidden: string | null;
   /** Every reaction GitHub offers, counted; empty when reactions can't be read or given. */
@@ -131,7 +129,6 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
     author: conversation.preview(comment.author, 100),
     at: epoch(comment.createdAt ?? comment.updatedAt),
     body: conversation.preview(comment.body, 65_536),
-    blocks: repositoryBlocks(conversation.preview(comment.body, 65_536), conversation.repository),
     hidden: reason === undefined ? null : `Hidden as ${hiddenWord(reason)}`,
     reactions: reactionsOf(conversation, comment),
     url: commentUrl(conversation.url, comment),

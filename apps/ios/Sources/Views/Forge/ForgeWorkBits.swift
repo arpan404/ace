@@ -72,7 +72,7 @@ struct ForgeThreadPicker: View {
                     .foregroundStyle(AceTheme.Colours.foreground)
                 Spacer(minLength: AceTheme.Spacing.sm)
                 Menu {
-                    Picker("Thread", selection: Binding(get: { chosen ?? "" }, set: pick)) {
+                    Picker("Thread", selection: Binding(get: { chosen ?? "" }, set: { value in pick(value) })) {
                         ForEach(threads, id: \.id) { Text($0.title).tag($0.id) }
                     }
                 } label: { Text(threads.first { $0.id == chosen }?.title ?? "Choose").meta().lineLimit(1) }

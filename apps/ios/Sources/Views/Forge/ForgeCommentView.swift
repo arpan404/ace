@@ -33,8 +33,8 @@ struct ForgeCommentView: View {
                 }
             }
             if comment.hidden == nil || shown {
-                if !comment.blocks.isEmpty {
-                    ForgeRichView(blocks: comment.blocks, scope: actions.desk.scope, tick: ticker)
+                if !comment.body.isEmpty {
+                    ForgeText(text: comment.body, scope: actions.desk.scope, tick: ticker)
                 }
                 ForgeReactionsRow(comment: comment, desk: actions.desk)
             }

@@ -1,4 +1,19 @@
 import SwiftUI
+import UIKit
+
+/// An image an answer names, as `native.image` reads it.
+private struct ProseImage: Decodable { let mimeType: String; let data: String }
+
+/// Images answers name, kept while the app runs so a row scrolled back or redrawn shows them
+/// without asking the daemon again; bounded by count and decoded size.
+@MainActor private enum ProseImages {
+    static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 48
+        cache.totalCostLimit = 48 << 20
+        return cache
+    }()
+}
 
 /// What a block opens: another thread (a delegated child or a started conversation) or a
 /// native subagent's own lane inside this thread.
@@ -53,12 +68,28 @@ struct BlockView: View {
                 }
             }
             .environment(\.readMessage, reader)
+            .environment(\.readImage, imageReader)
         default:
             VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
                 ForEach(row.items, id: \.self) { id in
                     if let item = thread.items[id] { ItemRowView(item: item, openMedia: links.openMedia, openMessage: links.openMessage) }
                 }
             }
+        }
+    }
+    /// Where an answer reads an image it names (`native.image`): only a picture the thread itself
+    /// captured before that answer resolves.
+    private var imageReader: (@MainActor (String, String) async -> UIImage?)? {
+        guard let model = links.steps?.model else { return nil }
+        let threadId = thread.id
+        return { id, reference in
+            let key = "\(threadId)|\(id)|\(reference)" as NSString
+            if let kept = ProseImages.cache.object(forKey: key) { return kept }
+            guard let read = try? await model.service(["type": "native.image", "threadId": threadId, "itemId": id, "reference": reference], as: ProseImage.self),
+                  let data = Data(base64Encoded: read.data), let image = UIImage(data: data) else { return nil }
+            let pixels = image.size.width * image.size.height * image.scale * image.scale
+            ProseImages.cache.setObject(image, forKey: key, cost: Int(pixels * 4))
+            return image
         }
     }
     /// Where a long answer reads its whole text: the thread's own model, when the feed has one.

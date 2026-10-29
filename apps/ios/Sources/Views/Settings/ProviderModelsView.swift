@@ -16,7 +16,7 @@ struct ProviderBehaviourSection: View {
             }
             if let current = models.defaultModel {
                 Menu {
-                    Picker("Default model", selection: Binding(get: { current.choices.first { $0.current }?.key ?? "" }, set: choose)) {
+                    Picker("Default model", selection: Binding(get: { current.choices.first { $0.current }?.key ?? "" }, set: { key in choose(key) })) {
                         ForEach(current.choices, id: \.key) { Text($0.label).tag($0.key) }
                     }
                     if current.resettable {

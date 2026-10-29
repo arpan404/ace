@@ -53,7 +53,7 @@ struct NewSkillView: View {
                         .lineLimit(1...4).accessibilityIdentifier("skill.new.description")
                 } header: { InsetHeader("Description") }
                 Section {
-                    SourceTextView(document: SourceDocument(key: "new", text: "", colours: [], runs: [], marks: [:]),
+                    SourceTextView(document: SourceDocument(key: "new", text: "", language: nil, marks: [:]),
                                    wrap: true, editable: !creating, line: nil, handle: handle, dirty: { bodyDirty = $0 })
                         .frame(height: 220)
                         .overlay(alignment: .topLeading) {

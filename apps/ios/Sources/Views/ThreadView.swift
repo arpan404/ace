@@ -69,8 +69,6 @@ struct ThreadView: View {
     @State private var composerFocus = 0
     /// Each fork the machine started: a success tap as it opens.
     @State private var forksStarted = 0
-    /// Finished answers' math, code colours and diff lines, kept while the thread is open.
-    @State private var rich: MarkdownRich?
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
     /// Starting prefers the inbox's current row (confirmed or not, so an unconfirmed start
     /// still reads Syncing); without one it falls back conservatively as unconfirmed.
@@ -140,9 +138,6 @@ struct ThreadView: View {
             .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal, work: $showWork, logs: $showLogs)
             .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet,
                                openThread: openThread)
-            .environment(\.markdownRich, rich)
-            // The math page starts only when a formula arrives (`MathRenderer`), never on opening.
-            .task { if rich == nil { rich = MarkdownRich(model: model) } }
             .sensoryFeedback(.success, trigger: forksStarted)
             // A new thread started from this one (a fork, a continuation): a success tap as it opens.
             .onChange(of: screen.continued) { _, opened in if opened != nil { forksStarted += 1 } }
