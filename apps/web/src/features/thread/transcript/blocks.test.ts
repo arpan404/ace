@@ -1,6 +1,8 @@
 import { Item } from "@ace/protocol";
+import { mergeReceipts } from "@ace/ui-core";
 import { expect, test } from "vitest";
 import {
+  blockItems,
   buildBlocks,
   withoutQueued,
   type Block,
@@ -479,4 +481,82 @@ test("Continue after a restart or a limit reads as the person's message; ace's o
   expect(kinds.get("restart")).toBe("user");
   expect(kinds.get("legacy")).toBe("event");
   expect(kinds.get("done")).toBe("event");
+});
+
+const ask = (id: string, at: number) =>
+  Item.parse({
+    id,
+    agentId: "root",
+    createdAt: at,
+    complete: true,
+    type: "message",
+    role: "user",
+    parts: [{ type: "text", text: id }],
+    origin: { kind: "person", commandId: `send-${id}` },
+    raw: [],
+  });
+const answer = (id: string, run: string, at: number) =>
+  Item.parse({
+    id,
+    agentId: "root",
+    runId: run,
+    createdAt: at,
+    complete: true,
+    type: "message",
+    role: "assistant",
+    parts: [{ type: "text", text: id }],
+    raw: [],
+  });
+
+test("delegated work reads in the turn it came back in, the same whether or not the turn that launched it is loaded", () => {
+  const items = [
+    ask("launch-ask", 0),
+    { ...delegationLaunch("audit", 1), runId: "first" },
+    answer("launched", "first", 2),
+    ask("continue", 3),
+    { ...settled("settled-audit", 4, ["audit"]), runId: "second" },
+    answer("measured", "second", 5),
+  ];
+  const build = (from: number) =>
+    buildBlocks({
+      order: items.slice(from).map((item) => item.id),
+      item: (id) => items.find((item) => item.id === id),
+      background: new Map(),
+      turnOf: (id) => items.find((item) => item.id === id)?.runId,
+      run: () => ({ state: "completed", trigger: "user", endedAt: 6 }),
+    });
+  const latestTurn = (blocks: readonly Block[]) =>
+    shown(
+      blocks.slice(blocks.findIndex((block) => "itemId" in block && block.itemId === "continue")),
+    );
+  // The launch's turn loaded or paged out: the later turn shows its delivered result either way.
+  expect(latestTurn(build(0))).toContain("settled-audit");
+  expect(latestTurn(build(3))).toEqual(latestTurn(build(0)));
+});
+
+test("results delivered back to back read as one row listing every child", () => {
+  const items = [
+    ask("ask", 0),
+    { ...settled("settled-network", 1, ["network-a", "network-b"]), runId: "turn" },
+    { ...settled("settled-startup", 2, ["startup-a", "startup-b"]), runId: "turn" },
+    answer("summary", "turn", 3),
+    { ...settled("settled-late", 4, ["late"]), runId: "turn" },
+  ];
+  const item = (id: string) => items.find((entry) => entry.id === id);
+  const blocks = mergeReceipts(
+    buildBlocks({
+      order: items.map((entry) => entry.id),
+      item,
+      background: new Map(),
+      turnOf: (id) => item(id)?.runId,
+      run: () => ({ state: "active", trigger: "user" }),
+    }),
+    item,
+  );
+  const receipts = blocks.filter((block) => block.kind === "item");
+  // The two back to back are one row; one after the answer stays its own.
+  expect(receipts.map((block) => blockItems(block))).toEqual([
+    ["settled-network", "settled-startup"],
+    ["settled-late"],
+  ]);
 });

@@ -73,7 +73,11 @@ export type Block =
   | { kind: "live"; key: string; askId: string | undefined }
   | { kind: "subagents"; key: string; itemIds: string[] }
   | { kind: "files"; key: string; itemIds: string[] }
-  | { kind: "item"; key: string; itemId: string }
+  /**
+   * A row of its own for one item. `also`: receipts of delegated work delivered right after it,
+   * shown with it as one row (`mergeReceipts`).
+   */
+  | { kind: "item"; key: string; itemId: string; also?: string[] | undefined }
   /**
    * A conversation the agent started with ace's `thread_start`: a card that opens it, where
    * it was started, updated in place and never folded; not a step of the work log.
@@ -429,8 +433,9 @@ export function buildBlocks(source: BlockSource): Block[] {
   const launched = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
   const branches = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
   const groupOf = new Map<string, { itemIds: string[]; at: number }>();
-  // Children whose ace launch row is in view: it turns into their outcome and result in place.
-  const delegated = new Set<string>();
+  // Children whose ace launch row is in view, by the turn that launched them: the launch row
+  // turns into their outcome and result in place.
+  const delegated = new Map<string, TurnMark | undefined>();
   let turnId: string | undefined;
   let askId: string | undefined;
   /** Where the person's latest Continue ("Continue where you left off.") was placed. */
@@ -719,13 +724,18 @@ export function buildBlocks(source: BlockSource): Block[] {
           break;
         case "delegation.started":
           group("subagents", id);
-          delegated.add(item.childThreadId);
+          delegated.set(item.childThreadId, mark);
           break;
         case "delegation.settled":
           // Each launch row turns into its child's outcome and result in place, so a receipt
-          // whose children all launched in view would show them twice. One whose launch isn't
-          // loaded (paged out, another agent's) keeps its row.
-          if (!item.results.every((result) => delegated.has(result.threadId)))
+          // whose children all launched earlier in its own turn would show them twice. Any other
+          // keeps its row, wherever its launches are: a turn shows the same rows however much
+          // history before it is loaded.
+          if (
+            !item.results.every(
+              (result) => delegated.has(result.threadId) && delegated.get(result.threadId) === mark,
+            )
+          )
             push({ kind: "item", key: id, itemId: id }, false);
           break;
         case "notice": {
@@ -1111,6 +1121,7 @@ export function blockItems(block: Block): readonly string[] {
     return shown === undefined ? [] : [shown];
   }
   if (block.kind === "end" || block.kind === "forked") return [];
+  if (block.kind === "item" && block.also?.length) return [block.itemId, ...block.also];
   return [block.itemId];
 }
 

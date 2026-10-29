@@ -7,6 +7,7 @@ import { DeferredEvent } from "./deferred-review.ts";
 import type { Block } from "../transcript/blocks.ts";
 import { TurnEnd } from "../transcript/turn-end.tsx";
 import { ChangedFiles } from "./changed-files.tsx";
+import { DelegationReceipts } from "./delegation-card.tsx";
 import { ForkedDivider } from "./forked-divider.tsx";
 import { AssistantMessage } from "./messages.tsx";
 import { QuestionBlock } from "./question-block.tsx";
@@ -51,6 +52,11 @@ const BlockContent = memo(function BlockContent(props: {
     case "forked":
       return <ForkedDivider sourceThreadId={block.threadId} />;
     case "item":
+      return block.also?.length ? (
+        <DelegationReceipts threadId={threadId} itemIds={[block.itemId, ...block.also]} />
+      ) : (
+        <Event threadId={threadId} itemId={block.itemId} />
+      );
     case "event":
       return <Event threadId={threadId} itemId={block.itemId} />;
     case "end":
