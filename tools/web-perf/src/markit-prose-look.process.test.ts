@@ -94,15 +94,22 @@ test("agent prose keeps list markers, headings, details, footnotes and diagrams"
     });
     expect(await tab.evaluate(() => Reflect.get(window, "rendered"))).toBe("ok");
     const look = await tab.evaluate(() => {
-      const style = (selector: string) => {
-        const element = document.querySelector(selector);
-        return element ? getComputedStyle(element) : undefined;
-      };
+      const computed = Object.fromEntries(
+        [
+          ["numbered", "ol > li"],
+          ["bulleted", "ol ul > li"],
+          ["list", "ol"],
+          ["heading", "h2"],
+        ].map(([name, selector]) => {
+          const element = document.querySelector(selector ?? "");
+          return [name, element ? getComputedStyle(element) : undefined];
+        }),
+      );
       return {
-        numbered: style("ol > li")?.listStyleType,
-        bulleted: style("ol ul > li")?.listStyleType,
-        indented: Number.parseFloat(style("ol")?.paddingLeft ?? "0"),
-        heading: style("h2")?.fontWeight,
+        numbered: computed.numbered?.listStyleType,
+        bulleted: computed.bulleted?.listStyleType,
+        indented: Number.parseFloat(computed.list?.paddingLeft ?? "0"),
+        heading: computed.heading?.fontWeight,
         summary: document.querySelector("details > summary")?.textContent?.trim(),
         footnotes: document
           .querySelector(".mk-footnotes")
