@@ -61,7 +61,7 @@ export function Transcript(props: {
   useEffect(() => {
     if (landed !== undefined && jump.turn !== undefined) nav.currentTurn.set(jump.turn);
   }, [nav.currentTurn, jump.turn, landed]);
-  const fresh = useNewSince(liveOrder, !following || !!window);
+  const fresh = useNewSince(liveOrder, !following);
   const pager: HistoryPager = {
     hasOlder: window ? window.before !== null : typeof before === "number",
     loading: jump.loading !== undefined,

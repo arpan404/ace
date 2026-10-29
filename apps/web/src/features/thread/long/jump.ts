@@ -121,6 +121,11 @@ export class Jump {
   follow(): void {
     this.controller?.follow();
   }
+  /** The reader settled at the live end of a joined window (`JumpController.release`). */
+  release(): void {
+    this.controller?.release();
+    if (!this.controller?.snapshot().window) this.live();
+  }
   live(): void {
     ++this.revision;
     this.retainedWindow = undefined;
