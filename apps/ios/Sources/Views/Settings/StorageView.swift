@@ -16,6 +16,8 @@ struct StorageView: View {
     @State private var busy = false
     @State private var actionProblem: String?
     @State private var removals = 0
+    @State private var measuring = false
+    @State private var readRevision = 0
     private static let read: [String: Any] = ["type": "host.storage"]
 
     /// Opens on the last page this phone saw, read again behind it.
@@ -48,7 +50,7 @@ struct StorageView: View {
         .sensoryFeedback(.success, trigger: removals)
         .navigationTitle("Storage").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model, id: model.readGeneration(Self.read)) { await load() }
-        .refreshable { await load() }
+        .refreshable { await refresh() }
     }
 
     @ViewBuilder private var usage: some View {
@@ -80,10 +82,11 @@ struct StorageView: View {
                 }
             } else if let message = page?.usageProblem ?? problem {
                 ServiceProblem(message: message)
-                Button("Retry") { Task { await load() } }
+                Button("Retry") { Task { await refresh() } }
             } else {
                 ForEach(0..<4, id: \.self) { _ in LabeledContent("Threads and transcripts", value: "0.0 MB").redacted(reason: .placeholder) }
             }
+            if page?.usage != nil { ServiceProblem(message: problem) }
             if model.canOperate, page?.usage != nil {
                 Button("Preview cleanup") { preview(worktrees: false) }
                     .disabled(busy).accessibilityIdentifier("storage.preview")
@@ -127,10 +130,30 @@ struct StorageView: View {
     }
 
     private func load() async {
+        // Cleanup invalidates the host's kept reads too. Its reconnect-style read must
+        // not overtake the explicit measurement that follows cleanup.
+        guard !measuring else { return }
+        await readPage(Self.read)
+    }
+    private func refresh() async {
+        guard !measuring else { return }
+        measuring = true
+        defer { measuring = false }
+        var request = Self.read
+        request["force"] = true
+        await readPage(request)
+    }
+    private func readPage(_ request: [String: Any]) async {
+        readRevision += 1
+        let revision = readRevision
         do {
-            page = try await model.read(Self.read, as: StoragePage.self)
+            let answer = try await model.read(request, as: StoragePage.self)
+            guard revision == readRevision else { return }
+            page = answer
             problem = nil
-        } catch is CancellationError {} catch { if !Task.isCancelled { problem = error.localizedDescription } }
+        } catch is CancellationError {} catch {
+            if !Task.isCancelled, revision == readRevision { problem = error.localizedDescription }
+        }
     }
     private func run(_ work: @escaping @MainActor () async throws -> Void) {
         busy = true; actionProblem = nil
@@ -151,7 +174,7 @@ struct StorageView: View {
         run {
             plan = try await model.service(["type": "host.storage.apply", "planId": shown.id], as: StoragePlanReply.self, timeout: .seconds(70)).plan
             removals += 1
-            await load()
+            await refresh()
         }
     }
     private func compact(_ abandon: String?) {
@@ -159,7 +182,7 @@ struct StorageView: View {
             var request: [String: Any] = ["type": "host.storage.compact"]
             if let abandon { request["abandon"] = abandon }
             compaction = try await model.service(request, as: StorageCompactionReply.self, timeout: .seconds(70))
-            await load()
+            await refresh()
         }
     }
     /// Saves one storage setting; the reply is the page as the machine now has it.
