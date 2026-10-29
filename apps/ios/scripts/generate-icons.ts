@@ -194,6 +194,9 @@ export const fromSymbols: Record<string, string> = {
 
 /** Icons the redesign draws that no SF Symbol stood for. */
 const extra = [
+  "hand-palm",
+  "shield",
+  "shield-warning",
   "arrow-bend-down-right",
   "arrow-bend-up-right",
   "arrow-square-out",

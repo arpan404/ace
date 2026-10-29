@@ -18,6 +18,7 @@ import XCTest
         app.textViews["composer.input"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         XCTAssertLessThan(add.frame.maxX, field.frame.minX)
+        screenshot("composer-two-line-height")
         add.tap()
         XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Choose File"].exists)
