@@ -17,12 +17,13 @@ private struct MessageMenu: ViewModifier {
     let row: TranscriptRow?
     @Environment(\.messageTransitions) private var transitions
     @State private var selecting = false
+    /// One structure whether or not there is text yet: an answer that stops streaming gains its
+    /// menu without its content being rebuilt (markit would lay the whole answer out again). With
+    /// no text the menu holds nothing and isn't offered.
     func body(content: Content) -> some View {
-        if text.isEmpty {
-            content
-        } else {
-            content
-                .contextMenu {
+        content
+            .contextMenu {
+                if !text.isEmpty {
                     Button("Copy", ace: .copy) { UIPasteboard.general.string = text }
                     Button("Select text", ace: .textAlignLeft) { selecting = true }
                     ShareLink(item: text) { Label("Share", ace: .export) }
@@ -36,16 +37,16 @@ private struct MessageMenu: ViewModifier {
                             }
                         }
                     }
-                } preview: {
-                    AceMarkdown(text: String(text.prefix(600)), selectable: false)
-                        .padding(AceTheme.Spacing.lg)
-                        .frame(width: 340, alignment: .topLeading)
-                        .frame(maxHeight: 360, alignment: .top)
-                        .clipped()
-                        .background(AceTheme.Colours.background)
                 }
-                .sheet(isPresented: $selecting) { SelectTextSheet(text: text, title: title) }
-        }
+            } preview: {
+                AceMarkdown(text: String(text.prefix(600)), selectable: false)
+                    .padding(AceTheme.Spacing.lg)
+                    .frame(width: 340, alignment: .topLeading)
+                    .frame(maxHeight: 360, alignment: .top)
+                    .clipped()
+                    .background(AceTheme.Colours.background)
+            }
+            .sheet(isPresented: $selecting) { SelectTextSheet(text: text, title: title) }
     }
 }
 
