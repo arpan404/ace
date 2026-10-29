@@ -31,6 +31,15 @@ jobs:
         with:
           submodules: recursive
 
+      # The app uses the iOS 27 SDK (`TabRole.prominent`): build with the newest Xcode installed.
+      - name: Select the newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          newest=$(ls -d /Applications/Xcode*.app | grep -v -i beta | sort -V | tail -1)
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-version
+
       - name: Read required Node major
         id: node
         shell: bash
