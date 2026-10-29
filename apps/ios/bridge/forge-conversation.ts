@@ -35,8 +35,8 @@ export interface CommentView {
   source: "issue" | "inline" | "review";
   author: string;
   at: number | null;
+  /** The text as shown, which the phone draws (markit) and task offsets index. */
   body: string;
-  /** The text as the phone draws it. */
   /** "Hidden as off topic" while GitHub hides it; its text then waits behind Show. */
   hidden: string | null;
   /** Every reaction GitHub offers, counted; empty when reactions can't be read or given. */

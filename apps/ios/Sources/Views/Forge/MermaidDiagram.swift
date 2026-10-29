@@ -66,6 +66,7 @@ final class MermaidDiagramView: UIView {
 
     /// Loads the page and waits for the diagram; false when it failed or took too long.
     func draw(_ html: String) async -> Bool {
+        guard !Task.isCancelled else { return false }
         // A web view outside any window may not run its page; it draws out of sight in the app's
         // window, then markit places it.
         let window = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
@@ -84,7 +85,12 @@ final class MermaidDiagramView: UIView {
             self?.finish(.zero)
         }
         defer { timeout.cancel() }
-        return await withCheckedContinuation { waiting = $0 }
+        // A diagram scrolled away (markit cancels its request) stops waiting at once.
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { waiting = $0 }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.finish(.zero) }
+        }
     }
 
     fileprivate func finish(_ size: CGSize) {

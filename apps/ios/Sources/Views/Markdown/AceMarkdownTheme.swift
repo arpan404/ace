@@ -32,7 +32,12 @@ import UIKit
     static func current(scale: CGFloat = 1, tone: Tone = .body) -> MarkitTheme {
         let look = Look(palette: Dictionary(uniqueKeysWithValues: roles.map { ($0, livePair($0)) }), scale: scale, tone: tone)
         if look == standardLook { return standard }
-        if let kept = recent.first(where: { $0.look == look }) { return kept.theme }
+        if let index = recent.firstIndex(where: { $0.look == look }) {
+            // Least recently used goes first: a hit moves to the front.
+            let kept = recent.remove(at: index)
+            recent.insert(kept, at: 0)
+            return kept.theme
+        }
         let made = theme(look)
         recent = Array(([(look: look, theme: made)] + recent).prefix(6))
         return made
@@ -60,7 +65,7 @@ import UIKit
         }
         theme.monospaceFont = .scaled(.monospacedSystemFont(ofSize: type.code.size * scale, weight: .regular), relativeTo: .footnote)
         theme.tableFont = .scaled(body, relativeTo: .body)
-        theme.captionFont = .scaled(.systemFont(ofSize: type.caption.size, weight: .regular), relativeTo: .caption1)
+        theme.captionFont = .scaled(.systemFont(ofSize: type.caption.size * scale, weight: .regular), relativeTo: .caption1)
 
         theme.textColor = colour(look.tone == .muted ? "mutedForeground" : "foreground")
         theme.secondaryTextColor = colour("mutedForeground")

@@ -11,9 +11,12 @@ and native pairing flows for iOS and Android.
 
 ## Run
 
-From this directory, with dependencies installed at the repository root:
+From this directory, with dependencies installed at the repository root, the markit
+submodule checked out and Rust's iOS targets added (`generate` builds markit's core):
 
 ```sh
+git submodule update --init --recursive
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 bun run generate
 bun run spike:daemon
 ```
