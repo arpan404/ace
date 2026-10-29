@@ -1,11 +1,11 @@
 import { useOptionalClient, useThreadMeta } from "@ace/client-react";
 import { ItemId, ThreadId } from "@ace/protocol";
 import { markitWorkerPath, shouldResolveMarkitImage, isMarkitWebImage } from "@ace/markit-web";
-import { Markit } from "@ace/markit-web/react";
+import { useMarkit } from "@ace/markit-web/react";
 import "./markit-ace.css";
 import { checkoutLinkPath, localLinkPath, normalizedPath } from "@ace/ui-core/file-references";
-import { isCheckoutPath } from "@ace/ui-core";
-import { useContext, useMemo, type ReactNode } from "react";
+import { contentHash, isCheckoutPath } from "@ace/ui-core";
+import { useContext, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { PullRequestOpener, pullRequestAt, useOpenWebAddress } from "../web-link.tsx";
 import { fileTab, pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { cn } from "@/lib/cn.ts";
@@ -18,6 +18,7 @@ import { blockRhythm } from "./rhythm.ts";
  */
 export function MarkitProse(props: {
   text: string;
+  stream?: string | undefined;
   streaming?: boolean | undefined;
   className?: string | undefined;
   tail?: ReactNode;
@@ -29,8 +30,72 @@ export function MarkitProse(props: {
   return <MarkitPlainProse {...props} />;
 }
 
+interface MarkitCallbacks {
+  onLink: (url: string) => void;
+  onReference: (reference: { kind: string; target: string }) => void;
+  resolveImage: (
+    url: string,
+    alt: string,
+    signal: AbortSignal,
+  ) => Blob | Uint8Array | null | Promise<Blob | Uint8Array | null>;
+}
+
+/** Applied renders sampled for tools/web-perf, mirroring the old markdown service's samples. */
+const perfSamples = (): Array<{ stream: string; chars: number; ms: number }> | undefined => {
+  const perf: unknown = Reflect.get(globalThis, "acePerf");
+  return typeof perf === "object" && perf !== null && "markit" in perf && Array.isArray(perf.markit)
+    ? (perf.markit as Array<{ stream: string; chars: number; ms: number }>)
+    : undefined;
+};
+
+/** One markit renderer for one element; text updates stream through it, never React state. */
+function MarkitView(props: {
+  markdown: string;
+  finalized: boolean;
+  stream: string;
+  className?: string | undefined;
+  tail?: ReactNode;
+  callbacks: MarkitCallbacks;
+}) {
+  const markit = useMarkit({
+    workerURL: markitWorkerPath(),
+    onLink: props.callbacks.onLink,
+    onReference: props.callbacks.onReference,
+    resolveImage: props.callbacks.resolveImage,
+  });
+  useEffect(() => {
+    const started = performance.now();
+    const { markdown, finalized, stream } = props;
+    let live = true;
+    void markit.render(markdown, { finalized }).then(
+      (patch) => {
+        if (!live || patch.superseded || import.meta.env.MODE !== "perf") return;
+        perfSamples()?.push({ stream, chars: markdown.length, ms: performance.now() - started });
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- callbacks ride useMarkit's latest ref.
+  }, [markit, props.markdown, props.finalized, props.stream]);
+  const attach = useCallback(
+    (element: HTMLElement | null) => {
+      markit.ref(element);
+    },
+    [markit],
+  );
+  return (
+    <div className={cn("markit-ace", blockRhythm, props.className)}>
+      <div ref={attach} />
+      {props.tail}
+    </div>
+  );
+}
+
 function MarkitPlainProse(props: {
   text: string;
+  stream?: string | undefined;
   streaming?: boolean | undefined;
   className?: string | undefined;
   tail?: ReactNode;
@@ -56,22 +121,20 @@ function MarkitPlainProse(props: {
     [openWeb],
   );
   return (
-    <div className={cn("markit-ace", blockRhythm, props.className)}>
-      <Markit
-        markdown={props.text}
-        finalized={!props.streaming}
-        workerURL={markitWorkerPath()}
-        onLink={callbacks.onLink}
-        onReference={callbacks.onReference}
-        resolveImage={callbacks.resolveImage}
-      />
-      {props.tail}
-    </div>
+    <MarkitView
+      markdown={props.text}
+      finalized={!props.streaming}
+      stream={props.stream ?? `#${contentHash(props.text)}`}
+      className={props.className}
+      tail={props.tail}
+      callbacks={callbacks}
+    />
   );
 }
 
 function MarkitThreadProse(props: {
   text: string;
+  stream?: string | undefined;
   streaming?: boolean | undefined;
   className?: string | undefined;
   tail?: ReactNode;
@@ -153,16 +216,13 @@ function MarkitThreadProse(props: {
   }, [base, client, meta?.workspaceId, openWeb, openPr, root, thread, workspace]);
 
   return (
-    <div className={cn("markit-ace", blockRhythm, props.className)}>
-      <Markit
-        markdown={props.text}
-        finalized={!props.streaming}
-        workerURL={markitWorkerPath()}
-        onLink={callbacks.onLink}
-        onReference={callbacks.onReference}
-        resolveImage={callbacks.resolveImage}
-      />
-      {props.tail}
-    </div>
+    <MarkitView
+      markdown={props.text}
+      finalized={!props.streaming}
+      stream={props.stream ?? `#${contentHash(props.text)}`}
+      className={props.className}
+      tail={props.tail}
+      callbacks={callbacks}
+    />
   );
 }

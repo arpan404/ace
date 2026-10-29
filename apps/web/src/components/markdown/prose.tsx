@@ -2,12 +2,12 @@ import { useSyncExternalStore, type ReactNode } from "react";
 import { DeferredLoadError } from "@/lib/deferred-component.tsx";
 import type { MarkdownLinks } from "./link-options.ts";
 import type { MarkdownExtensions } from "./extensions.ts";
-import { loadMarkdown } from "./load.ts";
+import { loadMarkdown, loadMarkitProse } from "./load.ts";
 import { scheduleMathWarmup } from "./math-warm.ts";
 import { MarkdownLoading } from "./loading.tsx";
-import { MarkitProse } from "./markit-prose.tsx";
 
 type Renderer = Awaited<ReturnType<typeof loadMarkdown>>["Markdown"];
+type MarkitRenderer = Awaited<ReturnType<typeof loadMarkitProse>>["MarkitProse"];
 
 // The lexer and renderer load as their own chunk, so the route stays inside its bundle budget
 // (ADR 0045). The thread route starts loading it when it matches, and this module once it runs.
@@ -40,6 +40,41 @@ const subscribe = (listener: () => void) => {
   void load();
   return () => listeners.delete(listener);
 };
+
+// The markit renderer loads as its own chunk for the same reason. Agent prose waits for it;
+// forge text never loads it.
+let markitRenderer: MarkitRenderer | undefined;
+let markitFailure: { cause: unknown } | undefined;
+let markitLoading: Promise<unknown> | undefined;
+const markitListeners = new Set<() => void>();
+const markitSettle = () => {
+  for (const listener of markitListeners) listener();
+};
+const markitLoad = () =>
+  (markitLoading ??= loadMarkitProse().then(
+    (module) => {
+      markitRenderer = module.MarkitProse;
+      markitSettle();
+    },
+    (cause: unknown) => {
+      markitLoading = undefined;
+      markitFailure = { cause };
+      markitSettle();
+    },
+  ));
+void markitLoad();
+const markitSubscribe = (listener: () => void) => {
+  markitListeners.add(listener);
+  void markitLoad();
+  return () => markitListeners.delete(listener);
+};
+const markitStatus = () => (markitRenderer ? "ready" : markitFailure ? "failed" : "loading");
+/** A boundary's retry after a failed markit load. */
+const markitRetry = () => {
+  markitFailure = undefined;
+  void markitLoad();
+  markitSettle();
+};
 const status = () => (renderer ? "ready" : failure ? "failed" : "loading");
 /** A boundary's retry after a failed load: loading again, from the next render. */
 const retry = () => {
@@ -57,6 +92,13 @@ const retry = () => {
 function useRendererLoaded(): boolean {
   const state = useSyncExternalStore(subscribe, status, status);
   if (state === "failed") throw new DeferredLoadError(failure?.cause, retry);
+  return state === "ready";
+}
+
+/** Whether the markit renderer's code has loaded; same no-suspense contract as above. */
+function useMarkitLoaded(): boolean {
+  const state = useSyncExternalStore(markitSubscribe, markitStatus, markitStatus);
+  if (state === "failed") throw new DeferredLoadError(markitFailure?.cause, markitRetry);
   return state === "ready";
 }
 
@@ -90,14 +132,27 @@ export function Prose(props: {
 
 function AgentProse(props: {
   text: string;
+  stream?: string | undefined;
   streaming?: boolean;
   className?: string;
   tail?: ReactNode;
   thread?: { threadId: string; cwd?: string; itemId?: string };
 }) {
+  // The markit renderer is module state that changes once, when its code arrives.
+  const MarkitProse = useMarkitLoaded() ? markitRenderer : undefined;
+  if (!MarkitProse)
+    return (
+      <MarkdownLoading
+        text={props.text}
+        className={props.className}
+        streaming={props.streaming}
+        tail={props.tail}
+      />
+    );
   return (
     <MarkitProse
       text={props.text}
+      stream={props.stream}
       streaming={props.streaming}
       className={props.className}
       tail={props.tail}

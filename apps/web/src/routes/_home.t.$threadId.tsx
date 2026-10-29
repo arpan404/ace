@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import * as z from "zod/mini";
 import { OnMachine } from "@/features/home/index.ts";
 import { ThreadView } from "@/features/thread/index.ts";
-import { loadMarkdown } from "@/components/markdown/load.ts";
+import { loadMarkdown, loadMarkitProse } from "@/components/markdown/load.ts";
 import { scheduleMathWarmup } from "@/components/markdown/math-warm.ts";
 import { warmThread } from "@/lib/thread-warmer.ts";
 
@@ -31,6 +31,7 @@ export const Route = createFileRoute("/_home/t/$threadId")({
   loaderDeps: ({ search }) => ({ machine: search.machine }),
   loader: ({ context, params, preload, deps }) => {
     void loadMarkdown().catch(() => {});
+    void loadMarkitProse().catch(() => {});
     scheduleMathWarmup();
     // A thread being started has no daemon id yet (`pending:<command>`): nothing to follow.
     // Another machine's thread is followed by its own client once the view mounts.

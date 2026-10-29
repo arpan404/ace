@@ -35,21 +35,23 @@ export async function runMarkitHighlight(
   input: { code: string; lang: string | undefined; hash: string },
   signal: AbortSignal,
 ): Promise<CodeLines | undefined> {
-  if (signal.aborted || typeof Worker !== "function") {
-    if (signal.aborted) return undefined;
-    return codeLines(input.code, input.lang, input.hash);
+  if (signal.aborted) return undefined;
+  if (typeof Worker === "function") {
+    try {
+      const highlighted = await Promise.race([
+        shared().highlight(input.code, input.lang ?? "", { grammar: false }),
+        new Promise<never>((_, reject) =>
+          signal.addEventListener("abort", () => reject(cancelled()), { once: true }),
+        ),
+      ]);
+      if (signal.aborted) return undefined;
+      const doc = markitCodeLines(highlighted, input.hash);
+      // Markit bails to plain past its run budget (large files): the previous engine keeps
+      // those colored, and covers unknown languages with its regex tones.
+      if (!("plain" in doc)) return doc;
+    } catch {
+      if (signal.aborted) return undefined;
+    }
   }
-  try {
-    const highlighted = await Promise.race([
-      shared().highlight(input.code, input.lang ?? "", { grammar: false }),
-      new Promise<never>((_, reject) =>
-        signal.addEventListener("abort", () => reject(cancelled()), { once: true }),
-      ),
-    ]);
-    if (signal.aborted) return undefined;
-    return markitCodeLines(highlighted, input.hash);
-  } catch {
-    if (signal.aborted) return undefined;
-    return codeLines(input.code, input.lang, input.hash);
-  }
+  return codeLines(input.code, input.lang, input.hash);
 }

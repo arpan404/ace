@@ -18,13 +18,14 @@ export function bootPerf(): { client: ClientApi; threadId: string } {
     type: "module",
     name: "ace-perf-client",
   });
-  // With `?markdown=1`, the markdown service's updates (tools/web-perf/src/markdown-stream.ts);
+  // With `?markdown=1`, the markdown service's updates (tools/web-perf/src/markdown-stream.ts)
+  // or the markit renderer's applied renders (tools/web-perf/src/markit-stream.ts);
   // other runs collect none, so their heap budgets measure the app alone.
   const stats = {
     events: 0,
     at: 0,
     receivedAt: 0,
-    ...(markdown ? { markdown: [] as unknown[] } : {}),
+    ...(markdown ? { markdown: [] as unknown[], markit: [] as unknown[] } : {}),
   };
   worker.addEventListener("message", (event: MessageEvent<unknown>) => {
     const data = event.data;
