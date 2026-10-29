@@ -1,0 +1,28 @@
+@import "../../../../../packages/markit/web/style.css";
+
+/* Map markit's palette onto ace design tokens; keep its layout. */
+.markit-ace .markit,
+.markit-ace {
+  --mk-ink: var(--color-foreground);
+  --mk-muted: var(--color-muted-foreground);
+  --mk-border: var(--color-border);
+  --mk-surface: var(--color-secondary);
+  font: inherit;
+  color: var(--color-foreground);
+  overflow-wrap: anywhere;
+}
+
+.markit-ace .markit a,
+.markit-ace a,
+.markit-ace .markit [role="link"],
+.markit-ace [role="link"] {
+  color: var(--color-link);
+}
+
+.markit-ace .mk-block {
+  margin: 0 0 12px;
+}
+
+.markit-ace :is(p, h1, h2, h3, h4, h5, h6, ul, ol, pre, blockquote, table) {
+  margin: 0 0 12px;
+}

@@ -50,6 +50,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Prepare the Debian 12 toolchain (Node 26.12.1, Bun, Rust, C/C++, git)
         run: sh tools/release/linux/setup-debian12.sh
@@ -58,6 +60,8 @@ jobs:
       # release.ts builds from a commit (it records it and refuses uncommitted changes).
       - name: Checkout with git
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Resolve the version
         shell: bash
@@ -137,6 +141,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Install Node
         uses: actions/setup-node@v7
@@ -208,6 +214,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Install Node
         uses: actions/setup-node@v7

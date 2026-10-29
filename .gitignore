@@ -38,3 +38,6 @@ native/screen-helper-windows/target/
 # Project skills in .claude/skills/ are committed.
 /.claude/*
 !/.claude/skills/
+
+# Markit web worker + Wasm are built from the packages/markit submodule.
+apps/web/public/markit/

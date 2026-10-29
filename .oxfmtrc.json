@@ -9,6 +9,7 @@
     ".recordings",
     "**/routeTree.gen.ts",
     "**/*.gen.ts",
-    "docs/protocol"
+    "docs/protocol",
+    "packages/markit/**"
   ]
 }

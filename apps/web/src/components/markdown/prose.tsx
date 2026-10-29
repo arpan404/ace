@@ -5,6 +5,7 @@ import type { MarkdownExtensions } from "./extensions.ts";
 import { loadMarkdown } from "./load.ts";
 import { scheduleMathWarmup } from "./math-warm.ts";
 import { MarkdownLoading } from "./loading.tsx";
+import { MarkitProse } from "./markit-prose.tsx";
 
 type Renderer = Awaited<ReturnType<typeof loadMarkdown>>["Markdown"];
 
@@ -62,6 +63,10 @@ function useRendererLoaded(): boolean {
 /**
  * Agent prose as markdown, with readable live text while the renderer loads. `stream`
  * names a message whose text grows while `streaming` (see `Markdown`).
+ *
+ * Agent prose (no `extensions`, no `links`) renders through markit, the shared Rust
+ * renderer in `packages/markit` (code, math, tables, streaming). Forge text keeps the
+ * previous renderer with its HTML/media/mermaid extensions.
  */
 export function Prose(props: {
   text: string;
@@ -76,6 +81,41 @@ export function Prose(props: {
 }) {
   // The renderer is module state that changes once, when its code arrives.
   "use no memo";
+  // Vitest (jsdom) has no markit worker/Wasm; keep its suites on the previous renderer.
+  // Browsers use markit for agent prose. Forge text always keeps the previous renderer.
+  if (import.meta.env.MODE === "test" || props.extensions || props.links)
+    return <LegacyProse {...props} />;
+  return <AgentProse {...props} />;
+}
+
+function AgentProse(props: {
+  text: string;
+  streaming?: boolean;
+  className?: string;
+  tail?: ReactNode;
+  thread?: { threadId: string; cwd?: string; itemId?: string };
+}) {
+  return (
+    <MarkitProse
+      text={props.text}
+      streaming={props.streaming}
+      className={props.className}
+      tail={props.tail}
+      thread={props.thread}
+    />
+  );
+}
+
+function LegacyProse(props: {
+  text: string;
+  links?: MarkdownLinks | undefined;
+  stream?: string;
+  streaming?: boolean;
+  className?: string;
+  tail?: ReactNode;
+  thread?: { threadId: string; cwd?: string; itemId?: string };
+  extensions?: MarkdownExtensions | undefined;
+}) {
   const Markdown = useRendererLoaded() ? renderer : undefined;
   if (!Markdown)
     return (

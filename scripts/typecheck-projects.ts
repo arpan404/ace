@@ -65,9 +65,13 @@ function discover(root: string): Workspace[] {
     for (const entry of readdirSync(join(root, top), { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const directory = join(root, top, entry.name);
-      const manifest = manifestSchema.parse(
-        JSON.parse(readFileSync(join(directory, "package.json"), "utf8")),
-      );
+      let raw: string;
+      try {
+        raw = readFileSync(join(directory, "package.json"), "utf8");
+      } catch {
+        continue;
+      }
+      const manifest = manifestSchema.parse(JSON.parse(raw));
       if (!manifest.scripts.typecheck) continue;
       const cache = join(directory, ".cache/typecheck");
       workspaces.push({

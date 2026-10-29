@@ -148,6 +148,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       # Workspace tests check that 8.3 aliases (GIT~1) of reserved names are refused.
       - name: Generate 8.3 names on the temp volume
@@ -460,6 +462,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Install Node ${{ env.NODE_VERSION }} (${{ matrix.arch }})
         uses: actions/setup-node@v7
@@ -633,6 +637,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Install Node ${{ env.NODE_VERSION }} (${{ matrix.arch }})
         uses: actions/setup-node@v7
