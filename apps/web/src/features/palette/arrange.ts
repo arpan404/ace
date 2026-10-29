@@ -59,11 +59,21 @@ function unique(groups: readonly PaletteGroup[]): Row[] {
 }
 
 /** Actions with the recently run first, then `rest` in its own order. */
-function actionsFirst(all: readonly Row[], recent: readonly RecentEntry[], rest: readonly Row[]) {
+function actionsFirst(
+  all: readonly Row[],
+  recent: readonly RecentEntry[],
+  rest: readonly Row[],
+  exclude?: ReadonlySet<string>,
+) {
   const byId = new Map(all.map((item) => [item.id, item]));
-  const lifted = recent.flatMap((entry) => byId.get(entry.id) ?? []).slice(0, recentActions);
+  const lifted = recent
+    .flatMap((entry) => {
+      if (exclude?.has(entry.id)) return [];
+      return byId.get(entry.id) ?? [];
+    })
+    .slice(0, recentActions);
   const shown = new Set(lifted.map((item) => item.id));
-  return [...lifted, ...rest.filter((item) => !shown.has(item.id))];
+  return [...lifted, ...rest.filter((item) => !shown.has(item.id) && !exclude?.has(item.id))];
 }
 
 /**
@@ -86,7 +96,8 @@ export function arrange(input: ArrangeInput): RowGroup[] {
       .filter((group) => contextual.has(group.value))
       .map((group) => ({ value: group.value, items: group.items }));
     const create = input.groups.find((group) => group.value === "Create")?.items ?? [];
-    const actions = actionsFirst(all.filter(isAction), input.recentCommands, create);
+    const contextualIds = new Set(out.flatMap((group) => group.items.map((item) => item.id)));
+    const actions = actionsFirst(all.filter(isAction), input.recentCommands, create, contextualIds);
     if (actions.length) out.push({ value: "Actions", items: actions });
     const here = input.groups.find((group) => group.value === "This thread");
     if (here) out.push({ value: here.value, items: here.items });
