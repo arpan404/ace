@@ -19,7 +19,11 @@ import { verifyPopoverToasts } from "./popover-toasts.ts";
 const limits = budgets.markdownStream;
 const seconds = Number(process.env.PERF_SECONDS ?? limits.seconds);
 
-/** Init script: frames drawn, and markit blocks whose DOM node was replaced (a remount). */
+/**
+ * Init script: frames drawn, and settled markit blocks whose DOM node was replaced (a remount).
+ * Markit rebuilds the open block at the end of a streaming answer as it grows; only a block that
+ * already had a later sibling (it was settled) counts when it leaves the DOM.
+ */
 const probe = () => {
   const counts = { frames: 0, remounts: 0 };
   const tick = () => {
@@ -27,14 +31,19 @@ const probe = () => {
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
+  const settled = new WeakSet<Element>();
   new MutationObserver((records) => {
+    const roots = new Set<Element>();
     for (const record of records) {
-      // A block is a child of the markdown root, which is a child of the answer.
       const root = record.target;
-      if (!(root instanceof Element) || !root.parentElement?.classList.contains("group/answer"))
-        continue;
-      for (const node of record.removedNodes) if (node instanceof Element) counts.remounts++;
+      if (!(root instanceof Element) || !root.classList.contains("markit")) continue;
+      if (!root.closest(".group\\/answer")) continue;
+      roots.add(root);
+      for (const node of record.removedNodes)
+        if (node instanceof Element && settled.has(node)) counts.remounts++;
     }
+    for (const root of roots)
+      for (const block of Array.from(root.children).slice(0, -1)) settled.add(block);
   }).observe(document, { childList: true, subtree: true });
   Object.assign(globalThis, { aceStreamProbe: counts });
 };

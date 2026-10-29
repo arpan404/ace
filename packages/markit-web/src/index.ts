@@ -41,3 +41,27 @@ export function isMarkitWebImage(src: string): boolean {
     return false;
   }
 }
+
+/** Where a link in rendered prose leads: the web, an ace view, or a file on the thread host. */
+export type MarkitLinkTarget =
+  | { kind: "web"; href: string }
+  | { kind: "ace"; href: string }
+  | { kind: "local"; path: string };
+
+/**
+ * Sorts a link markit handed to the host. Only http(s) and mailto reach the browser; `ace://`
+ * and `thread://` stay in the app; a relative path or `file:` URL names a file on the thread's
+ * host. Any other scheme (javascript:, data:, custom handlers) is refused.
+ */
+export function markitLinkTarget(url: string): MarkitLinkTarget | undefined {
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)?.[1]?.toLowerCase();
+  if (scheme === undefined) return url.trim() ? { kind: "local", path: url } : undefined;
+  if (scheme === "ace" || scheme === "thread") return { kind: "ace", href: url };
+  if (scheme === "file") return { kind: "local", path: url };
+  if (scheme !== "http" && scheme !== "https" && scheme !== "mailto") return undefined;
+  try {
+    return { kind: "web", href: new URL(url).href };
+  } catch {
+    return undefined;
+  }
+}

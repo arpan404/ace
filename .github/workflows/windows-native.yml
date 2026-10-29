@@ -241,6 +241,9 @@ jobs:
           Write-Host "VsDevCmd: $DevCmd (arch=${{ matrix.msvc_arch }})"
           "vs-devcmd=$DevCmd" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      - name: markit toolchain (the root postinstall builds its Wasm)
+        uses: ./.github/actions/markit-toolchain
+
       - name: Clean install (runs root postinstall via normal build.ts)
         shell: cmd
         env:
@@ -515,6 +518,9 @@ jobs:
           $Install = (& $VsWhere -latest -products * -property installationPath).Trim()
           "vs-devcmd=$(Join-Path $Install 'Common7\Tools\VsDevCmd.bat')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      - name: markit toolchain (the root postinstall builds its Wasm)
+        uses: ./.github/actions/markit-toolchain
+
       - name: Install dependencies (builds descriptor.node)
         shell: cmd
         env:
@@ -694,6 +700,9 @@ jobs:
           $VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $Install = (& $VsWhere -latest -products * -property installationPath).Trim()
           "vs-devcmd=$(Join-Path $Install 'Common7\Tools\VsDevCmd.bat')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: markit toolchain (the root postinstall builds its Wasm)
+        uses: ./.github/actions/markit-toolchain
 
       - name: Clean install (builds the Windows descriptor)
         shell: cmd

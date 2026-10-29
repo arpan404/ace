@@ -1,0 +1,31 @@
+name: markit toolchain
+description: >-
+  Rust's wasm32 target, wasm-bindgen-cli at packages/markit's locked version, and a cache of
+  markit's cargo build, so the root postinstall can build the web renderer's Wasm worker.
+runs:
+  using: composite
+  steps:
+    - name: Read markit's wasm-bindgen version
+      id: markit
+      shell: bash
+      run: |
+        version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' packages/markit/Cargo.lock)
+        [ -n "$version" ] || { echo "::error::wasm-bindgen not found in packages/markit/Cargo.lock"; exit 1; }
+        echo "wasm-bindgen=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Add the wasm32 target
+      shell: bash
+      run: rustup target add wasm32-unknown-unknown
+
+    - name: Install wasm-bindgen-cli
+      uses: taiki-e/install-action@v2
+      with:
+        tool: wasm-bindgen@${{ steps.markit.outputs.wasm-bindgen }}
+
+    - name: Cache markit's Wasm build
+      uses: actions/cache@v6
+      with:
+        path: packages/markit/target
+        key: ${{ runner.os }}-${{ runner.arch }}-markit-wasm-${{ hashFiles('packages/markit/Cargo.lock') }}-${{ hashFiles('packages/markit/crates/**') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-markit-wasm-${{ hashFiles('packages/markit/Cargo.lock') }}-

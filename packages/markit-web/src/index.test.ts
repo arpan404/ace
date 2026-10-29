@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   asMarkitReferenceKind,
   isMarkitWebImage,
+  markitLinkTarget,
   markitWorkerPath,
   shouldResolveMarkitImage,
 } from "./index.ts";
@@ -45,5 +46,36 @@ describe("markit reference kinds stay app actions, never navigation", () => {
   it("drops anything else so it falls back to a normal link", () => {
     expect(asMarkitReferenceKind("https")).toBeUndefined();
     expect(asMarkitReferenceKind("")).toBeUndefined();
+  });
+});
+
+describe("links in markit prose go only where they are safe", () => {
+  it("sends web and mail addresses to the browser", () => {
+    expect(markitLinkTarget("https://example.com/a b")).toEqual({
+      kind: "web",
+      href: "https://example.com/a%20b",
+    });
+    expect(markitLinkTarget("mailto:a@b.dev")).toEqual({ kind: "web", href: "mailto:a@b.dev" });
+  });
+
+  it("keeps ace and thread links inside the app", () => {
+    expect(markitLinkTarget("ace://thread/t1")).toEqual({ kind: "ace", href: "ace://thread/t1" });
+    expect(markitLinkTarget("thread://t1")).toEqual({ kind: "ace", href: "thread://t1" });
+  });
+
+  it("treats relative paths and file urls as files on the thread host", () => {
+    expect(markitLinkTarget("src/a.ts")).toEqual({ kind: "local", path: "src/a.ts" });
+    expect(markitLinkTarget("./a.ts")).toEqual({ kind: "local", path: "./a.ts" });
+    expect(markitLinkTarget("file:///tmp/a.ts")).toEqual({
+      kind: "local",
+      path: "file:///tmp/a.ts",
+    });
+  });
+
+  it("refuses script, data and unknown schemes", () => {
+    expect(markitLinkTarget("javascript:alert(1)")).toBeUndefined();
+    expect(markitLinkTarget("data:text/html,x")).toBeUndefined();
+    expect(markitLinkTarget("vscode://file/a")).toBeUndefined();
+    expect(markitLinkTarget("  ")).toBeUndefined();
   });
 });

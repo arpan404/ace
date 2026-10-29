@@ -54,7 +54,11 @@ export default defineConfig(({ mode }) => ({
       ? [windowsEntryGuard(fileURLToPath(new URL("./src/main.tsx", import.meta.url)))]
       : []),
   ],
-  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  resolve: {
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    // One React for the app and the markit submodule's binding, which has no node_modules.
+    dedupe: ["react", "react-dom"],
+  },
   define: { "import.meta.env.VITE_ACE_BUILD": JSON.stringify(build) },
   build: {
     target: "es2023",
