@@ -319,3 +319,24 @@ test("offline storage keeps its last measurement and reconnect reads the saved c
   expect(await screen.findByText("3.0 MB")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Refresh usage" })).toHaveProperty("disabled", false);
 });
+
+test("an incomplete measurement keeps measured values and clears its warning after a complete refresh", async () => {
+  const queries = createQueryClient();
+  queries.setQueryData(storageUsageKey, {
+    categories: [{ kind: "logs", bytes: 100_000, items: 2 }],
+    databaseBytes: 2_000_000,
+    reclaimableDatabaseBytes: 0,
+    measuredAt: 60_000,
+    complete: false,
+    backups: [],
+  });
+  const app = harness({ queryClient: queries, uiClock: () => 120_000 });
+  app.daemon.seedServices({ storageDatabase: { bytes: 3_000_000, reclaimable: 0 } });
+  await app.open("/settings/storage");
+  expect(await screen.findByText("2.0 MB")).toBeTruthy();
+  expect(screen.getByText("100 KB")).toBeTruthy();
+  expect(screen.getByText("Measurement incomplete. Refresh to try again.")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Refresh usage" }));
+  expect(await screen.findByText("3.0 MB")).toBeTruthy();
+  expect(screen.queryByText("Measurement incomplete. Refresh to try again.")).toBeNull();
+});
