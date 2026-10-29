@@ -34,6 +34,11 @@ export class UsageScanner {
     const result = Promise.withResolvers<StorageUsage>();
     const exited = Promise.withResolvers<void>();
     const released = Promise.withResolvers<void>();
+    // close() may never be called. Keep the rejection observed without changing what
+    // a later close caller receives from the original promise.
+    void released.promise.catch(() => {});
+    let observedExit = false;
+    let cleanupFinished = false;
     let cancelled = false;
     let cancelTimer: ReturnType<typeof setTimeout> | undefined;
     const cancel = () => {
@@ -52,13 +57,26 @@ export class UsageScanner {
     const active = { cancel, done: released.promise };
     this.active = active;
     worker.on("error", () => result.reject(new Error("storage_usage_worker_failed")));
-    worker.on("exit", () => {
+    const observeExit = () => {
+      observedExit = true;
       exited.resolve();
+      if (cleanupFinished) release();
+    };
+    const release = () => {
+      if (this.active === active) this.active = undefined;
+      released.resolve();
+    };
+    worker.on("exit", () => {
+      observeExit();
       result.reject(
         new Error(cancelled ? "storage_usage_cancelled" : "storage_usage_worker_failed"),
       );
     });
-    worker.on("close", () => exited.resolve());
+    worker.on("close", () => {
+      // Failed spawn has no exit event and no process to reap. A started child must
+      // provide exit evidence; closing its IPC/stdio alone does not release its slot.
+      if (worker.pid === undefined) observeExit();
+    });
     worker.on("message", (input: unknown) => {
       const reply = UsageWorkerReply.safeParse(input);
       if (cancelled) result.reject(new Error("storage_usage_cancelled"));
@@ -85,13 +103,29 @@ export class UsageScanner {
       clearTimeout(timer);
       clearTimeout(cancelTimer);
       signal?.removeEventListener("abort", cancel);
-      // All paths, including malformed replies and crashes, reap the child before admission.
+      // Bound the caller's wait, but keep ownership until actual exit evidence arrives.
+      // A timed-out cleanup cannot admit a replacement worker or make close() succeed.
+      let reapTimer: ReturnType<typeof setTimeout> | undefined;
       try {
-        if (worker.exitCode === null && worker.signalCode === null) worker.kill("SIGKILL");
-        await exited.promise;
+        await new Promise<void>((resolve, reject) => {
+          reapTimer = setTimeout(() => reject(new Error("storage_usage_cleanup_timeout")), 2000);
+          void exited.promise.then(resolve);
+          try {
+            if (worker.exitCode === null && worker.signalCode === null) worker.kill("SIGKILL");
+          } catch {
+            // Kill failure is not proof of exit. The same cleanup deadline applies.
+          }
+        });
+        cleanupFinished = true;
+        release();
+      } catch (error) {
+        cleanupFinished = true;
+        if (observedExit) release();
+        else released.reject(error);
+        // oxlint-disable-next-line eslint/no-unsafe-finally -- Cleanup failure must replace the scan result.
+        throw error;
       } finally {
-        if (this.active === active) this.active = undefined;
-        released.resolve();
+        clearTimeout(reapTimer);
       }
     }
   }
