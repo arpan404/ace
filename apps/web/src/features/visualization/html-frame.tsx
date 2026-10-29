@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { HtmlHeightMessage, type HtmlMode } from "@ace/protocol";
 import {
   heightFromTitle,
+  inlineVisualizationUrl,
   themeMessage,
   visualizationPartition,
   visualizationUrl,
@@ -47,17 +48,21 @@ export function HtmlFrame(props: {
   settled: boolean;
   onHeight(height: number): void;
 }) {
-  // A new document only for new HTML or mode; the theme then updates live.
+  // A new document only for new HTML, mode or fit; the theme then updates live. Inline, the
+  // frame is sized to its page, so that document never shows a scrollbar (`inlineVisualizationUrl`).
+  const build = props.fill ? visualizationUrl : inlineVisualizationUrl;
   const [built, setBuilt] = useState(() => ({
     html: props.html,
     mode: props.mode,
-    source: visualizationUrl(props.html, props.theme, props.mode),
+    fill: props.fill,
+    source: build(props.html, props.theme, props.mode),
   }));
-  if (built.html !== props.html || built.mode !== props.mode)
+  if (built.html !== props.html || built.mode !== props.mode || built.fill !== props.fill)
     setBuilt({
       html: props.html,
       mode: props.mode,
-      source: visualizationUrl(props.html, props.theme, props.mode),
+      fill: props.fill,
+      source: build(props.html, props.theme, props.mode),
     });
   const height = props.fill ? "100%" : `${Math.max(48, props.measured ?? props.initialHeight)}px`;
   const Surface = props.webview ? WebviewSurface : IframeSurface;

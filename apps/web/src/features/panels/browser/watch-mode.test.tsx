@@ -17,7 +17,8 @@ test("watch mode shows the agent's tab as wide as the panel goes, follows it, an
   const { panel, browser, thread, script } = await openThreadBrowser();
   act(() => browser.agentWorks(thread, { agentId: "worker" }));
   // The person looks at another tool meanwhile.
-  await userEvent.click(within(strip(panel)).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  await within(strip(panel)).findByRole("tab", { name: /^Changes/, selected: true });
   const before = width().now;
   await userEvent.click(
     within(strip(panel)).getByRole("tab", { name: /settings\/devices|Fixture|localhost/ }),

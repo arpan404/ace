@@ -75,24 +75,45 @@ function themedDocument(html: string, theme: HtmlTheme, mode: HtmlMode): string 
     .map(([key, value]) => `--${key}:${value}`)
     .join(";");
   const prefix = parseFragment(
-    `${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${baseStyles}</style><style>:root{${tokens}}html{background:transparent}body{margin:0;display:flow-root}*{box-sizing:border-box}</style><script>${pageBridge}</script>`,
+    `${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${baseStyles}</style><style>:root{${tokens}}html{background:transparent;scrollbar-width:none}html::-webkit-scrollbar{display:none}body{margin:0;display:flow-root}*{box-sizing:border-box}</style><script>${pageBridge}</script>`,
   );
   head.childNodes.unshift(...prefix.childNodes);
   return serialize(document);
 }
+/** The outer document scrolls its page: full screen, a window, the phone's viewer. */
+const scrolling = "html,body{margin:0}";
+/**
+ * The outer document is sized to its page, inline in a transcript. While the app eases the frame
+ * to a new height the page briefly overflows it; a scrollbar that took room then would narrow
+ * the page, re-wrap its text and change its height again, over and over. Its scrollbar is hidden,
+ * so the page keeps one width whatever the frame's height.
+ */
+const fitted = "html,body{margin:0}html{scrollbar-width:none}html::-webkit-scrollbar{display:none}";
+
+function outerDocument(html: string, theme: HtmlTheme, mode: HtmlMode, root: string): string {
+  if (!validateHtml(html).valid) throw new Error("Invalid visualization document");
+  const page = themedDocument(html, theme, mode);
+  return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${root}iframe{width:100%;border:0;display:block}</style></head><body><template id="ace-page"><iframe title="Visualization content" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(page)}"></iframe></template><script>${frameBridge}</script></body></html>`;
+}
+
+/** A data URL starts with an opaque origin. */
+const dataUrl = (document: string) =>
+  `data:text/html;charset=utf-8,${encodeURIComponent(document.toWellFormed())}`;
+
 /**
  * A trusted outer document owns frame-src, so even script-driven child navigation is blocked.
  * Each frame has a separate opaque origin. Height crosses out and the theme crosses in; nothing
  * else does. A static page has its scripts stripped and blocked; an interactive one runs them.
  */
 export function visualizationDocument(html: string, theme: HtmlTheme, mode: HtmlMode): string {
-  if (!validateHtml(html).valid) throw new Error("Invalid visualization document");
-  const page = themedDocument(html, theme, mode);
-  return `<!doctype html><html><head>${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(htmlCsp)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>html,body{margin:0}iframe{width:100%;border:0;display:block}</style></head><body><template id="ace-page"><iframe title="Visualization content" sandbox="allow-scripts" referrerpolicy="no-referrer" srcdoc="${attribute(page)}"></iframe></template><script>${frameBridge}</script></body></html>`;
+  return outerDocument(html, theme, mode, scrolling);
 }
-/** A data URL starts with an opaque origin. */
 export function visualizationUrl(html: string, theme: HtmlTheme, mode: HtmlMode): string {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(visualizationDocument(html, theme, mode).toWellFormed())}`;
+  return dataUrl(visualizationDocument(html, theme, mode));
+}
+/** The same document for a frame the app sizes to its page (inline in a transcript). */
+export function inlineVisualizationUrl(html: string, theme: HtmlTheme, mode: HtmlMode): string {
+  return dataUrl(outerDocument(html, theme, mode, fitted));
 }
 /**
  * The downloadable and web new-window form: the same sandbox inside a standalone page. Outside

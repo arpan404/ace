@@ -204,7 +204,17 @@ test("the Files tab keeps the checkout tree while a source tab remembers hiding 
   await openThread();
   await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
   const side = await panel();
-  await userEvent.click(within(side).getByRole("tab", { name: "Files" }));
+  await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
+  const firstTools = await within(side).findByRole("list", { name: "Tools" });
+  await userEvent.click(within(firstTools).getByRole("button", { name: /^Files/ }));
+  await within(side).findByRole("tab", { name: "Files", selected: true });
+  // The default panel no longer pins Files: pin it, as the tree tab was.
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Search commands" }),
+    "pin files",
+  );
+  await userEvent.click(await screen.findByRole("option", { name: /^Pin Files/ }));
   const tree = await within(side).findByRole("tree", { name: "Checkout files" });
   expect(within(side).getByRole("complementary", { name: "Checkout files" })).toBeTruthy();
 
@@ -309,7 +319,9 @@ test("a checkout of hundreds of files mounts only the tree rows near the view, a
       app.daemon.checkouts.seed("thread-cold-start", `pkg/part-${n % 20}/case-${n}.ts`, "x\n");
     await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
     const side = await panel();
-    await userEvent.click(within(side).getByRole("tab", { name: "Files" }));
+    await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
+    const tools = await within(side).findByRole("list", { name: "Tools" });
+    await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
     const tree = await within(side).findByRole("tree", { name: "Checkout files" });
     await waitFor(() => expect(within(tree).getAllByRole("treeitem").length).toBeGreaterThan(0));
     expect(within(tree).getAllByRole("treeitem").length).toBeLessThan(60);
