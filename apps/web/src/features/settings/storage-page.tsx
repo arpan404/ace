@@ -142,7 +142,7 @@ export function StorageSettings() {
               }
             />
             {!usage.data.complete && (
-              <SettingNote>Measured in a bounded batch; refresh for more.</SettingNote>
+              <SettingNote>Measurement incomplete. Refresh to try again.</SettingNote>
             )}
             <FailedBackups backups={usage.data.backups} />
             <SettingNote role={usage.isError ? "alert" : "status"}>

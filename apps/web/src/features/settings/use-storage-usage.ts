@@ -1,7 +1,8 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import type { StorageRequest } from "@ace/protocol";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import type { StorageUsage, StorageRequest } from "@ace/protocol";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import {
   storageUsageGcMs,
@@ -20,6 +21,39 @@ async function readUsage(
   return reply.result.usage;
 }
 
+function usageRefresher(client: ClientApi, cache: QueryClient) {
+  let pending: Promise<StorageUsage> | undefined;
+  return () => {
+    pending ??= (async () => {
+      // Cleanup may hold this callback across a reconnect. Read the live cache, not
+      // a render's isFetching flag, and keep both reads bound to this client/cache.
+      if (cache.getQueryState(storageUsageKey)?.fetchStatus === "fetching") {
+        await cache
+          .fetchQuery({
+            queryKey: storageUsageKey,
+            gcTime: storageUsageGcMs,
+            staleTime: 0,
+            retry: false,
+            meta: { daemonClient: client },
+            queryFn: ({ signal }) => readUsage(client, signal, { op: "storage.usage" }),
+          })
+          .catch(() => {});
+      }
+      return cache.fetchQuery({
+        queryKey: storageUsageKey,
+        gcTime: storageUsageGcMs,
+        staleTime: 0,
+        retry: false,
+        meta: { daemonClient: client },
+        queryFn: ({ signal }) => readUsage(client, signal, { op: "storage.usage", force: true }),
+      });
+    })().finally(() => {
+      pending = undefined;
+    });
+    return pending;
+  };
+}
+
 /** Cached daemon reads and explicit measurements update the same connection-scoped query. */
 export function useStorageUsage() {
   const client = useClient();
@@ -30,18 +64,6 @@ export function useStorageUsage() {
     staleTime: storageUsageStaleMs,
     read: (daemon, signal) => readUsage(daemon, signal, { op: "storage.usage" }),
   });
-  const refresh = async () => {
-    // A reconnect may already be reading the saved snapshot. Finish that read before forcing
-    // measurement, rather than joining a cheap read and mistaking it for a completed scan.
-    if (query.isFetching) await query.refetch({ cancelRefetch: false });
-    return cache.fetchQuery({
-      queryKey: storageUsageKey,
-      gcTime: storageUsageGcMs,
-      staleTime: 0,
-      retry: false,
-      meta: { daemonClient: client },
-      queryFn: ({ signal }) => readUsage(client, signal, { op: "storage.usage", force: true }),
-    });
-  };
+  const refresh = useMemo(() => usageRefresher(client, cache), [client, cache]);
   return { query, refresh };
 }
