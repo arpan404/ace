@@ -165,7 +165,12 @@ test("a theme rule themes any element carrying both attributes, so swatches prev
   expect(rule).toContain("color-scheme:dark");
 });
 
-const os = { dark: false, reducedMotion: false, reducedTransparency: false };
+const os = {
+  dark: false,
+  reducedMotion: false,
+  reducedTransparency: false,
+  softwareRendering: false,
+};
 
 test("System mode follows the OS's light or dark; Light and Dark ignore it", () => {
   expect(resolveAppearance(defaultAppearance, { ...os, dark: true }).scheme).toBe("dark");

@@ -47,6 +47,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Install Node ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v7

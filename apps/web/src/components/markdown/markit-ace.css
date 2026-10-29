@@ -1,0 +1,35 @@
+@import "../../../../../packages/markit/web/style.css";
+
+/* Map markit's palette onto ace design tokens; keep its layout. */
+.markit-ace .markit,
+.markit-ace {
+  --mk-ink: var(--color-foreground);
+  --mk-muted: var(--color-muted-foreground);
+  --mk-border: var(--color-border);
+  --mk-surface: var(--color-secondary);
+  font: inherit;
+  color: var(--color-foreground);
+  overflow-wrap: anywhere;
+}
+
+.markit-ace .markit a,
+.markit-ace a,
+.markit-ace .markit [role="link"],
+.markit-ace [role="link"] {
+  color: var(--color-link);
+}
+
+/*
+ * The transcript virtualizes its rows already. Markit's per-block content-visibility makes the
+ * browser compute every block's visibility each frame and size off-screen blocks at a placeholder
+ * height, which the virtualizer then measures and corrects as the answer streams.
+ */
+.markit-ace .mk-block {
+  margin: 0 0 12px;
+  content-visibility: visible;
+  contain-intrinsic-size: none;
+}
+
+.markit-ace :is(p, h1, h2, h3, h4, h5, h6, ul, ol, pre, blockquote, table) {
+  margin: 0 0 12px;
+}

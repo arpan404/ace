@@ -7,10 +7,8 @@ import type { MarkdownJob } from "./worker.ts";
 vi.mock("./worker.ts", async () => {
   const { StreamRegistry } = await import("./stream-registry.ts");
   const streams = new StreamRegistry(() => performance.now());
-  const apply = (job: MarkdownJob) => {
-    if ("code" in job) throw new Error("Unexpected code job");
-    return "release" in job ? streams.release(job.release) : streams.apply(job);
-  };
+  const apply = (job: MarkdownJob) =>
+    "release" in job ? streams.release(job.release) : streams.apply(job);
   return {
     localStreams: streams,
     markdownWorker: {

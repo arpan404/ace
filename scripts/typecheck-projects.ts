@@ -1,4 +1,12 @@
-import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { API } from "typescript/unstable/sync";
 import { z } from "zod";
@@ -65,6 +73,8 @@ function discover(root: string): Workspace[] {
     for (const entry of readdirSync(join(root, top), { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const directory = join(root, top, entry.name);
+      // Not a workspace (the packages/markit submodule has no package.json at its root).
+      if (!existsSync(join(directory, "package.json"))) continue;
       const manifest = manifestSchema.parse(
         JSON.parse(readFileSync(join(directory, "package.json"), "utf8")),
       );

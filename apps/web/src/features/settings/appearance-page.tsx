@@ -100,7 +100,7 @@ function TranslucencyRow(props: {
 
 /** Mode, theme, translucency, motion, density and transcript size. Every change applies at once. */
 export function AppearanceSettings() {
-  const { appearance, update, resolved, systemReducesTransparency } = useTheme();
+  const { appearance, update, resolved, systemReducesTransparency, softwareRendering } = useTheme();
   return (
     <>
       <PickerGroup id="appearance.mode">
@@ -119,7 +119,9 @@ export function AppearanceSettings() {
               ? `${themes[appearance.theme].name} is always solid`
               : systemReducesTransparency
                 ? "Solid while your system reduces transparency"
-                : undefined
+                : softwareRendering
+                  ? "Solid while this device draws without graphics acceleration"
+                  : undefined
           }
           value={appearance.translucency}
           onValueChange={(translucency) => update({ translucency })}

@@ -33,6 +33,8 @@ export interface Environment {
   storage?: KeyValueStorage | undefined;
   matchMedia?: ((query: string) => MediaQueryList) | undefined;
   root?: HTMLElement | undefined;
+  /** The browser draws without graphics acceleration (`softwareRendering`): Solid surfaces. */
+  softwareRendering?: boolean | undefined;
   /** Which glass this browser can render (`glassEngine`); blur when unknown. */
   glassEngine?: GlassEngine | undefined;
   /**
@@ -49,6 +51,8 @@ interface ThemeValue {
   resolved: ResolvedAppearance;
   /** The OS asks for less transparency, so Translucency shows as Solid. */
   systemReducesTransparency: boolean;
+  /** This device draws without graphics acceleration, so Translucency shows as Solid. */
+  softwareRendering: boolean;
 }
 const ThemeContext = createContext<ThemeValue | undefined>(undefined);
 
@@ -59,14 +63,18 @@ const queries = {
 } as const;
 
 /** The OS preferences, read before the first render; a light/dark change cross-fades. */
-function useSystemPreferences(matchMedia: Environment["matchMedia"]): SystemPreferences {
+function useSystemPreferences(
+  matchMedia: Environment["matchMedia"],
+  softwareRendering: boolean,
+): SystemPreferences {
   const read = useCallback(
     (): SystemPreferences => ({
       dark: matchMedia?.(queries.dark).matches ?? true,
       reducedMotion: matchMedia?.(queries.reducedMotion).matches ?? false,
       reducedTransparency: matchMedia?.(queries.reducedTransparency).matches ?? false,
+      softwareRendering,
     }),
-    [matchMedia],
+    [matchMedia, softwareRendering],
   );
   const [system, setSystem] = useState(read);
   useEffect(() => {
@@ -95,8 +103,9 @@ function useSystemPreferences(matchMedia: Environment["matchMedia"]): SystemPref
  */
 export function ThemeProvider(props: { environment: Environment; children: ReactNode }) {
   const { storage, matchMedia, root, glassEngine = "blur" } = props.environment;
+  const softwareRendering = props.environment.softwareRendering ?? false;
   const [appearance, setAppearance] = useState(() => loadAppearance(storage));
-  const system = useSystemPreferences(matchMedia);
+  const system = useSystemPreferences(matchMedia, softwareRendering);
   const resolved = useMemo(() => resolveAppearance(appearance, system), [appearance, system]);
   const { accent, customAccent } = appearance;
   // Every theme with the chosen accent: one sheet, so a theme switch is an attribute flip.
@@ -147,7 +156,9 @@ export function ThemeProvider(props: { environment: Environment; children: React
       mode: appearance.mode,
       // A theme with no glass boots solid, so its first frame never flashes translucent.
       surface:
-        themes[appearance.theme].light.material.glass && appearance.translucency > 0
+        themes[appearance.theme].light.material.glass &&
+        appearance.translucency > 0 &&
+        !softwareRendering
           ? "translucent"
           : "solid",
       translucency: appearance.translucency,
@@ -157,7 +168,7 @@ export function ThemeProvider(props: { environment: Environment; children: React
       css: themeStylesheet(appearance.theme, appearance, appearance.translucency),
     };
     writeJson(storage, bootAppearanceKey, boot);
-  }, [storage, appearance]);
+  }, [storage, appearance, softwareRendering]);
 
   const { windowBackground } = props.environment;
   useEffect(() => {
@@ -186,8 +197,9 @@ export function ThemeProvider(props: { environment: Environment; children: React
       update,
       resolved,
       systemReducesTransparency: system.reducedTransparency,
+      softwareRendering: system.softwareRendering,
     }),
-    [appearance, update, resolved, system.reducedTransparency],
+    [appearance, update, resolved, system.reducedTransparency, system.softwareRendering],
   );
   return <ThemeContext.Provider value={value}>{props.children}</ThemeContext.Provider>;
 }

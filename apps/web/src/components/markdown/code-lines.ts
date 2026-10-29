@@ -3,7 +3,8 @@ import { highlight, type CodeToken } from "./highlight.ts";
 
 /*
  * Whole source files as highlighted lines, for a file viewer with a line-number gutter. Built in
- * a worker; in place where there is no worker.
+ * markit's worker through markit-highlight.ts; in place (the previous engine) where there is no
+ * worker.
  */
 
 /** Plain results reuse the caller's source rather than cloning a second per-line graph. */
@@ -27,7 +28,13 @@ export function splitLines(tokens: readonly CodeToken[]): CodeToken[][] {
     const parts = token.text.split("\n");
     parts.forEach((part, index) => {
       if (index > 0) lines.push([]);
-      if (part) lines.at(-1)?.push({ kind: token.kind, text: part });
+      if (part)
+        lines.at(-1)?.push({
+          kind: token.kind,
+          text: part,
+          ...(token.light ? { light: token.light } : {}),
+          ...(token.dark ? { dark: token.dark } : {}),
+        });
     });
   }
   return lines;
@@ -61,6 +68,11 @@ export function codeLinesWeight(doc: CodeLines): number {
 }
 
 const resultLimit = 8 * 1024 * 1024;
+
+/** True when a highlighted document weighs more than a worker reply may carry. */
+export function overResultLimit(doc: CodeLines): boolean {
+  return codeLinesWeight(doc) > resultLimit;
+}
 // The worker's own copy, by (language, text): a fence the page dropped is not tokenized again.
 const built = new LruCache<string, CodeLines>({
   maxEntries: 256,
@@ -100,7 +112,7 @@ export async function codeLines(
   let doc: CodeLines = { hash, lines: colored ?? splitLines(highlight(code, lang)) };
   // Cache eviction alone cannot bound the worker reply: dense grammars can turn modest
   // source into a much larger token graph. The caller already owns the exact plain source.
-  if (codeLinesWeight(doc) > resultLimit) doc = { hash, plain: true };
+  if (overResultLimit(doc)) doc = { hash, plain: true };
   built.set(hash, doc);
   return doc;
 }

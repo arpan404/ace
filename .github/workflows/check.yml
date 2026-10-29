@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Read required Node major
         id: node
@@ -54,6 +56,9 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-
+
+      - name: markit toolchain (the root postinstall builds its Wasm)
+        uses: ./.github/actions/markit-toolchain
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -166,12 +171,17 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
       - uses: actions/setup-node@v7
         with:
           node-version: 26.x
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
+      - name: markit toolchain (the root postinstall builds its Wasm)
+        uses: ./.github/actions/markit-toolchain
+
       - run: bun install --frozen-lockfile
       - name: Turn benchmark against the checked-in baseline (median of three runs)
         run: bun run bench:daemon --runs=3
@@ -189,12 +199,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
       - uses: actions/setup-node@v7
         with:
           node-version: 26.x
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
+      - name: markit toolchain (the root postinstall builds its Wasm)
+        uses: ./.github/actions/markit-toolchain
+
       - run: bun install --frozen-lockfile
       - name: Install fake web suite Chromium and system libraries
         run: bun run --cwd tools/web-e2e playwright install --with-deps chromium

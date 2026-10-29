@@ -28,6 +28,7 @@
     "@ace/design-tokens": "workspace:*",
     "@ace/forge": "workspace:*",
     "@ace/html": "workspace:*",
+    "@ace/markit-web": "workspace:*",
     "@ace/project-picker": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
