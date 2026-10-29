@@ -344,7 +344,10 @@ verification should include these production mutations:
 ## Usage snapshots and automatic scans
 
 `storage.usage` without `force`, or with `force: false`, returns the last valid
-measurement. The first read with no measurement starts and awaits a scan.
+measurement. With no valid snapshot, startup performs no activity probes or
+usage scans until the first usage request. That first read starts and awaits a
+scan, and enables idle retries even if the attempt fails. A persisted valid
+snapshot enables automatic scheduling immediately after restart.
 Explicit Refresh sends `{"op":"storage.usage","force":true}` and awaits a new
 scan, or joins the scan already running. All clients and automatic scans share
 one scanner. Usage and explicit refresh both retain read authority. Concurrent
@@ -384,7 +387,9 @@ they retain the scanner's resource limits.
 Cleanup and compaction invalidate the measurement generation before effects
 begin. The previous snapshot remains visible, but a scan from before those
 effects cannot replace it. Before effects begin, the mutation waits for the
-actual scanner to settle and release its read handles. A five-second cancellation
+scanner's required `waitForIdle()` ownership barrier, which resolves only after
+its children exit and release their read handles. It waits even when the scan
+caller already rejected after a reap timeout. A five-second cancellation
 deadline refuses the mutation if the scanner cannot stop. This wait is separate
 from the refresh promise, which waits for mutations and then scans again. Mutations make the automatic deadline due immediately, including after
 partial failures. Scans receive an abort signal after ten minutes. Shutdown

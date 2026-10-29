@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -52,12 +54,18 @@ async function fixture() {
     activity: async () => activity,
     failed: () => {},
   };
+  let idle: Promise<void> = Promise.resolve();
   const scanner = {
+    waitForIdle: () => idle,
     scan: (signal?: AbortSignal) => {
       const flight = deferred<StorageUsage>();
       scans.push(flight);
       signals.push(signal);
       started.resolve();
+      idle = flight.promise.then(
+        () => {},
+        () => {},
+      );
       return flight.promise;
     },
     close: async () => {
@@ -295,6 +303,7 @@ test("a scan deadline cancels worker activity without replacing its previous sna
   const f = await fixture();
   f.cache.save(usage(10), 1000);
   const scanner = {
+    waitForIdle: async () => {},
     close: async () => {},
     scan: (signal?: AbortSignal) =>
       new Promise<StorageUsage>((_, reject) => {
@@ -315,7 +324,11 @@ test("a scan deadline cancels worker activity without replacing its previous sna
 test("shutdown has a bounded wait even when a scanner fails to close", async () => {
   const f = await fixture();
   f.cache.save(usage(10), 1000);
-  const scanner = { close: () => new Promise<void>(() => {}), scan: async () => usage(20) };
+  const scanner = {
+    waitForIdle: () => new Promise<void>(() => {}),
+    close: () => new Promise<void>(() => {}),
+    scan: async () => usage(20),
+  };
   const coordinator = new UsageCoordinator(f.cache, scanner, f.runtime);
   const close = coordinator.close();
   const rejected = expect(close).rejects.toThrow("storage_usage_shutdown_timeout");
@@ -388,7 +401,9 @@ test("compaction waits for a cancelled scanner to release a real SQLite read tra
   const opened = deferred<void>();
   const cancelled = deferred<void>();
   let reader: DatabaseSync | undefined;
+  const idle = deferred<void>();
   const scanner = {
+    waitForIdle: () => idle.promise,
     scan: async (signal?: AbortSignal) => {
       reader = new DatabaseSync(join(f.root, "events.sqlite"), { readOnly: true });
       reader.exec("BEGIN");
@@ -398,6 +413,7 @@ test("compaction waits for a cancelled scanner to release a real SQLite read tra
       await released.promise;
       reader.close();
       reader = undefined;
+      idle.resolve();
       signal?.throwIfAborted();
       return usage(20);
     },
@@ -405,6 +421,7 @@ test("compaction waits for a cancelled scanner to release a real SQLite read tra
       released.resolve();
       reader?.close();
       reader = undefined;
+      idle.resolve();
     },
   };
   const coordinator = new UsageCoordinator(f.cache, scanner, f.runtime);
@@ -426,4 +443,92 @@ test("compaction waits for a cancelled scanner to release a real SQLite read tra
   await mutation;
   await rejected;
   expect(checkpointed).toBe(true);
+});
+
+test("cold startup waits for the first usage request before probes, scans or retries", async () => {
+  const f = await fixture();
+  let probed = false;
+  f.runtime.activity = async () => {
+    probed = true;
+    return { cpu: 0, disk: 0 };
+  };
+  f.coordinator.start();
+  f.time(24 * 60 * 60000);
+  await f.tick();
+  await f.coordinator.mutation(async () => {});
+  await f.tick();
+  expect(probed).toBe(false);
+  expect(f.scans).toHaveLength(0);
+  expect(f.timers.size).toBe(0);
+  const first = f.coordinator.read();
+  await f.started();
+  const rejected = expect(first).rejects.toThrow("first attempt failed");
+  f.scans[0]?.reject(new Error("first attempt failed"));
+  await rejected;
+  f.time(24 * 60 * 60000 + 5 * 60000);
+  await f.tick();
+  expect(probed).toBe(true);
+  expect(f.scans).toHaveLength(2);
+  const joined = f.coordinator.read(true);
+  f.scans[1]?.resolve(usage(20));
+  expect(await joined).toEqual(usage(20));
+});
+
+test.each([
+  { outcome: "waits until actual exit", exits: true },
+  { outcome: "refuses effects after the exit deadline", exits: false },
+])("after caller rejection a mutation $outcome", async ({ exits }) => {
+  const f = await fixture();
+  f.cache.save(usage(10), 1000);
+  f.store.statement("CREATE TABLE usage_exit_effect(value TEXT)").run();
+  const caller = deferred<StorageUsage>();
+  const entered = deferred<void>();
+  const worker = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    stdio: "ignore",
+  });
+  const spawned = once(worker, "spawn");
+  const exited = once(worker, "exit").then(() => {});
+  const scanner = {
+    scan: () => {
+      entered.resolve();
+      return caller.promise;
+    },
+    waitForIdle: () => exited,
+    close: async () => {
+      if (worker.exitCode === null && worker.signalCode === null) worker.kill("SIGKILL");
+      await exited;
+    },
+  };
+  const coordinator = new UsageCoordinator(f.cache, scanner, f.runtime);
+  closers.push(() => coordinator.close());
+  await spawned;
+  const forced = coordinator.read(true);
+  await entered.promise;
+  const rejected = expect(forced).rejects.toThrow("worker reap timed out");
+  caller.reject(new Error("worker reap timed out"));
+  await rejected;
+  // The caller has finished and refresh state was cleared, but the child is still running.
+  const mutation = coordinator.mutation(async () => {
+    f.store.statement("INSERT INTO usage_exit_effect VALUES ('changed')").run();
+  });
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  expect(f.store.statement("SELECT COUNT(*) AS n FROM usage_exit_effect").get()?.n).toBe(0);
+  expect(worker.exitCode).toBeNull();
+  expect(worker.signalCode).toBeNull();
+  if (exits) {
+    worker.kill("SIGKILL");
+    await mutation;
+    expect(f.store.statement("SELECT COUNT(*) AS n FROM usage_exit_effect").get()?.n).toBe(1);
+  } else {
+    const refused = expect(mutation).rejects.toThrow("storage_scan_cancel_timeout");
+    f.time(6000);
+    await f.tick();
+    await refused;
+    expect(worker.exitCode).toBeNull();
+    expect(worker.signalCode).toBeNull();
+    worker.kill("SIGKILL");
+    await exited;
+    expect(f.store.statement("SELECT COUNT(*) AS n FROM usage_exit_effect").get()?.n).toBe(0);
+  }
+  expect(await coordinator.read()).toEqual(usage(10));
 });
