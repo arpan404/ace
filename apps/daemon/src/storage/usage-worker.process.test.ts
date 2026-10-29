@@ -361,3 +361,73 @@ test("an IPC close race during cancellation still rejects and reaps the worker",
     await f.close();
   }
 });
+
+function withheldExitWorker() {
+  const tracking = trackingRuntime(
+    "process.on('message', () => process.send({unexpected: true})); setInterval(() => {}, 1000)",
+  );
+  let notifyExit: (() => void) | undefined;
+  return {
+    workers: tracking.workers,
+    spawn(entry: URL) {
+      const worker = tracking.spawn(entry);
+      if (tracking.workers.length === 1) {
+        const emit = worker.emit.bind(worker);
+        let withholding = true;
+        Object.defineProperty(worker, "emit", {
+          value(event: string | symbol, ...args: unknown[]) {
+            if (withholding && (event === "exit" || event === "close")) return true;
+            return emit(event, ...args);
+          },
+        });
+        notifyExit = () => {
+          withholding = false;
+          worker.emit("exit", null, "SIGKILL");
+        };
+      }
+      return worker;
+    },
+    notifyExit() {
+      notifyExit?.();
+    },
+  };
+}
+
+test("a missing exit notification bounds scan cleanup and blocks replacements until late exit", async () => {
+  const tracking = withheldExitWorker();
+  const scanner = new UsageScanner("unused", { spawn: tracking.spawn });
+  try {
+    const started = performance.now();
+    await expect(scanner.scan()).rejects.toThrow("storage_usage_cleanup_timeout");
+    expect(performance.now() - started).toBeLessThan(4000);
+    await expect(scanner.scan()).rejects.toThrow("storage_busy");
+    expect(tracking.workers).toHaveLength(1);
+    tracking.notifyExit();
+    tracking.notifyExit();
+    await expect(scanner.scan()).rejects.toThrow("storage_usage_failed");
+    expect(tracking.workers).toHaveLength(2);
+  } finally {
+    tracking.notifyExit();
+    await scanner.close();
+  }
+});
+
+test("close reports the cleanup deadline when a killed child never reports exit", async () => {
+  const tracking = withheldExitWorker();
+  const scanner = new UsageScanner("unused", { spawn: tracking.spawn });
+  try {
+    const scanning = scanner.scan();
+    const scanRejected = expect(scanning).rejects.toThrow("storage_usage_cleanup_timeout");
+    const started = performance.now();
+    await expect(scanner.close()).rejects.toThrow("storage_usage_cleanup_timeout");
+    await scanRejected;
+    expect(performance.now() - started).toBeLessThan(4500);
+    await expect(scanner.close()).rejects.toThrow("storage_usage_cleanup_timeout");
+    tracking.notifyExit();
+    tracking.notifyExit();
+    await scanner.close();
+  } finally {
+    tracking.notifyExit();
+    await scanner.close();
+  }
+});
