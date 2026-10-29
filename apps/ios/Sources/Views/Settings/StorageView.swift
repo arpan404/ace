@@ -48,7 +48,7 @@ struct StorageView: View {
         .sensoryFeedback(.success, trigger: removals)
         .navigationTitle("Storage").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model, id: model.readGeneration(Self.read)) { await load() }
-        .refreshable { await load() }
+        .refreshable { await refresh() }
     }
 
     @ViewBuilder private var usage: some View {
@@ -80,10 +80,11 @@ struct StorageView: View {
                 }
             } else if let message = page?.usageProblem ?? problem {
                 ServiceProblem(message: message)
-                Button("Retry") { Task { await load() } }
+                Button("Retry") { Task { await refresh() } }
             } else {
                 ForEach(0..<4, id: \.self) { _ in LabeledContent("Threads and transcripts", value: "0.0 MB").redacted(reason: .placeholder) }
             }
+            if page?.usage != nil { ServiceProblem(message: problem) }
             if model.canOperate, page?.usage != nil {
                 Button("Preview cleanup") { preview(worktrees: false) }
                     .disabled(busy).accessibilityIdentifier("storage.preview")
@@ -126,9 +127,14 @@ struct StorageView: View {
         Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
     }
 
-    private func load() async {
+    private func refresh() async {
+        var request = Self.read
+        request["force"] = true
+        await load(request)
+    }
+    private func load(_ request: [String: Any] = Self.read) async {
         do {
-            page = try await model.read(Self.read, as: StoragePage.self)
+            page = try await model.read(request, as: StoragePage.self)
             problem = nil
         } catch is CancellationError {} catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
@@ -151,7 +157,7 @@ struct StorageView: View {
         run {
             plan = try await model.service(["type": "host.storage.apply", "planId": shown.id], as: StoragePlanReply.self, timeout: .seconds(70)).plan
             removals += 1
-            await load()
+            await refresh()
         }
     }
     private func compact(_ abandon: String?) {
@@ -159,7 +165,7 @@ struct StorageView: View {
             var request: [String: Any] = ["type": "host.storage.compact"]
             if let abandon { request["abandon"] = abandon }
             compaction = try await model.service(request, as: StorageCompactionReply.self, timeout: .seconds(70))
-            await load()
+            await refresh()
         }
     }
     /// Saves one storage setting; the reply is the page as the machine now has it.

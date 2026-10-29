@@ -72,5 +72,11 @@ import Testing
         #expect(ReadMirror.key(page) == ReadMirror.key(refreshing))
     }
 
+    @Test func forcedStorageRefreshReplacesTheOrdinaryVisitsKeptPage() {
+        let page: [String: Any] = ["type": "host.storage"]
+        let refresh: [String: Any] = ["type": "host.storage", "force": true]
+        #expect(ReadMirror.key(page) == ReadMirror.key(refresh))
+    }
+
     private func frame(_ values: [[String: Any]]) throws -> Data { try JSONSerialization.data(withJSONObject: values) }
 }

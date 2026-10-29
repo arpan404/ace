@@ -1,10 +1,11 @@
 import { latest, native, until } from "./test-host.ts";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { ClientCore } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import { HostCare } from "./host-care.ts";
 import { MachineAdmission } from "./machine-admission.ts";
+import { NativeReads } from "./native-reads.ts";
 import { NativeServices } from "./native-services.ts";
 import { PatchPump } from "./patches.ts";
 import { RecordingSink } from "./sheet-fixture.ts";
@@ -57,9 +58,14 @@ async function connect(fixture: FakeDaemon, device = "ios-care-test"): Promise<C
 }
 
 /** Answers one native service call the way Swift sees it: ok with a value, or the words. */
-async function call(services: NativeServices, sink: RecordingSink, request: unknown) {
+async function call(
+  services: NativeServices,
+  sink: RecordingSink,
+  request: unknown,
+  cache?: string,
+) {
   const id = crypto.randomUUID();
-  services.handle({ type: "service", id, request });
+  services.handle({ type: "service", id, request, ...(cache ? { cache } : {}) });
   return until(() => sink.read(`service:${id}`)) as Promise<{
     ok: boolean;
     value: Record<string, unknown> & { plan?: Record<string, unknown> };
@@ -256,4 +262,71 @@ test("a view-only phone sees the pause but is told it can't change it", async ()
     ok: false,
     message: "This phone can view this computer but can't pause it. Pair it with full access.",
   });
+});
+
+test("storage visits read cached usage while explicit refreshes scan and replace the canonical kept page", async () => {
+  const fixture = daemon();
+  fixture.seedServices({ storageDatabase: { bytes: 2_000_000, reclaimable: 0 } });
+  const owner = await connect(fixture);
+  const sink = new RecordingSink();
+  const reads = new NativeReads(owner, sink, { now: () => now, schedule: () => () => {} });
+  const admission = new MachineAdmission(owner, pump);
+  const services = new NativeServices(
+    owner,
+    sink,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    reads,
+    undefined,
+    undefined,
+    new HostCare(owner, admission),
+  );
+  const request = owner.request.bind(owner);
+  const operations: unknown[] = [];
+  vi.spyOn(owner, "request").mockImplementation(async (input, options) => {
+    if (input.type === "storage.request" && input.operation.op === "storage.usage")
+      operations.push(input.operation);
+    return request(input, options);
+  });
+  const canonical = JSON.stringify({ type: "host.storage" });
+  try {
+    const first = await call(services, sink, { type: "host.storage" }, canonical);
+    expect(first.value.usage).toMatchObject({ database: { size: "2.0 MB" } });
+    expect(operations).toEqual([{ op: "storage.usage" }]);
+    fixture.seedServices({ storageDatabase: { bytes: 3_000_000, reclaimable: 0 } });
+    const forced = await call(services, sink, { type: "host.storage", force: true }, canonical);
+    expect(forced.value.usage).toMatchObject({ database: { size: "3.0 MB" } });
+    expect(operations).toEqual([{ op: "storage.usage" }, { op: "storage.usage", force: true }]);
+    const reopened = await call(services, sink, { type: "host.storage" }, canonical);
+    expect(reopened.value).toEqual(forced.value);
+    expect(operations).toHaveLength(2);
+    fixture.failRequests("storage.request");
+    const failed = await call(services, sink, { type: "host.storage", force: true }, canonical);
+    expect(failed).toMatchObject({
+      ok: false,
+      message: "Couldn't update storage usage. Pull to try again.",
+    });
+    const afterFailure = await call(services, sink, { type: "host.storage" }, canonical);
+    expect(afterFailure.value).toEqual(forced.value);
+    expect(operations).toHaveLength(3);
+  } finally {
+    services.dispose();
+    reads.dispose();
+  }
+});
+
+test("an uncached explicit storage refresh forwards force without changing ordinary reads", async () => {
+  const { owner, sink, services } = await phone(daemon());
+  const request = owner.request.bind(owner);
+  const operations: unknown[] = [];
+  vi.spyOn(owner, "request").mockImplementation(async (input, options) => {
+    if (input.type === "storage.request" && input.operation.op === "storage.usage")
+      operations.push(input.operation);
+    return request(input, options);
+  });
+  expect((await call(services, sink, { type: "host.storage", force: true })).ok).toBe(true);
+  expect((await call(services, sink, { type: "host.storage" })).ok).toBe(true);
+  expect(operations).toEqual([{ op: "storage.usage", force: true }, { op: "storage.usage" }]);
 });
