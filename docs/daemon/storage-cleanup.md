@@ -340,3 +340,50 @@ verification should include these production mutations:
 - Omit either running journal or its startup replay.
 - Drop replay deletion coverage when purging a transcript.
 - Apply a preview before the user's confirmation.
+
+## Usage snapshots and automatic scans
+
+`storage.usage` without `force`, or with `force: false`, returns the last valid
+measurement. The first read with no measurement starts and awaits a scan.
+Explicit Refresh sends `{"op":"storage.usage","force":true}` and awaits a new
+scan, or joins the scan already running. All clients and automatic scans share
+one scanner. Usage and explicit refresh both retain read authority. Concurrent
+refreshes join the active scan rather than queueing scans. A cached read stays
+available while that scanner works. No push
+event announces a new measurement; a client sees it on its next usage read.
+The response retains the scanner's `measuredAt` and `complete` fields, including
+`complete: false` for bounded partial measurements. Backup outcomes remain live
+from the existing backup journal.
+
+The daemon atomically saves the measurement and its next deadline in SQLite.
+The binding includes the data root and host, so a copied database cannot supply
+another root or host's measurement. Invalid persisted data is ignored. The next
+automatic scan is due four hours after the last successful scan completes.
+Restarting does not extend that deadline. A failed or cancelled scan keeps the
+previous snapshot. These measurements never authorize cleanup; planning and
+apply still inspect and validate their own current inventory.
+
+When due, automatic scans wait for measured CPU busy time at or below 20% and
+aggregate disk throughput at or below 1 MiB/s. CPU uses `os.cpus()` time deltas.
+macOS reads the second interval from `iostat`; Linux samples the kernel disk
+sector counters twice; Windows reads the CIM physical disk throughput counter.
+Probes run only when due, use bounded asynchronous commands without elevated
+privileges, and accept cancellation. Disk counters can include multiple layers
+on Linux, which can defer a scan conservatively. A missing tool, counter, access
+refusal or unrecognized output means activity is unknown. Unknown activity does
+not establish an idle disk and postpones automatic scans for 15 minutes. Busy
+activity retries after one minute, and sampling or scan errors after five
+minutes. Explicit Refresh and the first uncached read bypass this idle gate;
+they retain the scanner's resource limits.
+
+Cleanup and compaction invalidate the measurement generation before effects
+begin. The previous snapshot remains visible, but a scan from before those
+effects cannot replace it. A refresh waits until mutations finish and scans
+again. Mutations make the automatic deadline due immediately, including after
+partial failures. Scans receive an abort signal after ten minutes. Shutdown
+aborts probes and scans, calls the worker's close method, and bounds the wait
+for usage shutdown to five seconds. Worker cancellation must settle promptly
+before a later scan starts.
+
+Disk counter formats follow the [Linux kernel I/O statistics documentation](https://cdn.kernel.org/doc/html/latest/admin-guide/iostats.html)
+and Microsoft's [physical disk performance counters](<https://learn.microsoft.com/en-us/previous-versions/aa394262(v=vs.85)>).

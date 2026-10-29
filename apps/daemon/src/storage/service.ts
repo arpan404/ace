@@ -22,12 +22,18 @@ import type { StorageOwner } from "./types.ts";
 import { RETENTION_REVIEWER, retentionKinds, retentionPolicy } from "./data-retention-policy.ts";
 import { WorktreeBackups } from "./worktree-backups.ts";
 import { WorktreeBatches } from "./worktree-batches.ts";
+import { UsageScanner } from "./usage-scanner.ts";
+import { UsageCache } from "./usage-cache.ts";
+import { UsageCoordinator, type UsageRuntime, type UsageScannerPort } from "./usage-schedule.ts";
+import { storageSchedule } from "./schedule.ts";
+import { sampleUsageActivity } from "./usage-activity.ts";
 import { SPACE_RECLAIMER, worthReclaiming } from "./space-reclaim-policy.ts";
 
 const missing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
 /** One bounded serializer owns planning, apply and crash recovery, not provider execution. */
 export class StorageService {
+  private usageCoordinator: UsageCoordinator;
   private owner: StorageOwner;
   private inventory: StorageInventory;
   private journal: StorageJournal;
@@ -38,13 +44,28 @@ export class StorageService {
   private limits: CompactionLimits;
   private backups: WorktreeBackups;
   private worktreeBatches = new WorktreeBatches();
-  constructor(owner: StorageOwner, limits: Partial<CompactionLimits> = {}) {
+  constructor(
+    owner: StorageOwner,
+    limits: Partial<CompactionLimits> = {},
+    usage: { scanner?: UsageScannerPort; runtime?: Partial<UsageRuntime> } = {},
+  ) {
     this.owner = owner;
     this.limits = { chunkPages: 256, maxChunks: 4096, pause: () => setImmediate(), ...limits };
     initializeThreadCleanup(owner.store);
     this.journal = new StorageJournal(owner.store);
     this.inventory = new StorageInventory(owner);
     this.backups = new WorktreeBackups(owner);
+    this.usageCoordinator = new UsageCoordinator(
+      new UsageCache(owner.store, owner.root),
+      usage.scanner ?? new UsageScanner(owner.root),
+      {
+        now: owner.now,
+        schedule: storageSchedule,
+        activity: sampleUsageActivity,
+        failed: () => {},
+        ...usage.runtime,
+      },
+    );
   }
   private serial<T>(run: () => Promise<T>): Promise<T> {
     if (this.closed || this.queued >= 8) return Promise.reject(new Error("storage_busy"));
@@ -60,27 +81,13 @@ export class StorageService {
       (await this.owner.services.settings?.get("storage.retention", {}))?.value ?? {},
     );
   }
-  usage(): Promise<StorageUsage> {
-    return this.serial(async () => {
-      const { candidates, complete } = await this.inventory.scan(
-        new Set(StorageKind.options),
-        () => !this.closed,
-      );
-      return {
-        categories: StorageKind.options.map((kind) => {
-          const items = candidates.filter((candidate) => candidate.kind === kind);
-          return {
-            kind,
-            bytes: items.reduce((sum, item) => sum + item.bytes, 0),
-            items: items.length,
-          };
-        }),
-        ...(await this.database()),
-        measuredAt: this.owner.now(),
-        complete,
-        backups: this.backups.results(),
-      };
-    });
+  startUsage(): void {
+    this.usageCoordinator.start();
+  }
+  usage(force = false): Promise<StorageUsage> {
+    return this.usageCoordinator
+      .read(force)
+      .then((usage) => ({ ...usage, backups: this.backups.results() }));
   }
   /** File and WAL bytes on disk, plus free pages SQLite could hand back. */
   private async database() {
@@ -113,12 +120,14 @@ export class StorageService {
         checkpointed: false,
       };
       await this.owner.store.write(() => this.journal.saveCompaction(state));
-      await compactStorage(
-        this.owner,
-        this.journal,
-        state,
-        this.limits,
-        () => !this.closed && allowed(),
+      await this.usageCoordinator.mutation(() =>
+        compactStorage(
+          this.owner,
+          this.journal,
+          state,
+          this.limits,
+          () => !this.closed && allowed(),
+        ),
       );
       return this.compaction(state);
     });
@@ -156,12 +165,14 @@ export class StorageService {
         await this.owner.store.write(() => this.journal.saveCompaction(started));
         state = started;
       }
-      await compactStorage(
-        this.owner,
-        this.journal,
-        state,
-        { ...this.limits, maxChunks: Math.min(maxChunks, this.limits.maxChunks) },
-        () => !this.closed && allowed(),
+      await this.usageCoordinator.mutation(() =>
+        compactStorage(
+          this.owner,
+          this.journal,
+          state,
+          { ...this.limits, maxChunks: Math.min(maxChunks, this.limits.maxChunks) },
+          () => !this.closed && allowed(),
+        ),
       );
       return state.state === "running" ? "pending" : "complete";
     });
@@ -422,13 +433,15 @@ export class StorageService {
       configured === undefined
         ? journal.plan.retention
         : { ...journal.plan.retention, worktrees: configured };
-    return applyStorageItems(
-      this.owner,
-      this.inventory,
-      this.journal,
-      journal,
-      () => !this.closed && configured !== null && allowed(),
-      retention,
+    return this.usageCoordinator.mutation(() =>
+      applyStorageItems(
+        this.owner,
+        this.inventory,
+        this.journal,
+        journal,
+        () => !this.closed && configured !== null && allowed(),
+        retention,
+      ),
     );
   }
   /** Automation hook. Host opt-in preauthorizes only the ordinary, non-forced retention policy. */
@@ -459,7 +472,9 @@ export class StorageService {
     const compaction = this.journal.unfinishedCompaction();
     if (compaction?.state === "running" && allowed(compaction.owner))
       await this.serial(() =>
-        compactStorage(this.owner, this.journal, compaction, this.limits, () => !this.closed),
+        this.usageCoordinator.mutation(() =>
+          compactStorage(this.owner, this.journal, compaction, this.limits, () => !this.closed),
+        ),
       );
   }
   async handle(device: string, value: unknown, allowed: () => boolean): Promise<StorageResult> {
@@ -470,7 +485,7 @@ export class StorageService {
       if (!allowed()) throw new Error("storage_forbidden");
       switch (op.op) {
         case "storage.usage":
-          result = { kind: "usage", usage: await this.usage() };
+          result = { kind: "usage", usage: await this.usage(op.force) };
           break;
         case "cleanup.plan":
           result = { kind: "plan", plan: await this.plan(device, op) };
@@ -514,10 +529,14 @@ export class StorageService {
   }
   stop(): void {
     this.closed = true;
+    this.usageCoordinator.stop();
   }
   /** Idempotent: closing the pinned root again could close a descriptor number reused elsewhere. */
   close(): Promise<void> {
     this.stop();
-    return (this.closing ??= this.tail.then(() => this.inventory.files.close()));
+    return (this.closing ??= Promise.all([
+      this.tail.then(() => this.inventory.files.close()),
+      this.usageCoordinator.close(),
+    ]).then(() => {}));
   }
 }
