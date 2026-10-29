@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +21,11 @@ const artifacts = join(markit, "platforms", "ios", "Artifacts");
 const framework = join(artifacts, "MarkitCore.xcframework");
 const stampFile = join(artifacts, ".ace-build");
 
+if (process.platform !== "darwin") {
+  process.stderr.write("markit's iOS core builds on macOS only (Xcode and the iOS SDKs).\n");
+  process.exit(1);
+}
+
 if (!existsSync(join(markit, "Cargo.toml"))) {
   process.stderr.write(
     "packages/markit is empty: run `git submodule update --init --recursive` first.\n",
@@ -28,10 +34,21 @@ if (!existsSync(join(markit, "Cargo.toml"))) {
 }
 
 const git = (...args: string[]) =>
-  execFileSync("git", ["-C", markit, ...args], { encoding: "utf8" });
+  execFileSync("git", ["-C", markit, ...args], { encoding: "utf8", maxBuffer: 256 << 20 });
+// The contents of local edits and new files, not just their names: a second edit to the same
+// file, or a new source file, must rebuild too.
+const edits = createHash("sha256").update(git("diff", "HEAD", "--binary"));
+for (const path of git("ls-files", "--others", "--exclude-standard", "-z").split("\0")) {
+  if (path)
+    edits
+      .update(path)
+      .update("\0")
+      .update(readFileSync(join(markit, path)))
+      .update("\0");
+}
 const stamp = JSON.stringify({
   head: git("rev-parse", "HEAD").trim(),
-  edits: git("status", "--porcelain", "--untracked-files=no"),
+  edits: edits.digest("hex"),
   features: process.env.MARKIT_FEATURES ?? "",
 });
 const built = existsSync(stampFile) ? readFileSync(stampFile, "utf8") : undefined;
