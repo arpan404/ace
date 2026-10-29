@@ -7,7 +7,6 @@ import {
   isActivelyRunning,
   latestChecks,
   offshiftSummary,
-  needsYou,
   queuedInputLine,
   summaryPullRequests,
   turnAgentFiles,
@@ -23,7 +22,6 @@ import {
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
 import { BackgroundList } from "../agents/background-list.tsx";
-import { subagentCounts } from "../agents/subagents.ts";
 import { summaryAgents } from "../agents/summary-agents.ts";
 import type { AgentRowFacts } from "../agents/tree-state.ts";
 import { TreeWorkContext } from "../agents/tree-work-context.ts";
@@ -32,7 +30,6 @@ import { WorkTree } from "../agents/work-tree.tsx";
 import { AgentChanges } from "./agent-changes.tsx";
 import { CatchUp, useShownCatchUp } from "./catch-up.tsx";
 import { Checks } from "./checks.tsx";
-import { NeedsYouList } from "./needs-you.tsx";
 import { OffshiftRun } from "./offshift-run.tsx";
 import { PullRequests } from "./pull-requests.tsx";
 import { FoldedSection, Section } from "./summary-section.tsx";
@@ -47,11 +44,13 @@ const noNodes: readonly AgentTreeNode[] = [];
 
 /**
  * The thread at a glance, only what is there, top to bottom: its state in one line and its work
- * in figures, what needs the person, what still works, its pull requests, the agents that are
+ * in figures, what still works, its pull requests, the agents that are
  * done (folded), the latest turn's outcome, its plan, changes by agent, checks, and what happened
- * while the person was away. Each agent is one row in its latest state: a run a daemon restart
- * stopped and the agent then resumed past is its history, never a failure. Everything reads
- * bounded facts: the live entities and the turn index's digests, never the thread's history.
+ * while the person was away. A request that needs the person reads in the status line and on its
+ * agent's row; answering it happens on its card in the composer. Each agent is one row in its
+ * latest state: a run a daemon restart stopped and the agent then resumed past is its history,
+ * never a failure. Everything reads bounded facts: the live entities and the turn index's
+ * digests, never the thread's history.
  */
 export default function WorkTab(props: TabViewProps) {
   const thread = useThreadMeta(props.scope);
@@ -68,11 +67,6 @@ export default function WorkTab(props: TabViewProps) {
     thread?.workspaceId ?? "",
     thread?.details?.workspace?.path,
   );
-  const needs = useMemo(
-    () => needsYou(facts.agents, facts.interactions),
-    [facts.agents, facts.interactions],
-  );
-  const subagents = useMemo(() => subagentCounts(tree), [tree]);
   const status = thread?.status;
   const live = thread?.live;
   // The run is shown against the whole tree, so it never reads Done while anything still runs.
@@ -157,7 +151,6 @@ export default function WorkTab(props: TabViewProps) {
   });
   const background = tasks.length > 0 || queued !== undefined;
   const shown = summarySections({
-    needsYou: needs.length,
     offshift: run !== undefined && !run.done,
     turn: turn !== undefined,
     plans,
@@ -186,11 +179,6 @@ export default function WorkTab(props: TabViewProps) {
         <StatusLine thread={thread} running={counts.running} turn={turn} />
         <StatsStrip prs={prs} agents={counts.agents} live={counts.live} />
       </div>
-      {shown.needsYou && (
-        <Section name="Needs you" labelled={shown.labelled}>
-          <NeedsYouList threadId={props.scope} items={needs} subagents={subagents} />
-        </Section>
-      )}
       {shown.offshift && run && (
         <Section name="Offshift" labelled={shown.labelled}>
           <OffshiftRun run={run} />

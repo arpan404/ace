@@ -143,8 +143,8 @@ test("a failed child opens its own work without leaking its raw error into the t
   const fixture = workCardScenario("failed");
   app.play(fixture).runUntilBlocked();
   const work = await openWork(app, fixture.thread.id);
-  // Needs you says why it failed; the tree only says that it did. The settled child
-  // folds into Done, so open the fold first as the person would.
+  // The tree only says that it failed, not why: opening the row shows the error. The settled
+  // child folds into Done, so open the fold first as the person would.
   const tree = await within(work).findByRole("tree", { name: "Agent tree" });
   expect(within(tree).queryByText("The test command failed. Check its output.")).toBeNull();
   const done = await openDoneAgents(work);

@@ -231,6 +231,17 @@ function shellTitle(title: string): string {
   return inner ? `Run ${inner}` : title;
 }
 
+/**
+ * A title-only approval still names its shell command ("Run bun install"): read it back out,
+ * so lists can show what it acts on. Tool approvals name their own action ("Run a script on
+ * {site}") and never go through here.
+ */
+export function commandFromTitle(title: string): string | undefined {
+  const run = /^Run (.+?)\??$/.exec(title.trim());
+  const inner = run?.[1]?.trim();
+  return inner ? inner : undefined;
+}
+
 /** A shell request's heading: its block shows the command, so the heading doesn't repeat it. */
 function heading(title: string, command: string | undefined): string {
   return command && title.includes(command) ? "Run this command?" : title;

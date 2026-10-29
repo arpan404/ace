@@ -4,6 +4,7 @@ import {
   formatCount,
   formatSpan,
   optionEffort,
+  pluralCount,
   providerNames,
   threadStatusLabel,
   threadStatusMark,
@@ -11,7 +12,6 @@ import {
 import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { threadGlyph } from "@ace/ui-core";
-import { hairlineGrid } from "@/components/ui/rules.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useNow } from "@/lib/time.ts";
 import { agentModelLine } from "../agents/agent-details.ts";
@@ -99,16 +99,10 @@ export function StatusLine(props: {
   );
 }
 
-/** One figure of the stats strip. */
-interface Stat {
-  label: string;
-  value: string;
-  sub?: string | undefined;
-}
-
 /**
- * The thread's work in figures: pull requests merged and in review, agents (total and live).
- * Only figures with something to count show; with none, there is no strip.
+ * The thread's work in figures, one quiet line under the status: pull requests merged and in
+ * review, agents (total and live). Only figures with something to count show, always in the same
+ * order, so live updates change numbers in place instead of reflowing a grid.
  */
 export function StatsStrip(props: {
   prs: readonly LinkedPullRequest[];
@@ -117,45 +111,18 @@ export function StatsStrip(props: {
 }) {
   const merged = props.prs.filter((pr) => pr.state === "merged").length;
   const open = props.prs.filter((pr) => pr.state === "open" || pr.state === "draft").length;
-  const stats: Stat[] = [];
-  if (merged) stats.push({ label: "PRs merged", value: formatCount(merged) });
-  if (open) stats.push({ label: "In review", value: formatCount(open) });
+  const figures: string[] = [];
+  if (merged) figures.push(`${pluralCount(merged, "PR")} merged`);
+  if (open) figures.push(`${pluralCount(open, "PR")} in review`);
   if (props.agents)
-    stats.push({
-      label: "Agents",
-      value: formatCount(props.agents),
-      sub: props.live ? `${formatCount(props.live)} live` : undefined,
-    });
-  if (stats.length < 2) return null;
+    figures.push(
+      `${pluralCount(props.agents, "agent")}${props.live ? ` (${formatCount(props.live)} live)` : ""}`,
+    );
+  if (!figures.length) return null;
+  const line = figures.join(" · ");
   return (
-    <div className="@container px-1">
-      <dl
-        aria-label="Thread figures"
-        className={`${hairlineGrid} overflow-hidden rounded-md border border-border-soft ${columns[stats.length] ?? ""}`}
-      >
-        {stats.map((stat) => (
-          <div key={stat.label} className="flex min-w-0 flex-col gap-0.5 bg-panel px-2.5 py-2">
-            <dt className="truncate text-xs text-muted-foreground">{stat.label}</dt>
-            <dd className="flex min-w-0 items-baseline gap-1.5">
-              <span className="text-base font-medium text-foreground tabular-nums">
-                {stat.value}
-              </span>
-              {stat.sub && (
-                <span className="truncate text-xs text-subtle-foreground tabular-nums">
-                  {stat.sub}
-                </span>
-              )}
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </div>
+    <p aria-label="Thread figures" className="px-2 text-xs text-muted-foreground tabular-nums">
+      {line}
+    </p>
   );
 }
-
-/** Up to three figures sit in one row; four take two rows below 520px. */
-const columns: Record<number, string> = {
-  2: "grid-cols-2",
-  3: "grid-cols-3",
-  4: "grid-cols-2 @[520px]:grid-cols-4",
-};
