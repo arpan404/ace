@@ -28,15 +28,29 @@ test("the packaged usage scanner measures data without source files or changing 
       `import { UsageScanner } from ${JSON.stringify(source)};
 const scanner = new UsageScanner(${JSON.stringify(data)});
 try { console.log(JSON.stringify(await scanner.scan())); }
+catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }
 finally { await scanner.close(); }
 `,
     );
     await bundleDaemon(resolve(import.meta.dirname, "../../.."), root, "", undefined, entry);
     await rm(entry);
-    const result = await promisify(execFile)(process.execPath, [join(root, "ace.mjs")], {
-      cwd: root,
-      timeout: 30_000,
-      maxBuffer: 65_536,
+    const result = await promisify(execFile)(
+      process.execPath,
+      ["--no-extra-info-on-fatal-exception", join(root, "ace.mjs")],
+      {
+        cwd: root,
+        timeout: 30_000,
+        maxBuffer: 65_536,
+      },
+    ).catch((cause: unknown) => {
+      if (cause instanceof Error && "stderr" in cause && typeof cause.stderr === "string")
+        throw new Error(
+          cause.stderr
+            .split("\n")
+            .filter((line) => line.length < 1000)
+            .join("\n"),
+        );
+      throw cause;
     });
     const usage = StorageUsage.parse(JSON.parse(result.stdout.trim()));
     expect(usage.categories.find((category) => category.kind === "logs")).toEqual({

@@ -207,8 +207,6 @@ export async function bundleDaemon(
   const workspaceIncluded = [...inputs].some((input) =>
     input.endsWith("packages/workspace/src/descriptor.ts"),
   );
-  if (workspaceIncluded)
-    await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   if ([...inputs].some((input) => input.endsWith("packages/terminal/src/pty.ts")))
     stageTerminalGuardian(repo, root, target);
   const helpers = [
@@ -259,6 +257,10 @@ export async function bundleDaemon(
     for (const input of Object.keys(helper.metafile.inputs)) inputs.add(input);
     scripts.push(...Object.keys(helper.metafile.outputs));
   }
+  // A worker can be the only consumer of pinned filesystem access. Its native dependency
+  // becomes visible only after helper builds have contributed their inputs.
+  if ([...inputs].some((input) => input.endsWith("packages/workspace/src/descriptor.ts")))
+    await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   // esbuild reports output paths relative to the working directory.
   await assertAsciiScripts(scripts.map((path) => resolve(path)));
   return [...inputs];
