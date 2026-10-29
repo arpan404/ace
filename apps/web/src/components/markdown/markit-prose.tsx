@@ -27,6 +27,7 @@ import { cn } from "@/lib/cn.ts";
 import { prefersReducedMotion } from "@/lib/motion.ts";
 import { updateInterval } from "./cadence.ts";
 import { blockRhythm } from "./rhythm.ts";
+import { renderMermaid } from "./mermaid-render.ts";
 import { StreamPace } from "./stream-pace.ts";
 
 /**
@@ -98,6 +99,18 @@ async function pageImage(url: string, signal: AbortSignal): Promise<Blob | null>
   }
 }
 
+/**
+ * Agent prose draws footnotes, alerts, the safe HTML subset (`<details>`, `<kbd>`…), task lists
+ * and mermaid diagrams as GitHub does, but `@name`, `#12` and commit hashes stay text: an
+ * answer has no repository to point them at.
+ */
+const proseFlavor = "agent";
+/** The scheme the theme provider put on the page, for a diagram drawn now. */
+const pageScheme = (): "light" | "dark" =>
+  document.documentElement.dataset.scheme === "dark" ? "dark" : "light";
+/** DESIGN.md code blocks: line numbers from 10 lines, folded to 20 past 22. */
+const codeChrome = { lineNumbersFrom: 10, collapseAfter: 20 };
+
 /** Applied renders sampled for tools/web-perf, mirroring the old markdown service's samples. */
 const perfSamples = (): Array<{ stream: string; chars: number; ms: number }> | undefined => {
   const perf: unknown = Reflect.get(globalThis, "acePerf");
@@ -120,9 +133,13 @@ function MarkitView(props: {
   const [drawn, setDrawn] = useState(false);
   const markit = useMarkit({
     workerURL: markitWorkerPath(),
+    flavor: proseFlavor,
+    code: codeChrome,
     onLink: props.callbacks.onLink,
     onReference: props.callbacks.onReference,
     resolveImage: props.callbacks.resolveImage,
+    renderDiagram: (language: string, source: string) =>
+      language === "mermaid" ? renderMermaid(source, pageScheme()) : null,
     onRender: () => setDrawn(true),
   });
   const { markdown, finalized, stream } = props;

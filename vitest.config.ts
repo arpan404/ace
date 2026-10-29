@@ -16,6 +16,7 @@ const browserStartupSuites = [
   "tools/web-perf/src/search-jump.process.test.ts",
   "tools/web-perf/src/live-motion.process.test.ts",
   "tools/web-perf/src/markit-policy.process.test.ts",
+  "tools/web-perf/src/markit-prose-look.process.test.ts",
   "tools/web-perf/src/visualization-width.process.test.ts",
 ];
 const historyScaleSuite = "packages/history-import/src/scale.process.test.ts";
