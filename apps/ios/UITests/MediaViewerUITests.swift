@@ -25,6 +25,34 @@ import XCTest
         screenshot("composer-separate-add-menu")
     }
 
+    func testExpandedComposerControlsStayInsideTheFieldWithLargeText() {
+        let app = launchIntoThread(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let field = app.otherElements["composer.surface"].firstMatch
+        let add = app.buttons["composer.attach"]
+        app.textViews["composer.input"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        let send = app.buttons["composer.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(add.frame.maxX, field.frame.minX)
+        for identifier in ["composer.access", "composer.model", "composer.effort", "composer.settings", "composer.send"] {
+            let button = app.buttons[identifier]
+            if button.exists {
+                XCTAssertGreaterThanOrEqual(button.frame.minX, field.frame.minX, identifier)
+                XCTAssertLessThanOrEqual(button.frame.maxX, field.frame.maxX, identifier)
+                if identifier != "composer.send" {
+                    XCTAssertLessThanOrEqual(button.frame.maxX, send.frame.minX, identifier)
+                }
+            }
+        }
+        screenshot("composer-large-text-fit")
+        let settings = app.buttons["composer.settings"]
+        if settings.exists {
+            XCTAssertTrue(settings.isHittable)
+            settings.tap()
+            XCTAssertTrue(app.buttons["composer.settings.model"].waitForExistence(timeout: 10))
+        }
+    }
+
     func testTheAddMenuClosesCleanlyAndCanBeOpenedAgain() {
         let app = launchIntoThread()
         let add = app.buttons["composer.attach"]
@@ -156,9 +184,9 @@ import XCTest
         }
     }
 
-    private func launchIntoThread() -> XCUIApplication {
+    private func launchIntoThread(extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-open", "ios-attachments"]
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-open", "ios-attachments"] + extra
         app.launch()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 25))
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")

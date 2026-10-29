@@ -1,5 +1,6 @@
 import Testing
 import SwiftUI
+import UIKit
 @testable import Ace
 
 @Suite struct ThreadDrawerTests {
@@ -170,5 +171,39 @@ import SwiftUI
         hold.begin(from: 0, full: 1.25)
         hold.move(322 * 1.2, width: 322)
         #expect(hold.release(velocity: 0) == .full)
+    }
+    @MainActor @Test func resizingDropsCompensationWhenTheInheritedInsetDisappears() {
+        let host = UIViewController()
+        let view = ChangingInsetView()
+        view.owner = host
+        host.view = view
+        let navigation = UINavigationController(rootViewController: host)
+        navigation.setNavigationBarHidden(true, animated: false)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 700))
+        window.rootViewController = navigation
+        window.isHidden = false
+        window.layoutIfNeeded()
+        let probe = DrawerViewport.Probe()
+        host.addChild(probe)
+        host.view.addSubview(probe.view)
+        probe.didMove(toParent: host)
+        probe.apply()
+        #expect(host.additionalSafeAreaInsets.left < 0)
+        view.inheritedLeft = 0
+        host.view.frame.origin.x += 1
+        probe.apply()
+        #expect(abs(host.additionalSafeAreaInsets.left) < 0.5)
+        probe.restore()
+        window.isHidden = true
+    }
+
+}
+
+
+@MainActor private final class ChangingInsetView: UIView {
+    weak var owner: UIViewController?
+    var inheritedLeft: CGFloat = 40
+    override var safeAreaInsets: UIEdgeInsets {
+        UIEdgeInsets(top: 0, left: max(0, inheritedLeft + (owner?.additionalSafeAreaInsets.left ?? 0)), bottom: 0, right: 0)
     }
 }

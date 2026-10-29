@@ -69,3 +69,38 @@ The unfolded Duo composer test also passed with the keyboard shown: the separate
 remains left of the message field, meets the touch-target size, and opens the file/photo menu.
 The corresponding full-screen attachment is black on this multi-display simulator; this is
 accessibility/frame-test evidence, not a visual sign-off of the inner display.
+
+## Follow-up: stale inset after resizing
+
+The original incremental correction could retain a negative horizontal additional inset after
+its inherited inset disappeared. UIKit clamps the effective safe area to zero, so comparing
+that value to the desired zero cannot detect the leftover compensation. A focused UIKit
+boundary test reproduced a retained −40-point left inset after a geometry change.
+
+The probe now removes only its own previous correction, measures the inherited safe area
+again, and applies a fresh correction when local geometry or window insets change. Unchanged
+geometry does no work. Application and restoration guard against reentrant layout callbacks.
+
+The new regression failed before the fix and passed afterwards. The complete native drawer
+suite passed all 16 tests. Three Duo UI tests passed for repeated transitions, thread/search
+row edges, and resize cycles with OCR checks of the visible heading and its distance from
+the screen edge. A manual fold/unfold fixture check also passed, but rotation and folding
+alone did not reliably reproduce the user's exact left-clipped screenshot. This patch fixes
+the demonstrated stale-inset mechanism; it does not claim every reported Duo issue is solved.
+Temporary geometry logging was removed. The existing full repository test failures documented
+above remain outside this Swift-only follow-up.
+
+## Composer controls after separating the add button
+
+The expanded composer formerly forced access, model and effort labels into one row even when
+the separate add button left too little width. The controls could draw outside the card and
+overlap add. It now measures full labels, then icon-only access, and finally falls back to the
+existing model/access settings button. Send/Stop reserves its own width outside that fitting
+area. Model and effort labels can truncate instead of imposing an unshrinkable width.
+
+The first-message composer also adapts access to its icon and reserves Start's width. Its
+surface is identified for bounds checks. Duo UI tests passed for both composers at the largest
+accessibility text size with controls inside the surface and before Send/Start; the narrow
+follow-up's settings button was tapped and its model row appeared. The existing separate-add
+keyboard/menu test passed too. The initial first-message test used an old tab-bar-only lookup
+and failed before opening the composer; it now finds Duo's actual New thread action.

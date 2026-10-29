@@ -34,7 +34,7 @@ struct ModelEffortChip: View {
                     if let provider, !provider.isEmpty { ProviderMark(provider: provider, size: 14) }
                     if loading { ProgressView().controlSize(.mini) }
                     Text(model).lineLimit(1).truncationMode(.tail)
-                        .frame(maxWidth: AceTheme.Spacing.xxxl * 3, alignment: .leading).fixedSize()
+                        .frame(maxWidth: AceTheme.Spacing.xxxl * 3, alignment: .leading)
                     caret
                 }
                 .padding(.horizontal, AceTheme.Spacing.sm)
@@ -47,7 +47,7 @@ struct ModelEffortChip: View {
             if let effort {
                 Button(action: openEffort) {
                     HStack(spacing: AceTheme.Spacing.xs) {
-                        Text(effort).lineLimit(1).fixedSize()
+                        Text(effort).lineLimit(1).truncationMode(.tail)
                         caret
                     }
                     .padding(.horizontal, AceTheme.Spacing.sm)
