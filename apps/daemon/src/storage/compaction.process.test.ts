@@ -230,12 +230,22 @@ test("a file created without incremental vacuum is reported and left untouched, 
   if (!connection) throw new Error("Missing connection");
   await purge(f);
   const usage = await f.storage.usage();
-  const { storage_compactions: _before, ...before } = implicitRowids(connection);
+  // Compaction updates its journal and invalidates usage bookkeeping. Every other
+  // table, including its implicit rowids and payload data, must remain identical.
+  const {
+    storage_compactions: _before,
+    storage_usage_cache: _usageBefore,
+    ...before
+  } = implicitRowids(connection);
   const compaction = await f.storage.compact("owner");
   expect(compaction).toMatchObject({ state: "complete", incrementalUnavailable: true });
   expect(compaction.reclaimableDatabaseBytes).toBe(usage.reclaimableDatabaseBytes);
   expect(f.store.statement("PRAGMA auto_vacuum").get()?.auto_vacuum).toBe(0);
-  const { storage_compactions: _after, ...after } = implicitRowids(connection);
+  const {
+    storage_compactions: _after,
+    storage_usage_cache: _usageAfter,
+    ...after
+  } = implicitRowids(connection);
   expect(before.rowid_probe).toBeDefined();
   expect(after).toEqual(before);
   expect(integrity(join(root, "events.sqlite"))).toBe("ok");
