@@ -5,11 +5,32 @@ on:
     paths:
       - "apps/ios/**"
       - "packages/markit"
+      - "packages/ui-core/**"
+      - "packages/client/**"
+      - "packages/protocol/**"
+      - "packages/themes/**"
+      - "packages/settings/**"
+      - "packages/design-tokens/**"
+      - "packages/html/**"
+      - "packages/fake-daemon/**"
+      - "bun.lock"
+      - "package.json"
       - ".github/workflows/ios.yml"
   push:
+    branches: [main]
     paths:
       - "apps/ios/**"
       - "packages/markit"
+      - "packages/ui-core/**"
+      - "packages/client/**"
+      - "packages/protocol/**"
+      - "packages/themes/**"
+      - "packages/settings/**"
+      - "packages/design-tokens/**"
+      - "packages/html/**"
+      - "packages/fake-daemon/**"
+      - "bun.lock"
+      - "package.json"
       - ".github/workflows/ios.yml"
   workflow_dispatch:
 
@@ -31,7 +52,8 @@ jobs:
         with:
           submodules: recursive
 
-      # The app uses the iOS 27 SDK (`TabRole.prominent`): build with the newest Xcode installed.
+      # Build with the newest Xcode installed (GitHub's runners have Xcode 26.x; the app also
+      # builds with the iOS 27 SDK locally, where `TabRole.prominent` exists).
       - name: Select the newest Xcode
         run: |
           ls -d /Applications/Xcode*.app
@@ -94,15 +116,19 @@ jobs:
       - name: Pick an iPhone simulator
         id: simulator
         run: |
-          udid=$(xcrun simctl list devices available -j | python3 -c '
-          import json, re, sys
+          # An iPhone on the runtime matching the SDK the app builds with, else the newest.
+          sdk=$(xcrun --sdk iphonesimulator --show-sdk-version)
+          udid=$(xcrun simctl list devices available -j | SDK="$sdk" python3 -c '
+          import json, os, re, sys
           devices = json.load(sys.stdin)["devices"]
+          sdk = tuple(int(part) for part in os.environ["SDK"].split(".")[:2])
           def version(runtime):
               found = re.search(r"iOS-(\d+)-(\d+)", runtime)
               return tuple(int(part) for part in found.groups()) if found else (0, 0)
           phones = [(version(runtime), device["udid"]) for runtime, listed in devices.items() if "iOS" in runtime
                     for device in listed if device["name"].startswith("iPhone")]
-          print(max(phones)[1])
+          matching = [phone for phone in phones if phone[0] == sdk]
+          print(max(matching or phones)[1])
           ')
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
           xcrun simctl boot "$udid" || true
@@ -136,18 +162,19 @@ jobs:
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
             -derivedDataPath .build/DerivedData -only-testing:AceTests -parallel-testing-enabled NO \
             -resultBundlePath .build/AceTests.xcresult > .build/test.log 2>&1 \
-            && { grep -E "Test run with|Executed [0-9]+ tests" .build/test.log; exit 0; }
+            && { grep -E "Test run with|Executed [0-9]+ tests" .build/test.log || true; exit 0; }
           grep -E "error:|✘|failed|Fatal|crash" .build/test.log | head -200
           tail -60 .build/test.log
           exit 1
 
-      - name: Upload logs
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - name: Upload logs and test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
         with:
           name: ios-logs
           path: |
             apps/ios/.build/build.log
             apps/ios/.build/spike.log
             apps/ios/.build/test.log
+            apps/ios/.build/AceTests.xcresult
           if-no-files-found: ignore
