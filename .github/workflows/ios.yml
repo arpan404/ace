@@ -1,0 +1,143 @@
+name: iOS
+
+on:
+  pull_request:
+    paths:
+      - "apps/ios/**"
+      - "packages/markit"
+      - ".github/workflows/ios.yml"
+  push:
+    paths:
+      - "apps/ios/**"
+      - "packages/markit"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Build and unit tests (simulator)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Read required Node major
+        id: node
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const { engines } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const major = engines.node.match(/\d+/)[0];
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${major}.x\n`);
+          NODE
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+          package-manager-cache: false
+
+      - name: Install Bun
+        id: bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Cache Bun installs
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-
+
+      - name: Rust for markit's iOS core
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
+
+      - name: Cache markit's Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/markit
+
+      # The root postinstall builds native and Wasm parts the iOS app never uses.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the project (theme, bridge bundle, markit core, Xcode project)
+        run: bun run --cwd apps/ios generate
+
+      - name: Pick an iPhone simulator
+        id: simulator
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, re, sys
+          devices = json.load(sys.stdin)["devices"]
+          def version(runtime):
+              found = re.search(r"iOS-(\d+)-(\d+)", runtime)
+              return tuple(int(part) for part in found.groups()) if found else (0, 0)
+          phones = [(version(runtime), device["udid"]) for runtime, listed in devices.items() if "iOS" in runtime
+                    for device in listed if device["name"].startswith("iPhone")]
+          print(max(phones)[1])
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+
+      - name: Build for testing
+        working-directory: apps/ios
+        run: |
+          xcodebuild build-for-testing -project Ace.xcodeproj -scheme Ace -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -derivedDataPath .build/DerivedData > .build/build.log 2>&1 \
+            || { grep -E "error:" .build/build.log | sort -u | head -150; tail -40 .build/build.log; exit 1; }
+          tail -5 .build/build.log
+
+      # Bridge contract tests talk to the loopback fixture; it spends no provider quota.
+      - name: Start the fixture daemon
+        working-directory: apps/ios
+        run: |
+          nohup bun run spike:daemon > .build/spike.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf http://127.0.0.1:9841/health > /dev/null && exit 0
+            sleep 1
+          done
+          cat .build/spike.log
+          exit 1
+
+      - name: Unit tests
+        working-directory: apps/ios
+        run: |
+          xcodebuild test-without-building -project Ace.xcodeproj -scheme Ace -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -derivedDataPath .build/DerivedData -only-testing:AceTests -parallel-testing-enabled NO \
+            -resultBundlePath .build/AceTests.xcresult > .build/test.log 2>&1 \
+            && { grep -E "Test run with|Executed [0-9]+ tests" .build/test.log; exit 0; }
+          grep -E "error:|✘|failed|Fatal|crash" .build/test.log | head -200
+          tail -60 .build/test.log
+          exit 1
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-logs
+          path: |
+            apps/ios/.build/build.log
+            apps/ios/.build/spike.log
+            apps/ios/.build/test.log
+          if-no-files-found: ignore
