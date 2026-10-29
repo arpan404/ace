@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode, UIEvent } from "react";
 import { PausedNotice } from "@/components/paused-notice.tsx";
 import { SandboxNotice } from "./sandbox-notice.tsx";
@@ -28,11 +28,17 @@ export function Screen(
   },
 ) {
   const [scrolled, setScrolled] = useState(false);
+  const shown = useRef(false);
   const pane = useToastAnchor();
-  // Any scroller inside the content draws the header hairline once it leaves the top.
+  // Any scroller inside the content draws the header hairline once it leaves the top. A
+  // transcript following a streaming answer scrolls every update: only a change re-renders.
   const onScroll = (event: UIEvent) => {
     const target = event.target;
-    if (target instanceof HTMLElement) setScrolled(target.scrollTop > 0);
+    if (!(target instanceof HTMLElement)) return;
+    const next = target.scrollTop > 0;
+    if (next === shown.current) return;
+    shown.current = next;
+    setScrolled(next);
   };
   const main = (
     <main

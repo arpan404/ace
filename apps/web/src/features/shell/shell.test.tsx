@@ -1,11 +1,13 @@
 import { openProfileView } from "@/test/navigation.ts";
 import { failingSubagent, longHistory } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 const title = (name: string) => screen.findByRole("heading", { level: 1, name });
+/** Whether the header draws the hairline it shows once the content leaves the top. */
+const hairline = () => screen.getByRole("banner").className.includes("var(--border)");
 const threadList = () => screen.queryByRole("complementary", { name: "Threads" });
 /** A button in the header, where back, forward and the sidebar toggle sit. */
 const inHeader = (name: string) =>
@@ -131,4 +133,22 @@ test("⌘K finds a thread by title and opens it", async () => {
   await userEvent.keyboard("{Enter}");
   await title("Migrate settings schema");
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull());
+});
+
+test("the header draws its hairline while the content is scrolled and drops it back at the top", async () => {
+  await harness().open("/settings");
+  await title("Settings");
+  const scroller = document.getElementById("main")?.firstElementChild;
+  if (!(scroller instanceof HTMLElement)) throw new Error("Expected a scroller in the content");
+  expect(hairline()).toBe(false);
+  scroller.scrollTop = 40;
+  fireEvent.scroll(scroller);
+  await waitFor(() => expect(hairline()).toBe(true));
+  // A following scroll (a streaming transcript keeps scrolling) keeps it drawn.
+  scroller.scrollTop = 80;
+  fireEvent.scroll(scroller);
+  expect(hairline()).toBe(true);
+  scroller.scrollTop = 0;
+  fireEvent.scroll(scroller);
+  await waitFor(() => expect(hairline()).toBe(false));
 });

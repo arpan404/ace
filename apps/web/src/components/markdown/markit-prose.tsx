@@ -12,11 +12,14 @@ import "./markit-ace.css";
 import { checkoutLinkPath, localLinkPath, normalizedPath } from "@ace/ui-core/file-references";
 import { contentHash, isCheckoutPath, readAceLink } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { PullRequestOpener, pullRequestAt, useOpenWebAddress } from "../web-link.tsx";
 import { fileTab, pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { cn } from "@/lib/cn.ts";
+import { prefersReducedMotion } from "@/lib/motion.ts";
+import { updateInterval } from "./cadence.ts";
 import { blockRhythm } from "./rhythm.ts";
+import { StreamPace } from "./stream-pace.ts";
 
 /**
  * Agent prose rendered by markit (Rust + Wasm): CommonMark, tables, tasks, code fences with
@@ -111,17 +114,42 @@ function MarkitView(props: {
     resolveImage: props.callbacks.resolveImage,
   });
   const { markdown, finalized, stream } = props;
+  // A streaming message reaches markit 10 to 20 times a second, like the previous renderer
+  // (`cadence.ts`): each update can grow the row, which re-measures and re-follows the transcript.
+  const pace = useRef<StreamPace | undefined>(undefined);
+  const sampled = useRef(stream);
   useEffect(() => {
-    const started = performance.now();
-    let live = true;
-    void markit.render(markdown, { finalized }).then((patch) => {
-      if (!live || patch.superseded || import.meta.env.MODE !== "perf") return;
-      perfSamples()?.push({ stream, chars: markdown.length, ms: performance.now() - started });
+    sampled.current = stream;
+  }, [stream]);
+  useEffect(() => {
+    const paced = new StreamPace({
+      now: () => performance.now(),
+      schedule(delayMs, run) {
+        const timer = setTimeout(run, delayMs);
+        return () => clearTimeout(timer);
+      },
+      interval: (lastMs) => updateInterval(lastMs, prefersReducedMotion()),
+      send(text, done) {
+        const started = performance.now();
+        return markit.render(text, { finalized: done }).then((patch) => {
+          if (patch.superseded || import.meta.env.MODE !== "perf") return;
+          perfSamples()?.push({
+            stream: sampled.current,
+            chars: text.length,
+            ms: performance.now() - started,
+          });
+        });
+      },
     });
+    pace.current = paced;
     return () => {
-      live = false;
+      paced.dispose();
+      if (pace.current === paced) pace.current = undefined;
     };
-  }, [markit, markdown, finalized, stream]);
+  }, [markit]);
+  useEffect(() => {
+    pace.current?.push(markdown, finalized);
+  }, [markdown, finalized]);
   // The controller is stable; its ref callback attaches the renderer to this element.
   const attach = useCallback((element: HTMLElement | null) => markit.ref(element), [markit]);
   return (

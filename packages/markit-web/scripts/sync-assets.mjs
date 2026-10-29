@@ -54,8 +54,11 @@ if (!existsSync(wasm) || built !== stamp) {
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
-// Only the worker loads from /markit; the renderer, its styles and helpers are bundled by Vite.
-cpSync(join(web, "worker.js"), join(out, "worker.js"));
+// Only the worker loads from /markit (with the render core it shares with the in-process engine,
+// in markit versions that have one); the renderer, its styles and helpers are bundled by Vite.
+for (const file of ["worker.js", "render-core.js"]) {
+  if (existsSync(join(web, file))) cpSync(join(web, file), join(out, file));
+}
 cpSync(join(web, "pkg"), join(out, "pkg"), {
   recursive: true,
   filter: (source) => !source.endsWith(".ace-build"),
