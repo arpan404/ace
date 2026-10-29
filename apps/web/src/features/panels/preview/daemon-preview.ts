@@ -147,6 +147,21 @@ function reached(result: unknown, fallback: string): string {
     : fallback;
 }
 
+/**
+ * Addresses that load again on another engine: plain HTTP(S) URLs without credentials, the
+ * same rule a navigation enforces. Blank tabs, start pages and anything else stay behind
+ * instead of failing the move.
+ */
+function reloadable(url: unknown): url is string {
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return false;
+  try {
+    const parsed = new URL(url);
+    return !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
 interface Watch {
   generation: number;
   count: number;
@@ -387,6 +402,15 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     return reply.result;
   };
   const annotate = daemonAnnotate(client, request);
+  const privatize = async (thread: string, tabId: string, value: boolean) => {
+    const reply = await request({
+      type: "browser.tabs.private",
+      threadId: ThreadId.parse(thread),
+      tabId,
+      private: value,
+    });
+    if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+  };
   stops.push(annotate.dispose);
   const previews = async (
     threadId: string,
@@ -807,6 +831,146 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         changed(threadId);
       }
       await call("browser.close", threadId);
+    },
+    /**
+     * Move the thread's browser to another engine: the choice is kept for the thread (a
+     * thread-layer `browser.backend`), then the browser closes and opens again, and every
+     * tab loads its address again on the new engine with the shown one still shown. A tab
+     * agents were kept out of stays that way. Anything already on the engine is left alone.
+     */
+    async switchEngine(threadId, engine, workspaceId) {
+      if (disposed) throw new Error("preview_disposed");
+      const thread = ThreadId.parse(threadId);
+      const before = views.get(threadId);
+      const maybeOpen = before !== undefined && !before.closed;
+      // The choice is kept first, so every open from here uses the new engine.
+      const set = await request({
+        type: "settings.set",
+        key: "browser.backend",
+        value: engine,
+        layer: { kind: "thread", threadId: thread },
+      });
+      if (!set.ok)
+        throw new Error(set.diagnostics[0]?.message ?? "Couldn't switch the browser engine");
+      // Without a browser the choice waits for the next open; there is nothing to reload.
+      if (!maybeOpen) return { activeTabId: undefined };
+      // A fresh snapshot: `open` returns the live session untouched when one exists, so the
+      // tabs and the shown tab never come from a lagging cache.
+      const snap = await request(
+        {
+          type: "browser.open",
+          options: {
+            threadId: thread,
+            workspaceId: WorkspaceId.parse(workspaceId),
+          },
+        },
+        { timeoutMs: openTimeoutMs },
+      );
+      if (!snap.ok) throw new Error(snap.error ?? "browser_failed");
+      const snapshot = BrowserState.safeParse(snap.result);
+      if (!snapshot.success || snapshot.data.closed) throw new Error("browser_failed");
+      if (snapshot.data.backend === engine) return { activeTabId: snapshot.data.activeTabId };
+      const live = view(snapshot.data);
+      const prior = live.tabs ?? [];
+      const activeTabId = live.activeTabId;
+      // Only plain HTTP(S) addresses load again: blank tabs, start pages and anything else
+      // the engine can't navigate simply stay behind, instead of failing the whole move.
+      const restores = prior.filter((tab): tab is typeof tab & { url: string } =>
+        reloadable(tab.url),
+      );
+      const activeUrl = prior.find((tab) => tab.tabId === activeTabId)?.url;
+      await call("browser.close", threadId);
+      const reply = await request(
+        {
+          type: "browser.open",
+          options: {
+            threadId: thread,
+            workspaceId: WorkspaceId.parse(workspaceId),
+          },
+        },
+        { timeoutMs: openTimeoutMs },
+      );
+      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+      const state = BrowserState.safeParse(reply.result);
+      const watch = watches.get(threadId);
+      if (watch) {
+        if (state.success) {
+          views.set(threadId, view(state.data));
+          changed(threadId);
+        }
+        watch.cancel?.();
+        poll(threadId);
+      }
+      const fresh = state.success ? view(state.data) : undefined;
+      const tabsNow = fresh?.tabs ?? [];
+      const [freshTab] = tabsNow;
+      const blank =
+        tabsNow.length === 1 && freshTab && (freshTab.url === "about:blank" || freshTab.url === "")
+          ? freshTab.tabId
+          : undefined;
+      const created: { url: string; tabId: string }[] = [];
+      const failed: { url: string; reason: string }[] = [];
+      // One tab's page failing (a refused origin, a dead server) skips that tab, never the
+      // move: the rest still reload, and the summary names what didn't.
+      const create = async (url: string, place: () => Promise<string>, keepOut: boolean) => {
+        try {
+          const tabId = await place();
+          try {
+            if (keepOut) await privatize(threadId, tabId, true);
+          } catch (error) {
+            failed.push({
+              url,
+              reason: error instanceof Error ? error.message : String(error),
+            });
+          }
+          created.push({ url, tabId });
+        } catch (error) {
+          failed.push({ url, reason: error instanceof Error ? error.message : String(error) });
+        }
+      };
+      const [head, ...tail] = restores;
+      // A fresh browser's only tab is still blank: the first address goes there instead of
+      // beside it, as when the person opens a tab themselves.
+      const queue = head && blank ? tail : restores;
+      if (head && blank) {
+        await create(
+          head.url,
+          async () => {
+            await execute(
+              threadId,
+              { action: "navigate", url: head.url, timeout: 30_000, tabId: blank },
+              35_000,
+            );
+            return blank;
+          },
+          head.private === true,
+        );
+      }
+      for (const restore of queue) {
+        await create(
+          restore.url,
+          async () => {
+            const result = BrowserTabsResult.parse(
+              await tabs({ type: "browser.tabs.open", url: restore.url }, threadId),
+            );
+            if ("pending_dialog" in result) throw new Error("A page is waiting for an answer");
+            return result.tabId ?? result.activeTabId;
+          },
+          restore.private === true,
+        );
+      }
+      const shown =
+        (typeof activeUrl === "string" && created.find((tab) => tab.url === activeUrl)?.tabId) ||
+        created[created.length - 1]?.tabId;
+      if (shown) await tabs({ type: "browser.tabs.select", tabId: shown }, threadId);
+      if (failed.length)
+        throw new Error(
+          `Switched engines, but ${failed.length === 1 ? "this tab" : `${failed.length} tabs`} didn't reload: ${failed
+            .slice(0, 2)
+            .map((tab) => `${tab.url} (${tab.reason})`)
+            .join("; ")}`,
+        );
+      return { activeTabId: shown };
     },
     annotate,
     input(threadId, input, tabId) {

@@ -98,6 +98,38 @@ test("a page that floated while another tool showed comes back over that tool wh
   expect(within(panel).getByRole("img", { name: /^Live view of/ })).toBeTruthy();
 });
 
+test("the floating window names what keeps it afloat: the agent's browsing, or the tab's sound", async () => {
+  const { browser, thread } = await openThreadBrowser();
+  act(() => browser.agentWorks(thread, { agentId: "worker" }));
+  await togglePanel();
+  const floating = await screen.findByRole("region", { name: /^Picture in picture/ });
+  expect(within(floating).getByText("Agent browsing")).toBeTruthy();
+  act(() => {
+    browser.agentIdle(thread);
+    browser.mediaPlays(thread, true);
+  });
+  await within(floating).findByText("Playing");
+  expect(within(floating).queryByText("Agent browsing")).toBeNull();
+});
+
+test("the floating window names a recording over either, and carries the tab's speaker", async () => {
+  const { browser, thread } = await openThreadBrowser();
+  act(() => {
+    browser.agentWorks(thread, { agentId: "worker" });
+    browser.mediaPlays(thread, true);
+    browser.setRecording(thread, true);
+  });
+  await togglePanel();
+  const floating = await screen.findByRole("region", { name: /^Picture in picture/ });
+  expect(within(floating).getByText("Recording")).toBeTruthy();
+
+  const tabId = browser.view(thread)?.activeTabId ?? "";
+  await userEvent.click(within(floating).getByRole("button", { name: "Mute tab" }));
+  expect(browser.tab(thread, tabId)?.muted).toBe(true);
+  await userEvent.click(within(floating).getByRole("button", { name: "Unmute tab" }));
+  expect(browser.tab(thread, tabId)?.muted).toBe(false);
+});
+
 test("the floating window drags by its whole bar, and a click on the bar brings the page back", async () => {
   const { panel, browser, thread } = await openThreadBrowser();
   act(() => browser.agentWorks(thread, { agentId: "worker" }));

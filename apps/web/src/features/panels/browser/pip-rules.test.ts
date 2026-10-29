@@ -63,7 +63,7 @@ describe("picture-in-picture", () => {
     const window = { width: 1200, height: 800 };
     expect(clampPip({ right: -50, bottom: 5000, width: 100 }, window, 0.625)).toEqual({
       right: 8,
-      bottom: 800 - (240 * 0.625 + 28) - 8,
+      bottom: 800 - 240 * 0.625 - 8,
       width: 240,
     });
     expect(clampPip({ right: 16, bottom: 16, width: 5000 }, window, 0.625).width).toBe(600);
@@ -71,7 +71,7 @@ describe("picture-in-picture", () => {
   it("starts a new window where no open one is: up the stack, then the next column", () => {
     const window = { width: 1200, height: 800 };
     const base = { right: 16, bottom: 16, width: 320 };
-    const height = 320 * 0.625 + 28;
+    const height = 320 * 0.625;
     const at = (geometry: { right: number; bottom: number; width: number }) => ({
       ...geometry,
       height,

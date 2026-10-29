@@ -339,6 +339,17 @@ export interface PreviewSource {
   emulate(threadId: string, emulation: Emulation, tabId?: string): Promise<void>;
   /** Close the thread's browser and all its tabs (agents can open it again). */
   close(threadId: string): Promise<void>;
+  /**
+   * Move the thread's browser to another engine, reopening its tabs at their addresses on
+   * the new one. The engine is kept for the thread (a thread-layer `browser.backend`), so
+   * later opens stay on it. Only plain HTTP(S) addresses reload; blank tabs stay blank.
+   * Resolves with the reloaded tab the person was viewing, for the panel to show again.
+   */
+  switchEngine?(
+    threadId: string,
+    engine: "embedded" | "headless",
+    workspaceId: string,
+  ): Promise<{ activeTabId: string | undefined }>;
   /** A new tab, shown at once; at `url` when given. Resolves with its id. */
   openTab(threadId: string, url?: string): Promise<string>;
   /** Show this tab to the person (on every device); agents keep working where they are. */

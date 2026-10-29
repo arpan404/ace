@@ -55,7 +55,7 @@ import { appPaths } from "./paths.ts";
 import { applyDevCsp, installDaemonNetwork, registerAppScheme, serveRenderer } from "./renderer.ts";
 import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
-import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
+import { desktopUserData } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
 import { QuitGate } from "./os/quit-gate.ts";
 import { createMainWindow } from "./window/main-window.ts";
@@ -80,57 +80,47 @@ const paths = appPaths({
   resourcesPath: process.resourcesPath,
   platform: process.platform,
 });
-// The app's own data folder, checked before Electron puts anything in it: never the older
-// ace 0.x app's folders. Development keeps window state, sessions and settings in
-// `.ace-dev/electron` (ACE_DESKTOP_USER_DATA).
+// The app's own data folder. Development keeps window state, sessions and settings in
+// ACE_DESKTOP_USER_DATA (`~/.ace/dev-electron`).
 const userData = desktopUserData({
   explicit: process.env.ACE_DESKTOP_USER_DATA,
   appData: app.getPath("appData"),
 });
-const unsafe = checkUserData(
-  userData,
-  legacyFolders({ appData: app.getPath("appData"), homedir: homedir() }),
-);
-if (unsafe) {
-  dialog.showErrorBox("ace can't start", unsafe);
-  app.exit(1);
-} else {
-  app.setPath("userData", userData);
-  // Windows: toasts, their buttons and the taskbar entry belong to the installed shortcut's id.
-  if (process.platform === "win32")
-    app.setAppUserModelId(windowsAppUserModelId(app, process.execPath));
-  // Local crash dumps only (never uploaded), started before any helper process launches.
-  const crashDumps = startLocalCrashReporter(userData);
-  // Before anything starts Chromium's network service: never the older ace app's keychain item.
-  claimKeychainName(app, process.platform);
-  // Blink's DNS hints never reach a session's network layer (visualization-isolation.ts).
-  disableDnsPrefetching(app);
-  // Wayland: the quick-thread global shortcut goes through the GlobalShortcuts portal.
-  enableFeatures(app.commandLine, linuxFeatures(process.platform));
-  // An AppImage or tar.gz installs nothing: its menu entry is what lets the portal grant that
-  // shortcut, and what `ace://` links open.
-  if (process.platform === "linux" && app.isPackaged)
-    installAppImageEntry({
+app.setPath("userData", userData);
+// Windows: toasts, their buttons and the taskbar entry belong to the installed shortcut's id.
+if (process.platform === "win32")
+  app.setAppUserModelId(windowsAppUserModelId(app, process.execPath));
+// Local crash dumps only (never uploaded), started before any helper process launches.
+const crashDumpDir = startLocalCrashReporter(userData);
+// Before anything starts Chromium's network service: never the older ace app's keychain item.
+claimKeychainName(app, process.platform);
+// Blink's DNS hints never reach a session's network layer (visualization-isolation.ts).
+disableDnsPrefetching(app);
+// Wayland: the quick-thread global shortcut goes through the GlobalShortcuts portal.
+enableFeatures(app.commandLine, linuxFeatures(process.platform));
+// An AppImage or tar.gz installs nothing: its menu entry is what lets the portal grant that
+// shortcut, and what `ace://` links open.
+if (process.platform === "linux" && app.isPackaged)
+  installAppImageEntry({
+    env: process.env,
+    home: homedir(),
+    execPath: process.execPath,
+    files: nodeAppImageEntryFiles,
+    warn: (message) => console.warn(message),
+  });
+registerAppScheme();
+if (!app.requestSingleInstanceLock()) app.quit();
+else
+  main(
+    // The daemon home, chosen and prepared once by the shared resolver (`~/.ace` by default).
+    desktopTarget({
       env: process.env,
-      home: homedir(),
-      execPath: process.execPath,
-      files: nodeAppImageEntryFiles,
-      warn: (message) => console.warn(message),
-    });
-  registerAppScheme();
-  if (!app.requestSingleInstanceLock()) app.quit();
-  else
-    main(
-      // The daemon home, chosen and prepared once by the shared resolver (`~/.ace` by default).
-      desktopTarget({
-        env: process.env,
-        packaged: app.isPackaged,
-        daemonEntry: paths.daemonEntry,
-        platform: process.platform,
-      }),
-      crashDumps,
-    );
-}
+      packaged: app.isPackaged,
+      daemonEntry: paths.daemonEntry,
+      platform: process.platform,
+    }),
+    crashDumpDir,
+  );
 
 function isDirectory(path: string): boolean {
   try {

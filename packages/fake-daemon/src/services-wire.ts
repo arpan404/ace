@@ -180,6 +180,14 @@ export class FakeServicesWire {
       emit,
       `fake-browser-${++this.connectionSequence}`,
       binary,
+      {
+        backendPreference: (threadId) => {
+          const preference = this.settings.resolve("browser.backend", {
+            threadId: ThreadId.parse(threadId),
+          });
+          return preference === "embedded" || preference === "headless" ? preference : "auto";
+        },
+      },
     );
     let stopBrowsing: (() => void) | undefined;
     let browsing = "";

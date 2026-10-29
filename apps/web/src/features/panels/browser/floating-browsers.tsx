@@ -19,6 +19,7 @@ import {
 import { pipPage } from "./pip-rules.ts";
 import { useAutomaticPip } from "./pip-setting.ts";
 import { useShowBrowserPanel } from "./reveal-tab.ts";
+import { useBrowserFeatures } from "./use-browser-features.ts";
 
 const same = <T,>(value: T) => value;
 
@@ -55,6 +56,7 @@ function FloatingThread(props: { threadId: string; current: boolean }) {
   "use no memo";
   const { preview: source } = usePanelServices();
   const { threadId } = props;
+  const browser = useBrowserFeatures(threadId);
   const subscribe = useCallback(
     (changed: () => void) => source.subscribe(changed, threadId),
     [source, threadId],
@@ -74,6 +76,8 @@ function FloatingThread(props: { threadId: string; current: boolean }) {
   const showBrowser = useShowBrowserPanel(threadId);
   const navigate = useNavigate();
   if (!page) return null;
+  const tabs = view?.tabs ?? [];
+  const shown = tabs.find((tab) => tab.tabId === view?.activeTabId);
   const restore = () => {
     showBrowser(page.tabId);
     if (!props.current) void navigate({ to: "/t/$threadId", params: { threadId } });
@@ -85,6 +89,12 @@ function FloatingThread(props: { threadId: string; current: boolean }) {
       frame={source.frame(threadId)}
       page={page}
       threadTitle={title}
+      status={tabs.some((tab) => tab.inUse?.kind === "agent") ? "browsing" : "playing"}
+      recording={view?.recording !== undefined}
+      audible={shown?.audible === true}
+      muted={shown?.muted === true}
+      playing={shown?.playing === true}
+      onMute={() => void browser.muteTab(page.tabId, !(shown?.muted === true))}
       onRestore={restore}
       onDismiss={() => addThread(dismissedPip, threadId)}
     />

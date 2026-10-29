@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
-import { useScopeWorkspace, useWorkspaceStore } from "@/lib/workspace/index.ts";
+import {
+  activateTab,
+  shownTab,
+  tabKey,
+  useScopeWorkspace,
+  useWorkspaceStore,
+} from "@/lib/workspace/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { WithServices } from "../with-services.tsx";
 import { usePanelServices } from "../services.ts";
@@ -7,6 +13,7 @@ import { PageDialog } from "./page-dialog.tsx";
 import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
 import { reason, useBrowserFeatures } from "./use-browser-features.ts";
 import { registerBrowserCloser, setShownBrowserTab } from "./browser-closers.ts";
+import { switchFollows } from "./use-browser-tabs.ts";
 import { syncBrowserTabs } from "./tab-sync.ts";
 import { useLocal } from "../store.ts";
 import {
@@ -69,7 +76,28 @@ function ThreadBrowser(props: { threadId: string }) {
     };
     const split = splits.get().get(threadId);
     memory.current.split = split ? [split.left, split.right] : undefined;
-    store.update(threadId, (current) => syncBrowserTabs(current, daemon, memory.current));
+    store.update(threadId, (current) => {
+      const synced = syncBrowserTabs(current, daemon, memory.current);
+      // A finished engine switch shows the tab it reloaded, instead of the fallback the
+      // close left behind. One shot, and only with the panel open: a closed panel or
+      // browser drops it, as does a tab the new browser no longer lists.
+      const follow = switchFollows.get(threadId);
+      if (
+        follow === undefined ||
+        !daemon ||
+        daemon.closed ||
+        !synced.open ||
+        !daemon.tabs.some((tab) => tab.tabId === follow)
+      ) {
+        if (follow !== undefined) switchFollows.delete(threadId);
+        return synced;
+      }
+      switchFollows.delete(threadId);
+      const key = tabKey("browser", follow);
+      if (synced.tabs.some((tab) => tab.key === key) && shownTab(synced)?.id !== follow)
+        return activateTab(synced, key);
+      return synced;
+    });
     if (!daemon) return;
     const listed = new Set(daemon.closed ? [] : daemon.tabs.map((tab) => tab.tabId));
     for (const id of memory.current.closing) if (!listed.has(id)) memory.current.closing.delete(id);
