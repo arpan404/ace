@@ -70,6 +70,8 @@ export function harness(
     history?: RouterHistory;
     storage?: KeyValueStorage;
     matchMedia?: (query: string) => MediaQueryList;
+    /** The browser draws without graphics acceleration. */
+    softwareRendering?: boolean;
     /** Run the client the way a browser with workers does: behind a ClientHost and a port. */
     throughWorker?: boolean;
     /** The daemon's clock; by default a counter from 1,000 ms. */
@@ -167,6 +169,7 @@ export function harness(
               storage,
               root: document.documentElement,
               matchMedia: options.matchMedia,
+              softwareRendering: options.softwareRendering,
             }}
           >
             <DaemonConnectionContext.Provider value={connection}>

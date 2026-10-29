@@ -29,6 +29,8 @@ import { watchVisibleHeight } from "./lib/visible-height.ts";
 import { profileName, setProfileName } from "./lib/profile.ts";
 import { loadAppearance } from "./theme/appearance.ts";
 import { glassEngine } from "./theme/glass.ts";
+import { softwareRendering, webglRenderer } from "./theme/renderer.ts";
+import { whenIdle } from "./lib/idle.ts";
 import "./styles/index.css";
 
 // A browser that denies site data throws on the first touch of storage; ace then starts with
@@ -40,6 +42,12 @@ const environment = {
   matchMedia: (query: string) => matchMedia(query),
   root: document.documentElement,
   glassEngine: glassEngine(navigator.userAgent, userAgentBrands()),
+  softwareRendering: softwareRendering({
+    storage: local,
+    renderer: () => webglRenderer(document),
+    idle: (task) => whenIdle(task),
+    automated: navigator.webdriver === true,
+  }),
   windowBackground: (value: { mode: string; light: string; dark: string }) =>
     setDesktopWindowBackground(value),
 };

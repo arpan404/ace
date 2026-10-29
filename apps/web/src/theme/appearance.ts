@@ -80,6 +80,8 @@ export interface SystemPreferences {
   dark: boolean;
   reducedMotion: boolean;
   reducedTransparency: boolean;
+  /** The browser draws without graphics acceleration (`renderer.ts`): blurs cost the CPU. */
+  softwareRendering: boolean;
 }
 
 /** What the page actually shows once "system" and the OS's accessibility settings are applied. */
@@ -108,7 +110,10 @@ export function resolveAppearance(
   const scheme = appearance.mode === "system" ? (system.dark ? "dark" : "light") : appearance.mode;
   const translucency = snapTranslucency(appearance.translucency);
   const solid =
-    translucency === 0 || system.reducedTransparency || !themeHasGlass(appearance.theme, scheme);
+    translucency === 0 ||
+    system.reducedTransparency ||
+    system.softwareRendering ||
+    !themeHasGlass(appearance.theme, scheme);
   return {
     theme: appearance.theme,
     scheme,

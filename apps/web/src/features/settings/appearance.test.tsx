@@ -340,6 +340,16 @@ test("the OS reducing transparency forces Solid, and the slider shows it", async
   expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
 });
 
+test("a device drawing without graphics acceleration shows Solid, and the slider says why", async () => {
+  await harness({ matchMedia: system({}), softwareRendering: true }).open("/settings/appearance");
+  expect(root.getAttribute("data-surface")).toBe("solid");
+  expect(
+    await screen.findByText("Solid while this device draws without graphics acceleration"),
+  ).toBeTruthy();
+  expect(slider().disabled).toBe(true);
+  expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
+});
+
 test("someone who chose Solid surfaces before the slider opens at Solid", async () => {
   const storage = memoryKeyValue();
   storage.setItem("ace.appearance", JSON.stringify({ theme: "midnight", surface: "solid" }));
