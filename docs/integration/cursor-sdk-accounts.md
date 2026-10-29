@@ -22,7 +22,9 @@ Daemon account factories and catalogs share `CursorHostSlots`. Sign-out callers
 must pass the binding's `stopInstance` fence to the login driver; it fences new
 factories and drains selected hosts before credential deletion. Reservations
 release on confirmed exit. A successful later sign-in calls `rebindInstance`
-after hosts drain. The daemon registers browser auth through its service registry; no auth
+after hosts drain. A refused exit still releases the fence (surfacing the error)
+so the account stays usable on the current credential instead of bricking behind
+a stale fence. The daemon registers browser auth through its service registry; no auth
 request is inferred from an ordinary model turn. `CursorAuthService` owns bounded,
 expiring, device-scoped login jobs. The typed WebSocket start/poll/cancel protocol
 returns the SDK URL to the authorized client, which opens it on its own device.
