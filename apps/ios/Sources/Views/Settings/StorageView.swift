@@ -16,6 +16,8 @@ struct StorageView: View {
     @State private var busy = false
     @State private var actionProblem: String?
     @State private var removals = 0
+    @State private var measuring = false
+    @State private var readRevision = 0
     private static let read: [String: Any] = ["type": "host.storage"]
 
     /// Opens on the last page this phone saw, read again behind it.
@@ -127,16 +129,31 @@ struct StorageView: View {
         Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
     }
 
+    private func load() async {
+        // Cleanup invalidates the host's kept reads too. Its reconnect-style read must
+        // not overtake the explicit measurement that follows cleanup.
+        guard !measuring else { return }
+        await readPage(Self.read)
+    }
     private func refresh() async {
+        guard !measuring else { return }
+        measuring = true
+        defer { measuring = false }
         var request = Self.read
         request["force"] = true
-        await load(request)
+        await readPage(request)
     }
-    private func load(_ request: [String: Any] = Self.read) async {
+    private func readPage(_ request: [String: Any]) async {
+        readRevision += 1
+        let revision = readRevision
         do {
-            page = try await model.read(request, as: StoragePage.self)
+            let answer = try await model.read(request, as: StoragePage.self)
+            guard revision == readRevision else { return }
+            page = answer
             problem = nil
-        } catch is CancellationError {} catch { if !Task.isCancelled { problem = error.localizedDescription } }
+        } catch is CancellationError {} catch {
+            if !Task.isCancelled, revision == readRevision { problem = error.localizedDescription }
+        }
     }
     private func run(_ work: @escaping @MainActor () async throws -> Void) {
         busy = true; actionProblem = nil

@@ -72,10 +72,18 @@ import Testing
         #expect(ReadMirror.key(page) == ReadMirror.key(refreshing))
     }
 
-    @Test func forcedStorageRefreshReplacesTheOrdinaryVisitsKeptPage() {
+    private struct Measurement: Decodable { let databaseBytes: Int }
+    @Test func forcedStorageRefreshReplacesTheOrdinaryVisitsKeptPage() throws {
+        let model = ClientModel(now: { 0 })
         let page: [String: Any] = ["type": "host.storage"]
         let refresh: [String: Any] = ["type": "host.storage", "force": true]
-        #expect(ReadMirror.key(page) == ReadMirror.key(refresh))
+        let initialKey = try #require(ReadMirror.key(page))
+        model.receive(try frame([["type": "service.cache", "key": initialKey, "family": "host",
+                                  "value": ["databaseBytes": 100]]]))
+        let refreshedKey = try #require(ReadMirror.key(refresh))
+        model.receive(try frame([["type": "service.reply", "id": "storage-refresh", "ok": true, "message": "",
+                                  "value": ["databaseBytes": 200], "cache": ["key": refreshedKey, "family": "host"]]]))
+        #expect(model.kept(page, as: Measurement.self)?.databaseBytes == 200)
     }
 
     private func frame(_ values: [[String: Any]]) throws -> Data { try JSONSerialization.data(withJSONObject: values) }
