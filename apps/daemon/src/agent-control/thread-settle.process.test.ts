@@ -86,7 +86,7 @@ test("a pending settle is dropped when the thread ends up waiting on the person"
   }
 });
 
-test("a finished thread settles at once like the person's Settle, and unsettle brings it back", async () => {
+test("a finished thread settles at once, but reopening it prevents further agent settling", async () => {
   const { h, run, organization, close } = harness();
   try {
     const self = await h.parent();
@@ -102,9 +102,12 @@ test("a finished thread settles at once like the person's Settle, and unsettle b
     });
     expect(await run(self, "thread.unsettle", self.threadId)).toMatchObject({ ok: true });
     expect(organization(self.threadId).settledAt).toBeUndefined();
-    // Settling again after an unsettle is a fresh change, not a replay of the first one.
-    expect(await run(self, "thread.settle", self.threadId)).toMatchObject({ ok: true });
-    expect(organization(self.threadId).settledAt).toEqual(expect.any(Number));
+    // The person reopening it disables auto-settle, including fresh agent requests.
+    expect(await run(self, "thread.settle", self.threadId)).toMatchObject({
+      ok: false,
+      code: "not_ready",
+    });
+    expect(organization(self.threadId).settledAt).toBeUndefined();
   } finally {
     await close();
   }

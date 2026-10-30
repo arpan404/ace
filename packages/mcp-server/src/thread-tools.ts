@@ -262,7 +262,7 @@ const threadFork = controlTool({
   riskClass: "agent-execution",
   capability: "thread_control",
   description:
-    "Fork a thread to try another way, keeping its conversation: text is what to try instead, optionally on another model. Forks after the latest finished turn (works mid-turn); runId picks an earlier one. The fork shares the checkout; message, settle and merge it back with thread_merge. The person sees a card: relay it in a sentence, without ids.",
+    "Fork a thread to try another way, keeping its conversation: text is what to try instead, optionally on another model. Forks after the latest finished turn (works mid-turn); runId picks an earlier one. The fork shares the checkout; message it or merge it back with thread_merge. Settle only when the person explicitly asks. The person sees a card: relay it in a sentence, without ids.",
   input: z.strictObject({
     threadId: ownedThread.optional().describe("Default: this thread."),
     requestId: fields.requestId,

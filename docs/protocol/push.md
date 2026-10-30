@@ -25,46 +25,25 @@ Example:
 
 ```json
 {
-  "at": 2,
+  "at": 9,
   "id": "example",
   "payload": {
-    "agent": {
-      "createdAt": 4,
-      "cwd": "example",
-      "endedAt": 5,
-      "fidelity": "placeholder",
-      "id": "example",
-      "lineage": {
-        "lossy": true,
-        "mode": "native",
-        "parentAgentId": "example",
-        "parentThreadId": "example",
-        "point": {
-          "runId": "example",
-          "type": "turn"
-        }
-      },
-      "model": "example",
-      "name": "example",
-      "native": {
-        "acpAgentId": "example",
-        "aliases": [],
-        "instanceId": "example",
-        "nativeId": "example",
-        "path": "example",
+    "changes": {
+      "activitySeq": 8,
+      "hasSentMessage": false,
+      "live": {
+        "askingThreads": [],
+        "backgroundTaskCount": 1,
+        "options": {},
         "provider": "antigravity"
       },
-      "origin": "root",
-      "parentId": null,
-      "status": {
-        "lastSignalAt": 8,
-        "state": "unresponsive"
-      },
-      "threadId": "example"
+      "prSettled": 10,
+      "readAt": 0,
+      "settledAt": 0
     },
-    "type": "agent.created"
+    "type": "thread.client.updated"
   },
-  "seq": 2,
+  "seq": 9,
   "threadId": "example"
 }
 ```
@@ -3215,155 +3194,105 @@ Example:
 
 ```json
 {
-  "seq": 5,
+  "seq": 9,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "agentChildren": {},
     "agents": {},
     "backgroundTasks": {},
-    "contextMeters": {},
     "interactions": {},
     "itemOrder": [],
     "items": {},
     "kind": "thread",
+    "offshift": {
+      "blocker": "example",
+      "byPerson": false,
+      "criteria": [],
+      "criteriaCount": 4,
+      "ended": false,
+      "endpoint": "example",
+      "id": "LVNzMFGp7",
+      "outcome": "example",
+      "outcomeTruncated": false,
+      "pending": [],
+      "pendingCount": 8,
+      "phase": "delivery",
+      "playbook": "fix",
+      "revision": "example",
+      "steps": [],
+      "updatedAt": 8,
+      "version": 1
+    },
     "runs": {},
-    "seq": 5,
+    "seq": 9,
     "thread": {
-      "acpSupport": {
-        "capabilities": {
-          "imageInput": false,
-          "planMode": false,
-          "resume": false
-        },
-        "coverage": "legacy",
-        "mcp": "unavailable",
-        "modeSelection": true,
-        "modelSelection": true,
-        "raw": {
-          "json": "example",
-          "truncated": false
-        },
-        "subagentSessions": false,
-        "visibility": "limited"
-      },
-      "activityAt": 2,
-      "activitySeq": 8,
-      "autoSettle": false,
-      "autoSettleAt": 4,
-      "capabilities": {
-        "approvals": "none",
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "partial",
-        "fork": false,
-        "forkMode": "native",
-        "forkPoints": [],
-        "imageInput": false,
-        "interruptCascades": false,
-        "launchOptions": [],
-        "planMode": true,
-        "resume": true,
-        "rewindFiles": true,
-        "steer": true,
-        "steerTiming": "immediate",
-        "steeringMode": "queue",
-        "subagentTranscripts": false,
-        "tokenUsage": true
-      },
-      "capabilitiesRef": "example",
-      "createdAt": 9,
+      "acpAgentId": "example",
+      "activitySeq": 1,
+      "archivedAt": 3,
+      "autoSettleAt": 0,
+      "backend": "acp",
+      "createdAt": 6,
       "delegatedBy": "example",
-      "details": {
-        "base": {
-          "head": "cca563e8e497b3ff09c086a20cc0813febcf6d822793fb",
-          "ref": "example",
-          "remote": "eas5xAjcF"
-        },
-        "branch": null,
-        "continuedFrom": {
-          "at": 9,
-          "hostId": "example",
-          "name": "example",
-          "threadId": "example"
-        },
-        "guest": {
-          "host": "example",
-          "name": "example"
-        },
-        "head": null,
-        "linkedIssues": [],
-        "machine": {
-          "host": "example",
-          "name": "example"
-        },
-        "worktreeSetup": {
-          "at": 0,
-          "details": [],
-          "state": "skipped"
-        }
-      },
+      "deletedAt": 2,
       "execution": {
-        "model": "example",
         "options": {},
-        "provider": "pi"
+        "provider": "antigravity"
       },
       "goal": {
+        "checks": 5,
         "objective": "example",
-        "status": "paused"
+        "status": "usage_limited",
+        "timeUsedSeconds": 2,
+        "tokensUsed": 9
       },
-      "hasSentMessage": true,
       "id": "example",
-      "imported": {
-        "importedAt": 9,
-        "instanceId": "example",
-        "native": {
-          "installationId": "example",
-          "nativeId": "example",
-          "provider": "claude"
-        },
-        "sourceId": "example"
-      },
       "instanceId": "example",
-      "lineage": {
-        "lossy": true,
-        "mode": "native",
-        "parentAgentId": "example",
-        "parentThreadId": "example",
-        "point": {
-          "runId": "example",
-          "type": "turn"
-        }
-      },
-      "movedFrom": {
-        "links": {
-          "linkedIssues": [],
-          "linkedPrs": []
+      "listOrder": 0,
+      "live": {
+        "asking": [],
+        "contextMeter": {
+          "at": 0,
+          "limit": 2,
+          "used": 9
         },
-        "workspaceId": "example"
+        "options": {},
+        "waitingOn": 7,
+        "workingSince": 4
       },
       "permission": {
-        "effective": "full-access",
+        "effective": null,
         "override": null,
-        "pending": true
+        "pending": false
       },
-      "prSettled": 3,
-      "provider": "antigravity",
-      "queue": {
-        "paused": false,
-        "reason": "manual",
-        "resumeAt": null,
-        "revision": 6
-      },
+      "prSettled": 2,
+      "prSettledKey": "example",
+      "provider": "pi",
       "queuedLaunch": {
-        "queuePosition": 8,
         "text": "example"
       },
-      "readAt": 8,
+      "readAt": 2,
       "settleWhenDone": true,
+      "snoozedUntil": 8,
       "status": {
-        "state": "done"
+        "on": "upstream",
+        "queuePosition": 8,
+        "state": "waiting"
+      },
+      "switch": {
+        "at": 2,
+        "error": "example",
+        "lossy": true,
+        "recommendation": "delegate_task",
+        "selection": {
+          "model": "example",
+          "options": {},
+          "provider": "codex"
+        },
+        "state": "failed"
       },
       "title": "example",
+      "unread": true,
       "updatedAt": 4,
       "workspaceId": "example"
     },

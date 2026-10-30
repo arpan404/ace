@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "action": {
-      "description": "rename: title, or none to retitle from the first message. configure: model, effort. handoff: branch. interrupt: stops its turn and children. settle: a working thread settles once done, unless it fails or needs the person. unsettle: also cancels a pending settle. snooze: until. close_preview: previewId. rename_project: name.",
+      "description": "rename: title, or none to retitle from the first message. configure: model, effort. handoff: branch. interrupt: stops its turn and children. settle: only when the person explicitly asks; a working thread settles once done, unless it fails or needs the person. unsettle: also cancels a pending settle. snooze: until. close_preview: previewId. rename_project: name.",
       "enum": [
         "rename",
         "configure",

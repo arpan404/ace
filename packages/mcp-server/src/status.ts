@@ -58,7 +58,7 @@ export function aceGuidance(groups?: readonly string[], tools?: readonly string[
     "- visuals or images: guide visualize first;",
     "- after gh pr create or finding the PR: thread_link_pr;",
     has("thread_control")
-      ? "- the person wants a separate thread in any project: thread_start; to settle a finished one, this one too: thread_control settle;"
+      ? "- the person wants a separate thread in any project: thread_start; only when they explicitly ask to settle: thread_control settle. Automatic settling follows their settings;"
       : "",
     has("screen", "devices") ? `- the person names a native app or simulator: ${nativeApps};` : "",
     "Not sure which ace tool fits? tools_find with what you want to do.",
