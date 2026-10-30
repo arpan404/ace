@@ -49,6 +49,6 @@ for name in ace-locked-use-authority ace-locked-use-guardian; do
   esac
   codesign --force --sign "$identity" --identifier "$identifier" --options runtime "$timestamp" "build/$name"
   requirement="anchor apple generic and certificate leaf[subject.OU] = \"$team\" and identifier \"$identifier\""
-  codesign --verify --strict -R "$requirement" "build/$name"
+  codesign --verify --strict -R="$requirement" "build/$name"
 done
 printf '%s\n' "$team" > build/team

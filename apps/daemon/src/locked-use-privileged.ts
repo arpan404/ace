@@ -109,7 +109,7 @@ function stageSignedStep(source: string, destination: string, requirement: strin
     `test ! -L ${staging}`,
     `chown -R root:wheel ${staging}`,
     `chmod -R 755 ${staging}`,
-    `codesign --verify --strict -R ${shellQuote(`=${requirement}`)} ${staging}`,
+    `codesign --verify --strict -R=${shellQuote(requirement)} ${staging}`,
     `rm -rf ${to}`,
     `mv -f ${staging} ${to}`,
   ].join("\n");
