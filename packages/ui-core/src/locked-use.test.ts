@@ -4,6 +4,7 @@ import {
   lockedUseRefusal,
   lockedUseShown,
   lockedUseSwitchOn,
+  lockedUseUnavailable,
 } from "./locked-use.ts";
 
 test("each Mac state reads as the word the row shows, with a matching tone", () => {
@@ -16,6 +17,21 @@ test("each Mac state reads as the word the row shows, with a matching tone", () 
     tone: "failed",
   });
   expect(lockedUseLabel({ state: "driftRepairNeeded", reason: "moved" }).tone).toBe("failed");
+});
+
+test("an install that can never succeed reads as coming soon, not a failure", () => {
+  for (const reason of [
+    "Privileged install pending owner review.",
+    "Locked computer use install is not yet implemented",
+  ]) {
+    const status = { state: "installFailed", reason } as const;
+    expect(lockedUseUnavailable(status)).toBe(true);
+    expect(lockedUseLabel(status)).toEqual({ label: "Coming soon", tone: "idle" });
+    expect(lockedUseSwitchOn(status)).toBe(false);
+  }
+  const denied = { state: "installFailed", reason: "The administrator declined." } as const;
+  expect(lockedUseUnavailable(denied)).toBe(false);
+  expect(lockedUseLabel(denied).label).toBe("Install failed");
 });
 
 test("the switch reads on only while the component is installed or on its way", () => {

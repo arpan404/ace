@@ -12,10 +12,25 @@ export function lockedUseLabel(status: LockedUseStatus): { label: string; tone: 
     case "needsApproval":
       return { label: "Needs approval", tone: "needs-you" };
     case "installFailed":
-      return { label: "Install failed", tone: "failed" };
+      // The privileged install isn't in this build: never a failed install with a retry.
+      return lockedUseUnavailable(status)
+        ? { label: "Coming soon", tone: "idle" }
+        : { label: "Install failed", tone: "failed" };
     case "driftRepairNeeded":
       return { label: "Needs repair", tone: "failed" };
   }
+}
+
+/**
+ * Whether an install failure means the feature isn't available in this build, so retrying can
+ * never succeed. The daemon reports this persistently (not just after an install attempt) while
+ * its privileged step awaits owner review, or while the placeholder stands in.
+ */
+export function lockedUseUnavailable(status: LockedUseStatus): boolean {
+  return (
+    status.state === "installFailed" &&
+    /pending owner review|not yet implemented/i.test(status.reason)
+  );
 }
 
 /** Whether the switch reads on: the component is installed, or on its way. */

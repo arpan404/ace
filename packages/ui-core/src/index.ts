@@ -343,4 +343,5 @@ export {
   lockedUseRefusal,
   lockedUseShown,
   lockedUseSwitchOn,
+  lockedUseUnavailable,
 } from "./locked-use.ts";

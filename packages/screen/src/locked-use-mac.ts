@@ -29,6 +29,14 @@ export interface MacLockedUseOptions {
   schedule: LockedUseScheduler;
   /** How often subscribers re-detect; default one minute. */
   intervalMs?: number;
+  /**
+   * When set, the privileged install isn't available in this build: a detection that would
+   * report `off` or `needsApproval` (nothing installed, so nothing to do) instead reports
+   * `installFailed` with this reason, persistently. Detections that found something installed
+   * (`on`, drift) still report it, so an install from an earlier build isn't hidden. Changes
+   * still run through the runner and verify afterwards, as usual.
+   */
+  unavailableReason?: string;
 }
 
 function message(error: unknown, fallback: string): string {
@@ -78,6 +86,18 @@ export function macLockedUseInstaller(options: MacLockedUseOptions): LockedUseIn
     const intent = await options.readIntent().catch(() => false);
     const detection = await detectLockedUse(host, expect, intent);
     lastDetectAt = host.now();
+    const unavailable = options.unavailableReason;
+    if (
+      unavailable &&
+      (detection.status.state === "off" || detection.status.state === "needsApproval")
+    )
+      return {
+        revision,
+        detection: {
+          ...detection,
+          status: { state: "installFailed", reason: unavailable },
+        },
+      };
     return { revision, detection };
   };
 
@@ -116,6 +136,14 @@ export function macLockedUseInstaller(options: MacLockedUseOptions): LockedUseIn
 
   /** Runner remove, then proof: anything of ours left behind is drift. */
   const removeAndVerify = async (): Promise<LockedUseObservation> => {
+    // Without the privileged step nothing can be removed: fail loudly (the daemon toasts the
+    // reason and re-reads the truthful state) instead of landing on drift with a reason that
+    // can never be repaired. Nothing installed is still a quiet off.
+    if (options.unavailableReason) {
+      const { revision, detection } = await detect();
+      if (!detection.residue) return observe(revision, { state: "off" });
+      throw new Error("Locked use can't be turned off in this build yet.");
+    }
     let thrown: unknown;
     try {
       await runner.remove();

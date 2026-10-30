@@ -13,6 +13,7 @@ import {
   lockedUseRefusal,
   lockedUseShown,
   lockedUseSwitchOn,
+  lockedUseUnavailable,
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
@@ -104,13 +105,15 @@ export function lockedUseRow(
     on: lockedUseSwitchOn(status),
     busy: status.state === "installing",
     repair: status.state === "driftRepairNeeded",
-    /** Said under the row: why it failed or drifted, or that macOS waits for approval. */
+    /** Said under the row: why it failed or drifted, that macOS waits for approval, or that it isn't in this build. */
     note:
-      status.state === "installFailed" || status.state === "driftRepairNeeded"
-        ? String(status.reason)
-        : status.state === "needsApproval"
-          ? "Approve it in System Settings on the Mac, then check again."
-          : null,
+      status.state === "installFailed" && lockedUseUnavailable(status)
+        ? "Locked use isn't available in this build yet."
+        : status.state === "installFailed" || status.state === "driftRepairNeeded"
+          ? String(status.reason)
+          : status.state === "needsApproval"
+            ? "Approve it in System Settings on the Mac, then check again."
+            : null,
   };
 }
 

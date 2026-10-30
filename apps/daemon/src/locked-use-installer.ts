@@ -10,9 +10,12 @@ import {
 /** CFBundleVersion of the authorization plug-in this ace ships (native/locked-use). */
 export const shippedLockedUseBundleVersion = "1";
 
+/** Why installs report unavailable while the privileged step awaits owner review. */
+export const pendingPrivilegedReason = "Privileged install pending owner review.";
+
 /** Refuses every change until the owner supplies the reviewed privileged step. */
 export const pendingPrivilegedRunner: PrivilegedRunner = {
-  install: () => Promise.reject(new Error("Privileged install pending owner review.")),
+  install: () => Promise.reject(new Error(pendingPrivilegedReason)),
   remove: () => Promise.reject(new Error("Privileged removal pending owner review.")),
 };
 
@@ -34,10 +37,14 @@ export function daemonLockedUse(options: {
 }): LockedUseInstaller {
   if (options.platform !== "darwin") return placeholderLockedUseInstaller(options.platform);
   const settings = options.settings;
+  const runner = options.runner ?? pendingPrivilegedRunner;
   return macLockedUseInstaller({
     host: macHost(),
-    // Owner supplies the real PrivilegedRunner (authorization-rule + launchd install) after security review.
-    runner: options.runner ?? pendingPrivilegedRunner,
+    runner,
+    // Without the reviewed privileged step installs can never succeed: report that
+    // persistently (instead of off, or needs-approval once the intent is stored) so the row
+    // reads as coming soon and never flips on. An install from an earlier build still shows.
+    ...(runner === pendingPrivilegedRunner ? { unavailableReason: pendingPrivilegedReason } : {}),
     expect: { bundleVersion: shippedLockedUseBundleVersion, team: pinnedTeam(options.env) },
     readIntent: async () =>
       settings ? (await settings.get("computer.lockedUse")).value === true : false,

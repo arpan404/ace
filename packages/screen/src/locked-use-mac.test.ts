@@ -14,6 +14,7 @@ function setup(
   layout: FakeMacLayout,
   runner: Partial<PrivilegedRunner> = {},
   readIntent: () => Promise<boolean> = () => Promise.resolve(true),
+  extra: { unavailableReason?: string } = {},
 ) {
   const mac = fakeMac(layout);
   const ticks: (() => void)[] = [];
@@ -30,6 +31,7 @@ function setup(
       install: runner.install ?? (() => Promise.resolve()),
       remove: runner.remove ?? (() => Promise.resolve()),
     },
+    ...(extra.unavailableReason ? { unavailableReason: extra.unavailableReason } : {}),
   });
   const pushed: LockedUseObservation[] = [];
   const stop = installer.subscribe((observation) => pushed.push(observation));
@@ -242,5 +244,77 @@ describe("locked use installer on macOS", () => {
     const done = await installing;
     expect(done.status).toEqual({ state: "on" });
     expect(done.revision).toBeGreaterThan(during.revision);
+  });
+
+  it("without the privileged step, an empty Mac reports it cannot install instead of off", async () => {
+    const pending = "Privileged install pending owner review.";
+    const { installer } = setup(emptyLayout(), {}, () => Promise.resolve(false), {
+      unavailableReason: pending,
+    });
+    expect((await installer.detectStatus()).status).toEqual({
+      state: "installFailed",
+      reason: pending,
+    });
+  });
+
+  it("without the privileged step, an intent with nothing installed never reads as approval waiting", async () => {
+    const pending = "Privileged install pending owner review.";
+    const { installer, seen, tick } = setup(emptyLayout(), {}, () => Promise.resolve(true), {
+      unavailableReason: pending,
+    });
+    expect((await installer.detectStatus()).status).toEqual({
+      state: "installFailed",
+      reason: pending,
+    });
+    await tick();
+    expect(seen.statuses.at(-1)).toEqual({ state: "installFailed", reason: pending });
+    expect(seen.statuses.some((status) => status.state === "needsApproval")).toBe(false);
+  });
+
+  it("without the privileged step, an install from an earlier build still shows", async () => {
+    const pending = "Privileged install pending owner review.";
+    const { installer } = setup(installedLayout(), {}, () => Promise.resolve(true), {
+      unavailableReason: pending,
+    });
+    expect((await installer.detectStatus()).status).toEqual({ state: "on" });
+  });
+
+  it("without the privileged step, removing an install refuses loudly instead of drifting", async () => {
+    const pending = "Privileged install pending owner review.";
+    const calls: string[] = [];
+    const { installer } = setup(
+      installedLayout(),
+      {
+        remove: () => {
+          calls.push("remove");
+          return Promise.resolve();
+        },
+      },
+      () => Promise.resolve(true),
+      { unavailableReason: pending },
+    );
+    await expect(installer.remove()).rejects.toThrow(/can't be turned off in this build/);
+    // The doomed runner never ran; the install is untouched and still shows.
+    expect(calls).toEqual([]);
+    expect((await installer.detectStatus()).status).toEqual({ state: "on" });
+  });
+
+  it("without the privileged step, removing nothing installed is still a quiet off", async () => {
+    const pending = "Privileged install pending owner review.";
+    const { installer } = setup(emptyLayout(), {}, () => Promise.resolve(false), {
+      unavailableReason: pending,
+    });
+    expect((await installer.remove()).status).toEqual({ state: "off" });
+  });
+
+  it("without the privileged step, repairing drift refuses instead of looping repair", async () => {
+    const pending = "Privileged install pending owner review.";
+    const { installer } = setup(
+      { ...installedLayout(), version: "0" },
+      {},
+      () => Promise.resolve(true),
+      { unavailableReason: pending },
+    );
+    await expect(installer.repair()).rejects.toThrow(/can't be turned off in this build/);
   });
 });
