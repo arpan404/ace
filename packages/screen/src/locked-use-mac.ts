@@ -34,7 +34,7 @@ export interface MacLockedUseOptions {
    * report `off` or `needsApproval` (nothing installed, so nothing to do) instead reports
    * `installFailed` with this reason, persistently. Detections that found something installed
    * (`on`, drift) still report it, so an install from an earlier build isn't hidden. Changes
-   * still run through the runner and verify afterwards, as usual.
+   * are refused while unavailable; detection still reports existing installations truthfully.
    */
   unavailableReason?: string;
 }
@@ -95,7 +95,7 @@ export function macLockedUseInstaller(options: MacLockedUseOptions): LockedUseIn
         revision,
         detection: {
           ...detection,
-          status: { state: "installFailed", reason: unavailable },
+          status: { state: "installFailed", reason: unavailable, unavailable: true },
         },
       };
     return { revision, detection };
@@ -115,6 +115,10 @@ export function macLockedUseInstaller(options: MacLockedUseOptions): LockedUseIn
 
   /** Runner install, then proof: anything short of a detected `on` is a failed install. */
   const installAndVerify = async (): Promise<LockedUseObservation> => {
+    if (options.unavailableReason) {
+      const { revision, detection } = await detect();
+      return observe(revision, detection.status);
+    }
     let thrown: unknown;
     try {
       await runner.install();

@@ -24,13 +24,10 @@ export function lockedUseLabel(status: LockedUseStatus): { label: string; tone: 
 /**
  * Whether an install failure means the feature isn't available in this build, so retrying can
  * never succeed. The daemon reports this persistently (not just after an install attempt) while
- * its privileged step awaits owner review, or while the placeholder stands in.
+ * its privileged step awaits owner review.
  */
 export function lockedUseUnavailable(status: LockedUseStatus): boolean {
-  return (
-    status.state === "installFailed" &&
-    /pending owner review|not yet implemented/i.test(status.reason)
-  );
+  return status.state === "installFailed" && status.unavailable === true;
 }
 
 /** Whether the switch reads on: the component is installed, or on its way. */

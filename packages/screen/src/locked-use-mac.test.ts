@@ -254,6 +254,7 @@ describe("locked use installer on macOS", () => {
     expect((await installer.detectStatus()).status).toEqual({
       state: "installFailed",
       reason: pending,
+      unavailable: true,
     });
   });
 
@@ -265,9 +266,14 @@ describe("locked use installer on macOS", () => {
     expect((await installer.detectStatus()).status).toEqual({
       state: "installFailed",
       reason: pending,
+      unavailable: true,
     });
     await tick();
-    expect(seen.statuses.at(-1)).toEqual({ state: "installFailed", reason: pending });
+    expect(seen.statuses.at(-1)).toEqual({
+      state: "installFailed",
+      reason: pending,
+      unavailable: true,
+    });
     expect(seen.statuses.some((status) => status.state === "needsApproval")).toBe(false);
   });
 

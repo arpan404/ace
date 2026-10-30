@@ -23,6 +23,8 @@ export const LockedUseNeedsApproval = z.looseObject({ state: z.literal("needsApp
 export const LockedUseInstallFailed = z.looseObject({
   state: z.literal("installFailed"),
   reason,
+  /** This build cannot install it; clients must not offer install or retry. */
+  unavailable: z.boolean().optional(),
 });
 /** What is installed no longer matches what ace expects (moved, replaced, re-signed). */
 export const LockedUseDriftRepairNeeded = z.looseObject({

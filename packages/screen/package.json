@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./testing/locked-use-host": "./src/locked-use-fake-mac.ts",
     "./testing/locked-use-service": "./src/testing/fake-locked-use-service.ts"
   },
   "scripts": {

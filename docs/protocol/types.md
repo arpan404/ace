@@ -16305,6 +16305,7 @@ Example:
 | --- | --- | --- | --- |
 | state | yes | `"installFailed"` |  |
 | reason | yes | string | {"maxLength":2048} |
+| unavailable | no | boolean |  |
 
 Example:
 
@@ -16704,6 +16705,7 @@ Example:
 | --- | --- | --- | --- |
 | state | yes | `"installFailed"` |  |
 | reason | yes | string | {"maxLength":2048} |
+| unavailable | no | boolean |  |
 
 Example:
 

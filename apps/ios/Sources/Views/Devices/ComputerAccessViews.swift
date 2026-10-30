@@ -25,7 +25,7 @@ struct LockedUseRow: View {
                 Spacer(minLength: AceTheme.Spacing.sm)
                 Toggle("Let agents work while this Mac is locked", isOn: Binding(get: { locked.on }, set: { model.lockedUse($0 ? "install" : "remove") }))
                     .labelsHidden()
-                    .disabled(busy || locked.busy || !model.canOperate || !model.mayAdminister)
+                    .disabled(locked.unavailable || busy || locked.busy || !model.canOperate || !model.mayAdminister)
                     .accessibilityIdentifier("computer.locked.switch")
             }
             if let note = locked.note {
@@ -37,7 +37,7 @@ struct LockedUseRow: View {
             if !model.mayAdminister {
                 // A read pairing sees the Mac's state; only its owner turns locked use on or off.
                 OwnerOnlyNote().transition(.opacity)
-            } else if model.canOperate, locked.repair || locked.note != nil {
+            } else if model.canOperate, !locked.unavailable, locked.repair || locked.note != nil {
                 HStack(spacing: AceTheme.Spacing.xl) {
                     if locked.repair { Button("Repair") { model.lockedUse("repair") }.accessibilityIdentifier("computer.locked.repair") }
                     Button("Check again") { model.lockedUse("recheck") }.accessibilityIdentifier("computer.locked.recheck")

@@ -104,6 +104,7 @@ export function lockedUseRow(
     tone,
     on: lockedUseSwitchOn(status),
     busy: status.state === "installing",
+    unavailable: lockedUseUnavailable(status),
     repair: status.state === "driftRepairNeeded",
     /** Said under the row: why it failed or drifted, that macOS waits for approval, or that it isn't in this build. */
     note:
@@ -255,7 +256,8 @@ export class ComputerAccess {
     this.#put();
   }
   async #lockedChange(op: "install" | "remove" | "repair"): Promise<void> {
-    if (this.#busy || this.#ownerOnly()) return;
+    if (this.#busy || this.#ownerOnly() || (this.#locked && lockedUseUnavailable(this.#locked)))
+      return;
     const title = {
       install: "Couldn't turn on locked use",
       remove: "Couldn't turn off locked use",
