@@ -22,6 +22,7 @@ export class ThreadOrganizer {
   private pending: Promise<void> | undefined;
   private stopped = false;
   private retry = false;
+  private policyRevision = 0;
   constructor(
     store: Store,
     settings: SettingsService | undefined,
@@ -80,6 +81,7 @@ export class ThreadOrganizer {
           )
         )
           return;
+        this.policyRevision++;
         store.atomic((db) => {
           if (layer.kind === "global")
             db.exec("INSERT OR IGNORE INTO thread_organizer_dirty SELECT id FROM threads");
@@ -101,6 +103,7 @@ export class ThreadOrganizer {
             scope: {},
           },
           () => {
+            this.policyRevision++;
             store.atomic((db) =>
               db.exec("INSERT OR IGNORE INTO thread_organizer_dirty SELECT id FROM threads"),
             );
@@ -125,6 +128,7 @@ export class ThreadOrganizer {
   private async refresh(id: ThreadId): Promise<void> {
     const thread = this.store.getThread(id);
     if (!thread) return;
+    const revision = this.policyRevision;
     let policy = settlePolicy([]);
     if (this.settings) {
       const path = this.store.getWorkspacePath(thread.workspaceId);
@@ -140,6 +144,12 @@ export class ThreadOrganizer {
     this.store.atomic((db) => {
       const current = this.store.getThread(id);
       if (!current) return;
+      // Settings and project scope can change while their policy read is awaiting I/O.
+      // Requeue instead of applying an obsolete policy, even for one sweep.
+      if (revision !== this.policyRevision || current.workspaceId !== thread.workspaceId) {
+        db.prepare("INSERT OR IGNORE INTO thread_organizer_dirty VALUES (?)").run(id);
+        return;
+      }
       const changes = settleDecision(current, policy, this.now());
       if (
         Object.entries(changes).some(

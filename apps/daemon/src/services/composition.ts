@@ -211,7 +211,7 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   {
     name: "threadOrganization",
     phase: "listener",
-    requires: [],
+    requires: ["settings"],
     after: ["engine", "settings", "workspaceActions"],
     start: startThreadOrganization,
   },

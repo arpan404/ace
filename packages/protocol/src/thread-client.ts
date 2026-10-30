@@ -55,6 +55,8 @@ export const ThreadOrganization = z.object({
    * never settles it again: a thread the person reopens after that stays open.
    */
   prSettled: z.number().int().positive().optional(),
+  /** Repository-qualified linked PR set that already settled this thread. */
+  prSettledKey: z.string().max(131_072).optional(),
 });
 export type ThreadOrganization = z.infer<typeof ThreadOrganization>;
 export const ThreadDetails = z.object({
@@ -243,6 +245,7 @@ export const ThreadClientUpdated = z.object({
     autoSettle: z.literal(false).nullable().optional(),
     settleWhenDone: z.literal(true).nullable().optional(),
     prSettled: z.number().int().positive().nullable().optional(),
+    prSettledKey: z.string().max(131_072).nullable().optional(),
     movedFrom: ThreadMovedFrom.nullable().optional(),
   }),
 });

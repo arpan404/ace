@@ -700,7 +700,7 @@ Example:
 
 ## thread_fork
 
-Fork a thread to try another way, keeping its conversation: text is what to try instead, optionally on another model. Forks after the latest finished turn (works mid-turn); runId picks an earlier one. The fork shares the checkout; message, settle and merge it back with thread_merge. The person sees a card: relay it in a sentence, without ids.
+Fork a thread to try another way, keeping its conversation: text is what to try instead, optionally on another model. Forks after the latest finished turn (works mid-turn); runId picks an earlier one. The fork shares the checkout; message it or merge it back with thread_merge. Settle only when the person explicitly asks. The person sees a card: relay it in a sentence, without ids.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -951,7 +951,7 @@ Example:
 
 ## thread_control
 
-Change a thread you own (this one, ones you started or, with full access, any): rename, configure its model, hand off to a new worktree, interrupt, settle, unsettle, snooze, close a preview server, or rename this project. Settle this thread too when its work is done.
+Change a thread you own (this one, ones you started or, with full access, any): rename, configure its model, hand off to a new worktree, interrupt, settle, unsettle, snooze, close a preview server, or rename this project. Settle only when the person explicitly asks. Finishing work alone is not a settle request; automatic settling follows the person's settings.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -963,7 +963,7 @@ Semantic rule: configure needs requestId and model; interrupt needs requestId; h
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| action | yes | ["rename","configure","handoff","interrupt","settle","unsettle","snooze","close_preview","rename_project"] | {"description":"rename: title, or none to retitle from the first message. configure: model, effort. handoff: branch. interrupt: stops its turn and children. settle: a working thread settles once done, unless it fails or needs the person. unsettle: also cancels a pending settle. snooze: until. close_preview: previewId. rename_project: name."} |
+| action | yes | ["rename","configure","handoff","interrupt","settle","unsettle","snooze","close_preview","rename_project"] | {"description":"rename: title, or none to retitle from the first message. configure: model, effort. handoff: branch. interrupt: stops its turn and children. settle: only when the person explicitly asks; a working thread settles once done, unless it fails or needs the person. unsettle: also cancels a pending settle. snooze: until. close_preview: previewId. rename_project: name."} |
 | threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"Default: this thread."} |
 | requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."} |
 | title | no | string | {"minLength":1,"maxLength":256} |
