@@ -87,7 +87,7 @@ Phosphor only, `regular` weight. 16px beside 13–14px text, 14px beside 12px, 1
 
 ### Motion
 
-`--motion-fast` hover, colour, press · `--motion-base` popovers, menus, tooltips, new rows · `--motion-slow` panels, sheets, list moves, theme cross-fade · `--motion-exit` anything leaving. Curves `--ease-out` (default), `--ease-spring` (arrivals, segmented thumbs), `--ease-sheet` (sheets), `--ease-exit`. Animate only `transform` and `opacity`. No `infinite` animation except the live-activity indicators listed in `visual-language.md`.
+`--motion-fast` hover, colour, press · `--motion-base` popovers, menus, tooltips, new rows · `--motion-slow` panels, sheets, list moves, theme cross-fade · `--motion-exit` anything leaving. Curves `--ease-out` (default), `--ease-spring` (arrivals, segmented thumbs), `--ease-sheet` (sheets), `--ease-exit`. Animate only `transform` and `opacity`. Nothing loops forever: live state (working, streaming, an agent driving a tab) is a still glyph or ink, never motion. The only `infinite` animations are the startup mark's breath and an indeterminate progress bar, each only while what it stands for lasts (`visual-language.md`).
 
 ### Glass
 
@@ -110,7 +110,7 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 - **Empty state:** `EmptyState` centred: faint icon, title (`text-base` 500), one muted line, one secondary action. Never a bare sentence at the top of a page. Before a query, search and the palette offer recents and commands, not prose.
 - **Error state:** the same anatomy with the failed glyph; the line says what happened and what to do, in that order.
 - **Context handoff divider:** the transcript's one centred row, where a thread moves to another provider. Two `--border` hairlines run to the column edges around one `text-meta` muted line: the Phosphor arrows-left-right glyph, "Context handoff" (500), each source model's provider mark (in its brand colours) and name, comma-separated, at most three then "+N", an arrow, then the new model's mark and name in `--foreground`. It is static: nothing opens from it. Every other system event stays a left-aligned `SystemRow`.
-- **Loading:** skeleton pills (`--skel`) in the value slots at the control's size; labels and headers render as normal. Spinners only for live work (the working glyph, Send → Stop), never as a page's loading state. The boot splash is the only full-page spinner.
+- **Loading:** skeleton pills (`--skel`) in the value slots at the control's size; labels and headers render as normal. Spinner rings (still, like every live mark) only for live work (the working glyph, Send → Stop), never as a page's loading state. The boot splash is the only full-page loading mark.
 
 ## 4. Components
 
@@ -159,7 +159,7 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 - Text ≥ 4.5:1 on every surface it sits on (`--foreground`, `--muted-foreground`, status words); tertiary hints and icons ≥ 3:1. The theme tests enforce this for every theme × scheme × accent, and the glass solver enforces it over blurred backdrops. Contrast settings may not drop below these floors.
 - Hit targets: 30px on fine pointers; 44px on coarse pointers via `touch-hit` (never by growing the control). Rows ≥ 32px.
 - Keyboard: everything reachable in DOM order; lists use arrow keys and `data-row-focus`; menus trap focus; `Escape` closes the top layer only. Focus returns to the control that opened a layer.
-- Reduced motion (`[data-reduce-motion]`): fades stay, distances and scaling go to zero, `.fx-flourish` stops; live-activity indicators keep running.
+- Reduced motion (`[data-reduce-motion]`): fades stay, distances and scaling go to zero, `.fx-flourish` stops; live marks are still anyway, and an indeterminate progress bar breathes in place instead of sweeping.
 - Reduced transparency (`prefers-reduced-transparency`) and the Solid setting: `data-surface="solid"`, no backdrop filter anywhere; the same edge and shadow carry elevation.
 - Every icon-only control has an `aria-label`; every status has a word for assistive tech, never a colour alone.
 
