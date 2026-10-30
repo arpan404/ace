@@ -5,7 +5,6 @@ import { frameBatch } from "@ace/client-react";
 import { StrictMode, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App, AppFrame, createQueryClient } from "./app.tsx";
-import { scheduleMathWarmup } from "./components/markdown/math-warm.ts";
 import { ConnectionGate, type GateConnection } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
 import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
@@ -216,7 +215,6 @@ async function start(root: Root) {
           ? () => {
               manual = true;
               render(gate({ desktop: true }));
-              scheduleMathWarmup();
             }
           : undefined
       }
@@ -225,9 +223,6 @@ async function start(root: Root) {
   try {
     const shown = await content();
     if (!manual) render(shown);
-    // The shell has rendered: warm KaTeX at idle so the first formula shows
-    // with no chunk wait. Idle-gated, once per session, never mobile/metered.
-    scheduleMathWarmup();
   } catch (error) {
     console.error("ace couldn't start", error);
     render(<BootFailure error={error} onConnectionSettings={connectionSettings} />);

@@ -227,8 +227,8 @@ test("the Summary holds only reviewers, labels, description, checks and comments
       .map((region) => region.getAttribute("aria-label"))
       .filter((name) => ["Description", "Checks", "Comments"].includes(name ?? "")),
   ).toEqual(["Description", "Checks", "Comments"]);
-  expect(panel().getByText("Preserve reconnect ordering.")).toBeTruthy();
-  expect(panel().getByText("Keep the context.")).toBeTruthy();
+  expect(panel().getByText(/Preserve reconnect ordering\./)).toBeTruthy();
+  expect(panel().getByText(/Keep the context\./)).toBeTruthy();
   // Checks start folded; no Summary control refreshes anything.
   expect(panel().queryByText("No checks reported.")).toBeNull();
   await userEvent.click(panel().getByRole("button", { name: "Checks" }));
