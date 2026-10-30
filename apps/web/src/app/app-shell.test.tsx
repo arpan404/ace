@@ -79,7 +79,7 @@ test.each(["trigger", "item"])(
 
 const shell = () => document.querySelector("[data-connection]");
 
-test("live spinners keep moving while connected and hold still only while the daemon is unreachable", async () => {
+test("live indicators stay at full strength while connected and dim only while the daemon is unreachable", async () => {
   const app = harness();
   await app.open("/new");
   await screen.findByRole("heading", { level: 1, name: "New thread" });

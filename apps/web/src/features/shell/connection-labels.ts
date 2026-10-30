@@ -11,14 +11,14 @@ export const connectionLabels: Record<ConnectionState, string> = {
 };
 
 /**
- * The connection's dot: filled green when connected, a hollow ring while trying (pulsing;
- * reduced motion stops every animation) or offline, filled red once it has given up.
+ * The connection's dot: filled green when connected, a ring half filled in while trying, a hollow
+ * ring offline, filled red once it has given up. It holds still; its words say which.
  */
 export const connectionDot: Record<ConnectionState, string> = {
   ready: "bg-status-done",
-  starting: "shadow-[inset_0_0_0_1.5px_var(--subtle-foreground)] animate-pulse",
-  connecting: "shadow-[inset_0_0_0_1.5px_var(--subtle-foreground)] animate-pulse",
-  reconnecting: "shadow-[inset_0_0_0_1.5px_var(--subtle-foreground)] animate-pulse",
+  starting: "shadow-[inset_0_0_0_1.5px_var(--subtle-foreground)] bg-subtle-foreground/40",
+  connecting: "shadow-[inset_0_0_0_1.5px_var(--subtle-foreground)] bg-subtle-foreground/40",
+  reconnecting: "shadow-[inset_0_0_0_1.5px_var(--subtle-foreground)] bg-subtle-foreground/40",
   offline: "shadow-[inset_0_0_0_1.5px_var(--subtle-foreground)]",
   fatal: "bg-status-failed",
 };

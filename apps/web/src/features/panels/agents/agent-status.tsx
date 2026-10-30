@@ -16,9 +16,9 @@ export function agentMark(status: AgentStatus, pending?: boolean, needsYou?: boo
 }
 
 /**
- * An agent's status as one glyph (status-glyph.tsx), held still while the facts are stale: a
- * rocking ring while it works, ratcheting arcs while it waits on its own, a solid "!" when it
- * needs you, a cross when it failed.
+ * An agent's status as one glyph (status-glyph.tsx), dimmed while the facts are stale: a ring
+ * split in two while it works, three arcs while it waits on its own, a solid "!" when it needs
+ * you, a cross when it failed.
  */
 export function AgentStatusMark(props: {
   status: AgentStatus;

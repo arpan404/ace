@@ -57,7 +57,7 @@ export function AssistantMessage(props: { threadId: string; itemId: string; betw
             <span
               role="status"
               aria-label="Streaming"
-              className="ml-0.5 inline-block h-[1em] w-[3px] animate-pulse rounded-full bg-current align-[-0.15em] text-muted-foreground"
+              className="ml-0.5 inline-block h-[1em] w-[3px] rounded-full bg-current align-[-0.15em] text-muted-foreground"
             />
           )
         }

@@ -10,10 +10,9 @@
  *
  * `[data-reduce-motion]` on <html> (the Reduce motion setting, or `prefers-reduced-motion` under
  * System) keeps fades and drops movement: distances go to zero, the spring settles without
- * overshoot and anything marked `.fx-flourish` (sheens, glows, trails) stops. The only
- * animations that run forever are the live-activity indicators at the end of this file (spinner,
- * working glyph, startup mark, progress sweep, pulses), which keep running under reduced motion;
- * `bun run check:ui` refuses any other.
+ * overshoot and anything marked `.fx-flourish` (sheens, glows, trails) stops. Nothing loops
+ * forever except the startup mark's breath and an indeterminate progress bar (end of this file);
+ * live state is shown by still marks. `bun run check:ui` refuses any other `infinite` animation.
  */
 :root {
   --motion-fast: 120ms;
@@ -274,212 +273,37 @@
 }
 
 /*
- * Live activity: the only animations that run forever. Each shows work that is happening right
- * now and goes away when it ends, moves only transform or opacity (compositor-only, no layout or
- * paint), stops in a hidden window and pauses while the daemon is unreachable (app-shell).
- * Reduced motion keeps them going, as macOS keeps its own activity indicators: a still spinner
- * reads as a hung app. They turn in place or change opacity; only the progress sweep travels, so
- * under reduced motion it breathes in place instead.
+ * Nothing loops forever while ace is in use. Live state (an agent working, a subagent busy, a
+ * tab an agent drives, an answer streaming) is shown by a still mark: the status glyphs
+ * (components/status-glyph.tsx), the Spinner's ring, a word in foreground ink. An infinite
+ * animation keeps the compositor drawing frames for as long as anything works, in every thread
+ * the sidebar shows, which costs idle CPU on the GPU and renderer for nothing the person reads.
+ * Two exceptions, each brief and tied to something the person is waiting on:
  *
- *   .spin-ring          the Spinner: one turn every 800ms
- *   .aperture-part      the status glyphs' moving parts (components/status-glyph.tsx), below
- *   .fx-breathe         the startup mark while ace starts
- *   [data-agent-driving] a browser tab an agent is using: its title sweeps like a live step's
- *                       words (.step-shimmer), for as long as the agent drives it
- *   .agent-shimmer      a working subagent's current activity, the same sweep while it works
- *   .fx-indeterminate  a progress bar that doesn't know how far along it is
- *   .animate-pulse      Tailwind's pulse (streaming caret, connection dot, browser agent line)
- */
-.spin-ring {
-  animation: ace-spin 800ms linear infinite;
-}
-/*
- * Aperture status glyphs. A moving part is a glyph-sized HTML box, so only its transform and
- * opacity change and the compositor runs it: no layout, paint or script per frame. Parts move
- * only inside a `[data-live]` glyph. One iteration holds several beats (four swings, four
- * drifts, three ratchet steps) because every iteration boundary wakes the main thread for its
- * `animationiteration` event; longer iterations keep that rare. Reduced motion keeps them
- * moving, gentler and slower: a smaller swing, a shorter drift, a slower ratchet.
+ *   .fx-breathe        the startup mark, only while ace starts
+ *   .fx-indeterminate  a progress bar that doesn't know how far along it is, only during that
+ *                      transfer (a frozen indeterminate bar would read as stuck)
  *
- *   swing    each half turns 25deg and back, 500ms each way (reduced: 10deg, 1400ms)
- *   drift    the dot leaves through the opening once a second (reduced: half as far, every 2s)
- *   ratchet  a third of a turn in 600ms, once a second (reduced: every 2.4s)
+ * `bun run check:ui` refuses any other `infinite` animation.
  */
-.aperture-part {
-  position: absolute;
-  inset: 0;
-  --aperture-swing: 25deg;
-  --aperture-drift: 28%;
-}
-.aperture-part[data-counter] {
-  --aperture-swing: -25deg;
-}
-[data-live] > .aperture-part[data-motion="swing"] {
-  animation: aperture-swing 4000ms cubic-bezier(0.45, 0, 0.55, 1) infinite;
-}
-[data-live] > .aperture-part[data-motion="drift"] {
-  opacity: 0;
-  animation: aperture-drift 4000ms cubic-bezier(0.3, 0, 0.6, 1) infinite;
-}
-[data-live] > .aperture-part[data-motion="ratchet"] {
-  animation: aperture-ratchet 3000ms cubic-bezier(0.6, 0, 0.3, 1) infinite;
-}
-:root[data-reduce-motion] .aperture-part {
-  --aperture-swing: 10deg;
-  --aperture-drift: 14%;
-}
-:root[data-reduce-motion] .aperture-part[data-counter] {
-  --aperture-swing: -10deg;
-}
-:root[data-reduce-motion] [data-live] > .aperture-part[data-motion="swing"] {
-  animation-duration: 11200ms;
-}
-:root[data-reduce-motion] [data-live] > .aperture-part[data-motion="drift"] {
-  animation-duration: 8000ms;
-}
-:root[data-reduce-motion] [data-live] > .aperture-part[data-motion="ratchet"] {
-  animation-duration: 7200ms;
-}
-/* Paused with the rest of live activity while the daemon is unreachable (app-shell). */
-[data-live-held] [data-live] > .aperture-part {
-  animation-play-state: paused;
-}
 .fx-breathe {
   animation: fx-breathe 1.6s ease-in-out infinite alternate;
 }
-/* The same brightness passing left to right as "Thinking", on the tab the agent is driving. */
+/* A browser tab an agent is using: its title in foreground ink, next to the agent cursor. */
 [data-agent-driving] ~ [data-tab-title] {
-  color: transparent;
-  background-image: linear-gradient(
-    100deg,
-    var(--shimmer-ink, var(--muted-foreground)) 42%,
-    var(--foreground) 50%,
-    var(--shimmer-ink, var(--muted-foreground)) 58%
-  );
-  background-size: 300% 100%;
-  background-position: 100% 0;
-  -webkit-background-clip: text;
-  background-clip: text;
-  animation: fx-agent-sweep 2.4s linear infinite;
-}
-:root[data-reduce-motion] [data-agent-driving] ~ [data-tab-title] {
-  animation: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  [data-agent-driving] ~ [data-tab-title] {
-    animation: none;
-  }
-}
-[data-live-held] [data-agent-driving] ~ [data-tab-title] {
-  animation-play-state: paused;
-}
-/*
- * What a working subagent does now ("Reading row-parts.tsx"): the same sweep across its words, for
- * as long as it works; the line becomes its result when it ends. Still under reduced motion.
- */
-.agent-shimmer {
-  color: transparent;
-  background-image: linear-gradient(
-    100deg,
-    var(--muted-foreground) 42%,
-    var(--foreground) 50%,
-    var(--muted-foreground) 58%
-  );
-  background-size: 300% 100%;
-  background-position: 100% 0;
-  -webkit-background-clip: text;
-  background-clip: text;
-  animation: fx-agent-sweep 2.2s linear infinite;
-}
-:root[data-reduce-motion] .agent-shimmer {
-  animation: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .agent-shimmer {
-    animation: none;
-  }
-}
-[data-live-held] .agent-shimmer {
-  animation-play-state: paused;
+  color: var(--foreground);
 }
 .fx-indeterminate {
   animation: fx-sweep 1.4s var(--ease-out) infinite;
 }
+/* The one sweep that travels breathes in place instead under reduced motion. */
 :root[data-reduce-motion] .fx-indeterminate {
   width: 100%;
   animation: fx-breathe 1.6s ease-in-out infinite alternate;
 }
-:root[data-reduce-motion] .animate-ping {
-  animation: none;
-}
-@keyframes ace-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes aperture-swing {
-  0%,
-  25%,
-  50%,
-  75%,
-  to {
-    transform: rotate(0deg);
-  }
-  12.5%,
-  37.5%,
-  62.5%,
-  87.5% {
-    transform: rotate(var(--aperture-swing));
-  }
-}
-@keyframes aperture-drift {
-  0%,
-  25%,
-  50%,
-  75% {
-    transform: translateX(0);
-    opacity: 0;
-  }
-  5%,
-  30%,
-  55%,
-  80% {
-    opacity: 1;
-  }
-  24.9%,
-  49.9%,
-  74.9%,
-  to {
-    transform: translateX(var(--aperture-drift));
-    opacity: 0;
-  }
-}
-@keyframes aperture-ratchet {
-  0% {
-    transform: rotate(0deg);
-  }
-  20%,
-  33.33% {
-    transform: rotate(120deg);
-  }
-  53.33%,
-  66.67% {
-    transform: rotate(240deg);
-  }
-  86.67%,
-  to {
-    transform: rotate(360deg);
-  }
-}
 @keyframes fx-breathe {
   to {
     opacity: 0.55;
-  }
-}
-/* `fx-shimmer`'s pass, kept apart so only the agent-driven tab may repeat it for as long as it lasts. */
-@keyframes fx-agent-sweep {
-  to {
-    background-position: 0 0;
   }
 }
 @keyframes fx-sweep {

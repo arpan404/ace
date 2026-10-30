@@ -50,10 +50,9 @@ const glyphs: Record<CapsuleState, GlyphState> = {
 };
 
 /**
- * The status glyph (status-glyph.tsx): a working ring that rocks open, holding how many of its
- * own still run, and holds still while the facts are stale; arcs that ratchet while it waits on
- * its own; a check when it finished; a cross when it failed; a solid "!" while it needs the
- * person.
+ * The status glyph (status-glyph.tsx): a working ring split in two, holding how many of its own
+ * still run, dimmed while the facts are stale; three arcs while it waits on its own; a check
+ * when it finished; a cross when it failed; a solid "!" while it needs the person.
  */
 export function CapsuleGlyph(props: { state: CapsuleState; count?: number | undefined }) {
   const fresh = useLiveConnection().fresh;

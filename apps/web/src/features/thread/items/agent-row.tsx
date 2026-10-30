@@ -12,7 +12,7 @@ import { AgentIcon, type AgentMark } from "./agent-lead.tsx";
  *             Reading apps/web/src/row-parts.tsx    (what it does now, or what it found)
  *
  * The mark spans both lines; the status word carries the state in its tone. While it works the
- * second line is its live activity, swept by a quiet shimmer; once it ends, its one-line result;
+ * second line is its live activity in foreground ink; once it ends, its one-line result, muted;
  * when it needs the person, what it waits on and Review; when it failed, why.
  */
 
@@ -80,7 +80,8 @@ export function AgentRowContents(props: AgentRowParts) {
         data-detail={props.detailKind}
         className={cn(
           agentRowStyles.detail,
-          props.detailKind === "live" && "agent-shimmer",
+          // What a working subagent does now reads in foreground ink; its result, muted.
+          props.detailKind === "live" && "text-foreground",
           !props.detail && "hidden",
         )}
       >
