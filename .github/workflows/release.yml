@@ -111,7 +111,7 @@ jobs:
         run: node apps/desktop/scripts/release.ts build "$VERSION"
 
       - name: Upload the daemon archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ace-daemon-${{ matrix.target }}
           if-no-files-found: error
@@ -121,7 +121,7 @@ jobs:
             tools/release/dist/native/${{ matrix.target }}/provenance.json
 
       - name: Upload the desktop packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ace-desktop-${{ matrix.target }}
           if-no-files-found: error
@@ -165,7 +165,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Download the artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: ace-*-${{ matrix.target }}
           path: artifacts
@@ -249,7 +249,7 @@ jobs:
           node tools/release/src/smoke.ts tools/release/dist/${{ matrix.target }}
 
       - name: Upload the daemon archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ace-daemon-${{ matrix.target }}
           if-no-files-found: error
