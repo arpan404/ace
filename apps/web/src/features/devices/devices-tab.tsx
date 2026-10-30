@@ -1,3 +1,4 @@
+import { useToolchains } from "@/features/diagnostics/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { DeviceRow } from "@ace/ui-core";
 import { useRef, useState, type ReactNode } from "react";
@@ -57,6 +58,7 @@ function Section(props: { label: string; count?: number; children: ReactNode }) 
  */
 export function DevicesTab(props: { threadId: string }) {
   const devices = useDevices(props.threadId);
+  const toolchains = useToolchains();
   const actions = useWorkspaceActions(props.threadId);
   const workspace = useScopeWorkspace(props.threadId);
   const uses = useRecentUses();
@@ -151,9 +153,14 @@ export function DevicesTab(props: { threadId: string }) {
               title="No simulators or emulators on this machine"
               description="Create one in Xcode or Android Studio, then refresh."
               action={
-                <Button size="sm" onClick={devices.refresh}>
-                  Refresh
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => setSetUp(true)}>
+                    Set up device tools…
+                  </Button>
+                  <Button size="sm" onClick={devices.refresh}>
+                    Refresh
+                  </Button>
+                </div>
               }
             />
           )
@@ -236,7 +243,17 @@ export function DevicesTab(props: { threadId: string }) {
           <ToolReadiness onSetUp={() => setSetUp(true)} />
         </div>
       </div>
-      <ToolSetupDialog open={setUp} onOpenChange={setSetUp} />
+      <ToolSetupDialog
+        open={setUp}
+        onOpenChange={setSetUp}
+        toolsMissing={view.toolsMissing}
+        downloadingTools={view.downloadingTools}
+        onDownload={devices.downloadTools}
+        onRefresh={() => {
+          void toolchains.refetch();
+          devices.refresh();
+        }}
+      />
       <DisableDevicesDialog
         open={disabling}
         onOpenChange={setDisabling}

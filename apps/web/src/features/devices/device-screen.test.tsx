@@ -14,7 +14,7 @@ async function liveIphone(webCodecs: Parameters<typeof deviceBrowser>[0], video 
   current = browser;
   const { app, panel } = await openDevices();
   app.daemon.appDevices.videoEncoding = video;
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
   return { app, panel, iphone, screenImage, browser };
@@ -164,7 +164,7 @@ test("on an emulator that takes several fingers, an Option-drag pinches with two
   const browser = deviceBrowser("decodes");
   current = browser;
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const pixel = await openDevice(panel, "Pixel 9");
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });

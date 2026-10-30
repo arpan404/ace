@@ -16,7 +16,7 @@ afterEach(() => {
 async function liveIphone(fold?: "open") {
   const { app, panel } = await openDevices();
   if (fold) app.daemon.appDevices.folds.set(iphoneId, fold);
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
   return { app, iphone };

@@ -1,6 +1,6 @@
 import type { DeviceChrome } from "@ace/protocol";
-import { act, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { deviceBrowser, openDevice, openDevices } from "@/test/device-browser.ts";
 
@@ -41,7 +41,9 @@ test("running tiles wear the real body, and a list of one model asks the daemon 
         model,
       });
   });
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
+  await userEvent.click(within(panel).getByRole("button", { name: "Devices actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh" }));
   const running = await within(panel).findByRole("list", { name: "Running devices" });
 
   await waitFor(() => expect(running.querySelectorAll("[data-device-chrome]").length).toBe(2));
@@ -64,6 +66,8 @@ test("a foldable wears its cover's body while shut and its inner screen's body w
   const shut = "ios:11111111-2222-4333-8444-555555555555";
   const open = "ios:66666666-7777-4888-9999-aaaaaaaaaaaa";
   act(() => {
+    devices.folds.set(shut, "closed");
+    devices.folds.set(open, "open");
     for (const [id, name] of [
       [shut, "iPhone Duo (shut)"],
       [open, "iPhone Duo (open)"],
@@ -76,10 +80,10 @@ test("a foldable wears its cover's body while shut and its inner screen's body w
         runtime: "iOS 27.1",
         model: duo,
       });
-    devices.folds.set(shut, "closed");
-    devices.folds.set(open, "open");
   });
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
+  await userEvent.click(within(panel).getByRole("button", { name: "Devices actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh" }));
   const running = await within(panel).findByRole("list", { name: "Running devices" });
 
   const body = (name: string) =>
@@ -114,7 +118,7 @@ test("a tablet whose skin is drawn on its side wears that body before its first 
       runtime: "Android 16",
     }),
   );
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
 
   const view = await openDevice(panel, "Pixel Tablet");
 

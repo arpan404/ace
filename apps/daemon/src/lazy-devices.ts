@@ -1,9 +1,9 @@
 import type { Actor, DevicesService } from "@ace/devices";
 
 /**
- * The devices service, built on first use. Devices stay off until a person turns them on in the
- * Devices page, so until something asks for them (that page, `ace sim`, an agent's sim_* tool,
- * a phone's devices channel) the daemon holds none of their code.
+ * The devices service, enabled by default and built on first use. Until something asks for
+ * devices (the Devices page, `ace sim`, an agent's sim_* tool or a phone's devices channel),
+ * the daemon holds none of their code.
  */
 export class LazyDevices {
   readonly #build: () => Promise<DevicesService>;
@@ -50,9 +50,9 @@ export class LazyDevices {
     );
     return this.#loading;
   }
-  /** Off until loaded: a person turns devices on through a request, which loads them. */
+  /** Available before loading; disabling applies for the lifetime of the loaded service. */
   isEnabled(): boolean {
-    return this.#service?.isEnabled() ?? false;
+    return !this.#closed && (this.#service?.isEnabled() ?? true);
   }
   watchEnabled(listener: (enabled: boolean) => void): () => void {
     this.#enabledWatchers.set(listener, this.#service?.watchEnabled(listener));

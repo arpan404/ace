@@ -14,7 +14,7 @@ afterEach(() => {
 
 test("an emulator's side buttons press its keys as soon as its screen is live", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const pixel = await openDevice(panel, "Pixel 9");
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
   await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
@@ -33,7 +33,7 @@ test("an emulator's side buttons press its keys as soon as its screen is live", 
 
 test("a live iPhone's Action and Side buttons press Action and power, with no control step first", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
@@ -81,7 +81,7 @@ test("an iPhone wears the body Xcode draws for it, and that body's buttons press
       },
     ],
   });
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
@@ -102,7 +102,7 @@ test("an iPhone wears the body Xcode draws for it, and that body's buttons press
 
 test("a device the SDK doesn't describe keeps the drawn frame", async () => {
   const { panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
@@ -118,7 +118,7 @@ test("an emulator in its real skin, which draws no buttons, keeps ace's side but
     screen: { x: 20, y: 20, width: 390, height: 844 },
     buttons: [],
   });
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const pixel = await openDevice(panel, "Pixel 9");
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
   await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
@@ -141,7 +141,7 @@ test("a Simulator streamed as its window shows in its own bezel alone, and taps 
     screen: { x: 22, y: 22, width: 390, height: 844 },
     buttons: [],
   });
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   const picture = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 

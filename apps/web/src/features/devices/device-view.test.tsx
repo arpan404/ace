@@ -16,7 +16,7 @@ afterEach(() => {
 /** The iPhone's tab with its screen live, held by one of the thread's agents. */
 async function agentDriving() {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
   act(() => app.daemon.appDevices.agentTakes(iphoneId, "thread-checkout", "agent-1"));
@@ -48,8 +48,10 @@ test("an agent's tap shows on the stage as a ripple and a caption naming the ele
 
 test("what an agent did before the device's tab opened isn't replayed", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  app.daemon.appDevices.agentActs(iphoneId, { action: "tap", point: { x: 10, y: 10 } });
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
+  await act(async () => {
+    app.daemon.appDevices.agentActs(iphoneId, { action: "tap", point: { x: 10, y: 10 } });
+  });
 
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
@@ -83,8 +85,11 @@ test("a person's key takes the device from the agent holding it and reaches the 
 
 test("a missing Android SDK stays a setup note and never reads as the open Simulator's failure", async () => {
   const { app, panel } = await openDevices();
-  app.daemon.appDevices.androidSdkMissing = true;
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  act(() => {
+    app.daemon.appDevices.androidSdkMissing = true;
+    app.daemon.appDevices.dropAll();
+  });
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   // The list says which SDK is missing and how to install it, once.
   expect(
     await within(panel).findAllByText(/Android SDK platform-tools and emulator were not found/),

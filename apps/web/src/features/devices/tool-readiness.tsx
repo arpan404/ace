@@ -41,7 +41,7 @@ export function ToolReadiness(props: { onSetUp(): void }) {
     return words ? [{ tool, words }] : [];
   });
   if (!shown.length) return null;
-  const missing = shown.some(({ tool }) => !tool.available && tool.id !== "serve-sim");
+  const missing = shown.some(({ tool }) => !tool.available);
   return (
     <p
       aria-label="Device tools"
@@ -67,7 +67,14 @@ export function ToolReadiness(props: { onSetUp(): void }) {
 }
 
 /** The device tools and how to install the missing ones (the existing guidance). */
-export function ToolSetupDialog(props: { open: boolean; onOpenChange(open: boolean): void }) {
+export function ToolSetupDialog(props: {
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  toolsMissing: boolean;
+  downloadingTools: boolean;
+  onDownload(): void;
+  onRefresh(): void;
+}) {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent>
@@ -80,8 +87,14 @@ export function ToolSetupDialog(props: { open: boolean; onOpenChange(open: boole
         </DialogHeader>
         <div className="py-2">
           <ToolchainHints devices />
+          {(props.toolsMissing || props.downloadingTools) && (
+            <Button disabled={props.downloadingTools} onClick={props.onDownload}>
+              {props.downloadingTools ? "Downloading device tools…" : "Download device tools"}
+            </Button>
+          )}
         </div>
         <DialogFooter>
+          <Button onClick={props.onRefresh}>Check again</Button>
           <Button type="button" variant="ghost" onClick={() => props.onOpenChange(false)}>
             Close
           </Button>

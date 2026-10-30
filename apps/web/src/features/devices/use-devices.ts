@@ -65,6 +65,7 @@ export interface DevicesView {
   holder: { threadId: string; agentId: string } | undefined;
   /** The last thing an agent did on the selected device. */
   activity: DeviceActivity | undefined;
+  stateLoaded: boolean;
   /** Every device's controller and holder, for the list's tiles. */
   controllers: ReadonlyMap<string, Pick<DeviceState, "controller" | "holder" | "ownedHere">>;
 }
@@ -105,7 +106,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     snapshot.enabled ??
     (snapshot.states.length
       ? snapshot.states.some((entry) => entry.enabled)
-      : (enabledLocally ?? false));
+      : (enabledLocally ?? true));
   const notice = state?.recordingNotice;
   useEffect(() => {
     if (notice && notice !== noticed.current) notify({ title: notice });
@@ -220,6 +221,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     session,
     holder: state?.controller === "agent" ? state.holder : undefined,
     activity: state?.activity,
+    stateLoaded: state !== undefined,
     controllers: new Map(
       snapshot.states.map((entry) => [
         entry.device.id,

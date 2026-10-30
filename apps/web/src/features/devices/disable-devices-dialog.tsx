@@ -23,7 +23,7 @@ export function DisableDevicesDialog(props: {
           <DialogTitle>Disable devices on this machine?</DialogTitle>
           <DialogDescription>
             This turns devices off for every thread, not just this one. Agents lose the devices they
-            are using, and live views stop.
+            are using, and live views stop. Devices turn on again when the daemon restarts.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
