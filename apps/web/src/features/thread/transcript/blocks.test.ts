@@ -1,4 +1,4 @@
-import { Item } from "@ace/protocol";
+import { Item, RunId } from "@ace/protocol";
 import { mergeReceipts } from "@ace/ui-core";
 import { expect, test } from "vitest";
 import {
@@ -511,10 +511,10 @@ const answer = (id: string, run: string, at: number) =>
 test("delegated work reads in the turn it came back in, the same whether or not the turn that launched it is loaded", () => {
   const items = [
     ask("launch-ask", 0),
-    { ...delegationLaunch("audit", 1), runId: "first" },
+    { ...delegationLaunch("audit", 1), runId: RunId.parse("first") },
     answer("launched", "first", 2),
     ask("continue", 3),
-    { ...settled("settled-audit", 4, ["audit"]), runId: "second" },
+    { ...settled("settled-audit", 4, ["audit"]), runId: RunId.parse("second") },
     answer("measured", "second", 5),
   ];
   const build = (from: number) =>
@@ -525,22 +525,23 @@ test("delegated work reads in the turn it came back in, the same whether or not 
       turnOf: (id) => items.find((item) => item.id === id)?.runId,
       run: () => ({ state: "completed", trigger: "user", endedAt: 6 }),
     });
-  const latestTurn = (blocks: readonly Block[]) =>
+  const latestTurns = [build(0), build(3)].map((blocks) =>
     shown(
       blocks.slice(blocks.findIndex((block) => "itemId" in block && block.itemId === "continue")),
-    );
+    ),
+  );
   // The launch's turn loaded or paged out: the later turn shows its delivered result either way.
-  expect(latestTurn(build(0))).toContain("settled-audit");
-  expect(latestTurn(build(3))).toEqual(latestTurn(build(0)));
+  expect(latestTurns[0]).toContain("settled-audit");
+  expect(latestTurns[1]).toEqual(latestTurns[0]);
 });
 
 test("results delivered back to back read as one row listing every child", () => {
   const items = [
     ask("ask", 0),
-    { ...settled("settled-network", 1, ["network-a", "network-b"]), runId: "turn" },
-    { ...settled("settled-startup", 2, ["startup-a", "startup-b"]), runId: "turn" },
+    { ...settled("settled-network", 1, ["network-a", "network-b"]), runId: RunId.parse("turn") },
+    { ...settled("settled-startup", 2, ["startup-a", "startup-b"]), runId: RunId.parse("turn") },
     answer("summary", "turn", 3),
-    { ...settled("settled-late", 4, ["late"]), runId: "turn" },
+    { ...settled("settled-late", 4, ["late"]), runId: RunId.parse("turn") },
   ];
   const item = (id: string) => items.find((entry) => entry.id === id);
   const blocks = mergeReceipts(

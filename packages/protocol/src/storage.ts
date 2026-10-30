@@ -159,7 +159,7 @@ export const StorageRequest = z.object({
   type: z.literal("storage.request"),
   requestId: z.string().min(1).max(128),
   operation: z.discriminatedUnion("op", [
-    z.object({ op: z.literal("storage.usage") }),
+    z.object({ op: z.literal("storage.usage"), force: z.boolean().optional() }),
     z.object({
       op: z.literal("cleanup.plan"),
       kinds: z.array(StorageKind).min(1).max(6).optional(),

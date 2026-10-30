@@ -1,6 +1,7 @@
 import type { ReadSnapshotStorage } from "@ace/client";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import * as z from "zod/mini";
+import { storageUsageGcMs, storageUsageKey, storageUsageQuery } from "./storage-usage-policy.ts";
 
 /*
  * The daemon lookups behind the screens people open most (the project list, the model catalog,
@@ -26,6 +27,7 @@ const keptKeys: readonly { prefix: readonly string[]; exact?: true }[] = [
   { prefix: ["permissions", "capabilities"] },
   { prefix: ["skills"], exact: true },
   { prefix: ["automations", "list"], exact: true },
+  { prefix: storageUsageKey, exact: true },
 ];
 
 /*
@@ -147,7 +149,7 @@ export function queryRecord(
     .getQueryCache()
     .findAll({
       predicate: (query) =>
-        query.state.status === "success" &&
+        (query.state.status === "success" || storageUsageQuery(query.queryKey)) &&
         query.state.data !== undefined &&
         keptQuery(query.queryKey),
     })
@@ -178,6 +180,8 @@ export function restoreQueries(queries: QueryClient, kept: QueryRecord["queries"
     // A restored PR read outlives the default collection window until its panel opens again.
     if (keptForgeQuery(entry.key))
       queries.getQueryCache().build(queries, { queryKey: entry.key, gcTime: keptForgeMs });
+    if (storageUsageQuery(entry.key))
+      queries.getQueryCache().build(queries, { queryKey: entry.key, gcTime: storageUsageGcMs });
     queries.setQueryData(entry.key, entry.data, { updatedAt: entry.at });
     const hash = queries.getQueryCache().find({ queryKey: entry.key, exact: true })?.queryHash;
     if (hash) restored.add(hash);

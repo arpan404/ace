@@ -489,7 +489,10 @@ export class NativeServices {
   }
 }
 
-/** Pull to refresh on the forge lists and pages reads GitHub again. */
+/** Explicit refreshes bypass the phone's fresh read cache as well as the daemon cache. */
 function refreshing(request: unknown): boolean {
-  return z.object({ fresh: z.literal(true) }).safeParse(request).success;
+  return (
+    z.object({ fresh: z.literal(true) }).safeParse(request).success ||
+    z.object({ type: z.literal("host.storage"), force: z.literal(true) }).safeParse(request).success
+  );
 }

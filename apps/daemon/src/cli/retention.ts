@@ -17,7 +17,7 @@ export async function retentionCommand(args: Args, client: Client, signal: Abort
   if (verb === "clean") return cleanCommand(args, client, signal, terminalConfirmation());
   if (verb === "usage") {
     validateArgs(args, [], 1, 2);
-    const data = await storageRequest(client, { op: "storage.usage" }, signal);
+    const data = await storageRequest(client, { op: "storage.usage", force: true }, signal);
     if (data.kind !== "usage") throw new CliFailure("uncertain", "The daemon returned no usage");
     await print(args, data.usage);
   } else if (verb === "plan") {

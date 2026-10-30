@@ -1,7 +1,24 @@
+import type { StorageUsage } from "@ace/protocol";
 import type { ReadSnapshotStorage } from "@ace/client";
 import { QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query";
 import { expect, test, vi } from "vitest";
-import { keptForgeLimit, persistQueries, queryRecordKey } from "./query-persistence.ts";
+import {
+  keptForgeLimit,
+  persistQueries,
+  queryRecordKey,
+  restoreQueries,
+} from "./query-persistence.ts";
+
+function measurement(measuredAt: number): StorageUsage {
+  return {
+    measuredAt,
+    databaseBytes: 480_000,
+    reclaimableDatabaseBytes: 1_024,
+    complete: false,
+    categories: [{ kind: "logs", bytes: 2_048, items: 3 }],
+    backups: [{ path: "/worktrees/example", state: "failed", updatedAt: 100, error: "offline" }],
+  };
+}
 
 const host = "6b0f9c1e-1f5c-4b5e-9d0a-2f8f6a3c7d11";
 
@@ -81,6 +98,47 @@ test("lookups kept by an earlier session show at once and are asked for again", 
   await vi.waitFor(() => expect(next.queries.getQueryData(["projects"])).toEqual(["ace"]));
   expect(await observe(next.queries, ["projects"], ["ace", "web"])).toEqual(["ace"]);
   expect(await observe(next.queries, ["models", "list"], ["m2"])).toEqual(["m1"]);
+  next.stop();
+});
+
+test("storage usage survives a reload while reviewed cleanup plans stay private to the page", async () => {
+  const m = memory();
+  const earlier = session(m.storage);
+  const usage = measurement(123);
+  earlier.queries.setQueryData(["storage", "usage"], usage);
+  earlier.queries.setQueryData(["storage", "plan"], { id: "reviewed-plan" });
+  earlier.time.flush();
+  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true));
+  earlier.stop();
+
+  const next = session(m.storage);
+  await vi.waitFor(() => expect(next.queries.getQueryData(["storage", "usage"])).toEqual(usage));
+  expect(next.queries.getQueryData(["storage", "plan"])).toBeUndefined();
+  expect(await observe(next.queries, ["storage", "usage"], { ...usage, measuredAt: 456 })).toEqual(
+    usage,
+  );
+  next.stop();
+});
+
+test("a failed storage refresh cannot evict the last measurement from the next persisted record", async () => {
+  const m = memory();
+  const earlier = session(m.storage);
+  const usage = measurement(123);
+  earlier.queries.setQueryData(["storage", "usage"], usage);
+  await expect(
+    earlier.queries.fetchQuery({
+      queryKey: ["storage", "usage"],
+      queryFn: async () => {
+        throw new Error("Measurement failed");
+      },
+    }),
+  ).rejects.toThrow("Measurement failed");
+  earlier.queries.setQueryData(["projects"], ["ace"]);
+  earlier.time.flush();
+  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true));
+  earlier.stop();
+  const next = session(m.storage);
+  await vi.waitFor(() => expect(next.queries.getQueryData(["storage", "usage"])).toEqual(usage));
   next.stop();
 });
 
@@ -224,4 +282,20 @@ test("nothing is written while the connection is down or after the app let go", 
   s.time.flush();
   await Promise.resolve();
   expect(m.values.has(queryRecordKey)).toBe(false);
+});
+
+test("restored storage measurements survive a short cache collection window and expire after a day", async () => {
+  vi.useFakeTimers();
+  const queries = new QueryClient({ defaultOptions: { queries: { gcTime: 1_000 } } });
+  const usage = measurement(123);
+  try {
+    restoreQueries(queries, [{ key: ["storage", "usage"], data: usage, at: 123 }]);
+    await vi.advanceTimersByTimeAsync(6 * 60_000);
+    expect(queries.getQueryData(["storage", "usage"])).toEqual(usage);
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
+    expect(queries.getQueryData(["storage", "usage"])).toBeUndefined();
+  } finally {
+    queries.clear();
+    vi.useRealTimers();
+  }
 });
