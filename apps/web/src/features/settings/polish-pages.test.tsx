@@ -21,15 +21,11 @@ test("Agents finishes loading and keyboard changes are stored", async () => {
   await waitFor(() => expect(app.daemon.services.settings.get("threads.useWorktree")).toBe(true));
 });
 
-test("keyboard users can read a compact switch hint and still change its setting", async () => {
+test("compact switch explanations are visible and the setting works from the keyboard", async () => {
   await harness().open("/settings/notifications");
   const control = await screen.findByRole("switch", { name: "Needs you", checked: true });
   control.focus();
-  await userEvent.tab({ shift: true });
-  expect(
-    await screen.findByRole("tooltip", { name: "Approvals, questions and plans." }),
-  ).toBeTruthy();
-  await userEvent.tab();
+  expect(screen.getByText("Approvals, questions and plans.")).toBeTruthy();
   expect(document.activeElement).toBe(control);
   await userEvent.keyboard(" ");
   await screen.findByRole("switch", { name: "Needs you", checked: false });

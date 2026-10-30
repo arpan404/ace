@@ -13,7 +13,6 @@ import { useRender } from "@base-ui/react/use-render";
 import { PlusIcon } from "@phosphor-icons/react";
 import { DisclosureCaret } from "@/components/ui/disclosure.tsx";
 import { InCard } from "@/components/ui/surface-context.ts";
-import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /**
@@ -36,12 +35,11 @@ export function SettingRow(props: {
   htmlFor?: string | undefined;
   /** Keep the control beside the text at every width (a switch, a short button). */
   inline?: boolean;
-  /** A single 36px row; its description is shown on hover or focus. */
+  /** Uses the smaller row inset while keeping its description visible. */
   density?: "default" | "compact";
   /** The row's anchor, from the settings index (`settingsIndex`). */
   id?: string;
 }) {
-  const inCard = use(InCard);
   const compact = props.compact || props.density === "compact";
   const titleId = useId();
   const hintId = useId();
@@ -56,51 +54,27 @@ export function SettingRow(props: {
       data-flash={flashing || undefined}
       className={cn(
         "@container group/setting transition-colors duration-(--motion-slow)",
-        inCard ? "" : "",
         flashing && "bg-accent",
       )}
     >
       <div
         className={cn(
-          "flex min-h-(--setting-row-height) items-center gap-4 py-(--setting-row-y)",
+          "flex min-h-(--setting-row-height) items-center gap-4",
+          compact ? "py-(--setting-row-y)" : "py-3",
           !props.inline && "@max-[440px]:flex-col @max-[440px]:items-stretch",
         )}
       >
         {/* The label, and under it its description in the quieter tier. */}
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          {compact && props.description ? (
-            <Tip label={props.description}>
-              <Title
-                {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
-                id={titleId}
-                tabIndex={0}
-                aria-describedby={hintId}
-                className="w-fit rounded-sm text-md text-foreground focus-ring"
-              >
-                {props.title}
-              </Title>
-            </Tip>
-          ) : (
-            <Title
-              {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
-              id={titleId}
-              tabIndex={!props.htmlFor && compact && props.description ? 0 : undefined}
-              className="w-fit rounded-sm text-md text-foreground focus-ring"
-            >
-              {props.title}
-            </Title>
-          )}
-          {props.description && compact && (
-            <span id={hintId} className="sr-only">
-              {props.description}
-            </span>
-          )}
-          {props.description && !compact && (
-            <span
-              id={hintId}
-              title={typeof props.description === "string" ? props.description : undefined}
-              className="text-xs text-muted-foreground"
-            >
+          <Title
+            {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
+            id={titleId}
+            className="w-fit rounded-sm text-ui font-medium text-foreground focus-ring"
+          >
+            {props.title}
+          </Title>
+          {props.description && (
+            <span id={hintId} className="max-w-prose text-xs leading-relaxed text-muted-foreground">
               {props.description}
             </span>
           )}
@@ -123,7 +97,7 @@ export function SettingRow(props: {
   );
 }
 
-/** One-line device or machine row; hover or focus its name to read the details. */
+/** Device or machine summary with its details visible beside the controls. */
 export function SettingSummaryRow(props: {
   title: string;
   description: string;
@@ -184,12 +158,11 @@ export function SettingSection(props: {
 }
 
 /**
- * A settings group: its title in a left gutter beside its rows, so nothing needs a rule to say
- * where a group starts. Narrow, the title sits above. Shared by every grouped settings page.
+ * A settings group: its heading above a ruled list of related controls.
  */
-export const settingsGroup = "mb-9 flex flex-col";
+export const settingsGroup = "mb-8 flex scroll-mt-32 flex-col";
 
-/** A group's title in the gutter, with its one-line note and actions under it. */
+/** A group's heading, explanation and actions above its controls. */
 export function SettingsGroupTitle(props: {
   id: string;
   children: ReactNode;
@@ -197,9 +170,9 @@ export function SettingsGroupTitle(props: {
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-1 flex min-w-0 flex-col gap-0.5">
+    <div className="mb-1.5 flex min-w-0 flex-col gap-0.5">
       <div className="flex min-h-7 items-center gap-2">
-        <h3 id={props.id} className="text-ui font-medium text-muted-foreground">
+        <h3 id={props.id} className="text-base font-semibold text-foreground">
           {props.children}
         </h3>
         {props.actions && (
@@ -222,7 +195,12 @@ export function SettingsGroupTitle(props: {
 export function SettingCard(props: { children: ReactNode; className?: string }) {
   return (
     <InCard value>
-      <div className={cn("flex flex-col divide-y divide-border-soft", props.className)}>
+      <div
+        className={cn(
+          "flex flex-col border-t border-border-soft divide-y divide-border-soft",
+          props.className,
+        )}
+      >
         {props.children}
       </div>
     </InCard>

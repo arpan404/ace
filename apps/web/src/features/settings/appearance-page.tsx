@@ -47,7 +47,9 @@ function PickerGroup(props: { id: SettingId; children: ReactNode }) {
   const titleId = useId();
   return (
     <section id={props.id} aria-labelledby={titleId} className={settingsGroup}>
-      <SettingsGroupTitle id={titleId}>{settingRow(props.id).title}</SettingsGroupTitle>
+      <SettingsGroupTitle id={titleId} note={settingRow(props.id).description}>
+        {settingRow(props.id).title}
+      </SettingsGroupTitle>
       <div className="pt-1">{props.children}</div>
     </section>
   );
@@ -76,7 +78,7 @@ function TranslucencyRow(props: {
   return (
     <SettingRow
       {...settingRow("appearance.translucency")}
-      description={props.forcedSolid ?? pastAa}
+      description={props.forcedSolid ?? pastAa ?? settingRow("appearance.translucency").description}
     >
       <Slider
         label="Translucency"

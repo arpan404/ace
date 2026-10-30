@@ -6,9 +6,10 @@ import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { machineProblem, machineStatus } from "@/lib/machine-status.ts";
 import { primaryMachineId, type Machine } from "@/lib/machines.ts";
+import { MachineDirectory } from "./machine-directory.tsx";
 import { AddMachine } from "./add-machine.tsx";
 import { fleetProblem } from "./data/fleet.ts";
-import { listNames } from "./data/list-names.ts";
+import { summarizeNames } from "./data/list-names.ts";
 import { machineGaps, reach, unlinkedWith, type LinkGap } from "./data/fleet-links.ts";
 import { useFleet, type Fleet } from "./data/use-fleet.ts";
 import { FleetDevices } from "./fleet-devices.tsx";
@@ -23,8 +24,8 @@ export function FleetPage() {
   return (
     <>
       <FleetMachines fleet={fleet} />
-      <FleetRules machines={fleet.machines} />
       <FleetDevices fleet={fleet} />
+      <FleetRules fleet={fleet} />
     </>
   );
 }
@@ -52,34 +53,39 @@ function FleetMachines(props: { fleet: Fleet }) {
   }, [ready]);
   return (
     <SettingSection
+      card
       label="Machines"
       anchor="fleet.link"
       note={
         fleet.machines.length > 1
-          ? "Linked machines can use each other: agents start threads and use browsers there."
-          : undefined
+          ? "Computers running your agents. Add a machine to connect this window to it. Link machines to let their agents work across computers, within the permissions you allow."
+          : "This computer runs your agents. Add another computer running ace to work across both."
       }
       actions={
         <>
           {fleet.gaps.length > 0 && (
             <Button
               size="sm"
-              variant="ghost"
+              variant="secondary"
               disabled={fleet.link.isPending}
               onClick={() => linkAll(fleet.gaps)}
             >
-              {fleet.link.isPending ? "Linking…" : "Link all"}
+              {fleet.link.isPending ? "Linking…" : "Link all machines"}
             </Button>
           )}
-          <Button size="sm" variant="ghost" onClick={() => setAdding(true)}>
+          <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
             Add machine
           </Button>
         </>
       }
     >
-      {fleet.machines.map((machine) => (
-        <MachineRow key={machine.id} machine={machine} fleet={fleet} onLink={linkAll} />
-      ))}
+      <MachineDirectory machines={fleet.machines} label="Search fleet machines">
+        {(rows) =>
+          rows.map((machine) => (
+            <MachineRow key={machine.id} machine={machine} fleet={fleet} onLink={linkAll} />
+          ))
+        }
+      </MachineDirectory>
       {fleet.machines.length === 1 && (
         <SettingNote>Add another computer running ace to work across both.</SettingNote>
       )}
@@ -102,7 +108,7 @@ function machineLine(machine: Machine, fleet: Fleet): string {
     self &&
     fleet.facts.some((other) => other.id !== machine.id && reach(other, self).kind === "closed");
   const parts = [machine.primary ? "This machine" : "Connected"];
-  if (closed) parts.push("lets no agents in");
+  if (closed) parts.push("Remote agents blocked");
   return parts.join(" · ");
 }
 
@@ -112,7 +118,7 @@ function machineLine(machine: Machine, fleet: Fleet): string {
  */
 function gapLine(machine: string, fleet: Fleet): string {
   const names = (ids: readonly string[]) =>
-    listNames(ids.map((id) => fleet.byId(id)?.name ?? "a machine"));
+    summarizeNames(ids.map((id) => fleet.byId(id)?.name ?? "a machine"));
   const gaps = machineGaps(machine, fleet.gaps);
   const parts: string[] = [];
   if (gaps.unlinked.length) parts.push(`Not linked with ${names(gaps.unlinked)}`);
@@ -148,12 +154,12 @@ function MachineRow(props: {
           {machine.name}
         </Link>
         <span className="text-xs text-muted-foreground">{machineLine(machine, fleet)}</span>
+        {missing.length > 0 && (
+          <span className="text-xs text-muted-foreground">{gapLine(machine.id, fleet)}</span>
+        )}
       </div>
       {missing.length > 0 ? (
         <>
-          <span className="hidden text-xs text-muted-foreground @[30rem]:inline">
-            {gapLine(machine.id, fleet)}
-          </span>
           <Button
             size="sm"
             variant="ghost"
@@ -161,7 +167,7 @@ function MachineRow(props: {
             disabled={fleet.link.isPending}
             onClick={() => props.onLink(gaps)}
           >
-            Link
+            Link machines
           </Button>
         </>
       ) : (

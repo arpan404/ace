@@ -15,11 +15,11 @@ import { primaryMachineId, type Machine } from "@/lib/machines.ts";
 import { useNow } from "@/lib/time.ts";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { fleetProblem, revokeDevice } from "./data/fleet.ts";
-import { linkDeviceIds, reach, type Reach } from "./data/fleet-links.ts";
+import { linkDeviceIds } from "./data/fleet-links.ts";
 import { useFleet, type Fleet } from "./data/use-fleet.ts";
 import { deviceScopeLabels } from "./device-scopes.ts";
 import { AccessRows } from "./fleet-rules.tsx";
-import { LinkedMachineAccess } from "./fleet-capabilities.tsx";
+import { MachineLinks } from "./machine-links.tsx";
 import { MachineEditor } from "./machine-editor.tsx";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { PairDevice } from "./pair-device.tsx";
@@ -35,22 +35,6 @@ const back = (
     Fleet
   </Link>
 );
-
-/** One direction of a link, in a word or two. */
-export function reachLabel(value: Reach): string {
-  switch (value.kind) {
-    case "linked":
-      return value.access === "operate" ? "Read and act" : "Read only";
-    case "closed":
-      return "Agents off there";
-    case "unreachable":
-      return "Couldn't reach";
-    case "missing":
-      return "Not linked";
-    case "unknown":
-      return "Unknown";
-  }
-}
 
 /**
  * One machine in the fleet: its name and how it opens up, which machines it uses and which use
@@ -88,8 +72,7 @@ export function FleetMachinePage(props: { id: string }) {
       titleActions={!machine.primary && <Reconnect machine={machine} />}
     >
       <Identity machine={machine} />
-      <Links machine={machine} fleet={fleet} />
-      <LinkedMachineAccess machine={machine} fleet={fleet} />
+      <MachineLinks machine={machine} fleet={fleet} />
       <MachineDevices machine={machine} fleet={fleet} />
       {!machine.primary && <RemoveMachine machine={machine} fleet={fleet} />}
     </SettingsBody>
@@ -112,24 +95,28 @@ function Identity(props: { machine: Machine }) {
   const pool = useMachinePool();
   const [editing, setEditing] = useState(false);
   return (
-    <SettingSection label="Machine" anchor="machine">
-      <SettingRow id="host.displayName" title="Name and icon" inline>
-        <MachineLabel name={machine.name} icon={machine.icon} primary={machine.primary} />
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!machine.client}
-          onClick={() => setEditing(true)}
-        >
-          Edit
-        </Button>
-      </SettingRow>
+    <>
+      <SettingSection card label="Machine" anchor="machine">
+        <SettingRow id="host.displayName" title="Name and icon" inline>
+          <MachineLabel name={machine.name} icon={machine.icon} primary={machine.primary} />
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!machine.client}
+            onClick={() => setEditing(true)}
+          >
+            Edit
+          </Button>
+        </SettingRow>
+      </SettingSection>
       {machine.client ? (
         <MachineScope machine={machine}>
           <AccessRows remote={machine.primary ? [] : [machine]} />
         </MachineScope>
       ) : (
-        <SettingNote>Its access settings show when it's back online.</SettingNote>
+        <SettingSection card label="Remote connections">
+          <SettingNote>Its access settings show when it's back online.</SettingNote>
+        </SettingSection>
       )}
       {editing && (
         <MachineEditor
@@ -140,132 +127,7 @@ function Identity(props: { machine: Machine }) {
           }}
         />
       )}
-    </SettingSection>
-  );
-}
-
-/** Which machines this one's agents use, and which use it, each direction linkable on its own. */
-function Links(props: { machine: Machine; fleet: Fleet }) {
-  const { machine, fleet } = props;
-  const toast = useToast();
-  const [confirming, setConfirming] = useState<Confirming>();
-  const self = fleet.facts.find((entry) => entry.id === machine.id);
-  const others = fleet.facts.filter((entry) => entry.id !== machine.id);
-  const linksError = fleet.links.get(machine.id)?.error;
-  if (!self) return null;
-  return (
-    <SettingSection
-      label="Links"
-      anchor="links"
-      note={
-        others.length
-          ? `Which machines ${machine.name}'s agents can use, and which can use ${machine.name}.`
-          : undefined
-      }
-    >
-      {others.length === 0 && (
-        <SettingNote>Add another machine to link it with this one.</SettingNote>
-      )}
-      {linksError && <SettingNote role="alert">{fleetProblem(linksError)}</SettingNote>}
-      {others.length > 0 && (
-        <table className="w-full text-ui">
-          <thead>
-            <tr className="text-left text-xs text-subtle-foreground">
-              <th className="py-2 font-normal">
-                <span className="sr-only">Machine</span>
-              </th>
-              <th className="py-2 font-normal">{machine.name} uses it</th>
-              <th className="py-2 font-normal">It uses {machine.name}</th>
-              <th className="w-8">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border-soft">
-            {others.map((other) => {
-              const out = reach(self, other);
-              const inbound = reach(other, self);
-              const peer = fleet.byId(other.id);
-              const gaps = fleet.gaps.filter(
-                (gap) =>
-                  (gap.from === self.id && gap.to === other.id) ||
-                  (gap.from === other.id && gap.to === self.id),
-              );
-              const linked = out.kind !== "missing" || inbound.kind !== "missing";
-              return (
-                <tr key={other.id} className="group/setting h-(--setting-row-height)">
-                  <td className="pr-3 text-md text-foreground">{other.name}</td>
-                  <td
-                    className={
-                      out.kind === "missing" ? "text-subtle-foreground" : "text-muted-foreground"
-                    }
-                  >
-                    {reachLabel(out)}
-                  </td>
-                  <td
-                    className={
-                      inbound.kind === "missing"
-                        ? "text-subtle-foreground"
-                        : "text-muted-foreground"
-                    }
-                  >
-                    {reachLabel(inbound)}
-                  </td>
-                  <td className="text-right">
-                    {gaps.length > 0 ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="-mr-2.5"
-                        disabled={fleet.link.isPending}
-                        onClick={() =>
-                          fleet.link.mutate(gaps, {
-                            onError: (error) =>
-                              toast.error({ title: "Couldn't link", description: error.message }),
-                          })
-                        }
-                      >
-                        Link
-                      </Button>
-                    ) : (
-                      linked &&
-                      peer && (
-                        <RowMenu label={`Actions for ${other.name}`}>
-                          <MenuItem
-                            danger
-                            onClick={() =>
-                              setConfirming({
-                                title: `Unlink ${machine.name} and ${other.name}?`,
-                                body: "Agents on either machine stop using the other. Link them again any time.",
-                                confirm: "Unlink",
-                                run: () =>
-                                  fleet.unlink.mutate(
-                                    { machine, others: [peer] },
-                                    {
-                                      onError: (error) =>
-                                        toast.error({
-                                          title: "Couldn't unlink",
-                                          description: error.message,
-                                        }),
-                                    },
-                                  ),
-                              })
-                            }
-                          >
-                            Unlink
-                          </MenuItem>
-                        </RowMenu>
-                      )
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
-    </SettingSection>
+    </>
   );
 }
 
@@ -288,6 +150,7 @@ function MachineDevices(props: { machine: Machine; fleet: Fleet }) {
   });
   return (
     <SettingSection
+      card
       label="Devices"
       anchor="devices"
       actions={machine.client ? <PairDevice machine={machine.id} /> : undefined}
@@ -375,7 +238,7 @@ function RemoveMachine(props: { machine: Machine; fleet: Fleet }) {
     onError: (error) => toast.error({ title: "Couldn't remove it", description: error.message }),
   });
   return (
-    <SettingSection label="Remove" anchor="remove">
+    <SettingSection card label="Remove" anchor="remove">
       <SettingRow
         title="Remove from fleet"
         description="Unlinks it from every machine and disconnects it here. Its threads stay on it."
