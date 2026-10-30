@@ -10,7 +10,7 @@ result is `packages/screen/src/locked-use-detect.ts` (read-only).
 Nothing here stores or asks for the login password — macOS collects it at the admin prompt.
 The real runner is inert unless the signed artifacts are staged in the environment
 (`ACE_LOCKED_USE_PLUGIN`, `ACE_LOCKED_USE_BROKER`, `ACE_LOCKED_USE_GUARDIAN`); on a dev Mac they
-are absent, so install stays unavailable and the feature reports **Needs approval**.
+are absent, so install stays unavailable and the feature reports **Coming soon**.
 
 All temp files live in a fresh root-owned `mktemp -d` directory with `umask 077`, never fixed
 `/tmp` paths a same-user process could pre-create or symlink. Each copied component is
@@ -75,9 +75,8 @@ daemon or the rule would load it. A symlinked source or staged copy is refused.
 
 ## What still needs the person (and a real Mac)
 
-1. Staging the signed native artifacts into the shipped app (plug-in bundle from
-   `native/locked-use/build.sh`; the `ace-locked-use-authority` and `ace-locked-use-guardian`
-   executables from the Swift package) and pointing the env vars at them.
+1. Signed desktop packaging now stages the plug-in, broker and guardian and supplies their
+   paths and team to the daemon. Verify those signatures in the actual package before install.
 2. Running the install once, with admin approval, on a Mac configured to lock on display sleep.
 3. The single live locked test (self-created TextEdit/Calculator only) that is the only way to
    learn whether requesting `system.login.screensaver` actually dismisses the lock on this

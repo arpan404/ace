@@ -31,17 +31,29 @@ Authorization Services unlocks a logged-in Mac.
 - Repository TypeScript checking and lint passed. The full repository check remains subject
   to the unrelated baseline failures recorded in PR #1523.
 
+## Signed build on Arpan's Mac
+
+The follow-up build on Arpan's Mac produced signed, timestamped ARM64 artifacts:
+
+- `/private/tmp/ace-locked-use-production/apps/desktop/dist/release/ace-0.0.14-arm64.dmg`
+- `/private/tmp/ace-locked-use-production/apps/desktop/dist/release/ace-0.0.14-arm64-mac.zip`
+
+Signing identity: `Developer ID Application: Arpan Bhandari (5J88TLUP2J)`.
+Signature checks passed for the app, authorization plug-in, broker and guardian. The build
+exposed a `codesign -R` argument bug: inline requirements must be supplied as `-R=<requirement>`.
+Commit `da313402` fixes the component build and the generated privileged installation script.
+The 12 privileged-installer tests pass after that fix.
+
 ## Remaining release gate
 
-The local keychain has no Developer ID Application identity. The release-signing preflight
-fails explicitly with `release signing needs a "Developer ID Application" identity`.
-No production-signed package was produced, installed or notarized in this verification run.
-No live lock, unlock, crash/relock, display-change or sleep/wake test was performed.
+The package is not notarized. No notarization environment configuration was found.
+`notarytool history --keychain-profile ace-notary` fails with exit 69 because the documented
+profile has no Keychain password item. Other profile names have not been ruled out. No privileged installation or live lock, unlock, crash/relock, display-change or
+sleep/wake test was performed. These signed artifacts alone do not establish production readiness.
 
-After the release identity and notarization credentials are available, build the signed
-package with `bun run desktop:package`, review the privileged installation script, and have
-the owner approve installation from Settings. Confirm detection reports On. Then perform
-and record the real-Mac tests required by ADR 0087, including guardian recovery after process
-failure and preservation of ordinary manual unlock. Keep every existing authorization-rule
-alternative. A successful build, authorization result or On label alone is not proof that the
-session actually unlocks and reliably relocks.
+Review `native/locked-use/INSTALL-PLAN.md` and have the owner approve installation from Settings
+on the test Mac. Confirm detection reports On. Then perform and record the real-Mac tests
+required by ADR 0087, including guardian recovery after process failure and preservation of
+ordinary manual unlock. Keep every existing authorization-rule alternative. A successful build,
+authorization result or On label alone is not proof that the session actually unlocks and
+reliably relocks. Distribution still requires successful notarization and ticket stapling.
