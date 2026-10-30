@@ -26,7 +26,7 @@ test("two machines linked both ways read as linked with all, with no Link button
   const { machines } = await fleet({ macToBuild: true, buildToMac: true });
   await waitFor(() => expect(within(machines).getAllByText("Linked with all")).toHaveLength(2));
   expect(within(machines).queryByText(/Not linked|can't use/i)).toBeNull();
-  expect(within(machines).queryByRole("button", { name: "Link" })).toBeNull();
+  expect(within(machines).queryByRole("button", { name: "Link machines" })).toBeNull();
 }, 30_000);
 
 test("a link held one way says which machine can't use the other, not that they're unlinked", async () => {
@@ -37,7 +37,7 @@ test("a link held one way says which machine can't use the other, not that they'
   expect(within(row("Build server")).getByText("Can't use This Mac")).toBeTruthy();
   expect(within(machines).queryByText(/Not linked/)).toBeNull();
   // The missing direction can still be linked from either row.
-  expect(within(row("This Mac")).getByRole("button", { name: "Link" })).toBeTruthy();
+  expect(within(row("This Mac")).getByRole("button", { name: "Link machines" })).toBeTruthy();
 }, 30_000);
 
 test("two machines with no link either way read as not linked with each other", async () => {

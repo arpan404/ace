@@ -137,13 +137,13 @@ test("an unused link is listed without its code and can be cancelled", async () 
   const code = (await within(dialog).findByLabelText(/^Pairing code \S+$/)).textContent ?? "";
   await userEvent.keyboard("{Escape}");
 
-  const open = await screen.findByRole("region", { name: "Open pairing links" });
+  const open = await screen.findByRole("region", { name: "Unused pairing links" });
   expect(within(open).getByText("Spare phone")).toBeTruthy();
   expect(open.textContent).not.toContain(code);
   await userEvent.click(within(open).getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(app.daemon.access.pendingPairings()).toEqual([]));
   await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "Open pairing links" })).toBeNull(),
+    expect(screen.queryByRole("region", { name: "Unused pairing links" })).toBeNull(),
   );
 });
 

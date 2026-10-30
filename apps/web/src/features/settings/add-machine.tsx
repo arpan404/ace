@@ -26,9 +26,17 @@ export function AddMachine(props: { onClose(): void; onAdded?(hostId: string): v
         <DialogHeader>
           <DialogTitle>Add machine</DialogTitle>
           <DialogDescription>
-            On the other computer, open Settings › Fleet › Pair a device with Administrator access,
-            or run <code className="font-mono text-xs">ace pair read,operate,admin</code> there.
-            Paste the link here; it links with every machine once it connects.
+            Use a pairing link from the computer you want to add. Once connected, it is linked with
+            your other machines so agents can work across them.
+          </DialogDescription>
+          <ol className="list-decimal space-y-2 pl-5 text-ui text-muted-foreground">
+            <li>On the other computer, open ace → Settings → Fleet → Pair a device.</li>
+            <li>Choose Administrator access and create a link.</li>
+            <li>Paste that link below.</li>
+          </ol>
+          <DialogDescription>
+            You can also create the link on that computer with{" "}
+            <code className="font-mono text-xs">ace pair read,operate,admin</code>.
           </DialogDescription>
         </DialogHeader>
         <PairingForm

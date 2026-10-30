@@ -74,9 +74,10 @@ export function FleetDevices(props: { fleet: Fleet }) {
   return (
     <>
       <SettingSection
+        card
         label="Devices"
         anchor="fleet-devices"
-        note="Phones, tablets and browsers that follow and steer agents. They run none themselves."
+        note="Phones, tablets and browsers paired to your machines. Pair a device to view conversations and control agents from it. Access is set separately for each device."
         actions={<PairDevice />}
       >
         {loading && fleet.joined.length === 0 && (
@@ -146,9 +147,10 @@ function OpenLinks(props: { fleet: Fleet; now: number }) {
   if (open.length === 0) return null;
   return (
     <SettingSection
-      label="Open pairing links"
+      card
+      label="Unused pairing links"
       anchor="fleet-links"
-      note="Each works once. Cancel one you shared by mistake."
+      note="Waiting for a device to connect. Each link works once. Cancel a link to prevent it from being used."
     >
       {open.map(({ machine, pairing }) => {
         const keeps = deviceLifetimes.find((entry) => entry.value === (pairing.deviceTtlMs ?? 0));
