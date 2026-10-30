@@ -16,6 +16,7 @@ import {
   packagedAppVersion,
   targetArch,
 } from "./common.ts";
+import { lockedUseEnvironment } from "../src/packaging/locked-use.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
 import { windowsSigning, windowsSigningConfig } from "../src/packaging/release-signing.ts";
 import { writeLinuxTarball } from "./linux-tarball.ts";
@@ -62,10 +63,18 @@ if (!process.argv.includes("--skip-build"))
       ? {
           ...process.env,
           ACE_REQUIRE_SCREEN_HELPER: "1",
-          ...(unsigned ? {} : { ACE_SCREEN_SIGN_RELEASE: "1" }),
+          ACE_SCREEN_SIGN_RELEASE: unsigned ? "0" : "1",
         }
       : process.env,
   });
+
+if (signed && process.platform === "darwin") {
+  const staged = lockedUseEnvironment(join(dist, "locked-use"));
+  if (!staged.ACE_LOCKED_USE_TEAM)
+    throw new Error(
+      "The signed package is missing its locked-use components; rebuild before packaging.",
+    );
+}
 
 // Also after --skip-build: dist/ may hold another architecture's build.
 await verifyNatives(arch);
@@ -107,6 +116,9 @@ const config: Configuration = {
   // Native addons and helper binaries cannot run from inside an asar archive.
   asarUnpack: ["**/*.node", "**/spawn-helper", "**/rg", "**/rg.exe"],
   extraResources: [
+    ...(signed && process.platform === "darwin" && existsSync(join(dist, "locked-use"))
+      ? [{ from: join(dist, "locked-use"), to: "locked-use" }]
+      : []),
     { from: join(dist, "bin"), to: "bin" },
     // The tray images: macOS template and the Linux colour icon; app icons come from build/.
     {
@@ -180,7 +192,7 @@ const config: Configuration = {
     ...(signed ? {} : { identity: "-" }),
     // The screen helper keeps its own stable identity (dev.ace.screen-helper), signed by
     // native/screen-helper/build.sh; re-signing would break the daemon's manifest check.
-    signIgnore: ["Contents/Helpers/AceScreenHelper.app"],
+    signIgnore: ["Contents/Helpers/AceScreenHelper.app", "Contents/Resources/locked-use"],
     // Contents/Helpers may hold only code: the manifest goes to Resources (extraResources).
     extraFiles: existsSync(helper) ? [{ from: helper, to: "Helpers/AceScreenHelper.app" }] : [],
     extendInfo: {

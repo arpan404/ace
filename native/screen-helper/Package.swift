@@ -10,8 +10,7 @@ let excluded = (FileManager.default.fileExists(atPath: buildDirectory) ? ["build
 let package = Package(
     name: "AceScreenHelper", platforms: [.macOS(.v13)],
     products: [.executable(name: "ace-screen-helper", targets: ["ScreenHelper"])],
-    // `--locked-use` hosts the locked-use service. build.sh compiles without SwiftPM and so
-    // without this module; Main.swift compiles that mode out with canImport.
+    // All packaged builds include the locked-use service through SwiftPM.
     dependencies: [.package(path: "../locked-use")],
     targets: [
         .executableTarget(name: "ScreenHelper", dependencies: [.product(name: "LockedUseService", package: "locked-use")],

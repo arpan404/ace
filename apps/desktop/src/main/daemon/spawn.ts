@@ -1,3 +1,4 @@
+import { lockedUseEnvironment } from "../../packaging/locked-use.ts";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
@@ -12,6 +13,7 @@ export interface DaemonResources {
   entry: string;
   /** The platform screen helper (macOS: `Contents/Helpers/AceScreenHelper.app`). */
   screenHelper?: string | undefined;
+  lockedUseDirectory?: string | undefined;
   screenHelperManifest?: string | undefined;
   /** Directory with the bundled `rg`, prepended to the daemon's PATH. */
   binDirectory?: string | undefined;
@@ -87,6 +89,16 @@ export function daemonEnvironment(
     if (resources.screenHelperManifest)
       env.ACE_SCREEN_HELPER_MANIFEST = resources.screenHelperManifest;
   }
+  if (resources.packaged) {
+    for (const key of [
+      "ACE_LOCKED_USE_PLUGIN",
+      "ACE_LOCKED_USE_BROKER",
+      "ACE_LOCKED_USE_GUARDIAN",
+      "ACE_LOCKED_USE_TEAM",
+    ])
+      delete env[key];
+  }
+  Object.assign(env, lockedUseEnvironment(resources.lockedUseDirectory));
   return env;
 }
 

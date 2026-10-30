@@ -67,6 +67,11 @@ export function daemonPlist(label: string, executable: string): string {
     '<plist version="1.0"><dict>',
     `<key>Label</key><string>${xmlEscape(label)}</string>`,
     `<key>ProgramArguments</key><array><string>${xmlEscape(executable)}</string></array>`,
+    "<key>MachServices</key><dict>",
+    ...[label, ...(label === brokerLabel ? ["dev.ace.locked-use.broker"] : [])].map(
+      (name) => `<key>${xmlEscape(name)}</key><true/>`,
+    ),
+    "</dict>",
     "<key>KeepAlive</key><true/>",
     "<key>RunAtLoad</key><true/>",
     "</dict></plist>",

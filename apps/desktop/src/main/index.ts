@@ -173,6 +173,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     version: info.version,
     resources: {
       entry: paths.daemonEntry,
+      lockedUseDirectory: paths.lockedUseDirectory,
       screenHelper: paths.screenHelper,
       screenHelperManifest: paths.screenHelperManifest,
       binDirectory: paths.binDirectory,
