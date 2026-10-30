@@ -14,6 +14,10 @@ const CapturedFrame = z.object({
   data: z.unknown(),
 });
 const Offset = z.object({ boundaryOffset: z.number().int().positive().max(10000000).optional() });
+const HostFence = z.object({
+  kind: z.literal("error"),
+  body: z.object({ code: z.enum(["boundary_overflow", "checkpoint_budget"]) }),
+});
 
 /** One prepared cursor owner; updates share the transaction that commits canonical facts. */
 export class ProviderRecovery {
@@ -48,7 +52,13 @@ export class ProviderRecovery {
         const payload = new ProviderPayload(JSON.stringify(parsed.data));
         const frame: Frame = { ...parsed, data: payload.data, payload };
         const facts = translator.translate(frame, parsed.t);
-        if (facts.some((fact) => fact.type === "process.exited"))
+        // A previous host's emergency fence is historical, not a translator overflow.
+        // Opening the replacement host still verifies its journal, quota, ownership
+        // and native run state before any new send can reach the pinned checkpoint.
+        if (
+          facts.some((fact) => fact.type === "process.exited") &&
+          !HostFence.safeParse(frame.data).success
+        )
           throw new Error(
             "SDK translation provenance is fenced by its budget; use bounded context handoff",
           );

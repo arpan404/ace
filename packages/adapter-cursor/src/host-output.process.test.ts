@@ -78,6 +78,33 @@ it("the SDK host admits large normal tool results through blobs and output chunk
         await options?.onDelta?.({
           update: sdk.InteractionUpdateSchema.parse({ ...update, modelCallId: "model-call" }),
         });
+      const screenshot = sdk.InteractionUpdateSchema.parse({
+        type: "tool-call-completed",
+        callId: "screenshot",
+        modelCallId: "model-call",
+        toolCall: {
+          type: "mcp",
+          args: { providerIdentifier: "ace", toolName: "browser_screenshot", args: {} },
+          result: {
+            status: "success",
+            value: {
+              content: [{ image: { data: "", mimeType: "image/jpeg" } }],
+              isError: false,
+            },
+          },
+        },
+      });
+      // The local SDK's MCP converter supplies bytes despite its public string schema.
+      if (screenshot.type !== "tool-call-completed" || screenshot.toolCall.type !== "mcp")
+        throw new Error("Unexpected SDK screenshot schema");
+      const content =
+        screenshot.toolCall.result?.status === "success"
+          ? screenshot.toolCall.result.value.content
+          : [];
+      const image = content[0]?.image;
+      if (!image) throw new Error("Missing screenshot image");
+      Object.defineProperty(image, "data", { value: new Uint8Array(90000).fill(42) });
+      await options?.onDelta?.({ update: screenshot });
       return run;
     },
   };
@@ -147,6 +174,14 @@ it("the SDK host admits large normal tool results through blobs and output chunk
       call: { status: "succeeded", detail: { output: { bytes: Buffer.byteLength(output) } } },
     });
     expect(largest).toBeLessThan(262144);
+    expect(
+      Object.values(state.items).find(
+        (item) => item.type === "tool_call" && item.call.kind === "mcp",
+      ),
+    ).toMatchObject({
+      complete: true,
+      call: { status: "succeeded", detail: { tool: "browser_screenshot" } },
+    });
     await host.close();
     expect(disposed).toBe(true);
     expect(deriveThreadStatus(state).state).toBe("done");
