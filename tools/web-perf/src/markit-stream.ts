@@ -12,8 +12,7 @@ import { verifyPopoverToasts } from "./popover-toasts.ts";
  * (sections of prose, nested and task lists, fenced code and a table) in 20-character deltas
  * while a person types into the composer. Input to next paint and long tasks must stay within
  * budget, the markit renderer's time per applied update must not grow with the answer, and
- * finished blocks must keep their DOM nodes. Compare against markdown-stream.ts, which measures
- * the same workload through the previous marked-based renderer.
+ * finished blocks must keep their DOM nodes.
  */
 
 const limits = budgets.markdownStream;

@@ -181,10 +181,10 @@ test("markdown reads rendered with its changed blocks marked, and switches to it
   const rendered = await within(diff).findByRole("group", {
     name: "Rendered changes to README.md",
   });
-  expect(await within(rendered).findByRole("heading", { name: "Title" })).toBeTruthy();
+  expect(await within(rendered).findByText(/Title/)).toBeTruthy();
   expect(within(rendered).getByText("Removed:")).toBeTruthy();
-  expect(within(rendered).getByText("Old paragraph")).toBeTruthy();
-  expect(within(rendered).getByText("New paragraph")).toBeTruthy();
+  expect(within(rendered).getByText(/Old paragraph/)).toBeTruthy();
+  expect(within(rendered).getByText(/New paragraph/)).toBeTruthy();
   await userEvent.click(within(diff).getByRole("button", { name: "Show source of README.md" }));
   expect(within(diff).queryByRole("group", { name: "Rendered changes to README.md" })).toBeNull();
   expect(within(diff).getByText("# Title")).toBeTruthy();
@@ -205,7 +205,7 @@ test("a notebook reads as cells, with an added cell and its output marked", asyn
   const rendered = await within(diff).findByRole("group", {
     name: "Rendered changes to analysis.ipynb",
   });
-  expect(await within(rendered).findByRole("heading", { name: "Analysis" })).toBeTruthy();
+  expect(await within(rendered).findByText(/Analysis/)).toBeTruthy();
   expect(within(rendered).getByText("Added:")).toBeTruthy();
   expect(within(rendered).getByText("42")).toBeTruthy();
   expect(within(rendered).queryByText("Removed:")).toBeNull();

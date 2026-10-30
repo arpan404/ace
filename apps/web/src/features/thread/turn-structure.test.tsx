@@ -17,7 +17,6 @@ configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
 
 await import("./items/work-log-steps.tsx");
-await import("@/components/markdown/markdown.tsx");
 
 function scenario(id: string) {
   const found = workbench().find((candidate) => candidate.thread.id === id);

@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { LongRows } from "@/components/virtual-rows.tsx";
 import type { DiffText, DiffTextLine } from "@ace/ui-core";
 
@@ -50,7 +49,7 @@ function Row(props: { line: DiffTextLine; numbered: boolean }) {
  * A ```diff fence as a unified diff: every line as written, added and removed ones tinted, old
  * and new line numbers where hunk headers give them. Long diffs mount the rows in view only.
  */
-export function DiffBody(props: { diff: DiffText; tail?: ReactNode }) {
+export function DiffBody(props: { diff: DiffText }) {
   const { diff } = props;
   const long = diff.lines.length > 400;
   return (
@@ -67,7 +66,6 @@ export function DiffBody(props: { diff: DiffText; tail?: ReactNode }) {
           overscan={8}
           render={(line) => <Row line={line} numbered={diff.numbered} />}
         />
-        {props.tail}
       </div>
     </div>
   );
