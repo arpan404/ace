@@ -36,29 +36,41 @@ front end, which is not live yet.
   says "Spade · Coming soon".
 - The panel keeps its drag-to-resize edge (220–480px, 288 by default); the rail is added to it.
 
-## Threads panel: Inbox + Projects
+## Threads panel: Projects, with the Inbox over them
 
 Same day, after rejecting a list grouped by time (Needs you, Running, Today, Yesterday…) with
-Active and Settled tabs, the owner chose the Threads panel as an Inbox over a project tree
-("C · Hybrid" of the round-five mockups). This reverses the earlier rule that the thread list is
-never grouped by project.
+Active and Settled tabs, the owner chose a panel grouped by project. This reverses the earlier
+rule that the thread list is never grouped by project. A first build drew the Inbox as a section
+above the projects, with Running and Recent places and focused drill-in lists; after trying it in
+the app the owner replaced that with the design below (round six of the mockups, "Current").
 
-- **Inbox** on top holds only what needs the person: requests, unseen failures and finished
-  work not yet opened, read from the same row attention every row draws, so a group never
-  disagrees with a row's status word. Opening a finished thread clears it.
-- **Running** and **Recent** are one-line places that open as focused lists. Running holds every
-  thread at work across projects. Recent holds what finished in the last 7 days (settled in that
-  window, or done and seen), newest first by day; settled threads page from the daemon only back
-  to that boundary.
-- **Projects** fold open in place with their other open threads (no thread shows in both the
-  Inbox and its project), running ones first, and end with their own "N settled". A project can
-  open as a focused list with Active and Settled tabs; projects with nothing open fold under
-  Quiet projects.
-- The tree's folds are kept per device with the rest of the organizer state; the focused list
-  is kept per window (session storage), so a reload returns to it.
-- The daemon pages settled threads across every project together, so a project's "N settled"
-  and Recent read from the same pages; each project's count comes from the daemon's per-project
-  totals less the open threads it has already sent.
+- **Projects are the panel's whole body.** Each project folds open in place with its open
+  threads, running ones first (Sort threads, Manual drag within the project and pins still
+  apply), then the threads it settled recently, dimmed. Projects with nothing open, waiting or
+  recently settled fold under Quiet projects, each opening its History. There are no Running or
+  Recent places and no drill-in lists.
+- **The Inbox is an overlay.** A bell in the panel's title row (and ⌘I, from any place) opens it
+  over the list. It holds only what needs the person: requests, unseen failures and finished work
+  not yet opened, newest first, read from the same row attention every row draws, so it never
+  disagrees with a row's status word. No thread shows in both the Inbox and its project. Its rows
+  only open their thread; answering and approving happen in the thread. Opening a finished thread
+  marks it seen and it leaves the Inbox. The bell's badge counts it; the rail's Threads dot keeps
+  its needs-you count.
+- **Settled threads fade into History.** A settled thread stays in its project, dimmed, for a
+  grace period the person chooses, then shows only on the History page and in search. The period
+  is a daemon setting beside Sort threads, `threads.keepSettledFor` (`1d`, `3d` by default, `7d`,
+  or `0d` for straight to History), so every device on the machine agrees. A settled thread whose
+  agent tree still works or waits is never dimmed or sent to History: it shows as open work.
+- **History** is a full main-column page (`/history?project=`): settled threads grouped by week,
+  a search (the daemon's search for older ones) and a chip per project. It is reached from a row
+  at the panel's foot, each project's hover History and the palette; the rail keeps Threads
+  current while it shows.
+- The tree's folds are kept per device with the rest of the organizer state; the Inbox's
+  open state is per window and starts closed.
+- The daemon pages settled threads across every project together. The panel loads pages back to
+  the grace period's boundary on its own; History loads older pages as it scrolls. Each project's
+  count of held-back settled threads comes from the daemon's per-project totals less the open
+  threads it has already sent, so a project known only from them still shows as quiet.
 
 ## Consequences
 
