@@ -84,16 +84,18 @@ test("when the focused row is settled, focus moves to the next row rather than t
   if (!settle) throw new Error("A stopped row must offer Settle");
   const title = settle.getAttribute("aria-label")?.replace(/^Settle /, "") ?? "";
   const at = all.findIndex((row) => titleOf(row) === title);
-  const next = all[at + 1] ?? all[at - 1];
-  if (at < 0 || !next) throw new Error("The settled row needs a neighbour");
+  if (at < 0) throw new Error("The settled row must be listed");
   all[at]?.focus();
   // → walks into the row's actions until it reaches Settle.
   for (let press = 0; press < 4 && document.activeElement !== settle; press++)
     await userEvent.keyboard("{ArrowRight}");
   expect(document.activeElement).toBe(settle);
   await userEvent.keyboard("{Enter}");
-  await waitFor(() => expect(focusedTitle()).toBe(titleOf(next)));
-  expect(document.activeElement).not.toBe(document.body);
+  // Focus lands on the next stop in the list (a row, or its project's next heading).
+  const list = screen.getByRole("list", { name: "Threads" });
+  await waitFor(() => expect(focusedTitle()).not.toBe(title));
+  await waitFor(() => expect(list.contains(document.activeElement)).toBe(true));
+  expect(document.activeElement?.matches("[data-row-focus], [data-section-toggle]")).toBe(true);
 });
 
 test("⌥⌘2 in a browser tab opens the second thread in the list", async () => {

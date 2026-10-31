@@ -189,7 +189,9 @@ test("a task keeps project and provider context visible without duplicating Done
     { name: /^Bare thread/ },
   );
   expect(bare.getAttribute("aria-label")).toContain("Codex");
-  expect(within(bare).getByText("relay")).toBeTruthy();
+  // Its project heads the group it sits in; the row itself doesn't repeat it.
+  expect(within(nav()).getByRole("button", { name: /^relay/ })).toBeTruthy();
+  expect(bare.getAttribute("aria-label")).toContain("Project relay");
   // Seen before this device's first launch, so it rests quietly: no Done at all, never two.
   expect(within(bare).queryAllByText("Done", { exact: true })).toHaveLength(0);
   expect(within(bare).getByRole("img", { name: "Codex" })).toBeTruthy();
@@ -238,8 +240,8 @@ test("a rename survives changing from a task row to a settled row", async () => 
   await act(() =>
     made.client.command({ type: "thread.settle", threadId: ThreadId.parse("rename-row") }),
   );
-  // Settled, the thread moves to the Settled tab; going there keeps what was typed.
-  await userEvent.click(screen.getByRole("tab", { name: /^Settled/ }));
+  // Settled, the thread moves under its project's settled ones; opening them keeps what was typed.
+  await userEvent.click(await within(nav()).findByRole("button", { name: /settled in relay$/ }));
   expect(await within(nav()).findByRole("link", { name: /^Retained rename/ })).toBeTruthy();
 });
 

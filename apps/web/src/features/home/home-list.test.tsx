@@ -75,7 +75,7 @@ test("the Inbox holds what needs you, and each project lists its other threads",
     "Recent, 0",
     "[ace]",
     "Dedupe thread events after reconnect",
-    "1 settled",
+    "1 settled in ace",
     "[relay]",
     "Backpressure on broadcast fan-out",
     "[billing-api]",
@@ -90,7 +90,7 @@ test("the Inbox holds what needs you, and each project lists its other threads",
   );
   // The settled thread waits under its project's "1 settled".
   expect(order()).not.toContain("Bump Codex app-server to 0.48");
-  await userEvent.click(head("1 settled"));
+  await userEvent.click(head("1 settled in ace"));
   await waitFor(() =>
     expect(before("Dedupe thread events after reconnect", "Bump Codex app-server to 0.48")).toBe(
       true,
@@ -249,11 +249,11 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
 
 /** Bring the settled thread back into its project, done and at rest. */
 async function unsettleBump() {
-  await userEvent.click(head("1 settled"));
+  await userEvent.click(head("1 settled in ace"));
   await within(threads()).findByRole("link", { name: /^Bump Codex/ });
   await rowAction("Unsettle", "Bump Codex app-server to 0.48");
   await waitFor(() =>
-    expect(within(threads()).queryByRole("button", { name: "1 settled" })).toBeNull(),
+    expect(within(threads()).queryByRole("button", { name: "1 settled in ace" })).toBeNull(),
   );
   await within(threads()).findByRole("link", { name: /^Bump Codex/ });
 }
@@ -354,14 +354,14 @@ test("Settle drops a finished thread into its project's settled ones and Unsettl
   await waitFor(() => expect(settledAt()).toBeUndefined());
 
   await rowAction("Settle", "Bump Codex app-server to 0.48");
-  expect(await within(threads()).findByRole("button", { name: "1 settled" })).toBeTruthy();
+  expect(await within(threads()).findByRole("button", { name: "1 settled in ace" })).toBeTruthy();
   await waitFor(() => expect(settledAt()).toBeDefined());
 });
 
 test("a settled thread comes back to its project as soon as it moves again, as running", async () => {
   const app = workbenchApp();
   await openHome(app);
-  expect(head("1 settled")).toBeTruthy();
+  expect(head("1 settled in ace")).toBeTruthy();
 
   // New work on it: the agent starts another turn and the thread is working again.
   app.daemon.apply("thread-bump-codex", [

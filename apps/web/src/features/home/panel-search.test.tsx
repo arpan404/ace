@@ -15,12 +15,9 @@ const rowTitles = () =>
 const search = () => screen.getByRole("searchbox", { name: "Search all threads" });
 
 /** The workbench with its Codex bump (project ace) and PDF locale fix (billing-api) settled. */
-async function openWorkbench(tab: "active" | "settled" = "active") {
+async function openWorkbench() {
   const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.home.organizer",
-    JSON.stringify({ baseline: 0, project: null, homeTab: tab }),
-  );
+  storage.setItem("ace.home.organizer", JSON.stringify({ baseline: 0, project: null }));
   const app = harness({ storage });
   await app.client.start();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
@@ -31,7 +28,7 @@ async function openWorkbench(tab: "active" | "settled" = "active") {
   return app;
 }
 
-test("typing in the panel's search narrows Active and lists settled matches under their heading", async () => {
+test("typing in the panel's search lists matching threads, then settled matches under their heading", async () => {
   await openWorkbench();
   expect(rowTitles()).not.toContain("Bump Codex app-server to 0.48");
   await userEvent.type(search(), "codex");
@@ -67,18 +64,14 @@ test("a search with no match says so", async () => {
   expect(rowTitles()).toEqual([]);
 });
 
-test("the Settled tab's project chips narrow it to one project and back", async () => {
-  await openWorkbench("settled");
-  await waitFor(() =>
-    expect(rowTitles().toSorted()).toEqual([
-      "Bump Codex app-server to 0.48",
-      "Invoice PDF locale fallback",
-    ]),
-  );
-  const chips = within(screen.getByRole("group", { name: "Settled projects" }));
-  expect(chips.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
-  await userEvent.click(chips.getByRole("button", { name: /billing-api/ }));
-  await waitFor(() => expect(rowTitles()).toEqual(["Invoice PDF locale fallback"]));
-  await userEvent.click(chips.getByRole("button", { name: "All" }));
-  await waitFor(() => expect(rowTitles()).toHaveLength(2));
+test("a project's N settled opens only that project's settled threads, in place", async () => {
+  await openWorkbench();
+  expect(rowTitles()).not.toContain("Invoice PDF locale fallback");
+  const billing = within(threads()).getByRole("button", { name: "1 settled in billing-api" });
+  await userEvent.click(billing);
+  expect(billing.getAttribute("aria-expanded")).toBe("true");
+  await waitFor(() => expect(rowTitles()).toContain("Invoice PDF locale fallback"));
+  expect(rowTitles()).not.toContain("Bump Codex app-server to 0.48");
+  await userEvent.click(within(threads()).getByRole("button", { name: "1 settled in billing-api" }));
+  await waitFor(() => expect(rowTitles()).not.toContain("Invoice PDF locale fallback"));
 });

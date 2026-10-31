@@ -225,11 +225,18 @@ function QuietProject(props: { row: Extract<HomeRow, { kind: "quiet-project" }> 
 }
 
 /** A disclosure in the list: "N settled", Quiet projects, Snoozed. */
-function Disclosure(props: { open: boolean; onClick(): void; children: ReactNode }) {
+function Disclosure(props: {
+  open: boolean;
+  onClick(): void;
+  children: ReactNode;
+  /** Its name for assistive tech, when the words on it say less. */
+  label?: string | undefined;
+}) {
   return (
     <button
       type="button"
       aria-expanded={props.open}
+      aria-label={props.label}
       data-section-toggle=""
       onClick={props.onClick}
       className="flex h-[30px] w-full items-center gap-1.5 rounded-md px-2.5 text-left text-ui text-muted-foreground focus-ring-inset transition-colors duration-(--motion-fast) hover:bg-hover hover:text-foreground"
@@ -269,6 +276,22 @@ function MoreRow(props: { state: "more" | "loading" | "error" } & Acts) {
       <ArrowClockwiseIcon aria-hidden size={14} className="shrink-0" />
       Couldn’t load older threads. Retry
     </button>
+  );
+}
+
+/** A project's "N settled", named with its project for assistive tech. */
+function ProjectSettled(props: { row: Extract<HomeRow, { kind: "project-settled" }> }) {
+  const { row } = props;
+  const organizer = useOrganizer();
+  const name = useProjectName()(row.project);
+  return (
+    <Disclosure
+      open={row.open}
+      label={`${row.count} settled in ${name}`}
+      onClick={() => organizer.setSettledOpen(row.project, !row.open)}
+    >
+      {row.count} settled
+    </Disclosure>
   );
 }
 
@@ -312,14 +335,7 @@ export function SectionRow(props: { row: HomeRow; first: boolean } & Acts) {
         />
       );
     case "project-settled":
-      return (
-        <Disclosure
-          open={row.open}
-          onClick={() => organizer.setSettledOpen(row.project, !row.open)}
-        >
-          {row.count} settled
-        </Disclosure>
-      );
+      return <ProjectSettled row={row} />;
     case "quiet-header":
       return (
         <div className="mt-1.5">

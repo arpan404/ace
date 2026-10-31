@@ -63,25 +63,23 @@ test("⌘-click picks rows without opening them, Shift-click takes the rows betw
   await pick(/^Approval sheet/, "{Meta>}");
   await pick(/^Backpressure/, "{Shift>}");
   expect(window.location.pathname).toBe(opened);
-  expect(await screen.findByText("5 selected")).toBeTruthy();
+  // In the tree's order: the Inbox's last two, then ace's thread, then relay's.
+  expect(await screen.findByText("4 selected")).toBeTruthy();
   expect(card(/^Retry budget.*, selected/)).toBeTruthy();
   expect(
     within(threads()).queryByRole("link", { name: /^Partial refunds.*, selected/ }),
   ).toBeNull();
 
   // Pin pins them all, keeping the order they were listed in.
-  await userEvent.click(within(bar()).getByRole("button", { name: "Pin 5 threads" }));
+  await userEvent.click(within(bar()).getByRole("button", { name: "Pin 4 threads" }));
   await waitFor(() =>
     expect(
-      [
-        "thread-sheet-rotate",
-        "thread-retry-budget",
-        "thread-dedupe",
-        "thread-install-page",
-        "thread-fan-out",
-      ].map((id) => listed(app, id)?.pinned),
-    ).toEqual([true, true, true, true, true]),
+      ["thread-sheet-rotate", "thread-retry-budget", "thread-dedupe", "thread-fan-out"].map(
+        (id) => listed(app, id)?.pinned,
+      ),
+    ).toEqual([true, true, true, true]),
   );
+  expect(listed(app, "thread-install-page")?.pinned).toBeUndefined();
   expect(screen.queryByRole("toolbar", { name: "Selected threads" })).toBeNull();
 });
 

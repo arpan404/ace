@@ -58,20 +58,26 @@ test("an open row's details close as soon as the list scrolls", async () => {
   await waitFor(() => expect(screen.queryByLabelText(/^Details for Partial refunds/)).toBeNull());
 });
 
-test("Settle and Unsettle on a row's hover actions move it between the Active and Settled tabs", async () => {
+/** Open ace's settled threads in place and Unsettle the Codex bump back into the project. */
+async function unsettleBump(title: string) {
+  await userEvent.click(await screen.findByRole("button", { name: "1 settled in ace" }));
+  await userEvent.click(await screen.findByRole("button", { name: `Unsettle ${title}` }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "1 settled in ace" })).toBeNull());
+}
+
+test("Settle and Unsettle on a row's hover actions move it in and out of its project's settled ones", async () => {
   const app = await openHome();
   const title = "Bump Codex app-server to 0.48";
-  await userEvent.click(await screen.findByRole("tab", { name: "Settled 1" }));
-  await userEvent.click(screen.getByRole("button", { name: `Unsettle ${title}` }));
-  await screen.findByRole("tab", { name: "Settled 0" });
+  await unsettleBump(title);
   expect(threadOf(app, "thread-bump-codex")?.settledAt).toBeUndefined();
-  await userEvent.click(screen.getByRole("tab", { name: /^Active/ }));
   await waitFor(() => expect(order()).toContain(title));
 
   await userEvent.click(screen.getByRole("button", { name: `Settle ${title}` }));
-  await screen.findByRole("tab", { name: "Settled 1" });
-  await waitFor(() => expect(order()).not.toContain(title));
-  expect(threadOf(app, "thread-bump-codex")?.settledAt).toBeDefined();
+  await screen.findByRole("button", { name: "1 settled in ace" });
+  // ace's settled list is still open, so it shows there now, offering Unsettle again.
+  expect(await screen.findByRole("button", { name: `Unsettle ${title}` })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: `Settle ${title}` })).toBeNull();
+  await waitFor(() => expect(threadOf(app, "thread-bump-codex")?.settledAt).toBeDefined());
 });
 
 /**
@@ -88,10 +94,7 @@ const controls = (title: RegExp) =>
 test("hovering an active row shows only snooze, settle and more actions, not the status", async () => {
   await openHome();
   const title = "Bump Codex app-server to 0.48";
-  await userEvent.click(await screen.findByRole("tab", { name: "Settled 1" }));
-  await userEvent.click(screen.getByRole("button", { name: `Unsettle ${title}` }));
-  await screen.findByRole("tab", { name: "Settled 0" });
-  await userEvent.click(screen.getByRole("tab", { name: /^Active/ }));
+  await unsettleBump(title);
   const row = new RegExp(`^${title}`);
   await waitFor(() => expect(card(row)).toBeTruthy());
   const resting = firstLine(row);

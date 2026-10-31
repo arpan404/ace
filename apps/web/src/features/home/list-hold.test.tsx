@@ -86,8 +86,8 @@ test("a thread that needs you rises at once under a resting pointer", async () =
 
 test("while the keyboard is in the list only a thread that needs you moves", async () => {
   const app = await openHome();
-  // Tab into the list from the Settled tab, the stop just before it: the keyboard is on its one Tab stop.
-  screen.getByRole("tab", { name: /^Settled/ }).focus();
+  // Tab into the list from the search field, the stop just before it: the keyboard is on its one Tab stop.
+  screen.getByRole("searchbox", { name: "Search all threads" }).focus();
   await userEvent.tab();
   expect(list().contains(document.activeElement)).toBe(true);
 

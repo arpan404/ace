@@ -208,13 +208,12 @@ test("deleting another thread and a refused active delete preserve the open thre
       })(),
   );
   await screen.findByRole("heading", { level: 1, name: "Invoice PDF locale fallback" });
-  await userEvent.click(await screen.findByRole("tab", { name: "Settled 1" }));
+  await userEvent.click(await screen.findByRole("button", { name: "1 settled in ace" }));
   await userEvent.click(
-    screen.getByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
+    await screen.findByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Unsettle" }));
-  await screen.findByRole("tab", { name: "Settled 0" });
-  await userEvent.click(screen.getByRole("tab", { name: /^Active/ }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "1 settled in ace" })).toBeNull());
   await waitFor(() => expect(card(/Bump Codex/)).toBeTruthy());
   await choose(/Bump Codex/, "Delete thread");
   await waitFor(() => expect(listed(app, "thread-bump-codex")).toBeUndefined());
