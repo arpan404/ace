@@ -6,6 +6,8 @@ import { useNow } from "@/lib/time.ts";
 import {
   activeGroupKeys,
   activeGroups,
+  createdGroups,
+  manualGroups,
   activityOf,
   archivedOrder,
   arrange,
@@ -57,6 +59,7 @@ const noGroups: ActiveGroups = {
   yesterday: [],
   week: [],
   earlier: [],
+  listed: [],
 };
 const empty: HomeList = {
   pinned: [],
@@ -148,7 +151,13 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
       );
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
       const below = [...active, ...recent].flatMap((id) => byId.get(id) ?? []);
-      const groups = activeGroups(below, laneOf, now);
+      // Live activity groups by what needs you and what runs; the other sorts keep their order.
+      const groups =
+        sortBy === "activity"
+          ? activeGroups(below, laneOf, now)
+          : sortBy === "created"
+            ? createdGroups(below, now)
+            : manualGroups(below);
       const listed = activeGroupKeys.flatMap((key) => groups[key]);
       // A saved list's requests may have been answered since: none counts until it is confirmed.
       const needsYou = reader.unconfirmed

@@ -39,6 +39,7 @@ const none: ActiveGroups = {
   yesterday: [],
   week: [],
   earlier: [],
+  listed: [],
 };
 const arranged = (
   groups: Partial<ActiveGroups>,
@@ -186,4 +187,11 @@ test("the Settled tab says when older threads are loading or failed to load", ()
     "more loading",
   ]);
   expect(words(settledRows([], now, "error"))).toEqual(["more error"]);
+});
+
+test("a hand-sorted list draws its threads under no heading, even when folded", () => {
+  expect(words(activeRows(arranged({ listed: ["b", "a"] }), { collapsed: ["listed"] }))).toEqual([
+    "b",
+    "a",
+  ]);
 });

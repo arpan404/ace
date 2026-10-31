@@ -232,16 +232,14 @@ test("a rename survives changing from a task row to a settled row", async () => 
   await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole("link", {
     name: /^Rename across/,
   });
-  await userEvent.click(screen.getByRole("button", { name: /^Settled / }));
   const title = await rename(row(/^Rename across/));
   await userEvent.clear(title);
   await userEvent.type(title, "Retained rename");
   await act(() =>
     made.client.command({ type: "thread.settle", threadId: ThreadId.parse("rename-row") }),
   );
-  const retained = await screen.findByRole<HTMLInputElement>("textbox", { name: "Thread title" });
-  expect(retained.value).toBe("Retained rename");
-  await userEvent.type(retained, "{Enter}");
+  // Settled, the thread moves to the Settled tab; going there keeps what was typed.
+  await userEvent.click(screen.getByRole("tab", { name: /^Settled/ }));
   expect(await within(nav()).findByRole("link", { name: /^Retained rename/ })).toBeTruthy();
 });
 

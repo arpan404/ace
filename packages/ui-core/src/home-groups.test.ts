@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { activeGroups, dayGroupOf, homeLane, type LaneInput } from "./home-groups.ts";
+import {
+  activeGroups,
+  createdGroups,
+  dayGroupOf,
+  homeLane,
+  manualGroups,
+  type LaneInput,
+} from "./home-groups.ts";
 import { Organizer } from "./organizer.ts";
 import { threadMatches } from "./thread-match.ts";
 import { entry } from "./test-entries.fixture.ts";
@@ -98,4 +105,27 @@ test("search matches every word against title, project, branch and pull request"
   expect(threadMatches(thread, "persist-explorer", "ace-web")).toBe(true);
   expect(threadMatches(thread, "ios", "ace-web")).toBe(false);
   expect(threadMatches(thread, "  ", "ace-web")).toBe(true);
+});
+
+test("sorted newest first, threads fall by the day they were created, whoever needs you", () => {
+  const groups = createdGroups(
+    [
+      entry("new-asks", { state: "needs_you", interactions: 1 }, now, { createdAt: now - 60_000 }),
+      entry("old-works", { state: "working", agents: 1 }, now, { createdAt: local(10, 1) }),
+    ],
+    now,
+  );
+  expect(groups.today).toEqual(["new-asks"]);
+  expect(groups.earlier).toEqual(["old-works"]);
+  expect(groups["needs-you"]).toEqual([]);
+  expect(groups.running).toEqual([]);
+});
+
+test("sorted by hand, every thread stays in one list in the person's order", () => {
+  const groups = manualGroups([
+    entry("b", { state: "working", agents: 1 }, now),
+    entry("a", { state: "needs_you", interactions: 1 }, now),
+  ]);
+  expect(groups.listed).toEqual(["b", "a"]);
+  expect(groups["needs-you"]).toEqual([]);
 });

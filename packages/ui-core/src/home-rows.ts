@@ -67,8 +67,9 @@ export function activeRows(groups: ActiveRowGroups, options: ActiveRowOptions = 
   for (const group of activeGroupKeys) {
     const ids = groups.groups[group];
     if (!ids.length) continue;
-    const open = !collapsed.has(group);
-    rows.push({ kind: "group-header", group, count: ids.length, open });
+    // The hand-sorted list has no heading, so it never folds.
+    const open = group === "listed" || !collapsed.has(group);
+    if (group !== "listed") rows.push({ kind: "group-header", group, count: ids.length, open });
     for (const id of open ? ids : kept(ids)) rows.push({ kind: "thread", id, group });
   }
   if (groups.snoozed.length) rows.push({ kind: "snoozed-header", count: groups.snoozed.length });

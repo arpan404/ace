@@ -56,7 +56,10 @@ export function laneReader(input: LaneInput): (entry: ThreadListEntry) => HomeLa
   };
 }
 
-/** The Active tab's groups below Pinned, top to bottom. */
+/**
+ * The Active tab's groups below Pinned, top to bottom. `listed` is the one group without a
+ * heading: every thread, in the person's own order, when they sort by hand.
+ */
 export const activeGroupKeys = [
   "needs-you",
   "running",
@@ -64,6 +67,7 @@ export const activeGroupKeys = [
   "yesterday",
   "week",
   "earlier",
+  "listed",
 ] as const;
 export type ActiveGroupKey = (typeof activeGroupKeys)[number];
 
@@ -74,6 +78,7 @@ export const activeGroupLabels: Record<ActiveGroupKey, string> = {
   yesterday: "Yesterday",
   week: "This week",
   earlier: "Earlier",
+  listed: "",
 };
 
 /** Local midnight at the start of `at`'s day. */
@@ -103,10 +108,7 @@ function daysBefore(midnight: number, days: number): number {
  * The day group of a thread at rest, by its last activity: Today, Yesterday, This week (since
  * Monday), then Earlier. Activity a moment ahead of the clock counts as today.
  */
-export function dayGroupOf(
-  at: number,
-  now: number,
-): Exclude<ActiveGroupKey, "needs-you" | "running"> {
+export function dayGroupOf(at: number, now: number): "today" | "yesterday" | "week" | "earlier" {
   const today = startOfDay(now);
   if (at >= today) return "today";
   if (at >= daysBefore(today, 1)) return "yesterday";
@@ -116,29 +118,49 @@ export function dayGroupOf(
 
 export type ActiveGroups = Record<ActiveGroupKey, string[]>;
 
+const noThreads = (): ActiveGroups => ({
+  "needs-you": [],
+  running: [],
+  today: [],
+  yesterday: [],
+  week: [],
+  earlier: [],
+  listed: [],
+});
+
 /**
- * The threads below Pinned, already in Home order, split into the Active tab's groups. Each
- * group keeps the order it was given. `lane` reads a thread's lane (`homeLane`, or a cached copy
- * of it); `at` its last activity.
+ * Sorted by live activity: the threads below Pinned, already in Home order, split into Needs
+ * you, Running, then the day of their last activity. Each group keeps the order it was given.
+ * `lane` reads a thread's lane (`homeLane`, or `laneReader`'s cached copy).
  */
 export function activeGroups(
   entries: readonly ThreadListEntry[],
   lane: (entry: ThreadListEntry) => HomeLane,
   now: number,
 ): ActiveGroups {
-  const groups: ActiveGroups = {
-    "needs-you": [],
-    running: [],
-    today: [],
-    yesterday: [],
-    week: [],
-    earlier: [],
-  };
+  const groups = noThreads();
   for (const entry of entries) {
     const stands = lane(entry);
     const key = stands === "rest" ? dayGroupOf(activityOf(entry), now) : stands;
     groups[key].push(entry.id);
   }
+  return groups;
+}
+
+/**
+ * Sorted newest first: threads stay where they started, so they fall only by the day they were
+ * created, newest first, whatever they are doing now (the rows still say it).
+ */
+export function createdGroups(entries: readonly ThreadListEntry[], now: number): ActiveGroups {
+  const groups = noThreads();
+  for (const entry of entries) groups[dayGroupOf(entry.createdAt, now)].push(entry.id);
+  return groups;
+}
+
+/** Sorted by hand: one list in the person's own order, under no heading. */
+export function manualGroups(entries: readonly ThreadListEntry[]): ActiveGroups {
+  const groups = noThreads();
+  groups.listed = entries.map((entry) => entry.id);
   return groups;
 }
 
