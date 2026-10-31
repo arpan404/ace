@@ -1,8 +1,8 @@
-import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
-import { useSidebar, useSidebarLoaded } from "@ace/client-react";
-import { settledTotal as settledCount } from "@ace/ui-core";
+import { ArrowLeftIcon, ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
+import { useSidebarLoaded } from "@ace/client-react";
+import type { HomeFocus } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
-import { Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { PaletteButton, PanelHeader } from "@/features/shell/index.ts";
@@ -22,11 +22,12 @@ import { useSidebarDevice } from "./device-filter-state.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList, useSettledEntries } from "./use-home-threads.ts";
-import { PanelSearch, PanelTabs, SettledChips } from "./panel-header.tsx";
-import { useSettledPaging } from "./settled-paging.ts";
+import { FocusTabs, PanelSearch } from "./panel-header.tsx";
 import { useSettledSearch } from "./use-panel-search.ts";
 import { rowFocusSelector } from "./list-focus.ts";
-import type { PanelView } from "./thread-list.tsx";
+import { useHomeFocus } from "./use-home-focus.ts";
+import { usePanelRows } from "./use-panel-rows.ts";
+import type { SectionActions } from "./tree-rows.tsx";
 import {
   useOrganizer,
   useOrganizerState,
@@ -38,12 +39,21 @@ const StartedTitlePublisher = deferredComponent(() =>
   import("./started-rows.tsx").then((module) => module.StartedTitlePublisher),
 );
 
+const iconButton =
+  "relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground";
+
+/** Inside an input, a menu or an editor, Escape is theirs. */
+const typing = (target: EventTarget) =>
+  target instanceof Element && target.closest("input, textarea, [contenteditable]") !== null;
+
 /**
- * The Threads panel: its title with the filter and New thread, a search over every thread, and
- * two tabs. Active lists the work in hand across projects (Pinned, Needs you, Running, then by
- * day, with Snoozed folded at the foot); Settled lists settled threads by week, narrowed by
- * project chips, loading older ones as the person scrolls. Searching narrows Active at once and
- * lists the settled matches, the daemon's included, under their own heading.
+ * The Threads panel: Inbox + Projects. The title with the filter, Search and New thread, a
+ * search over every thread, then the tree: the Inbox with what needs the person, the Running
+ * and Recent places, and each project folding open in place with its threads and its own
+ * settled ones, quiet projects folded at the foot. A place or a project opens as a focused list
+ * with a back arrow (a project with Active and Settled tabs); Back, or Escape outside the
+ * search field, returns to the tree where it was. Searching lists the matching threads, then
+ * the settled matches, the daemon's included.
  */
 export function HomeSidebar() {
   // Other machines' threads join the list, each row marked with its machine.
@@ -52,9 +62,7 @@ export function HomeSidebar() {
   const [query, setQuery] = useState("");
   const searching = query.trim().length > 0;
   const list = useHomeList(others, query);
-  // The daemon's count of settled threads, while it still holds some back.
-  const settledTotal = useSidebar(["homeWindow"], (reader) => settledCount(reader.homeWindow));
-  const { project, homeTab: tab } = useOrganizerState();
+  const { project } = useOrganizerState();
   const device = useSidebarDevice();
   const deviceName = useMachines().find((machine) => machine.id === device)?.name;
   useThreadsWindowSync();
@@ -64,107 +72,121 @@ export function HomeSidebar() {
   const skeleton = useHeld(!loaded);
   const loadedSettled = useSettledEntries(list.settled);
   const search = useSettledSearch(query, list, loadedSettled);
-  const paging = useSettledPaging(project, device);
-  const [chip, setChip] = useState<string | null>(null);
-  const settled = searching ? search.matches : loadedSettled;
-  const name = useProjectDirectory().name;
-  const chips = useMemo(() => {
-    const ids = new Set(settled.map((item) => item.project));
-    if (chip !== null) ids.add(chip);
-    return [...ids].toSorted((a, b) => name(a).localeCompare(name(b)));
-  }, [settled, chip, name]);
-  // The panel's project filter already narrows Settled: chips only add to it when it is off.
-  const shownChip = project === null ? chip : null;
-  const settledItems = useMemo(
-    () => (shownChip === null ? settled : settled.filter((item) => item.project === shownChip)),
-    [settled, shownChip],
-  );
-  const ownSettled = !device || device === host;
-  const counts = {
-    active: list.pinned.length + list.listed.length,
-    settled: searching
-      ? settled.length
-      : Math.max(list.settled.length, (ownSettled && settledTotal) || 0),
-  };
+  const [focus, setFocus] = useHomeFocus();
+  const panel = usePanelRows({
+    list,
+    focus,
+    search: searching ? search : undefined,
+    device,
+  });
+  // The tree's scroll, kept while a focused list shows, so Back returns where it was.
+  const [treeScroll] = useState(scrollMemory);
   const nav = useRef<HTMLElement>(null);
+  const { tree } = list;
   const empty =
     !searching &&
     [list.pinned, list.listed, list.snoozed, list.settled].every((ids) => !ids.length) &&
-    !settledTotal;
+    !tree.quiet.length;
   const directory = useProjectDirectory();
   const keys = useResolvedKeymap();
   const entry = useNewThreadEntry();
   const { only } = entry;
-  const view: PanelView =
-    tab === "settled"
-      ? {
-          tab: "settled",
-          items: settledItems,
-          foot: paging.loading ? "loading" : paging.error ? "error" : undefined,
-          onNearEnd: () => void paging.more(),
-          onRetry: () => void paging.more(),
-        }
-      : {
-          tab: "active",
-          searching,
-          settledMatches: searching ? search.matches.map((item) => item.id) : undefined,
-        };
-  const nothing = searching
-    ? tab === "settled"
-      ? !settledItems.length
-      : !counts.active && !list.snoozed.length && !search.matches.length
-    : tab === "settled"
-      ? !settledItems.length && !paging.loading
-      : !counts.active && !list.snoozed.length;
+  // One object for the rows' actions, so a row's effects don't re-run on every render.
+  const more = useRef(panel.more);
+  useLayoutEffect(() => {
+    more.current = panel.more;
+  });
+  const actions = useMemo<SectionActions>(
+    () => ({ focus: (next: HomeFocus) => setFocus(next), more: () => more.current() }),
+    [setFocus],
+  );
+  const back = () => setFocus(null);
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Escape" || event.defaultPrevented || !focus || searching) return;
+    if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
+    if (typing(event.target)) return;
+    event.preventDefault();
+    back();
+  };
+  const focusTitle = !focus
+    ? undefined
+    : focus.kind === "inbox"
+      ? "Inbox"
+      : focus.kind === "running"
+        ? "Running"
+        : focus.kind === "recent"
+          ? "Recent"
+          : directory.name(focus.id);
+  const listKey = searching ? "search" : focus ? JSON.stringify(focus) : "tree";
+  const nothing = searching && !panel.rows.length;
   return (
-    <>
-      <PanelHeader
-        title="Threads"
-        className="@container/thread-filters"
-        actions={
-          <>
-            <ThreadsActions />
-            <PaletteButton />
-            <Tip label="New thread" shortcut="newThread">
-              <Link
-                to="/new"
-                {...(only ? { search: { project: only } } : {})}
-                aria-label="New thread"
-                className="relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
-                onClick={(event) => {
-                  // Shift skips the question (the current project); several projects ask which.
-                  if (event.shiftKey) {
-                    event.preventDefault();
-                    entry.here();
-                  } else if (!only) {
-                    event.preventDefault();
-                    entry.start();
-                  }
-                }}
-              >
-                <Icon icon={NotePencilIcon} />
-              </Link>
+    // Escape bubbles here from the panel's rows and buttons: it leaves a focused list.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
+    <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
+      {focus && focusTitle !== undefined ? (
+        <PanelHeader
+          title={focusTitle}
+          leading={
+            <Tip label="Back">
+              <button type="button" aria-label="Back" onClick={back} className={iconButton}>
+                <Icon icon={ArrowLeftIcon} />
+              </button>
             </Tip>
-          </>
-        }
-      />
+          }
+          actions={
+            focus.kind === "project" && (
+              <Tip label={`New thread in ${focusTitle}`}>
+                <Link
+                  to="/new"
+                  search={{ project: focus.id }}
+                  aria-label={`New thread in ${focusTitle}`}
+                  className={iconButton}
+                >
+                  <Icon icon={NotePencilIcon} />
+                </Link>
+              </Tip>
+            )
+          }
+        />
+      ) : (
+        <PanelHeader
+          title="Threads"
+          className="@container/thread-filters"
+          actions={
+            <>
+              <ThreadsActions />
+              <PaletteButton />
+              <Tip label="New thread" shortcut="newThread">
+                <Link
+                  to="/new"
+                  {...(only ? { search: { project: only } } : {})}
+                  aria-label="New thread"
+                  className={iconButton}
+                  onClick={(event) => {
+                    // Shift skips the question (the current project); several projects ask which.
+                    if (event.shiftKey) {
+                      event.preventDefault();
+                      entry.here();
+                    } else if (!only) {
+                      event.preventDefault();
+                      entry.start();
+                    }
+                  }}
+                >
+                  <Icon icon={NotePencilIcon} />
+                </Link>
+              </Tip>
+            </>
+          }
+        />
+      )}
       <PanelSearch
         value={query}
         onChange={setQuery}
         onEnterList={() => nav.current?.querySelector<HTMLElement>(rowFocusSelector)?.focus()}
       />
-      <PanelTabs
-        tab={tab}
-        active={counts.active}
-        settled={counts.settled}
-        onChange={(next) => organizer.setHomeTab(next)}
-      />
-      {tab === "settled" && (
-        <SettledChips
-          projects={project === null ? chips : []}
-          value={shownChip}
-          onChange={setChip}
-        />
+      {focus?.kind === "project" && !searching && (
+        <FocusTabs tab={focus.tab} onChange={(tab) => setFocus({ ...focus, tab })} />
       )}
       <nav ref={nav} aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
@@ -174,7 +196,7 @@ export function HomeSidebar() {
         )}
         {!loaded ? (
           skeleton && <ListSkeleton label="threads" shape="thread" />
-        ) : empty ? (
+        ) : empty && !focus ? (
           <>
             <EmptyState
               className="shrink-0 justify-start pt-6"
@@ -213,28 +235,46 @@ export function HomeSidebar() {
                 ) : undefined
               }
             />
-            <ThreadList list={list} />
+            <ThreadList
+              rows={unsentOnly}
+              needsYou={list.needsYou}
+              pinned={list.pinned}
+              actions={actions}
+            />
           </>
         ) : (
           <>
             {nothing && (
               <p role="status" className="shrink-0 px-4 pt-3 text-ui text-subtle-foreground">
-                {searching
-                  ? `Nothing matches “${query.trim()}”.`
-                  : tab === "settled"
-                    ? "No settled threads here."
-                    : "Nothing active. Settled threads are under Settled."}
+                Nothing matches “{query.trim()}”.
               </p>
             )}
             <ThreadList
-              list={list}
-              view={view}
+              key={listKey}
+              rows={panel.rows}
+              needsYou={list.needsYou}
+              pinned={list.pinned}
+              actions={actions}
               hits={search.hits}
-              resetKey={`${tab}\u0000${query.trim()}`}
+              scrollTop={listKey === "tree" ? treeScroll.read() : 0}
+              onScroll={listKey === "tree" ? treeScroll.keep : undefined}
             />
           </>
         )}
       </nav>
-    </>
+    </div>
   );
+}
+
+const unsentOnly = [{ kind: "unsent" as const }];
+
+/** Where a list was scrolled, kept across its unmounting. */
+function scrollMemory() {
+  let top = 0;
+  return {
+    read: () => top,
+    keep: (next: number) => {
+      top = next;
+    },
+  };
 }

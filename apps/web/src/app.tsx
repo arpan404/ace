@@ -78,6 +78,8 @@ export function App(props: {
   client: ClientApi;
   queryClient?: QueryClient;
   storage?: KeyValueStorage | undefined;
+  /** Storage for this window alone that outlives a reload (session storage). */
+  windowStorage?: KeyValueStorage | undefined;
   history?: RouterHistory;
   /** When store changes reach React; the browser entry batches them per animation frame. */
   batch?: NotifyBatch;
@@ -96,7 +98,7 @@ export function App(props: {
     <ClientProvider client={props.client} {...(props.batch ? { batch: props.batch } : {})}>
       <QueryClientProvider client={queryClient}>
         <SourceControlCache client={props.client} />
-        <LayoutProvider storage={props.storage}>
+        <LayoutProvider storage={props.storage} windowStorage={props.windowStorage}>
           <MachinePoolFactoryProvider value={props.ensureMachines}>
             <MachinePoolProvider value={props.machines}>
               <AuthTerminalProvider value={AuthTerminal.Component}>

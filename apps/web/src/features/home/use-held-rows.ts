@@ -1,6 +1,7 @@
 import {
   holdOrder,
   homeRowKey,
+  homeRowPlace,
   homeRowThread,
   ListHold,
   type Hold,
@@ -51,16 +52,19 @@ export function useListHold(dragging: boolean, timers: Timers = browserTimers) {
   return { state, handlers };
 }
 
+const noPins: ReadonlySet<string> = new Set();
+
 /**
  * The rows to draw: `rows` itself while the list is free; while it holds, the rows in the places
- * they were drawn. A row that changes kind (pinned, settled) still moves, being the person's own
- * doing, as does the Pinned group, ordered by the person (a drag lands at once), and a row that
- * needs you rises at once unless a drag is under way.
+ * they were drawn. A row that changes kind or place (settled, out of the Inbox into its
+ * project) still moves, as does a pinned row, ordered by the person (a drag lands at once), and
+ * a row that needs you rises at once unless a drag is under way.
  */
 export function useHeldRows(
   rows: readonly HomeRow[],
   hold: Hold,
   needsYou: readonly string[],
+  pinned: ReadonlySet<string> = noPins,
 ): readonly HomeRow[] {
   const [state, setState] = useState({ rows, hold, shown: rows });
   if (state.rows === rows && state.hold === hold) return state.shown;
@@ -72,9 +76,8 @@ export function useHeldRows(
         homeRowKey,
         (row, was) =>
           row.kind !== was.kind ||
-          row.kind === "pinned" ||
-          row.kind === "pinned-header" ||
-          row.kind === "pinned-end" ||
+          homeRowPlace(row) !== homeRowPlace(was) ||
+          pinned.has(homeRowThread(row) ?? "") ||
           rising.has(homeRowThread(row) ?? ""),
       )
     : rows;

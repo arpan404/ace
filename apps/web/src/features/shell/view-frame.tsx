@@ -100,6 +100,8 @@ export function ViewListPage(props: { title: string; fallback: ReactNode }) {
  */
 export function PanelHeader(props: {
   title: string;
+  /** Before the title, such as a back arrow; the row's left padding tightens to suit it. */
+  leading?: ReactNode;
   actions?: ReactNode;
   /** Extra classes for the row, such as a container name its actions query. */
   className?: string | undefined;
@@ -109,11 +111,13 @@ export function PanelHeader(props: {
     <div
       data-slot="panel-top"
       className={cn(
-        "group/heading flex h-(--header-h) shrink-0 items-center gap-1 pl-4 [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag] [&_input]:[-webkit-app-region:no-drag]",
+        "group/heading flex h-(--header-h) shrink-0 items-center gap-1 [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag] [&_input]:[-webkit-app-region:no-drag]",
         sheet ? "pr-12" : "pr-2.5",
+        props.leading ? "pl-2" : "pl-4",
         props.className,
       )}
     >
+      {props.leading}
       <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-foreground">
         {props.title}
       </h2>

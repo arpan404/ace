@@ -68,7 +68,7 @@ export function useThreadSteps() {
   });
   const current = threadId && machine ? machineListId(machine, threadId) : threadId;
   const navigate = useNavigate();
-  const order = useMemo(() => [...list.pinned, ...list.listed], [list.pinned, list.listed]);
+  const order = list.tree.order;
   const needsYou = useMemo(() => new Set(list.needsYou), [list.needsYou]);
   const go = (id: string | undefined) => {
     if (!id) return;

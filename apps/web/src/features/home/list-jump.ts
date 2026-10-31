@@ -2,11 +2,11 @@ import { homeRowThread, type HomeRow } from "@ace/ui-core";
 import { parseChord } from "@/lib/keymap.ts";
 
 /** Rows a number opens: the threads as drawn, never a heading, the Unsent block or a leaving row. */
-const numbered = new Set<HomeRow["kind"]>(["pinned", "thread", "snoozed", "settled"]);
+const numbered = new Set<HomeRow["kind"]>(["thread", "snoozed", "settled"]);
 
 /**
  * The threads ⌘1 to ⌘9 open, in the order the list draws them: the first nine thread rows
- * (pinned, then the rest, then Snoozed and Settled while those are open).
+ * (the Inbox, then each open project's, then Snoozed and settled rows while those are open).
  */
 export function jumpTargets(rows: readonly { item: HomeRow; phase: string }[]): string[] {
   const ids: string[] = [];

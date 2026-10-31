@@ -10,7 +10,7 @@ import { SettledRow } from "./settled-row.tsx";
 import { useOpenHere } from "./thread-row.tsx";
 
 /**
- * A settled thread in the Settled tab or among search matches: its settled row once the list
+ * A one-line thread (settled, in Recent, or among search matches): its settled row once the list
  * has it, else the daemon's search hit for it (an older thread not paged in yet), which opens
  * the thread the same way.
  */
@@ -18,9 +18,20 @@ export function SettledMatch(props: {
   id: string;
   hit: SearchHit | undefined;
   leaving?: boolean | undefined;
+  /** False for finished work Recent lists that isn't settled. */
+  settled?: boolean | undefined;
+  inProject?: boolean | undefined;
 }) {
   const listed = useSidebarThread(props.id) !== undefined;
-  if (listed || !props.hit) return <SettledRow threadId={props.id} leaving={props.leaving} />;
+  if (listed || !props.hit)
+    return (
+      <SettledRow
+        threadId={props.id}
+        leaving={props.leaving}
+        settled={props.settled}
+        inProject={props.inProject}
+      />
+    );
   return <HitRow hit={props.hit} />;
 }
 

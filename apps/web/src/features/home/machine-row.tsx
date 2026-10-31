@@ -13,7 +13,14 @@ import { ThreadRow } from "./thread-row.tsx";
  * its project, status and card read as they do there. While the machine isn't connected the row
  * says so instead of a status: the last status heard may no longer hold.
  */
-export function MachineRow(props: { id: string; settled: boolean; leaving: boolean }) {
+export function MachineRow(props: {
+  id: string;
+  settled: boolean;
+  leaving: boolean;
+  /** One line (a settled row) rather than a task row. */
+  oneLine?: boolean | undefined;
+  inProject?: boolean | undefined;
+}) {
   const ref = machineRow(props.id);
   const machine = useMachines().find((each) => each.id === ref?.hostId);
   if (!ref || !machine) return null;
@@ -27,12 +34,14 @@ export function MachineRow(props: { id: string; settled: boolean; leaving: boole
       machine={machine}
       unavailable={<AwayRow machine={machine} threadKey={ref.key} threadId={ref.threadId} />}
     >
-      {props.settled ? (
+      {props.oneLine ? (
         <SettledRow
           threadId={ref.threadId}
           rowId={props.id}
           leaving={props.leaving}
           machine={mark}
+          settled={props.settled}
+          inProject={props.inProject}
         />
       ) : (
         <ThreadRow
@@ -41,6 +50,7 @@ export function MachineRow(props: { id: string; settled: boolean; leaving: boole
           settled={false}
           leaving={props.leaving}
           machine={mark}
+          inProject={props.inProject}
         />
       )}
     </MachineScope>

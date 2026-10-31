@@ -243,28 +243,37 @@ function Dot() {
  * than one device connected, the machine's icon sits beside the provider's, its name in the
  * tooltip and the row's spoken details.
  */
-export function RowContext(props: { card: ThreadCard; project: ReactNode }) {
+export function RowContext(props: {
+  card: ThreadCard;
+  /** The project's mark; none inside the project's own list, which doesn't repeat it. */
+  project?: ReactNode;
+}) {
   const { card } = props;
   const devices = use(ManyDevices);
+  const named = props.project !== undefined;
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
-      {props.project}
-      <span className="max-w-[45%] shrink-0 truncate">{card.project}</span>
+      {named && (
+        <>
+          {props.project}
+          <span className="max-w-[45%] shrink-0 truncate">{card.project}</span>
+        </>
+      )}
       {card.run && (
         <>
-          <Dot />
+          {named && <Dot />}
           <RunMark run={card.run} />
         </>
       )}
       {card.branch && (
         <>
-          <Dot />
+          {(named || card.run) && <Dot />}
           <MiddleTruncate text={card.branch.name} className="min-w-0 flex-1 font-mono" />
         </>
       )}
       {card.pr !== undefined && (
         <>
-          <Dot />
+          {(named || card.run || card.branch) && <Dot />}
           <span className="shrink-0">
             <PullRequest card={card} />
           </span>

@@ -75,14 +75,12 @@ export async function focusListRow(options: {
   return focusRowFrom({ viewport, rows, start: options.index + step, step, mount: options.mount });
 }
 
-/** Whether a row can hold focus: not leaving, and not the Pinned group's heading or rule. */
+/** Rows that only label or explain: arrows pass over them. */
+const passive = new Set<HomeRow["kind"]>(["label", "empty", "projects-label"]);
+
+/** Whether a row can hold focus: not leaving, and not a label or an empty list's words. */
 function focusable(row: { item: HomeRow; phase: string } | undefined): boolean {
-  return (
-    row !== undefined &&
-    row.phase !== "exit" &&
-    row.item.kind !== "pinned-header" &&
-    row.item.kind !== "pinned-end"
-  );
+  return row !== undefined && row.phase !== "exit" && !passive.has(row.item.kind);
 }
 
 /**
