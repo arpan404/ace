@@ -78,7 +78,7 @@ function SelectedDevice(props: { devices: Devices }) {
   const live = controls?.live === true;
   const { stats, onFrame, meter } = useStreamStats(session?.connection === "local", live);
   const statsShown = useStreamStatsShown();
-  const shown = useFreshActivity(view.activity);
+  const shown = useFreshActivity(view.activity, view.stateLoaded);
   // A missing macOS permission gets its own guidance instead of a one-line error.
   const permission = [view.problem, controls?.error].find(needsPermission);
   if (!selected || !controls || !session) return null;

@@ -50,7 +50,7 @@ export class DevicesService {
   /** Element refs and how-to state for device agents, shared by the sim_* tools and `ace sim`. */
   readonly agents = new SimAgentState();
   private readonly streamOwners = new DeviceStreamOwners();
-  private enabled = false;
+  private enabled = true;
   private closed = false;
   private disabling = false;
   private readonly sessions = new Map<string, DeviceSession>();

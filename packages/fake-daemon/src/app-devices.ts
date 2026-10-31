@@ -112,7 +112,7 @@ export class FakeAppDevices {
   logsFail = false;
   readonly actions: DeviceOperation[] = [];
   private clock: () => number;
-  private enabled = false;
+  private enabled = true;
   private sessions = new Map<string, Session>();
   private channels = new Set<Channel>();
   private sequence = 0;

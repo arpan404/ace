@@ -17,7 +17,7 @@ afterEach(() => {
 
 test("the first down and up share control acquisition so the Simulator receives the whole tap", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   await openDevice(panel, "iPhone 16 Pro");
   const create = app.daemon.appDevices.transport.bind(app.daemon.appDevices);
   const claims: (() => void)[] = [];

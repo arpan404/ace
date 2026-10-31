@@ -128,7 +128,7 @@ platform a tools directory.
 
 iOS uses a pinned `serve-sim` (0.1.49-beta.139.1). ace downloads its own copy
 (with the `ws` package it imports, checked against their npm sha512) into
-`<dataDir>/tools` when devices are enabled, or on the first live view, in a separate
+`<dataDir>/tools` on request from Devices, or on the first live view, in a separate
 process (`tools-entry.ts`), and runs it with the daemon's Node. `ACE_SERVE_SIM` picks
 another executable; otherwise ace's copy wins over one on PATH. A helper that an older ace
 copy left running is stopped before a stream starts (`serve-sim-helpers.ts`). ace spawns
@@ -201,3 +201,8 @@ executed while implementing this feature. The non-gating benchmarks in `bench/`
 report operations per second, microseconds per operation and peak RSS when that
 policy permits execution. Native capture and encoding also need measurements
 on the target machine.
+
+Device support is enabled on every daemon start and remains lazily loaded. Disabling it
+from Devices stops the current sessions until it is enabled again or the daemon restarts.
+This does not boot simulators or emulators. Missing tools stay visible in Devices with a
+download action for ace-managed tools and install links for Xcode and Android Studio.

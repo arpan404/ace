@@ -15,9 +15,7 @@ afterEach(() => {
 });
 async function live() {
   const result = await openDevices();
-  await userEvent.click(
-    await within(result.panel).findByRole("button", { name: "Enable devices" }),
-  );
+  await within(result.panel).findByRole("searchbox", { name: "Search devices" });
   const device = await openDevice(result.panel, "iPhone 16 Pro");
   await within(device).findByRole("img", { name: "iPhone 16 Pro screen" });
   return { ...result, device };
@@ -117,7 +115,7 @@ test("invalid location stays in the form with a fix", async () => {
 });
 test("watching Simulator leaves computer use off", async () => {
   const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
   const device = await openDevice(panel, "iPhone 16 Pro");
   expect(await within(device).findByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
   expect(app.daemon.screen.enabled).toBe(false);

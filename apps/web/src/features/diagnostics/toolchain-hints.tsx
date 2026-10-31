@@ -10,6 +10,11 @@ export const toolchainNames = {
   android: "Android emulators",
 };
 
+const installers = {
+  xcode: { href: "https://apps.apple.com/app/xcode/id497799835", label: "Install Xcode" },
+  android: { href: "https://developer.android.com/studio", label: "Install Android Studio" },
+};
+
 /** The connected computer's tools (Git, Xcode, serve-sim, the Android SDK), read once. */
 export function useToolchains() {
   return useDaemonQuery({
@@ -55,7 +60,19 @@ export function ToolchainHints({ devices = false }: { devices?: boolean }) {
                   />
                 </div>
                 {!tool.available && (
-                  <p className="pb-2 text-sm text-muted-foreground break-words">{tool.hint}</p>
+                  <div className="pb-2 text-sm text-muted-foreground break-words">
+                    <p>{tool.hint}</p>
+                    {(tool.id === "xcode" || tool.id === "android") && (
+                      <a
+                        href={installers[tool.id].href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-link focus-ring hover:underline"
+                      >
+                        {installers[tool.id].label}
+                      </a>
+                    )}
+                  </div>
                 )}
               </li>
             ))}

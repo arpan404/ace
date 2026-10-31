@@ -18,7 +18,11 @@ export interface ShownActivity {
  * The agent's newest action while it is fresh: each sequence shows once, for about two seconds,
  * then fades. What was already there when the view opened isn't replayed.
  */
-export function useFreshActivity(activity: DeviceActivity | undefined): ShownActivity | undefined {
+export function useFreshActivity(
+  activity: DeviceActivity | undefined,
+  stateLoaded: boolean,
+): ShownActivity | undefined {
+  const initialized = useRef(stateLoaded);
   const seen = useRef<number | undefined>(activity?.sequence);
   const latest = useRef(activity);
   // Runs before the effect below in the same commit, so it reads this render's activity.
@@ -28,6 +32,12 @@ export function useFreshActivity(activity: DeviceActivity | undefined): ShownAct
   const [shown, setShown] = useState<ShownActivity>();
   const sequence = activity?.sequence;
   useEffect(() => {
+    if (!stateLoaded) return;
+    if (!initialized.current) {
+      initialized.current = true;
+      seen.current = sequence;
+      return;
+    }
     const fresh = latest.current;
     if (sequence === undefined || !fresh || sequence === seen.current) return;
     seen.current = sequence;
@@ -41,7 +51,7 @@ export function useFreshActivity(activity: DeviceActivity | undefined): ShownAct
       clearTimeout(fade);
       clearTimeout(clear);
     };
-  }, [sequence]);
+  }, [sequence, stateLoaded]);
   return shown;
 }
 

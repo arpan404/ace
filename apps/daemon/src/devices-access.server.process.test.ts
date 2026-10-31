@@ -115,6 +115,10 @@ it.each(["read", "operate"] as const)(
   "%s device channels explain administrator refusals without timing out or enabling devices",
   async (scope) => {
     const f = await setup([scope]);
+    await f.devices.request(
+      { op: "enable", enabled: false },
+      { kind: "human", owner: "administrator" },
+    );
     for (const operation of [
       { op: "inventory.watch", watching: true },
       { op: "enable", enabled: true },
