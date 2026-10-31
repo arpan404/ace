@@ -30,7 +30,16 @@ function task(app: ReturnType<typeof harness>, id: string, title: string) {
 }
 const rows = async () => within(await screen.findByRole("list", { name: "Threads" }));
 
-test("a plan review says Needs you and explains the request on hover", async () => {
+/** A thread's row in the Inbox, which holds what waits on the person; never in its project. */
+async function inboxRow(title: string) {
+  const named = { name: new RegExp(`^${title}`) };
+  await screen.findByRole("button", { name: /^Inbox, \d+ waiting/ });
+  expect((await rows()).queryByRole("link", named)).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
+  return within(await screen.findByRole("dialog", { name: "Inbox" })).findByRole("link", named);
+}
+
+test("a plan review says Needs you in the Inbox and explains the request to screen readers", async () => {
   const app = harness();
   task(app, "plan", "Review reconnect recovery");
   app.daemon.apply("plan", [
@@ -43,17 +52,22 @@ test("a plan review says Needs you and explains the request on hover", async () 
     },
   ]);
   await app.open("/new");
-  const row = await (await rows()).findByRole("link", { name: /^Review reconnect recovery/ });
+  const row = await inboxRow("Review reconnect recovery");
   expect(within(row).getByText("Needs you", { exact: true })).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your review");
-  await userEvent.hover(row);
-  expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(
-    "Review reconnect recovery",
-  );
+});
+
+test("a question says Answer in the Inbox and keeps the full explanation for screen readers", async () => {
+  const app = harness();
+  const example = askingQuestion();
+  app.play(example).runUntilBlocked();
+  await app.open("/new");
+  const row = await inboxRow(example.thread.title);
+  expect(within(row).getByText("Answer", { exact: true })).toBeTruthy();
+  expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
 });
 
 test.each([
-  [askingQuestion, "Answer", "Waiting for your answer"],
   [waitingOnSubagents, "Waiting", "Waiting for 2 subagents"],
   [watchingRelay, "Background · 1", "Running in background bun run dev:relay"],
   [runningTests, "Working", "Working · running tests"],
@@ -127,7 +141,7 @@ test("agents running beside a human request remain counted until they finish", a
     },
   ]);
   await app.open("/new");
-  const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
+  const row = await inboxRow("Build replay recovery");
   expect(within(row).getByText("Approve")).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running");
   expect(within(row).getByRole("img", { name: "Codex · 1 subagent running" })).toBeTruthy();
