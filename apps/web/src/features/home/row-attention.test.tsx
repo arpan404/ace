@@ -69,71 +69,95 @@ async function setup() {
   app.play(finished("thread-failed", "Migrate the billing table", "failed")).runUntilBlocked();
   await app.open("/new");
   const list = within(await screen.findByRole("navigation", { name: "Threads" }));
-  await list.findByRole("link", { name: /^Migrate the billing table/ });
-  const link = (title: string) => list.getByRole("link", { name: new RegExp(`^${title}`) });
-  /** The row around a link: its attention level and whether it reads muted. */
-  const row = (title: string) => {
-    const element = link(title).closest<HTMLElement>("[data-attention]");
-    if (!element) throw new Error(`No row for ${title}`);
-    return { level: element.dataset.attention, muted: element.hasAttribute("data-muted") };
+  await list.findByRole("link", { name: /^Rewrite the install page/ });
+  const named = (title: string) => ({ name: new RegExp(`^${title}`) });
+  /** A thread's row in its project. */
+  const link = (title: string) => list.getByRole("link", named(title));
+  const inProject = (title: string) => list.queryByRole("link", named(title));
+  /** A thread's row in the Inbox, opening the Inbox first. */
+  const inbox = async (title: string) => {
+    if (!screen.queryByRole("dialog", { name: "Inbox" }))
+      await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Inbox" });
+    return within(dialog).findByRole("link", named(title));
   };
-  const word = (title: string, text: string) =>
-    within(link(title)).queryByText(text, { exact: true });
+  /** A row's attention level and whether it reads muted. */
+  const level = (element: HTMLElement) => {
+    const row = element.closest<HTMLElement>("[data-attention]");
+    if (!row) throw new Error("No row");
+    return { level: row.dataset.attention, muted: row.hasAttribute("data-muted") };
+  };
+  const row = (title: string) => level(link(title));
+  const says = (element: HTMLElement, text: string) =>
+    within(element).queryByText(text, { exact: true });
+  const word = (title: string, text: string) => says(link(title), text);
   const visit = async (path: string) => act(() => history.push(path));
+  /** Open a thread from its Inbox row, which closes the Inbox. */
+  const openFromInbox = async (title: string) => {
+    await userEvent.click(await inbox(title));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Inbox" })).toBeNull());
+  };
   // A row's status gives way to its actions under the pointer: open it, then move the pointer on.
   const open = async (title: string) => {
     await userEvent.click(link(title));
     await userEvent.unhover(link(title));
   };
-  return { app, list, link, row, word, visit, open };
+  return { app, link, inProject, inbox, level, row, says, word, visit, open, openFromInbox };
 }
 
-test("a done thread says Done until it is opened, then goes quiet with only its age", async () => {
-  const { link, row, word, visit, open } = await setup();
-  await waitFor(() => expect(word("Ship the release notes", "Done")).toBeTruthy());
-  expect(row("Ship the release notes")).toEqual({ level: "done-unread", muted: false });
-  await open("Ship the release notes");
-  await waitFor(() =>
-    expect(link("Ship the release notes").getAttribute("aria-current")).toBe("page"),
-  );
+test("a done thread says Done in the Inbox until it is opened, then rests quiet in its project with only its age", async () => {
+  const { link, inProject, inbox, level, row, says, word, visit, openFromInbox } = await setup();
+  const title = "Ship the release notes";
+  expect(inProject(title)).toBeNull();
+  await waitFor(async () => expect(says(await inbox(title), "Done")).toBeTruthy());
+  expect(level(await inbox(title))).toEqual({ level: "done-unread", muted: false });
+  await openFromInbox(title);
+  await waitFor(() => expect(link(title).getAttribute("aria-current")).toBe("page"));
   await visit("/new");
-  await waitFor(() =>
-    expect(row("Ship the release notes")).toEqual({ level: "quiet", muted: true }),
-  );
-  expect(word("Ship the release notes", "Done")).toBeNull();
+  await waitFor(() => expect(row(title)).toEqual({ level: "quiet", muted: true }));
+  expect(word(title, "Done")).toBeNull();
   // The title still shows; a quiet relative time takes the status word's place.
-  expect(within(link("Ship the release notes")).getByText("Ship the release notes")).toBeTruthy();
-  expect(within(link("Ship the release notes")).getByText(/^(now|\d+[smhd])$/)).toBeTruthy();
+  expect(within(link(title)).getByText(title)).toBeTruthy();
+  expect(within(link(title)).getByText(/^(now|\d+[smhd])$/)).toBeTruthy();
 });
 
-test("new activity after reading makes a thread unread again", async () => {
-  const { app, link, row, word, visit, open } = await setup();
-  await open("Ship the release notes");
+test("new activity after reading sends a thread back to the Inbox as unread", async () => {
+  const { app, inProject, inbox, level, row, says, visit, openFromInbox } = await setup();
+  const title = "Ship the release notes";
+  await openFromInbox(title);
   await visit("/new");
-  await waitFor(() => expect(row("Ship the release notes").level).toBe("quiet"));
+  await waitFor(() => expect(row(title).level).toBe("quiet"));
   act(() => app.daemon.apply("thread-done", turnFacts("turn-2", "completed")));
-  await waitFor(() => expect(row("Ship the release notes").level).toBe("done-unread"));
-  expect(word("Ship the release notes", "Done")).toBeTruthy();
-  expect(link("Ship the release notes").getAttribute("aria-label")).toContain(", unread");
+  await waitFor(() => expect(inProject(title)).toBeNull());
+  const back = await inbox(title);
+  expect(level(back).level).toBe("done-unread");
+  expect(says(back, "Done")).toBeTruthy();
+  expect(back.getAttribute("aria-label")).toContain(", unread");
 });
 
-test("a thread that needs you stays strong after it is opened", async () => {
-  const { link, row, word, visit, open } = await setup();
+test("a thread that needs you stays strong in the Inbox after it is opened", async () => {
+  const { inProject, inbox, level, says, visit, openFromInbox } = await setup();
   const title = "Approval sheet loses its state on rotate";
-  expect(row(title)).toEqual({ level: "needs-you", muted: false });
-  await open(title);
+  expect(level(await inbox(title))).toEqual({ level: "needs-you", muted: false });
+  await openFromInbox(title);
   await visit("/new");
-  await waitFor(() => expect(link(title).getAttribute("aria-label")).not.toContain(", unread"));
-  expect(row(title)).toEqual({ level: "needs-you", muted: false });
-  expect(word(title, "Answer")).toBeTruthy();
+  await waitFor(async () =>
+    expect((await inbox(title)).getAttribute("aria-label")).not.toContain(", unread"),
+  );
+  const seen = await inbox(title);
+  expect(level(seen)).toEqual({ level: "needs-you", muted: false });
+  expect(says(seen, "Answer")).toBeTruthy();
+  expect(inProject(title)).toBeNull();
 });
 
-test("a failure is strong until seen, then a quiet Failed", async () => {
-  const { row, word, visit, open } = await setup();
+test("a failure is strong in the Inbox until seen, then a quiet Failed in its project", async () => {
+  const { inbox, level, row, says, word, visit, openFromInbox } = await setup();
   const title = "Migrate the billing table";
-  await waitFor(() => expect(row(title)).toEqual({ level: "failed", muted: false }));
-  expect(word(title, "Failed")).toBeTruthy();
-  await open(title);
+  await waitFor(async () =>
+    expect(level(await inbox(title))).toEqual({ level: "failed", muted: false }),
+  );
+  expect(says(await inbox(title), "Failed")).toBeTruthy();
+  await openFromInbox(title);
   await visit("/new");
   await waitFor(() => expect(row(title)).toEqual({ level: "failed-seen", muted: true }));
   expect(word(title, "Failed")).toBeTruthy();
@@ -152,8 +176,8 @@ test("a working row that isn't open is calm with a live indicator; the open one 
   ).toBeTruthy();
 });
 
-test("Mark as unread brings Done back, and Mark as read quiets it, from the row's menu", async () => {
-  const { app, link, row, word } = await setup();
+test("Mark as unread on a quiet row's menu sends it back to the Inbox as Done", async () => {
+  const { app, inProject, inbox, level, row, says } = await setup();
   const title = "Ship the release notes";
   await act(() =>
     app.client.command({
@@ -165,22 +189,25 @@ test("Mark as unread brings Done back, and Mark as read quiets it, from the row'
   await waitFor(() => expect(row(title).level).toBe("quiet"));
   await userEvent.click(screen.getByRole("button", { name: `Actions for ${title}` }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Mark (as )?unread/ }));
-  await waitFor(() => expect(row(title).level).toBe("done-unread"));
-  await userEvent.unhover(link(title));
-  expect(word(title, "Done")).toBeTruthy();
+  await waitFor(() => expect(inProject(title)).toBeNull());
+  const unread = await inbox(title);
+  expect(level(unread).level).toBe("done-unread");
+  expect(says(unread, "Done")).toBeTruthy();
 });
 
-test("the sidebar row names an unsent thread loudly and leaves a stopped one quiet", async () => {
+test("an unsent thread waits loudly in the Inbox and a stopped one rests quiet in its project", async () => {
   const app = harness();
   seedRealThreadState(app.daemon);
   await app.open("/new");
   const list = within(await screen.findByRole("navigation", { name: "Threads" }));
-  const toneOf = async (title: string, label: string) => {
-    const link = await list.findByRole("link", { name: new RegExp(`^${title}`) });
-    return within(link).getByText(label).closest<HTMLElement>("[data-tone]")?.dataset.tone;
-  };
-  expect(await toneOf("Check the saved message", "Not sent")).toBe("needs-you");
   const stopped = await list.findByRole("link", { name: /^Finish the background build/ });
+  expect(list.queryByRole("link", { name: /^Check the saved message/ })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
+  const inbox = within(await screen.findByRole("dialog", { name: "Inbox" }));
+  const unsent = await inbox.findByRole("link", { name: /^Check the saved message/ });
+  expect(within(unsent).getByText("Not sent").closest<HTMLElement>("[data-tone]")?.dataset.tone).toBe(
+    "needs-you",
+  );
   expect(within(stopped).queryByText(/Stopped|Agent stopped/)).toBeNull();
   expect(
     stopped.querySelector("[data-tone='waiting'] svg, [data-tone='waiting'] [data-state]"),
