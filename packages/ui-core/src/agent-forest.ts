@@ -36,7 +36,7 @@ export interface AgentForestNode extends NodeBase {
   /** The delegated thread whose agents hang under it, once loaded. */
   childThread?: string | undefined;
   /** That thread's main agent, whose own requests and state this row speaks for. */
-  childRoot?: string | undefined;
+  childRoot?: Agent | undefined;
 }
 
 export interface CommandForestNode extends NodeBase {
@@ -111,7 +111,7 @@ export function agentForest(
     if (!facts) return [];
     const work = agentTreeWork(facts.agents, facts.tasks, facts.interactions, facts.status);
     const runs = agentRuns(facts.agents);
-    const byId = new Map(facts.agents.map((agent) => [agent.id, agent]));
+    const byId = new Map<string, Agent>(facts.agents.map((agent) => [agent.id, agent]));
     // An earlier run's row goes when its latest run is here; its subagents follow the latest.
     const shown = (id: string) => {
       const latest = runs.latest.get(id);
@@ -166,7 +166,7 @@ export function agentForest(
         threadId,
         agent,
         childThread,
-        childRoot: childRoot?.agent.id,
+        childRoot: childRoot?.agent,
         live:
           work.running.has(agent.id) ||
           childRoot?.live === true ||

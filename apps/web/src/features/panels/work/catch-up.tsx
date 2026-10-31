@@ -1,12 +1,10 @@
 import type { ClientApi } from "@ace/client";
 import type { ThreadCatchUpResponse } from "@ace/protocol";
 import { catchUpFacts } from "@ace/ui-core";
-import { XIcon } from "@phosphor-icons/react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useVisitReadState } from "@/lib/thread-read.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { separated } from "./this-turn.tsx";
+import { QuietLink, Section } from "./summary-section.tsx";
 
 /**
  * What the thread did since this device last read it, when it moved on while the person was
@@ -32,31 +30,32 @@ function useCatchUp(threadId: string): {
   return { catchUp: query.data, since };
 }
 
-export function CatchUp(props: { catchUp: ThreadCatchUpResponse; onDismiss(): void }) {
+/**
+ * What happened since the person last looked, two to four plain lines: the counts, each on its
+ * own line, then the agent's latest words. Clear dismisses it.
+ */
+export function SinceYouLooked(props: { catchUp: ThreadCatchUpResponse; onDismiss(): void }) {
   const facts = catchUpFacts(props.catchUp);
   const said = props.catchUp.latestAgentMessagePreview.replace(/\s+/g, " ").trim();
+  const lines = [
+    ...facts.slice(0, said ? 3 : 4).map((fact) => ({ text: fact.text, tone: fact.tone })),
+    ...(said ? [{ text: said, tone: undefined }] : []),
+  ];
   return (
-    <div className="flex min-w-0 items-start gap-2 pl-2">
-      <div className="min-w-0 flex-1">
-        <p className={`flex min-w-0 flex-wrap gap-x-1 text-ui text-foreground ${separated}`}>
-          {facts.map((fact) => (
-            <span
-              key={fact.text}
-              data-tone={fact.tone}
-              className={fact.tone ? "text-(--tone-text)" : undefined}
-            >
-              {fact.text}
-            </span>
-          ))}
-        </p>
-        {said && (
-          <p className="truncate text-xs text-muted-foreground" title={said}>
-            {said}
-          </p>
-        )}
-      </div>
-      <IconButton icon={XIcon} label="Dismiss" size="sm" onClick={props.onDismiss} />
-    </div>
+    <Section name="Since you looked" aside={<QuietLink onClick={props.onDismiss}>Clear</QuietLink>}>
+      <ul className="list-disc space-y-0.5 pl-4 text-ui text-muted-foreground marker:text-subtle-foreground">
+        {lines.map((line) => (
+          <li
+            key={line.text}
+            data-tone={line.tone}
+            className={line.tone ? "truncate text-(--tone-text)" : "truncate"}
+            title={line.text}
+          >
+            {line.text}
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 
