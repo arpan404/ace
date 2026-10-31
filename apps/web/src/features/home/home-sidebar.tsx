@@ -221,7 +221,12 @@ export function HomeSidebar() {
                     : "Nothing active. Settled threads are under Settled."}
               </p>
             )}
-            <ThreadList list={list} view={view} hits={search.hits} />
+            <ThreadList
+              list={list}
+              view={view}
+              hits={search.hits}
+              resetKey={`${tab}\u0000${query.trim()}`}
+            />
           </>
         )}
       </nav>

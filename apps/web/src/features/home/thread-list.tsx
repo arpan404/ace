@@ -152,6 +152,8 @@ export function ThreadList(props: {
   view?: PanelView | undefined;
   /** Search hits for settled threads the list hasn't loaded, by thread id. */
   hits?: ReadonlyMap<string, SearchHit> | undefined;
+  /** A new value (another tab, another search) starts the list again from its top. */
+  resetKey?: string | undefined;
 }) {
   const { pinned, groups, snoozed } = props.list;
   const view = props.view ?? activeView;
@@ -200,6 +202,10 @@ export function ThreadList(props: {
     getItemKey: (index) => drawn[index]?.key ?? index,
   });
   useForgetGoneRows(virtualizer, drawn.length, (index) => drawn[index]?.key ?? index);
+  const resetKey = props.resetKey;
+  useEffect(() => {
+    viewport.current?.scrollTo({ top: 0 });
+  }, [resetKey]);
   // Near the Settled tab's end, older settled threads load: no button to press.
   const lastShown = virtualizer.getVirtualItems().at(-1)?.index ?? -1;
   const onNearEnd = view.tab === "settled" && view.foot === undefined ? view.onNearEnd : undefined;
