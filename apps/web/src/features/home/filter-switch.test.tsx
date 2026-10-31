@@ -66,8 +66,12 @@ test("switching the project filter paints that project's rows at once, syncing u
 
   gate.held = true;
   await chooseProject("All projects", "relay");
-  for (const title of relay)
-    expect(within(await waitFor(() => rowFor(title))).getByText("Syncing")).toBeTruthy();
+  // Unconfirmed, a row says Syncing in its name and carries no mark: it claims no status yet.
+  for (const title of relay) {
+    const row = await waitFor(() => rowFor(title));
+    expect(row.getAttribute("aria-label")).toContain("Syncing");
+    expect(row.querySelector("[data-indicator]")).toBeNull();
+  }
   // Only relay's rows paint, though the daemon hasn't answered yet.
   for (const link of within(threads()).getAllByRole("link"))
     expect(link.getAttribute("aria-label")).toContain("Project relay");
@@ -77,7 +81,9 @@ test("switching the project filter paints that project's rows at once, syncing u
   act(() => {
     for (const deliver of gate.queue.splice(0)) deliver();
   });
-  await waitFor(() => expect(within(rowFor(relay[0] ?? "")).queryByText("Syncing")).toBeNull());
+  await waitFor(() =>
+    expect(rowFor(relay[0] ?? "").getAttribute("aria-label")).not.toContain("Syncing"),
+  );
   expect(skeleton.shown()).toBe(false);
 });
 

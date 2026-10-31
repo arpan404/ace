@@ -6,6 +6,10 @@ import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { createIdleTask } from "@/test/tasks.ts";
 
+/** The one mark at a row's right edge (`RowIndicator`), by kind. */
+const mark = (row: HTMLElement) =>
+  row.querySelector<HTMLElement>("[data-indicator]")?.dataset.indicator;
+
 function seed(app: ReturnType<typeof harness>) {
   for (const [id, title, project] of [
     ["first", "First task", "ace"],
@@ -32,9 +36,9 @@ test("projects group their threads, and keyboard navigation crosses project boun
   ]);
   const [first, second, other] = links;
   if (!first || !second || !other) throw new Error("Missing rows");
-  // Inside its project a row doesn't repeat the project.
-  expect(within(first).queryByText("ace")).toBeNull();
-  expect(within(first).getByText("Working", { exact: true })).toBeTruthy();
+  // Inside its project a row doesn't repeat the project; it is its title and its live mark.
+  expect(first.textContent).toBe("Last task");
+  expect(mark(first)).toBe("live");
   const relay = nav.getByRole("button", { name: /^relay/ });
   first.focus();
   await userEvent.keyboard("{ArrowDown}");
@@ -45,8 +49,9 @@ test("projects group their threads, and keyboard navigation crosses project boun
   expect(document.activeElement).toBe(other);
   await userEvent.keyboard("kk{ArrowUp}");
   expect(document.activeElement).toBe(first);
-  // Keyboard focus puts the row's actions where its status was.
-  expect(within(first).queryByText("Working", { exact: true })).toBeNull();
+  // Keyboard focus puts the row's actions where its mark was.
+  expect(mark(first)).toBeUndefined();
+  expect(screen.getByRole("button", { name: "Snooze Last task" })).toBeTruthy();
 });
 
 test("the project filter narrows the tree to one project", async () => {
@@ -57,23 +62,26 @@ test("the project filter narrows the tree to one project", async () => {
   await app.open("/new?project=ace");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
   const task = await nav.findByRole("link", { name: /^Last task/ });
-  expect(within(task).getByText("Working", { exact: true })).toBeTruthy();
+  expect(mark(task)).toBe("live");
   expect(nav.getByRole("button", { name: /^ace/ })).toBeTruthy();
   expect(nav.queryByRole("button", { name: /^relay/ })).toBeNull();
   expect(nav.queryByRole("link", { name: /^Other project/ })).toBeNull();
 });
 
-test("failed and working tasks both keep visible status words", async () => {
+test("failed and working tasks say so in their names, and only live work keeps a mark once a failure is seen", async () => {
   const app = harness();
   seed(app);
   app.daemon.apply("first", [facts.endTurn("root", "failed")]);
   await app.open("/new");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
   const failed = await nav.findByRole("link", { name: /^First task/ });
-  expect(within(failed).getByText("Failed")).toBeTruthy();
+  expect(failed.getAttribute("aria-label")).toContain("Failed");
+  expect(within(failed).queryByText("Failed")).toBeNull();
+  expect(mark(failed)).toBeUndefined();
   const working = nav.getByRole("link", { name: /^Last task/ });
-  expect(within(working).getByText("Working", { exact: true })).toBeTruthy();
+  expect(within(working).queryByText("Working")).toBeNull();
   expect(working.getAttribute("aria-label")).toContain("Working");
+  expect(mark(working)).toBe("live");
 });
 
 test("the project filter also narrows unsent starts without hiding matching work", async () => {
@@ -97,7 +105,7 @@ test("the project filter also narrows unsent starts without hiding matching work
   expect(nav.queryByRole("link", { name: /^relay pending task/ })).toBeNull();
 });
 
-test("a pinned thread leads its project, and arrows move on from it", async () => {
+test("a pinned thread leads the panel under Pinned, and arrows move on from it", async () => {
   const app = harness();
   seed(app);
   await app.open("/new");
@@ -110,7 +118,14 @@ test("a pinned thread leads its project, and arrows move on from it", async () =
       nav.getAllByRole("link").map((link) => link.getAttribute("aria-label")?.split(".")[0]),
     ).toEqual(["First task", "Last task", "Other project"]),
   );
-  const next = nav.getByRole("link", { name: /^Last task/ });
+  expect(nav.getByRole("heading", { name: "Pinned" })).toBeTruthy();
+  expect(pinned.textContent).toBe("First task");
+  // The next stop down: the Projects label's Add project, then the projects and their rows.
+  const navigation = screen.getByRole("navigation", { name: "Threads" });
+  const stops = [
+    ...navigation.querySelectorAll<HTMLElement>("[data-row-focus], [data-section-toggle]"),
+  ];
+  const next = stops[stops.indexOf(pinned) + 1];
   pinned.focus();
   await userEvent.keyboard("{ArrowDown}");
   await waitFor(() => expect(document.activeElement).toBe(next));
@@ -197,7 +212,7 @@ test("Snoozed folds quiet tasks away, and a snoozed task that asks for you waits
   expect(await nav.findByRole("link", { name: /^First task/ })).toBeTruthy();
 });
 
-test("Snoozed lists what wakes soonest first, and each row says when it wakes", async () => {
+test("Snoozed lists what wakes soonest first, and each row's name says when it wakes", async () => {
   const now = 100_000;
   const app = harness({ clock: () => now, uiClock: () => now });
   for (const [id, title] of [
@@ -224,8 +239,8 @@ test("Snoozed lists what wakes soonest first, and each row says when it wakes", 
     "Wakes sooner",
     "Wakes later",
   ]);
-  for (const row of rows) expect(row.textContent).toMatch(/\d{1,2}:\d{2}/);
-  expect(rows[0]?.getAttribute("aria-label")).toContain("Snoozed until");
+  for (const row of rows)
+    expect(row.getAttribute("aria-label")).toMatch(/Snoozed until .*\d{1,2}:\d{2}/);
 });
 
 test("an Unsent-only list supports forward and backward navigation", async () => {
@@ -305,10 +320,9 @@ test.each([
       });
       expect(nav.queryByRole("link", { name })).toBeNull();
     } else row = await nav.findByRole("link", { name });
-    const word = within(row).getByText(label, { exact: true });
-    // A wait reads as quiet words: no status glyph beside it.
-    if (reason === "uncertain")
-      expect(word.closest("[data-tone]")?.querySelector("[data-state]")).toBeNull();
+    // In the Inbox the row says it in words; in its project a wait is the live mark alone.
+    if (place === "the Inbox") expect(within(row).getByText(label, { exact: true })).toBeTruthy();
+    else expect(row.querySelector("[data-indicator]")?.getAttribute("data-indicator")).toBe("live");
     const remaining = await nav.findByRole("button", { name: "Snoozed 1" });
     expect(remaining.getAttribute("aria-expanded")).toBe("false");
     expect(nav.queryByRole("link", { name: /^Review this later/ })).toBeNull();

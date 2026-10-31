@@ -49,8 +49,8 @@ test("the thread list is one Tab stop, and ↑ ↓ move between its rows", async
   const stops = () => [
     ...list.querySelectorAll<HTMLElement>("[data-row-focus], [data-section-toggle]"),
   ];
-  screen.getByRole("searchbox", { name: "Search all threads" }).focus();
-  // The search field is the last control above the list, so one Tab lands on the list's first stop.
+  screen.getByRole("link", { name: "New thread" }).focus();
+  // New thread is the last control above the list, so one Tab lands on the list's first stop.
   await userEvent.tab();
   const entered = document.activeElement;
   expect(stops()).toContain(entered);

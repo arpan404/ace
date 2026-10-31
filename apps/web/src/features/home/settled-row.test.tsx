@@ -36,18 +36,15 @@ function settledAt(app: ReturnType<typeof harness>) {
   return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
 }
 
-test("in its project a recently settled thread is a dimmed two-line row: title, PR and age, then branch and Settled", async () => {
+test("in its project a recently settled thread is one dimmed line, its title alone, with no mark", async () => {
   const { link } = await openSettled();
-  const [first, second] = [...link.children];
-  if (!first || !second) throw new Error("Expected two lines");
-  // Line 1: the title, then the merged PR and age.
-  expect(first.textContent).toMatch(new RegExp(`^${title}#212·(\\d+[smhdw]|[A-Z][a-z]{2})$`));
-  // Line 2: its branch and the word Settled; no provider mark on either line.
-  expect(second.textContent).toBe("chore/codex-048·Settled");
+  expect(link.textContent).toBe(title);
+  expect(link.querySelector("[data-indicator]")).toBeNull();
   expect(within(link).queryByRole("img", { name: /Codex/ })).toBeNull();
-  // Assistive tech hears Settled first, then the context the lines leave out.
+  // Assistive tech hears Settled first, then the context the line leaves out.
   expect(link.getAttribute("aria-label")).toMatch(settledName);
-  expect(link.getAttribute("aria-label")).toContain("Codex");
+  for (const said of ["Codex", "chore/codex-048", "Pull request #212"])
+    expect(link.getAttribute("aria-label")).toContain(said);
 });
 
 test("→ moves from a settled row to Unsettle, which brings the thread back to the list", async () => {

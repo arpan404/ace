@@ -150,7 +150,7 @@ test("Find reads the page the agent works in, leaving the agent at work", async 
 });
 
 test("a page's unanswered question stays visible when its panel is closed", async () => {
-  const { panel, browser } = await openBrowser();
+  const { browser } = await openBrowser();
   await userEvent.click(
     within(screen.getByRole("banner")).getByRole("button", { name: "Right panel" }),
   );

@@ -89,47 +89,44 @@ test("Settle and Unsettle on a recently settled row's hover actions move it out 
 });
 
 /**
- * The row's first line as read, and the controls its box offers beside the row's link (the
- * link's own pull request chip is part of the row, not one of its actions).
+ * The one mark at the row's right edge (`RowIndicator`), by kind, and the controls its box
+ * offers beside the row's link.
  */
-const firstLine = (title: RegExp) => card(title).firstElementChild?.firstElementChild?.textContent;
+const mark = (title: RegExp) =>
+  card(title).querySelector<HTMLElement>("[data-indicator]")?.dataset.indicator;
 const controls = (title: RegExp) =>
   within(card(title).parentElement ?? document.body)
     .getAllByRole("button")
     .filter((button) => !card(title).contains(button))
     .map((button) => button.getAttribute("aria-label"));
 
-test("hovering an active row shows only snooze, settle and more actions, not the status", async () => {
+test("hovering an active row shows only snooze, settle and more actions beside its title", async () => {
   await recentlySettled();
   const title = "Bump Codex app-server to 0.48";
   await unsettleBump(title);
   const row = new RegExp(`^${title}`);
   await waitFor(() => expect(card(row)).toBeTruthy());
-  const resting = firstLine(row);
 
   await userEvent.hover(card(row));
-  expect(firstLine(row)).not.toBe(resting);
-  expect(resting?.startsWith(firstLine(row) ?? "?")).toBe(true);
+  expect(card(row).textContent).toBe(title);
+  expect(mark(row)).toBeUndefined();
   expect(controls(row)).toEqual([`Snooze ${title}`, `Settle ${title}`, `Actions for ${title}`]);
-
-  await userEvent.unhover(card(row));
-  expect(firstLine(row)).toBe(resting);
 });
 
-test("a waiting row's status steps aside for its actions under the pointer or focus", async () => {
+test("a waiting row's mark steps aside for its actions under the pointer or focus", async () => {
   await openHome();
   const row = /^Dedupe thread events after reconnect/;
-  expect(firstLine(row)).toContain("Waiting");
+  expect(mark(row)).toBe("live");
 
   await userEvent.hover(card(row));
-  expect(firstLine(row)).not.toContain("Waiting");
+  expect(mark(row)).toBeUndefined();
   await userEvent.unhover(card(row));
-  expect(firstLine(row)).toContain("Waiting");
+  expect(mark(row)).toBe("live");
 
   card(row).focus();
-  await waitFor(() => expect(firstLine(row)).not.toContain("Waiting"));
+  await waitFor(() => expect(mark(row)).toBeUndefined());
   card(row).blur();
-  await waitFor(() => expect(firstLine(row)).toContain("Waiting"));
+  await waitFor(() => expect(mark(row)).toBe("live"));
 });
 
 /** Open on the Dedupe thread, so clicking its row keeps focus on the row. */
@@ -139,17 +136,17 @@ const openOnDedupe = () => {
   return openHome({}, `/t/${id}`);
 };
 
-test("a clicked row shows its status again once the pointer moves off it", async () => {
+test("a clicked row shows its mark again once the pointer moves off it", async () => {
   await openOnDedupe();
   const row = /^Dedupe thread events after reconnect/;
   await userEvent.click(card(row));
   expect(document.activeElement).toBe(card(row));
-  expect(firstLine(row)).not.toContain("Waiting");
+  expect(mark(row)).toBeUndefined();
   await userEvent.unhover(card(row));
-  expect(firstLine(row)).toContain("Waiting");
+  expect(mark(row)).toBe("live");
 });
 
-test("a clicked row keeps its status when the window gives focus back to it", async () => {
+test("a clicked row keeps its mark when the window gives focus back to it", async () => {
   await openOnDedupe();
   const row = /^Dedupe thread events after reconnect/;
   await userEvent.click(card(row));
@@ -160,10 +157,10 @@ test("a clicked row keeps its status when the window gives focus back to it", as
   away.mockRestore();
   await act(async () => card(row).focus());
   expect(document.activeElement).toBe(card(row));
-  expect(firstLine(row)).toContain("Waiting");
+  expect(mark(row)).toBe("live");
 });
 
-test("a row shows its status again once its ⋯ menu closes under the pointer", async () => {
+test("a row shows its mark again once its ⋯ menu closes under the pointer", async () => {
   await openHome();
   const row = /^Dedupe thread events after reconnect/;
   await userEvent.hover(card(row));
@@ -172,7 +169,7 @@ test("a row shows its status again once its ⋯ menu closes under the pointer", 
   await userEvent.hover(await screen.findByRole("menuitem", { name: /^Rename/ }));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menuitem", { name: /^Rename/ })).toBeNull());
-  expect(firstLine(row)).toContain("Waiting");
+  expect(mark(row)).toBe("live");
 });
 
 test("work still running offers Snooze on hover but no Settle", async () => {

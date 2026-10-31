@@ -96,8 +96,8 @@ test("editing a paired machine saves on that host and replaces stale thread labe
   const row = await within(sidebar).findByRole("link", {
     name: /Replay cursor resets.*Running on Build server/,
   });
-  // Two devices are connected: the row shows the machine's icon, never its name (3ab05f4f4).
-  expect(within(row).getByRole("img", { name: "server machine icon" })).toBeTruthy();
+  // Two devices are connected: still the row is its title alone; its name and hover card say where.
+  expect(within(row).queryByRole("img", { name: /machine icon$/ })).toBeNull();
   await userEvent.hover(row);
   expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Build server");
   expect(sidebar.textContent).not.toContain("Old server");
@@ -204,7 +204,7 @@ test("a paired machine's updated host identity replaces the cached label after r
   const row = await within(sidebar).findByRole("link", {
     name: /Replay cursor resets.*Running on Build server/,
   });
-  expect(within(row).getByRole("img", { name: "cloud machine icon" })).toBeTruthy();
+  expect(within(row).queryByRole("img", { name: /machine icon$/ })).toBeNull();
   await userEvent.hover(row);
   const details = await screen.findByLabelText(/^Details for /);
   expect(details.textContent).toContain("Build server");

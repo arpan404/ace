@@ -40,7 +40,7 @@ test("a thread settled 2 days ago stays dimmed in its project with 3 days, not w
   await openPanel(settledDaysAgo(2));
   const row = await within(threads()).findByRole("link", { name: bump });
   expect(row.getAttribute("aria-label")).toMatch(/^Bump Codex app-server to 0\.48\. Settled/);
-  expect(within(row).getByText("Settled")).toBeTruthy();
+  expect(row.textContent).toBe("Bump Codex app-server to 0.48");
 });
 
 test("with 1 day, a thread settled 2 days ago is only in History", async () => {

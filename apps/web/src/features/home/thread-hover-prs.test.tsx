@@ -44,8 +44,11 @@ const prs: LinkedPullRequest[] = [
   },
 ];
 
-/** Home with one thread that links `prs`, its row found in the sidebar. */
-async function homeWithLinkedPrs() {
+/**
+ * Home with one thread that links `prs`, its row found in the sidebar; `asking`, the thread
+ * waits on the person and its row is the Inbox's, which still draws the pull request.
+ */
+async function homeWithLinkedPrs(asking = false) {
   const history = createMemoryHistory({ initialEntries: ["/new"] });
   const app = harness({ history });
   app.daemon.createThread({
@@ -59,12 +62,28 @@ async function homeWithLinkedPrs() {
     facts.rootAgent("claude"),
     facts.turn("root"),
     facts.message("root", "ask", "user", "Ship it"),
+    ...(asking
+      ? [
+          {
+            type: "interaction.opened" as const,
+            agent: "root",
+            interaction: "ask",
+            blocking: true,
+            request: {
+              kind: "approval" as const,
+              title: "Merge?",
+              options: [{ id: "allow", label: "Approve", kind: "allow_once" as const }],
+            },
+          },
+        ]
+      : []),
   ]);
   await app.open("/new");
-  const row = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
-    "link",
-    { name: /^Linked pull requests/ },
-  );
+  if (asking) await userEvent.click(await screen.findByRole("button", { name: /^Inbox, 1/ }));
+  const place = asking
+    ? await screen.findByRole("dialog", { name: "Inbox" })
+    : await screen.findByRole("navigation", { name: "Threads" });
+  const row = await within(place).findByRole("link", { name: /^Linked pull requests/ });
   return { history, row };
 }
 
@@ -86,8 +105,8 @@ test("a pull request in a thread's hover card opens ace's page for that one, not
   expect(open).not.toHaveBeenCalled();
 });
 
-test("a middle click on a row's pull request opens it on GitHub and stays on the page", async () => {
-  const { history, row } = await homeWithLinkedPrs();
+test("a middle click on an Inbox row's pull request opens it on GitHub and stays on the page", async () => {
+  const { history, row } = await homeWithLinkedPrs(true);
   const badge = within(row).getByRole("button", { name: /pull request #42/ });
   const open = vi.spyOn(window, "open").mockReturnValue(null);
   fireEvent(badge, new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }));
@@ -96,8 +115,8 @@ test("a middle click on a row's pull request opens it on GitHub and stays on the
   expect(history.location.pathname).toBe("/new");
 });
 
-test("clicking a row's pull request opens ace's page for it", async () => {
-  const { history, row } = await homeWithLinkedPrs();
+test("clicking an Inbox row's pull request opens ace's page for it", async () => {
+  const { history, row } = await homeWithLinkedPrs(true);
   await userEvent.click(within(row).getByRole("button", { name: /pull request #42/ }));
   await waitFor(() => expect(history.location.pathname).toBe("/pulls/ace/42"));
   expect(new URLSearchParams(history.location.search).get("repo")).toBe("github.com/ace/web");

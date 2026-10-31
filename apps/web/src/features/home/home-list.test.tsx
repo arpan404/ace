@@ -312,9 +312,10 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   await userEvent.keyboard("{Escape}");
   expect(within(threads()).queryAllByRole("heading")).toHaveLength(0);
 
-  // Rows waiting on their subagents expose their worktree and subagents too.
+  // A row in the list is its title alone; its name keeps the worktree and subagents.
   const dedupe = card(/^Dedupe thread events after reconnect/);
-  expect(within(dedupe).getByTitle("fix/replay-dedupe").textContent).toBe("fix/replay-dedupe");
+  expect(dedupe.textContent).toBe("Dedupe thread events after reconnect");
+  expect(dedupe.getAttribute("aria-label")).toContain("fix/replay-dedupe");
   expect(dedupe.getAttribute("aria-label")).toContain("Claude Code · 2 subagents running");
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toMatch(
     /\. Waiting for 2 subagents, /,
@@ -525,7 +526,6 @@ test("a row's name and tooltip give its whole branch, including main", async () 
 
   const onMain = card(/^Tidy the README/);
   expect(onMain.getAttribute("aria-label")).toContain("Branch main");
-  expect(within(onMain).getByTitle("main").textContent).toBe("main");
   await userEvent.unhover(hashed);
   onMain.focus();
   const details = await screen.findByLabelText(/^Details for Tidy the README/);

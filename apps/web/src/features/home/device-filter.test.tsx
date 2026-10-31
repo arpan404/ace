@@ -84,12 +84,14 @@ test("the filter button shows a shortened selected device name and reveals its f
   const control = await screen.findByRole("button", {
     name: `Project filter: All projects, Device: ${name}`,
   });
-  // The filter button names only what narrows the list: here the device, shortened.
-  expect(control.textContent).toBe("Build server wi…");
+  // The panel's title stays ace; the device that narrows the list follows it, shortened.
+  expect(control.textContent).toBe("aceBuild server wi…");
   await userEvent.hover(control);
   expect((await screen.findByRole("tooltip")).textContent).toBe(`All projects on ${name}`);
   await userEvent.unhover(control);
   await chooseDevice("All devices");
-  // With no filter on, the button is a quiet icon.
-  expect(screen.getByRole("button", { name: "Project filter: All projects" }).textContent).toBe("");
+  // With no filter on, the button is the panel's title alone.
+  expect(screen.getByRole("button", { name: "Project filter: All projects" }).textContent).toBe(
+    "ace",
+  );
 });

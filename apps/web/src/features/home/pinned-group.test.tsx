@@ -21,12 +21,13 @@ const order = () =>
   within(threads())
     .queryAllByRole("link")
     .map((link) => titles.find((title) => link.textContent?.includes(title)));
-/** ace's pinned threads, top to bottom: they lead its list. */
-const pinnedGroup = () =>
+/** Every pinned thread, top to bottom, under Pinned at the head of the panel. */
+const pinnedAll = () =>
   within(threads())
     .queryAllByRole("link", { name: /\bPinned\b/ })
-    .map((link) => titles.find((title) => link.textContent?.includes(title)))
-    .filter((title) => title !== "Other project task");
+    .map((link) => titles.find((title) => link.textContent?.includes(title)));
+/** ace's pinned threads among them. */
+const pinnedGroup = () => pinnedAll().filter((title) => title !== "Other project task");
 /** What the live region last said. */
 const said = () => threads().querySelector("[aria-live]")?.textContent ?? "";
 
@@ -54,7 +55,7 @@ async function pinFromRow(title: RegExp, name: string) {
   );
 }
 
-test("pinned threads lead their project, each new pin first among them", async () => {
+test("pinned threads lead the panel under Pinned, out of their projects, each new pin first", async () => {
   await openHome();
   // Projects come by most recent activity: relay's thread is the newest.
   await waitFor(() =>
@@ -63,8 +64,9 @@ test("pinned threads lead their project, each new pin first among them", async (
   await pinFromRow(/^Alpha/, "Pin Alpha task");
   await pinFromRow(/^Beta/, "Pin Beta task");
   await waitFor(() =>
-    expect(order()).toEqual(["Other project task", "Beta task", "Alpha task", "Gamma task"]),
+    expect(order()).toEqual(["Beta task", "Alpha task", "Other project task", "Gamma task"]),
   );
+  expect(within(threads()).getByRole("heading", { name: "Pinned" })).toBeTruthy();
   expect(pinnedGroup()).toEqual(["Beta task", "Alpha task"]);
 });
 
@@ -83,25 +85,29 @@ test("P on a focused row pins it and P again unpins it, for every device", async
   expect(listed(app, "alpha")?.pinned).toBe(true);
 });
 
-test("Space picks a pinned row up, arrows choose its place among its project's pins, Space drops it", async () => {
+test("Space picks a pinned row up, arrows choose its place among every pin, Space drops it", async () => {
   const app = await openHome();
   await pinFromRow(/^Alpha/, "Pin Alpha task");
   await pinFromRow(/^Beta/, "Pin Beta task");
   await pinFromRow(/^Gamma/, "Pin Gamma task");
-  // A pin in another project is no place for these.
+  // Pinned is one place for every project's pins.
   await pinFromRow(/^Other project/, "Pin Other project task");
-  await waitFor(() => expect(pinnedGroup()).toEqual(["Gamma task", "Beta task", "Alpha task"]));
+  await waitFor(() =>
+    expect(pinnedAll()).toEqual(["Other project task", "Gamma task", "Beta task", "Alpha task"]),
+  );
 
   card(/^Gamma/).focus();
   await userEvent.keyboard(" ");
-  await waitFor(() => expect(said()).toMatch(/^Moving Gamma.*Pinned, place 1 of 3/));
+  await waitFor(() => expect(said()).toMatch(/^Moving Gamma.*Pinned, place 2 of 4/));
   await userEvent.keyboard("{ArrowDown}");
-  expect(said()).toMatch(/Pinned, place 2 of 3/);
+  expect(said()).toMatch(/Pinned, place 3 of 4/);
   await userEvent.keyboard("{ArrowDown}");
-  expect(said()).toMatch(/Pinned, place 3 of 3/);
+  expect(said()).toMatch(/Pinned, place 4 of 4/);
   await userEvent.keyboard(" ");
 
-  await waitFor(() => expect(pinnedGroup()).toEqual(["Beta task", "Alpha task", "Gamma task"]));
+  await waitFor(() =>
+    expect(pinnedAll()).toEqual(["Other project task", "Beta task", "Alpha task", "Gamma task"]),
+  );
   expect(said()).toMatch(/^Dropped Gamma/);
   // The daemon keeps the order: its places sort the same way.
   await waitFor(() => {

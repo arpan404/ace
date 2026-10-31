@@ -43,7 +43,7 @@ async function rename(link: HTMLElement) {
   return screen.findByRole("textbox", { name: "Thread title" });
 }
 
-test("a refused send shows Not sent in both the sidebar and its spoken name", async () => {
+test("a refused send says Not sent in its row's name and shows the needs-you dot", async () => {
   const made = app();
   made.daemon.refuseCommands("model_unavailable", "thread.send");
   await made.open("/t/thread-dedupe");
@@ -53,9 +53,14 @@ test("a refused send shows Not sent in both the sidebar and its spoken name", as
   );
   await screen.findByRole("button", { name: "Retry" });
   await waitFor(() => expect(row(/^Dedupe.*Not sent/)).toBeTruthy());
-  expect(within(row(/^Dedupe/)).getByText("Not sent")).toBeTruthy();
+  const dot = () =>
+    row(/^Dedupe/)
+      .querySelector("[data-indicator]")
+      ?.getAttribute("data-indicator");
+  expect(dot()).toBe("needs-you");
+  expect(within(row(/^Dedupe/)).queryByText("Not sent")).toBeNull();
   await userEvent.click(screen.getByRole("link", { name: "New thread" }));
-  expect(within(row(/^Dedupe/)).getByText("Not sent")).toBeTruthy();
+  await waitFor(() => expect(row(/^Dedupe.*Not sent/)).toBeTruthy());
 });
 
 test("the palette finds other projects and their threads while the sidebar is filtered", async () => {
@@ -175,7 +180,7 @@ test("a filtered empty state names the project rather than its opaque id", async
   expect(screen.queryByText(`Nothing in ${project.id}`)).toBeNull();
 });
 
-test("a task keeps project and provider context visible without duplicating Done", async () => {
+test("a task keeps project and provider context in its name and hover card, never a Done", async () => {
   const made = harness();
   createIdleTask(made.daemon, {
     id: "bare",
@@ -194,12 +199,11 @@ test("a task keeps project and provider context visible without duplicating Done
   expect(bare.getAttribute("aria-label")).toContain("Project relay");
   // Seen before this device's first launch, so it rests quietly: no Done at all, never two.
   expect(within(bare).queryAllByText("Done", { exact: true })).toHaveLength(0);
-  expect(within(bare).getByRole("img", { name: "Codex" })).toBeTruthy();
+  expect(within(bare).queryByRole("img", { name: "Codex" })).toBeNull();
   await userEvent.hover(bare);
   expect(
     within(await screen.findByLabelText(/^Details for Bare thread/)).getByText("Codex"),
   ).toBeTruthy();
-  expect(within(nav()).getByRole("img", { name: "Codex" })).toBeTruthy();
 });
 
 test("composition Enter leaves rename open and Escape preserves the existing multi-selection", async () => {

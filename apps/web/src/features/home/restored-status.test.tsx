@@ -88,8 +88,10 @@ test("a restored thread that was done never shows as done before the daemon conf
   // Painted from disk while both snapshots wait: syncing, not done.
   await waitFor(() => expect(gate.queue.length).toBeGreaterThan(0));
   expect(row()?.getAttribute("data-attention")).toBe("syncing");
-  expect(within(link).getByText("Syncing")).toBeTruthy();
-  expect(within(link).queryByText("Done")).toBeNull();
+  expect(link.getAttribute("aria-label")).toContain("Syncing");
+  expect(link.getAttribute("aria-label")).not.toContain("Done");
+  // No mark at all: neither the finished dot nor the live ring until the daemon says.
+  expect(link.querySelector("[data-indicator]")).toBeNull();
   expect(within(feed).getByText("Syncing…")).toBeTruthy();
   expect(within(feed).queryByText(/^Working/)).toBeNull();
 
@@ -99,7 +101,8 @@ test("a restored thread that was done never shows as done before the daemon conf
     for (const deliver of gate.queue.splice(0)) deliver();
   });
   await waitFor(() => expect(row()?.getAttribute("data-attention")).toBe("active"));
-  expect(within(link).getByText("Working")).toBeTruthy();
+  expect(link.getAttribute("aria-label")).toContain("Working");
+  expect(link.querySelector("[data-indicator]")?.getAttribute("data-indicator")).toBe("live");
   await within(feed).findByText(/^Working/);
   expect(within(feed).queryByText("Syncing…")).toBeNull();
 });

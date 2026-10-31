@@ -76,25 +76,3 @@ test("Search finds an older settled thread outside the window and opens it throu
     lease.release();
   }
 });
-
-test("the panel's search lists an older settled thread the list hasn't loaded, and opens it", async () => {
-  const app = await history();
-  await app.open("/new");
-  const lease = app.client.threads();
-  try {
-    await waitFor(() => expect(lease.store.ids).toHaveLength(20));
-    expect(lease.store.thread("thread-bump-codex")).toBeUndefined();
-    await userEvent.type(
-      screen.getByRole("searchbox", { name: "Search all threads" }),
-      "Bump Codex app-server",
-    );
-    const nav = screen.getByRole("navigation", { name: "Threads" });
-    expect(await within(nav).findByRole("heading", { name: /^Settled · 1/ })).toBeTruthy();
-    await userEvent.click(
-      within(nav).getByRole("link", { name: /^Bump Codex app-server to 0\.48/ }),
-    );
-    await screen.findByRole("heading", { level: 1, name: "Bump Codex app-server to 0.48" });
-  } finally {
-    lease.release();
-  }
-});

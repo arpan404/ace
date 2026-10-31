@@ -70,23 +70,26 @@ async function row(run: OffshiftRunCard, child = false) {
   return within(nav).findByRole("link", { name: /Login error/ });
 }
 
-test("a settled thread whose run stopped short names the phase and waits, never Done", async () => {
+/** The row's one mark (`RowIndicator`): its kind and the tone it draws in. */
+const indicator = (link: HTMLElement) => {
+  const mark = link.querySelector<HTMLElement>("[data-indicator]");
+  return mark && { kind: mark.dataset.indicator, tone: mark.dataset.tone };
+};
+
+test("a settled thread whose run stopped short names the phase in its name and waits, never Done", async () => {
   const link = await row(card({}));
   await waitFor(() =>
-    expect(within(link).getByRole("img", { name: "Run stopped at Verify" }).textContent).toBe(
-      "Verify",
-    ),
+    expect(link.getAttribute("aria-label")).toContain("Waiting · Run stopped at Verify"),
   );
-  expect(link.getAttribute("aria-label")).toContain("Waiting · Run stopped at Verify");
+  expect(indicator(link)).toEqual({ kind: "live", tone: "waiting" });
   expect(within(link).queryByText("Done")).toBeNull();
+  expect(link.textContent).toBe("Login error");
 });
 
-test("a blocked run on a settled thread shows the waiting mark", async () => {
+test("a blocked run on a settled thread names the blocker's phase and shows the waiting ring", async () => {
   const link = await row(card({ blocker: "Need a test account" }));
-  const mark = await within(link).findByRole("img", { name: "Run blocked at Verify" });
-  expect(mark.querySelector('[data-slot="status-glyph"]')?.getAttribute("data-tone")).toBe(
-    "waiting",
-  );
+  await waitFor(() => expect(link.getAttribute("aria-label")).toMatch(/Run blocked at Verify/));
+  expect(indicator(link)).toEqual({ kind: "live", tone: "waiting" });
 });
 
 test("a working tree shows no run mark: it does not need the person yet", async () => {

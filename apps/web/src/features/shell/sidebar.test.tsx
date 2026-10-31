@@ -5,6 +5,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { createIdleTask } from "@/test/tasks.ts";
 
 const title = (name: string) => screen.findByRole("heading", { level: 1, name });
 const button = (name: string | RegExp) => screen.getByRole("button", { name });
@@ -262,6 +263,20 @@ test("⌘\\ hides the sidebar, and the choice survives a reload", async () => {
   expect(await screen.findByRole("complementary", { name: "Threads" })).toBeTruthy();
 });
 
+/** The window's first three buttons are back, forward and the sidebar toggle named `toggle`. */
+const leading = (toggle: string) =>
+  expect(
+    screen
+      .getAllByRole("button")
+      // The hidden sidebar's edge, a pointer-only way back (`tabIndex` -1).
+      .filter((each) => each.dataset.sidebar !== "rail")
+      .slice(0, 3),
+  ).toEqual([
+    screen.getByRole("button", { name: "Back" }),
+    screen.getByRole("button", { name: "Forward" }),
+    screen.getByRole("button", { name: toggle }),
+  ]);
+
 test("back, forward and the sidebar toggle lead the top bar whether the sidebar shows or not", async () => {
   const app = harness();
   app.play(longHistory(2)).runUntilBlocked();
@@ -273,18 +288,6 @@ test("back, forward and the sidebar toggle lead the top bar whether the sidebar 
 
   // They come first in the window, before the rail and the panel, whichever half of the bar
   // holds them: the sidebar's top row while it shows, the header while it doesn't.
-  const leading = (toggle: string) =>
-    expect(
-      screen
-        .getAllByRole("button")
-        // The hidden sidebar's edge, a pointer-only way back (`tabIndex` -1).
-        .filter((button) => button.dataset.sidebar !== "rail")
-        .slice(0, 3),
-    ).toEqual([
-      screen.getByRole("button", { name: "Back" }),
-      screen.getByRole("button", { name: "Forward" }),
-      screen.getByRole("button", { name: toggle }),
-    ]);
   leading("Hide sidebar");
   for (const name of ["Back", "Forward", "Hide sidebar"])
     expect(within(appNav()).queryByRole("button", { name })).toBeNull();
@@ -360,4 +363,45 @@ test("the profile leaves daemon trouble to the screen's one notice, naming it on
   expect(await screen.findAllByText(/^Offline/, { selector: "header *" })).toHaveLength(1);
   app.client.networkOnline(true);
   await waitFor(() => expect(profile.getAttribute("aria-label")).toBe("You, account"));
+});
+
+test("the panel's New thread row opens New thread in the one project there is", async () => {
+  const app = harness();
+  createIdleTask(app.daemon, {
+    id: "tidy",
+    title: "Tidy the README",
+    workspaceId: "relay",
+    provider: "codex",
+  });
+  await app.open("/t/tidy");
+  await title("Tidy the README");
+  const row = within(await screen.findByRole("complementary", { name: "Threads" })).getByRole(
+    "link",
+    { name: "New thread" },
+  );
+  await userEvent.click(row);
+  await title("New thread");
+  expect(row.getAttribute("aria-current")).toBe("page");
+});
+
+test("an open project shows five threads, then Show more brings the rest and Show less folds them", async () => {
+  const app = harness();
+  const titles = ["One", "Two", "Three", "Four", "Five", "Six", "Seven"].map(
+    (word) => `${word} task`,
+  );
+  for (const [index, name] of titles.entries())
+    createIdleTask(app.daemon, {
+      id: `task-${index}`,
+      title: name,
+      workspaceId: "relay",
+      provider: "codex",
+    });
+  await app.open("/new");
+  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  await nav.findAllByRole("link", { name: / task\./ });
+  expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(5);
+  await userEvent.click(nav.getByRole("button", { name: "Show 2 more in relay" }));
+  await waitFor(() => expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(7));
+  await userEvent.click(nav.getByRole("button", { name: "Show fewer in relay" }));
+  await waitFor(() => expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(5));
 });

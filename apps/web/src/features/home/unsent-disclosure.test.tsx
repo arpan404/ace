@@ -19,7 +19,7 @@ async function openWorkbench() {
 
 /** The panel shows its project tree: ace open on its running thread. */
 const onActive = () => {
-  expect(document.querySelector('[data-slot="panel-top"] h2')?.textContent).toBe("Threads");
+  expect(screen.getByRole("button", { name: /^Project filter/ }).textContent).toBe("ace");
   const nav = within(screen.getByRole("navigation", { name: "Threads" }));
   expect(nav.getByRole("button", { name: /^ace, 1 running/ }).getAttribute("aria-expanded")).toBe(
     "true",

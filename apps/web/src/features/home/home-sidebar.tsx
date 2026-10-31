@@ -73,7 +73,6 @@ export function HomeSidebar() {
     [list.pinned, list.listed, list.snoozed, list.settled].every((ids) => !ids.length) &&
     !tree.quiet.length;
   const directory = useProjectDirectory();
-  const projects = useProjectDialogs();
   const keys = useResolvedKeymap();
   const waiting = list.inbox.length;
   // The bell's dot asks loudest for what it holds: the warning colour while anything needs the
@@ -157,14 +156,7 @@ export function HomeSidebar() {
                     Show all devices
                   </button>
                 ) : directory.loaded && !directory.projects.length ? (
-                  <button
-                    type="button"
-                    className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
-                    onClick={() => projects.open({ kind: "add", tab: "sources" })}
-                    onPointerEnter={projects.preload}
-                  >
-                    Add project
-                  </button>
+                  <AddProjectAction />
                 ) : undefined
               }
             />
@@ -177,6 +169,21 @@ export function HomeSidebar() {
       {loaded && <HistoryFoot count={list.settledTotal} />}
       {inboxOpen && <InboxOverlay ids={list.inbox} bell={bell} onClose={() => inbox.set(false)} />}
     </div>
+  );
+}
+
+/** With no project yet, the empty panel's way to add one. */
+function AddProjectAction() {
+  const projects = useProjectDialogs();
+  return (
+    <button
+      type="button"
+      className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
+      onClick={() => projects.open({ kind: "add", tab: "sources" })}
+      onPointerEnter={projects.preload}
+    >
+      Add project
+    </button>
   );
 }
 

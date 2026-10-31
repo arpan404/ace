@@ -90,8 +90,8 @@ test("a thread that needs you leaves its project for the Inbox at once under a r
 
 test("while the keyboard is in the list rows hold, and only a thread that needs you leaves", async () => {
   const app = await openHome();
-  // Tab into the list from the search field, the stop just before it: the keyboard is on its one Tab stop.
-  screen.getByRole("searchbox", { name: "Search all threads" }).focus();
+  // Tab into the list from New thread, the stop just before it: the keyboard is on its one Tab stop.
+  screen.getByRole("link", { name: "New thread" }).focus();
   await userEvent.tab();
   expect(list().contains(document.activeElement)).toBe(true);
 
