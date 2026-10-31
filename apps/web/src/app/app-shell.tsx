@@ -38,7 +38,7 @@ const FloatingBrowsers = lazy(loadFloatingBrowsers);
 const PullRequestTab = deferredComponent(() => loadPullRequestTab().then((m) => m.default));
 
 /**
- * Wallpaper, the one sidebar (the thread list, or Settings' pages) and the selected view.
+ * Wallpaper, the one sidebar (the rail and the current place's panel) and the selected view.
  * `data-connection` carries the daemon connection's state. While the daemon is unreachable
  * (`data-live-held`, live-motion.ts) live indicators dim, since nothing they stand for can
  * arrive (no layout changes); while it connects or starts they stay at full strength.
@@ -133,12 +133,12 @@ export function AppShell() {
 /** The thread list in the sidebar's body, composed independently of shell controls. */
 const threads = <ThreadsSidebar />;
 
-/** The sidebar's GitHub button with its counts, loaded after the first paint. */
+/** GitHub's place in the rail with its counts, loaded after the first paint. */
 const ForgeButtonWithCounts = deferredComponent(() =>
   import("@/features/forge-pages/index.ts").then((m) => m.ForgeNavButton),
 );
 
-/** The GitHub button beside Settings, lit while Inbox, Pull requests or Issues is open. */
+/** GitHub in the rail, the current place while Inbox, Pull requests or Issues is open. */
 function ForgeNav(props: { forgeOpen: boolean }) {
   // Until its code (and the lists it reads) arrives, the button shows without counts.
   const plain = <ForgeButton to="/pulls" active={props.forgeOpen} />;
@@ -152,7 +152,7 @@ function ForgeNav(props: { forgeOpen: boolean }) {
 }
 const forgeNav = (forgeOpen: boolean) => <ForgeNav forgeOpen={forgeOpen} />;
 
-/** The sidebar with what other slices own: the thread list and the GitHub button. */
+/** The sidebar with what other slices own: the thread list and GitHub's place in the rail. */
 function ShellSidebar() {
   return <AppSidebar threads={threads} forge={forgeNav} />;
 }
