@@ -192,11 +192,29 @@ export function ThreadList(props: {
 
   /** A row's thread as this window shows it, with organize actions not yet confirmed. */
   const shownEntry = (id: string) => threads.entry(id);
-  /** What a drag or keyboard move reads and does: measured rows, the pinned group, commands. */
-  const host = (): DragHost | undefined => {
+  /**
+   * What a move of `ids` reads and does: measured rows, the pinned threads, commands. A move
+   * stays inside the project of the thread it carries: only that project's rows are places.
+   */
+  const host = (ids: readonly string[]): DragHost | undefined => {
     const scroller = viewport.current;
     const list = listRef.current;
     if (!scroller || !list) return undefined;
+    const project = shownEntry(ids[0] ?? "")?.workspaceId;
+    /** A thread row of the moving project's own list. */
+    const ours = (row: { item: HomeRow; phase: string } | undefined): row is {
+      item: Extract<HomeRow, { kind: "thread" }>;
+      phase: string;
+    } =>
+      row !== undefined &&
+      row.phase !== "exit" &&
+      row.item.kind === "thread" &&
+      row.item.place === "project" &&
+      shownEntry(row.item.id)?.workspaceId === project;
+    const pinnedHere = () =>
+      latest.current.drawn.flatMap((row) =>
+        ours(row) && latest.current.pinned.includes(row.item.id) ? [row.item.id] : [],
+      );
     return {
       viewport: scroller,
       list,
@@ -204,27 +222,23 @@ export function ThreadList(props: {
         virtualizer.measurementsCache.flatMap((item): RowBox[] => {
           const row = latest.current.drawn[item.index];
           if (!row || row.phase === "exit") return [];
-          const shown = row.item;
-          const inProject = shown.kind === "thread" && shown.place === "project";
-          const isPinned = inProject && latest.current.pinned.includes(shown.id);
+          const here = ours(row);
+          const isPinned = here && latest.current.pinned.includes(row.item.id);
           return [
             {
-              kind: isPinned ? "pinned" : inProject && latest.current.manual ? "listed" : "other",
-              ...("id" in shown ? { id: shown.id } : {}),
+              kind: isPinned ? "pinned" : here && latest.current.manual ? "listed" : "other",
+              ...("id" in row.item ? { id: row.item.id } : {}),
               top: item.start,
               bottom: item.end,
             },
           ];
         }),
-      pinned: () => latest.current.pinned.map((id) => ({ id, order: shownEntry(id)?.pinOrder })),
+      pinned: () => pinnedHere().map((id) => ({ id, order: shownEntry(id)?.pinOrder })),
       listed: () =>
         latest.current.manual
           ? latest.current.drawn.flatMap((row) => {
               const entry =
-                row.item.kind === "thread" &&
-                row.item.place === "project" &&
-                row.phase !== "exit" &&
-                !latest.current.pinned.includes(row.item.id)
+                ours(row) && !latest.current.pinned.includes(row.item.id)
                   ? shownEntry(row.item.id)
                   : undefined;
               return entry ? [{ id: entry.id, order: listOrderOf(entry) }] : [];
@@ -243,7 +257,7 @@ export function ThreadList(props: {
   const startKeyboardMove = (id: string) => {
     const ids = draggedWith(id);
     void loadDrag().then((module) => {
-      const target = host();
+      const target = host(ids);
       if (target) keyboardMove.current = module.startKeyboardMove(target, ids);
     });
   };
@@ -382,7 +396,7 @@ export function ThreadList(props: {
     const start = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, id };
     const ids = draggedWith(id);
     void loadDrag().then((module) => {
-      const target = host();
+      const target = host(ids);
       if (target) module.trackPointer(target, start, ids);
     });
   };
