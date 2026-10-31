@@ -77,14 +77,18 @@ test("rows reorder at once while the pointer rests on the list", async () => {
   expect(row(/^Oldest thread\. Working/)).toBeTruthy();
 });
 
-test("a thread that needs you rises at once under a resting pointer", async () => {
+/** The Inbox button in the panel's title row, which counts what waits for the person. */
+const bell = () => screen.getByRole("button", { name: /^Inbox/ });
+
+test("a thread that needs you leaves its project for the Inbox at once under a resting pointer", async () => {
   const app = await openHome();
   await userEvent.hover(list());
   app.daemon.apply("thread-middle", asks);
-  await waitFor(() => expect(order()).toEqual(["Middle", "Newest", "Oldest"]));
+  await waitFor(() => expect(order()).toEqual(["Newest", "Oldest"]));
+  expect(bell().getAttribute("aria-label")).toBe("Inbox, 1 waiting");
 });
 
-test("while the keyboard is in the list only a thread that needs you moves", async () => {
+test("while the keyboard is in the list rows hold, and only a thread that needs you leaves", async () => {
   const app = await openHome();
   // Tab into the list from the search field, the stop just before it: the keyboard is on its one Tab stop.
   screen.getByRole("searchbox", { name: "Search all threads" }).focus();
@@ -93,11 +97,13 @@ test("while the keyboard is in the list only a thread that needs you moves", asy
 
   app.daemon.apply("thread-oldest", working);
   app.daemon.apply("thread-middle", asks);
-  await waitFor(() => expect(order()).toEqual(["Middle", "Newest", "Oldest"]));
+  await waitFor(() => expect(bell().getAttribute("aria-label")).toBe("Inbox, 1 waiting"));
+  await waitFor(() => expect(order()).toEqual(["Newest", "Oldest"]));
+  // Working now, the oldest thread holds its place under the keyboard.
   expect(row(/^Oldest thread\. Working/)).toBeTruthy();
 
   // Keyboard focus leaving the list lets the rest move.
   const focused = document.activeElement;
   if (focused instanceof HTMLElement) focused.blur();
-  await waitFor(() => expect(order()).toEqual(["Middle", "Oldest", "Newest"]));
+  await waitFor(() => expect(order()).toEqual(["Oldest", "Newest"]));
 });

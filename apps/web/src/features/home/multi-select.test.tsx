@@ -60,24 +60,22 @@ async function pick(title: RegExp, keys: "{Meta>}" | "{Shift>}") {
 test("⌘-click picks rows without opening them, Shift-click takes the rows between", async () => {
   const app = await openHome();
   const opened = window.location.pathname;
-  await pick(/^Approval sheet/, "{Meta>}");
-  await pick(/^Backpressure/, "{Shift>}");
+  await pick(/^Dedupe thread events/, "{Meta>}");
+  await pick(/^Invoice PDF/, "{Shift>}");
   expect(window.location.pathname).toBe(opened);
-  // In the tree's order: the Inbox's last two, then ace's thread, then relay's.
-  expect(await screen.findByText("4 selected")).toBeTruthy();
-  expect(card(/^Retry budget.*, selected/)).toBeTruthy();
+  // In the tree's order: ace's thread, relay's, then billing-api's.
+  expect(await screen.findByText("3 selected")).toBeTruthy();
+  expect(card(/^Backpressure.*, selected/)).toBeTruthy();
   expect(
-    within(threads()).queryByRole("link", { name: /^Partial refunds.*, selected/ }),
+    within(threads()).queryByRole("link", { name: /^Rewrite the install page.*, selected/ }),
   ).toBeNull();
 
   // Pin pins them all, keeping the order they were listed in.
-  await userEvent.click(within(bar()).getByRole("button", { name: "Pin 4 threads" }));
+  await userEvent.click(within(bar()).getByRole("button", { name: "Pin 3 threads" }));
   await waitFor(() =>
     expect(
-      ["thread-sheet-rotate", "thread-retry-budget", "thread-dedupe", "thread-fan-out"].map(
-        (id) => listed(app, id)?.pinned,
-      ),
-    ).toEqual([true, true, true, true]),
+      ["thread-dedupe", "thread-fan-out", "thread-pdf-locale"].map((id) => listed(app, id)?.pinned),
+    ).toEqual([true, true, true]),
   );
   expect(listed(app, "thread-install-page")?.pinned).toBeUndefined();
   expect(screen.queryByRole("toolbar", { name: "Selected threads" })).toBeNull();
@@ -123,8 +121,15 @@ test("a picked row's context menu acts on every picked thread", async () => {
 });
 
 test("X picks the focused row, Shift+↓ extends the pick, and Escape lets it go", async () => {
-  await openHome();
-  card(/^Approval sheet/).focus();
+  await openWithIdle();
+  // relay's two quiet threads sit next to each other: start from the upper one.
+  const upper = within(threads())
+    .getAllByRole("link")
+    .find((link) =>
+      /^(Tidy the README|Sketch the docs index)/.test(link.getAttribute("aria-label") ?? ""),
+    );
+  if (!upper) throw new Error("No quiet relay thread");
+  upper.focus();
   await userEvent.keyboard("x");
   expect(await screen.findByText("1 selected")).toBeTruthy();
   await userEvent.keyboard("{Shift>}{ArrowDown}{/Shift}");

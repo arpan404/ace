@@ -50,7 +50,7 @@ test("the thread list is one Tab stop, and ↑ ↓ move between its rows", async
     ...list.querySelectorAll<HTMLElement>("[data-row-focus], [data-section-toggle]"),
   ];
   screen.getByRole("searchbox", { name: "Search all threads" }).focus();
-  // The search field is the last control above the list, so one Tab lands in it.
+  // The search field is the last control above the list, so one Tab lands on the list's first stop.
   await userEvent.tab();
   const entered = document.activeElement;
   expect(stops()).toContain(entered);
@@ -59,9 +59,12 @@ test("the thread list is one Tab stop, and ↑ ↓ move between its rows", async
   expect(list.contains(document.activeElement)).toBe(false);
   await userEvent.tab({ shift: true });
   expect(document.activeElement).toBe(entered);
+  // ↓ walks the stops in order: to the next stop (the first project's heading), then its first row.
+  await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(stops()[stops().findIndex((stop) => stop === entered) + 1]);
+  expect(rows()).not.toContain(document.activeElement);
   await userEvent.keyboard("{ArrowDown}");
   const moved = document.activeElement;
-  expect(moved).not.toBe(entered);
   expect(rows()).toContain(moved);
   // The row arrows reached is the list's Tab stop now.
   expect(stops().filter((stop) => stop.tabIndex === 0)).toEqual([moved]);

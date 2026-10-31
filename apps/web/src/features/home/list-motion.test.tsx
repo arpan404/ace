@@ -46,7 +46,9 @@ test("an archived card leaves the list at once for assistive tech, then fades ou
     expect(within(threads()).queryByText("Invoice PDF locale fallback")).toBeNull(),
   );
   expect(within(threads()).getAllByRole("listitem")).toHaveLength(before);
-  expect(within(threads()).getAllByText("No open threads.")).toHaveLength(2);
+  expect(
+    within(threads()).getAllByText("Nothing open. Waiting items are in your Inbox."),
+  ).toHaveLength(2);
 });
 
 test("with reduced motion an archived card is gone in the same moment", async () => {

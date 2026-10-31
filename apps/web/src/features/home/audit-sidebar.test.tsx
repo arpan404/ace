@@ -206,10 +206,10 @@ test("composition Enter leaves rename open and Escape preserves the existing mul
   await app().open("/new");
   const first = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
     "link",
-    { name: /^Approval sheet/ },
+    { name: /^Invoice PDF/ },
   );
   fireEvent.click(first, { metaKey: true });
-  const title = await rename(row(/^Approval sheet/));
+  const title = await rename(row(/^Invoice PDF/));
   await userEvent.clear(title);
   await userEvent.type(title, "候補");
   fireEvent.keyDown(title, { key: "Enter", keyCode: 229, isComposing: false });
@@ -217,13 +217,14 @@ test("composition Enter leaves rename open and Escape preserves the existing mul
   fireEvent.keyDown(title, { key: "Escape" });
   expect(screen.queryByRole("textbox", { name: "Thread title" })).toBeNull();
   expect(screen.getByRole("toolbar", { name: "Selected threads" })).toBeTruthy();
-  row(/^Approval sheet/).focus();
+  row(/^Invoice PDF/).focus();
   await userEvent.keyboard("{Escape}");
   expect(screen.queryByRole("toolbar", { name: "Selected threads" })).toBeNull();
 });
 
 test("a rename survives changing from a task row to a settled row", async () => {
-  const made = app();
+  // The UI's clock just past the daemon's, so the thread settled below rests dimmed in relay.
+  const made = app({ uiClock: () => 600_000 });
   createIdleTask(made.daemon, {
     id: "rename-row",
     title: "Rename across settlement",
@@ -240,20 +241,33 @@ test("a rename survives changing from a task row to a settled row", async () => 
   await act(() =>
     made.client.command({ type: "thread.settle", threadId: ThreadId.parse("rename-row") }),
   );
-  // Settled, the thread moves under its project's settled ones; opening them keeps what was typed.
-  await userEvent.click(await within(nav()).findByRole("button", { name: /settled in relay$/ }));
-  expect(await within(nav()).findByRole("link", { name: /^Retained rename/ })).toBeTruthy();
+  // Settled, the thread turns into its project's dimmed settled row, keeping what was typed.
+  expect(screen.getByRole("textbox", { name: "Thread title" })).toHaveProperty(
+    "value",
+    "Retained rename",
+  );
+  await userEvent.type(screen.getByRole("textbox", { name: "Thread title" }), "{Enter}");
+  expect(
+    await within(nav()).findByRole("link", { name: /^Retained rename\. Settled/ }),
+  ).toBeTruthy();
 });
 
 test("Shift-click selects a range in the narrow sheet without closing it", async () => {
   narrow();
-  await app().open("/t/thread-dedupe");
+  const made = app();
+  for (const [id, title] of [
+    ["thread-readme", "Tidy the README"],
+    ["thread-docs-index", "Sketch the docs index"],
+  ] as const)
+    createIdleTask(made.daemon, { id, workspaceId: "notes", title, provider: "codex" });
+  await made.open("/t/thread-dedupe");
   await userEvent.click(await screen.findByRole("button", { name: "Back to threads" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   const rows = within(sheet);
-  const first = await rows.findByRole("link", { name: /^Approval sheet/ });
+  // The notes project holds just these two, so the range from one to the other is both.
+  const first = await rows.findByRole("link", { name: /^Tidy the README/ });
   fireEvent.click(first, { metaKey: true });
-  fireEvent.click(rows.getByRole("link", { name: /^Retry budget/ }), { shiftKey: true });
+  fireEvent.click(rows.getByRole("link", { name: /^Sketch the docs index/ }), { shiftKey: true });
   expect(screen.getByRole("dialog", { name: "Sidebar" })).toBe(sheet);
   expect(rows.getByText("2 selected")).toBeTruthy();
 });

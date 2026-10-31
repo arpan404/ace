@@ -111,25 +111,25 @@ test("Mark unread shows at once and a refusal puts the row back as read", async 
 test("a rename the daemon refuses opens the field again with the typed title", async () => {
   const app = await openHome();
   app.daemon.refuseCommands("forbidden", "thread.rename");
-  await choose(/Retry budget/, /Rename/);
+  await choose(/Backpressure/, /Rename/);
   const field = await screen.findByRole("textbox", { name: "Thread title" });
   await waitFor(() => expect(document.activeElement).toBe(field));
   await userEvent.clear(field);
-  await userEvent.type(field, "Cap app-server restarts{Enter}");
+  await userEvent.type(field, "Cap fan-out backpressure{Enter}");
 
   expect(await screen.findByRole("heading", { name: "Couldn't rename the thread" })).toBeTruthy();
   const again = await screen.findByRole("textbox", { name: "Thread title" });
-  expect(again).toHaveProperty("value", "Cap app-server restarts");
+  expect(again).toHaveProperty("value", "Cap fan-out backpressure");
 
   // Saving again once the daemon takes it.
   app.daemon.restoreRequests();
   await waitFor(() => expect(document.activeElement).toBe(again));
   await userEvent.type(again, "{Enter}");
   expect(
-    await within(threads()).findByRole("link", { name: /^Cap app-server restarts/ }),
+    await within(threads()).findByRole("link", { name: /^Cap fan-out backpressure/ }),
   ).toBeTruthy();
   await waitFor(() =>
-    expect(listed(app, "thread-retry-budget")?.title).toBe("Cap app-server restarts"),
+    expect(listed(app, "thread-fan-out")?.title).toBe("Cap fan-out backpressure"),
   );
 });
 
@@ -200,7 +200,9 @@ test("deleting the open thread from the sidebar opens New thread", async () => {
 });
 
 test("deleting another thread and a refused active delete preserve the open thread", async () => {
-  const app = await openHome();
+  // The UI's clock just past the daemon's: the workbench's Codex bump settled moments ago, so it
+  // rests dimmed in ace rather than only in History.
+  const app = await openHome({ uiClock: () => 600_000 });
   await userEvent.click(
     card(/Invoice PDF/) ??
       (() => {
@@ -208,15 +210,13 @@ test("deleting another thread and a refused active delete preserve the open thre
       })(),
   );
   await screen.findByRole("heading", { level: 1, name: "Invoice PDF locale fallback" });
-  await userEvent.click(await screen.findByRole("button", { name: "1 settled in ace" }));
+  await within(threads()).findByRole("link", { name: /^Bump Codex.*Settled/ });
   await userEvent.click(
     await screen.findByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Unsettle" }));
-  await waitFor(() =>
-    expect(screen.queryByRole("button", { name: "1 settled in ace" })).toBeNull(),
-  );
-  await waitFor(() => expect(card(/Bump Codex/)).toBeTruthy());
+  await waitFor(() => expect(card(/^Bump Codex.*Settled/)).toBeNull());
+  await waitFor(() => expect(card(/^Bump Codex/)).toBeTruthy());
   await choose(/Bump Codex/, "Delete thread");
   await waitFor(() => expect(listed(app, "thread-bump-codex")).toBeUndefined());
   expect(

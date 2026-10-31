@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { gatedClient, memoryReadSnapshots, type Gate } from "@/test/gated-client.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { createIdleTask } from "@/test/tasks.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -14,7 +15,9 @@ configure({ asyncUtilTimeout: 10000 });
  */
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
-const relay = ["Retry budget for app-server restarts", "Backpressure on broadcast fan-out"];
+// relay's tree rows: the workbench's running thread and a quiet one added here. Its waiting
+// approval belongs to the Inbox once the daemon confirms the list.
+const relay = ["Backpressure on broadcast fan-out", "Tidy the relay README"];
 const rowFor = (title: string) => within(threads()).getByRole("link", { name: new RegExp(title) });
 
 /** Whether the list's skeleton was ever put on the page, however briefly, while watching. */
@@ -36,6 +39,15 @@ function watchSkeleton(label = "threads") {
   };
 }
 
+function addQuietRelayThread(app: ReturnType<typeof harness>) {
+  createIdleTask(app.daemon, {
+    id: "thread-relay-readme",
+    workspaceId: "relay",
+    title: "Tidy the relay README",
+    provider: "codex",
+  });
+}
+
 async function chooseProject(from: string, to: string) {
   await userEvent.click(screen.getByRole("button", { name: `Project filter: ${from}` }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: to }));
@@ -45,6 +57,7 @@ test("switching the project filter paints that project's rows at once, syncing u
   const gate: Gate = { held: false, queue: [] };
   const app = harness({ client: (daemon) => gatedClient(daemon, memoryReadSnapshots(), gate) });
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  addQuietRelayThread(app);
   await app.open("/");
   await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole("link", {
     name: new RegExp(relay[0] ?? ""),
@@ -53,8 +66,11 @@ test("switching the project filter paints that project's rows at once, syncing u
 
   gate.held = true;
   await chooseProject("All projects", "relay");
-  await waitFor(() => expect(within(threads()).getAllByRole("link")).toHaveLength(relay.length));
-  for (const title of relay) expect(within(rowFor(title)).getByText("Syncing")).toBeTruthy();
+  for (const title of relay)
+    expect(within(await waitFor(() => rowFor(title))).getByText("Syncing")).toBeTruthy();
+  // Only relay's rows paint, though the daemon hasn't answered yet.
+  for (const link of within(threads()).getAllByRole("link"))
+    expect(link.getAttribute("aria-label")).toContain("Project relay");
   await waitFor(() => expect(gate.queue.length).toBeGreaterThan(0));
 
   gate.held = false;
@@ -69,6 +85,7 @@ test("a filter whose list arrives quickly never flashes the skeleton, even with 
   const storage = memoryKeyValue();
   const first = harness({ storage });
   for (const scenario of workbench()) first.play(scenario).runUntilBlocked();
+  addQuietRelayThread(first);
   const view = await first.open("/");
   await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
   await chooseProject("All projects", "relay");
@@ -78,6 +95,7 @@ test("a filter whose list arrives quickly never flashes the skeleton, even with 
   // A new session that has only seen relay: widening to every project has nothing to paint.
   const app = harness({ storage });
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  addQuietRelayThread(app);
   await app.open("/");
   await waitFor(() => expect(within(threads()).getAllByRole("link")).toHaveLength(relay.length));
   const skeleton = watchSkeleton();
