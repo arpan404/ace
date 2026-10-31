@@ -36,6 +36,30 @@ front end, which is not live yet.
   says "Spade · Coming soon".
 - The panel keeps its drag-to-resize edge (220–480px, 288 by default); the rail is added to it.
 
+## Threads panel: Inbox + Projects
+
+Same day, after rejecting a list grouped by time (Needs you, Running, Today, Yesterday…) with
+Active and Settled tabs, the owner chose the Threads panel as an Inbox over a project tree
+("C · Hybrid" of the round-five mockups). This reverses the earlier rule that the thread list is
+never grouped by project.
+
+- **Inbox** on top holds only what needs the person: requests, unseen failures and finished
+  work not yet opened, read from the same row attention every row draws, so a group never
+  disagrees with a row's status word. Opening a finished thread clears it.
+- **Running** and **Recent** are one-line places that open as focused lists. Running holds every
+  thread at work across projects. Recent holds what finished in the last 7 days (settled in that
+  window, or done and seen), newest first by day; settled threads page from the daemon only back
+  to that boundary.
+- **Projects** fold open in place with their other open threads (no thread shows in both the
+  Inbox and its project), running ones first, and end with their own "N settled". A project can
+  open as a focused list with Active and Settled tabs; projects with nothing open fold under
+  Quiet projects.
+- The tree's folds are kept per device with the rest of the organizer state; the focused list
+  is kept per window (session storage), so a reload returns to it.
+- The daemon pages settled threads across every project together, so a project's "N settled"
+  and Recent read from the same pages; each project's count comes from the daemon's per-project
+  totals less the open threads it has already sent.
+
 ## Consequences
 
 - Keyboard shortcuts (`g h`, `g u`, `g s`, `g p`, ⌘,) keep working and move the rail's selection,
