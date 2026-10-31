@@ -27,7 +27,10 @@ export function InboxOverlay(props: {
   };
   useEffect(() => {
     const element = panel.current;
-    element?.querySelector<HTMLElement>("[data-inbox-row], [data-inbox-close]")?.focus();
+    const first =
+      element?.querySelector<HTMLElement>("[data-inbox-row]") ??
+      element?.querySelector<HTMLElement>("[data-inbox-close]");
+    first?.focus();
   }, []);
   useEffect(() => {
     const outside = (event: PointerEvent) => {

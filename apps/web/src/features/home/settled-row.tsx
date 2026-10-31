@@ -55,7 +55,7 @@ function LeftBehind(props: { card: ThreadCard }) {
         ) : (
           <GitPullRequestIcon aria-hidden size={12} />
         )}
-        {card.pr}
+        #{card.pr}
       </span>
     );
   return card.diff && card.diff.added > 0 ? <span>+{card.diff.added}</span> : null;
@@ -65,7 +65,14 @@ function LeftBehind(props: { card: ThreadCard }) {
  * A settled thread's link, its hover actions (Unsettle and ⋯) and the task row's context menu.
  * `Body` draws what the link shows.
  */
-function SettledShell(props: SettledProps & { lines: string; Body: ComponentType<Drawn> }) {
+function SettledShell(
+  props: SettledProps & {
+    lines: string;
+    Body: ComponentType<Drawn>;
+    /** Said first after the title, where the row shows a word its details don't carry. */
+    said?: string | undefined;
+  },
+) {
   const { machine } = props;
   const rowId = props.rowId ?? props.threadId;
   const data = useThreadCard(props.threadId, true, props.leaving);
@@ -104,7 +111,7 @@ function SettledShell(props: SettledProps & { lines: string; Body: ComponentType
         ) : (
           <Link
             {...threadOn(machine?.id, entry.id)}
-            aria-label={`${card.title}. ${threadDetails(card).join(", ")}`}
+            aria-label={`${card.title}. ${[props.said, ...threadDetails(card)].filter(Boolean).join(", ")}`}
             data-row-focus=""
             draggable={false}
             className={cn(
@@ -218,5 +225,5 @@ function TwoLineBody({ card, current, title, renaming }: Drawn) {
  * is the title, then the PR (or lines added) and age; line 2 its branch and the word Settled.
  */
 export function RecentlySettledRow(props: SettledProps) {
-  return <SettledShell {...props} lines={twoLines} Body={TwoLineBody} />;
+  return <SettledShell {...props} lines={twoLines} Body={TwoLineBody} said="Settled" />;
 }

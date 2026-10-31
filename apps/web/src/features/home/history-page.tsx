@@ -34,6 +34,7 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
   const sidebarLoaded = useSidebarLoaded();
   const skeleton = useHeld(!sidebarLoaded);
   const now = useNow();
+  const projectName = useProjectName();
   const filter = useOrganizerState().project;
   const paging = useSettledPaging(filter, useSidebarDevice());
   const foot = settledFoot(paging);
@@ -59,7 +60,8 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
     <Screen title="History">
       <div className={cn("h-full overflow-y-auto", gutter)}>
         <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-(--forge-gutter) pt-6 pb-10">
-          <h1 className="text-xl font-semibold text-foreground">History</h1>
+          {/* The header names the page (h1); this is its title over the list. */}
+          <h2 className="text-xl font-semibold text-foreground">History</h2>
           <SearchField
             label="Search history"
             placeholder="Search settled threads, PRs, branches"
@@ -71,14 +73,18 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
             skeleton && <ListSkeleton label="settled threads" shape="row" />
           ) : sections.length === 0 && foot === undefined ? (
             <p className="py-6 text-ui text-muted-foreground">
-              {searching ? `Nothing settled matches “${query.trim()}”.` : "No settled threads yet."}
+              {searching
+                ? `Nothing settled matches “${query.trim()}”.`
+                : props.project
+                  ? `No settled threads in ${projectName(props.project)}.`
+                  : "No settled threads yet."}
             </p>
           ) : (
             sections.map((section) => (
               <section key={section.group} aria-label={section.label}>
-                <h2 className="mt-3 mb-0.5 text-xs font-medium text-subtle-foreground">
+                <h3 className="mt-3 mb-0.5 text-xs font-medium text-subtle-foreground">
                   {section.label}
-                </h2>
+                </h3>
                 <ul className="flex flex-col">
                   {section.items.map((item) => (
                     <HistoryRow

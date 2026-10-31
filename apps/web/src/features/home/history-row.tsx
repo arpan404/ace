@@ -71,7 +71,7 @@ function ListedRow(props: { id: string; at: number }) {
         ) : (
           <GitPullRequestIcon aria-hidden size={12} />
         )}
-        {card.pr}
+        #{card.pr}
       </>
     ) : card.diff ? (
       <>
@@ -83,7 +83,9 @@ function ListedRow(props: { id: string; at: number }) {
     <Row
       threadId={entry.id}
       title={card.title}
-      label={[card.title, card.project, card.branch?.name, card.pr].filter(Boolean).join(", ")}
+      label={[card.title, card.project, card.branch?.name, card.pr && `#${card.pr}`]
+        .filter(Boolean)
+        .join(", ")}
       at={props.at}
       left={left}
       sub={
