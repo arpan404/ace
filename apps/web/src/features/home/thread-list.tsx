@@ -1,4 +1,4 @@
-import { CaretDownIcon, PlusIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, CaretDownIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
 import { useParams } from "@tanstack/react-router";
@@ -16,13 +16,16 @@ import {
 } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
 import {
+  activeGroupLabels,
+  activeRows,
   homeFootStart,
   homeRowKey,
   homeRowThread,
-  homeRows,
   listOrderOf,
+  settledRows,
   type HomeRow,
   type RowBox,
+  type SettledItem,
 } from "@ace/ui-core";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useElementSize } from "@/lib/element-size.ts";
@@ -44,12 +47,12 @@ import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { ThreadRow } from "./thread-row.tsx";
 import { MachineRow } from "./machine-row.tsx";
 import { machineRow } from "@/lib/machine-threads.ts";
-import { SettledRow } from "./settled-row.tsx";
+import { SettledMatch } from "./settled-match.tsx";
 import { UnsentRows } from "./unsent-rows.tsx";
 import { useHomeSort, type HomeList } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
-import { useSettledPaging } from "./settled-paging.ts";
-import { useSidebarDevice } from "./device-filter-state.ts";
+import { useNow } from "@/lib/time.ts";
+import type { SearchHit } from "./use-panel-search.ts";
 import {
   useHomeSelection,
   useHomeSelectionState,
@@ -61,21 +64,25 @@ import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 /**
- * A thread row is 80px tall and keeps 4px below it: rows are apart by spacing, not rules. A
- * settled row is one 32px line.
+ * A thread row is 52px tall and keeps 2px below it: rows are apart by spacing, not rules. A
+ * settled row is one 30px line.
  */
 const estimates: Record<HomeRow["kind"], number> = {
-  "pinned-header": 33,
-  pinned: 84,
+  "pinned-header": 29,
+  pinned: 54,
   "pinned-end": 9,
-  thread: 84,
+  "group-header": 39,
+  thread: 54,
   unsent: 0,
-  "snoozed-header": 37,
-  snoozed: 84,
-  "settled-header": 37,
-  settled: 34,
-  "settled-more": 34,
+  "snoozed-header": 39,
+  snoozed: 54,
+  "settled-header": 39,
+  settled: 32,
+  "settled-more": 32,
 };
+
+/** How close to the end of the Settled tab (in rows) scrolling asks for older threads. */
+const nearEnd = 8;
 
 /** The viewport's bottom padding (`pb-4`), below the list: the foot's free space leaves it out. */
 const footPadding = 16;
@@ -89,7 +96,7 @@ const loadDrag = () => import("./list-drag.ts");
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
 
 const header =
-  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-3 text-xs font-medium text-subtle-foreground focus-ring-inset transition-colors duration-(--motion-fast)";
+  "mt-2.5 flex h-7 w-full items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium text-subtle-foreground focus-ring-inset transition-colors duration-(--motion-fast)";
 
 /** A section's quiet heading: its name and how many. No rule: spacing sets the sections apart. */
 function HeadingText(props: { label: string; count?: number | undefined }) {
@@ -103,58 +110,72 @@ function HeadingText(props: { label: string; count?: number | undefined }) {
   );
 }
 
+/** Which tab the list draws, and what that tab needs. */
+export type PanelView =
+  | {
+      tab: "active";
+      /** Searching: the settled threads that match, under their own heading at the end. */
+      settledMatches?: readonly string[] | undefined;
+      searching?: boolean | undefined;
+    }
+  | {
+      tab: "settled";
+      items: readonly SettledItem[];
+      /** Older settled threads are loading, or the last page failed. */
+      foot?: "loading" | "error" | undefined;
+      /** The person scrolled near the end: load older settled threads, if any are left. */
+      onNearEnd(): void;
+      onRetry(): void;
+    };
+
+const activeView: PanelView = { tab: "active" };
+
 /**
- * The Home list, virtualized: the Pinned group in the person's own order, then one row per
- * thread across projects (the work in hand, then threads at rest), then the collapsible Snoozed
- * and Settled sections at the foot: below the free space while the list is shorter than the
- * sidebar, so the work in hand always comes first. An open Settled section shows its first rows
- * and a "Show N more" row for the next batch; closing it starts again from the first rows. Only visible rows mount. Up and Down (or j and k) move
- * between rows; Tab still walks each row's actions. On a row, P pins or unpins it, X picks it
- * (⌘- and Shift-click too) and Space picks it up to move by keyboard; rows drag with the pointer
- * into, within and out of the Pinned group, and, when threads are sorted by hand (Settings ›
- * General › Sort threads), to any place below it. A finger drags only by a pinned row's handle, so a
- * finger on a row still scrolls the list; Space or Enter on the handle starts a keyboard move.
- * Rows that arrive (a new thread, an unsnooze) rise in, rows that go (settle, snooze, archive)
- * fade where they were, and the rest slide to their new places. While the person points at the
- * list or moves through it by keyboard, rows keep their places (`useHeldRows`); the Pinned
- * group, being theirs to order, never holds.
+ * The Threads panel's list, virtualized, one tab at a time. Active: the Pinned group in the
+ * person's own order, then Needs you, Running, Today, Yesterday, This week and Earlier under
+ * quiet headings that fold, then Snoozed at the foot: below the free space while the list is
+ * shorter than the sidebar, so the work in hand always comes first. Settled: settled threads
+ * under week and month headings, older ones loading as the person scrolls near the end. Only
+ * visible rows mount. Up and Down (or j and k) move between rows; Tab still walks each row's
+ * actions. On a row, P pins or unpins it, X picks it (⌘- and Shift-click too) and Space picks it
+ * up to move by keyboard; rows drag with the pointer into, within and out of the Pinned group,
+ * and, when threads are sorted by hand (Settings › General › Sort threads), to any place below
+ * it. A finger drags only by a pinned row's handle, so a finger on a row still scrolls the list;
+ * Space or Enter on the handle starts a keyboard move. Rows that arrive (a new thread, an
+ * unsnooze) rise in, rows that go (settle, snooze, archive) fade where they were, and the rest
+ * slide to their new places. While the person points at the list or moves through it by
+ * keyboard, rows keep their places (`useHeldRows`); the Pinned group, being theirs to order,
+ * never holds, and a thread whose group changes still moves.
  */
-export function ThreadList(props: { list: HomeList; settledTotal?: number | undefined }) {
-  const { pinned, active, recent, snoozed, settled } = props.list;
-  const { snoozedOpen, settledOpen, project } = useOrganizerState();
+export function ThreadList(props: {
+  list: HomeList;
+  view?: PanelView | undefined;
+  /** Search hits for settled threads the list hasn't loaded, by thread id. */
+  hits?: ReadonlyMap<string, SearchHit> | undefined;
+  /** A new value (another tab, another search) starts the list again from its top. */
+  resetKey?: string | undefined;
+}) {
+  const { pinned, groups, snoozed } = props.list;
+  const view = props.view ?? activeView;
+  const { snoozedOpen, collapsed } = useOrganizerState();
   const organizer = useOrganizer();
-  const device = useSidebarDevice();
-  const paging = useSettledPaging(project, settledOpen, device);
   const current = useParams({ strict: false, select: (params) => params.threadId });
   const [moving, setMoving] = useState<readonly string[]>();
-  const settledTotal = props.settledTotal;
-  const settledShown = paging.shown;
+  const now = useNow();
   const rows = useMemo(() => {
-    return homeRows(
-      { pinned, active, recent, snoozed, settled },
+    if (view.tab === "settled") return settledRows(view.items, now, view.foot);
+    return activeRows(
+      { pinned, groups, snoozed },
       {
         snoozedOpen,
-        settledOpen,
-        includeUnsent: true,
+        collapsed,
+        includeUnsent: view.searching !== true,
         pinZone: moving !== undefined,
-        settledShown,
-        settledTotal,
         current,
+        settledMatches: view.settledMatches,
       },
     );
-  }, [
-    pinned,
-    active,
-    recent,
-    snoozed,
-    settled,
-    snoozedOpen,
-    settledOpen,
-    moving,
-    settledShown,
-    settledTotal,
-    current,
-  ]);
+  }, [view, now, pinned, groups, snoozed, snoozedOpen, collapsed, moving, current]);
   const hold = useListHold(moving !== undefined);
   const held = useHeldRows(rows, hold.state, props.list.needsYou);
   const { rows: drawn, moving: sliding } = useListMotion(held, homeRowKey);
@@ -181,6 +202,16 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     getItemKey: (index) => drawn[index]?.key ?? index,
   });
   useForgetGoneRows(virtualizer, drawn.length, (index) => drawn[index]?.key ?? index);
+  const resetKey = props.resetKey;
+  useEffect(() => {
+    viewport.current?.scrollTo({ top: 0 });
+  }, [resetKey]);
+  // Near the Settled tab's end, older settled threads load: no button to press.
+  const lastShown = virtualizer.getVirtualItems().at(-1)?.index ?? -1;
+  const onNearEnd = view.tab === "settled" && view.foot === undefined ? view.onNearEnd : undefined;
+  useEffect(() => {
+    if (onNearEnd && lastShown >= drawn.length - nearEnd) onNearEnd();
+  }, [onNearEnd, lastShown, drawn.length]);
   // The foot sections sit at the sidebar's bottom while the rows above leave free space.
   const footStart = homeFootStart(drawn);
   const viewportHeight = useElementSize(viewport).height;
@@ -475,7 +506,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                   // Inset from the sidebar's edges, with a small gap between rows: space, not
                   // rules, separates them.
                   "absolute inset-x-2 top-0",
-                  "id" in row ? "pb-1" : row.kind !== "unsent" && "pb-px",
+                  "id" in row ? "pb-0.5" : row.kind !== "unsent" && "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
                   sliding && "bg-sidebar",
@@ -505,27 +536,74 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                         row.kind === "snoozed") && (
                         <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
                       )}
-                      {row.kind === "settled" && <SettledRow threadId={row.id} leaving={leaving} />}
+                      {row.kind === "settled" && (
+                        <SettledMatch id={row.id} hit={props.hits?.get(row.id)} leaving={leaving} />
+                      )}
                     </>
                   )}
-                  {row.kind === "settled-more" && (
-                    <button
-                      type="button"
-                      data-section-toggle=""
-                      disabled={paging.loading}
-                      onClick={() => void paging.more()}
-                      className="flex h-8 w-full items-center gap-2 rounded-md px-3 text-left text-ui text-subtle-foreground/75 focus-ring-inset transition-colors duration-(--motion-fast) hover:bg-hover hover:text-muted-foreground disabled:opacity-60"
-                    >
-                      <PlusIcon aria-hidden size={14} className="shrink-0" />
-                      {paging.loading
-                        ? "Loading…"
-                        : paging.error
-                          ? "Retry loading more"
-                          : `Show ${row.count} more`}
-                    </button>
-                  )}
+                  {row.kind === "settled-more" &&
+                    (row.state === "loading" ? (
+                      <div
+                        role="status"
+                        className="flex h-[30px] items-center px-2.5 text-ui text-subtle-foreground"
+                      >
+                        Loading older threads…
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        data-section-toggle=""
+                        onClick={() => view.tab === "settled" && view.onRetry()}
+                        className="flex h-[30px] w-full items-center gap-2 rounded-md px-2.5 text-left text-ui text-muted-foreground focus-ring-inset transition-colors duration-(--motion-fast) hover:bg-hover hover:text-foreground"
+                      >
+                        <ArrowClockwiseIcon aria-hidden size={14} className="shrink-0" />
+                        Couldn’t load older threads. Retry
+                      </button>
+                    ))}
                   {row.kind === "unsent" && <UnsentRows />}
                   {row.kind === "pinned-end" && <div aria-hidden className="h-2" />}
+                  {row.kind === "group-header" && (
+                    <button
+                      type="button"
+                      aria-expanded={row.open}
+                      data-section-toggle=""
+                      data-group={row.group}
+                      onClick={() => organizer.setGroupOpen(row.group, !row.open)}
+                      className={cn(
+                        header,
+                        row.group === "needs-you"
+                          ? "text-status-needs-you hover:text-status-needs-you/80"
+                          : "hover:text-muted-foreground",
+                        item.index === 0 && "mt-0",
+                      )}
+                    >
+                      <CaretDownIcon
+                        aria-hidden
+                        size={12}
+                        className={cn(
+                          "shrink-0 transition-transform duration-(--motion-base) ease-spring",
+                          !row.open && "-rotate-90",
+                        )}
+                      />
+                      <HeadingText label={activeGroupLabels[row.group]} count={row.count} />
+                    </button>
+                  )}
+                  {row.kind === "settled-header" && (
+                    <div
+                      role="heading"
+                      aria-level={3}
+                      className={cn(header, item.index === 0 && "mt-0")}
+                    >
+                      {row.count === undefined ? (
+                        row.label
+                      ) : (
+                        <>
+                          {row.label} ·{" "}
+                          <span className="font-normal tabular-nums">{row.count}</span>
+                        </>
+                      )}
+                    </div>
+                  )}
                   {row.kind === "pinned-header" && (
                     <div data-pin-zone="" className={cn(header, "mt-0")}>
                       {row.count ? (
@@ -543,34 +621,15 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                       onClick={() => organizer.setSnoozedOpen(!snoozedOpen)}
                       className={cn(header, "hover:text-muted-foreground")}
                     >
-                      <span>Snoozed ({row.count})</span>
                       <CaretDownIcon
                         aria-hidden
                         size={12}
                         className={cn(
-                          "ml-auto transition-transform duration-(--motion-base) ease-spring",
+                          "shrink-0 transition-transform duration-(--motion-base) ease-spring",
                           !snoozedOpen && "-rotate-90",
                         )}
                       />
-                    </button>
-                  )}
-                  {row.kind === "settled-header" && (
-                    <button
-                      type="button"
-                      aria-expanded={settledOpen}
-                      data-section-toggle=""
-                      onClick={() => organizer.setSettledOpen(!settledOpen)}
-                      className={cn(header, "hover:text-muted-foreground")}
-                    >
-                      <span>Settled ({row.count})</span>
-                      <CaretDownIcon
-                        aria-hidden
-                        size={12}
-                        className={cn(
-                          "ml-auto transition-transform duration-(--motion-base) ease-spring",
-                          !settledOpen && "-rotate-90",
-                        )}
-                      />
+                      <HeadingText label="Snoozed" count={row.count} />
                     </button>
                   )}
                 </div>

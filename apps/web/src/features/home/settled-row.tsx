@@ -19,7 +19,7 @@ import { useThreadCard } from "./use-thread-card.ts";
 
 // The task rows' box and fills, one line tall: settled work is out of the way.
 const row =
-  "flex h-8 w-full items-center gap-2 rounded-md px-3 text-left text-ui transition-colors duration-(--motion-fast)";
+  "flex h-[30px] w-full items-center gap-2 rounded-md px-2.5 text-left text-ui transition-colors duration-(--motion-fast)";
 
 /**
  * A settled thread at rest: its project badge and title on one line. Under the pointer or focus,
@@ -55,7 +55,7 @@ export function SettledRow(props: {
       <span
         className={cn(
           "min-w-0 flex-1 truncate leading-5",
-          current ? "text-foreground" : "text-subtle-foreground/75",
+          current ? "text-foreground" : "text-muted-foreground",
         )}
       >
         {renaming ? (
@@ -71,7 +71,7 @@ export function SettledRow(props: {
       </span>
       {!renaming && (
         // What the work left behind, then its age: the PR when there is one, else the lines
-        // changed. Faint like the rest of the row; the row's actions take this place on hover.
+        // added. Faint like the rest of the row; the row's actions take this place on hover.
         <span className="flex shrink-0 items-center gap-2.5 text-meta text-faint-foreground tabular-nums group-hover/row:invisible group-focus-within/row:invisible">
           {card.pr !== undefined ? (
             <span className="inline-flex items-center gap-1">
@@ -82,10 +82,8 @@ export function SettledRow(props: {
               )}
               {card.pr}
             </span>
-          ) : card.diff && card.diff.added + card.diff.removed > 0 ? (
-            <span>
-              +{card.diff.added} −{card.diff.removed}
-            </span>
+          ) : card.diff && card.diff.added > 0 ? (
+            <span>+{card.diff.added}</span>
           ) : null}
           <span>{card.age}</span>
         </span>

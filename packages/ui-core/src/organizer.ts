@@ -5,8 +5,8 @@ import { readJson, writeJson, type KeyValueStorage } from "./storage.ts";
 /*
  * How this device shows the Home list. Settle, snooze, pin, read state, titles and deletion
  * belong to the daemon (ADR 0057) and arrive on each thread list entry; what stays here is
- * view state: the unread baseline of a first launch, the project filter and which disclosures
- * are open.
+ * view state: the unread baseline of a first launch, the project filter, the Threads panel's
+ * tab and which disclosures are open.
  */
 
 /** The daemon's auto-settle window (`threads.autoSettleAfter`). */
@@ -21,7 +21,10 @@ const Stored = z.object({
   /** Home list device filter; absent is every device. */
   device: z.string().optional().catch(undefined),
   snoozedOpen: z.boolean().catch(false),
-  settledOpen: z.boolean().catch(false),
+  /** The Threads panel's tab: the work in hand, or settled threads. */
+  homeTab: z.enum(["active", "settled"]).catch("active"),
+  /** Active groups the person folded (Today, Running…), by key. */
+  collapsed: z.array(z.string().max(32)).max(16).catch([]),
 });
 type Stored = z.infer<typeof Stored>;
 
@@ -41,7 +44,8 @@ export class Organizer {
       baseline: firstLaunch(storage, now),
       project: null,
       snoozedOpen: false,
-      settledOpen: false,
+      homeTab: "active",
+      collapsed: [],
     };
     const stored = readJson(storage, storageKey, Stored, fresh);
     this.state = stored;
@@ -62,8 +66,13 @@ export class Organizer {
   setSnoozedOpen(snoozedOpen: boolean): void {
     this.set({ snoozedOpen });
   }
-  setSettledOpen(settledOpen: boolean): void {
-    this.set({ settledOpen });
+  setHomeTab(homeTab: OrganizerState["homeTab"]): void {
+    this.set({ homeTab });
+  }
+  /** Fold or unfold one of the Active tab's groups. */
+  setGroupOpen(group: string, open: boolean): void {
+    const rest = this.state.collapsed.filter((key) => key !== group);
+    this.set({ collapsed: open ? rest : [...rest, group] });
   }
   private set(patch: Partial<Stored>): void {
     this.state = { ...this.state, ...patch };
@@ -71,13 +80,14 @@ export class Organizer {
     this.emit();
   }
   private persist(): void {
-    const { baseline, project, device, snoozedOpen, settledOpen } = this.state;
+    const { baseline, project, device, snoozedOpen, homeTab, collapsed } = this.state;
     writeJson(this.storage, storageKey, {
       baseline,
       project,
       device,
       snoozedOpen,
-      settledOpen,
+      homeTab,
+      collapsed,
     } satisfies Stored);
   }
   private emit(): void {
