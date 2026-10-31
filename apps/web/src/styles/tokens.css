@@ -18,6 +18,8 @@
   /* Layout. */
   /* A view's own list beside its column (Automations, Skills). */
   --header-h: 44px;
+  /* The sidebar's rail of places, left of its panel. */
+  --rail-width: 52px;
   --column: 760px;
   /* Every composer footer control: plus, permission, model, meter, send and stop. */
   --composer-control: 32px;

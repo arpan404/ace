@@ -1,4 +1,4 @@
-import { createContext, use } from "react";
+import { createContext, use, type ReactNode } from "react";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
 import { type RowAttention, type ThreadCard } from "@ace/ui-core";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
@@ -228,22 +228,56 @@ export function RowTime(props: { card: ThreadCard }) {
   );
 }
 
+/** The quiet dot between the second line's facts. */
+function Dot() {
+  return (
+    <span aria-hidden className="shrink-0">
+      ·
+    </span>
+  );
+}
+
 /**
- * Branch and pull request lead the last line; the provider keeps the trailing slot. A row never
- * names its machine: with more than one device connected, the machine's icon sits beside the
- * provider's, its name in the tooltip and the row's spoken details.
+ * The second line: the project's mark and name, then the branch (mono) and pull request,
+ * apart by dots; the provider keeps the trailing slot. A row never names its machine: with more
+ * than one device connected, the machine's icon sits beside the provider's, its name in the
+ * tooltip and the row's spoken details.
  */
-export function RowContext(props: { card: ThreadCard }) {
+export function RowContext(props: {
+  card: ThreadCard;
+  /** The project's mark; none inside the project's own list, which doesn't repeat it. */
+  project?: ReactNode;
+}) {
   const { card } = props;
   const devices = use(ManyDevices);
+  const named = props.project !== undefined;
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
-      {card.run && <RunMark run={card.run} />}
-      {card.branch && <MiddleTruncate text={card.branch.name} className="flex-1 font-mono" />}
+      {named && (
+        <>
+          {props.project}
+          <span className="max-w-[45%] shrink-0 truncate">{card.project}</span>
+        </>
+      )}
+      {card.run && (
+        <>
+          {named && <Dot />}
+          <RunMark run={card.run} />
+        </>
+      )}
+      {card.branch && (
+        <>
+          {(named || card.run) && <Dot />}
+          <MiddleTruncate text={card.branch.name} className="min-w-0 flex-1 font-mono" />
+        </>
+      )}
       {card.pr !== undefined && (
-        <span className="shrink-0">
-          <PullRequest card={card} />
-        </span>
+        <>
+          {(named || card.run || card.branch) && <Dot />}
+          <span className="shrink-0">
+            <PullRequest card={card} />
+          </span>
+        </>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
         {devices && (

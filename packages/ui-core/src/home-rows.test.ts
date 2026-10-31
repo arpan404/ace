@@ -1,187 +1,216 @@
 import { expect, test } from "vitest";
 import {
+  focusRows,
   homeFootStart,
   homeRowKey,
-  homeRows,
-  settledFirstRows,
-  settledMoreRows,
-  type HomeGroups,
+  projectFold,
+  inboxFold,
+  searchRows,
+  treeRows,
+  type HomeRow,
 } from "./home-rows.ts";
+import type { HomeTree, TreeProject } from "./home-tree.ts";
 
 /** The rows as short words, to read the list top to bottom. */
-const words = (rows: ReturnType<typeof homeRows>) =>
+const words = (rows: readonly HomeRow[]) =>
   rows.map((row) => {
-    if (row.kind === "settled-header" || row.kind === "snoozed-header")
-      return `${row.kind === "settled-header" ? "settled" : "snoozed"} ${row.count}`;
-    if (row.kind === "settled-more") return `more ${row.count}`;
-    if (row.kind === "pinned-header") return `pinned ${row.count}`;
-    if (row.kind === "pinned-end") return "—";
-    return "id" in row ? row.id : "unsent";
+    switch (row.kind) {
+      case "inbox-header":
+        return `Inbox ${row.count}${row.open ? "" : " (folded)"}`;
+      case "place":
+        return `${row.place} ${row.count}`;
+      case "projects-label":
+        return "Projects";
+      case "project-header":
+        return `[${row.project}]${row.open ? "" : " (folded)"}`;
+      case "project-settled":
+        return `${row.count} settled${row.open ? " (open)" : ""}`;
+      case "quiet-header":
+        return `Quiet ${row.count}${row.open ? " (open)" : ""}`;
+      case "quiet-project":
+        return `quiet ${row.project} ${row.settled}`;
+      case "snoozed-header":
+        return `Snoozed ${row.count}`;
+      case "settled-more":
+        return `more ${row.state}`;
+      case "empty":
+        return row.text;
+      case "label":
+        return row.count === undefined ? row.label : `${row.label} · ${row.count}`;
+      case "unsent":
+        return "unsent";
+      case "thread":
+        return row.withProject ? `${row.id}@` : row.id;
+      default:
+        return row.id;
+    }
   });
-const groups = (patch: Partial<HomeGroups>): HomeGroups => ({
-  pinned: [],
-  active: [],
-  recent: [],
-  snoozed: [],
+
+const project = (id: string, patch: Partial<TreeProject> = {}): TreeProject => ({
+  id,
+  threads: [],
+  open: [],
+  running: 0,
+  inbox: 0,
   settled: [],
+  settledTotal: 0,
   ...patch,
 });
 
-test("the Pinned group leads under its heading, then the rest, then Settled", () => {
-  const rows = homeRows(groups({ pinned: ["p1", "p2"], active: ["a"], settled: ["s"] }), {
-    settledOpen: false,
-  });
-  expect(words(rows)).toEqual(["pinned 2", "p1", "p2", "—", "a", "settled 1"]);
+const built = (patch: Partial<HomeTree> = {}): HomeTree => ({
+  inbox: [],
+  running: [],
+  recent: [],
+  projects: [],
+  quiet: [],
+  order: [],
+  ...patch,
 });
 
-test("with nothing pinned there is no Pinned heading, except as a drop zone mid-drag", () => {
-  expect(words(homeRows(groups({ active: ["a"] }), { settledOpen: false }))).toEqual(["a"]);
-  expect(words(homeRows(groups({ active: ["a"] }), { settledOpen: false, pinZone: true }))).toEqual(
-    ["pinned 0", "—", "a"],
+test("the Inbox leads with its threads, then Running, Recent and each project", () => {
+  const rows = treeRows(
+    built({
+      inbox: ["asks"],
+      running: ["works"],
+      recent: [{ id: "old", at: 1, settled: true }],
+      projects: [project("ace", { threads: ["works", "rests"], open: ["works", "rests"] })],
+    }),
+    { includeUnsent: true },
   );
-});
-
-test("threads at rest follow the work in hand without an extra heading", () => {
-  expect(
-    words(homeRows(groups({ active: ["a"], recent: ["r1", "r2"] }), { settledOpen: false })),
-  ).toEqual(["a", "r1", "r2"]);
-  expect(words(homeRows(groups({ pinned: ["p"], recent: ["r"] }), { settledOpen: false }))).toEqual(
-    ["pinned 1", "p", "—", "r"],
-  );
-  // With only threads at rest, a heading over the whole list would say nothing.
-  expect(words(homeRows(groups({ recent: ["r"] }), { settledOpen: false }))).toEqual(["r"]);
-});
-
-test("Settled closes the list and lists its threads only when open", () => {
-  expect(
-    words(homeRows(groups({ active: ["a"], settled: ["s1", "s2"] }), { settledOpen: true })),
-  ).toEqual(["a", "settled 2", "s1", "s2"]);
-});
-
-test("no thread id can take a heading's key, whatever it is called", () => {
-  const rows = homeRows(
-    groups({ pinned: ["section:pinned-header"], active: ["section:settled-header", "thread:x"] }),
-    { settledOpen: true },
-  );
-  const keys = rows.map(homeRowKey);
-  expect(new Set(keys).size).toBe(keys.length);
-});
-
-/** The keys of the thread rows alone. */
-const threadKeys = (patch: Partial<HomeGroups>) =>
-  homeRows(groups(patch), { settledOpen: true })
-    .filter((row) => "id" in row)
-    .map(homeRowKey);
-
-test("a thread keeps its key when pinned, unpinned or settled, so each move slides", () => {
-  expect(threadKeys({ pinned: ["a"] })).toEqual(threadKeys({ active: ["a"] }));
-  expect(threadKeys({ settled: ["a"] })).toEqual(threadKeys({ active: ["a"] }));
-  expect(threadKeys({ recent: ["a"] })).toEqual(threadKeys({ active: ["a"] }));
-});
-
-test("an empty Settled group stays out of the list even when expanded", () => {
-  expect(words(homeRows(groups({ active: ["a"] }), { settledOpen: true }))).toEqual(["a"]);
-});
-
-test("unsent work leads the list, above the Pinned group", () => {
-  expect(
-    words(
-      homeRows(
-        groups({ pinned: ["pin"], active: ["active"], recent: ["recent"], settled: ["settled"] }),
-        { settledOpen: true, includeUnsent: true },
-      ),
-    ),
-  ).toEqual(["unsent", "pinned 1", "pin", "—", "active", "recent", "settled 1", "settled"]);
-});
-
-test("Snoozed follows the tasks and precedes Settled, exposing its tasks only when open", () => {
-  const list = groups({ active: ["asks"], snoozed: ["later"], settled: ["done"] });
-  expect(words(homeRows(list, { settledOpen: false, includeUnsent: true }))).toEqual([
-    "unsent",
-    "asks",
-    "snoozed 1",
-    "settled 1",
-  ]);
-  expect(words(homeRows(list, { snoozedOpen: true, settledOpen: true }))).toEqual([
-    "asks",
-    "snoozed 1",
-    "later",
-    "settled 1",
-    "done",
-  ]);
-});
-
-const ids = (prefix: string, count: number) =>
-  Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`);
-
-test("an open Settled section shows its first rows, then offers the next batch", () => {
-  const settled = ids("s", 40);
-  const rows = homeRows(groups({ active: ["a"], settled }), {
-    settledOpen: true,
-    settledShown: settledFirstRows,
-    settledTotal: 85,
-  });
-  // The heading counts every settled thread, loaded or not; the button names what it reveals.
   expect(words(rows)).toEqual([
-    "a",
-    "settled 85",
-    ...settled.slice(0, 10),
-    `more ${settledMoreRows}`,
+    "unsent",
+    "Inbox 1",
+    "asks@",
+    "running 1",
+    "recent 1",
+    "Projects",
+    "[ace]",
+    "works",
+    "rests",
   ]);
 });
 
-test("the last batch names only what is left, and nothing is offered once all show", () => {
-  const settled = ids("s", 12);
-  expect(words(homeRows(groups({ settled }), { settledOpen: true, settledShown: 10 })).at(-1)).toBe(
-    "more 2",
-  );
-  expect(words(homeRows(groups({ settled }), { settledOpen: true, settledShown: 35 })).at(-1)).toBe(
-    "s12",
-  );
+test("an empty Inbox says the person is all caught up", () => {
+  expect(words(treeRows(built())).slice(0, 2)).toEqual(["Inbox 0", "You’re all caught up."]);
 });
 
-test("the batch counts threads the daemon has not sent yet", () => {
-  const rows = homeRows(groups({ settled: ids("s", 20) }), {
-    settledOpen: true,
-    settledShown: 20,
-    settledTotal: 30,
+test("a folded project keeps only the open thread in sight", () => {
+  const tree = built({ projects: [project("ace", { threads: ["a", "b"], open: ["a", "b"] })] });
+  const folded = [projectFold("ace")];
+  expect(words(treeRows(tree, { collapsed: folded })).slice(-1)).toEqual(["[ace] (folded)"]);
+  expect(words(treeRows(tree, { collapsed: folded, current: "b" })).slice(-2)).toEqual([
+    "[ace] (folded)",
+    "b",
+  ]);
+  expect(words(treeRows(tree, { collapsed: [inboxFold] }))[0]).toBe("Inbox 0 (folded)");
+});
+
+test("N settled opens that project's settled threads in place, with a foot while more load", () => {
+  const tree = built({
+    projects: [
+      project("ace", { threads: ["a"], open: ["a"], settled: ["s1", "s2"], settledTotal: 5 }),
+      project("web", { threads: ["w"], open: ["w"], settled: ["s3"], settledTotal: 1 }),
+    ],
   });
-  expect(words(rows).at(-1)).toBe("more 10");
+  expect(words(treeRows(tree)).slice(-6)).toEqual([
+    "[ace]",
+    "a",
+    "5 settled",
+    "[web]",
+    "w",
+    "1 settled",
+  ]);
+  const open = treeRows(tree, { settledOpen: ["ace"], settledFoot: () => "loading" });
+  expect(words(open).slice(-9)).toEqual([
+    "[ace]",
+    "a",
+    "5 settled (open)",
+    "s1",
+    "s2",
+    "more loading",
+    "[web]",
+    "w",
+    "1 settled",
+  ]);
 });
 
-test("a closed section keeps the open thread in sight under its heading", () => {
-  const list = groups({ active: ["a"], snoozed: ["z1", "z2"], settled: ["s1", "s2"] });
-  expect(words(homeRows(list, { settledOpen: false, current: "s2" }))).toEqual([
+test("quiet projects fold under one heading at the foot of Projects", () => {
+  const tree = built({
+    projects: [project("ace", { threads: ["a"], open: ["a"] })],
+    quiet: [project("docs", { settledTotal: 4 }), project("cli", { settledTotal: 1 })],
+  });
+  expect(words(treeRows(tree)).slice(-1)).toEqual(["Quiet 2"]);
+  expect(words(treeRows(tree, { quietOpen: true })).slice(-3)).toEqual([
+    "Quiet 2 (open)",
+    "quiet docs 4",
+    "quiet cli 1",
+  ]);
+});
+
+test("Snoozed closes the list, below the free space", () => {
+  const rows = treeRows(built(), { snoozed: ["z"], snoozedOpen: true });
+  expect(words(rows).slice(-2)).toEqual(["Snoozed 1", "z"]);
+  expect(homeFootStart(rows.map((item) => ({ item })))).toBe(rows.length - 2);
+});
+
+test("Running's focused list names each thread's project", () => {
+  const tree = built({ running: ["w", "i"] });
+  expect(words(focusRows({ kind: "running" }, { tree, now: 0 }))).toEqual(["w@", "i@"]);
+});
+
+test("Recent's focused list groups by day, newest first", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const now = new Date(2026, 9, 31, 15).getTime();
+  const tree = built({
+    recent: [
+      { id: "a", at: now - 1000, settled: false },
+      { id: "b", at: now - day, settled: true },
+      { id: "c", at: now - 3 * day, settled: true },
+    ],
+  });
+  expect(words(focusRows({ kind: "recent" }, { tree, now }))).toEqual([
+    "Today",
     "a",
-    "snoozed 2",
-    "settled 2",
+    "Yesterday",
+    "b",
+    "Earlier this week",
+    "c",
+  ]);
+});
+
+test("a project's focused tabs list its open threads, Inbox ones included, or its settled", () => {
+  const tree = built({
+    projects: [project("ace", { threads: ["b"], open: ["a", "b"], settled: ["s"] })],
+  });
+  const active = focusRows({ kind: "project", id: "ace", tab: "active" }, { tree, now: 0 });
+  expect(words(active)).toEqual(["a", "b"]);
+  const settled = focusRows(
+    { kind: "project", id: "ace", tab: "settled" },
+    { tree, now: 0, foot: "more" },
+  );
+  expect(words(settled)).toEqual(["s", "more more"]);
+});
+
+test("search lists matching threads, then settled matches, each under its count", () => {
+  expect(words(searchRows(["a"], ["s1", "s2"]))).toEqual([
+    "Threads · 1",
+    "a@",
+    "Settled · 2",
+    "s1",
     "s2",
   ]);
-  expect(words(homeRows(list, { settledOpen: false, current: "z1" }))).toEqual([
-    "a",
-    "snoozed 2",
-    "z1",
-    "settled 2",
-  ]);
 });
 
-test("the open settled thread shows even past the rows the section shows", () => {
-  const settled = ids("s", 30);
-  const rows = words(
-    homeRows(groups({ settled }), { settledOpen: true, settledShown: 10, current: "s25" }),
-  );
-  expect(rows).toEqual(["settled 30", ...settled.slice(0, 10), "s25", "more 19"]);
-});
-
-const drawn = (rows: ReturnType<typeof homeRows>) => rows.map((item) => ({ item }));
-
-test("the foot starts at the first section heading below the tasks", () => {
-  const list = groups({ pinned: ["p"], active: ["a"], snoozed: ["z"], settled: ["s"] });
-  const rows = homeRows(list, { settledOpen: false });
-  expect(words(rows)[homeFootStart(drawn(rows))]).toBe("snoozed 1");
-  const noSnooze = homeRows(groups({ active: ["a"], settled: ["s"] }), { settledOpen: false });
-  expect(words(noSnooze)[homeFootStart(drawn(noSnooze))]).toBe("settled 1");
-  expect(homeFootStart(drawn(homeRows(groups({ active: ["a"] }), { settledOpen: false })))).toBe(
-    -1,
+test("no thread id can take a heading's key, and a thread keeps its key in any place", () => {
+  const thread: HomeRow = {
+    kind: "thread",
+    id: "section:inbox-header",
+    place: "inbox",
+    withProject: true,
+  };
+  const header: HomeRow = { kind: "inbox-header", count: 0, open: true };
+  expect(homeRowKey(thread)).not.toBe(homeRowKey(header));
+  expect(homeRowKey({ kind: "thread", id: "x", place: "inbox", withProject: true })).toBe(
+    homeRowKey({ kind: "thread", id: "x", place: "project", withProject: false }),
   );
 });

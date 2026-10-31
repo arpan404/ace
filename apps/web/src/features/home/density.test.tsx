@@ -18,36 +18,38 @@ function seed(app: ReturnType<typeof harness>) {
   }
 }
 
-test("all projects share one Home order and keyboard navigation crosses project boundaries", async () => {
+test("projects group their threads, and keyboard navigation crosses project boundaries", async () => {
   const app = harness();
   seed(app);
   await app.open("/new");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
   await nav.findByRole("link", { name: /^Last task/ });
-  expect(nav.queryAllByRole("heading")).toHaveLength(0);
   const links = nav.getAllByRole("link");
   expect(links.map((link) => link.getAttribute("aria-label")?.split(".")[0])).toEqual([
     "Last task",
-    "Other project",
     "First task",
+    "Other project",
   ]);
-  const first = links[0];
-  if (!first) throw new Error("Missing first row");
-  expect(within(first).getByText("ace")).toBeTruthy();
+  const [first, second, other] = links;
+  if (!first || !second || !other) throw new Error("Missing rows");
+  // Inside its project a row doesn't repeat the project.
+  expect(within(first).queryByText("ace")).toBeNull();
   expect(within(first).getByText("Working", { exact: true })).toBeTruthy();
+  const relay = nav.getByRole("button", { name: /^relay/ });
   first.focus();
   await userEvent.keyboard("{ArrowDown}");
-  expect(document.activeElement).toBe(links[1]);
+  expect(document.activeElement).toBe(second);
   await userEvent.keyboard("j");
-  expect(document.activeElement).toBe(links[2]);
-  await userEvent.keyboard("k{ArrowUp}");
+  expect(document.activeElement).toBe(relay);
+  await userEvent.keyboard("j");
+  expect(document.activeElement).toBe(other);
+  await userEvent.keyboard("kk{ArrowUp}");
   expect(document.activeElement).toBe(first);
-  // Keyboard focus puts the row's actions where its status was; the project stays.
-  expect(within(first).getByText("ace")).toBeTruthy();
+  // Keyboard focus puts the row's actions where its status was.
   expect(within(first).queryByText("Working", { exact: true })).toBeNull();
 });
 
-test("the project filter narrows the flat list while keeping project identity on each task", async () => {
+test("the project filter narrows the tree to one project", async () => {
   const storage = memoryKeyValue();
   storage.setItem(
     "ace.home.organizer",
@@ -58,9 +60,9 @@ test("the project filter narrows the flat list while keeping project identity on
   await app.open("/new?project=ace");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
   const task = await nav.findByRole("link", { name: /^Last task/ });
-  expect(within(task).getByText("ace")).toBeTruthy();
   expect(within(task).getByText("Working", { exact: true })).toBeTruthy();
-  expect(nav.queryByRole("heading", { name: "ace" })).toBeNull();
+  expect(nav.getByRole("button", { name: /^ace/ })).toBeTruthy();
+  expect(nav.queryByRole("button", { name: /^relay/ })).toBeNull();
   expect(nav.queryByRole("link", { name: /^Other project/ })).toBeNull();
 });
 
@@ -101,7 +103,7 @@ test("the project filter also narrows unsent starts without hiding matching work
   expect(nav.queryByRole("link", { name: /^relay pending task/ })).toBeNull();
 });
 
-test("arrows and j/k cross the pinned boundary in both directions", async () => {
+test("a pinned thread leads its project, and arrows move on from it", async () => {
   const app = harness();
   seed(app);
   await app.open("/new");
@@ -109,6 +111,11 @@ test("arrows and j/k cross the pinned boundary in both directions", async () => 
   await nav.findByRole("link", { name: /^Last task/ });
   await app.client.command({ type: "thread.pin", threadId: ThreadId.parse("first"), pinned: true });
   const pinned = await nav.findByRole("link", { name: /^First task.*Pinned/ });
+  await waitFor(() =>
+    expect(
+      nav.getAllByRole("link").map((link) => link.getAttribute("aria-label")?.split(".")[0]),
+    ).toEqual(["First task", "Last task", "Other project"]),
+  );
   const next = nav.getByRole("link", { name: /^Last task/ });
   pinned.focus();
   await userEvent.keyboard("{ArrowDown}");
@@ -125,7 +132,8 @@ test("navigation includes every Unsent link in both directions", async () => {
   const app = harness();
   seed(app);
   await app.open("/new");
-  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const navigation = await screen.findByRole("navigation", { name: "Threads" });
+  const nav = within(navigation);
   await nav.findByRole("link", { name: /^First task/ });
   app.client.networkOnline(false);
   for (const title of ["First offline task", "Second offline task"])
@@ -137,15 +145,19 @@ test("navigation includes every Unsent link in both directions", async () => {
       input: [{ type: "text", text: title }],
     });
   await nav.findByRole("link", { name: /^Second offline task/ });
-  const links = nav.getAllByRole("link");
-  const lastTask = links[2];
-  if (!lastTask) throw new Error("Missing admitted task");
-  lastTask.focus();
-  for (const next of links.slice(3)) {
+  // Every stop the arrows reach, top to bottom: Unsent links, headings, places and rows.
+  const stops = [
+    ...navigation.querySelectorAll<HTMLElement>("[data-row-focus], [data-section-toggle]"),
+  ];
+  const [top] = stops;
+  if (!top) throw new Error("Missing the first stop");
+  expect(top.textContent).toContain("First offline task");
+  top.focus();
+  for (const next of stops.slice(1)) {
     await userEvent.keyboard("j");
     await waitFor(() => expect(document.activeElement).toBe(next));
   }
-  for (const previous of links.slice(2, -1).toReversed()) {
+  for (const previous of stops.slice(0, -1).toReversed()) {
     await userEvent.keyboard("{ArrowUp}");
     await waitFor(() => expect(document.activeElement).toBe(previous));
   }
@@ -164,7 +176,7 @@ test("Snoozed folds quiet tasks away but leaves a request in the main list", asy
       threadId: ThreadId.parse(id),
       until: now + 3_600_000,
     });
-  await nav.findByRole("button", { name: "Snoozed (2)" });
+  await nav.findByRole("button", { name: "Snoozed 2" });
   app.daemon.apply("last", [
     {
       type: "interaction.opened",
@@ -178,7 +190,7 @@ test("Snoozed folds quiet tasks away but leaves a request in the main list", asy
       },
     },
   ]);
-  const snoozed = await nav.findByRole("button", { name: "Snoozed (1)" });
+  const snoozed = await nav.findByRole("button", { name: "Snoozed 1" });
   await waitFor(() => expect(nav.queryByRole("link", { name: /^First task/ })).toBeNull());
   expect(nav.getByRole("link", { name: /^Last task/ })).toBeTruthy();
   await userEvent.click(snoozed);
@@ -205,7 +217,7 @@ test("Snoozed lists what wakes soonest first, and each row says when it wakes", 
       threadId: ThreadId.parse(id),
       until: now + hours * 3_600_000,
     });
-  await userEvent.click(await nav.findByRole("button", { name: "Snoozed (2)" }));
+  await userEvent.click(await nav.findByRole("button", { name: "Snoozed 2" }));
   await nav.findByRole("link", { name: /^Wakes sooner/ });
   const rows = nav.getAllByRole("link", { name: /^Wakes / });
   expect(rows.map((row) => row.getAttribute("aria-label")?.split(".")[0])).toEqual([
@@ -277,7 +289,7 @@ test.each([
         threadId: ThreadId.parse(id),
         until: now + 3_600_000,
       });
-    const closed = await nav.findByRole("button", { name: "Snoozed (2)" });
+    const closed = await nav.findByRole("button", { name: "Snoozed 2" });
     expect(closed.getAttribute("aria-expanded")).toBe("false");
     await waitFor(() =>
       expect(nav.queryByRole("link", { name: /^Recover the saved message/ })).toBeNull(),
@@ -290,7 +302,7 @@ test.each([
     // A wait reads as quiet words: no status glyph beside it.
     if (reason === "uncertain")
       expect(word.closest("[data-tone]")?.querySelector("[data-state]")).toBeNull();
-    const remaining = await nav.findByRole("button", { name: "Snoozed (1)" });
+    const remaining = await nav.findByRole("button", { name: "Snoozed 1" });
     expect(remaining.getAttribute("aria-expanded")).toBe("false");
     expect(nav.queryByRole("link", { name: /^Review this later/ })).toBeNull();
   },

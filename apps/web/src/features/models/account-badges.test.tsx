@@ -9,7 +9,7 @@ import {
   openModelPicker,
   selectAccount,
 } from "@/test/model-control.ts";
-import { openProfileMenu } from "@/test/navigation.ts";
+import { openProfileMenu, openThreads } from "@/test/navigation.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 
@@ -148,7 +148,7 @@ test("editing an account label updates its composer, thread row, picker, search 
   await userEvent.click(within(editor).getByRole("button", { name: "Use violet badge" }));
   await userEvent.click(within(editor).getByRole("button", { name: "Save" }));
   await within(accounts).findByRole("img", { name: "Studio account" });
-  await userEvent.click(await screen.findByRole("link", { name: "Back to app" }));
+  await openThreads();
   await screen.findByRole("heading", { level: 1, name: "New thread" });
   await openProfileMenu();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage" }));

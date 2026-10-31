@@ -19,10 +19,11 @@ import { useThreadCard } from "./use-thread-card.ts";
 
 // The task rows' box and fills, one line tall: settled work is out of the way.
 const row =
-  "flex h-8 w-full items-center gap-2 rounded-md px-3 text-left text-ui transition-colors duration-(--motion-fast)";
+  "flex h-[30px] w-full items-center gap-2 rounded-md px-2.5 text-left text-ui transition-colors duration-(--motion-fast)";
 
 /**
- * A settled thread at rest: its project badge and title on one line. Under the pointer or focus,
+ * A settled thread at rest, or finished work in Recent: its project badge (none inside its
+ * project's own list), title, pull request or lines added, and age on one line. Under the pointer or focus,
  * Unsettle and the row's ⋯ menu take the right end; the context menu is the task row's own.
  * Another machine's settled thread (`machine`) acts on that machine, under its list `rowId`.
  */
@@ -31,10 +32,14 @@ export function SettledRow(props: {
   leaving?: boolean | undefined;
   machine?: RowMachine | undefined;
   rowId?: string | undefined;
+  /** Drawn in its project's own list: the row doesn't repeat the project's mark. */
+  inProject?: boolean | undefined;
+  /** False for finished work Recent lists that isn't settled: its actions offer Settle. */
+  settled?: boolean | undefined;
 }) {
   const { machine } = props;
   const rowId = props.rowId ?? props.threadId;
-  const data = useThreadCard(props.threadId, true, props.leaving);
+  const data = useThreadCard(props.threadId, props.settled !== false, props.leaving);
   const selection = useHomeSelection();
   const actions = useThreadActions();
   const editing = useRenameTitle(rowId);
@@ -51,11 +56,13 @@ export function SettledRow(props: {
   const body = (
     <>
       {/* Settled work recedes as a whole: a grey badge and a grey title, full colour only while open. */}
-      <ProjectMark id={entry.workspaceId} badge={card.badge} quiet={!current} />
+      {!props.inProject && (
+        <ProjectMark id={entry.workspaceId} badge={card.badge} quiet={!current} />
+      )}
       <span
         className={cn(
           "min-w-0 flex-1 truncate leading-5",
-          current ? "text-foreground" : "text-subtle-foreground/75",
+          current ? "text-foreground" : "text-muted-foreground",
         )}
       >
         {renaming ? (
@@ -71,7 +78,7 @@ export function SettledRow(props: {
       </span>
       {!renaming && (
         // What the work left behind, then its age: the PR when there is one, else the lines
-        // changed. Faint like the rest of the row; the row's actions take this place on hover.
+        // added. Faint like the rest of the row; the row's actions take this place on hover.
         <span className="flex shrink-0 items-center gap-2.5 text-meta text-faint-foreground tabular-nums group-hover/row:invisible group-focus-within/row:invisible">
           {card.pr !== undefined ? (
             <span className="inline-flex items-center gap-1">
@@ -82,10 +89,8 @@ export function SettledRow(props: {
               )}
               {card.pr}
             </span>
-          ) : card.diff && card.diff.added + card.diff.removed > 0 ? (
-            <span>
-              +{card.diff.added} −{card.diff.removed}
-            </span>
+          ) : card.diff && card.diff.added > 0 ? (
+            <span>+{card.diff.added}</span>
           ) : null}
           <span>{card.age}</span>
         </span>

@@ -73,25 +73,23 @@ content and the sidebar stays as the person left it.
 
 ## Sidebar
 
-As in desktop chat apps: one sidebar (composed in `app/app-shell.tsx`), no rail.
+One sidebar (composed in `app/app-shell.tsx`): a rail of places beside the current place's
+panel (ADR 0107).
 
-- **Top** (`features/shell/app-sidebar.tsx`): "ace ▾" (the daemon: its state and address,
-  pairing, connection settings), Search (⇧⌘K: a dialog over any screen, `features/search`; the
-  palette's "Search all threads for …" opens it too). Automations (`g u`) and Skills (`g s`)
-  live in the profile dropdown, with their entries defined in `features/shell/views.ts`.
-- **Body**: a compact toolbar has the project filter on the left and the icon-only New thread
-  action on the right, with its label and shortcut in the tooltip. With no projects, Add project
-  replaces the filter and New thread is hidden. Below is the thread list (`ThreadsSidebar`), the
-  only part that scrolls. A view's list is the
+- **Rail** (`features/shell/app-rail.tsx`): Threads, Spade (shown as coming soon, not a
+  control), GitHub, Automations (`g u`) and Skills (`g s`), then the update, Settings (⌘,) and
+  the profile, whose menu holds Usage, Archived threads, Keyboard shortcuts and Connection. The
+  current place follows the route (`activeView` in `features/shell/views.ts`). Off Threads, a
+  needs-you dot on Threads says a thread waits on the person (`use-needs-you-count.ts`).
+- **Panel** (`features/shell/app-sidebar.tsx`): the place's own header (`PanelHeader`) and its
+  list. Threads: the title with Search (⇧⌘K: a dialog over any screen, `features/search`), then a
+  compact toolbar with the project filter on the left and the icon-only New thread action on the
+  right, then the thread list (`ThreadsSidebar`), the only part that scrolls. GitHub: Inbox,
+  Pull requests and Issues (`forge-panel.tsx`). A view's list is the
   `sidebar` of its layout route's `<ViewFrame>`, placed by `place`: `threads` (Home and pages that
-  keep the thread list) or `sidebar` (Settings, Automations and Skills take the body
-  through a portal, keeping the route's providers).
-- **Foot**: the profile, full width (initials, name, the connection dot; its menu holds
-  Automations, Skills, Appearance, Keyboard shortcuts, Usage & accounts and Archived threads), the sign of
-  computer use while agents hold an app, and the Settings gear (⌘,). In Settings, Automations
-  and Skills, app navigation, the header menu, global Search, sidebar title and profile are hidden.
-  Back to app sits above the section's list and opens New thread. The task list has no Threads heading.
-  Its project filter is always visible; with no projects, Add project takes its place.
+  keep the thread list) or `sidebar` (Settings, Automations and Skills take the panel
+  through a portal, keeping the route's providers). There is no Back to app: the rail stays.
+  Threads' project filter is always visible; with no projects, Add project takes its place.
 - **Home's list** (`features/home`): one flat list of tasks across projects, pinned first, then
   Home order (needs you, work in motion, trouble, the rest, most recent first), then the
   collapsible Snoozed (soonest wake first, each row saying when it wakes) and Settled sections.
@@ -115,7 +113,7 @@ As in desktop chat apps: one sidebar (composed in `app/app-shell.tsx`), no rail.
   paint (`SidebarMenu`), keeping their icons and wording out of the initial bundle. The thread list
   loads beside the first route (`ThreadsSidebar`), keeping its rows and dialogs out of it too.
 - New thread (the row and ⌘N) starts in the project Home is narrowed to, else the last one used.
-- The desktop app styles the `sidebar-top` and `header-nav` slots and `data-sidebar`
+- The desktop app styles the `panel-top` and `header-nav` slots and `data-sidebar`
   (`shown`, `hidden`, `sheet`) so the macOS traffic lights never cover a control.
 
 ## Module boundaries
@@ -155,7 +153,7 @@ Each slice owns `src/features/<slice>/` and the route files for its screens:
 Rules:
 
 - A screen renders `<Screen title subtitle menu summary actions workspace>` from `features/shell/screen.tsx`. Don't build another header or panel container. Docks and their tabs are declared as tab kinds (see Workspace tabs); the shell owns open state, order, sizes, persistence and the shortcuts.
-- A view's list in the sidebar is the `sidebar` of its layout route's `<ViewFrame>`. Use `<ViewSidebar title actions toolbar>` or `<SidebarHeader>` for its heading.
+- A view's list in the sidebar is the `sidebar` of its layout route's `<ViewFrame>`. Use `<ViewSidebar title actions toolbar>` or `<PanelHeader>` for its heading.
 - Live state (threads, sidebar, agent tree, interactions, intents) comes only from `@ace/client-react` hooks. TanStack Query is only for one-off reads. Never copy live state into Query or React state.
 - Primitives you need but don't find in `components/ui` belong to the foundation: add them there, styled from the design tokens, not inside your feature folder.
 - Shortcuts are added to `lib/keymap.ts` and bound with `useHotkey(keymap.x.keys, …)`; tooltips take `shortcut="x"`.

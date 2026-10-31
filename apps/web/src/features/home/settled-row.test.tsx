@@ -12,12 +12,12 @@ const title = "Bump Codex app-server to 0.48";
 const named = new RegExp(`^${title}`);
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 
-/** Home with the workbench's merged Codex bump settled and the Settled section open. */
+/** Home with the workbench's merged Codex bump settled and ace's settled threads open. */
 async function openSettled() {
   const storage = memoryKeyValue();
   storage.setItem(
     "ace.home.organizer",
-    JSON.stringify({ baseline: 0, project: null, settledOpen: true }),
+    JSON.stringify({ baseline: 0, project: null, settledOpen: ["ace"] }),
   );
   const history = createMemoryHistory({ initialEntries: ["/"] });
   const app = harness({ storage, history });
@@ -42,10 +42,10 @@ function settledAt(app: ReturnType<typeof harness>) {
   return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
 }
 
-test("a settled thread is one line of project badge, title and age, without branch or provider", async () => {
+test("in its project a settled thread is one line of title and age, without branch or provider", async () => {
   const { link, row } = await openSettled();
-  // The badge's initials and the title lead; its PR or diff and its age follow on the right.
-  expect(link.textContent).toMatch(new RegExp(`^[A-Za-z]{1,2}${title}`));
+  // The title leads (its project heads the list it sits in); its PR or diff and age follow.
+  expect(link.textContent).toMatch(new RegExp(`^${title}`));
   expect(link.textContent).toMatch(/\d+[smhdw]$|\b[A-Z][a-z]{2}$/);
   expect(row.textContent).not.toContain("chore/codex-048");
   expect(within(link).queryByRole("img", { name: /Codex/ })).toBeNull();
@@ -61,7 +61,8 @@ test("→ moves from a settled row to Unsettle, which brings the thread back to 
   const unsettle = screen.getByRole("button", { name: `Unsettle ${title}` });
   expect(document.activeElement).toBe(unsettle);
   await userEvent.keyboard("{Enter}");
-  await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
+  // Back among its project's open threads, as a full task row offering Settle.
+  await waitFor(() => expect(screen.getByRole("button", { name: `Settle ${title}` })).toBeTruthy());
   expect(settledAt(app)).toBeUndefined();
   expect(within(threads()).getByRole("link", { name: named })).toBeTruthy();
 });

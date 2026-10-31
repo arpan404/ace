@@ -13,7 +13,14 @@ import { ThreadRow } from "./thread-row.tsx";
  * its project, status and card read as they do there. While the machine isn't connected the row
  * says so instead of a status: the last status heard may no longer hold.
  */
-export function MachineRow(props: { id: string; settled: boolean; leaving: boolean }) {
+export function MachineRow(props: {
+  id: string;
+  settled: boolean;
+  leaving: boolean;
+  /** One line (a settled row) rather than a task row. */
+  oneLine?: boolean | undefined;
+  inProject?: boolean | undefined;
+}) {
   const ref = machineRow(props.id);
   const machine = useMachines().find((each) => each.id === ref?.hostId);
   if (!ref || !machine) return null;
@@ -27,12 +34,14 @@ export function MachineRow(props: { id: string; settled: boolean; leaving: boole
       machine={machine}
       unavailable={<AwayRow machine={machine} threadKey={ref.key} threadId={ref.threadId} />}
     >
-      {props.settled ? (
+      {props.oneLine ? (
         <SettledRow
           threadId={ref.threadId}
           rowId={props.id}
           leaving={props.leaving}
           machine={mark}
+          settled={props.settled}
+          inProject={props.inProject}
         />
       ) : (
         <ThreadRow
@@ -41,6 +50,7 @@ export function MachineRow(props: { id: string; settled: boolean; leaving: boole
           settled={false}
           leaving={props.leaving}
           machine={mark}
+          inProject={props.inProject}
         />
       )}
     </MachineScope>
@@ -57,15 +67,17 @@ function AwayRow(props: { machine: Machine; threadKey: string; threadId: string 
       data-row-focus=""
       draggable={false}
       aria-label={`${entry.title}. ${props.machine.name}, ${status}`}
-      className="flex h-[80px] w-full flex-col justify-center gap-1 rounded-md px-3 py-2.5 text-left text-ui outline-none focus-ring-inset hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      className="flex h-[52px] w-full flex-col justify-center gap-0.5 rounded-md px-2.5 py-[7px] text-left text-ui outline-none focus-ring-inset hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
-      <span className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-muted-foreground">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-md leading-5 font-medium text-muted-foreground">
+          {entry.title}
+        </span>
+        <span className="shrink-0 text-meta text-muted-foreground">{status}</span>
+      </span>
+      <span className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
         <MachineMark icon={props.machine.icon} primary={false} />
         <span className="min-w-0 flex-1 truncate">{props.machine.name}</span>
-        <span className="shrink-0">{status}</span>
-      </span>
-      <span className="min-w-0 truncate text-md leading-5 font-medium text-muted-foreground">
-        {entry.title}
       </span>
     </Link>
   );

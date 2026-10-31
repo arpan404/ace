@@ -1,3 +1,4 @@
+import { openThreads } from "@/test/navigation.ts";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
@@ -52,7 +53,7 @@ test.each(["trigger", "item"])(
         }
       });
     try {
-      await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+      await openThreads();
       await screen.findByRole("heading", { level: 1, name: "New thread" });
       await userEvent.click(screen.getByRole("button", { name: /^You, account/ }));
       await screen.findByRole("menuitem", { name: "Usage" });

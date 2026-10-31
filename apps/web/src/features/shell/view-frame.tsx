@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useSidebarInline } from "@/lib/breakpoints.ts";
+import { cn } from "@/lib/cn.ts";
 import { Screen } from "./screen.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
@@ -92,23 +93,49 @@ export function ViewListPage(props: { title: string; fallback: ReactNode }) {
   );
 }
 
-/** The heading of a view's list in the sidebar, with an optional filter or actions. */
-export function SidebarHeader(props: { title?: string | undefined; actions?: ReactNode }) {
+/**
+ * The top row of the sidebar's panel: the place's title and its actions, level with the main
+ * column's header. It is the window's drag area; on the sheet it leaves room for the sheet's own
+ * close button at its end.
+ */
+export function PanelHeader(props: {
+  title: string;
+  /** Before the title, such as a back arrow; the row's left padding tightens to suit it. */
+  leading?: ReactNode;
+  actions?: ReactNode;
+  /** Extra classes for the row, such as a container name its actions query. */
+  className?: string | undefined;
+}) {
+  const { sheet } = useViewFrame();
   return (
-    <div className="group/heading flex h-9 shrink-0 items-center gap-1.5 pt-1 pr-2.5 pl-4">
-      {props.title ? (
-        <h2 className="min-w-0 flex-1 truncate text-xs font-medium text-subtle-foreground">
-          {props.title}
-        </h2>
-      ) : (
-        <span className="flex-1" />
+    <div
+      data-slot="panel-top"
+      className={cn(
+        "group/heading flex h-(--header-h) shrink-0 items-center gap-1 [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag] [&_input]:[-webkit-app-region:no-drag]",
+        sheet ? "pr-12" : "pr-2.5",
+        props.leading ? "pl-2" : "pl-4",
+        props.className,
       )}
+    >
+      {props.leading}
+      <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-foreground">
+        {props.title}
+      </h2>
       {props.actions}
     </div>
   );
 }
 
-/** An optional heading plus a scrolling body: the common layout of a view's list. */
+/** A view list's actions with no title: the list drawn as a page, under the page's own. */
+function ListActions(props: { children: ReactNode }) {
+  return (
+    <div className="flex h-9 shrink-0 items-center justify-end gap-1.5 pt-1 pr-2.5 pl-4">
+      {props.children}
+    </div>
+  );
+}
+
+/** The panel's header (the place's title) plus a scrolling body: the common layout of a view's list. */
 export function ViewSidebar(props: {
   title?: string;
   actions?: ReactNode;
@@ -120,7 +147,11 @@ export function ViewSidebar(props: {
   const title = useContext(InPageContext) ? undefined : props.title;
   return (
     <>
-      {(title || props.actions) && <SidebarHeader title={title} actions={props.actions} />}
+      {title ? (
+        <PanelHeader title={title} actions={props.actions} />
+      ) : (
+        props.actions && <ListActions>{props.actions}</ListActions>
+      )}
       {props.toolbar}
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-4">{props.children}</div>
     </>

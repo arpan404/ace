@@ -33,7 +33,7 @@ import { useThreadCard } from "./use-thread-card.ts";
 // Rows are apart by space, not rules: the list sits inset from the sidebar's edges, and hover and
 // the open thread fill a soft rounded box.
 const row =
-  "relative flex w-full items-center rounded-md px-3 text-left text-ui outline-none transition-colors duration-(--motion-fast)";
+  "relative flex w-full items-center rounded-md px-2.5 text-left text-ui outline-none transition-colors duration-(--motion-fast)";
 
 /**
  * Another machine's thread (ADR 0102), drawn under that machine's client. It opens on that
@@ -63,7 +63,10 @@ export function useOpenHere(threadId: string, machine: string | undefined): bool
   });
 }
 
-/** Every task shows project and status/time, title, then branch, environment and provider. */
+/**
+ * Every task shows its title and status (or time) on one line, then its project, branch, pull
+ * request and provider on the next.
+ */
 export function ThreadRow(props: {
   threadId: string;
   settled: boolean;
@@ -71,6 +74,10 @@ export function ThreadRow(props: {
   machine?: RowMachine | undefined;
   /** The list's id for the row, when it isn't the thread's own (another machine's thread). */
   rowId?: string | undefined;
+  /** Drawn in its project's own list: the row doesn't repeat the project. */
+  inProject?: boolean | undefined;
+  /** In the Inbox: a dot at the row's left edge while the person hasn't seen it. */
+  markUnread?: boolean | undefined;
 }) {
   const { machine } = props;
   const { settled } = props;
@@ -103,38 +110,32 @@ export function ThreadRow(props: {
     entry.live?.account ??
     entry.execution?.instanceId;
   const actions = rowActive.active && !renaming;
-  // Three lines of 16, 20 and 16px, 4px between each, 10px above and below.
-  const height = "h-[80px] py-2.5";
-  const title = (
-    <div className="mt-1 flex min-w-0 items-center gap-1.5">
-      <div className={cn("min-w-0 flex-1 truncate text-md leading-5", titleTone(attention))}>
-        {renaming ? (
-          <RenameField
-            entry={entry}
-            rowId={rowId}
-            title={editing ?? refused ?? card.title}
-            onDone={() => selection.finishRename()}
-          />
-        ) : (
-          card.title
-        )}
-      </div>
-    </div>
-  );
+  // Two lines of 20 and 16px, 2px apart, 7px above and below: 52px.
+  const height = "h-[52px] py-[7px]";
   const body = (
     <div className="flex min-w-0 w-full flex-col">
       <div
         className={cn(
-          "flex min-w-0 items-center gap-1.5 text-meta leading-4 text-muted-foreground",
-          // Under the pointer or keyboard focus the row's actions take the status slot: the project
-          // name stops short of them and the status steps aside, so only Snooze, Settle and ⋯ show.
+          "flex min-w-0 items-center gap-2",
+          // Under the pointer or keyboard focus the row's actions take the status slot: the title
+          // stops short of them and the status steps aside, so only Snooze, Settle and ⋯ show.
           // An action's menu keeps them up after the pointer leaves; the status waits until it closes.
-          actions ? "pr-32" : "group-has-[[data-popup-open]]/row:pr-32",
+          actions ? "pr-30" : "group-has-[[data-popup-open]]/row:pr-30",
         )}
       >
-        <ProjectMark id={entry.workspaceId} badge={card.badge} />
-        <span className="min-w-0 flex-1 truncate">{card.project}</span>
-        {!actions && (
+        <div className={cn("min-w-0 flex-1 truncate text-md leading-5", titleTone(attention))}>
+          {renaming ? (
+            <RenameField
+              entry={entry}
+              rowId={rowId}
+              title={editing ?? refused ?? card.title}
+              onDone={() => selection.finishRename()}
+            />
+          ) : (
+            card.title
+          )}
+        </div>
+        {!actions && !renaming && (
           <span className="flex shrink-0 items-center gap-1.5 group-has-[[data-popup-open]]/row:hidden">
             <BrowsingMark threadId={props.threadId} />
             <ComputerUseMark threadId={props.threadId} />
@@ -142,9 +143,13 @@ export function ThreadRow(props: {
           </span>
         )}
       </div>
-      {title}
-      <div className="mt-1">
-        <RowContext card={card} />
+      <div className="mt-0.5">
+        <RowContext
+          card={card}
+          project={
+            props.inProject ? undefined : <ProjectMark id={entry.workspaceId} badge={card.badge} />
+          }
+        />
       </div>
     </div>
   );
@@ -172,6 +177,13 @@ export function ThreadRow(props: {
             // Settled rows stay out of picking and dragging, as they always have.
             {...(settled ? {} : { "data-thread-row": rowId })}
           >
+            {props.markUnread && card.flags.unread && (
+              <span
+                aria-hidden
+                data-unread-dot=""
+                className="pointer-events-none absolute top-[15px] left-0.5 z-[1] size-1.5 rounded-full bg-status-done"
+              />
+            )}
             {renaming ? (
               <div className={cn(row, height)}>{body}</div>
             ) : (

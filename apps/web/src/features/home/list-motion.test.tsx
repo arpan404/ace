@@ -41,11 +41,12 @@ test("an archived card leaves the list at once for assistive tech, then fades ou
   const fading = within(threads()).getByText("Invoice PDF locale fallback");
   expect(fading.closest("[inert]")).not.toBeNull();
 
-  // Once the exit has played the card is gone and the list is one row shorter.
+  // Once the exit has played the card is gone; its project, with nothing else open, says so.
   await waitFor(() =>
     expect(within(threads()).queryByText("Invoice PDF locale fallback")).toBeNull(),
   );
-  expect(within(threads()).getAllByRole("listitem")).toHaveLength(before - 1);
+  expect(within(threads()).getAllByRole("listitem")).toHaveLength(before);
+  expect(within(threads()).getAllByText("No open threads.")).toHaveLength(2);
 });
 
 test("with reduced motion an archived card is gone in the same moment", async () => {

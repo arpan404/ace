@@ -11,7 +11,9 @@ import type { WorkspaceStore } from "./workspace/store.ts";
  * workspace store (`lib/workspace`), which reads the same storage.
  */
 /** How narrow and wide the sidebar may be dragged, and where a double-click puts it back. */
-export const sidebarWidths = { min: 220, max: 480, preferred: 336 };
+/** The sidebar panel's width beside the rail (`--rail-width`), which the sidebar adds to it. */
+export const sidebarWidths = { min: 220, max: 480, preferred: 288 };
+export const railWidth = 52;
 
 export const ShellLayout = z.object({
   /** The sidebar is on screen (⌘\ hides it). */
@@ -98,6 +100,8 @@ interface LayoutValue {
   setRightPanel(hide: (() => void) | undefined): void;
   /** The injected key-value storage, for features that persist their own local UI state. */
   storage: KeyValueStorage | undefined;
+  /** Storage for this window alone that outlives a reload (the browser's session storage). */
+  windowStorage: KeyValueStorage | undefined;
   /** This app's workspace store, made by `create` on first use (`lib/workspace` loads lazily). */
   workspaceStore(create: () => WorkspaceStore): WorkspaceStore;
   /** A value this app keeps for its life (in memory), made by `create` on first use of `key`. */
@@ -110,15 +114,19 @@ export interface SessionKey<T> {
   /** Never set: carries `T` for the compiler. */
   readonly holds?: T;
 }
-type LayoutServices = Pick<LayoutValue, "storage" | "workspaceStore" | "sessionValue">;
+type LayoutServices = Pick<
+  LayoutValue,
+  "storage" | "windowStorage" | "workspaceStore" | "sessionValue"
+>;
 const ServicesContext = createContext<LayoutServices | undefined>(undefined);
 const LayoutContext = createContext<LayoutValue | undefined>(undefined);
 
 export function LayoutProvider(props: {
   storage?: KeyValueStorage | undefined;
+  windowStorage?: KeyValueStorage | undefined;
   children: ReactNode;
 }) {
-  const { storage } = props;
+  const { storage, windowStorage } = props;
   const [layout, setLayout] = useState(() =>
     readJson(storage, storageKey, ShellLayout, defaultLayout),
   );
@@ -168,8 +176,8 @@ export function LayoutProvider(props: {
     };
   });
   const services = useMemo(
-    () => ({ storage, workspaceStore, sessionValue }),
-    [storage, workspaceStore, sessionValue],
+    () => ({ storage, windowStorage, workspaceStore, sessionValue }),
+    [storage, windowStorage, workspaceStore, sessionValue],
   );
   const change = useCallback(
     (next: (previous: ShellLayout) => ShellLayout) =>
@@ -200,6 +208,7 @@ export function LayoutProvider(props: {
       hideRightPanel: () => rightPanel?.hide(),
       setRightPanel,
       storage,
+      windowStorage,
       workspaceStore,
       sessionValue,
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
@@ -223,6 +232,7 @@ export function LayoutProvider(props: {
       setRightPanel,
       change,
       storage,
+      windowStorage,
       workspaceStore,
       sessionValue,
     ],
