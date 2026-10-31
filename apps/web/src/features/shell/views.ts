@@ -1,4 +1,4 @@
-import { ClockIcon, CubeIcon } from "@phosphor-icons/react";
+import { LightningIcon, SparkleIcon } from "@phosphor-icons/react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
 
@@ -12,17 +12,17 @@ export interface View {
   shortcut?: KeymapId;
 }
 
-/** A view listed in the profile dropdown, with its icon. */
-export interface MenuView extends View {
+/** A view the rail lists with its own glyph (Threads and GitHub draw theirs themselves). */
+export interface RailView extends View {
   icon: IconGlyph;
 }
 
-/** The profile dropdown's views, top to bottom. */
-export const menuViews: readonly MenuView[] = [
+/** The rail's places under GitHub, top to bottom. */
+export const railViews: readonly RailView[] = [
   {
     id: "automations",
     label: "Automations",
-    icon: ClockIcon,
+    icon: LightningIcon,
     to: "/automations",
     matches: ["/automations"],
     shortcut: "goAutomations",
@@ -30,14 +30,14 @@ export const menuViews: readonly MenuView[] = [
   {
     id: "skills",
     label: "Skills",
-    icon: CubeIcon,
+    icon: SparkleIcon,
     to: "/skills",
     matches: ["/skills"],
     shortcut: "goSkills",
   },
 ];
 
-/** Pull requests (Inbox and Issues are tabs of it): a quiet row over the profile, not in its menu. */
+/** GitHub in the rail: Inbox, Pull requests and Issues, opened on Pull requests. */
 const forgeView: View = {
   id: "forge",
   label: "Pull requests",
@@ -51,10 +51,11 @@ const forgeView: View = {
  */
 export const views: readonly View[] = [
   { id: "home", label: "Home", to: "/", matches: ["/t/", "/new"], shortcut: "goHome" },
-  ...menuViews,
+  ...railViews,
   forgeView,
 ];
 
+/** The rail's place for a path: Settings is one too; Usage and Archived belong to none. */
 export function activeView(pathname: string): View["id"] | "settings" | undefined {
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname === "/") return "home";

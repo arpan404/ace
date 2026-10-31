@@ -14,8 +14,6 @@ import {
   MenuSub,
   MenuSubTrigger,
 } from "@/components/ui/menu.tsx";
-import { Icon } from "@/components/icon.tsx";
-import { menuViews } from "./views.ts";
 import { menuLabel } from "@/components/ui/menu-styles.ts";
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
@@ -32,8 +30,7 @@ function desktopVersion(): string | undefined {
 /**
  * The profile's menu, loaded after the first paint (`SidebarMenu`): the person and the app,
  * with connection actions in their own submenu, usage and accounts, and the desktop version.
- * Settings is the gear
- * beside the profile, so it isn't repeated here.
+ * Settings, Automations and Skills are places in the rail above it, so they aren't repeated here.
  */
 export function AccountMenuContent() {
   const layout = useLayout();
@@ -41,23 +38,10 @@ export function AccountMenuContent() {
   const navigate = useNavigate();
   const version = desktopVersion();
   return (
-    // About the sidebar's width: a narrower menu ended mid-row, where the rows' status text behind
-    // the glass ran on from its shortcut hints and read as clipped.
-    <MenuContent side="top" align="start" className="min-w-[max(var(--anchor-width),16rem)]">
+    <MenuContent side="right" align="end" className="min-w-64">
       <div className="flex items-center gap-2 truncate px-2.5 py-1.5 text-ui text-muted-foreground">
         <span className="truncate">{name || "You"}</span>
       </div>
-      <MenuSeparator />
-      {menuViews.map((view) => (
-        <MenuItem
-          key={view.id}
-          icon={<Icon icon={view.icon} />}
-          {...(view.shortcut ? { shortcut: view.shortcut } : {})}
-          onClick={() => void navigate({ to: view.to })}
-        >
-          {view.label}
-        </MenuItem>
-      ))}
       <MenuSeparator />
       <MenuItem
         icon={<ChartBarIcon aria-hidden />}

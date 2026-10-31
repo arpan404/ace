@@ -11,7 +11,9 @@ import type { WorkspaceStore } from "./workspace/store.ts";
  * workspace store (`lib/workspace`), which reads the same storage.
  */
 /** How narrow and wide the sidebar may be dragged, and where a double-click puts it back. */
-export const sidebarWidths = { min: 220, max: 480, preferred: 336 };
+/** The sidebar panel's width beside the rail (`--rail-width`), which the sidebar adds to it. */
+export const sidebarWidths = { min: 220, max: 480, preferred: 288 };
+export const railWidth = 52;
 
 export const ShellLayout = z.object({
   /** The sidebar is on screen (⌘\ hides it). */

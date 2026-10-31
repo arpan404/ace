@@ -3,7 +3,7 @@ import { createContext, lazy, Suspense, useCallback, useContext, useMemo, useSta
 import type { ReactNode, CSSProperties } from "react";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { sidebarWidths, useLayout } from "@/lib/layout.tsx";
+import { railWidth, sidebarWidths, useLayout } from "@/lib/layout.tsx";
 import { ResizeHandle, clampSize } from "@/components/ui/resize-handle.tsx";
 import { crowdedQuery, overlayPanelsQuery, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
@@ -47,7 +47,8 @@ const SidebarSheet = lazy(() =>
 );
 
 /**
- * The one sidebar (336px by default, dragged between 220 and 480; double-click its edge resets it) and
+ * The one sidebar, the rail and its panel (the panel 288px by default, dragged between 220 and 480;
+ * double-click its edge resets it), and
  * the selected view beside it. ⌘\ hides and shows the sidebar. At 896px and below it is a sheet opened from the header. Below 1100px it steps aside while
  * the screen's right panel is open, so the panel can dock beside the column, and comes back when
  * it closes; where panels float anyway (896px and below) it stays put. It stays mounted for the
@@ -117,7 +118,7 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
         isMobile={!wide}
         openMobile={sheetOpen}
         onOpenMobileChange={setSheetOpen}
-        style={{ "--sidebar-width": `${width}px` } as CSSProperties}
+        style={{ "--sidebar-width": `${width + railWidth}px` } as CSSProperties}
         data-sidebar={wide ? (inline ? "shown" : "hidden") : "sheet"}
         className="relative z-[1]"
       >
