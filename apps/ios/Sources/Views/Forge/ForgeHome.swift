@@ -134,11 +134,11 @@ struct ForgeHome: View {
         }
     }
 
-    /// "Pull requests ⌄": the machine (while several are paired) and the project the lists read,
-    /// with the project under the title. One machine with one project needs no menu.
+    /// "Pulls", "Issues" or "Inbox": the list the tab shows, in the tab bar's own short
+    /// words, with the project under the title. One machine with one project needs no menu.
     private var heading: some View {
         let several = inbox.showsMachineNames || projects.count > 1
-        return InboxHeading(title: "Pull requests", scope: projects.first { $0.id == chosen }?.name,
+        return InboxHeading(title: headingTitle, scope: projects.first { $0.id == chosen }?.name,
                             problem: InboxConnectionProblem.of(inbox), openMachines: openMachines, identifier: "forge.project") {
             if several {
                 if inbox.showsMachineNames {
@@ -151,7 +151,21 @@ struct ForgeHome: View {
                 }
             }
         }
+        // Like the Threads title: the bar's heading stops growing at the largest standard
+        // size, so it keeps its place beside the buttons; accessibility sizes read it from
+        // the title's own menu and VoiceOver.
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .modifier(HeaderLead())
+        .accessibilityIdentifier("forge.heading")
+    }
+
+    /// The heading names the list showing, as the tab bar and the switch below it do.
+    private var headingTitle: String {
+        switch kind {
+        case .pulls: "Pulls"
+        case .issues: "Issues"
+        case .inbox: "Inbox"
+        }
     }
 
     /// The list switch on glass, filling the row, and the state filter beside it.

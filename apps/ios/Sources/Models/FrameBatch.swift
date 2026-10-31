@@ -54,11 +54,11 @@ import QuartzCore
     /// Notes what `patch` will change once applied, for edits resolved after it.
     func note(_ patch: BridgePatch) {
         switch patch {
-        case .threadReset(let id, let epoch):
+        case .threadReset(let id, let epoch, _, _), .snapshotBegin(let id, let epoch, _, _):
             let scope = Self.scope(id, epoch)
             cleared.insert(scope)
             texts = texts.filter { !$0.key.hasPrefix(scope) }
-        case .item(let id, let epoch, let itemId, let row):
+        case .item(let id, let epoch, let itemId, let row, _):
             texts[Self.key(id, epoch, itemId)] = .some(row?.text)
         default: break
         }

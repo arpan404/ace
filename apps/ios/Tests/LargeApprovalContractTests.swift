@@ -4,7 +4,7 @@ import Testing
 
 @MainActor extension BridgeContractTests {
     @Test func threeHundredLargeActionsArriveThroughSDKSnapshotFragmentsAndResolveExactly() async throws {
-        let id = "ios-many-normal"
+        let id = "ios-many-normal-\(UUID().uuidString)"
         try await createMany(id)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
@@ -12,7 +12,7 @@ import Testing
         await model.connect(target: try manyTarget(), directory: root)
         try await untilMany { model.connection == "ready" }
         model.open(id)
-        try await untilMany { model.thread?.approvals.first?.options.count == 300 }
+        try await untilMany("large approval: loaded=\(model.thread?.loaded ?? false), items=\(model.thread?.items.count ?? 0), error=\(model.error ?? "none")") { model.thread?.approvals.first?.options.count == 300 }
         let approval = try #require(model.thread?.approvals.first)
         let option = try #require(approval.options.last)
         #expect(option.id == "action-299-" + String(repeating: "x", count: 32768))
@@ -24,7 +24,7 @@ import Testing
     }
 
     @Test func rejectingTheFinalLargeFrameRedeliversTheApprovalAndItsActions() async throws {
-        let id = "ios-many-rejected"
+        let id = "ios-many-rejected-\(UUID().uuidString)"
         try await createMany(id)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let consumer = RejectOnceConsumer()
@@ -37,7 +37,7 @@ import Testing
         try await untilMany { consumer.model.connection == "ready" }
         consumer.model.open(id)
         runtime.invoke("aceAction", json: String(decoding: try JSONSerialization.data(withJSONObject: ["type": "open", "threadId": id]), as: UTF8.self))
-        try await untilMany { consumer.model.thread?.approvals.first?.options.count == 300 }
+        try await untilMany("retried approval: loaded=\(consumer.model.thread?.loaded ?? false), error=\(consumer.model.error ?? "none")") { consumer.model.thread?.approvals.first?.options.count == 300 }
         #expect(consumer.rejected)
         #expect(consumer.wasAbsentAfterRejection)
         let approval = try #require(consumer.model.thread?.approvals.first)
@@ -66,11 +66,11 @@ import Testing
         let (health, _) = try await URLSession.shared.data(from: #require(URL(string: "http://127.0.0.1:\(SpikeFixture.port)/health")))
         #expect(try JSONDecoder().decode(Health.self, from: health).fragmentParts > 0)
     }
-    private func untilMany(_ condition: () -> Bool) async throws {
+    private func untilMany(_ detail: @autoclosure () -> String = "condition", _ condition: () -> Bool) async throws {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(25))
         while !condition() {
-            if clock.now >= deadline { throw ApprovalContractError.timeout }
+            if clock.now >= deadline { throw ApprovalContractError.timeout(detail()) }
             try await Task.sleep(for: .milliseconds(25))
         }
     }
@@ -99,4 +99,4 @@ private struct CanonicalState: Decodable {
     struct Interaction: Decodable { struct Resolution: Decodable { let optionId: String? }; let resolution: Resolution? }
     let interactions: [String: Interaction]
 }
-private enum ApprovalContractError: Error { case timeout }
+private enum ApprovalContractError: Error { case timeout(String) }

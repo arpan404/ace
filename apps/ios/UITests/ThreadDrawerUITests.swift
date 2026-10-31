@@ -1,240 +1,45 @@
 import XCTest
-import Vision
 
-/// A compact window's list as a drawer over the open thread, against the spike fixture: the
-/// thread's sidebar button brings the list out from the leading edge and pushes the thread
-/// aside, a row picked there opens in its place, and the dimmed thread closes the list. Run on a
-/// fresh fixture, `TEST_RUNNER_ACE_IOS_SPIKE_PORT` selecting its port; `ACE_IOS_SHOTS` (a
-/// folder) also saves each screenshot there.
+/// Compact navigation uses full-screen lists and the system back stack.
 @MainActor final class ThreadDrawerUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
-    func testRepeatedDrawerTransitionsKeepTheToolbarInItsOriginalPlace() throws {
-        let app = try launch()
-        open("thread.ios-form", in: app)
-        let sidebar = app.buttons["thread.sidebar"]
-        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
-        let original = sidebar.frame
-        screenshot("rail-before")
-        for cycle in 0..<3 {
-            sidebar.tap()
-            let closer = app.buttons["drawer.close"]
-            XCTAssertTrue(closer.waitForHittable(timeout: 10))
-            screenshot("rail-open-\(cycle)")
-            closer.tap()
-            XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
-            XCTAssertEqual(sidebar.frame.minX, original.minX, accuracy: 2)
-            XCTAssertEqual(sidebar.frame.minY, original.minY, accuracy: 2)
-            screenshot("rail-closed-\(cycle)")
-        }
-    }
-
-    func testDrawerLabelsStayInsideTheScreenAfterResizing() throws {
-        let app = try launch()
-        open("thread.ios-form", in: app)
-        for cycle in 0..<3 {
-            XCUIDevice.shared.orientation = cycle % 2 == 0 ? .landscapeLeft : .portrait
-            let sidebar = app.buttons["thread.sidebar"]
-            XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
-            sidebar.tap()
-            let closer = app.buttons["drawer.close"]
-            XCTAssertTrue(closer.waitForHittable(timeout: 10))
-            let heading = app.staticTexts["inbox.heading.title"].firstMatch
-            XCTAssertTrue(heading.waitForExistence(timeout: 5), app.debugDescription)
-            XCTAssertGreaterThanOrEqual(heading.frame.minX, app.windows.firstMatch.frame.minX + 8)
-            screenshot("drawer-resized-\(cycle)")
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            let shot = XCUIScreen.main.screenshot().image
-            let image = try XCTUnwrap(shot.cgImage)
-            try VNImageRequestHandler(cgImage: image).perform([request])
-            let headings = (request.results ?? []).filter { $0.boundingBox.midY > 0.86 }.compactMap { $0.topCandidates(1).first?.string }
-            XCTAssertTrue(headings.contains { $0.contains("Threads") }, "Visible header was clipped: \(headings)")
-            let headingBox = try XCTUnwrap((request.results ?? []).first { $0.boundingBox.midY > 0.86 && $0.topCandidates(1).first?.string.contains("Threads") == true })
-            XCTAssertGreaterThan(headingBox.boundingBox.minX, 0.025, "Visible heading touches the clipped screen edge")
-            closer.tap()
-        }
-        XCUIDevice.shared.orientation = .portrait
-    }
-
-    func testTheDrawerKeepsThreadAndSearchRowsInsideItsVisibleEdges() throws {
+    func testBackReturnsToTheTaskListAndAnotherTaskCanOpen() throws {
         let app = try launch()
         open("thread.ios-form", in: app)
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
-        let sidebar = app.buttons["thread.sidebar"]
-        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
-        sidebar.tap()
-        let row = app.buttons["thread.ios-question"]
-        XCTAssertTrue(row.waitForHittable(timeout: 10))
-        let edge = app.buttons["drawer.close"]
-        XCTAssertTrue(edge.waitForExistence(timeout: 5))
-        screenshot("drawer-row-insets")
-        XCTAssertGreaterThanOrEqual(row.frame.minX, app.windows.firstMatch.frame.minX - 1)
-        XCTAssertLessThanOrEqual(row.frame.maxX, edge.frame.minX + 1)
-        app.buttons["inbox.search"].tap()
-        let command = app.buttons["search.command.new-thread"]
-        XCTAssertTrue(command.waitForHittable(timeout: 10))
-        screenshot("drawer-search-insets")
-        XCTAssertGreaterThanOrEqual(command.frame.minX, app.windows.firstMatch.frame.minX - 1)
-        XCTAssertLessThanOrEqual(command.frame.maxX, edge.frame.minX + 1)
-    }
-
-    func testALongThreadTitleStaysBetweenTheSidebarAndMenuButtons() throws {
-        let app = try launch()
-        open("thread.ios-agents", in: app)
-        let heading = title("Add ace stop and a safe kill-all", in: app)
-        XCTAssertTrue(heading.waitForExistence(timeout: 20))
-        let sidebar = app.buttons["thread.sidebar"]
-        let menu = app.buttons["thread.menu"]
-        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
-        XCTAssertTrue(menu.waitForHittable(timeout: 10))
-        XCTAssertGreaterThanOrEqual(heading.frame.minX, sidebar.frame.maxX)
-        XCTAssertLessThanOrEqual(heading.frame.maxX, menu.frame.minX)
-        screenshot("long-thread-title")
-    }
-
-    func testTheSidebarButtonBringsTheListOverTheThreadAndAPickedRowOpensInItsPlace() throws {
-        let app = try launch()
-        let width = app.windows.firstMatch.frame.width
-        open("thread.ios-form", in: app)
-        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
-        let next = app.buttons["thread.ios-question"]
-        XCTAssertFalse(next.reachable, "the thread fills the window")
-        XCTAssertFalse(app.tabBars.buttons["Pulls"].reachable)
-        screenshot("drawer-closed")
-
-        let sidebar = app.buttons["thread.sidebar"]
-        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
-        sidebar.tap()
-        XCTAssertTrue(next.waitForHittable(timeout: 10), "the list is out over the thread")
-        // The thread is pushed aside, still in sight at the trailing edge as one close button.
-        let closer = app.buttons["drawer.close"]
-        XCTAssertTrue(closer.waitForExistence(timeout: 5))
-        screenshot("drawer-open")
-        XCTAssertGreaterThan(closer.frame.minX, width * 0.7)
-        XCTAssertLessThan(closer.frame.minX, width * 0.9)
-        // The list carries Threads, Pull requests and New thread while the tab bar is away.
-        XCTAssertTrue(app.buttons["sidebar.threads"].reachable)
-        XCTAssertTrue(app.buttons["inbox.compose"].reachable)
-        XCTAssertTrue(app.buttons["thread.ios-form"].isSelected)
-
-        next.tap()
+        XCTAssertFalse(app.buttons["thread.sidebar"].exists)
+        XCTAssertFalse(app.tabBars.buttons["Pulls"].isHittable)
+        back(in: app)
+        XCTAssertTrue(app.buttons["inbox.search"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.tabBars.buttons["Pulls"].waitForExistence(timeout: 10))
+        open("thread.ios-question", in: app)
         XCTAssertTrue(title("Clean up the release notes", in: app).waitForExistence(timeout: 20))
-        XCTAssertTrue(closer.waitForNonExistence(timeout: 10), "picking a row closes the drawer")
-        XCTAssertTrue(next.waitForNotHittable(timeout: 10))
-        screenshot("drawer-picked")
-
-        sidebar.tap()
-        XCTAssertTrue(closer.waitForExistence(timeout: 10))
-        XCTAssertTrue(next.isSelected)
-        closer.tap()
-        XCTAssertTrue(closer.waitForNonExistence(timeout: 10), "the dimmed thread closes the drawer")
-        XCTAssertTrue(title("Clean up the release notes", in: app).exists)
-        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
-        XCTAssertLessThan(sidebar.frame.minX, width * 0.2, "the thread is back in its place")
+        back(in: app)
+        XCTAssertTrue(app.buttons["inbox.search"].waitForExistence(timeout: 10))
+        screenshot("task-list-after-back")
     }
 
-    func testASwipeFromTheLeadingEdgeOpensTheDrawerAndASwipeOnTheThreadClosesIt() throws {
+    func testPullRequestBackReturnsToThePullList() throws {
         let app = try launch()
-        open("thread.ios-form", in: app)
-        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
-        let next = app.buttons["thread.ios-question"]
-        let window = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
-        let frame = app.windows.firstMatch.frame
-        window.withOffset(CGVector(dx: 1, dy: frame.height * 0.45))
-            .press(forDuration: 0.05, thenDragTo: window.withOffset(CGVector(dx: frame.width * 0.7, dy: frame.height * 0.45)), withVelocity: .fast, thenHoldForDuration: 0)
-        XCTAssertTrue(next.waitForHittable(timeout: 10), "the edge swipe brings the list out")
-        let closer = app.buttons["drawer.close"]
-        XCTAssertTrue(closer.waitForExistence(timeout: 5))
-        let start = closer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -frame.width * 0.6, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
-        XCTAssertTrue(closer.waitForNonExistence(timeout: 10), "swiping the thread back closes the drawer")
-        XCTAssertTrue(next.waitForNotHittable(timeout: 10))
-    }
-
-    func testDraggingTheDimmedThreadPastTheListsWidthClosesTheDrawerAndItOpensAgain() throws {
-        let app = try launch()
-        open("thread.ios-form", in: app)
-        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
-        let sidebar = app.buttons["thread.sidebar"], closer = app.buttons["drawer.close"]
-        let frame = app.windows.firstMatch.frame
-        let window = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
-        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
-        sidebar.tap()
-        XCTAssertTrue(closer.waitForExistence(timeout: 10))
-        // Slowly, from the thread's trailing edge to the window's leading one: further than the
-        // list is wide, holding at the end before letting go.
-        window.withOffset(CGVector(dx: frame.width * 0.9, dy: frame.height * 0.5))
-            .press(forDuration: 0.1, thenDragTo: window.withOffset(CGVector(dx: frame.width * 0.05, dy: frame.height * 0.5)), withVelocity: .slow, thenHoldForDuration: 0.3)
-        XCTAssertTrue(closer.waitForNonExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["thread.ios-question"].waitForNotHittable(timeout: 10))
-        // Nothing is left holding the drawer: its button opens it again.
-        XCTAssertTrue(sidebar.waitForHittable(timeout: 10), "the thread is reachable again")
-        sidebar.tap()
-        XCTAssertTrue(closer.waitForExistence(timeout: 10), "the sidebar button still opens the drawer")
-    }
-
-    func testTappingTheOpenThreadsRowClosesTheDrawerWithoutOpeningItAgain() throws {
-        let app = try launch(probe: true)
-        open("thread.ios-form", in: app)
-        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
-        let sidebar = app.buttons["thread.sidebar"], closer = app.buttons["drawer.close"]
-        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
-        let opens = app.probe["opens"]
-        XCTAssertNotNil(opens)
-        sidebar.tap()
-        let row = app.buttons["thread.ios-form"]
-        XCTAssertTrue(row.waitForHittable(timeout: 10))
+        let pulls = app.tabBars.buttons["Pulls"].firstMatch
+        XCTAssertTrue(pulls.waitForExistence(timeout: 30))
+        pulls.tap()
+        let row = app.buttons["forge.pull.245"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
         row.tap()
-        XCTAssertTrue(closer.waitForNonExistence(timeout: 10), "the open row closes the drawer")
-        RunLoop.current.run(until: Date().addingTimeInterval(1))
-        XCTAssertEqual(app.probe["opens"], opens, "the open thread is not opened again")
+        XCTAssertTrue(app.descendants(matching: .any)["forge.pull.header"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["thread.sidebar"].exists)
+        back(in: app)
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(pulls.isHittable)
+        screenshot("pull-list-after-back")
     }
 
-    func testSettlingARowFromTheDrawerOffersUndo() throws {
-        let app = try launch()
-        open("thread.ios-form", in: app)
-        XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
-        let sidebar = app.buttons["thread.sidebar"]
-        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
-        sidebar.tap()
-        let first = app.buttons["thread.ios-form"]
-        XCTAssertTrue(first.waitForHittable(timeout: 10), "the drawer is out")
-        // The first row on screen that can be settled (a working thread can't be), other than
-        // the open one: which rows those are depends on the fixture's activity order.
-        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier != %@", "thread.ios-", "thread.ios-form"))
-        var settled: String?
-        for index in 0..<min(rows.count, 12) {
-            let row = rows.element(boundBy: index)
-            guard row.isHittable else { continue }
-            row.swipeLeft()
-            if app.buttons["Settle"].waitForExistence(timeout: 2) { settled = row.identifier; break }
-            row.swipeRight()
-        }
-        let id = try XCTUnwrap(settled, "a visible row offers Settle")
-        app.buttons["Settle"].tap()
-        let undo = app.buttons["inbox.undoSettle"]
-        XCTAssertTrue(undo.waitForHittable(timeout: 10), "Undo shows over the drawer")
-        screenshot("drawer-undo")
-        XCTAssertLessThan(undo.frame.maxX, app.buttons["drawer.close"].frame.minX + 1, "Undo sits over the list")
-        undo.tap()
-        XCTAssertTrue(app.buttons[id].waitForExistence(timeout: 10), "Undo puts the row back")
-    }
-
-    func testAPageOverTheThreadGoesBackWithTheChevronAndOnlyTheThreadOpensTheDrawer() throws {
-        let app = try launch()
-        open("thread.ios-browser", in: app)
-        XCTAssertTrue(title("Check the checkout flow", in: app).waitForExistence(timeout: 20))
-        let sidebar = app.buttons["thread.sidebar"]
-        XCTAssertTrue(sidebar.waitForHittable(timeout: 10))
-        app.buttons["thread.menu"].tap()
-        app.threadMenuItem("thread.browser").tap()
-        XCTAssertTrue(app.buttons["browser.menu"].waitForExistence(timeout: 15))
-        XCTAssertFalse(sidebar.reachable, "a pushed page has the Back chevron")
-        screenshot("drawer-pushed-page")
-        app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label BEGINSWITH 'Check the checkout flow'")).firstMatch.tap()
-        XCTAssertTrue(app.buttons["browser.menu"].waitForNonExistence(timeout: 10))
-        XCTAssertTrue(sidebar.waitForHittable(timeout: 10), "back on the thread, its sidebar button is back")
+    private func back(in app: XCUIApplication) {
+        let button = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        button.tap()
     }
 
     private func launch(probe: Bool = false) throws -> XCUIApplication {
@@ -265,19 +70,5 @@ import Vision
         if let folder = ProcessInfo.processInfo.environment["ACE_IOS_SHOTS"] {
             try? shot.pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
         }
-    }
-}
-
-private extension XCUIElement {
-    var reachable: Bool { exists && isHittable }
-    func waitForHittable(timeout: TimeInterval) -> Bool { settles(timeout) { $0.reachable } }
-    func waitForNotHittable(timeout: TimeInterval) -> Bool { settles(timeout) { !$0.reachable } }
-    private func settles(_ timeout: TimeInterval, _ condition: (XCUIElement) -> Bool) -> Bool {
-        let end = Date().addingTimeInterval(timeout)
-        while Date() < end {
-            if condition(self) { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-        }
-        return condition(self)
     }
 }

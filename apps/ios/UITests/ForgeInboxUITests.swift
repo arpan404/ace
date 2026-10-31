@@ -11,9 +11,17 @@ import XCTest
         app.launch()
         XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
         app.tabBars.buttons["Pulls"].firstMatch.tap()
+        let heading = app.descendants(matching: .any).matching(identifier: "inbox.heading.title").firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 20))
+        XCTAssertTrue(heading.label.hasPrefix("Pulls"))
+        app.buttons["forge.kind.issues"].tap()
+        expectation(for: NSPredicate(format: "label BEGINSWITH 'Issues'"), evaluatedWith: heading)
+        waitForExpectations(timeout: 10)
         let segment = app.buttons["forge.kind.inbox"]
         XCTAssertTrue(segment.waitForExistence(timeout: 20))
         segment.tap()
+        expectation(for: NSPredicate(format: "label BEGINSWITH 'Inbox'"), evaluatedWith: heading)
+        waitForExpectations(timeout: 10)
         let row = app.buttons["forge.inbox.9002"]
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         screenshot("inbox")

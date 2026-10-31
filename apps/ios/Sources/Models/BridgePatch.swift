@@ -98,6 +98,11 @@ struct TextEdit: Sendable, Equatable {
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String
     let index: Int?
+    /// The daemon's creation sequence for this item, when the bridge sends it.
+    /// Nil from older bridges. Viewport uses it with history range metadata to
+    /// order rows, detect gaps and distinguish canonical deletion from page
+    /// eviction; it never changes how rows draw.
+    var creationSeq: Int? = nil
     let type: String
     let role: String
     var text: String
@@ -212,6 +217,25 @@ struct InboxLayout: Codable, Sendable, Equatable {
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
 }
 
+/// Evidence for an item removal carried alongside a null row. `seq` is the
+/// item's last known creation sequence (from `TranscriptRow.creationSeq` or the
+/// bridge's ledger); `reason` is `"deleted"` for an explicit canonical deletion
+/// (`store.deleted(id)`) or `"evicted"` when the item left the window/tail but
+/// was not deleted. Nil when the bridge cannot tell (older bridges, ledger
+/// removals without store access): viewport treats unknown conservatively and
+/// uses `creationSeq` plus history range metadata to decide.
+struct ItemRemoval: Codable, Sendable, Equatable {
+    var seq: Int? = nil
+    var reason: String? = nil
+}
+/// A bounded log entry for an item that left the visible order, so the viewport
+/// can choose a deletion successor without inferring it from list edges.
+struct ThreadItemRemoval: Sendable, Equatable {
+    let id: String
+    let seq: Int?
+    let reason: String?
+}
+
 enum BridgePatch: Decodable, Sendable {
     case service(ServiceReply)
     case terminal(TerminalOutputPatch)
@@ -219,16 +243,20 @@ enum BridgePatch: Decodable, Sendable {
     /// A new list: the ids of every row that follows (nil from older bridges, which clear all).
     case inboxReset([String]?)
     case inbox(String, ThreadRow?)
-    case threadReset(String, Int)
+    case threadReset(String, Int, Int?, Int?)
     case position(String, Int, String, Int?)
-    case item(String, Int, String, TranscriptRow?)
+    case item(String, Int, String, TranscriptRow?, ItemRemoval?)
     /// Streaming text as an edit of the row shown (`bridge/text-edit.ts`): `row` carries
     /// every other field, its text empty until `ClientModel` applies the edit.
     case itemText(String, Int, String, TextEdit, TranscriptRow)
     case metadata(String, Int, ThreadRow?)
     case interaction(String, Int, String, ApprovalRow?)
     case cursor(String, Int, Int)
-    case ready(String, Int, Int)
+    case ready(String, Int, Int, Int?)
+    /// A warm whole-thread pass began: like `threadReset` but native keeps showing
+    /// its copy until `thread.ready` with the same revision commits. Cold opens use
+    /// `threadReset` (with revision); warm reopens diffing against the ledger use this.
+    case snapshotBegin(String, Int, Int, Int?)
     case connection(String, Int?)
     case pending(String, PendingRow?)
     case error(String)
@@ -294,7 +322,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph, text, revision, outcome, view }
+    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -310,13 +338,19 @@ enum BridgePatch: Decodable, Sendable {
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
         case "inbox.reset": self = .inboxReset(try box.decodeIfPresent([String].self, forKey: .ids))
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))
-        case "thread.reset": let (id, epoch) = try scope(); self = .threadReset(id, epoch)
+        case "thread.reset":
+            let (id, epoch) = try scope()
+            self = .threadReset(id, epoch, try box.decodeIfPresent(Int.self, forKey: .revision), try box.decodeIfPresent(Int.self, forKey: .before))
         case "thread.position":
             let (id, epoch) = try scope()
             self = .position(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(Int.self, forKey: .index))
         case "thread.item":
             let (id, epoch) = try scope()
-            self = .item(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(TranscriptRow.self, forKey: .row))
+            let row = try box.decodeIfPresent(TranscriptRow.self, forKey: .row)
+            let seq = try box.decodeIfPresent(Int.self, forKey: .seq)
+            let reason = try box.decodeIfPresent(String.self, forKey: .reason)
+            let removal: ItemRemoval? = row == nil && (seq != nil || reason != nil) ? ItemRemoval(seq: seq, reason: reason) : nil
+            self = .item(id, epoch, try box.decode(String.self, forKey: .id), row, removal)
         case "thread.item.text":
             let (id, epoch) = try scope()
             let edit = TextEdit(base: try box.decode(Int.self, forKey: .base), cut: try box.decode(Int.self, forKey: .cut),
@@ -328,7 +362,12 @@ enum BridgePatch: Decodable, Sendable {
             let (id, epoch) = try scope()
             self = .interaction(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ApprovalRow.self, forKey: .row))
         case "thread.cursor": let (id, epoch) = try scope(); self = .cursor(id, epoch, try box.decode(Int.self, forKey: .cursor))
-        case "thread.ready": let (id, epoch) = try scope(); self = .ready(id, epoch, try box.decode(Int.self, forKey: .count))
+        case "thread.ready":
+            let (id, epoch) = try scope()
+            self = .ready(id, epoch, try box.decode(Int.self, forKey: .count), try box.decodeIfPresent(Int.self, forKey: .revision))
+        case "thread.snapshot.begin":
+            let (id, epoch) = try scope()
+            self = .snapshotBegin(id, epoch, try box.decode(Int.self, forKey: .revision), try box.decodeIfPresent(Int.self, forKey: .before))
         case "connection": self = .connection(try box.decode(String.self, forKey: .state), try box.decodeIfPresent(Int.self, forKey: .generation))
         case "pending": self = .pending(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(PendingRow.self, forKey: .row))
         case "error": self = .error(try box.decode(String.self, forKey: .message))

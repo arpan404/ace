@@ -46,7 +46,7 @@ import XCTest
         // Background/foreground forces a scene update, the operation killed by the watchdog.
         XCUIDevice.shared.press(.home)
         app.activate()
-        let sidebar = app.buttons["thread.sidebar"]
+        let sidebar = app.navigationBars.buttons.element(boundBy: 0)
         XCTAssertTrue(sidebar.waitForExistence(timeout: 10))
         sidebar.tap()
         XCTAssertTrue(first.waitForExistence(timeout: 10))

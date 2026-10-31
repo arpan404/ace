@@ -3,6 +3,7 @@ import type { ProjectsApi } from "./projects-types.ts";
 import type {
   TurnsPageInput,
   ItemsWindowInput,
+  CachedItemsWindow,
   ThreadSearchInput,
   ThreadCatchUpInput,
   ThreadReadStateInput,
@@ -159,6 +160,11 @@ export interface ClientApi {
   turnsPage(input: TurnsPageInput, options?: RequestOptions): Promise<TurnsPageResponse>;
   /** A bounded jumped window. Never changes the leased live tail. */
   itemsWindow(input: ItemsWindowInput, options?: RequestOptions): Promise<ItemsWindowResponse>;
+  /** Optional stale, read-only disk access. Never proves current state or sends a request. */
+  cachedItemsWindow?(
+    input: ItemsWindowInput,
+    options?: RequestOptions,
+  ): Promise<CachedItemsWindow | undefined>;
   threadSearch(input: ThreadSearchInput, options?: RequestOptions): Promise<ThreadSearchResponse>;
   threadCatchUp(
     input: ThreadCatchUpInput,

@@ -44,12 +44,13 @@ test("fake catch-up keeps current agent counts after a subagent resumes and fini
   new ScenarioPlayer(daemon, dedupeReconnect()).runThrough("follow-up");
   const client = await connect(daemon);
   try {
+    // The root waits on its children; only the two children are working.
     expect((await client.threadCatchUp({ threadId: "thread-dedupe", sinceSeq: 0 })).status).toEqual(
-      { state: "working", agents: 3 },
+      { state: "working", agents: 2 },
     );
     daemon.apply("thread-dedupe", [{ type: "turn.ended", agent: "audit", outcome: "completed" }]);
     expect((await client.threadCatchUp({ threadId: "thread-dedupe", sinceSeq: 0 })).status).toEqual(
-      { state: "working", agents: 2 },
+      { state: "working", agents: 1 },
     );
   } finally {
     await client.close();

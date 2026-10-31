@@ -73,6 +73,77 @@ import Observation
     @ObservationIgnored private var positions: [String: Int] = [:]
     @ObservationIgnored private var reorder = false
 
+    /// Seed a warm staging copy from the visible screen with independent block
+    /// objects. Block rows are value types copied into new models, so later block
+    /// patches mutate only the staging copy. Visit-owned holders (steps, lane)
+    /// are shared by reference: snapshot patches never mutate them in place.
+    func seed(from shown: ThreadScreenModel) {
+        var seeded: [String: BlockModel] = [:]
+        seeded.reserveCapacity(shown.blocks.count)
+        for (id, block) in shown.blocks { seeded[id] = BlockModel(id: id, row: block.row) }
+        blocks = seeded
+        blockOrder = shown.blockOrder
+        positions = shown.positions
+        reorder = false
+        controls = shown.controls
+        hasOlder = shown.hasOlder
+        modelList = shown.modelList
+        continued = shown.continued
+        switchAsk = shown.switchAsk
+        queue = shown.queue
+        stopping = shown.stopping
+        stopRequest = shown.stopRequest
+        steps = shown.steps
+        pill = shown.pill
+        goal = shown.goal
+        openGroups = shown.openGroups
+        tune = shown.tune
+        access = shown.access
+        attachments = shown.attachments
+        attachmentsLocked = shown.attachmentsLocked
+        annotations = shown.annotations
+        lane = shown.lane
+        transitions = shown.transitions
+        fork = shown.fork
+        mergeDraft = shown.mergeDraft
+        work = shown.work
+        offshift = shown.offshift
+    }
+
+    /// Replace a completed snapshot without removing rows between bridge frames.
+    func replace(with incoming: ThreadScreenModel) {
+        incoming.commit()
+        for (id, block) in incoming.blocks {
+            if let kept = blocks[id] { kept.row = block.row; incoming.blocks[id] = kept }
+        }
+        blocks = incoming.blocks
+        blockOrder = incoming.blockOrder
+        positions = incoming.positions
+        reorder = false
+        controls = incoming.controls
+        hasOlder = incoming.hasOlder
+        modelList = incoming.modelList
+        continued = incoming.continued
+        switchAsk = incoming.switchAsk
+        queue = incoming.queue
+        stopping = incoming.stopping
+        stopRequest = incoming.stopRequest
+        steps = incoming.steps
+        pill = incoming.pill
+        goal = incoming.goal
+        tune = incoming.tune
+        access = incoming.access
+        attachments = incoming.attachments
+        attachmentsLocked = incoming.attachmentsLocked
+        annotations = incoming.annotations
+        lane = incoming.lane
+        transitions = incoming.transitions
+        fork = incoming.fork
+        mergeDraft = incoming.mergeDraft
+        work = incoming.work
+        offshift = incoming.offshift
+    }
+
     func reset() {
         blocks.removeAll(keepingCapacity: true)
         positions.removeAll(keepingCapacity: true)
@@ -155,9 +226,10 @@ extension BridgePatch {
     /// reading view's.
     var threadScope: (thread: String, epoch: Int)? {
         switch self {
-        case .threadReset(let id, let epoch), .position(let id, let epoch, _, _), .item(let id, let epoch, _, _),
+        case .threadReset(let id, let epoch, _, _), .snapshotBegin(let id, let epoch, _, _),
+             .position(let id, let epoch, _, _), .item(let id, let epoch, _, _, _),
              .itemText(let id, let epoch, _, _, _), .metadata(let id, let epoch, _), .interaction(let id, let epoch, _, _),
-             .cursor(let id, let epoch, _), .ready(let id, let epoch, _), .readingSettled(let id, let epoch): (id, epoch)
+             .cursor(let id, let epoch, _), .ready(let id, let epoch, _, _), .readingSettled(let id, let epoch): (id, epoch)
         default: screenScope
         }
     }

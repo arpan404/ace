@@ -2,10 +2,8 @@ import SwiftUI
 
 /// The Threads tab's list and open thread (`ThreadColumns`, `ThreadDrawer`). A regular window
 /// (iPad, the unfolded iPhone Duo) keeps the list beside the thread in the split view. A compact
-/// one (iPhone, the folded Duo, a narrow iPad window) gives the open thread the whole window and
-/// the list a drawer over it, or the whole window while nothing is open. The split view stays the
-/// thread's home in both, so a resize or a fold keeps the thread, its scroll place, the draft and
-/// any open sheet. Pages pushed from the thread open on the detail column's own stack.
+/// one (iPhone, the folded Duo, a narrow iPad window) pushes pages from a full-width list.
+/// Both layouts use the same route path for threads, pull requests and issues.
 struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
     @Binding var path: [InboxRoute]
     @Binding var drawer: ThreadDrawer
@@ -44,6 +42,33 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
     private var tabBar: Bool { !selecting && ThreadColumns.showsTabBar(sizeClass, path: path) }
 
     var body: some View {
+        if sizeClass == .regular {
+            wideLayout
+        } else {
+            NavigationStack(path: $path) {
+                list()
+                    .environment(\.listHoldsTabs, false)
+                    .environment(\.listIsDrawer, false)
+                    .navigationDestination(for: InboxRoute.self) { route in
+                        page(route)
+                            .environment(\.closeOpenThread, route.thread.map { key in
+                                CloseOpenThread(id: key.id) { path = [] }
+                            })
+                    }
+            }
+            .environment(\.panelPlace, .none)
+            .toolbarVisibility(!selecting && path.isEmpty ? .automatic : .hidden, for: .tabBar)
+            .background {
+                if showing {
+                    TabBarPlace(hidden: selecting || !path.isEmpty, relayout: "stack \(path.count) \(selecting)")
+                        .frame(width: 0, height: 0)
+                }
+            }
+            .onAppear { drawer.close() }
+        }
+    }
+
+    private var wideLayout: some View {
         ZStack(alignment: .topLeading) {
             // The open thread's side panel is a column of the window beside the whole split view,
             // with its own bar and stack: nothing it shows or pushes joins the thread's. The

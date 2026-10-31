@@ -53,7 +53,6 @@ import Testing
     @Test func undoOfAMoveSendsEachThreadBackToItsOwnProject() async {
         let host = FakeHost()
         let a = InboxKey(machineId: "mac", id: "a"), b = InboxKey(machineId: "mac", id: "b")
-        host.answers = [BulkOutcome(saved: ["a"]), BulkOutcome(saved: ["b"])]
         let organize = InboxOrganize()
         let undo = InboxUndo(keys: [a, b], kind: .moved(from: [a: "ace", b: "notes"]), text: "Moved 2 threads")
         #expect(await organize.takeBack(undo, in: host))

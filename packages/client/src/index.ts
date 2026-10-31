@@ -114,6 +114,7 @@ export { loadServiceWire, type ServiceWire } from "./wire-codec.ts";
 export type {
   TurnsPageInput,
   ItemsWindowInput,
+  CachedItemsWindow,
   ThreadSearchInput,
   ThreadCatchUpInput,
   ThreadReadStateInput,

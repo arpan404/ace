@@ -21,6 +21,16 @@ import QuartzCore
     var cursor = 0
     var loaded = false
     let screen = ThreadScreenModel()
+    /// A replacement snapshot assembles offscreen until its ready fence arrives.
+    @ObservationIgnored var refresh: ThreadModel?
+    /// The revision the current staging began with, if any.
+    @ObservationIgnored var refreshRevision: Int?
+    /// The `itemsBefore` the begin carried, for eviction inference.
+    @ObservationIgnored var refreshBefore: Int?
+    /// Bounded evidence of items that left the visible order, newest last.
+    @ObservationIgnored var recentRemovals: [ThreadItemRemoval] = []
+    /// A partial replacement cannot be advertised as a warm copy to the bridge ledger.
+    @ObservationIgnored var requiresSnapshot = false
     /// Which folds are open; shared with the history pages of the same thread.
     @ObservationIgnored var disclosures = Disclosures()
     @ObservationIgnored var positions: [String: Int] = [:]
@@ -58,9 +68,28 @@ import QuartzCore
     @ObservationIgnored var readingMoved: (() -> Void)?
     /// Reading patches wait for both page completion and the end of user scrolling, then
     /// land together so anchor restoration cannot fight a drag or deceleration.
-    @ObservationIgnored private var readingHeld: [BridgePatch]?
+    /// Bounded and coalesced (`ReadingHold`): latest wins per key, reset clears, a
+    /// bound breach discards to the next fresh reset without blocking SDK ack.
+    @ObservationIgnored private var readingHold: ReadingHold?
     @ObservationIgnored private var readingScrolling = false
     @ObservationIgnored private var readingPageHeld = false
+    /// Whether the bounded reading hold overflowed and no fresh snapshot has flushed
+    /// yet. The viewport re-reads when true and nothing fresh arrives on its own.
+    var readingNeedsFresh: Bool { readingHold?.needsFresh ?? false }
+    /// Invoked once per overflow episode when the gesture ends (or the page settles)
+    /// and no fresh snapshot has flushed yet. The viewport sets this to re-read the
+    /// history window around the anchor; the hold keeps discarding until that fresh
+    /// reset lands, frames stay acknowledged, and `readingNeedsFresh` clears on flush.
+    @ObservationIgnored var onReadingNeedsFresh: (() -> Void)?
+    @ObservationIgnored private var readingFreshNotified = false
+    /// Consecutive snapshot commit failures per thread, bounding the automatic retry.
+    /// A single retry preserves the old display; a second consecutive failure raises
+    /// the explicit failed-sync error instead of looping.
+    @ObservationIgnored private var snapshotRetries: [String: Int] = [:]
+    /// Where the reader was in each thread, above transient view lifetime.
+    /// Owned here (per connection/machine scope); the type lives with the viewport
+    /// (`TranscriptSession.swift`). Replaces any global hub: no module singleton.
+    @ObservationIgnored var transcriptSessions = TranscriptSessionStore()
     /// An item a search hit asked to show once its thread is open.
     var focusOnOpen: ThreadFocus?
     var inboxLoaded = false
@@ -246,7 +275,7 @@ import QuartzCore
         guard let thread, thread.loaded else { return false }
         return patches.contains { patch in
             switch patch {
-            case .item(let id, let epoch, let itemId, let row):
+            case .item(let id, let epoch, let itemId, let row, _):
                 return row != nil && id == thread.id && epoch == thread.epoch && thread.items[itemId] == nil
             case .block(let id, let epoch, let blockId, let row):
                 return row != nil && id == thread.id && epoch == thread.epoch && thread.screen.blocks[blockId] == nil
@@ -283,13 +312,13 @@ import QuartzCore
             }
             // Another thread's or an older generation's edit is dropped like its whole row would be.
             guard let thread, thread.id == id, thread.epoch == epoch else { continue }
-            guard let shown = batch.text(id, epoch, itemId, shown: { thread.items[itemId]?.row.text }),
+            guard let shown = batch.text(id, epoch, itemId, shown: { (thread.refresh ?? thread).items[itemId]?.row.text }),
                   let text = edit.applied(to: shown) else {
                 batch.restore(mark)
                 return nil
             }
             row.text = text
-            let whole = BridgePatch.item(id, epoch, itemId, row)
+            let whole = BridgePatch.item(id, epoch, itemId, row, nil)
             batch.note(whole)
             resolved.append(whole)
         }
@@ -297,15 +326,17 @@ import QuartzCore
     }
     /// The thread a patch's scope names: the open thread, or the reading rows beside it.
     private func scoped(_ id: String, _ epoch: Int) -> ThreadModel? {
-        if let thread, thread.id == id, thread.epoch == epoch { return thread }
+        if let thread, thread.id == id, thread.epoch == epoch { return thread.refresh ?? thread }
         if let reading, reading.id == id, reading.epoch == epoch { return reading }
         return nil
     }
+    /// A service reply can precede the page's row patches; do not request another page yet.
+    var readingSettled: Bool { !readingPageHeld && (readingHold?.isEmpty ?? true) }
     /// Hold the reading rows from here until the page asked for settles.
-    func holdReading() { readingPageHeld = true; if readingHeld == nil { readingHeld = [] } }
+    func holdReading() { readingPageHeld = true; if readingHold == nil { readingHold = ReadingHold() } }
     func beginReadingScroll() {
         readingScrolling = true
-        if reading != nil, readingHeld == nil { readingHeld = [] }
+        if reading != nil, readingHold == nil { readingHold = ReadingHold() }
     }
     func endReadingScroll() {
         readingScrolling = false
@@ -318,12 +349,25 @@ import QuartzCore
     }
     private func flushReading() {
         guard !readingScrolling, !readingPageHeld else { return }
-        guard let held = readingHeld else { return }
-        readingHeld = nil
-        if !held.isEmpty { apply(held) }
+        guard var hold = readingHold else { return }
+        let held = hold.take()
+        // Keep the hold only while it still signals work: awaiting fresh after an
+        // overflow, or needsFresh with no fresh snapshot flushed yet.
+        readingHold = (hold.awaitingFresh || hold.needsFresh) ? hold : nil
+        if readingHold == nil { readingFreshNotified = false }
+        if !held.isEmpty {
+            apply(held)
+            // A fresh snapshot flushed: recovery complete.
+            if readingHold?.needsFresh == false { readingFreshNotified = false }
+        } else if hold.needsFresh, !readingFreshNotified {
+            // Overflow with no fresh reset yet, now that the gesture ended (or the
+            // page settled): ask the viewport for one fresh re-read around the anchor.
+            readingFreshNotified = true
+            onReadingNeedsFresh?()
+        }
     }
     /// The reading view ended: what it held goes with it.
-    func dropReading() { readingHeld = nil; readingPageHeld = false; readingScrolling = false; reading = nil }
+    func dropReading() { readingHold = nil; readingPageHeld = false; readingScrolling = false; reading = nil; readingFreshNotified = false }
     private func apply(_ patches: [BridgePatch]) {
         var reorder = false
         var added: [String] = []
@@ -339,8 +383,13 @@ import QuartzCore
         var activityChanged = false
         for patch in patches {
             patchCount += 1
-            if readingHeld != nil, let reading, let scope = patch.threadScope, scope.thread == reading.id, scope.epoch == reading.epoch {
-                if case .readingSettled = patch { releaseReading() } else { readingHeld?.append(patch) }
+            if readingHold != nil, let reading, let scope = patch.threadScope, scope.thread == reading.id, scope.epoch == reading.epoch {
+                if case .readingSettled = patch {
+                    readingPageHeld = false
+                    flushReading()
+                } else {
+                    readingHold?.append(patch)
+                }
                 continue
             }
             switch patch {
@@ -420,14 +469,39 @@ import QuartzCore
                 }
                 // A refusal with no words (a move waiting on its question) says nothing here.
                 if !ok, !message.isEmpty { error = message }
-            case .threadReset(let id, let epoch):
+            case .threadReset(let id, let epoch, let revision, let before):
+                if let thread, thread.id == id, thread.epoch == epoch, thread.loaded || revision != nil {
+                    thread.beginSnapshot(revision: revision, warm: false, before: before)
+                    reorder = false
+                    added = []
+                    continue
+                }
                 guard let target = scoped(id, epoch) else { continue }
                 moving(target)
                 target.items.removeAll(keepingCapacity: true)
                 target.positions.removeAll(keepingCapacity: true)
                 target.order = []
                 target.interactions = [:]
+                target.recentRemovals.removeAll()
                 // The reading rows are shown from their first frame; only the live thread waits.
+                target.loaded = target === reading
+                target.screen.reset()
+            case .snapshotBegin(let id, let epoch, let revision, let before):
+                // Warm whole-thread pass: stage like a reset, keep showing the old copy.
+                if let thread, thread.id == id, thread.epoch == epoch, thread.loaded {
+                    thread.beginSnapshot(revision: revision, warm: true, before: before)
+                    reorder = false
+                    added = []
+                    continue
+                }
+                guard let target = scoped(id, epoch) else { continue }
+                moving(target)
+                target.beginSnapshot(revision: revision, warm: true, before: before)
+                target.items.removeAll(keepingCapacity: true)
+                target.positions.removeAll(keepingCapacity: true)
+                target.order = []
+                target.interactions = [:]
+                target.recentRemovals.removeAll()
                 target.loaded = target === reading
                 target.screen.reset()
             case .position(let id, let epoch, let itemId, let index):
@@ -435,7 +509,7 @@ import QuartzCore
                 moving(target)
                 target.positions[itemId] = index
                 if target === reading { readingReorder = true } else { reorder = true }
-            case .item(let id, let epoch, let itemId, let row):
+            case .item(let id, let epoch, let itemId, let row, let removal):
                 guard let target = scoped(id, epoch) else { continue }
                 let live = target !== reading
                 if let row {
@@ -457,6 +531,7 @@ import QuartzCore
                     guard target.items[itemId] != nil else { break }
                     moving(target)
                     target.items.removeValue(forKey: itemId); target.positions.removeValue(forKey: itemId)
+                    target.noteRemoval(id: itemId, seq: removal?.seq, reason: removal?.reason)
                     if live { reorder = true } else { readingReorder = true }
                 }
             case .metadata(let id, let epoch, let row):
@@ -466,8 +541,56 @@ import QuartzCore
                 target.interactions[interactionId] = row
                 if target !== reading, row?.state != "pending", let submission = approvalSubmissions.removeValue(forKey: interactionId) { approvalRequests[submission.requestId] = nil }
             case .cursor(let id, let epoch, let cursor): scoped(id, epoch)?.cursor = cursor
-            case .ready(let id, let epoch, _):
-                if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true; ThreadOpenTrace.shared.ready(id) }
+            case .ready(let id, let epoch, let count, let revision):
+                if let thread, thread.id == id, thread.epoch == epoch {
+                    if thread.refresh != nil {
+                        // A late fence belongs to the superseded pass. Leave the newer
+                        // staging intact; its own matching fence can still complete it.
+                        if let revision, let staged = thread.refreshRevision, revision < staged { continue }
+                        let committed = thread.commitSnapshot(revision: revision, count: count)
+                        if committed {
+                            reorder = true
+                            added = []
+                        } else {
+                            // Incomplete or superseded fence: keep showing the old copy,
+                            // stay Syncing, and retry the current open once before failing visibly.
+                            reorder = false
+                            added = []
+                            thread.requiresSnapshot = true
+                            thread.metadataCurrent = false
+                            retrySnapshotOnce(id: id)
+                            continue
+                        }
+                    } else {
+                        // Rows in this frame are positioned before the fence is
+                        // checked, not at the end of the batch after readiness.
+                        thread.reorder()
+                        reorder = false
+                        added = []
+                        // No staging (legacy or already committed): only mark ready when the
+                        // fence describes what is shown, so an arbitrary ready never proves content.
+                        if thread.loaded {
+                            guard thread.order.count == count else {
+                                thread.requiresSnapshot = true
+                                thread.metadataCurrent = false
+                                retrySnapshotOnce(id: id)
+                                continue
+                            }
+                        } else if thread.order.count != count {
+                            thread.requiresSnapshot = true
+                            thread.metadataCurrent = false
+                            if !(thread.order.isEmpty && count == 0) {
+                                retrySnapshotOnce(id: id)
+                                continue
+                            }
+                            // Empty legacy snapshot with no staging falls through to publish below.
+                        }
+                    }
+                    snapshotRetries[id] = nil
+                    thread.requiresSnapshot = false
+                    thread.loaded = true
+                    ThreadOpenTrace.shared.ready(id)
+                }
             case .block, .blockPosition, .controls, .history, .models, .queue:
                 if let scope = patch.screenScope, let target = scoped(scope.thread, scope.epoch) {
                     if target === reading, target.screen.moves(patch) { moving(target) }
@@ -496,13 +619,13 @@ import QuartzCore
             case .files(let patch): files.apply(patch)
             case .transfers(let patch): transfers.apply(patch)
             case .screen(let id, let epoch, let screen):
-                if let thread, thread.id == id, thread.epoch == epoch { thread.screen.apply(screen) }
+                if let target = scoped(id, epoch) { target.screen.apply(screen) }
             case .browser(let patch): browser.apply(patch)
             case .devices(let patch): devices.apply(patch)
             case .computerAccess(let state): computerAccess.apply(state)
             }
         }
-        thread?.screen.commit()
+        (thread?.refresh ?? thread)?.screen.commit()
         if let reading {
             reading.screen.commit()
             if readingReorder { reading.reorder() } else if !readingAdded.isEmpty { reading.place(readingAdded) }
@@ -512,7 +635,7 @@ import QuartzCore
             ThreadOpenTrace.readingFrame(started: readingMoving)
         }
         if activityChanged, let hostId { liveActivity.update(row: { self.inbox[$0] }, hostId: hostId, online: connection == "ready") }
-        if let thread {
+        if let thread = thread?.refresh ?? thread {
             if reorder { thread.reorder() } else if !added.isEmpty { thread.place(added) }
         }
     }
@@ -528,27 +651,48 @@ import QuartzCore
             else if var held = inbox[id], held.confirmed != nil { held.confirmed = nil; inbox[id] = held }
         }
     }
-    func open(_ id: String) {
+    func open(_ id: String, isSnapshotRetry: Bool = false) {
         flushFrames()
         generation += 1
         sheets.reset()
         browser.close(streams: runtime?.browserStreams)
+        // A fresh navigation may retry once; a retry itself must not reset the bound.
+        if !isSnapshotRetry { snapshotRetries[id] = nil }
         // A thread shown recently comes back whole, folds and open groups as they were left.
         let kept = thread?.id == id ? thread : shelf.take(id)
         if let current = thread, current.id != id { shelf.keep(current) }
         let opened = kept ?? ThreadModel(id: id)
+        opened.refresh = nil
+        opened.refreshRevision = nil
+        opened.refreshBefore = nil
         opened.epoch = generation
         opened.metadataCurrent = false
         if kept != nil { opened.screen.revisit() }
-        ThreadOpenTrace.shared.open(id, warm: kept != nil)
+        let warm = kept != nil && !opened.requiresSnapshot
+        ThreadOpenTrace.shared.open(id, warm: warm)
         ThreadOpenTrace.shared.showing(true)
         thread = opened
-        action(["type": "open", "threadId": id, "warm": kept != nil])
+        action(["type": "open", "threadId": id, "warm": warm])
+    }
+    /// A rejected or mismatched snapshot fence retries the current open once, preserving
+    /// the old display. A second consecutive failure raises the explicit failed-sync
+    /// error instead of looping: the next navigation reopens cold.
+    private func retrySnapshotOnce(id: String) {
+        let count = (snapshotRetries[id] ?? 0) + 1
+        snapshotRetries[id] = count
+        guard count <= 1 else {
+            error = "The conversation could not be synced. Retry the connection."
+            return
+        }
+        open(id, isSnapshotRetry: true)
     }
     func back() {
         flushFrames()
         generation += 1; action(["type": "back"])
-        if let thread { shelf.keep(thread) }
+        if let thread {
+            shelf.keep(thread)
+            snapshotRetries[thread.id] = nil
+        }
         thread = nil; sheets.reset()
         ThreadOpenTrace.shared.showing(false)
         browser.close(streams: runtime?.browserStreams)
@@ -559,6 +703,7 @@ import QuartzCore
     /// and drafts are untouched (`bridge/chat-cache.ts`).
     func clearCache() {
         shelf.clear()
+        transcriptSessions.clear()
         action(["type": "cache.clear"])
     }
     /// Drop the open thread's kept copy and read it again from the machine, in place.
@@ -569,10 +714,13 @@ import QuartzCore
         sheets.reset()
         browser.close(streams: runtime?.browserStreams)
         _ = shelf.take(current.id)
-        let fresh = ThreadModel(id: current.id)
-        fresh.epoch = generation
+        current.refresh = nil
+        current.refreshRevision = nil
+        current.refreshBefore = nil
+        current.requiresSnapshot = true
+        current.epoch = generation
+        current.metadataCurrent = false
         ThreadOpenTrace.shared.open(current.id, warm: false)
-        thread = fresh
         // The bridge leaves the thread, forgets its copy and opens it again under this generation.
         action(["type": "cache.reload", "threadId": current.id])
     }
@@ -679,6 +827,7 @@ import QuartzCore
         flushFrames()
         batch.reset()
         invalidateConfirmations()
+        snapshotRetries.removeAll()
         // The next runtime restarts the bridge fence at zero: explicit reset so counter
         // rows from a replaced runtime can never stay Syncing forever against an old max.
         activityGeneration = 0

@@ -777,8 +777,12 @@ a compact message skeleton fills the loading interval. Live work groups are inde
 list rows, and reopening a parent holds its last readable snapshot until the replacement
 is ready. Reading older content pauses tail following; Scroll to end resumes it. Older history
 pages into one bounded window beside the live tail as the person scrolls up, and a search hit
-opens its thread at the hit in that window, so long conversations stay readable and memory
-stays flat however far back they go. Historical full messages
+opens its thread at the hit in that window. Rows unloaded from the window retain their measured
+space, so paging back and forth does not shrink the scrollable history. Unmeasured rows use
+estimates until visited. Reaching the live end keeps the history window open; returning to the
+live tail explicitly, or making a new jump, starts a new scroll range. Message payloads remain
+bounded in memory and fetched pages use the revision-checked disk cache; the view keeps only
+lightweight row identities and heights for visited history. Historical full messages
 and media resolve their authenticated item without replacing the live tail.
 
 Projects > Add project also has New project and Clone repository. Their protected local
