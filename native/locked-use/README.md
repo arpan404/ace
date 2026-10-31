@@ -316,11 +316,19 @@ sh native/locked-use/build.sh
 sh native/locked-use/test-plugin.sh
 ```
 
-The build script reuses the screen helper's persisted Developer ID identity and validates the
-bundle's actual signing team against its compiled pin. Explicit overrides are
-`ACE_SCREEN_SIGN_IDENTITY` and `ACE_LOCKED_USE_TEAM`. Ad-hoc signing is refused. The local
-bundle is hardened but has no secure timestamp or notarization ticket; it is not a release
-installer. Outputs stay under ignored `build/`.
+Signed desktop releases build the helper through SwiftPM with `LockedUseService` linked,
+then stage the authorization bundle, broker and guardian under `Resources/locked-use`.
+The build script reuses the helper's checked release identity, signs each component with
+its pinned identifier and team, and applies secure timestamps in release mode. The package
+is then signed and notarized as a whole. Unsigned desktop builds omit these privileged assets.
+The desktop reads the packaged manifest and supplies all four `ACE_LOCKED_USE_*` values to
+the bundled daemon. Inherited component paths are cleared for packaged launches. Incomplete
+assets refuse startup; missing assets in unsigned builds retain the unavailable state.
+
+Local build overrides are `ACE_SCREEN_SIGN_IDENTITY` and `ACE_LOCKED_USE_TEAM`; ad-hoc
+signing is refused. Building never installs a component or edits authorization policy.
+The generated launchd plists reserve both broker Mach services and the guardian service.
+Outputs remain under ignored `build/` and `.build/` directories.
 
 The macOS CI job runs the Swift suite and `test-abi.sh`, which compiles an unsigned
 fixture with a non-production signing pin and exercises the same ABI without credentials.
@@ -352,8 +360,8 @@ Still needs the person:
 
 1. **Run and verify the privileged install on a real Mac.** It changes the Mac's
    authorization policy, so it runs only with the person's explicit approval and after
-   review; until then the daemon's privileged runner refuses every change. Release builds
-   must also be packaged, signed and notarized.
+   review. Signed desktop packages now supply the real privileged runner; unsigned builds
+   retain the refusing stub. Release builds must be signed and notarized.
 2. **Run a live locked test.** Only this can confirm whether the `system.login.screensaver`
    request actually unlocks the session through the plug-in, whether the environment item
    reaches it as the immutable hint, whether display-sleep relock is observed as locked,

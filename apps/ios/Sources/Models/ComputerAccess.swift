@@ -6,13 +6,14 @@ import Observation
 /// holds what it last said.
 @MainActor @Observable final class ComputerAccessModel {
     struct Locked: Codable, Sendable, Equatable {
-        /// On, Off, Needs approval, Install failed, Needs repair.
+        /// On, Off, Coming soon, Needs approval, Install failed, Needs repair.
         let label: String
         /// The tone of the word: done, idle, needs-you or failed.
         let tone: String
         /// The switch reads on (installed, or on its way).
         let on: Bool
         let busy: Bool
+        let unavailable: Bool
         let repair: Bool
         let note: String?
     }

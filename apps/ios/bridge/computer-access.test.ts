@@ -77,6 +77,7 @@ async function opened(
             tone: string;
             on: boolean;
             repair: boolean;
+            unavailable: boolean;
             note: string | null;
           } | null;
           chrome: {
@@ -114,6 +115,46 @@ describe("Computer use settings on the phone", () => {
     await until(() => read()?.locked?.label === "On", "repaired");
     access.handle({ type: "computer.access", action: { kind: "locked", op: "remove" } });
     await until(() => read()?.locked?.label === "Off" && read()?.busy === null, "off again");
+  });
+
+  test("an unavailable build shows coming soon and refuses installation from the phone", async () => {
+    const { daemon, access, read } = await opened(true, "darwin");
+    await until(() => read()?.locked != null, "initial status");
+    daemon.computerAccess.locked = {
+      state: "installFailed",
+      reason: "Installation will ship in a later build.",
+      unavailable: true,
+    };
+    access.handle({ type: "computer.access", action: { kind: "locked", op: "recheck" } });
+    await until(() => read()?.locked?.label === "Coming soon", "unavailable status");
+    expect(read()?.locked).toMatchObject({
+      on: false,
+      unavailable: true,
+      repair: false,
+      tone: "idle",
+      note: "Locked use isn't available in this build yet.",
+    });
+    access.handle({ type: "computer.access", action: { kind: "locked", op: "install" } });
+    expect(read()?.busy).toBeNull();
+    expect(read()?.error).toBeNull();
+    expect(daemon.computerAccess.locked.state).toBe("installFailed");
+  });
+
+  test("a transient install failure remains available for another attempt", async () => {
+    const { daemon, access, read } = await opened(true, "darwin");
+    await until(() => read()?.locked != null, "initial status");
+    daemon.computerAccess.locked = {
+      state: "installFailed",
+      reason: "The administrator declined.",
+    };
+    access.handle({ type: "computer.access", action: { kind: "locked", op: "recheck" } });
+    await until(() => read()?.locked?.label === "Install failed", "failed status");
+    expect(read()?.locked).toMatchObject({
+      unavailable: false,
+      note: "The administrator declined.",
+    });
+    access.handle({ type: "computer.access", action: { kind: "locked", op: "install" } });
+    await until(() => read()?.locked?.label === "Needs approval", "retry offered");
   });
 
   test("a refused change says why in the web's words and leaves the state as it was", async () => {

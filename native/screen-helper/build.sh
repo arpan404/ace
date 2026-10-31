@@ -24,7 +24,7 @@ if [ "$release" = 1 ]; then
 fi
 sources='Responsibility.swift Protocol.swift Pipeline.swift PointerRelease.swift StreamPolicy.swift VideoEncoder.swift FrameFileEncoder.swift Transcoder.swift SimHIDService.swift SimPosture.swift SimTouch.swift FrameChanges.swift MeasurementFrames.swift MeasurementStop.swift MeasurementFilmstrip.swift InteractionMeasurement.swift Metrics.swift AXAttributes.swift Accessibility.swift JPEGEncoder.swift FrameWriter.swift CaptureRecovery.swift Capture.swift BackgroundSafety.swift ClipboardPaste.swift TextInput.swift InputDelivery.swift ObservationWait.swift WindowIdentity.swift KeyInput.swift AXKeyInput.swift AppOperations.swift CommandScheduler.swift WindowFocus.swift WindowContent.swift TargetedAXInput.swift Input.swift InputV2.swift ComputerProtocol.swift ComputerElementFacts.swift ComputerElements.swift ComputerTree.swift ComputerKeys.swift ComputerInput.swift ComputerApps.swift ComputerCapture.swift ComputerMarks.swift ComputerPaste.swift ComputerGuards.swift ComputerPower.swift ComputerSessionStatus.swift ComputerCursorGlyph.swift ComputerOverlay.swift ComputerShortcuts.swift ComputerInnerActivation.swift ComputerFocus.swift ComputerTextEditing.swift ComputerMarkdown.swift ComputerRequestLine.swift ComputerCheckpoint.swift ComputerEscape.swift ComputerSettlePolicy.swift ComputerSettler.swift ComputerWindowNumbers.swift ComputerWindows.swift ComputerVisible.swift ComputerWalker.swift ComputerAppKinds.swift ComputerClipboard.swift ComputerSearch.swift ComputerObservation.swift ComputerServiceIO.swift ComputerWalkReuse.swift ComputerSession.swift ComputerKeyboardLayout.swift ComputerMenus.swift ComputerConditions.swift ComputerPointerPlans.swift ComputerPointer.swift ComputerKeyboard.swift ComputerElementActions.swift ComputerScroll.swift ComputerWindowActions.swift ComputerActions.swift ComputerService.swift Main.swift'
 # Cache before compiler, keychain or signing work. Builds are explicit, never a daemon action.
-source_hash=$(cat $sources Info.plist build.sh | shasum -a 256 | cut -d ' ' -f 1)
+source_hash=$({ cat $sources Info.plist build.sh Package.swift ../locked-use/Package.swift; find ../locked-use/Sources -type f -name '*.swift' -exec cat {} +; } | shasum -a 256 | cut -d ' ' -f 1)
 app=build/AceScreenHelper.app
 binary="$app/Contents/MacOS/ace-screen-helper"
 unchanged=false
@@ -47,9 +47,8 @@ staging=build/AceScreenHelper.next.app
 rm -rf "$staging"
 mkdir -p "$staging/Contents/MacOS"
 cp Info.plist "$staging/Contents/Info.plist"
-swiftc -swift-version 5 -O -parse-as-library -target "$(uname -m)-apple-macosx13.0" \
-  -framework AppKit -framework ScreenCaptureKit -framework CoreImage -framework ApplicationServices -framework VideoToolbox -framework IOKit \
-  $sources -o "$staging/Contents/MacOS/ace-screen-helper"
+swift build --package-path . -c release --product ace-screen-helper --jobs 4
+cp .build/release/ace-screen-helper "$staging/Contents/MacOS/ace-screen-helper"
 unsigned_sha=$(shasum -a 256 "$staging/Contents/MacOS/ace-screen-helper" | cut -d ' ' -f 1)
 if [ -f "$binary" ] && [ -f build/unsigned.hash ] && [ "$(cat build/unsigned.hash)" = "$unsigned_sha" ] && cmp -s "$app/Contents/Info.plist" Info.plist; then
   rm -rf "$staging"
@@ -64,6 +63,7 @@ printf '%s\n' "$unsigned_sha" > build/unsigned.hash
 fi
 if [ "$release" = 1 ]; then
   codesign --force --sign "$release_identity" --options runtime --timestamp "$app"
+  printf '%s\n' "$release_identity" > build/release-signing-identity
 fi
 sha=$(shasum -a 256 "$binary" | cut -d ' ' -f 1)
 plist_sha=$(shasum -a 256 "$app/Contents/Info.plist" | cut -d ' ' -f 1)

@@ -25,6 +25,7 @@ import {
   repo,
   targetArch,
 } from "./common.ts";
+import { stageLockedUse } from "./locked-use.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
@@ -108,6 +109,11 @@ await stageRipgrep(join(dist, "bin"));
 
 log("screen helper");
 await stageScreenHelper(join(dist, "helpers"));
+
+if (process.platform === "darwin" && process.env.ACE_SCREEN_SIGN_RELEASE === "1") {
+  log("locked-use components");
+  await stageLockedUse(repo, join(dist, "locked-use"));
+}
 
 // The Windows installer runs this on the bundled Node for PATH, the `ace` command and
 // uninstall cleanup (src/packaging/setup.ts, build/installer.nsh).

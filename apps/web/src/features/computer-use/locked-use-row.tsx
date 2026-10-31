@@ -3,7 +3,12 @@ import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { lockedUseLabel, lockedUseShown, lockedUseSwitchOn } from "@ace/ui-core";
+import {
+  lockedUseLabel,
+  lockedUseShown,
+  lockedUseSwitchOn,
+  lockedUseUnavailable,
+} from "@ace/ui-core";
 import type { ComputerUse } from "./use-computer-use.ts";
 import { useLockedUse } from "./use-locked-use.ts";
 
@@ -33,7 +38,11 @@ export function LockedUseRow(props: { use: ComputerUse }) {
   )
     return null;
   const { label, tone } = lockedUseLabel(status);
-  const disabled = !locked.connected || locked.pending || status.state === "installing";
+  // While the privileged install awaits owner review installs can never succeed: the switch
+  // stays off and disabled, and there is no retry button, only when it will arrive.
+  const unavailable = lockedUseUnavailable(status);
+  const disabled =
+    unavailable || !locked.connected || locked.pending || status.state === "installing";
   const recheck = (
     <button
       type="button"
@@ -70,7 +79,13 @@ export function LockedUseRow(props: { use: ComputerUse }) {
           onCheckedChange={(checked) => void (checked ? locked.install() : locked.remove())}
         />
       </SettingRow>
-      {status.state === "installFailed" || status.state === "driftRepairNeeded" ? (
+      {unavailable ? (
+        <SettingNote role="status">
+          <span className="font-medium text-foreground">
+            Locked use isn&apos;t available in this build yet.
+          </span>
+        </SettingNote>
+      ) : status.state === "installFailed" || status.state === "driftRepairNeeded" ? (
         <SettingNote role="status">
           <span className="font-medium text-foreground">{status.reason}</span> {recheck}
         </SettingNote>

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
 import {
   type AdminAuthorization,
@@ -162,3 +163,26 @@ describe("locked use privileged install", () => {
     expect(appleScriptString('a"b\\c')).toBe('"a\\"b\\\\c"');
   });
 });
+
+test.runIf(process.platform === "darwin")(
+  "launchd reserves both broker endpoints and the guardian endpoint",
+  () => {
+    const broker = execFileSync(
+      "/usr/bin/plutil",
+      ["-extract", "MachServices", "xml1", "-o", "-", "-"],
+      {
+        input: daemonPlist("dev.ace.locked-use.authorization", "/fixture/authority"),
+        encoding: "utf8",
+      },
+    );
+    expect(broker).toContain("<key>dev.ace.locked-use.authorization</key>");
+    expect(broker).toContain("<key>dev.ace.locked-use.broker</key>");
+    const guardian = execFileSync(
+      "/usr/bin/plutil",
+      ["-extract", "MachServices", "xml1", "-o", "-", "-"],
+      { input: daemonPlist("dev.ace.locked-use.guardian", "/fixture/guardian"), encoding: "utf8" },
+    );
+    expect(guardian).toContain("<key>dev.ace.locked-use.guardian</key>");
+    expect(guardian).not.toContain("<key>dev.ace.locked-use.broker</key>");
+  },
+);
