@@ -28,24 +28,24 @@ async function rightClick(title: RegExp) {
 
 test("Rename from the menu opens the shared title field; Escape keeps the old one", async () => {
   await openHome();
-  let menu = await rightClick(/Retry budget/);
+  let menu = await rightClick(/Backpressure/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: /Rename/ }));
   const field = await screen.findByRole("textbox", { name: "Thread title" });
   await waitFor(() => expect(document.activeElement).toBe(field));
   await userEvent.clear(field);
-  await userEvent.type(field, "Cap app-server restarts{Enter}");
+  await userEvent.type(field, "Bound broadcast fan-out{Enter}");
   expect(
-    await within(threads()).findByRole("link", { name: /Cap app-server restarts/ }),
+    await within(threads()).findByRole("link", { name: /Bound broadcast fan-out/ }),
   ).toBeTruthy();
 
-  menu = await rightClick(/Cap app-server restarts/);
+  menu = await rightClick(/Bound broadcast fan-out/);
   await userEvent.keyboard("{Alt>}{Meta>}r{/Meta}{/Alt}");
   const again = await screen.findByRole("textbox", { name: "Thread title" });
   await userEvent.type(again, " later{Escape}");
   expect(
-    await within(threads()).findByRole("link", { name: /Cap app-server restarts/ }),
+    await within(threads()).findByRole("link", { name: /Bound broadcast fan-out/ }),
   ).toBeTruthy();
-  expect(card(/restarts later/)).toBeNull();
+  expect(card(/fan-out later/)).toBeNull();
 });
 
 test("Mark unread and Pin are kept by the daemon, so the list shows them after a reload", async () => {
@@ -73,17 +73,18 @@ test("Mark unread and Pin are kept by the daemon, so the list shows them after a
   expect(within(menu).getByRole("menuitem", { name: /^Unpin/ })).toBeTruthy();
 });
 
-test("opening an unread thread marks it read", async () => {
+test("a finished thread marked unread waits in the Inbox, and opening it there marks it read", async () => {
   await openHome();
   const menu = await rightClick(/Invoice PDF/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Mark unread" }));
-  const unread = await waitFor(() => {
-    const link = card(/, unread/);
-    if (!link) throw new Error("not unread yet");
-    return link;
-  });
-  await userEvent.click(unread);
-  await waitFor(() => expect(card(/, unread/)).toBeNull());
+  // Unread finished work leaves its project for the Inbox.
+  await waitFor(() => expect(card(/Invoice PDF/)).toBeNull());
+  await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
+  const inbox = await screen.findByRole("dialog", { name: "Inbox" });
+  await userEvent.click(within(inbox).getByRole("link", { name: /^Invoice PDF.*, unread/ }));
+  // Read, it rests in its project again.
+  await waitFor(() => expect(card(/^Invoice PDF/)).toBeTruthy());
+  expect(card(/, unread/)).toBeNull();
 });
 
 /** The daemon still serves the thread; a deleted one is gone from every read. */
@@ -157,7 +158,7 @@ test("a running thread refused for delete stays listed, says what runs, and Stop
 test("New thread from default branch starts from the project's own default branch, not main", async () => {
   const app = await openHome();
   app.daemon.workspace.git.setDefaultBranch("billing-api", "develop");
-  const menu = await rightClick(/Partial refunds/);
+  const menu = await rightClick(/Invoice PDF/);
   await userEvent.click(
     within(menu).getByRole("menuitem", { name: /New thread from default branch/ }),
   );
@@ -169,7 +170,7 @@ test("New thread from default branch starts from the project's own default branc
 
 test("people link pull requests from the thread menu and confirm before unlinking all", async () => {
   const app = await openHome();
-  let menu = await rightClick(/Retry budget/);
+  let menu = await rightClick(/Rewrite the install page/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Link pull request…" }));
   const dialog = await screen.findByRole("dialog", { name: "Link pull request" });
   await userEvent.type(
@@ -179,7 +180,7 @@ test("people link pull requests from the thread menu and confirm before unlinkin
   await waitFor(() => {
     const snapshot = app.daemon.snapshot({
       kind: "thread",
-      threadId: ThreadId.parse("thread-retry-budget"),
+      threadId: ThreadId.parse("thread-install-page"),
     });
     expect(
       snapshot &&
@@ -187,14 +188,14 @@ test("people link pull requests from the thread menu and confirm before unlinkin
         snapshot.thread.details?.linkedPrs?.some((pr) => pr.number === 283),
     ).toBe(true);
   });
-  menu = await rightClick(/Retry budget/);
+  menu = await rightClick(/Rewrite the install page/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Unlink all pull requests" }));
   const confirmation = await screen.findByRole("dialog", { name: "Unlink all pull requests?" });
   await userEvent.click(within(confirmation).getByRole("button", { name: "Unlink all" }));
   await waitFor(() => {
     const snapshot = app.daemon.snapshot({
       kind: "thread",
-      threadId: ThreadId.parse("thread-retry-budget"),
+      threadId: ThreadId.parse("thread-install-page"),
     });
     expect(snapshot && "thread" in snapshot && snapshot.thread.details?.linkedPrs).toEqual([]);
   });
