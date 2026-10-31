@@ -1,10 +1,15 @@
-import { ArrowLeftIcon, ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
+import {
+  BellIcon,
+  ChatsIcon,
+  ClockCounterClockwiseIcon,
+  NotePencilIcon,
+} from "@phosphor-icons/react";
 import { useSidebarLoaded } from "@ace/client-react";
-import type { HomeFocus } from "@ace/ui-core";
-import { Link } from "@tanstack/react-router";
-import { Suspense, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { Suspense, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { cn } from "@/lib/cn.ts";
 import { PaletteButton, PanelHeader } from "@/features/shell/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useNewThreadEntry } from "@/features/projects/index.ts";
@@ -22,12 +27,12 @@ import { useSidebarDevice } from "./device-filter-state.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList, useSettledEntries } from "./use-home-threads.ts";
-import { FocusTabs, PanelSearch } from "./panel-header.tsx";
+import { PanelSearch } from "./panel-header.tsx";
 import { useSettledSearch } from "./use-panel-search.ts";
 import { rowFocusSelector } from "./list-focus.ts";
-import { useHomeFocus } from "./use-home-focus.ts";
 import { usePanelRows } from "./use-panel-rows.ts";
-import type { SectionActions } from "./tree-rows.tsx";
+import { InboxOverlay } from "./inbox-overlay.tsx";
+import { useInboxOpen, useInboxStore } from "./use-inbox-open.ts";
 import {
   useOrganizer,
   useOrganizerState,
@@ -42,18 +47,12 @@ const StartedTitlePublisher = deferredComponent(() =>
 const iconButton =
   "relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground";
 
-/** Inside an input, a menu or an editor, Escape is theirs. */
-const typing = (target: EventTarget) =>
-  target instanceof Element && target.closest("input, textarea, [contenteditable]") !== null;
-
 /**
- * The Threads panel: Inbox + Projects. The title with the filter, Search and New thread, a
- * search over every thread, then the tree: the Inbox with what needs the person, the Running
- * and Recent places, and each project folding open in place with its threads and its own
- * settled ones, quiet projects folded at the foot. A place or a project opens as a focused list
- * with a back arrow (a project with Active and Settled tabs); Back, or Escape outside the
- * search field, returns to the tree where it was. Searching lists the matching threads, then
- * the settled matches, the daemon's included.
+ * The Threads panel: projects, with the Inbox one press away. The title with the Inbox bell,
+ * Search, the filter and New thread, a search over every thread, then the tree: each project
+ * folding open in place with its open threads and its recently settled ones, quiet projects
+ * folded at the foot, and History below the list. The bell (or ⌘I) opens the Inbox over the
+ * list. Searching lists the matching threads, then the settled matches, the daemon's included.
  */
 export function HomeSidebar() {
   // Other machines' threads join the list, each row marked with its machine.
@@ -72,16 +71,11 @@ export function HomeSidebar() {
   const skeleton = useHeld(!loaded);
   const loadedSettled = useSettledEntries(list.settled);
   const search = useSettledSearch(query, list, loadedSettled);
-  const [focus, setFocus] = useHomeFocus();
-  const panel = usePanelRows({
-    list,
-    focus,
-    search: searching ? search : undefined,
-    device,
-  });
-  // The tree's scroll, kept while a focused list shows, so Back returns where it was.
-  const [treeScroll] = useState(scrollMemory);
+  const rows = usePanelRows({ list, search: searching ? search : undefined, device });
   const nav = useRef<HTMLElement>(null);
+  const bell = useRef<HTMLButtonElement>(null);
+  const inbox = useInboxStore();
+  const inboxOpen = useInboxOpen();
   const { tree } = list;
   const empty =
     !searching &&
@@ -91,108 +85,68 @@ export function HomeSidebar() {
   const keys = useResolvedKeymap();
   const entry = useNewThreadEntry();
   const { only } = entry;
-  // One object for the rows' actions, so a row's effects don't re-run on every render.
-  const more = useRef(panel.more);
-  useLayoutEffect(() => {
-    more.current = panel.more;
-  });
-  const actions = useMemo<SectionActions>(
-    () => ({ focus: (next: HomeFocus) => setFocus(next), more: () => more.current() }),
-    [setFocus],
-  );
-  const back = () => setFocus(null);
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Escape" || event.defaultPrevented || !focus || searching) return;
-    if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
-    if (typing(event.target)) return;
-    event.preventDefault();
-    back();
-  };
-  const focusTitle = !focus
-    ? undefined
-    : focus.kind === "inbox"
-      ? "Inbox"
-      : focus.kind === "running"
-        ? "Running"
-        : focus.kind === "recent"
-          ? "Recent"
-          : directory.name(focus.id);
-  const listKey = searching ? "search" : focus ? JSON.stringify(focus) : "tree";
-  const nothing = searching && !panel.rows.length;
+  const listKey = searching ? "search" : "tree";
+  const nothing = searching && !rows.length;
+  const waiting = list.inbox.length;
   return (
-    // Escape bubbles here from the panel's rows and buttons: it leaves a focused list.
-    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
-    <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
-      {focus && focusTitle !== undefined ? (
-        <PanelHeader
-          title={focusTitle}
-          leading={
-            <Tip label="Back to Threads">
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <PanelHeader
+        title="Threads"
+        className="@container/thread-filters"
+        actions={
+          <>
+            <Tip label="Inbox" shortcut="inbox">
               <button
+                ref={bell}
                 type="button"
-                aria-label="Back to Threads"
-                onClick={back}
-                className={iconButton}
+                aria-label={waiting ? `Inbox, ${waiting} waiting` : "Inbox"}
+                aria-expanded={inboxOpen}
+                aria-haspopup="dialog"
+                onClick={inbox.toggle}
+                className={cn(iconButton, inboxOpen && "bg-active text-foreground")}
               >
-                <Icon icon={ArrowLeftIcon} />
+                <Icon icon={BellIcon} />
+                {waiting > 0 && (
+                  <span
+                    aria-hidden
+                    data-inbox-badge=""
+                    className="absolute -top-0.5 -right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-status-needs-you px-1 text-[10px] leading-none font-semibold text-background tabular-nums shadow-[0_0_0_2px_var(--sidebar)]"
+                  >
+                    {waiting}
+                  </span>
+                )}
               </button>
             </Tip>
-          }
-          actions={
-            focus.kind === "project" && (
-              <Tip label={`New thread in ${focusTitle}`}>
-                <Link
-                  to="/new"
-                  search={{ project: focus.id }}
-                  aria-label={`New thread in ${focusTitle}`}
-                  className={iconButton}
-                >
-                  <Icon icon={NotePencilIcon} />
-                </Link>
-              </Tip>
-            )
-          }
-        />
-      ) : (
-        <PanelHeader
-          title="Threads"
-          className="@container/thread-filters"
-          actions={
-            <>
-              <ThreadsActions />
-              <PaletteButton />
-              <Tip label="New thread" shortcut="newThread">
-                <Link
-                  to="/new"
-                  {...(only ? { search: { project: only } } : {})}
-                  aria-label="New thread"
-                  className={iconButton}
-                  onClick={(event) => {
-                    // Shift skips the question (the current project); several projects ask which.
-                    if (event.shiftKey) {
-                      event.preventDefault();
-                      entry.here();
-                    } else if (!only) {
-                      event.preventDefault();
-                      entry.start();
-                    }
-                  }}
-                >
-                  <Icon icon={NotePencilIcon} />
-                </Link>
-              </Tip>
-            </>
-          }
-        />
-      )}
+            <PaletteButton />
+            <ThreadsActions />
+            <Tip label="New thread" shortcut="newThread">
+              <Link
+                to="/new"
+                {...(only ? { search: { project: only } } : {})}
+                aria-label="New thread"
+                className={iconButton}
+                onClick={(event) => {
+                  // Shift skips the question (the current project); several projects ask which.
+                  if (event.shiftKey) {
+                    event.preventDefault();
+                    entry.here();
+                  } else if (!only) {
+                    event.preventDefault();
+                    entry.start();
+                  }
+                }}
+              >
+                <Icon icon={NotePencilIcon} />
+              </Link>
+            </Tip>
+          </>
+        }
+      />
       <PanelSearch
         value={query}
         onChange={setQuery}
         onEnterList={() => nav.current?.querySelector<HTMLElement>(rowFocusSelector)?.focus()}
       />
-      {focus?.kind === "project" && !searching && (
-        <FocusTabs tab={focus.tab} onChange={(tab) => setFocus({ ...focus, tab })} />
-      )}
       <nav ref={nav} aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
           <Suspense fallback={null}>
@@ -201,7 +155,7 @@ export function HomeSidebar() {
         )}
         {!loaded ? (
           skeleton && <ListSkeleton label="threads" shape="thread" />
-        ) : empty && !focus ? (
+        ) : empty ? (
           <>
             <EmptyState
               className="shrink-0 justify-start pt-6"
@@ -240,12 +194,7 @@ export function HomeSidebar() {
                 ) : undefined
               }
             />
-            <ThreadList
-              rows={unsentOnly}
-              needsYou={list.needsYou}
-              pinned={list.pinned}
-              actions={actions}
-            />
+            <ThreadList rows={unsentOnly} needsYou={list.needsYou} pinned={list.pinned} />
           </>
         ) : (
           <>
@@ -256,30 +205,43 @@ export function HomeSidebar() {
             )}
             <ThreadList
               key={listKey}
-              rows={panel.rows}
+              rows={rows}
               needsYou={list.needsYou}
               pinned={list.pinned}
-              actions={actions}
               hits={search.hits}
-              scrollTop={listKey === "tree" ? treeScroll.read() : 0}
-              onScroll={listKey === "tree" ? treeScroll.keep : undefined}
             />
           </>
         )}
       </nav>
+      {loaded && <HistoryFoot count={list.settledTotal} />}
+      {inboxOpen && <InboxOverlay ids={list.inbox} bell={bell} onClose={() => inbox.set(false)} />}
+    </div>
+  );
+}
+
+/** The quiet way to History at the panel's foot, with how many threads it holds. */
+function HistoryFoot(props: { count: number }) {
+  const here = useRouterState({ select: (state) => state.location.pathname === "/history" });
+  return (
+    <div className="shrink-0 border-t border-border px-2 pt-1 pb-2">
+      <Link
+        to="/history"
+        aria-current={here ? "page" : undefined}
+        className={cn(
+          "flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover hover:text-foreground",
+          here && "bg-active text-foreground",
+        )}
+      >
+        <Icon icon={ClockCounterClockwiseIcon} size={14} />
+        <span className="min-w-0 flex-1 truncate">History</span>
+        {props.count > 0 && (
+          <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+            {props.count}
+          </span>
+        )}
+      </Link>
     </div>
   );
 }
 
 const unsentOnly = [{ kind: "unsent" as const }];
-
-/** Where a list was scrolled, kept across its unmounting. */
-function scrollMemory() {
-  let top = 0;
-  return {
-    read: () => top,
-    keep: (next: number) => {
-      top = next;
-    },
-  };
-}

@@ -124,6 +124,11 @@ export const SettingsValues = z.object({
    * threads first, then most recent), newest created first, or by hand (`thread.place`).
    */
   "threads.sortBy": z.enum(["activity", "created", "manual"]),
+  /**
+   * How long a settled thread stays in its project in the Threads panel before it shows only in
+   * History and search: 1, 3 or 7 days, or 0 to move it to History at once.
+   */
+  "threads.keepSettledFor": z.enum(["0d", "1d", "3d", "7d"]),
   "remote.enabled": z.boolean(),
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
   /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */

@@ -3,6 +3,7 @@ import type { ProviderKind } from "@ace/protocol";
 import {
   autoSettleChoices,
   homeSortOptions,
+  keepSettledChoices,
   providerChoiceLabel,
   providerNames,
   sortByChoices,
@@ -13,7 +14,12 @@ import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useProviderStatuses, useStartingProvider } from "@/lib/provider-statuses.ts";
 import { AccessDefaultRow } from "./access-default.tsx";
-import { settingKeys, type AutoSettle, type SortBy } from "./data/setting-keys.ts";
+import {
+  settingKeys,
+  type AutoSettle,
+  type KeepSettled,
+  type SortBy,
+} from "./data/setting-keys.ts";
 import { useSettingControl, useSettingWrite } from "./data/use-settings.ts";
 import { useSettingsMachine } from "./machine-scope.tsx";
 import { ProjectFolders } from "./project-folders.tsx";
@@ -26,6 +32,7 @@ import { GenerationSettings } from "./utility-model.tsx";
 
 const autoSettleOptions: readonly { value: AutoSettle; label: string }[] = autoSettleChoices;
 const sortByOptions: readonly { value: SortBy; label: string }[] = sortByChoices;
+const keepSettledOptions: readonly { value: KeepSettled; label: string }[] = keepSettledChoices;
 const sortByNote = (sortBy: SortBy) => homeSortOptions.find((option) => option.id === sortBy)?.note;
 
 /**
@@ -67,6 +74,10 @@ function ThreadListSettings() {
     settingRow("threads.autoSettleAfter").title,
   );
   const sortBy = useSettingControl(settingKeys.sortBy, settingRow("threads.sortBy").title);
+  const keepSettled = useSettingControl(
+    settingKeys.keepSettled,
+    settingRow("threads.keepSettledFor").title,
+  );
   return (
     <SettingSection label="Thread list" card scope="daemon">
       <SettingRow {...settingRow("threads.sortBy")} description={sortByNote(sortBy.value)}>
@@ -77,6 +88,20 @@ function ThreadListSettings() {
             options={sortByOptions}
             disabled={sortBy.offline}
             onValueChange={sortBy.set}
+          />
+        </DaemonSlot>
+      </SettingRow>
+      <SettingRow
+        {...settingRow("threads.keepSettledFor")}
+        description="After this, they move to History. Search always finds them."
+      >
+        <DaemonSlot control={keepSettled}>
+          <Select
+            label="Keep settled threads in their project"
+            value={keepSettled.value}
+            options={keepSettledOptions}
+            disabled={keepSettled.offline}
+            onValueChange={keepSettled.set}
           />
         </DaemonSlot>
       </SettingRow>

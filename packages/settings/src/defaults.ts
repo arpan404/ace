@@ -63,6 +63,7 @@ export const defaults: SettingsValues = {
   "threads.settleOnMerge": true,
   "threads.settleOnClose": false,
   "threads.sortBy": "activity",
+  "threads.keepSettledFor": "3d",
   "remote.enabled": false,
   "remote.transport": "local",
   "remote.agentAccess": "off",

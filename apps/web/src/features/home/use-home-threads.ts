@@ -11,9 +11,11 @@ import {
   isDraft,
   isRemoved,
   isSettled,
+  keepSettledMs,
   projectCounts,
   standingReader,
   threadMatches,
+  type Arrangement,
   type HomeSort,
   type HomeTree,
   type ProjectCount,
@@ -34,28 +36,41 @@ export function useHomeSort(): HomeSort {
   return sortBy ?? "activity";
 }
 
+/** How long a settled thread stays in its project (Settings › Agents › Thread list), in ms. */
+export function useSettledGrace(): number {
+  const [keep] = useDaemonSetting("threads.keepSettledFor");
+  return keepSettledMs(keep ?? "3d");
+}
+
 /**
  * Home's threads: pinned ones in their own order, every other open thread in Home order,
- * Snoozed and Settled apart, and the Threads panel's tree over them (`homeTree`): the Inbox,
- * Running, Recent and each project's threads.
+ * Snoozed and Settled apart, and the Threads panel's tree over them (`homeTree`): the Inbox
+ * and each project's threads.
  */
 export interface HomeList {
   pinned: string[];
   /** Open threads below Pinned, in Home order. */
   listed: string[];
   snoozed: string[];
+  /** Settled threads at rest that are loaded, most recent activity first. */
   settled: string[];
+  /** Settled threads in all, loaded or not: what History holds. */
+  settledTotal: number;
+  /** What needs the person, newest first, whatever the search narrows the rest to. */
+  inbox: string[];
   /** The listed threads that need you, which may rise while the list otherwise holds still. */
   needsYou: string[];
   tree: HomeTree;
 }
 const syncing = (): Standing => ({ level: "syncing", done: false });
-const noTree: HomeTree = { inbox: [], running: [], recent: [], projects: [], quiet: [], order: [] };
+const noTree: HomeTree = { inbox: [], projects: [], quiet: [], order: [], settled: [] };
 const empty: HomeList = {
   pinned: [],
   listed: [],
   snoozed: [],
   settled: [],
+  settledTotal: 0,
+  inbox: [],
   needsYou: [],
   tree: noTree,
 };
@@ -90,30 +105,19 @@ function useEveryEntryKey(): readonly SidebarKey[] {
 
 const treeEqual = (a: HomeTree, b: HomeTree) =>
   arrayEqual(a.inbox, b.inbox) &&
-  arrayEqual(a.running, b.running) &&
   arrayEqual(a.order, b.order) &&
-  a.recent.length === b.recent.length &&
-  a.recent.every((item, i) => {
-    const other = b.recent[i];
-    return item.id === other?.id && item.at === other.at && item.settled === other.settled;
-  }) &&
-  [a.projects, a.quiet].every((places, which) => {
-    const others = which === 0 ? b.projects : b.quiet;
+  arrayEqual(a.quiet, b.quiet) &&
+  arrayEqual(a.settled, b.settled) &&
+  a.projects.length === b.projects.length &&
+  a.projects.every((place, i) => {
+    const other = b.projects[i];
     return (
-      places.length === others.length &&
-      places.every((place, i) => {
-        const other = others[i];
-        return (
-          other !== undefined &&
-          place.id === other.id &&
-          place.running === other.running &&
-          place.inbox === other.inbox &&
-          place.settledTotal === other.settledTotal &&
-          arrayEqual(place.threads, other.threads) &&
-          arrayEqual(place.open, other.open) &&
-          arrayEqual(place.settled, other.settled)
-        );
-      })
+      other !== undefined &&
+      place.id === other.id &&
+      place.running === other.running &&
+      place.inbox === other.inbox &&
+      arrayEqual(place.threads, other.threads) &&
+      arrayEqual(place.recent, other.recent)
     );
   });
 
@@ -122,6 +126,8 @@ const listEqual = (a: HomeList, b: HomeList) =>
   arrayEqual(a.listed, b.listed) &&
   arrayEqual(a.snoozed, b.snoozed) &&
   arrayEqual(a.settled, b.settled) &&
+  a.settledTotal === b.settledTotal &&
+  arrayEqual(a.inbox, b.inbox) &&
   arrayEqual(a.needsYou, b.needsYou) &&
   treeEqual(a.tree, b.tree);
 
@@ -175,6 +181,7 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
   const now = useNow();
   const read = useEntries();
   const standingOf = useStandingOf(now);
+  const graceMs = useSettledGrace();
   const projectName = useProjectName();
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
@@ -183,25 +190,42 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
       const onDevice = device
         ? all.filter((entry) => (machineRow(entry.id)?.hostId ?? ownDevice) === device)
         : all;
-      const entries = query.trim()
+      const searching = query.trim().length > 0;
+      const entries = searching
         ? onDevice.filter((entry) => threadMatches(entry, query, projectName(entry.workspaceId)))
         : onDevice;
       const arrangement = arrange(entries, { ...state, sortBy }, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
       // The daemon's counts are this machine's own, and only while nothing narrows the list.
       const counts =
-        query.trim() || (device && device !== ownDevice)
+        searching || (device && device !== ownDevice)
           ? undefined
           : settledCounts(reader, own, state.project);
-      const tree = homeTree({
-        arrangement,
-        entry: (id) => byId.get(id),
-        // A saved list's statuses may be stale: it claims nothing (as its rows say Syncing).
-        standing: reader.unconfirmed ? syncing : standingOf,
-        sortBy,
-        now,
-        settledCounts: counts,
-      });
+      const treeOf = (
+        shown: Arrangement,
+        entry: (id: string) => ThreadListEntry | undefined,
+        held?: ReadonlyMap<string, number>,
+      ) =>
+        homeTree({
+          arrangement: shown,
+          entry,
+          // A saved list's statuses may be stale: it claims nothing (as its rows say Syncing).
+          standing: reader.unconfirmed ? syncing : standingOf,
+          sortBy,
+          now,
+          graceMs,
+          settledCounts: held,
+        });
+      const tree = treeOf(arrangement, (id) => byId.get(id), counts);
+      // A search narrows the panel's rows, never the Inbox: it is read from every thread.
+      const everyId = searching
+        ? new Map<string, ThreadListEntry>(onDevice.map((entry) => [entry.id, entry]))
+        : undefined;
+      const inbox = everyId
+        ? treeOf(arrange(onDevice, { ...state, sortBy }, now), (id) => everyId.get(id)).inbox
+        : tree.inbox;
+      let held = 0;
+      for (const count of counts?.values() ?? []) held += count;
       const listed = [...arrangement.active, ...arrangement.recent];
       const needsYou = reader.unconfirmed
         ? []
@@ -210,12 +234,14 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
         pinned: arrangement.pinned,
         listed,
         snoozed: arrangement.snoozed,
-        settled: arrangement.settled,
+        settled: tree.settled,
+        settledTotal: Math.max(tree.settled.length, held),
+        inbox,
         needsYou,
         tree,
       };
     },
-    [state, sortBy, now, read, others, device, ownDevice, query, projectName, standingOf],
+    [state, sortBy, now, graceMs, read, others, device, ownDevice, query, projectName, standingOf],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }
@@ -225,7 +251,7 @@ export function topThread(list: HomeList): string | undefined {
   return list.tree.order[0] ?? list.pinned[0];
 }
 
-/** Settled threads with when each last worked and its project, for the Settled tab. */
+/** Settled threads with when each last worked and its project, for History and search. */
 export interface SettledEntry {
   id: string;
   /** When it last worked. */
@@ -242,7 +268,7 @@ const itemsEqual = (a: readonly SettledEntry[], b: readonly SettledEntry[]) =>
 
 /**
  * The settled threads `ids` names (as `useHomeList` orders them), each with its last activity
- * and project: what the Settled tab groups by week and filters by project.
+ * and project: what History groups by week and filters by project.
  */
 export function useSettledEntries(ids: readonly string[]): readonly SettledEntry[] {
   const keys = useEveryEntryKey();

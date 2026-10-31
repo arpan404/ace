@@ -52,6 +52,7 @@
     "threads.settleOnMerge",
     "threads.settleOnClose",
     "threads.sortBy",
+    "threads.keepSettledFor",
     "remote.enabled",
     "remote.transport",
     "remote.agentAccess",

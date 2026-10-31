@@ -11,7 +11,6 @@ const state = (patch: Partial<OrganizerState> = {}): OrganizerState => ({
   project: null,
   snoozedOpen: false,
   collapsed: [],
-  settledOpen: [],
   quietOpen: false,
   ...patch,
 });

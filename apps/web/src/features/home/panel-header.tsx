@@ -68,39 +68,3 @@ export function PanelSearch(props: {
     </label>
   );
 }
-
-export type PanelTab = "active" | "settled";
-
-/** A project's focused tabs, Active and Settled: words, not a segmented control. */
-export function FocusTabs(props: { tab: PanelTab; onChange(tab: PanelTab): void }) {
-  const tabs: { id: PanelTab; label: string }[] = [
-    { id: "active", label: "Active" },
-    { id: "settled", label: "Settled" },
-  ];
-  return (
-    <div
-      role="tablist"
-      aria-label="Project threads"
-      className="flex shrink-0 gap-3.5 px-4 pt-0.5 pb-2"
-    >
-      {tabs.map((tab) => {
-        const selected = tab.id === props.tab;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={selected}
-            onClick={() => props.onChange(tab.id)}
-            className={cn(
-              "rounded-xs py-0.5 text-ui font-medium transition-colors duration-(--motion-fast) focus-ring",
-              selected ? "text-foreground" : "text-subtle-foreground hover:text-muted-foreground",
-            )}
-          >
-            {tab.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}

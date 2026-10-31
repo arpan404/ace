@@ -76,8 +76,6 @@ export function ThreadRow(props: {
   rowId?: string | undefined;
   /** Drawn in its project's own list: the row doesn't repeat the project. */
   inProject?: boolean | undefined;
-  /** In the Inbox: a dot at the row's left edge while the person hasn't seen it. */
-  markUnread?: boolean | undefined;
 }) {
   const { machine } = props;
   const { settled } = props;
@@ -177,13 +175,6 @@ export function ThreadRow(props: {
             // Settled rows stay out of picking and dragging, as they always have.
             {...(settled ? {} : { "data-thread-row": rowId })}
           >
-            {props.markUnread && card.flags.unread && (
-              <span
-                aria-hidden
-                data-unread-dot=""
-                className="pointer-events-none absolute top-[15px] left-0.5 z-[1] size-1.5 rounded-full bg-status-done"
-              />
-            )}
             {renaming ? (
               <div className={cn(row, height)}>{body}</div>
             ) : (

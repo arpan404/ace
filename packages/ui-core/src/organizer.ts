@@ -6,7 +6,7 @@ import { readJson, writeJson, type KeyValueStorage } from "./storage.ts";
  * How this device shows the Home list. Settle, snooze, pin, read state, titles and deletion
  * belong to the daemon (ADR 0057) and arrive on each thread list entry; what stays here is
  * view state: the unread baseline of a first launch, the project filter, and which of the
- * Threads panel's places, projects and disclosures are folded or open.
+ * Threads panel's projects and disclosures are folded or open.
  */
 
 /** The daemon's auto-settle window (`threads.autoSettleAfter`). */
@@ -21,10 +21,8 @@ const Stored = z.object({
   /** Home list device filter; absent is every device. */
   device: z.string().optional().catch(undefined),
   snoozedOpen: z.boolean().catch(false),
-  /** The Inbox and projects the person folded (`inboxFold`, `projectFold`). */
+  /** Projects the person folded (`projectFold`). */
   collapsed: z.array(z.string().max(4200)).max(500).catch([]),
-  /** Projects whose "N settled" is open in the tree. */
-  settledOpen: z.array(z.string().max(4096)).max(100).catch([]),
   /** Quiet projects (only settled threads) shown at the foot of Projects. */
   quietOpen: z.boolean().catch(false),
 });
@@ -47,7 +45,6 @@ export class Organizer {
       project: null,
       snoozedOpen: false,
       collapsed: [],
-      settledOpen: [],
       quietOpen: false,
     };
     const stored = readJson(storage, storageKey, Stored, fresh);
@@ -69,15 +66,10 @@ export class Organizer {
   setSnoozedOpen(snoozedOpen: boolean): void {
     this.set({ snoozedOpen });
   }
-  /** Fold or unfold the Inbox or a project (`inboxFold`, `projectFold`). */
+  /** Fold or unfold a project (`projectFold`). */
   setFolded(key: string, folded: boolean): void {
     const rest = this.state.collapsed.filter((each) => each !== key);
     this.set({ collapsed: folded ? [...rest, key] : rest });
-  }
-  /** Show or hide a project's settled threads in the tree. */
-  setSettledOpen(project: string, open: boolean): void {
-    const rest = this.state.settledOpen.filter((each) => each !== project);
-    this.set({ settledOpen: open ? [...rest, project] : rest });
   }
   setQuietOpen(quietOpen: boolean): void {
     this.set({ quietOpen });
@@ -88,15 +80,13 @@ export class Organizer {
     this.emit();
   }
   private persist(): void {
-    const { baseline, project, device, snoozedOpen, collapsed, settledOpen, quietOpen } =
-      this.state;
+    const { baseline, project, device, snoozedOpen, collapsed, quietOpen } = this.state;
     writeJson(this.storage, storageKey, {
       baseline,
       project,
       device,
       snoozedOpen,
       collapsed,
-      settledOpen,
       quietOpen,
     } satisfies Stored);
   }

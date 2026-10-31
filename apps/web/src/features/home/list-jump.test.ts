@@ -8,16 +8,14 @@ const row = (item: HomeRow, phase = "idle") => ({ item, phase });
 test("numbers go to thread rows as drawn, skipping headings, Unsent and leaving rows", () => {
   const rows = [
     row({ kind: "unsent" }),
-    row({ kind: "inbox-header", count: 1, open: true }),
-    row({ kind: "thread", id: "i1", place: "inbox", withProject: true }),
-    row({ kind: "place", place: "running", count: 0 }),
+    row({ kind: "projects-label" }),
     row({ kind: "project-header", project: "ace", open: true, running: 0, inbox: 1 }),
     row({ kind: "thread", id: "gone", place: "project", withProject: false }, "exit"),
     row({ kind: "thread", id: "t1", place: "project", withProject: false }),
-    row({ kind: "project-settled", project: "ace", count: 1, open: true }),
-    row({ kind: "settled", id: "s1", withProject: false, settled: true }),
+    row({ kind: "recently-settled", id: "s1" }),
+    row({ kind: "quiet-header", count: 1, open: false }),
   ];
-  expect(jumpTargets(rows)).toEqual(["i1", "t1", "s1"]);
+  expect(jumpTargets(rows)).toEqual(["t1", "s1"]);
 });
 
 test("only the first nine threads get a number", () => {

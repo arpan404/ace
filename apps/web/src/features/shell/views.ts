@@ -50,7 +50,13 @@ const forgeView: View = {
  * Every view, in the palette's order. Home is the thread list the sidebar always shows.
  */
 export const views: readonly View[] = [
-  { id: "home", label: "Home", to: "/", matches: ["/t/", "/new"], shortcut: "goHome" },
+  {
+    id: "home",
+    label: "Home",
+    to: "/",
+    matches: ["/t/", "/new", "/history"],
+    shortcut: "goHome",
+  },
   ...railViews,
   forgeView,
 ];

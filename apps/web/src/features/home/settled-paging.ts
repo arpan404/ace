@@ -1,6 +1,5 @@
 import type { SidebarReader } from "@ace/client";
 import { useClient, useSidebar, useSidebarStore } from "@ace/client-react";
-import { recentSince, type SettledFoot } from "@ace/ui-core";
 import { useEffect, useState } from "react";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 
@@ -28,8 +27,8 @@ export interface SettledPaging {
 
 /**
  * Older settled threads from the daemon, a page at a time (`more`), while it still holds some
- * back. The daemon pages every project's settled threads together, newest first, so a project's
- * "N settled" and Recent both read from these pages. A failed page offers a retry; a page that
+ * back. The daemon pages every project's settled threads together, newest first, so each
+ * project's recently settled threads and History both read from these pages. A failed page offers a retry; a page that
  * brings nothing new stops the asking, so a daemon that keeps saying older threads remain can't
  * loop; changing the project or device filter starts over. Another machine's threads all arrive
  * at once, so they never page.
@@ -60,6 +59,9 @@ export function useSettledPaging(project: string | null, device?: string): Settl
   return { hasMore, loading: request.loading, error: request.error, nextAt, more };
 }
 
+/** How far older settled threads have loaded: more to ask for, loading, failed, or all in. */
+export type SettledFoot = "more" | "loading" | "error" | undefined;
+
 /** The foot a list of settled threads shows while older ones are left, loading or failed. */
 export function settledFoot(paging: SettledPaging): SettledFoot {
   if (paging.loading) return "loading";
@@ -67,18 +69,18 @@ export function settledFoot(paging: SettledPaging): SettledFoot {
   return paging.hasMore ? "more" : undefined;
 }
 
-/** Whether the daemon still holds back settled threads that finished within Recent's days. */
-export function recentLeft(paging: SettledPaging, now: number): boolean {
-  return paging.hasMore && paging.nextAt !== undefined && paging.nextAt >= recentSince(now);
+/** Whether the daemon still holds back settled threads that worked within the grace period. */
+export function graceLeft(paging: SettledPaging, now: number, graceMs: number): boolean {
+  return paging.hasMore && paging.nextAt !== undefined && paging.nextAt >= now - graceMs;
 }
 
 /**
- * Load settled threads back to Recent's boundary, a page at a time, and no further: the rest
- * of the archive loads only when a project's settled list or search asks for it.
+ * Load settled threads back to the grace period's boundary, a page at a time, and no further,
+ * so each project shows its recently settled ones: the rest load only as History scrolls.
  */
-export function useRecentPages(paging: SettledPaging, now: number): void {
+export function useGracePages(paging: SettledPaging, now: number, graceMs: number): void {
   // `more` is new each render, so a page that lands (and leaves days to load) asks again.
-  const left = recentLeft(paging, now) && !paging.loading && !paging.error;
+  const left = graceLeft(paging, now, graceMs) && !paging.loading && !paging.error;
   const { more } = paging;
   useEffect(() => {
     if (left) void more();

@@ -5,7 +5,7 @@ import { threadOn } from "@/lib/machine-routes.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { machineRow, useMachineThread } from "@/lib/machine-threads.ts";
 import { useMachines, type Machine } from "@/lib/machines.ts";
-import { SettledRow } from "./settled-row.tsx";
+import { RecentlySettledRow, SettledRow } from "./settled-row.tsx";
 import { ThreadRow } from "./thread-row.tsx";
 
 /**
@@ -15,10 +15,9 @@ import { ThreadRow } from "./thread-row.tsx";
  */
 export function MachineRow(props: {
   id: string;
-  settled: boolean;
   leaving: boolean;
-  /** One line (a settled row) rather than a task row. */
-  oneLine?: boolean | undefined;
+  /** A task row, a one-line settled match, or a recently settled row in its project. */
+  shape: "task" | "settled" | "recently-settled";
   inProject?: boolean | undefined;
 }) {
   const ref = machineRow(props.id);
@@ -34,14 +33,19 @@ export function MachineRow(props: {
       machine={machine}
       unavailable={<AwayRow machine={machine} threadKey={ref.key} threadId={ref.threadId} />}
     >
-      {props.oneLine ? (
+      {props.shape === "settled" ? (
         <SettledRow
           threadId={ref.threadId}
           rowId={props.id}
           leaving={props.leaving}
           machine={mark}
-          settled={props.settled}
-          inProject={props.inProject}
+        />
+      ) : props.shape === "recently-settled" ? (
+        <RecentlySettledRow
+          threadId={ref.threadId}
+          rowId={props.id}
+          leaving={props.leaving}
+          machine={mark}
         />
       ) : (
         <ThreadRow

@@ -108,6 +108,12 @@ const entries = [
     keywords: ["order", "sidebar", "manual", "newest", "activity"],
   },
   {
+    id: "threads.keepSettledFor",
+    page: "/settings/agents",
+    title: agentSettingTitles["threads.keepSettledFor"],
+    keywords: ["history", "settled", "grace", "sidebar", "project"],
+  },
+  {
     id: "threads.autoSettleAfter",
     page: "/settings/agents",
     title: agentSettingTitles["threads.autoSettleAfter"],

@@ -18,6 +18,7 @@ import { loadPullRequestTab } from "@/features/forge/index.ts";
 import { loadFloatingBrowsers, PullRequestViewProvider } from "@/features/panels/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import {
+  InboxKeys,
   OpenWorkWarmup,
   ThreadLeaveProvider,
   ThreadStepKeys,
@@ -109,6 +110,7 @@ export function AppShell() {
                 <LocalBoundary label="keyboard shortcuts" fallback={null}>
                   <ShellHotkeys />
                   <ThreadStepKeys />
+                  <InboxKeys />
                 </LocalBoundary>
                 <LocalBoundary label="notifications" fallback={null}>
                   <Notifier />

@@ -44,7 +44,8 @@ import { MachineRow } from "./machine-row.tsx";
 import { machineRow } from "@/lib/machine-threads.ts";
 import { SettledMatch } from "./settled-match.tsx";
 import { UnsentRows } from "./unsent-rows.tsx";
-import { SectionRow, type SectionActions } from "./tree-rows.tsx";
+import { SectionRow } from "./tree-rows.tsx";
+import { RecentlySettledRow } from "./settled-row.tsx";
 import { useHomeSort } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
 import type { SearchHit } from "./use-panel-search.ts";
@@ -58,19 +59,16 @@ import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 /**
  * A thread row is 52px tall and keeps 2px below it: rows are apart by spacing, not rules. A
- * settled row is one 30px line.
+ * settled search match is one 30px line.
  */
 const estimates: Record<HomeRow["kind"], number> = {
   unsent: 0,
-  "inbox-header": 33,
   thread: 54,
+  "recently-settled": 54,
   empty: 37,
-  place: 33,
   "projects-label": 41,
   "project-header": 35,
-  "project-settled": 31,
   settled: 32,
-  "settled-more": 31,
   "quiet-header": 37,
   "quiet-project": 33,
   "snoozed-header": 41,
@@ -90,7 +88,7 @@ const loadDrag = () => import("./list-drag.ts");
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
 
 /**
- * The Threads panel's list, virtualized: the tree, a focused list or search, as `rows` says.
+ * The Threads panel's list, virtualized: the tree or search, as `rows` says.
  * Only visible rows mount. Up and Down (or j and k) move between rows and headings; Tab still
  * walks each row's actions. On a row, P pins or unpins it, X picks it (⌘- and Shift-click too)
  * and Space picks it up to move by keyboard; inside a project, pinned rows drag into their own
@@ -107,7 +105,6 @@ export function ThreadList(props: {
   needsYou: readonly string[];
   /** Pinned threads: ordered by the person, they never hold. */
   pinned: readonly string[];
-  actions: SectionActions;
   /** Search hits for settled threads the list hasn't loaded, by thread id. */
   hits?: ReadonlyMap<string, SearchHit> | undefined;
   /** Where the list starts scrolled to, and where it tells its scroll as it moves. */
@@ -276,7 +273,6 @@ export function ThreadList(props: {
     const move = keyboardMove.current;
     // Escape lets the pick go (a row's tooltip, closing too, takes the key after this).
     if (!move && event.key === "Escape" && picked.length) {
-      // Taken: Escape lets the pick go before it can leave a focused list.
       event.preventDefault();
       selection.clear();
     }
@@ -489,9 +485,12 @@ export function ThreadList(props: {
                   {thread && machineRow(thread) ? (
                     <MachineRow
                       id={thread}
-                      settled={row.kind === "settled" && row.settled}
-                      oneLine={row.kind === "settled"}
-                      inProject={"withProject" in row && !row.withProject}
+                      shape={
+                        row.kind === "settled" || row.kind === "recently-settled"
+                          ? row.kind
+                          : "task"
+                      }
+                      inProject={row.kind === "thread" && !row.withProject}
                       leaving={leaving}
                     />
                   ) : (
@@ -502,26 +501,22 @@ export function ThreadList(props: {
                           settled={false}
                           leaving={leaving}
                           inProject={!row.withProject}
-                          markUnread={row.place === "inbox"}
                         />
+                      )}
+                      {row.kind === "recently-settled" && (
+                        <RecentlySettledRow threadId={row.id} leaving={leaving} />
                       )}
                       {row.kind === "snoozed" && (
                         <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
                       )}
                       {row.kind === "settled" && (
-                        <SettledMatch
-                          id={row.id}
-                          hit={props.hits?.get(row.id)}
-                          leaving={leaving}
-                          settled={row.settled}
-                          inProject={!row.withProject}
-                        />
+                        <SettledMatch id={row.id} hit={props.hits?.get(row.id)} leaving={leaving} />
                       )}
                     </>
                   )}
                   {row.kind === "unsent" && <UnsentRows />}
                   {!thread && row.kind !== "unsent" && (
-                    <SectionRow row={row} first={item.index === 0} actions={props.actions} />
+                    <SectionRow row={row} first={item.index === 0} />
                   )}
                 </div>
               </div>
