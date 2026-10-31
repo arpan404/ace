@@ -1,0 +1,129 @@
+<!-- Spade mark reference: geometry, moods and motion. Open in a browser. Spec: README.md beside this file. -->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+.pz { --pz-dark: #141416; --pz-paper: #f6f6f7; color: var(--foreground, #e9e9eb); --opp: var(--background, #19191b); --mut: var(--muted-foreground, #a1a1a6); --line: var(--border, #2c2c30);
+  font: 13px/1.45 var(--font-sans, -apple-system, system-ui, sans-serif); display: flex; flex-direction: column; gap: 24px; }
+.pz-sec { display: flex; flex-direction: column; gap: 12px; padding-top: 18px; border-top: 1px solid var(--line); }
+.pz-sec:first-child { border-top: 0; padding-top: 0; }
+.pz-h { font-weight: 500; }
+.pz-cap { color: var(--mut); font-size: 12px; }
+.pz-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+.pz-ba { display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-end; }
+.pz-col { display: flex; flex-direction: column; gap: 10px; }
+.pz-moods { display: flex; flex-wrap: wrap; gap: 20px; }
+.pz-moods figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.pz-moods figcaption { font-size: 11.5px; color: var(--mut); }
+.pz-tile { display: inline-grid; place-items: center; border-radius: 28%; }
+.pz-tile.light { background: var(--foreground, #e9e9eb); color: var(--background, #19191b); --opp: var(--foreground, #e9e9eb); }
+.pz-tile.dark { background: var(--background, #19191b); color: var(--foreground, #e9e9eb); --opp: var(--background, #19191b); box-shadow: inset 0 0 0 1px var(--line); }
+.pz-lock { display: inline-flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
+.pz-rail { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; border: 1px solid var(--line); background: color-mix(in srgb, var(--foreground, #e9e9eb) 3%, var(--background, #19191b)); }
+.pz-rail span { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; color: var(--mut); }
+.pz-rail span.on { background: color-mix(in srgb, var(--foreground, #e9e9eb) 9%, transparent); color: var(--foreground, #e9e9eb); }
+.pz .eye { transform-box: fill-box; transform-origin: 50% 50%; }
+.pz .alive .eye { animation: pz-blink 5.2s infinite; }
+.pz .alive .eye + .eye { animation-delay: .03s; }
+@keyframes pz-blink { 0%, 93%, 100% { transform: scaleY(1); } 95.5% { transform: scaleY(.08); } }
+.pz .hop { transform-box: view-box; transform-origin: 12px 22px; animation: pz-hop 1.3s cubic-bezier(.3, 1.5, .6, 1) infinite; }
+@keyframes pz-hop { 0%, 60%, 100% { transform: translateY(0) scale(1, 1); } 22% { transform: translateY(-1.2px) scale(.97, 1.03); } 42% { transform: translateY(0) scale(1.03, .97); } }
+@media (prefers-reduced-motion: reduce) { .pz * { animation: none !important; } }
+</style></head>
+<body>
+<div class="pz" id="pz">
+  <section class="pz-sec">
+    <div class="pz-ba" id="ba"></div>
+    <div class="pz-cap">Move your pointer around: it looks at it, and blinks now and then.</div>
+  </section>
+  <section class="pz-sec"><div class="pz-h">Moods</div><div class="pz-moods" id="moods"></div></section>
+  <section class="pz-sec"><div class="pz-h">Every size, drawn for that size</div>
+    <div class="pz-cap">Small sizes get a thicker outline and bigger pupils, so it stays a face instead of a smudge.</div>
+    <div class="pz-row" id="sizes"></div></section>
+  <section class="pz-sec"><div class="pz-h">App icon, name and rail</div><div class="pz-row" id="brand"></div></section>
+</div>
+<script>
+(() => {
+const egg = (x, y, rx, ry) => `M${x} ${y - ry}C${x + rx * .78} ${y - ry} ${x + rx} ${y - ry * .36} ${x + rx} ${y + ry * .12}C${x + rx} ${y + ry * .66} ${x + rx * .58} ${y + ry} ${x} ${y + ry}C${x - rx * .58} ${y + ry} ${x - rx} ${y + ry * .66} ${x - rx} ${y + ry * .12}C${x - rx} ${y - ry * .36} ${x - rx * .78} ${y - ry} ${x} ${y - ry}Z`;
+// Symmetric eyes, a touch below the middle; the whole face tilts 4° for character.
+const EYES = [{ x: 8.7, y: 11.9 }, { x: 15.3, y: 11.9 }];
+const E = { rx: 2.3, ry: 3.55 };
+const REST = { dx: -.25, dy: 2 };
+const TILT = -4;
+
+function clampIn(e, p, look, pad) {
+  const ax = E.rx - p.rx - pad, ay = E.ry - p.ry - pad;
+  let { dx, dy } = look;
+  const k = (dx * dx) / (ax * ax) + (dy * dy) / (ay * ay);
+  if (k > 1) { const s = 1 / Math.sqrt(k); dx *= s; dy *= s; }
+  return { x: e.x + dx, y: e.y + dy };
+}
+
+function polished(size, mood = "idle", look = REST, alive = false) {
+  const small = size <= 24;
+  const ring = small ? 1.15 : size <= 40 ? .85 : .62;
+  const p = mood === "needs" ? { rx: 1.35, ry: 1.85 } : small ? { rx: 1.25, ry: 1.8 } : { rx: 1.1, ry: 1.6 };
+  const lk = mood === "thinking" ? { dx: .7, dy: -1.3 } : mood === "needs" ? { dx: 0, dy: -.1 } : mood === "working" ? { dx: 0, dy: 1.2 } : look;
+  let face = "";
+  if (mood === "done") {
+    face = EYES.map((e) => `<path d="M${e.x - 1.75} ${e.y + .7}Q${e.x} ${e.y - 1.5} ${e.x + 1.75} ${e.y + .7}" fill="none" stroke="var(--opp)" stroke-width="${small ? 1.8 : 1.4}" stroke-linecap="round"/>`).join("");
+  } else {
+    face = EYES.map((e, i) => {
+      const c = clampIn(e, p, lk, small ? .02 : .22);
+      const outline = `<path d="${egg(e.x, e.y, E.rx + ring, E.ry + ring)}" fill="var(--pz-dark)"/>`;
+      const white = `<path d="${egg(e.x, e.y, E.rx, E.ry)}" fill="var(--pz-paper)"/>`;
+      const pupil = `<ellipse cx="${c.x.toFixed(2)}" cy="${c.y.toFixed(2)}" rx="${p.rx}" ry="${p.ry}" fill="var(--pz-dark)" class="pupil" data-i="${i}"/>`;
+      const glint = small ? "" : `<circle cx="${(c.x + p.rx * .38).toFixed(2)}" cy="${(c.y - p.ry * .42).toFixed(2)}" r="${(p.rx * .3).toFixed(2)}" fill="var(--pz-paper)" class="glint" data-i="${i}"/>`;
+      // working: an upper lid comes down, eyes on the work below
+      const lid = mood === "working" ? `<path d="M${e.x - E.rx - ring - .3} ${e.y - E.ry - ring - .3}H${e.x + E.rx + ring + .3}V${e.y - .2}H${e.x - E.rx - ring - .3}Z" fill="currentColor"/><path d="M${e.x - E.rx - ring * .2} ${e.y - .2}H${e.x + E.rx + ring * .2}" stroke="var(--opp)" stroke-width="${ring}" stroke-linecap="round"/>` : "";
+      const smallWork = false && mood === "working" && small ? `<rect x="${e.x - 1.6}" y="${e.y + .1}" width="3.2" height="1.5" rx=".75" fill="var(--pz-dark)"/>` : "";
+      if (smallWork) return smallWork;
+      return `<g class="eye">${outline}${white}${pupil}${glint}${lid}</g>`;
+    }).join("");
+  }
+  const cls = [alive ? "alive" : "", mood === "needs" && !small ? "" : ""].join(" ");
+  const body = `<circle cx="12" cy="12" r="10.6" fill="currentColor"/><g transform="rotate(${TILT} 12 12)">${face}</g>`;
+  return `<svg class="${cls}" width="${size}" height="${size}" viewBox="${mood === "needs" ? "-.9 -1.6 25.8 25.8" : "0 0 24 24"}" aria-hidden="true">${mood === "needs" ? `<g class="hop">${body}</g>` : body}</svg>`;
+}
+
+const ba = document.getElementById("ba");
+function drawBA(look) {
+  ba.innerHTML = `<div class="pz-col" id="after">${polished(160, "idle", look, true)}<div class="pz-row">${polished(28)}${polished(20)}${polished(16)}</div><div class="pz-h">Spade</div></div>`;
+}
+drawBA(REST);
+
+const MOODS = [["idle", "Idle"], ["thinking", "Thinking"], ["working", "Working"], ["needs", "Needs you"], ["done", "Done"]];
+document.getElementById("moods").innerHTML = `<div class="pz-row">${MOODS.map(([m, l]) => `<figure>${polished(64, m, REST, m === "idle")}<figcaption>${l}</figcaption></figure>`).join("")}</div>
+  <div class="pz-row">${MOODS.map(([m, l]) => `<figure>${polished(20, m)}<figcaption>${l}</figcaption></figure>`).join("")}</div>`;
+
+document.getElementById("sizes").innerHTML = [16, 20, 24, 32, 48, 72].map((s) => `<div class="pz-col" style="align-items:center;gap:4px">${polished(s)}<span class="pz-cap">${s}</span></div>`).join("");
+
+document.getElementById("brand").innerHTML = `
+  <span class="pz-tile light" style="width:64px;height:64px">${polished(46)}</span>
+  <span class="pz-tile dark" style="width:64px;height:64px">${polished(46)}</span>
+  <span class="pz-lock">${polished(26)}spade</span>
+  <span class="pz-rail"><span><svg width="19" height="19" viewBox="0 0 256 256" fill="currentColor"><path d="M232.07,186.76a80,80,0,0,0-62.5-114.17A80,80,0,1,0,23.93,138.76l-7.27,24.71a16,16,0,0,0,19.87,19.87l24.71-7.27a80.39,80.39,0,0,0,25.18,7.35,80,80,0,0,0,108.34,40.65l24.71,7.27a16,16,0,0,0,19.87-19.86ZM62,159.5a8.28,8.28,0,0,0-2.26.32L32,168l8.17-27.76a8,8,0,0,0-.63-6,64,64,0,1,1,26.26,26.26A8,8,0,0,0,62,159.5Zm153.79,28.73L224,216l-27.76-8.17a8,8,0,0,0-6,.63,64.05,64.05,0,0,1-85.87-24.88A79.93,79.93,0,0,0,174.7,89.71a64,64,0,0,1,41.75,92.48A8,8,0,0,0,215.82,188.23Z"/></svg></span><span class="on">${polished(20)}</span></span>`;
+
+// Pupils follow the pointer, kept inside each eye.
+let raf = 0;
+document.addEventListener("pointermove", (ev) => {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(() => {
+    const svg = document.querySelector("#after svg"); if (!svg) return;
+    const r = svg.getBoundingClientRect();
+    const dx = (ev.clientX - (r.left + r.width / 2)) / r.width, dy = (ev.clientY - (r.top + r.height / 2)) / r.height;
+    const len = Math.hypot(dx, dy) || 1, k = Math.min(1, len * 1.5);
+    const t = -TILT * Math.PI / 180, ux = dx / len, uy = dy / len;
+    const look = { dx: (ux * Math.cos(t) - uy * Math.sin(t)) * 2 * k, dy: (ux * Math.sin(t) + uy * Math.cos(t)) * 2 * k };
+    const p = { rx: 1.1, ry: 1.6 };
+    svg.querySelectorAll(".pupil").forEach((el) => {
+      const i = Number(el.dataset.i), c = clampIn(EYES[i], p, look, .22);
+      el.setAttribute("cx", c.x.toFixed(2)); el.setAttribute("cy", c.y.toFixed(2));
+      const g = svg.querySelector(`.glint[data-i="${i}"]`);
+      if (g) { g.setAttribute("cx", (c.x + p.rx * .38).toFixed(2)); g.setAttribute("cy", (c.y - p.ry * .42).toFixed(2)); }
+    });
+  });
+});
+})();
+</script>
+</body></html>
