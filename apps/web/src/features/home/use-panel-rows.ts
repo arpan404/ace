@@ -68,6 +68,19 @@ export function usePanelRows(input: {
     });
     // projectFoot reads only tree and foot, both listed.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, focus, tree, list.snoozed, now, recentFoot, foot, collapsed, settledOpen, quietOpen, snoozedOpen, current]);
+  }, [
+    search,
+    focus,
+    tree,
+    list.snoozed,
+    now,
+    recentFoot,
+    foot,
+    collapsed,
+    settledOpen,
+    quietOpen,
+    snoozedOpen,
+    current,
+  ]);
   return { rows, more: () => void paging.more() };
 }

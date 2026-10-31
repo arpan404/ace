@@ -67,12 +67,15 @@ function Mini(props: { label: string; onClick(): void; children: ReactNode }) {
 /** Inbox's count: warning-coloured, as what asks the person always is. */
 function Waiting(props: { count: number; label: string }) {
   return (
-    <span
-      aria-label={props.label}
-      className="shrink-0 rounded-full bg-status-needs-you/15 px-1.5 text-2xs leading-4 font-medium text-status-needs-you tabular-nums"
-    >
-      {props.count}
-    </span>
+    <>
+      <span
+        aria-hidden
+        className="shrink-0 rounded-full bg-status-needs-you/15 px-1.5 text-2xs leading-4 font-medium text-status-needs-you tabular-nums"
+      >
+        {props.count}
+      </span>
+      <span className="sr-only">, {props.label}</span>
+    </>
   );
 }
 
@@ -121,13 +124,16 @@ function ProjectHeader(props: { row: Extract<HomeRow, { kind: "project-header" }
         <ProjectMark id={row.project} badge={projectBadge({ id: row.project, name })} />
         <span className="min-w-0 truncate">{name}</span>
         {row.running > 0 && (
-          <span
-            aria-label={`${row.running} running`}
-            className="inline-flex shrink-0 items-center gap-1 text-2xs text-subtle-foreground tabular-nums"
-          >
-            <span aria-hidden className="size-1.5 rounded-full bg-status-working" />
-            {row.running}
-          </span>
+          <>
+            <span
+              aria-hidden
+              className="inline-flex shrink-0 items-center gap-1 text-2xs text-subtle-foreground tabular-nums"
+            >
+              <span className="size-1.5 rounded-full bg-status-working" />
+              {row.running}
+            </span>
+            <span className="sr-only">, {row.running} running</span>
+          </>
         )}
         <span className="flex-1" />
         {row.inbox > 0 && !row.open && (
@@ -185,15 +191,14 @@ function PlaceRow(props: {
       type="button"
       data-section-toggle=""
       onClick={props.onClick}
-      className={cn(
-        heading,
-        "w-full flex-none text-foreground hover:bg-hover",
-        props.className,
-      )}
+      className={cn(heading, "w-full flex-none text-foreground hover:bg-hover", props.className)}
     >
       {props.icon}
       <span className="min-w-0 flex-1 truncate">{props.text}</span>
-      <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">{props.count}</span>
+      <span aria-hidden className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+        {props.count}
+      </span>
+      <span className="sr-only">, {props.count}</span>
     </button>
   );
 }
@@ -202,7 +207,13 @@ function QuietProject(props: { row: Extract<HomeRow, { kind: "quiet-project" }> 
   const name = useProjectName()(props.row.project);
   return (
     <PlaceRow
-      icon={<ProjectMark id={props.row.project} badge={projectBadge({ id: props.row.project, name })} quiet />}
+      icon={
+        <ProjectMark
+          id={props.row.project}
+          badge={projectBadge({ id: props.row.project, name })}
+          quiet
+        />
+      }
       text={name}
       count={`${props.row.settled} settled`}
       className="text-muted-foreground"
@@ -241,7 +252,10 @@ function MoreRow(props: { state: "more" | "loading" | "error" } & Acts) {
   }, [state, actions]);
   if (state !== "error")
     return (
-      <div role="status" className="flex h-[30px] items-center px-2.5 text-ui text-subtle-foreground">
+      <div
+        role="status"
+        className="flex h-[30px] items-center px-2.5 text-ui text-subtle-foreground"
+      >
         Loading older threads…
       </div>
     );

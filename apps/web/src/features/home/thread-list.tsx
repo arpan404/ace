@@ -209,11 +209,7 @@ export function ThreadList(props: {
           const isPinned = inProject && latest.current.pinned.includes(shown.id);
           return [
             {
-              kind: isPinned
-                ? "pinned"
-                : inProject && latest.current.manual
-                  ? "listed"
-                  : "other",
+              kind: isPinned ? "pinned" : inProject && latest.current.manual ? "listed" : "other",
               ...("id" in shown ? { id: shown.id } : {}),
               top: item.start,
               bottom: item.end,
@@ -444,11 +440,7 @@ export function ThreadList(props: {
             return (
               <div
                 key={item.key}
-                role={
-                  leaving || row.kind === "unsent"
-                    ? "presentation"
-                    : "listitem"
-                }
+                role={leaving || row.kind === "unsent" ? "presentation" : "listitem"}
                 aria-hidden={leaving || undefined}
                 inert={leaving}
                 ref={virtualizer.measureElement}

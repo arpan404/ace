@@ -127,8 +127,13 @@ export function HomeSidebar() {
         <PanelHeader
           title={focusTitle}
           leading={
-            <Tip label="Back">
-              <button type="button" aria-label="Back" onClick={back} className={iconButton}>
+            <Tip label="Back to Threads">
+              <button
+                type="button"
+                aria-label="Back to Threads"
+                onClick={back}
+                className={iconButton}
+              >
                 <Icon icon={ArrowLeftIcon} />
               </button>
             </Tip>

@@ -27,18 +27,25 @@ const current = () =>
     .getAllByRole("link", { current: "page" })
     .map((link) => titles.find((title) => link.textContent?.includes(title)));
 
-/** The panel's tab named `name` ("Active", "Settled"), whatever its count. */
-const tab = (name: string) => screen.getByRole("tab", { name: new RegExp(`^${name} \\d`) });
-/** Show the panel's `name` tab. */
-const showTab = (name: string) => userEvent.click(tab(name));
-/** Wait for the Settled tab to count `count` threads. */
-const settledCount = (count: number) =>
-  waitFor(() => expect(tab("Settled").textContent).toBe(`Settled ${count}`));
-/** Every keyboard stop of the list as it reads, rows by title and group headings by name. */
+/** A heading or place of the tree, by its accessible name. */
+const head = (name: string | RegExp) => within(threads()).getByRole("button", { name });
+/** The panel's title: "Threads" for the tree, else the focused list's name. */
+const panelTitle = () => screen.getByRole("heading", { level: 2 }).textContent;
+/** Every keyboard stop of the list as it reads: rows by title, projects as [name], headings as heard. */
 const stops = () =>
   [...threads().querySelectorAll<HTMLElement>("[data-row-focus], [data-section-toggle]")].map(
-    (stop) => stop.getAttribute("aria-label")?.split(".")[0] ?? stop.textContent,
+    (stop) =>
+      stop.dataset.project !== undefined
+        ? `[${stop.dataset.project}]`
+        : (stop.getAttribute("aria-label")?.split(".")[0] ?? heard(stop)),
   );
+/** An element's text as assistive tech hears it: without what it hides. */
+function heard(element: HTMLElement): string {
+  const copy = element.cloneNode(true);
+  if (!(copy instanceof HTMLElement)) return "";
+  for (const hidden of copy.querySelectorAll("[aria-hidden]")) hidden.remove();
+  return copy.textContent ?? "";
+}
 
 /** `a` shows above `b` in the list. */
 const before = (a: string, b: string) => order().indexOf(a) < order().indexOf(b);
@@ -57,52 +64,157 @@ function workbenchApp(options: Parameters<typeof harness>[0] = {}) {
   return app;
 }
 
-test("Active groups what needs you, then what runs, then the rest by day, across projects", async () => {
+test("the Inbox holds what needs you, and each project lists its other threads", async () => {
   await openHome(workbenchApp());
-  // The groups cross project boundaries rather than collecting each project together.
   expect(stops()).toEqual([
-    "Needs you 3",
+    "Inbox, 3 need you",
     "Partial refunds double-count tax",
     "Approval sheet loses its state on rotate",
     "Retry budget for app-server restarts",
-    "Running 3",
+    "Running, 3",
+    "Recent, 0",
+    "[ace]",
     "Dedupe thread events after reconnect",
-    "Rewrite the install page for the daemon",
+    "1 settled",
+    "[relay]",
     "Backpressure on broadcast fan-out",
-    "Earlier 1",
+    "[billing-api]",
     "Invoice PDF locale fallback",
+    "[ace-mobile]",
+    "[docs-site]",
+    "Rewrite the install page for the daemon",
   ]);
-  expect(tab("Active").textContent).toBe("Active 7");
-  // The finished thread's PR merged, so the daemon has settled it into the Settled tab.
+  // A request shows once, in the Inbox, never again under its project.
+  expect(order().filter((title) => title === "Retry budget for app-server restarts")).toHaveLength(
+    1,
+  );
+  // The settled thread waits under its project's "1 settled".
   expect(order()).not.toContain("Bump Codex app-server to 0.48");
-  await settledCount(1);
-  await showTab("Settled");
-  expect(tab("Settled").getAttribute("aria-selected")).toBe("true");
-  expect(order()).toEqual(["Bump Codex app-server to 0.48"]);
+  await userEvent.click(head("1 settled"));
+  await waitFor(() =>
+    expect(before("Dedupe thread events after reconnect", "Bump Codex app-server to 0.48")).toBe(
+      true,
+    ),
+  );
+  expect(before("Bump Codex app-server to 0.48", "Backpressure on broadcast fan-out")).toBe(true);
 });
 
-test("a folded group keeps its heading and count and hides its threads", async () => {
+test("a folded project keeps its heading and Inbox count, hides its threads, across a reload", async () => {
+  const storage = memoryKeyValue();
+  const view = await openHome(workbenchApp({ storage }));
+  const relay = within(threads()).getByRole("button", { name: /^relay/ });
+  await userEvent.click(relay);
+  expect(relay.getAttribute("aria-expanded")).toBe("false");
+  await waitFor(() => expect(order()).not.toContain("Backpressure on broadcast fan-out"));
+  // Folded, it says how many of its threads wait in the Inbox.
+  expect(head(/^relay.*, 1 in the Inbox/)).toBeTruthy();
+  view.unmount();
+
+  await openHome(workbenchApp({ storage }));
+  expect(head(/^relay/).getAttribute("aria-expanded")).toBe("false");
+  expect(order()).not.toContain("Backpressure on broadcast fan-out");
+  await userEvent.click(head(/^relay/));
+  expect(await within(threads()).findByRole("link", { name: /^Backpressure/ })).toBeTruthy();
+});
+
+test("Running lists every thread at work across projects, each naming its project", async () => {
   await openHome(workbenchApp());
-  const running = within(threads()).getByRole("button", { name: "Running 3" });
-  await userEvent.click(running);
-  expect(running.getAttribute("aria-expanded")).toBe("false");
-  await waitFor(() => expect(order()).not.toContain("Dedupe thread events after reconnect"));
-  expect(order()).toContain("Partial refunds double-count tax");
-  await userEvent.click(within(threads()).getByRole("button", { name: "Running 3" }));
-  expect(await within(threads()).findByRole("link", { name: /^Dedupe thread/ })).toBeTruthy();
+  await userEvent.click(head("Running, 3"));
+  expect(panelTitle()).toBe("Running");
+  await waitFor(() =>
+    expect(order()).toEqual([
+      "Dedupe thread events after reconnect",
+      "Rewrite the install page for the daemon",
+      "Backpressure on broadcast fan-out",
+    ]),
+  );
+  expect(within(card(/^Dedupe thread/)).getByText("ace")).toBeTruthy();
+  expect(within(card(/^Backpressure/)).getByText("relay")).toBeTruthy();
 });
 
-test("a pinned thread leads the list, ahead of threads that need you", async () => {
+test("a project opens as its own list with Active and Settled tabs; Back and Escape return", async () => {
+  await openHome(workbenchApp());
+  await userEvent.click(screen.getByRole("button", { name: "Open ace" }));
+  expect(panelTitle()).toBe("ace");
+  // Inside its project a row doesn't repeat the project.
+  await waitFor(() => expect(order()).toEqual(["Dedupe thread events after reconnect"]));
+  expect(within(card(/^Dedupe thread/)).queryByText("ace")).toBeNull();
+  await userEvent.click(screen.getByRole("tab", { name: "Settled" }));
+  await waitFor(() => expect(order()).toEqual(["Bump Codex app-server to 0.48"]));
+  await userEvent.click(screen.getByRole("button", { name: "Back to Threads" }));
+  expect(panelTitle()).toBe("Threads");
+  expect(head("Running, 3")).toBeTruthy();
+
+  await userEvent.click(head("Running, 3"));
+  expect(panelTitle()).toBe("Running");
+  // Escape outside the search field goes back too.
+  card(/^Dedupe thread/).focus();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(panelTitle()).toBe("Threads"));
+});
+
+test("a window comes back to the list it was focused on, across a reload", async () => {
+  const storage = memoryKeyValue();
+  const windowStorage = memoryKeyValue();
+  const view = await openHome(workbenchApp({ storage, windowStorage }));
+  await userEvent.click(screen.getByRole("button", { name: "Open relay" }));
+  expect(panelTitle()).toBe("relay");
+  view.unmount();
+
+  const again = await openHome(workbenchApp({ storage, windowStorage }));
+  expect(panelTitle()).toBe("relay");
+  again.unmount();
+
+  // Another window keeps its own: it opens on the tree.
+  await openHome(workbenchApp({ storage, windowStorage: memoryKeyValue() }));
+  expect(panelTitle()).toBe("Threads");
+});
+
+test("projects with only settled threads fold under Quiet projects, which opens each", async () => {
+  const app = workbenchApp();
+  app.daemon.createThread({
+    id: "thread-notes",
+    workspaceId: "notes",
+    title: "Write release notes",
+    provider: "codex",
+  });
+  app.daemon.apply("thread-notes", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "sent", "user", "Write the notes"),
+    facts.endTurn("root"),
+  ]);
+  await openHome(app);
+  await app.client.command({ type: "thread.settle", threadId: ThreadId.parse("thread-notes") });
+  const quiet = await within(threads()).findByRole("button", { name: /^Quiet projects/ });
+  expect(quiet.getAttribute("aria-expanded")).toBe("false");
+  await waitFor(() => expect(stops()).not.toContain("[notes]"));
+  await userEvent.click(quiet);
+  await userEvent.click(
+    await within(threads()).findByRole("button", { name: /^notes, 1 settled/ }),
+  );
+  expect(panelTitle()).toBe("notes");
+  expect(screen.getByRole("tab", { name: "Settled" }).getAttribute("aria-selected")).toBe("true");
+  await waitFor(() =>
+    expect(within(threads()).getByRole("link", { name: /^Write release notes/ })).toBeTruthy(),
+  );
+});
+
+test("a pinned thread leads its project, ahead of running work", async () => {
   const app = workbenchApp();
   await openHome(app);
+  await unsettleBump();
   await app.client.command({
     type: "thread.pin",
-    threadId: ThreadId.parse("thread-install-page"),
+    threadId: ThreadId.parse("thread-bump-codex"),
     pinned: true,
   });
-  await waitFor(() => expect(order()[0]).toBe("Rewrite the install page for the daemon"));
-  expect(order()[1]).toBe("Partial refunds double-count tax");
-  expect(card(/^Rewrite the install page for the daemon\..*Pinned/)).toBeTruthy();
+  await waitFor(() =>
+    expect(before("Bump Codex app-server to 0.48", "Dedupe thread events after reconnect")).toBe(
+      true,
+    ),
+  );
+  expect(card(/^Bump Codex app-server to 0.48\..*Pinned/)).toBeTruthy();
 });
 
 test("tasks expose status, linked PR, provider and branch details", async () => {
@@ -135,28 +247,29 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   expect(install.getAttribute("aria-label")).not.toMatch(/lines added|removed/);
 });
 
-/** Bring the settled thread back to the Active tab, done and at rest. */
+/** Bring the settled thread back into its project, done and at rest. */
 async function unsettleBump() {
-  await showTab("Settled");
+  await userEvent.click(head("1 settled"));
+  await within(threads()).findByRole("link", { name: /^Bump Codex/ });
   await rowAction("Unsettle", "Bump Codex app-server to 0.48");
-  await settledCount(0);
-  await showTab("Active");
+  await waitFor(() =>
+    expect(within(threads()).queryByRole("button", { name: "1 settled" })).toBeNull(),
+  );
   await within(threads()).findByRole("link", { name: /^Bump Codex/ });
 }
 
-test("finished tasks follow the work in hand without a Recent heading", async () => {
+test("finished work follows running work in its project", async () => {
   await openHome(workbenchApp());
   await unsettleBump();
-  expect(within(threads()).queryByText("Recent", { exact: true })).toBeNull();
-  expect(before("Partial refunds double-count tax", "Bump Codex app-server to 0.48")).toBe(true);
   expect(before("Dedupe thread events after reconnect", "Bump Codex app-server to 0.48")).toBe(
     true,
   );
+  expect(before("Bump Codex app-server to 0.48", "Backpressure on broadcast fan-out")).toBe(true);
 });
 
-test("Up and Down (and j and k) move between rows and group headings", async () => {
+test("Up and Down (and j and k) move between rows, headings and places", async () => {
   await openHome(workbenchApp());
-  const heading = within(threads()).getByRole("button", { name: "Needs you 3" });
+  const inbox = head(/^Inbox/);
   const rows = within(threads()).getAllByRole("link");
   const [first, second, third] = rows;
   if (!first || !second || !third) throw new Error("expected three rows");
@@ -166,13 +279,14 @@ test("Up and Down (and j and k) move between rows and group headings", async () 
   await userEvent.keyboard("k");
   expect(document.activeElement).toBe(first);
   await userEvent.keyboard("{ArrowUp}");
-  expect(document.activeElement).toBe(heading);
-  // Up from the top stays put.
-  await userEvent.keyboard("{ArrowUp}");
-  expect(document.activeElement).toBe(heading);
+  expect(document.activeElement).toBe(inbox);
   third.focus();
   await userEvent.keyboard("j");
-  expect(document.activeElement).toBe(within(threads()).getByRole("button", { name: "Running 3" }));
+  expect(document.activeElement).toBe(head("Running, 3"));
+  await userEvent.keyboard("j");
+  expect(document.activeElement).toBe(head("Recent, 0"));
+  await userEvent.keyboard("j");
+  expect(document.activeElement).toBe(head(/^ace, 1 running/));
   await userEvent.keyboard("j");
   expect(document.activeElement).toBe(card(/^Dedupe thread events/));
 });
@@ -211,23 +325,6 @@ test("a row's actions offer Settle for finished work and hide it while work cont
   expect(screen.queryByRole("menuitem", { name: "Settle" })).toBeNull();
 });
 
-test("the panel reopens on the tab the person left it on, across a reload", async () => {
-  const storage = memoryKeyValue();
-  const view = await openHome(workbenchApp({ storage }));
-  expect(tab("Active").getAttribute("aria-selected")).toBe("true");
-  await showTab("Settled");
-  expect(card(/^Bump Codex app-server to 0.48/)).toBeTruthy();
-  view.unmount();
-
-  await openHome(workbenchApp({ storage }));
-  expect(tab("Settled").getAttribute("aria-selected")).toBe("true");
-  expect(card(/^Bump Codex app-server to 0.48/)).toBeTruthy();
-  await showTab("Active");
-  await waitFor(() =>
-    expect(within(threads()).queryByRole("link", { name: /^Bump Codex/ })).toBeNull(),
-  );
-});
-
 test("the open thread's row is the current one, and moves with the thread opened", async () => {
   await openHome(workbenchApp(), "/t/thread-fan-out");
   await waitFor(() => expect(current()).toEqual(["Backpressure on broadcast fan-out"]));
@@ -246,7 +343,7 @@ test("hovering a row's link shows what its marks mean in a tooltip", async () =>
   expect(within(prs).getByRole("listitem", { name: /^#77, open\b/ })).toBeTruthy();
 });
 
-test("Settle drops a finished thread into Settled on the daemon and Unsettle puts it back", async () => {
+test("Settle drops a finished thread into its project's settled ones and Unsettle puts it back", async () => {
   const app = workbenchApp();
   const settledAt = () => {
     const view = app.daemon.snapshot({ kind: "threads" });
@@ -254,43 +351,26 @@ test("Settle drops a finished thread into Settled on the daemon and Unsettle put
   };
   await openHome(app);
   await unsettleBump();
-  expect(order()).toContain("Bump Codex app-server to 0.48");
   await waitFor(() => expect(settledAt()).toBeUndefined());
 
   await rowAction("Settle", "Bump Codex app-server to 0.48");
-  await settledCount(1);
-  await waitFor(() => expect(order()).not.toContain("Bump Codex app-server to 0.48"));
+  expect(await within(threads()).findByRole("button", { name: "1 settled" })).toBeTruthy();
   await waitFor(() => expect(settledAt()).toBeDefined());
 });
 
-test("a settled thread comes back to the list as soon as it moves again", async () => {
+test("a settled thread comes back to its project as soon as it moves again, as running", async () => {
   const app = workbenchApp();
   await openHome(app);
-  await unsettleBump();
-  await rowAction("Settle", "Bump Codex app-server to 0.48");
-  await settledCount(1);
+  expect(head("1 settled")).toBeTruthy();
 
   // New work on it: the agent starts another turn and the thread is working again.
   app.daemon.apply("thread-bump-codex", [
     { type: "turn.started", agent: "root", nativeTurnId: "follow-up", trigger: "user" },
   ]);
-  await settledCount(0);
-  // Under Running, never under a day group: its tree is working.
-  await waitFor(() =>
-    expect(stops().indexOf("Bump Codex app-server to 0.48")).toBeLessThan(
-      stops().findIndex((stop) => stop?.startsWith("Earlier")),
-    ),
-  );
+  await waitFor(() => expect(head("Running, 4")).toBeTruthy());
+  // Under its project, never in the Inbox and never as Done: its tree is working.
   expect(card(/^Bump Codex app-server to 0\.48\. Working/)).toBeTruthy();
-});
-
-test("Settled lists settled threads without the settle rule, which lives in Settings", async () => {
-  const app = workbenchApp();
-  await openHome(app);
-  await showTab("Settled");
-  expect(card(/^Bump Codex/)).toBeTruthy();
-  expect(screen.queryByText(/Threads that need you never settle/)).toBeNull();
-  expect(screen.queryByRole("button", { name: "When done threads settle" })).toBeNull();
+  expect(before("Bump Codex app-server to 0.48", "Backpressure on broadcast fan-out")).toBe(true);
 });
 
 test("a snoozed request stays in the list with its wake time; Wake now clears it", async () => {

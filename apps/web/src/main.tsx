@@ -80,13 +80,7 @@ function userAgentBrands(): { brand: string }[] {
 // Sidebar status stays live in hidden tabs; transcript streams stay in the worker.
 const batch = frameBatch(nextFrame);
 const app = (client: ClientApi, machines?: MachinePool) => (
-  <App
-    client={client}
-    storage={local}
-    windowStorage={session}
-    batch={batch}
-    machines={machines}
-  />
+  <App client={client} storage={local} windowStorage={session} batch={batch} machines={machines} />
 );
 /**
  * A real daemon's app, with the machine pool this browser has stored for its connection and its

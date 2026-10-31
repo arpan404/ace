@@ -78,7 +78,11 @@ export function FocusTabs(props: { tab: PanelTab; onChange(tab: PanelTab): void 
     { id: "settled", label: "Settled" },
   ];
   return (
-    <div role="tablist" aria-label="Project threads" className="flex shrink-0 gap-3.5 px-4 pt-0.5 pb-2">
+    <div
+      role="tablist"
+      aria-label="Project threads"
+      className="flex shrink-0 gap-3.5 px-4 pt-0.5 pb-2"
+    >
       {tabs.map((tab) => {
         const selected = tab.id === props.tab;
         return (
