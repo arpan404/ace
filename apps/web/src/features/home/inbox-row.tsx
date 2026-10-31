@@ -48,6 +48,8 @@ function InboxLink(props: { threadId: string; machine?: RowMachine | undefined; 
       {...threadOn(machine?.id, entry.id)}
       onClick={props.onOpen}
       data-inbox-row=""
+      data-attention={attention.level}
+      data-muted={attention.muted ? "" : undefined}
       aria-label={`${card.title}${card.announceUnread ? ", unread" : ""}. ${threadDetails(card).join(", ")}`}
       className={cn(
         "relative flex h-[52px] w-full flex-col justify-center gap-0.5 rounded-md px-2.5 py-[7px] text-left text-ui outline-none transition-colors duration-(--motion-fast) focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",

@@ -49,7 +49,9 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
   // observer starts over after it and asks again while the end is still in sight.
   useEffect(() => {
     const element = end.current;
-    if (!element || foot !== "more" || typeof IntersectionObserver === "undefined") return;
+    if (!element || foot !== "more") return;
+    // Without an observer (an old engine), every page loads in turn.
+    if (typeof IntersectionObserver === "undefined") return void more();
     const observer = new IntersectionObserver((seen) => {
       if (seen.some((each) => each.isIntersecting)) void more();
     });
