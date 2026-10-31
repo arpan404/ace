@@ -1,51 +1,42 @@
 import { useAgent, useSidebarThread, useThreadMeta } from "@ace/client-react";
-import { agentName, projectBadge } from "@ace/ui-core";
+import { agentName } from "@ace/ui-core";
+import { FolderSimpleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { ProjectMark } from "@/components/project-mark.tsx";
-import { MachineLabel } from "@/components/ui/machine-label.tsx";
+import { Icon } from "@/components/icon.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useScopedMachine } from "@/lib/machines.ts";
 import { useProjectName } from "@/lib/projects.ts";
 
 /**
- * Where a thread sits, before its title in the header: its project's badge and name, or, for a
- * child ace delegated, the parent thread as a link. A fork is a thread of its own: it names its
- * project, and its transcript says where it was forked from.
+ * A child ace delegated names its parent thread before its title, as a link back. Any other
+ * thread has no crumb: its project shows as the folder glyph before its title (`ThreadMark`).
+ * A fork is a thread of its own; its transcript says where it was forked from.
  */
 export function ThreadCrumb(props: { threadId: string }) {
-  const meta = useThreadMeta(props.threadId);
-  const parent = meta?.delegatedBy;
-  // A delegated child reads `parent / child`, wherever it runs: never a machine first.
-  if (parent) return <ParentCrumb threadId={parent} />;
-  return meta ? <ProjectCrumb workspaceId={meta.workspaceId} /> : null;
+  const parent = useThreadMeta(props.threadId)?.delegatedBy;
+  return parent ? <ParentCrumb threadId={parent} /> : null;
 }
 
-/** A thread's project, before its title: its badge and name, after its machine when not this one. */
-export function ProjectCrumb(props: { workspaceId: string }) {
-  const name = useProjectName()(props.workspaceId);
-  return (
-    <>
-      <MachineCrumb />
-      <ProjectMark id={props.workspaceId} badge={projectBadge({ id: props.workspaceId, name })} />
-      <span className="truncate">{name}</span>
-    </>
-  );
+/** Whether the thread's header shows a parent before its title (`ThreadCrumb`). */
+export function useHasParentCrumb(threadId: string): boolean {
+  return useThreadMeta(threadId)?.delegatedBy !== undefined;
 }
 
 /**
- * Work on another machine (ADR 0102) names that machine first, the way every machine is named:
- * its mark and name. Nothing on this window's own machine, so a single machine never shows one.
+ * The folder glyph before a thread's title in the top bar: its project, named in its tooltip
+ * and to assistive tech, after the machine when the work runs on another one (ADR 0102).
  */
-function MachineCrumb() {
+export function ProjectGlyph(props: { workspaceId: string }) {
+  const name = useProjectName()(props.workspaceId);
   const machine = useScopedMachine();
-  if (!machine) return null;
+  const said = machine ? `${machine.name} / ${name}` : name;
   return (
-    <>
-      <MachineLabel name={machine.name} icon={machine.icon} primary={false} />
-      <span aria-hidden className="text-subtle-foreground">
-        /
+    <Tip label={said}>
+      <span role="img" aria-label={`Project ${said}`} className="inline-flex">
+        <Icon icon={FolderSimpleIcon} />
       </span>
-    </>
+    </Tip>
   );
 }
 

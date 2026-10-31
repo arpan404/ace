@@ -11,7 +11,7 @@ import { RowItems, useRowDialogs } from "./row-menu-items.tsx";
 import { useRowMenuShortcuts } from "./use-row-menu-shortcuts.ts";
 
 /**
- * The row's hover and focus actions, in its status's place on the top line: Snooze (a clock that
+ * The row's hover and focus actions, in its indicator's place at its right edge: Snooze (a clock that
  * opens the snooze times), Settle or Unsettle where the thread allows it, and the ⋯ menu of
  * everything else. `shown` while the row is under the pointer or keyboard focus; an open menu
  * keeps them up. The same registry owns row and header menu entries.
@@ -28,9 +28,9 @@ export function RowActions(props: {
   const title = props.entry.title;
   return (
     <div
-      // Centred on the title line (7px padding, 20px line), so the row never moves.
+      // Centred on the row's one line, so the row never moves.
       className={cn(
-        "absolute top-[17px] right-1.5 -translate-y-1/2 items-center gap-0.5",
+        "absolute top-1/2 right-1.5 -translate-y-1/2 items-center gap-0.5",
         props.shown ? "flex" : "hidden has-[[data-popup-open]]:flex",
       )}
       role="presentation"

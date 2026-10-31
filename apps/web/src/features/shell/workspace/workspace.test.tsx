@@ -72,11 +72,10 @@ test("a thread's tabs stay with it and come back on return", async () => {
   expect(selected(await sidePanel()).textContent).toBe(web);
 });
 
-test("keyboard Back and Forward walk thread history, with the arrows in the header while the sidebar shows", async () => {
+test("keyboard Back and Forward walk thread history, with the arrows in the top bar while the sidebar shows", async () => {
   await openColdStart();
-  const header = screen.getByRole("banner");
-  expect(within(header).getByRole("button", { name: "Back" })).toBeTruthy();
-  expect(within(header).getByRole("button", { name: "Forward" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Forward" })).toBeTruthy();
   const threads = screen.getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /Migrate settings schema/ }));
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
@@ -237,9 +236,12 @@ test("full view gives the panel the work area; the way back restores the convers
   const panel = await sidePanel();
   await userEvent.click(within(panel).getByRole("button", { name: "Full view" }));
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
-  // The header's navigation moves into the panel's strip.
-  expect(within(panel).getByRole("button", { name: "Back" })).toBeTruthy();
-  expect(within(panel).getByRole("button", { name: "Hide sidebar" })).toBeTruthy();
+  // The top bar stays above the panel, with its navigation and the panel's toggle.
+  expect(within(panel).queryByRole("button", { name: "Back" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("banner")).getByRole("button", { name: "Right panel" }),
+  ).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("button", { name: coldStart }));
   expect(await screen.findByRole("feed", { name: "Transcript" })).toBeTruthy();

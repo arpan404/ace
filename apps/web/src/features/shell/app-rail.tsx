@@ -26,11 +26,10 @@ function useLastThreadsPlace(onThreads: boolean) {
 const needWord = (count: number) => `${count} ${count === 1 ? "needs" : "need"} you`;
 
 /**
- * The sidebar's rail: the app's places as bare glyphs, top to bottom Threads, Spade (not live
- * yet), GitHub, Automations and Skills; then Settings, the app's update when there is one, and
- * the profile at the foot. The current place takes the active fill. Off Threads, a dot on its
- * glyph says a thread waits on the person. Its top is the window's drag area, where macOS draws
- * the traffic lights.
+ * The sidebar's rail, under the window's top bar: the app's places as bare glyphs, Threads and
+ * Spade (not live yet), a short hairline, then GitHub, Automations and Skills; Settings, the
+ * app's update when there is one, and the profile at the foot. The current place takes the
+ * active fill. Off Threads, a dot on its glyph says a thread waits on the person.
  */
 export function AppRail(props: {
   /** GitHub's place, which knows its own counts; current while one of its pages is open. */
@@ -45,9 +44,8 @@ export function AppRail(props: {
     <nav
       aria-label="App"
       data-slot="rail"
-      className="flex w-(--rail-width) shrink-0 flex-col items-center gap-1 pb-2.5"
+      className="flex w-(--rail-width) shrink-0 flex-col items-center gap-1 pt-0.5 pb-2.5"
     >
-      <div aria-hidden className="h-(--header-h) w-full shrink-0 [-webkit-app-region:drag]" />
       <TooltipSide value="right">
         <Tip label={signal ? `Threads · ${needWord(waiting)}` : "Threads"} shortcut="goHome">
           <Link
@@ -57,11 +55,12 @@ export function AppRail(props: {
             aria-current={onThreads ? "page" : undefined}
             className={railPlaceClass}
           >
-            <Icon icon={ChatsCircleIcon} size={18} active={onThreads} />
+            <Icon icon={ChatsCircleIcon} size={20} active={onThreads} />
             {signal && <span aria-hidden data-tone="needs-you" className={railDotClass} />}
           </Link>
         </Tip>
         <SpadeSoon />
+        <span aria-hidden className="my-1.5 h-px w-5 shrink-0 bg-border" />
         {props.forge?.(current === "forge")}
         {railViews.map((view) => (
           <Tip key={view.id} label={view.label} {...(view.shortcut && { shortcut: view.shortcut })}>
@@ -71,7 +70,7 @@ export function AppRail(props: {
               aria-current={current === view.id ? "page" : undefined}
               className={railPlaceClass}
             >
-              <Icon icon={view.icon} size={18} active={current === view.id} />
+              <Icon icon={view.icon} size={20} active={current === view.id} />
             </Link>
           </Tip>
         ))}
@@ -84,7 +83,7 @@ export function AppRail(props: {
             aria-current={current === "settings" ? "page" : undefined}
             className={railPlaceClass}
           >
-            <Icon icon={GearSixIcon} size={18} active={current === "settings"} />
+            <Icon icon={GearSixIcon} size={20} active={current === "settings"} />
           </Link>
         </Tip>
         <AccountMenu />
@@ -94,8 +93,8 @@ export function AppRail(props: {
 }
 
 /**
- * Spade, ace's cloud agent, before it launches: its mark dimmed with a small Soon under it. It
- * is a picture, not a control: nothing to press or tab to, and hovering says it's coming.
+ * Spade, ace's cloud agent, before it launches: its mark dimmed, "Coming soon" in its tooltip.
+ * It is a picture, not a control: nothing to press or tab to.
  */
 function SpadeSoon() {
   return (
@@ -104,15 +103,9 @@ function SpadeSoon() {
         role="img"
         aria-label="Spade, coming soon"
         data-slot="spade-soon"
-        className="relative mb-2 grid size-9 shrink-0 cursor-default place-items-center text-muted-foreground"
+        className="grid size-10 shrink-0 cursor-default place-items-center text-muted-foreground"
       >
-        <SpadeMark size={20} className="opacity-60" />
-        <span
-          aria-hidden
-          className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full border border-border bg-sidebar px-1 py-px text-[8.5px] leading-none font-semibold tracking-[0.02em] whitespace-nowrap text-muted-foreground"
-        >
-          Soon
-        </span>
+        <SpadeMark size={20} className="opacity-50" />
       </span>
     </Tip>
   );

@@ -59,9 +59,7 @@ export function ViewFrame(props: {
           </aside>,
           body,
         )}
-      <div className="relative flex min-w-0 flex-1 bg-reading">
-        <div className="relative flex min-w-0 flex-1 flex-col">{props.children}</div>
-      </div>
+      <div className="relative flex min-w-0 flex-1 flex-col">{props.children}</div>
     </ViewListContext.Provider>
   );
 }
@@ -94,9 +92,8 @@ export function ViewListPage(props: { title: string; fallback: ReactNode }) {
 }
 
 /**
- * The top row of the sidebar's panel: the place's title and its actions, level with the main
- * column's header. It is the window's drag area; on the sheet it leaves room for the sheet's own
- * close button at its end.
+ * The panel's title row, under the window's top bar: the place's title and its actions, level
+ * with the rail's first place.
  */
 export function PanelHeader(props: {
   title: string;
@@ -106,19 +103,17 @@ export function PanelHeader(props: {
   /** Extra classes for the row, such as a container name its actions query. */
   className?: string | undefined;
 }) {
-  const { sheet } = useViewFrame();
   return (
     <div
       data-slot="panel-top"
       className={cn(
-        "group/heading flex h-(--header-h) shrink-0 items-center gap-1 [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag] [&_input]:[-webkit-app-region:no-drag]",
-        sheet ? "pr-12" : "pr-2.5",
+        "group/heading flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5",
         props.leading ? "pl-2" : "pl-4",
         props.className,
       )}
     >
       {props.leading}
-      <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-foreground">
+      <h2 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-title text-foreground">
         {props.title}
       </h2>
       {props.actions}

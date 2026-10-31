@@ -6,13 +6,13 @@ import {
 } from "@phosphor-icons/react";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useRef } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
-import { PaletteButton, PanelHeader } from "@/features/shell/index.ts";
+import { PaletteButton } from "@/features/shell/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { useNewThreadEntry } from "@/features/projects/index.ts";
+import { useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useHeld } from "@/lib/held.ts";
@@ -21,15 +21,12 @@ import { useMachineEntries } from "@/lib/machine-threads.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
-import { ThreadsActions } from "./project-filter.tsx";
+import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useSidebarDevice } from "./device-filter-state.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
-import { useHomeList, useSettledEntries } from "./use-home-threads.ts";
-import { PanelSearch } from "./panel-header.tsx";
-import { useSettledSearch } from "./use-panel-search.ts";
-import { rowFocusSelector } from "./list-focus.ts";
+import { useHomeList } from "./use-home-threads.ts";
 import { usePanelRows } from "./use-panel-rows.ts";
 import { InboxOverlay } from "./inbox-overlay.tsx";
 import { useInboxOpen, useInboxStore } from "./use-inbox-open.ts";
@@ -45,22 +42,20 @@ const StartedTitlePublisher = deferredComponent(() =>
 );
 
 const iconButton =
-  "relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground";
+  "relative grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit touch-hit-lg hover:bg-hover hover:text-foreground";
 
 /**
- * The Threads panel: projects, with the Inbox one press away. The title with the Inbox bell,
- * Search, the filter and New thread, a search over every thread, then the tree: each project
+ * The Threads panel, under the window's top bar: its title row ("ace" and its filter caret, the
+ * Inbox bell, Search), a New thread row, then the list: Pinned threads, and Projects, each
  * folding open in place with its open threads and its recently settled ones, quiet projects
  * folded at the foot, and History below the list. The bell (or ⌘I) opens the Inbox over the
- * list. Searching lists the matching threads, then the settled matches, the daemon's included.
+ * list; Search (⌘K) opens the palette.
  */
 export function HomeSidebar() {
   // Other machines' threads join the list, each row marked with its machine.
   const host = useHostIdentity()?.hostId;
   const others = useOverlaidMachineEntries(useMachineEntries(host));
-  const [query, setQuery] = useState("");
-  const searching = query.trim().length > 0;
-  const list = useHomeList(others, query);
+  const list = useHomeList(others);
   const { project } = useOrganizerState();
   const device = useSidebarDevice();
   const deviceName = useMachines().find((machine) => machine.id === device)?.name;
@@ -69,85 +64,55 @@ export function HomeSidebar() {
   const loaded = useSidebarLoaded();
   // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
   const skeleton = useHeld(!loaded);
-  const loadedSettled = useSettledEntries(list.settled);
-  const search = useSettledSearch(query, list, loadedSettled);
-  const rows = usePanelRows({ list, search: searching ? search : undefined, device });
-  const nav = useRef<HTMLElement>(null);
+  const rows = usePanelRows({ list, device });
   const bell = useRef<HTMLButtonElement>(null);
   const inbox = useInboxStore();
   const inboxOpen = useInboxOpen();
   const { tree } = list;
   const empty =
-    !searching &&
     [list.pinned, list.listed, list.snoozed, list.settled].every((ids) => !ids.length) &&
     !tree.quiet.length;
   const directory = useProjectDirectory();
+  const projects = useProjectDialogs();
   const keys = useResolvedKeymap();
-  const entry = useNewThreadEntry();
-  const { only } = entry;
-  const listKey = searching ? "search" : "tree";
-  const nothing = searching && !rows.length;
   const waiting = list.inbox.length;
+  // The bell's dot asks loudest for what it holds: the warning colour while anything needs the
+  // person, the blue while it holds only results not yet seen.
+  const needsYou = list.inbox.some((id) => list.needsYou.includes(id));
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <PanelHeader
-        title="Threads"
-        className="@container/thread-filters"
-        actions={
-          <>
-            <Tip label="Inbox" shortcut="inbox">
-              <button
-                ref={bell}
-                type="button"
-                aria-label={waiting ? `Inbox, ${waiting} waiting` : "Inbox"}
-                aria-expanded={inboxOpen}
-                aria-haspopup="dialog"
-                onClick={inbox.toggle}
-                className={cn(iconButton, inboxOpen && "bg-active text-foreground")}
-              >
-                <Icon icon={BellIcon} />
-                {waiting > 0 && (
-                  <span
-                    aria-hidden
-                    data-inbox-badge=""
-                    className="absolute -top-0.5 -right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-status-needs-you px-1 text-[10px] leading-none font-semibold text-background tabular-nums shadow-[0_0_0_2px_var(--sidebar)]"
-                  >
-                    {waiting}
-                  </span>
-                )}
-              </button>
-            </Tip>
-            <PaletteButton />
-            <ThreadsActions />
-            <Tip label="New thread" shortcut="newThread">
-              <Link
-                to="/new"
-                {...(only ? { search: { project: only } } : {})}
-                aria-label="New thread"
-                className={iconButton}
-                onClick={(event) => {
-                  // Shift skips the question (the current project); several projects ask which.
-                  if (event.shiftKey) {
-                    event.preventDefault();
-                    entry.here();
-                  } else if (!only) {
-                    event.preventDefault();
-                    entry.start();
-                  }
-                }}
-              >
-                <Icon icon={NotePencilIcon} />
-              </Link>
-            </Tip>
-          </>
-        }
-      />
-      <PanelSearch
-        value={query}
-        onChange={setQuery}
-        onEnterList={() => nav.current?.querySelector<HTMLElement>(rowFocusSelector)?.focus()}
-      />
-      <nav ref={nav} aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
+      <div
+        data-slot="panel-top"
+        className="@container/thread-filters flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2"
+      >
+        <span className="flex min-w-0 flex-1">
+          <ProjectFilter />
+        </span>
+        <Tip label="Inbox" shortcut="inbox">
+          <button
+            ref={bell}
+            type="button"
+            aria-label={waiting ? `Inbox, ${waiting} waiting` : "Inbox"}
+            aria-expanded={inboxOpen}
+            aria-haspopup="dialog"
+            onClick={inbox.toggle}
+            className={cn(iconButton, inboxOpen && "bg-active text-foreground")}
+          >
+            <Icon icon={BellIcon} size={18} />
+            {waiting > 0 && (
+              <span
+                aria-hidden
+                data-inbox-dot=""
+                data-tone={needsYou ? "needs-you" : "unread"}
+                className="absolute top-1.5 right-1.5 size-2 rounded-full bg-(--tone) ring-2 ring-sidebar"
+              />
+            )}
+          </button>
+        </Tip>
+        <PaletteButton />
+      </div>
+      <NewThreadRow />
+      <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
           <Suspense fallback={null}>
             <StartedTitlePublisher.Component />
@@ -191,26 +156,22 @@ export function HomeSidebar() {
                   >
                     Show all devices
                   </button>
+                ) : directory.loaded && !directory.projects.length ? (
+                  <button
+                    type="button"
+                    className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
+                    onClick={() => projects.open({ kind: "add", tab: "sources" })}
+                    onPointerEnter={projects.preload}
+                  >
+                    Add project
+                  </button>
                 ) : undefined
               }
             />
             <ThreadList rows={unsentOnly} needsYou={list.needsYou} pinned={list.pinned} />
           </>
         ) : (
-          <>
-            {nothing && (
-              <p role="status" className="shrink-0 px-4 pt-3 text-ui text-subtle-foreground">
-                Nothing matches “{query.trim()}”.
-              </p>
-            )}
-            <ThreadList
-              key={listKey}
-              rows={rows}
-              needsYou={list.needsYou}
-              pinned={list.pinned}
-              hits={search.hits}
-            />
-          </>
+          <ThreadList rows={rows} needsYou={list.needsYou} pinned={list.pinned} />
         )}
       </nav>
       {loaded && <HistoryFoot count={list.settledTotal} />}
@@ -219,20 +180,58 @@ export function HomeSidebar() {
   );
 }
 
+/**
+ * The panel's first row: New thread, as a pencil and the words. With one project it opens New
+ * thread there; with several it asks which (Shift skips the question: the current project).
+ */
+function NewThreadRow() {
+  const entry = useNewThreadEntry();
+  const { only } = entry;
+  const here = useRouterState({ select: (state) => state.location.pathname === "/new" });
+  return (
+    <div className="shrink-0 px-2 pb-1">
+      <Tip label="New thread" shortcut="newThread">
+        <Link
+          to="/new"
+          {...(only ? { search: { project: only } } : {})}
+          aria-label="New thread"
+          aria-current={here ? "page" : undefined}
+          className={cn(
+            "flex h-(--row-height) w-full items-center gap-2.5 rounded-md px-2.5 text-md text-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover",
+            here && "bg-active",
+          )}
+          onClick={(event) => {
+            if (event.shiftKey) {
+              event.preventDefault();
+              entry.here();
+            } else if (!only) {
+              event.preventDefault();
+              entry.start();
+            }
+          }}
+        >
+          <Icon icon={NotePencilIcon} className="text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">New thread</span>
+        </Link>
+      </Tip>
+    </div>
+  );
+}
+
 /** The quiet way to History at the panel's foot, with how many threads it holds. */
 function HistoryFoot(props: { count: number }) {
   const here = useRouterState({ select: (state) => state.location.pathname === "/history" });
   return (
-    <div className="shrink-0 border-t border-border px-2 pt-1 pb-2">
+    <div className="shrink-0 px-2 pt-1 pb-2">
       <Link
         to="/history"
         aria-current={here ? "page" : undefined}
         className={cn(
-          "flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover hover:text-foreground",
+          "flex h-(--row-height) w-full items-center gap-2.5 rounded-md px-2.5 text-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover hover:text-foreground",
           here && "bg-active text-foreground",
         )}
       >
-        <Icon icon={ClockCounterClockwiseIcon} size={14} />
+        <Icon icon={ClockCounterClockwiseIcon} />
         <span className="min-w-0 flex-1 truncate">History</span>
         {props.count > 0 && (
           <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">

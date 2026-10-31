@@ -102,7 +102,9 @@ test("a tab the person keeps agents out of is never recorded, and is marked in t
   expect(record.getAttribute("aria-disabled")).toBe("true");
   // Closing the panel leaves it private: agents stay out until the person lets them in.
   await userEvent.keyboard("{Escape}");
-  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
+  await userEvent.click(
+    within(screen.getByRole("banner")).getByRole("button", { name: "Right panel" }),
+  );
   expect(browser.tab(threadId)?.private).toBe(true);
 });
 
@@ -149,7 +151,9 @@ test("Find reads the page the agent works in, leaving the agent at work", async 
 
 test("a page's unanswered question stays visible when its panel is closed", async () => {
   const { panel, browser } = await openBrowser();
-  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
+  await userEvent.click(
+    within(screen.getByRole("banner")).getByRole("button", { name: "Right panel" }),
+  );
   act(() =>
     browser.dialogOpen(threadId, {
       dialogId: "hidden-question",

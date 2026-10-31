@@ -214,7 +214,7 @@ function RowWake(props: { wake: string }) {
   );
 }
 
-export function RowTime(props: { card: ThreadCard }) {
+function RowTime(props: { card: ThreadCard }) {
   const { card } = props;
   const fresh = useLiveConnection().fresh;
   const ongoing = !card.flags.settled && card.status.tone !== "done" && card.status.tone !== "idle";

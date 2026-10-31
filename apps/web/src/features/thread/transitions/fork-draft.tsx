@@ -21,7 +21,7 @@ import { Composer, type Draft } from "../composer/composer.tsx";
 import { ComposerDock } from "../composer/composer-dock.tsx";
 import { ContinuationRefused, forkWithDraft } from "../composer/continue-in-thread.ts";
 import { runsNow } from "../composer/execution.ts";
-import { ProjectCrumb } from "../header/thread-crumb.tsx";
+import { ProjectGlyph } from "../header/thread-crumb.tsx";
 import { ForkedDivider } from "../items/forked-divider.tsx";
 import { readingColumn } from "../lib/column.ts";
 import { useShownTitle } from "../lib/shown-title.ts";
@@ -67,7 +67,7 @@ export function ForkDraftView(props: { threadId: string; at: ForkDraftSearch }) 
     [props.threadId, meta, parentTitle],
   );
   return (
-    <Screen crumb={meta && <ProjectCrumb workspaceId={meta.workspaceId} />} title={title}>
+    <Screen mark={meta && <ProjectGlyph workspaceId={meta.workspaceId} />} title={title}>
       {thread && meta ? (
         <div
           data-thread-column

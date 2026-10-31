@@ -39,7 +39,8 @@ const FloatingBrowsers = lazy(loadFloatingBrowsers);
 const PullRequestTab = deferredComponent(() => loadPullRequestTab().then((m) => m.default));
 
 /**
- * Wallpaper, the one sidebar (the rail and the current place's panel) and the selected view.
+ * The frame (the window's top bar, the rail and the current place's panel, on the sidebar colour)
+ * and the selected view on its raised canvas.
  * `data-connection` carries the daemon connection's state. While the daemon is unreachable
  * (`data-live-held`, live-motion.ts) live indicators dim, since nothing they stand for can
  * arrive (no layout changes); while it connects or starts they stay at full strength.
@@ -65,7 +66,8 @@ export function AppShell() {
                 className={cn(
                   // Focus belongs to the inner panes; the shell must never become a scrollport.
                   // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
-                  "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip",
+                  // The frame colour: the top bar, rail and panel sit on it, the canvas over it.
+                  "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip bg-sidebar",
                   "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:opacity-60",
                 )}
               >

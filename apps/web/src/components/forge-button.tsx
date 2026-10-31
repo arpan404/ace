@@ -5,9 +5,8 @@ import { railDotClass, railPlaceClass } from "./rail-place.ts";
 
 /**
  * GitHub in the sidebar's rail. It opens the list last looked at (Inbox, Pull requests or
- * Issues), the current place while one of those pages is open. A needs-you dot shows
- * while pull requests wait on the person; unread notifications only go in its name and tooltip,
- * so they never pull the eye.
+ * Issues), the current place while one of those pages is open. Its dot is in the warning colour
+ * while pull requests wait on the person, else blue while notifications are unread.
  */
 export function ForgeButton(props: {
   to: "/pulls" | "/inbox" | "/issues";
@@ -35,9 +34,15 @@ export function ForgeButton(props: {
         aria-label={said}
         className={railPlaceClass}
       >
-        {/* The mark fills its box; the rail's 18px glyphs draw about 15 tall, so this matches. */}
-        <GithubMark size={15.5} />
-        {waiting > 0 && <span aria-hidden data-tone="needs-you" className={railDotClass} />}
+        {/* The mark fills its box; the rail's 20px glyphs draw about 17 tall, so this matches. */}
+        <GithubMark size={17} />
+        {(waiting > 0 || unread > 0) && (
+          <span
+            aria-hidden
+            data-tone={waiting > 0 ? "needs-you" : "unread"}
+            className={railDotClass}
+          />
+        )}
       </Link>
     </Tip>
   );

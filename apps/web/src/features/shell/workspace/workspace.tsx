@@ -16,7 +16,7 @@ import {
   useWorkspaceStore,
   type WorkspaceDefinition,
 } from "@/lib/workspace/index.ts";
-import { HeaderNav } from "../app-header.tsx";
+import { canvasClass } from "../canvas.ts";
 import { bottomBounds, panelFloats, panelBounds } from "./bounds.ts";
 import { PanelControls } from "./panel-controls.tsx";
 import { useElementSize } from "@/lib/element-size.ts";
@@ -119,14 +119,15 @@ function Overlays(props: { scope: string; definition: WorkspaceDefinition }) {
 /**
  * A screen with a side panel, and a bottom panel (terminals) under the main column:
  *
- *   ┌ header (main column) ──────────┬ side panel strip ┐
+ *   ┌ header (the top bar's main part) ─────────────────┐
+ *   ╭ canvas ────────────────────────┬ side panel strip ┐
  *   │ main column                    │ side panel       │
  *   ├ bottom panel ──────────────────┤                  │
  *   └────────────────────────────────┴──────────────────┘
  *
- * In full view the panel fills the row and the main column steps aside (still mounted, so the
- * transcript keeps its place); the strip then carries the header's navigation and a way back to
- * the conversation.
+ * The header spans the column and the panel, so the panel's toggle always sits at its right.
+ * In full view the panel fills the canvas and the main column steps aside (still mounted, so the
+ * transcript keeps its place); the strip then carries a way back to the conversation.
  */
 export function Workspace(props: {
   scope: string;
@@ -179,8 +180,6 @@ export function Workspace(props: {
   const [bottomShown, setBottomShown] = useState(false);
   if (workspace.bottom?.open && !bottomShown) setBottomShown(true);
   const expanded = workspace.expanded && workspace.open;
-  // While the panel shows beside the column, its strip holds the panel's controls.
-  const inline = workspace.open && !overlay && !sheet;
   const controls = (placement: "header" | "panel") => (
     <PanelControls
       workspace={workspace}
@@ -196,19 +195,16 @@ export function Workspace(props: {
     />
   );
   const leading = expanded && (
-    <>
-      <HeaderNav />
-      <Tip label="Back to the conversation" shortcut="fullView">
-        <button
-          type="button"
-          onClick={() => withViewTransition(() => actions.setExpanded(false))}
-          className="focus-ring ml-1 flex h-7 max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground [-webkit-app-region:no-drag]"
-        >
-          <ChatCircleTextIcon aria-hidden size={14} className="shrink-0" />
-          <span className="min-w-0 truncate">{props.title}</span>
-        </button>
-      </Tip>
-    </>
+    <Tip label="Back to the conversation" shortcut="fullView">
+      <button
+        type="button"
+        onClick={() => withViewTransition(() => actions.setExpanded(false))}
+        className="focus-ring ml-1 flex h-7 max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground [-webkit-app-region:no-drag]"
+      >
+        <ChatCircleTextIcon aria-hidden size={14} className="shrink-0" />
+        <span className="min-w-0 truncate">{props.title}</span>
+      </button>
+    </Tip>
   );
   return (
     <WorkspaceWebLinks scope={scope} definition={definition}>
@@ -227,19 +223,13 @@ export function Workspace(props: {
             </Suspense>
           </LocalBoundary>
         )}
-        <div
-          className={
-            bottom && !expanded
-              ? "relative flex min-h-0 flex-1 flex-col"
-              : "relative flex min-h-0 flex-1"
-          }
-        >
+        {props.header(controls("header"))}
+        <div className={bottom && !expanded ? `${canvasClass} flex-col` : canvasClass}>
           {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}
           <div
             hidden={expanded}
             className="@container/work-body relative flex min-h-0 min-w-0 flex-1 flex-col"
           >
-            {props.header(inline ? undefined : controls("header"))}
             {props.notice}
             {props.contextPanel ? (
               <div className="flex min-h-0 flex-1 flex-col @min-[832px]/work-body:flex-row">

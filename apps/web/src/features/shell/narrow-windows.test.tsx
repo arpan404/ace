@@ -212,11 +212,11 @@ test("below 1100px the sidebar steps aside for the right panel and comes back af
   await openThread();
   expect(sidebar()).toBeTruthy();
 
-  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
-  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  await userEvent.click(panelToggle());
+  await screen.findByRole("region", { name: "Thread panel" });
   await waitFor(() => expect(sidebar()).toBeNull());
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
+  await userEvent.click(panelToggle());
   await waitFor(() => expect(sidebar()).toBeTruthy());
 });
 

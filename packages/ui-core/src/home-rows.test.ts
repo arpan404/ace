@@ -3,7 +3,7 @@ import {
   homeFootStart,
   homeRowKey,
   projectFold,
-  searchRows,
+  projectMore,
   treeRows,
   type HomeRow,
 } from "./home-rows.ts";
@@ -25,12 +25,14 @@ const words = (rows: readonly HomeRow[]) =>
         return `Snoozed ${row.count}`;
       case "empty":
         return row.text;
-      case "label":
-        return row.count === undefined ? row.label : `${row.label} · ${row.count}`;
+      case "pinned-label":
+        return "Pinned";
+      case "show-more":
+        return row.open ? "Show less" : `Show ${row.hidden} more`;
       case "unsent":
         return "unsent";
       case "thread":
-        return row.withProject ? `${row.id}@` : row.id;
+        return row.place === "pinned" ? `${row.id} (pinned)` : row.id;
       case "recently-settled":
         return `${row.id} (settled)`;
       default:
@@ -105,25 +107,42 @@ test("Snoozed closes the list, below the free space", () => {
   expect(homeFootStart(rows.map((item) => ({ item })))).toBe(rows.length - 2);
 });
 
-test("search lists matching threads, then settled matches, each under its count", () => {
-  expect(words(searchRows(["a"], ["s1", "s2"]))).toEqual([
-    "Threads · 1",
-    "a@",
-    "Settled · 2",
-    "s1",
-    "s2",
+test("pinned threads lead the panel under Pinned and leave their projects", () => {
+  const tree = built({
+    inbox: ["asks"],
+    projects: [project("ace", { threads: ["pin", "works"], inbox: 1 })],
+  });
+  // A pinned thread waiting in the Inbox stays there: never shown twice.
+  expect(words(treeRows(tree, { pinned: ["asks", "pin"] }))).toEqual([
+    "Pinned",
+    "pin (pinned)",
+    "Projects",
+    "[ace]",
+    "works",
   ]);
 });
 
+test("an open project shows five rows, then Show more with how many it holds back", () => {
+  const threads = ["a", "b", "c", "d", "e", "f"];
+  const tree = built({ projects: [project("ace", { threads, recent: ["s"] })] });
+  expect(words(treeRows(tree)).slice(1)).toEqual(["[ace]", "a", "b", "c", "d", "e", "Show 2 more"]);
+  expect(words(treeRows(tree, { collapsed: [projectMore("ace")] })).slice(-3)).toEqual([
+    "f",
+    "s (settled)",
+    "Show less",
+  ]);
+});
+
+test("the open thread stays in sight past Show more", () => {
+  const threads = ["a", "b", "c", "d", "e", "f", "g"];
+  const tree = built({ projects: [project("ace", { threads })] });
+  expect(words(treeRows(tree, { current: "g" })).slice(-3)).toEqual(["e", "g", "Show 1 more"]);
+});
+
 test("no thread id can take a heading's key, and a thread keeps its key in any place", () => {
-  const thread: HomeRow = {
-    kind: "thread",
-    id: "section:projects-label",
-    place: "project",
-    withProject: false,
-  };
+  const thread: HomeRow = { kind: "thread", id: "section:projects-label", place: "project" };
   expect(homeRowKey(thread)).not.toBe(homeRowKey({ kind: "projects-label" }));
-  expect(homeRowKey({ kind: "thread", id: "x", place: "search", withProject: true })).toBe(
+  expect(homeRowKey({ kind: "thread", id: "x", place: "pinned" })).toBe(
     homeRowKey({ kind: "recently-settled", id: "x" }),
   );
 });

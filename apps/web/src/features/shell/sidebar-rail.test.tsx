@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
@@ -16,7 +16,10 @@ test("a hidden sidebar's rail brings it back while the sidebar toggle remains th
   const trigger = screen.getByRole("button", { name: "Show sidebar" });
   trigger.focus();
   await userEvent.keyboard("{Enter}");
-  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Hide sidebar" }));
+  // The toggle moves from the header to the sidebar's top row; focus goes with it.
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Hide sidebar" })),
+  );
   expect(await screen.findByRole("navigation", { name: "App" })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
   view.unmount();

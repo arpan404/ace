@@ -20,14 +20,13 @@ export interface PanelControlAction {
 }
 
 /**
- * The side panel's controls, always at the far right of the window's top row: full view (while
- * the panel shows) and the panel's toggle. One set of labels, shortcuts and pressed states
- * whether they sit in the header or in the panel's own strip.
+ * The side panel's controls: its toggle at the far right of the window's top bar, always, and
+ * full view (and the dock choice) at the end of the panel's own strip while it shows.
  */
 export function PanelControls(props: {
   workspace: ScopeWorkspace;
   actions: WorkspaceActions;
-  /** In the panel's own strip (it is showing) or in the header (it is not). */
+  /** In the panel's own strip, or in the window's top bar. */
   placement: "header" | "panel";
   dockable?: boolean | undefined;
   /** Tools a phone's ⋯ opens directly ("Changes"); the panel's toggle stays in the header. */
@@ -70,7 +69,7 @@ export function PanelControls(props: {
           />
         </>
       )}
-      {(!props.dockable || props.placement === "header" || phone) && (
+      {props.placement === "header" && (
         <IconButton
           icon={SquareSplitHorizontalIcon}
           label="Right panel"

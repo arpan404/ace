@@ -2,7 +2,6 @@ import { Activity, createElement, Suspense, useEffect, useRef, type ReactNode } 
 import { Button } from "@/components/ui/button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { cn } from "@/lib/cn.ts";
-import { windowsPlatform } from "@/lib/keymap.ts";
 import { controlDivider, toolbarEdge } from "@/components/ui/rules.ts";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 import { useLayout } from "@/lib/layout.tsx";
@@ -76,8 +75,9 @@ export function WorkspacePanel(props: {
   const focusBack = useFocusBackOnHide(section, workspace.open, restoreFocus);
   const size = clampToBounds(layout.size, layout.bounds);
   const shown = shownTab(workspace);
-  // The panel's strip is the window's top row (a sheet starts below the top edge).
-  const topRow = !layout.sheet && (!bottom || expanded);
+  // Floating over a desktop column, the panel's strip is the window's top row; beside the
+  // column (or in full view) it sits on the canvas, under the top bar.
+  const topRow = floating;
   const shownKind = shown && definition.kind(shown.kind);
   const label = definition.label;
   const content = (
@@ -89,8 +89,6 @@ export function WorkspacePanel(props: {
       onFocus={dismissable ? undefined : focusBack.onFocus}
       onBlur={dismissable ? undefined : focusBack.onBlur}
       data-edge={layout.sheet || bottom ? "bottom" : "right"}
-      // Windows: docked beside the column, its strip clears the caption buttons, not the header.
-      data-docked={windowsPlatform && !dismissable && !expanded && !bottom ? "right" : undefined}
       style={dismissable || expanded ? undefined : bottom ? { height: size } : { width: size }}
       className={cn(
         "relative flex min-h-0 min-w-0 flex-col bg-panel",
@@ -128,8 +126,7 @@ export function WorkspacePanel(props: {
       )}
       <div
         className={cn(
-          // Beside the column, the strip continues the header's row: the header's own surface and
-          // the same hairline under it, so one top bar runs across the transcript and the panel.
+          // Beside the column, the strip sits on the canvas with a hairline under it.
           "flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2",
           toolbarEdge,
           !layout.sheet && !bottom && "bg-reading",

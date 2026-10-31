@@ -39,16 +39,14 @@ import { jumpTargets } from "./list-jump.ts";
 import { JumpKeys, useJumpHints } from "./list-jump-keys.tsx";
 import { useFocusAfterExit } from "./use-exit-focus.ts";
 import { ManyDevices, useManyDevices } from "./row-parts.tsx";
-import { ThreadRow } from "./thread-row.tsx";
+import { ThreadRow, type RowLead } from "./thread-row.tsx";
 import { MachineRow } from "./machine-row.tsx";
 import { machineRow } from "@/lib/machine-threads.ts";
-import { SettledMatch } from "./settled-match.tsx";
 import { UnsentRows } from "./unsent-rows.tsx";
 import { SectionRow } from "./tree-rows.tsx";
 import { RecentlySettledRow } from "./settled-row.tsx";
 import { useHomeSort } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
-import type { SearchHit } from "./use-panel-search.ts";
 import {
   useHomeSelection,
   useHomeSelectionState,
@@ -58,22 +56,22 @@ import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 /**
- * A thread row is 52px tall and keeps 2px below it: rows are apart by spacing, not rules. A
- * settled search match is one 30px line.
+ * Every row is one 36px line (`--row-height`) with 2px below it: rows are apart by spacing, not
+ * rules. A section label carries the 20px gap above it.
  */
 const estimates: Record<HomeRow["kind"], number> = {
   unsent: 0,
-  thread: 54,
-  "recently-settled": 54,
+  thread: 38,
+  "recently-settled": 38,
   empty: 37,
-  "projects-label": 41,
-  "project-header": 35,
-  settled: 32,
-  "quiet-header": 37,
-  "quiet-project": 33,
-  "snoozed-header": 41,
-  snoozed: 54,
-  label: 39,
+  "pinned-label": 49,
+  "projects-label": 49,
+  "project-header": 38,
+  "show-more": 38,
+  "quiet-header": 43,
+  "quiet-project": 38,
+  "snoozed-header": 47,
+  snoozed: 38,
 };
 
 /** The viewport's bottom padding (`pb-4`), below the list: the foot's free space leaves it out. */
@@ -88,12 +86,12 @@ const loadDrag = () => import("./list-drag.ts");
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
 
 /**
- * The Threads panel's list, virtualized: the tree or search, as `rows` says.
+ * The Threads panel's list, virtualized: Pinned, then the project tree, as `rows` says.
  * Only visible rows mount. Up and Down (or j and k) move between rows and headings; Tab still
  * walks each row's actions. On a row, P pins or unpins it, X picks it (⌘- and Shift-click too)
- * and Space picks it up to move by keyboard; inside a project, pinned rows drag into their own
- * order and, when threads are sorted by hand (Settings › General › Sort threads), any row drags
- * to a place among them. A finger drags only by a pinned row's handle, so a finger on a row
+ * and Space picks it up to move by keyboard; pinned rows drag into their own order under Pinned
+ * and, when threads are sorted by hand (Settings › General › Sort threads), any row of a project
+ * drags to a place among its own. A finger drags only by a pinned row's handle, so a finger on a row
  * still scrolls the list; Space or Enter on the handle starts a keyboard move. Rows that arrive
  * rise in, rows that go fade where they were, and the rest slide to their new places. While the
  * person moves through the list by keyboard, rows keep their places (`useHeldRows`); a thread
@@ -105,8 +103,6 @@ export function ThreadList(props: {
   needsYou: readonly string[];
   /** Pinned threads: ordered by the person, they never hold. */
   pinned: readonly string[];
-  /** Search hits for settled threads the list hasn't loaded, by thread id. */
-  hits?: ReadonlyMap<string, SearchHit> | undefined;
   /** Where the list starts scrolled to, and where it tells its scroll as it moves. */
   scrollTop?: number | undefined;
   onScroll?: ((top: number) => void) | undefined;
@@ -161,12 +157,9 @@ export function ThreadList(props: {
   const hints = useJumpHints();
   // Sorted by hand, the threads below Pinned are places a drag can drop at.
   const manual = useHomeSort() === "manual";
-  /** The pinned threads as drawn inside their projects, top first. */
+  /** The pinned threads as drawn under Pinned, top first. */
   const pinned = drawn.flatMap((row) =>
-    row.phase !== "exit" &&
-    row.item.kind === "thread" &&
-    row.item.place === "project" &&
-    pinnedSet.has(row.item.id)
+    row.phase !== "exit" && row.item.kind === "thread" && row.item.place === "pinned"
       ? [row.item.id]
       : [],
   );
@@ -191,14 +184,16 @@ export function ThreadList(props: {
   const shownEntry = (id: string) => threads.entry(id);
   /**
    * What a move of `ids` reads and does: measured rows, the pinned threads, commands. A move
-   * stays inside the project of the thread it carries: only that project's rows are places.
+   * stays inside the section of the thread it carries: Pinned, or that thread's project.
    */
   const host = (ids: readonly string[]): DragHost | undefined => {
     const scroller = viewport.current;
     const list = listRef.current;
     if (!scroller || !list) return undefined;
-    const project = shownEntry(ids[0] ?? "")?.workspaceId;
-    /** A thread row of the moving project's own list. */
+    const first = ids[0] ?? "";
+    const fromPinned = latest.current.pinned.includes(first);
+    const project = shownEntry(first)?.workspaceId;
+    /** A thread row of the moving thread's own section. */
     const ours = (
       row: { item: HomeRow; phase: string } | undefined,
     ): row is {
@@ -208,8 +203,9 @@ export function ThreadList(props: {
       row !== undefined &&
       row.phase !== "exit" &&
       row.item.kind === "thread" &&
-      row.item.place === "project" &&
-      shownEntry(row.item.id)?.workspaceId === project;
+      (fromPinned
+        ? row.item.place === "pinned"
+        : row.item.place === "project" && shownEntry(row.item.id)?.workspaceId === project);
     const pinnedHere = () =>
       latest.current.drawn.flatMap((row) =>
         ours(row) && latest.current.pinned.includes(row.item.id) ? [row.item.id] : [],
@@ -485,12 +481,8 @@ export function ThreadList(props: {
                   {thread && machineRow(thread) ? (
                     <MachineRow
                       id={thread}
-                      shape={
-                        row.kind === "settled" || row.kind === "recently-settled"
-                          ? row.kind
-                          : "task"
-                      }
-                      inProject={row.kind === "thread" && !row.withProject}
+                      shape={row.kind === "recently-settled" ? row.kind : "task"}
+                      lead={rowLead(row)}
                       leaving={leaving}
                     />
                   ) : (
@@ -500,17 +492,19 @@ export function ThreadList(props: {
                           threadId={row.id}
                           settled={false}
                           leaving={leaving}
-                          inProject={!row.withProject}
+                          lead={rowLead(row)}
                         />
                       )}
                       {row.kind === "recently-settled" && (
                         <RecentlySettledRow threadId={row.id} leaving={leaving} />
                       )}
                       {row.kind === "snoozed" && (
-                        <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
-                      )}
-                      {row.kind === "settled" && (
-                        <SettledMatch id={row.id} hit={props.hits?.get(row.id)} leaving={leaving} />
+                        <ThreadRow
+                          threadId={row.id}
+                          settled={false}
+                          leaving={leaving}
+                          lead="none"
+                        />
                       )}
                     </>
                   )}
@@ -534,6 +528,12 @@ export function ThreadList(props: {
       )}
     </ManyDevices>
   );
+}
+
+/** A pinned row leads with its glyph; a project's own rows line up with the project's name. */
+function rowLead(row: HomeRow): RowLead {
+  if (row.kind === "thread") return row.place === "pinned" ? "pinned" : "indent";
+  return row.kind === "recently-settled" ? "indent" : "none";
 }
 
 /**

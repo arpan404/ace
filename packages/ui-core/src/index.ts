@@ -266,6 +266,7 @@ export {
   type RowAttention,
   type RowAttentionInput,
 } from "./row-attention.ts";
+export { rowIndicator, type RowIndicator } from "./row-indicator.ts";
 export {
   sanitizeUserText,
   stripAceOriginMarker,

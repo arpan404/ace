@@ -1,5 +1,5 @@
 import { currentAttention } from "@ace/ui-core";
-import { DotsSixVerticalIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon, DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
 import type { MachineIcon } from "@ace/protocol";
 import type { ReactElement } from "react";
@@ -16,24 +16,23 @@ import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
-import {
-  BrowsingMark,
-  ComputerUseMark,
-  ProjectMark,
-  RowStatus,
-  RowContext,
-  threadDetails,
-  titleTone,
-} from "./row-parts.tsx";
+import { threadDetails } from "./row-parts.tsx";
+import { RowIndicator } from "./row-indicator.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
 import { useRowActive } from "./use-row-active.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
-// Rows are apart by space, not rules: the list sits inset from the sidebar's edges, and hover and
-// the open thread fill a soft rounded box.
+// One line of `--row-height`, apart by space, not rules: the list sits inset from the sidebar's
+// edges, and hover and the open thread fill a soft rounded box.
 const row =
-  "relative flex w-full items-center rounded-md px-2.5 text-left text-ui outline-none transition-colors duration-(--motion-fast)";
+  "relative flex h-(--row-height) w-full items-center gap-2.5 rounded-md px-2.5 text-left text-md outline-none transition-colors duration-(--motion-fast)";
+
+/**
+ * What leads a row: a pinned thread's chat glyph; inside its project, room the width of the
+ * project's folder glyph, so its title lines up with the project's name; else nothing.
+ */
+export type RowLead = "pinned" | "indent" | "none";
 
 /**
  * Another machine's thread (ADR 0102), drawn under that machine's client. It opens on that
@@ -64,8 +63,10 @@ export function useOpenHere(threadId: string, machine: string | undefined): bool
 }
 
 /**
- * Every task shows its title and status (or time) on one line, then its project, branch, pull
- * request and provider on the next.
+ * A thread in the sidebar: one line, its title and at most one small mark at the right edge
+ * (`RowIndicator`). The rest (status in words, branch, pull request, provider, machine) is in
+ * the thread itself, the row's spoken name and its hover card. Under the pointer or keyboard
+ * focus the row's actions take the mark's place.
  */
 export function ThreadRow(props: {
   threadId: string;
@@ -74,8 +75,7 @@ export function ThreadRow(props: {
   machine?: RowMachine | undefined;
   /** The list's id for the row, when it isn't the thread's own (another machine's thread). */
   rowId?: string | undefined;
-  /** Drawn in its project's own list: the row doesn't repeat the project. */
-  inProject?: boolean | undefined;
+  lead: RowLead;
 }) {
   const { machine } = props;
   const { settled } = props;
@@ -108,48 +108,38 @@ export function ThreadRow(props: {
     entry.live?.account ??
     entry.execution?.instanceId;
   const actions = rowActive.active && !renaming;
-  // Two lines of 20 and 16px, 2px apart, 7px above and below: 52px.
-  const height = "h-[52px] py-[7px]";
   const body = (
-    <div className="flex min-w-0 w-full flex-col">
-      <div
+    <>
+      {props.lead === "pinned" && (
+        <ChatCircleIcon aria-hidden size={16} className="shrink-0 text-muted-foreground" />
+      )}
+      {props.lead === "indent" && <span aria-hidden className="w-4 shrink-0" />}
+      <span
         className={cn(
-          "flex min-w-0 items-center gap-2",
-          // Under the pointer or keyboard focus the row's actions take the status slot: the title
-          // stops short of them and the status steps aside, so only Snooze, Settle and ⋯ show.
-          // An action's menu keeps them up after the pointer leaves; the status waits until it closes.
-          actions ? "pr-30" : "group-has-[[data-popup-open]]/row:pr-30",
+          "min-w-0 flex-1 truncate",
+          current ? "font-medium text-foreground" : "text-foreground",
+          // Under the pointer or keyboard focus the row's actions take the mark's place: the
+          // title stops short of them. An action's menu keeps them up after the pointer leaves.
+          actions ? "pr-28" : "group-has-[[data-popup-open]]/row:pr-28",
         )}
       >
-        <div className={cn("min-w-0 flex-1 truncate text-md leading-5", titleTone(attention))}>
-          {renaming ? (
-            <RenameField
-              entry={entry}
-              rowId={rowId}
-              title={editing ?? refused ?? card.title}
-              onDone={() => selection.finishRename()}
-            />
-          ) : (
-            card.title
-          )}
-        </div>
-        {!actions && !renaming && (
-          <span className="flex shrink-0 items-center gap-1.5 group-has-[[data-popup-open]]/row:hidden">
-            <BrowsingMark threadId={props.threadId} />
-            <ComputerUseMark threadId={props.threadId} />
-            <RowStatus card={card} attention={attention} />
-          </span>
+        {renaming ? (
+          <RenameField
+            entry={entry}
+            rowId={rowId}
+            title={editing ?? refused ?? card.title}
+            onDone={() => selection.finishRename()}
+          />
+        ) : (
+          card.title
         )}
-      </div>
-      <div className="mt-0.5">
-        <RowContext
-          card={card}
-          project={
-            props.inProject ? undefined : <ProjectMark id={entry.workspaceId} badge={card.badge} />
-          }
-        />
-      </div>
-    </div>
+      </span>
+      {!actions && !renaming && (
+        <span className="flex shrink-0 items-center group-has-[[data-popup-open]]/row:hidden">
+          <RowIndicator attention={attention} />
+        </span>
+      )}
+    </>
   );
   const rename = () => selection.rename(rowId, card.title);
   const menu = (trigger: ReactElement) => (
@@ -176,7 +166,7 @@ export function ThreadRow(props: {
             {...(settled ? {} : { "data-thread-row": rowId })}
           >
             {renaming ? (
-              <div className={cn(row, height)}>{body}</div>
+              <div className={row}>{body}</div>
             ) : (
               <Link
                 {...threadOn(machine?.id, entry.id)}
@@ -185,7 +175,6 @@ export function ThreadRow(props: {
                 draggable={false}
                 className={cn(
                   row,
-                  height,
                   // A keyboard-focused row draws the focus colour all round, plainly visible in the list.
                   "group/link focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   // The open thread takes the fill every list shares for its current row (Settings,

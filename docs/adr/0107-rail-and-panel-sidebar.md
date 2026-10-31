@@ -19,10 +19,10 @@ front end, which is not live yet.
   place. Top to bottom the rail holds Threads, Spade, GitHub, Automations and Skills; then free
   space, the app's update when there is one, Settings and the profile avatar (its menu keeps
   Usage, Archived threads, Keyboard shortcuts and Connection). Each place is a bare glyph in a
-  36px rounded box; the current one takes the `--active` fill. The rail's top is the window's
-  drag area, where macOS draws the traffic lights.
-- **Each panel owns its header.** The panel's top row is the place's title and actions, level with
-  the main column's header. Threads shows the thread list; GitHub lists Inbox, Pull requests and
+  40px rounded box; the current one takes the `--active` fill. (The unified frame below moves
+  the rail under the window's top bar.)
+- **Each panel owns its title row.** The panel's first row is the place's title and actions
+  (under the window's top bar since the unified frame below). Threads shows the thread list; GitHub lists Inbox, Pull requests and
   Issues (the pages stay full main-column pages); Settings, Automations and Skills draw their
   own lists through `ViewFrame` as before.
 - **No more Back to app.** The rail is always there, in every place, so the second sidebar mode
@@ -31,9 +31,9 @@ front end, which is not live yet.
   (the thread list's own rule: a needs-you status), Threads shows a dot in the needs-you colour,
   and its name and tooltip say how many. On Threads the list says it, so the rail adds nothing.
 - **Narrow windows.** The sidebar sheet shows the rail and panel together.
-- **Spade is shown, not live.** Spade's mark sits in the rail, dimmed, with a small "Soon" pill.
-  It is a picture, not a control: it cannot be focused or pressed, has no route, and its tooltip
-  says "Spade · Coming soon".
+- **Spade is shown, not live.** Spade's mark sits in the rail, dimmed. It is a picture, not a
+  control: it cannot be focused or pressed, has no route, and only its tooltip says
+  "Spade · Coming soon".
 - The panel keeps its drag-to-resize edge (220–480px, 288 by default); the rail is added to it.
 
 ## Threads panel: Projects, with the Inbox over them
@@ -54,10 +54,11 @@ the app the owner replaced that with the design below (round six of the mockups,
   not yet opened, newest first, read from the same row attention every row draws, so it never
   disagrees with a row's status word. No thread shows in both the Inbox and its project. Its rows
   only open their thread; answering and approving happen in the thread. Opening a finished thread
-  marks it seen and it leaves the Inbox. The bell's badge counts it; the rail's Threads dot keeps
-  its needs-you count.
+  marks it seen and it leaves the Inbox. The bell's dot says it holds something (the unified
+  frame below replaced the count badge); the rail's Threads dot keeps its needs-you count.
 - **Settled threads fade into History.** A settled thread stays in its project, dimmed, for a
-  grace period the person chooses, then shows only on the History page and in search. The period
+  grace period the person chooses, then shows only on the History page and in the palette's
+  search. The period
   is a daemon setting beside Sort threads, `threads.keepSettledFor` (`1d`, `3d` by default, `7d`,
   or `0d` for straight to History), so every device on the machine agrees. A settled thread whose
   agent tree still works or waits is never dimmed or sent to History: it shows as open work.
@@ -71,6 +72,44 @@ the app the owner replaced that with the design below (round six of the mockups,
   the grace period's boundary on its own; History loads older pages as it scrolls. Each project's
   count of held-back settled threads comes from the daemon's per-project totals less the open
   threads it has already sent, so a project known only from them still shows as quiet.
+
+## Unified frame
+
+Same day, after living with the build, the owner asked for the shell to read as one frame rather
+than a sidebar and a column each with its own header.
+
+- **One top bar.** A 44px bar runs across the whole window and is its drag area. At its left,
+  after the macOS traffic lights, sit Back, Forward and the sidebar toggle; the title (the
+  project's folder glyph, then the thread title or the page name) starts where the main column
+  starts, so it follows the sidebar as it resizes or hides; at its right sit ⋯, Work/Summary and
+  the side panel's toggle. Built as two halves on the same row: the sidebar's top row carries the
+  navigation while the sidebar is beside the column, and the screen header carries it while the
+  sidebar is hidden or a sheet. There is no other header row and no hairline under the bar.
+- **Frame and canvas.** The top bar, the rail and the panel sit on the frame colour (`--sidebar`).
+  The main column and any side panel beside it sit below the bar on the page surface
+  (`--background`) as one raised canvas, with a 12px corner at its top left and one hairline
+  where it meets the frame. With the sidebar hidden or in a sheet, the canvas runs to the
+  window's edge and keeps only its top hairline. The side panel's strip sits on the canvas; its
+  toggle stays in the top bar, and the strip keeps full view and the dock choice.
+- **Rail.** Bare 20px glyphs in 40px boxes; a short hairline divides Threads and Spade from
+  GitHub, Automations and Skills. A dot on a place is in the warning colour while something there
+  needs the person, blue while it holds news not yet seen (GitHub's unread notifications).
+- **Threads panel.** Its title row is "ace" with a caret that opens the project and device
+  filter, the Inbox bell (a small dot: warning colour while anything needs the person, else
+  blue) and Search, which opens the palette; the panel's inline search is gone, and searching
+  threads, settled ones included, happens in the palette and on History. Then a New thread row,
+  Pinned threads (each with a chat glyph; a pinned thread waiting in the Inbox stays there), and
+  Projects: a folder glyph per project (open while expanded), its threads indented under the
+  project's name, five at a time and then Show more. History stays at the foot.
+- **One-line rows.** Every row is one `--row-height` line of 14px text. Its right edge carries at
+  most one mark, from its attention level: a warning dot (needs you), a failure dot (failed, not
+  seen), a blue dot (finished, not seen), or a ring in the status's colour that breathes a few
+  times and then holds still (the thread or its agent tree still works or waits; it never loops,
+  and holds still under reduced motion). Status words, spinners, branches, pull requests,
+  provider glyphs, subagent counts and machine marks left the row for the thread and its hover
+  card. Hover or focus puts the row's actions in the mark's place. Because the mark reads the
+  same attention as everything else, a thread whose tree still works never shows the finished
+  dot.
 
 ## Consequences
 

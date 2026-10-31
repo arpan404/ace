@@ -262,7 +262,7 @@ test("⌘\\ hides the sidebar, and the choice survives a reload", async () => {
   expect(await screen.findByRole("complementary", { name: "Threads" })).toBeTruthy();
 });
 
-test("back, forward and the sidebar toggle lead the header whether the sidebar shows or not", async () => {
+test("back, forward and the sidebar toggle lead the top bar whether the sidebar shows or not", async () => {
   const app = harness();
   app.play(longHistory(2)).runUntilBlocked();
   await app.open("/new");
@@ -271,27 +271,35 @@ test("back, forward and the sidebar toggle lead the header whether the sidebar s
   await userEvent.click(within(threads).getByRole("link", { name: /Document the router/ }));
   await title("Document the router");
 
-  // Sidebar shown: the header leads with them; the rail holds none of them.
+  // They come first in the window, before the rail and the panel, whichever half of the bar
+  // holds them: the sidebar's top row while it shows, the header while it doesn't.
   const leading = (toggle: string) =>
-    expect(header().getAllByRole("button").slice(0, 3)).toEqual([
-      header().getByRole("button", { name: "Back" }),
-      header().getByRole("button", { name: "Forward" }),
-      header().getByRole("button", { name: toggle }),
+    expect(
+      screen
+        .getAllByRole("button")
+        // The hidden sidebar's edge, a pointer-only way back (`tabIndex` -1).
+        .filter((button) => button.dataset.sidebar !== "rail")
+        .slice(0, 3),
+    ).toEqual([
+      screen.getByRole("button", { name: "Back" }),
+      screen.getByRole("button", { name: "Forward" }),
+      screen.getByRole("button", { name: toggle }),
     ]);
   leading("Hide sidebar");
   for (const name of ["Back", "Forward", "Hide sidebar"])
     expect(within(appNav()).queryByRole("button", { name })).toBeNull();
 
-  await userEvent.click(header().getByRole("button", { name: "Back" }));
+  await userEvent.click(screen.getByRole("button", { name: "Back" }));
   await title("New thread");
-  await userEvent.click(header().getByRole("button", { name: "Forward" }));
+  await userEvent.click(screen.getByRole("button", { name: "Forward" }));
   await title("Document the router");
 
-  // Sidebar hidden: the same three, the toggle now offering to show it.
-  await userEvent.click(header().getByRole("button", { name: "Hide sidebar" }));
+  // Sidebar hidden: the same three lead the header, the toggle now offering to show it.
+  await userEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
   await waitFor(() => expect(list("Threads")).toBeNull());
   expect(screen.queryByRole("navigation", { name: "App" })).toBeNull();
   leading("Show sidebar");
+  expect(header().getByRole("button", { name: "Back" })).toBeTruthy();
 
   await userEvent.click(header().getByRole("button", { name: "Back" }));
   await title("New thread");

@@ -58,7 +58,7 @@ import { StartingMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./items/live-head.tsx";
 import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
-import { ThreadCrumb } from "./header/thread-crumb.tsx";
+import { ProjectGlyph, ThreadCrumb, useHasParentCrumb } from "./header/thread-crumb.tsx";
 import { WorkButton } from "./header/work-button.tsx";
 import { useRememberedWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
 import { WorkSide } from "./header/work-side.tsx";
@@ -178,6 +178,7 @@ function ThreadScreen(props: {
     void router.loadRouteChunk(router.routesById["/_home/new"])?.catch(() => {});
   }, [router]);
   const title = useShownTitle(id, meta?.title);
+  const parented = useHasParentCrumb(id);
   const composer = useRef<ComposerHandle>(null);
   // Files dropped anywhere on the thread, or pasted outside a field, go to its composer.
   const drop = useFileDrop(composer);
@@ -194,7 +195,10 @@ function ThreadScreen(props: {
     <ThreadPartsProvider value={parts}>
       <WorkCardContext value={workCard}>
         <Screen
-          crumb={meta && (props.crumb ?? <ThreadCrumb threadId={id} />)}
+          crumb={meta && (props.crumb ?? (parented ? <ThreadCrumb threadId={id} /> : undefined))}
+          mark={
+            meta && !props.crumb && !parented && <ProjectGlyph workspaceId={meta.workspaceId} />
+          }
           title={
             renaming && thread ? (
               <Suspense fallback={null}>

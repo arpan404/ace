@@ -1,16 +1,18 @@
 import { useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { NavButtons } from "./app-header.tsx";
 import { AppRail } from "./app-rail.tsx";
 import { ForgePanel } from "./forge-panel.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 import { activeView } from "./views.ts";
 
 /**
- * The one sidebar: the rail of places on the left, always there, and beside it the current
- * place's panel, the only part that scrolls. Threads' panel is the thread list, which draws its
- * own title row (`PanelHeader`) with its filter, New thread and search; GitHub's lists its three
- * pages; Settings, Automations and Skills draw their own lists into it (`ViewFrame`). Back,
- * forward and the sidebar's toggle sit in the main column's header; ⌘K opens the palette anywhere.
+ * The one sidebar, on the frame colour: its top row is the left of the window's top bar (the
+ * macOS traffic lights, then back, forward and the sidebar's toggle), and under it the rail of
+ * places beside the current place's panel, the only part that scrolls. Threads' panel is the
+ * thread list, which draws its own title row with the filter, the Inbox bell and Search;
+ * GitHub's lists its three pages; Settings, Automations and Skills draw their own lists into it
+ * (`ViewFrame`). ⌘K opens the palette anywhere.
  */
 export function AppSidebar(props: {
   /** The thread list, the panel's content unless a view's list takes it (Settings' pages). */
@@ -18,19 +20,25 @@ export function AppSidebar(props: {
   /** GitHub's place in the rail (Inbox, Pull requests and Issues), current while one is open. */
   forge?: ((current: boolean) => ReactNode) | undefined;
 }) {
-  const { setBody, bodyClaimed } = useViewFrame();
+  const { setBody, bodyClaimed, sheet } = useViewFrame();
   const onForge = useRouterState({
     select: (state) => activeView(state.location.pathname) === "forge",
   });
   return (
-    <div className="flex min-h-0 flex-1">
-      <AppRail forge={props.forge} />
+    <div className="flex min-h-0 flex-1 flex-col">
       <div
-        data-slot="sidebar-panel"
-        className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-sidebar-border"
+        data-slot="sidebar-top"
+        className="flex h-(--header-h) shrink-0 items-center gap-0.5 pl-3 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"
       >
-        {!bodyClaimed && (onForge ? <ForgePanel /> : props.threads)}
-        <div ref={setBody} className="contents" />
+        {/* The sheet has its own way to close at this row's end; the header keeps navigation. */}
+        {!sheet && <NavButtons />}
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <AppRail forge={props.forge} />
+        <div data-slot="sidebar-panel" className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {!bodyClaimed && (onForge ? <ForgePanel /> : props.threads)}
+          <div ref={setBody} className="contents" />
+        </div>
       </div>
     </div>
   );

@@ -1,21 +1,22 @@
 import type { HomeTree, TreeProject } from "./home-tree.ts";
 
 /*
- * The Threads panel's rows as the sidebar draws them. The tree: Unsent on top, then Projects,
- * each folding open in place with its open threads and its recently settled ones, Quiet
- * projects folded at their foot, and Snoozed last. Search draws its own rows. The Inbox is an
- * overlay over the panel, not rows of it. Pure.
+ * The Threads panel's rows as the sidebar draws them. The tree: Unsent on top, then Pinned, then
+ * Projects, each folding open in place with its open threads and its recently settled ones (five
+ * at a time, then Show more), Quiet projects folded at their foot, and Snoozed last. The Inbox is
+ * an overlay over the panel, not rows of it. Pure.
  */
 
-/** Where a thread row shows: its project, or search. */
-export type RowPlace = "project" | "search";
+/** Where a thread row shows: the Pinned section, or its project. */
+export type RowPlace = "pinned" | "project";
 
 export type HomeRow =
   | { kind: "unsent" }
-  | { kind: "thread"; id: string; place: RowPlace; withProject: boolean }
+  | { kind: "thread"; id: string; place: RowPlace }
   /** A thread settled within the grace period, dimmed in its project. */
   | { kind: "recently-settled"; id: string }
   | { kind: "empty"; key: string; text: string }
+  | { kind: "pinned-label" }
   | { kind: "projects-label" }
   | {
       kind: "project-header";
@@ -24,39 +25,45 @@ export type HomeRow =
       running: number;
       inbox: number;
     }
-  /** A one-line settled match in search. */
-  | { kind: "settled"; id: string }
+  /** Past a project's first few rows: how many more it holds, or that all of them show. */
+  | { kind: "show-more"; project: string; hidden: number; open: boolean }
   | { kind: "quiet-header"; count: number; open: boolean }
   | { kind: "quiet-project"; project: string }
   | { kind: "snoozed-header"; count: number }
-  | { kind: "snoozed"; id: string }
-  | { kind: "label"; key: string; label: string; count?: number | undefined };
+  | { kind: "snoozed"; id: string };
 
 /** A project's fold key (`Organizer.collapsed`). */
 export const projectFold = (id: string) => `project:${id}`;
 
+/** Kept with the folds (`Organizer.collapsed`): the project shows all its rows, past Show more. */
+export const projectMore = (id: string) => `more:${id}`;
+
+/** How many rows an open project shows before Show more. */
+export const projectRowLimit = 5;
+
 export interface TreeRowOptions {
   includeUnsent?: boolean | undefined;
-  /** Folded projects (`projectFold`). */
+  /**
+   * Pinned threads, in pin order. Those the tree shows open lead the panel under Pinned and
+   * leave their projects; one waiting in the Inbox stays there (never both).
+   */
+  pinned?: readonly string[] | undefined;
+  /** Folded projects (`projectFold`), and those showing every row (`projectMore`). */
   collapsed?: readonly string[] | undefined;
   quietOpen?: boolean | undefined;
   snoozed?: readonly string[] | undefined;
   snoozedOpen?: boolean | undefined;
-  /** The open thread: kept in sight under its folded heading, so it never vanishes. */
+  /** The open thread: kept in sight under its folded heading or past Show more. */
   current?: string | undefined;
 }
 
-const projectThread = (id: string): HomeRow => ({
-  kind: "thread",
-  id,
-  place: "project",
-  withProject: false,
-});
+type ProjectRow = Extract<HomeRow, { kind: "thread" | "recently-settled" }>;
 
 function projectRows(
   place: TreeProject,
   options: TreeRowOptions,
   folded: ReadonlySet<string>,
+  pinned: ReadonlySet<string>,
 ): HomeRow[] {
   const open = !folded.has(projectFold(place.id));
   const rows: HomeRow[] = [
@@ -68,22 +75,33 @@ function projectRows(
       inbox: place.inbox,
     },
   ];
-  if (!open) {
-    const current = options.current;
-    if (current !== undefined && place.threads.includes(current)) rows.push(projectThread(current));
-    else if (current !== undefined && place.recent.includes(current))
-      rows.push({ kind: "recently-settled", id: current });
-    return rows;
-  }
-  for (const id of place.threads) rows.push(projectThread(id));
-  for (const id of place.recent) rows.push({ kind: "recently-settled", id });
+  const own: ProjectRow[] = [
+    ...place.threads
+      .filter((id) => !pinned.has(id))
+      .map((id): ProjectRow => ({ kind: "thread", id, place: "project" })),
+    ...place.recent.map((id): ProjectRow => ({ kind: "recently-settled", id })),
+  ];
+  const current = options.current;
+  const isCurrent = (row: ProjectRow) => current !== undefined && row.id === current;
+  if (!open) return [...rows, ...own.filter(isCurrent)];
   if (!place.threads.length && !place.recent.length)
-    rows.push({
-      kind: "empty",
-      key: `project:${place.id}`,
-      text: "Nothing open. Waiting items are in your Inbox.",
-    });
-  return rows;
+    return [
+      ...rows,
+      {
+        kind: "empty",
+        key: `project:${place.id}`,
+        text: "Nothing open. Waiting items are in your Inbox.",
+      },
+    ];
+  if (own.length <= projectRowLimit) return [...rows, ...own];
+  if (folded.has(projectMore(place.id)))
+    return [...rows, ...own, { kind: "show-more", project: place.id, hidden: 0, open: true }];
+  const shown = own.filter((row, index) => index < projectRowLimit || isCurrent(row));
+  return [
+    ...rows,
+    ...shown,
+    { kind: "show-more", project: place.id, hidden: own.length - shown.length, open: false },
+  ];
 }
 
 /** Every row of the tree, top to bottom. */
@@ -91,8 +109,15 @@ export function treeRows(tree: HomeTree, options: TreeRowOptions = {}): HomeRow[
   const rows: HomeRow[] = [];
   const folded = new Set(options.collapsed ?? []);
   if (options.includeUnsent) rows.push({ kind: "unsent" });
+  const open = new Set(tree.projects.flatMap((place) => place.threads));
+  const pinned = (options.pinned ?? []).filter((id) => open.has(id));
+  if (pinned.length) {
+    rows.push({ kind: "pinned-label" });
+    for (const id of pinned) rows.push({ kind: "thread", id, place: "pinned" });
+  }
+  const lead = new Set(pinned);
   if (tree.projects.length || tree.quiet.length) rows.push({ kind: "projects-label" });
-  for (const place of tree.projects) rows.push(...projectRows(place, options, folded));
+  for (const place of tree.projects) rows.push(...projectRows(place, options, folded, lead));
   if (tree.quiet.length) {
     rows.push({ kind: "quiet-header", count: tree.quiet.length, open: options.quietOpen === true });
     if (options.quietOpen)
@@ -107,20 +132,6 @@ export function treeRows(tree: HomeTree, options: TreeRowOptions = {}): HomeRow[
       ? [current]
       : [])
     rows.push({ kind: "snoozed", id });
-  return rows;
-}
-
-/** Search: the open threads that match ("Threads · N"), then the settled ones ("Settled · N"). */
-export function searchRows(threads: readonly string[], settled: readonly string[]): HomeRow[] {
-  const rows: HomeRow[] = [];
-  if (threads.length) {
-    rows.push({ kind: "label", key: "threads", label: "Threads", count: threads.length });
-    for (const id of threads) rows.push({ kind: "thread", id, place: "search", withProject: true });
-  }
-  if (settled.length) {
-    rows.push({ kind: "label", key: "settled", label: "Settled", count: settled.length });
-    for (const id of settled) rows.push({ kind: "settled", id });
-  }
   return rows;
 }
 
@@ -144,10 +155,10 @@ export function homeRowKey(row: HomeRow): string {
       return `section:project:${row.project}`;
     case "quiet-project":
       return `section:quiet:${row.project}`;
+    case "show-more":
+      return `section:more:${row.project}`;
     case "empty":
       return `section:empty:${row.key}`;
-    case "label":
-      return `section:label:${row.key}`;
     default:
       return `section:${row.kind}`;
   }
@@ -158,7 +169,7 @@ export function homeRowThread(row: HomeRow): string | undefined {
   return "id" in row ? row.id : undefined;
 }
 
-/** Where a row's thread shows (a project, search…): a change moves it even while rows hold. */
+/** Where a row's thread shows (Pinned, a project…): a change moves it even while rows hold. */
 export function homeRowPlace(row: HomeRow): string {
   return row.kind === "thread" ? row.place : row.kind;
 }
