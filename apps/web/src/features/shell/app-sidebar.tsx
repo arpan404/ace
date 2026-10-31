@@ -1,116 +1,71 @@
-import { Link, useRouterState } from "@tanstack/react-router";
-import { ArrowLeftIcon, GearSixIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
-import { useState, type ReactNode } from "react";
-import { cn } from "@/lib/cn.ts";
+import { useRouterState } from "@tanstack/react-router";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { AccountMenu } from "./account-menu.tsx";
-import { UpdateButton } from "./update-button.tsx";
+import { AppRail } from "./app-rail.tsx";
+import { ForgePanel } from "./forge-panel.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
+import { PanelHeader } from "./view-frame.tsx";
 import { activeView } from "./views.ts";
 
 const quick =
-  "relative grid size-7 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-foreground";
-/** Back to app spans the sidebar's foot, the profile row's place on the app's own screens. */
-const backRow =
-  "flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-ui text-sidebar-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-sidebar-accent pointer-coarse:h-11 [&_svg]:text-muted-foreground";
-/**
- * Where Back to app goes: the app screen the person left for Settings, Automations or Skills
- * (the thread, with its search), or New thread when they came straight to one of them.
- */
-function useBackToApp(section: boolean) {
-  const location = useRouterState({ select: (state) => state.location });
-  const [back, setBack] = useState({ href: "/new", to: "/new", search: {} });
-  if (!section && location.href !== back.href)
-    setBack({ href: location.href, to: location.pathname, search: location.search });
-  return back;
-}
+  "relative grid size-7 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit touch-hit-lg hover:bg-hover hover:text-foreground";
 
 /**
- * The one sidebar. At the top, the ace wordmark and Search (a dialog over any screen); back,
- * forward and the sidebar's toggle sit in the header. Then the thread list (or the selected
- * section's list) as its only scrolling part, and at the foot the profile with the GitHub
- * button and the Settings gear (and, beside them, the app's update when there is one to act on).
- * Settings, Automations and Skills hide app navigation and the profile, with a full-width Back
- * to app at the foot in its place.
+ * The one sidebar: the rail of places on the left, always there, and beside it the current
+ * place's panel, the only part that scrolls. Threads' panel is the thread list under its title
+ * with Search (a dialog over any screen); GitHub's lists its three pages; Settings, Automations
+ * and Skills draw their own lists into it (`ViewFrame`). Back, forward and the sidebar's toggle
+ * sit in the main column's header.
  */
 export function AppSidebar(props: {
-  /** The thread list, the body's content unless a view's list takes it (Settings' pages). */
+  /** The thread list, the panel's content unless a view's list takes it (Settings' pages). */
   threads: ReactNode;
-  /** The GitHub button beside Settings that opens Inbox, Pull requests and Issues, lit while open. */
-  forge?: ((forgeOpen: boolean) => ReactNode) | undefined;
+  /** GitHub's place in the rail (Inbox, Pull requests and Issues), current while one is open. */
+  forge?: ((current: boolean) => ReactNode) | undefined;
 }) {
   const { sheet, setBody, bodyClaimed, hideSidebar } = useViewFrame();
   const { setPaletteOpen } = useLayout();
-  const current = useRouterState({ select: (state) => activeView(state.location.pathname) });
-  const section = current === "settings" || current === "automations" || current === "skills";
-  const back = useBackToApp(section);
-  // A dialog opened from the sheet takes its place.
-  const leaveSheet = () => {
-    if (sheet) hideSidebar();
-  };
+  const onForge = useRouterState({
+    select: (state) => activeView(state.location.pathname) === "forge",
+  });
+  const search = (
+    <Tip label="Search" shortcut="palette">
+      <button
+        type="button"
+        aria-label="Search"
+        aria-haspopup="dialog"
+        onClick={() => {
+          // A dialog opened from the sheet takes its place.
+          if (sheet) hideSidebar();
+          setPaletteOpen(true);
+        }}
+        className={quick}
+      >
+        <Icon icon={MagnifyingGlassIcon} />
+      </button>
+    </Tip>
+  );
   return (
-    <>
-      <nav aria-label="App" className="flex shrink-0 flex-col">
-        <div
-          data-slot="sidebar-top"
-          className={cn(
-            "flex h-(--header-h) shrink-0 items-center gap-1 pl-2.5 [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag]",
-            // The sheet's own close button sits at the row's end.
-            sheet ? "pr-12" : "pr-2.5",
-          )}
-        >
-          <span className="px-1.5 text-lg font-semibold tracking-[-0.01em] text-foreground">
-            ace
-          </span>
-          <span className="flex-1" />
-          {/* Settings, Automations and Skills search their own lists. */}
-          {!section && (
-            <Tip label="Search" shortcut="palette">
-              <button
-                type="button"
-                aria-label="Search"
-                aria-haspopup="dialog"
-                onClick={() => {
-                  leaveSheet();
-                  setPaletteOpen(true);
-                }}
-                className={quick}
-              >
-                <Icon icon={MagnifyingGlassIcon} />
-              </button>
-            </Tip>
-          )}
-        </div>
-      </nav>
-      {/* The thread list, or a view's own (`ViewFrame`): the only part that scrolls. */}
-      <div className="flex min-h-0 flex-1 flex-col">
-        {!bodyClaimed && props.threads}
+    <div className="flex min-h-0 flex-1">
+      <AppRail forge={props.forge} />
+      <div
+        data-slot="sidebar-panel"
+        className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-sidebar-border"
+      >
+        {!bodyClaimed &&
+          (onForge ? (
+            <ForgePanel />
+          ) : (
+            <>
+              <PanelHeader title="Threads" actions={search} />
+              {props.threads}
+            </>
+          ))}
         <div ref={setBody} className="contents" />
       </div>
-      {section && (
-        <div className="shrink-0 p-2">
-          <Link to={back.to} search={back.search} className={backRow} onClick={leaveSheet}>
-            <Icon icon={ArrowLeftIcon} />
-            Back to app
-          </Link>
-        </div>
-      )}
-      <div
-        hidden={section}
-        inert={section}
-        className={cn("shrink-0 items-center gap-1 p-2", section ? "hidden" : "flex")}
-      >
-        <AccountMenu />
-        <UpdateButton />
-        {!section && props.forge?.(current === "forge")}
-        <Tip label="Settings" shortcut="settings">
-          <Link to="/settings" aria-label="Settings" className={cn(quick, "size-8")}>
-            <Icon icon={GearSixIcon} />
-          </Link>
-        </Tip>
-      </div>
-    </>
+    </div>
   );
 }

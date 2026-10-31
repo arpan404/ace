@@ -1,4 +1,4 @@
-import { openProfileView } from "@/test/navigation.ts";
+import { openProfileView, openThreads } from "@/test/navigation.ts";
 import { fakeClient } from "@/test/fake-client.ts";
 import { chooseModel } from "@/test/model-control.ts";
 import type { Client } from "@ace/client";
@@ -204,7 +204,7 @@ test("while automations are off it can't be run, and turning them on lets it run
   await userEvent.click(main().getByRole("link", { name: "Turn on Run automations" }));
   await userEvent.click(await screen.findByRole("switch", { name: "Run automations" }));
   await waitFor(() => expect(app.daemon.services.settings.get("automations.enabled")).toBe(true));
-  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await openThreads();
   await openProfileView("Automations");
   const aside = await screen.findByRole("complementary", { name: "Automations" });
   await userEvent.click(

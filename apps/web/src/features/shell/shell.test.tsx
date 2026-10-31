@@ -82,7 +82,11 @@ test("back and forward in the header follow profile view history", async () => {
 
   await openProfileView("Automations");
   await title("Automations");
-  expect(screen.getByRole("link", { name: "Back to app" })).toBeTruthy();
+  expect(
+    within(screen.getByRole("navigation", { name: "App" }))
+      .getByRole("link", { name: "Automations" })
+      .getAttribute("aria-current"),
+  ).toBe("page");
   expect(inHeader("Back").disabled).toBe(false);
 
   await userEvent.click(inHeader("Back"));
