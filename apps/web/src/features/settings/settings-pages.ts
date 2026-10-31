@@ -47,7 +47,7 @@ export interface SettingsPage {
 export const settingsGroupTitles: Record<SettingsGroup, string | undefined> = {
   machine: "Environment",
   device: "This device",
-  network: undefined,
+  network: "Connections",
 };
 
 export const settingsPages: readonly SettingsPage[] = [

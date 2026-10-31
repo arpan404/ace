@@ -20,13 +20,13 @@ test("Link all links every machine with every other, both ways", async () => {
   await app.open("/settings/remote");
   const machines = await screen.findByRole("region", { name: "Machines" });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  await userEvent.click(await within(machines).findByRole("button", { name: "Link all" }));
+  await userEvent.click(await within(machines).findByRole("button", { name: "Link all machines" }));
   await waitFor(() => {
     expect(linkedHosts(app.daemon.services.fleet.links())).toEqual(["build"]);
     expect(linkedHosts(remote.services.fleet.links())).toEqual(["this-mac"]);
   });
   expect((await within(machines).findAllByText("Linked with all")).length).toBe(2);
-  expect(within(machines).queryByRole("button", { name: "Link all" })).toBeNull();
+  expect(within(machines).queryByRole("button", { name: "Link all machines" })).toBeNull();
 }, 30_000);
 
 test("a machine that can't make a pairing link says what to do, and the other direction still links", async () => {
@@ -35,7 +35,7 @@ test("a machine that can't make a pairing link says what to do, and the other di
   await app.open("/settings/remote");
   const machines = await screen.findByRole("region", { name: "Machines" });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  await userEvent.click(await within(machines).findByRole("button", { name: "Link all" }));
+  await userEvent.click(await within(machines).findByRole("button", { name: "Link all machines" }));
   // The toast's card is aria-hidden; its words are announced through the live region.
   expect(
     (await screen.findAllByText(/Turn on remote access on Build server\./)).length,
@@ -50,14 +50,14 @@ test("unlinking two machines on a machine's page asks first, then removes both d
   await app.open("/settings/remote");
   const machines = await screen.findByRole("region", { name: "Machines" });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  await userEvent.click(await within(machines).findByRole("button", { name: "Link all" }));
+  await userEvent.click(await within(machines).findByRole("button", { name: "Link all machines" }));
   await within(machines).findAllByText("Linked with all");
   await userEvent.click(within(machines).getByRole("link", { name: "Build server" }));
   const links = await screen.findByRole("region", { name: "Links" });
-  const row = (await within(links).findByText("This Mac")).closest("tr");
-  if (!row) throw new Error("No link row");
-  expect(within(row).getAllByText("Read and act")).toHaveLength(2);
-  await userEvent.click(within(row).getByRole("button", { name: "Actions for This Mac" }));
+  await userEvent.click(within(links).getByRole("combobox", { name: "Machines to configure" }));
+  await userEvent.click(await screen.findByRole("option", { name: "This Mac" }));
+  expect(within(links).getAllByText("Read and act")).toHaveLength(2);
+  await userEvent.click(within(links).getByRole("button", { name: "Actions for This Mac" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Unlink" }));
   const dialog = await screen.findByRole("dialog", { name: "Unlink Build server and This Mac?" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Unlink" }));
@@ -111,11 +111,11 @@ test("with one machine, remote access and its network are saved without asking",
   await app.open("/settings/remote");
   // The control replaces its placeholder once settings load: look it up again after.
   await waitFor(() =>
-    expect(screen.getByRole("combobox", { name: "Reached over" }).hasAttribute("disabled")).toBe(
-      false,
-    ),
+    expect(
+      screen.getByRole("combobox", { name: "Connection network" }).hasAttribute("disabled"),
+    ).toBe(false),
   );
-  await userEvent.click(screen.getByRole("combobox", { name: "Reached over" }));
+  await userEvent.click(screen.getByRole("combobox", { name: "Connection network" }));
   await userEvent.click(await screen.findByRole("option", { name: "Local network" }));
   await waitFor(() => expect(app.daemon.services.settings.get("remote.transport")).toBe("lan"));
   expect(

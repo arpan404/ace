@@ -24,7 +24,7 @@ const Input = z
     action: z
       .enum(actions)
       .describe(
-        "rename: title, or none to retitle from the first message. configure: model, effort. handoff: branch. interrupt: stops its turn and children. settle: a working thread settles once done, unless it fails or needs the person. unsettle: also cancels a pending settle. snooze: until. close_preview: previewId. rename_project: name.",
+        "rename: title, or none to retitle from the first message. configure: model, effort. handoff: branch. interrupt: stops its turn and children. settle: only when the person explicitly asks; a working thread settles once done, unless it fails or needs the person. unsettle: also cancels a pending settle. snooze: until. close_preview: previewId. rename_project: name.",
       ),
     threadId: ThreadId.optional().describe("Default: this thread."),
     requestId: fields.requestId.optional(),
@@ -117,7 +117,7 @@ export const threadControl = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Change a thread you own (this one, ones you started or, with full access, any): rename, configure its model, hand off to a new worktree, interrupt, settle, unsettle, snooze, close a preview server, or rename this project. Settle this thread too when its work is done.",
+    "Change a thread you own (this one, ones you started or, with full access, any): rename, configure its model, hand off to a new worktree, interrupt, settle, unsettle, snooze, close a preview server, or rename this project. Settle only when the person explicitly asks. Finishing work alone is not a settle request; automatic settling follows the person's settings.",
   input: Input,
   output: controlResult(z.unknown()),
   async run(input, control) {

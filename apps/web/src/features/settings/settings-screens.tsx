@@ -113,7 +113,10 @@ export function ProviderDetailScreen(props: { id: string }) {
 
 export function RemoteSettingsScreen() {
   return (
-    <SettingsBody page="Fleet">
+    <SettingsBody
+      page="Fleet"
+      lede="Connect your computers and manage the devices that can access them."
+    >
       <Suspense fallback={<ListSkeleton label="fleet" shape="row" rows={4} />}>
         <FleetPage />
       </Suspense>
@@ -126,7 +129,10 @@ export function FleetMachineScreen(props: { id: string }) {
   return (
     <Suspense
       fallback={
-        <SettingsBody page="Fleet">
+        <SettingsBody
+          page="Fleet"
+          lede="Connect your computers and manage the devices that can access them."
+        >
           <ListSkeleton label="machine" shape="row" rows={4} />
         </SettingsBody>
       }

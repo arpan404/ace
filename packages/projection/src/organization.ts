@@ -8,18 +8,11 @@ import {
   type ThreadDetails,
 } from "@ace/protocol";
 
-/**
- * The first linked pull request, as settling reads it. `linkedPrs` leads; the single `linkedPr`
- * that older builds mirrored beside it stands in for a thread not published since. A draft is
- * open as far as settling goes.
- */
-function leadPullRequest(
-  details: ThreadDetails | undefined,
-): { number: number; state: "open" | "closed" | "merged" } | undefined {
-  const first = details?.linkedPrs?.[0];
-  if (first) return { number: first.number, state: first.state === "draft" ? "open" : first.state };
+/** The explicit list is authoritative, including when the last PR was unlinked. */
+function pullRequests(details: ThreadDetails | undefined) {
+  if (details?.linkedPrs !== undefined) return details.linkedPrs;
   const legacy = details?.linkedPr;
-  return legacy ? { number: legacy.number, state: legacy.state } : undefined;
+  return legacy ? [legacy] : [];
 }
 
 export const organizationCommands = [
@@ -98,8 +91,8 @@ export function organizationDecision(
         type: "thread.client.updated",
         // Turned back on by hand: every rule applies again, a pull request that settled it too.
         changes: p.enabled
-          ? { autoSettle: null, prSettled: null }
-          : { autoSettle: false, autoSettleAt: null },
+          ? { autoSettle: null, prSettled: null, prSettledKey: null }
+          : { autoSettle: false, autoSettleAt: null, settleWhenDone: null },
       };
     case "thread.snooze":
       if (p.until !== null && p.until <= at) return "snooze_in_past";
@@ -143,12 +136,11 @@ export function settleDecision(
  */
 function settleRequest(thread: Thread): "settle" | "drop" | undefined {
   if (!thread.settleWhenDone) return undefined;
+  if (thread.autoSettle === false || threadAttention(thread)) return "drop";
   const state = thread.status.state;
   if (thread.deletedAt === undefined && state === "done") return "settle";
   return state === "working" || state === "waiting" ? undefined : "drop";
 }
-
-const quiescentStates = new Set<Thread["status"]["state"]>(["done", "failed", "new"]);
 
 function automaticSettle(
   thread: Thread,
@@ -166,30 +158,49 @@ function automaticSettle(
     return { ...expired, autoSettleAt: null };
   // Only a finished tree settles by itself. One still waiting (a background shell, a queued
   // turn, a limit, the person) stays in the list, and settles once it finishes if still due.
-  if (!quiescentStates.has(thread.status.state)) return { ...expired, autoSettleAt: null };
+  if (!["done", "new", "failed"].includes(thread.status.state))
+    return { ...expired, autoSettleAt: null };
+  const prs = pullRequests(thread.details);
+  // An unresolved or unverified PR blocks every automatic rule, including inactivity.
+  if (
+    prs.some(
+      (pr) =>
+        ("unverified" in pr && pr.unverified) ||
+        ("deleted" in pr && pr.deleted) ||
+        !(pr.state === "merged" || (pr.state === "closed" && policy.closed)),
+    )
+  )
+    return { ...expired, autoSettleAt: null };
+  const key = prs.length
+    ? JSON.stringify(
+        prs
+          .map((pr) =>
+            "repo" in pr
+              ? [pr.repo.forge, pr.repo.host, pr.repo.owner, pr.repo.name, pr.number]
+              : [pr.number],
+          )
+          .map((ref) => JSON.stringify(ref))
+          .toSorted(),
+      )
+    : undefined;
+  const alreadySettled =
+    key === thread.prSettledKey ||
+    (thread.prSettledKey === undefined && prs.length === 1 && prs[0]?.number === thread.prSettled);
+  const prRuleEnabled = prs.every((pr) => (pr.state === "merged" ? policy.merged : policy.closed));
+  if (key && prRuleEnabled && !alreadySettled)
+    return {
+      ...expired,
+      settledAt: at,
+      settledReason: prs.every((pr) => pr.state === "merged") ? "pr_merged" : "pr_closed",
+      autoSettleAt: null,
+      prSettled: prs[0]?.number,
+      prSettledKey: key,
+    };
+  if (thread.status.state !== "done") return { ...expired, autoSettleAt: null };
   const due =
     policy.hours > 0
       ? (thread.activityAt ?? thread.updatedAt) + policy.hours * 3_600_000
       : undefined;
-  // A pull request settles its thread once. Reopened after that, the thread stays open until
-  // the person settles it, it goes inactive, or another linked pull request merges or closes.
-  const pr = leadPullRequest(thread.details);
-  const prReason =
-    !pr || pr.number === thread.prSettled
-      ? undefined
-      : pr.state === "merged" && policy.merged
-        ? "pr_merged"
-        : pr.state === "closed" && policy.closed
-          ? "pr_closed"
-          : undefined;
-  if (prReason && pr)
-    return {
-      ...expired,
-      settledAt: at,
-      settledReason: prReason,
-      autoSettleAt: null,
-      prSettled: pr.number,
-    };
   return due !== undefined && due <= at
     ? { ...expired, settledAt: at, settledReason: "inactivity", autoSettleAt: null }
     : { ...expired, autoSettleAt: due ?? null };

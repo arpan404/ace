@@ -85,6 +85,17 @@
             }
           ]
         },
+        "prSettledKey": {
+          "anyOf": [
+            {
+              "maxLength": 131072,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "readAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },

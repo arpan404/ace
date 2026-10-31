@@ -30,6 +30,7 @@ export function BrowserDeviceSettings() {
         <SettingRow
           id="browser.deviceToolbar"
           title="Device toolbar in new tabs"
+          description="Show device and viewport controls when you open a browser tab."
           htmlFor="browser-device-toolbar"
           inline
         >
@@ -37,7 +38,7 @@ export function BrowserDeviceSettings() {
         </SettingRow>
         <SettingRow
           {...settingRow("browser.pip")}
-          description="While an agent browses or the page plays sound."
+          description="Show a floating browser preview while an agent browses or the page plays sound."
           htmlFor="browser-pip"
           inline
         >

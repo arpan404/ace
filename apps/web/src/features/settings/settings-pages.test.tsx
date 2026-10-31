@@ -81,7 +81,7 @@ test("follow-ups are stored on the daemon and nothing offers to continue work af
 test("when done threads settle is set in Agents and stored on the daemon", async () => {
   const app = harness();
   await app.open("/settings/agents");
-  expect(await screen.findByText(/Threads that need you never settle/)).toBeTruthy();
+  expect(await screen.findByText(/Threads that need you stay active/)).toBeTruthy();
   await pick("Settle done threads", "After a week");
   await waitFor(() =>
     expect(app.daemon.services.settings.get("threads.autoSettleAfter")).toBe("1w"),

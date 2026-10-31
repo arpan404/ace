@@ -26,7 +26,7 @@ export function GeneralSettings() {
   return (
     <>
       <DesktopAppPreferences />
-      <SettingSection label="You" card scope="device">
+      <SettingSection label="Profile" card scope="device">
         <ProfileNameRow />
       </SettingSection>
       <SettingSection label="Workspace" card scope="device">
@@ -42,7 +42,7 @@ export function GeneralSettings() {
 function ProfileNameRow() {
   const [name, setName] = useProfileName();
   return (
-    <SettingRow {...settingRow("profile.name")} description={undefined} htmlFor="profile-name">
+    <SettingRow {...settingRow("profile.name")} htmlFor="profile-name">
       <Input
         id="profile-name"
         className="@[30rem]:w-52"
@@ -82,7 +82,7 @@ function EditorRow() {
   const { editors, current, choose, unavailable } = useEditors();
   const row = settingRow("editor.default");
   return (
-    <SettingRow {...row} description={unavailable}>
+    <SettingRow {...row} description={unavailable ?? row.description}>
       {editors?.length && current ? (
         <Select
           label={row.title}
