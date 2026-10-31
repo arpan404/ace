@@ -202,7 +202,12 @@ test("search lists matching threads, then settled matches, each under its count"
 });
 
 test("no thread id can take a heading's key, and a thread keeps its key in any place", () => {
-  const thread: HomeRow = { kind: "thread", id: "section:inbox-header", place: "inbox", withProject: true };
+  const thread: HomeRow = {
+    kind: "thread",
+    id: "section:inbox-header",
+    place: "inbox",
+    withProject: true,
+  };
   const header: HomeRow = { kind: "inbox-header", count: 0, open: true };
   expect(homeRowKey(thread)).not.toBe(homeRowKey(header));
   expect(homeRowKey({ kind: "thread", id: "x", place: "inbox", withProject: true })).toBe(

@@ -112,9 +112,9 @@ test("a pinned thread leads its project, and arrows move on from it", async () =
   await app.client.command({ type: "thread.pin", threadId: ThreadId.parse("first"), pinned: true });
   const pinned = await nav.findByRole("link", { name: /^First task.*Pinned/ });
   await waitFor(() =>
-    expect(nav.getAllByRole("link").map((link) => link.getAttribute("aria-label")?.split(".")[0])).toEqual(
-      ["First task", "Last task", "Other project"],
-    ),
+    expect(
+      nav.getAllByRole("link").map((link) => link.getAttribute("aria-label")?.split(".")[0]),
+    ).toEqual(["First task", "Last task", "Other project"]),
   );
   const next = nav.getByRole("link", { name: /^Last task/ });
   pinned.focus();

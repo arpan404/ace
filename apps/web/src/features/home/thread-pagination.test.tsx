@@ -5,13 +5,10 @@ import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { openSearchSheet } from "@/test/open-search.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
-/** 46 settled threads, the panel showing `tab` (Settled pages them in as its end shows). */
-async function history(tab: "active" | "settled" = "settled") {
+/** 46 settled threads in ace, its only threads: ace is a quiet project. */
+async function history() {
   const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.home.organizer",
-    JSON.stringify({ baseline: 0, project: null, homeTab: tab }),
-  );
+  storage.setItem("ace.home.organizer", JSON.stringify({ baseline: 0, project: null }));
   const app = harness({ storage });
   const scenario = workbench().find((entry) => entry.thread.id === "thread-bump-codex");
   if (!scenario) throw new Error("Missing done scenario");
@@ -31,14 +28,17 @@ async function history(tab: "active" | "settled" = "settled") {
 const settledRows = (nav: HTMLElement) =>
   within(nav).queryAllByRole("link", { name: /^(Finished history \d+|Bump Codex)/ });
 
-test("the Settled tab loads older threads as its end comes into view, and retries a failed page", async () => {
+test("a quiet project's Settled list loads older threads as its end comes into view, and retries a failed page", async () => {
   const app = await history();
   const fail = vi.spyOn(app.client, "threadsMore").mockRejectedValueOnce(new Error("offline"));
   await app.open("/new");
   const lease = app.client.threads();
   try {
     const nav = await screen.findByRole("navigation", { name: "Threads" });
-    expect(screen.getByRole("tab", { name: "Settled 46" })).toBeTruthy();
+    // With nothing open, ace folds under Quiet projects with the daemon's count of its settled.
+    await userEvent.click(await within(nav).findByRole("button", { name: /^Quiet projects/ }));
+    await userEvent.click(await within(nav).findByRole("button", { name: "ace, 46 settled" }));
+    expect(screen.getByRole("tab", { name: "Settled" }).getAttribute("aria-selected")).toBe("true");
     // Every row is in view here, so the end is too: the first page fails and offers a retry.
     const retry = await within(nav).findByRole("button", { name: /Couldn’t load older threads/ });
     expect(lease.store.ids).toHaveLength(20);
@@ -55,21 +55,8 @@ test("the Settled tab loads older threads as its end comes into view, and retrie
   }
 });
 
-test("the Settled tab groups its threads under week headings", async () => {
-  const app = await history();
-  await app.open("/new");
-  const nav = await screen.findByRole("navigation", { name: "Threads" });
-  await waitFor(() => expect(settledRows(nav).length).toBeGreaterThan(0));
-  const headings = within(nav).getAllByRole("heading");
-  expect(headings.length).toBeGreaterThan(0);
-  for (const heading of headings)
-    expect(heading.textContent).toMatch(
-      /^(This week|Last week|January|February|March|April|May|June|July|August|September|October|November|December)/,
-    );
-});
-
 test("Search finds an older settled thread outside the window and opens it through a direct subscription", async () => {
-  const app = await history("active");
+  const app = await history();
   await app.open("/new");
   const lease = app.client.threads();
   try {
@@ -91,7 +78,7 @@ test("Search finds an older settled thread outside the window and opens it throu
 });
 
 test("the panel's search lists an older settled thread the list hasn't loaded, and opens it", async () => {
-  const app = await history("active");
+  const app = await history();
   await app.open("/new");
   const lease = app.client.threads();
   try {

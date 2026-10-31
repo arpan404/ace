@@ -202,7 +202,9 @@ export function ThreadList(props: {
     if (!scroller || !list) return undefined;
     const project = shownEntry(ids[0] ?? "")?.workspaceId;
     /** A thread row of the moving project's own list. */
-    const ours = (row: { item: HomeRow; phase: string } | undefined): row is {
+    const ours = (
+      row: { item: HomeRow; phase: string } | undefined,
+    ): row is {
       item: Extract<HomeRow, { kind: "thread" }>;
       phase: string;
     } =>

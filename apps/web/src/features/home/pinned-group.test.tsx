@@ -105,9 +105,7 @@ test("Space picks a pinned row up, arrows choose its place among its project's p
   expect(said()).toMatch(/^Dropped Gamma/);
   // The daemon keeps the order: its places sort the same way.
   await waitFor(() => {
-    const places = ["beta", "alpha", "gamma"].map(
-      (id) => listed(app, id)?.pinOrder ?? Number.NaN,
-    );
+    const places = ["beta", "alpha", "gamma"].map((id) => listed(app, id)?.pinOrder ?? Number.NaN);
     expect(places).toEqual(places.toSorted((a, b) => b - a));
   });
 });

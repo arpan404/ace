@@ -62,7 +62,9 @@ test("an open row's details close as soon as the list scrolls", async () => {
 async function unsettleBump(title: string) {
   await userEvent.click(await screen.findByRole("button", { name: "1 settled in ace" }));
   await userEvent.click(await screen.findByRole("button", { name: `Unsettle ${title}` }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "1 settled in ace" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "1 settled in ace" })).toBeNull(),
+  );
 }
 
 test("Settle and Unsettle on a row's hover actions move it in and out of its project's settled ones", async () => {

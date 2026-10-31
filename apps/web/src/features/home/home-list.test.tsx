@@ -73,6 +73,7 @@ test("the Inbox holds what needs you, and each project lists its other threads",
     "Retry budget for app-server restarts",
     "Running, 3",
     "Recent, 0",
+    "Add project",
     "[ace]",
     "Dedupe thread events after reconnect",
     "1 settled in ace",
@@ -286,6 +287,15 @@ test("Up and Down (and j and k) move between rows, headings and places", async (
   await userEvent.keyboard("j");
   expect(document.activeElement).toBe(head("Recent, 0"));
   await userEvent.keyboard("j");
+  expect(document.activeElement).toBe(head("Add project"));
+  await userEvent.keyboard("j");
+  expect(document.activeElement).toBe(head(/^ace, 1 running/));
+  // → reaches a project's own actions, ← comes back.
+  await userEvent.keyboard("{ArrowRight}");
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "New thread in ace" }));
+  await userEvent.keyboard("{ArrowRight}");
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Open ace" }));
+  await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
   expect(document.activeElement).toBe(head(/^ace, 1 running/));
   await userEvent.keyboard("j");
   expect(document.activeElement).toBe(card(/^Dedupe thread events/));

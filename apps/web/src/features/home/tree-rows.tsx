@@ -57,7 +57,14 @@ function Caret(props: { open: boolean }) {
 function Mini(props: { label: string; onClick(): void; children: ReactNode }) {
   return (
     <Tip label={props.label}>
-      <button type="button" aria-label={props.label} onClick={props.onClick} className={mini}>
+      <button
+        type="button"
+        aria-label={props.label}
+        onClick={props.onClick}
+        // Out of the Tab order, as a row's actions are: → reaches it from its heading.
+        tabIndex={-1}
+        className={mini}
+      >
         {props.children}
       </button>
     </Tip>
@@ -167,6 +174,8 @@ function ProjectsLabel() {
         <button
           type="button"
           aria-label="Add project"
+          // A stop the arrows reach, like the headings around it.
+          data-section-toggle=""
           onClick={() => projects.open({ kind: "add", tab: "sources" })}
           onPointerEnter={projects.preload}
           className="grid size-6 shrink-0 place-items-center rounded-sm text-subtle-foreground hover:bg-hover hover:text-foreground focus-ring"

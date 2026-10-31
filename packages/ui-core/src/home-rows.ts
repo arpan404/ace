@@ -185,9 +185,7 @@ export function focusRows(focus: HomeFocus, input: FocusRowInput): HomeRow[] {
   const threads = threadRows;
   const empty = emptyRows;
   if (focus.kind === "inbox")
-    return tree.inbox.length
-      ? threads(tree.inbox, "inbox", true)
-      : empty("You’re all caught up.");
+    return tree.inbox.length ? threads(tree.inbox, "inbox", true) : empty("You’re all caught up.");
   if (focus.kind === "running")
     return tree.running.length
       ? threads(tree.running, "running", true)
@@ -199,9 +197,7 @@ export function focusRows(focus: HomeFocus, input: FocusRowInput): HomeRow[] {
   }
   const place = [...tree.projects, ...tree.quiet].find((each) => each.id === focus.id);
   if (focus.tab === "active")
-    return place?.open.length
-      ? threads(place.open, "project", false)
-      : empty("No open threads.");
+    return place?.open.length ? threads(place.open, "project", false) : empty("No open threads.");
   const rows: HomeRow[] = (place?.settled ?? []).map((id) => ({
     kind: "settled",
     id,

@@ -72,6 +72,8 @@ test("a project's N settled opens only that project's settled threads, in place"
   expect(billing.getAttribute("aria-expanded")).toBe("true");
   await waitFor(() => expect(rowTitles()).toContain("Invoice PDF locale fallback"));
   expect(rowTitles()).not.toContain("Bump Codex app-server to 0.48");
-  await userEvent.click(within(threads()).getByRole("button", { name: "1 settled in billing-api" }));
+  await userEvent.click(
+    within(threads()).getByRole("button", { name: "1 settled in billing-api" }),
+  );
   await waitFor(() => expect(rowTitles()).not.toContain("Invoice PDF locale fallback"));
 });
