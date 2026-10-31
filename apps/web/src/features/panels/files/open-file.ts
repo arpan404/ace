@@ -40,7 +40,6 @@ export function openFile(
     });
     return;
   }
-  const data = { path, preview: !keep, ...extra };
   const replaceable = (key: string | undefined) => {
     const found = key ? findTab(workspace, key) : undefined;
     if (found?.tab.kind !== "files" || found.tab.pinned) return undefined;
@@ -50,6 +49,19 @@ export function openFile(
   const target =
     replaceable(options.from) ??
     workspace.tabs.map((tab) => replaceable(tab.key)).find((key) => key !== undefined);
+  // The tree beside the file keeps what the person left there: its filter, which folders were
+  // folded, and where it was scrolled. A replacement carries its own tree over; a new tab takes
+  // its source tab's (or the showing files tab's, for quick open), so browsing files never
+  // resets the explorer.
+  const inheritKey = target ?? options.from ?? workspace.active;
+  const inheritTab = inheritKey ? findTab(workspace, inheritKey)?.tab : undefined;
+  const inheritData = inheritTab && inheritTab.kind === "files" ? fileTabData(inheritTab) : {};
+  const carried = {
+    ...(inheritData.collapsed === undefined ? {} : { collapsed: inheritData.collapsed }),
+    ...(inheritData.query === undefined ? {} : { query: inheritData.query }),
+    ...(inheritData.treeScroll === undefined ? {} : { treeScroll: inheritData.treeScroll }),
+  };
+  const data = { ...carried, path, preview: !keep, ...extra };
   if (target) actions.replace(target, { kind: "files", id, data });
   else actions.open({ kind: "files", id, data });
 }

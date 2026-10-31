@@ -25,6 +25,15 @@ async function quickOpen(text: string) {
   return input;
 }
 
+/** Folders start folded: open each of `folders` in `tree` so a nested file shows. */
+async function reveal(tree: HTMLElement, folders: readonly string[]) {
+  for (const folder of folders) {
+    const row = tree.querySelector(`[data-path="${folder}"]`);
+    if (row?.getAttribute("aria-expanded") === "false")
+      await userEvent.click(row as HTMLElement);
+  }
+}
+
 async function readCheckout(app: ReturnType<typeof harness>, path: string) {
   const chunks: Uint8Array[] = [];
   for await (const chunk of app.client.downloadFile({
@@ -83,7 +92,9 @@ test("a click in the tree previews a file in place; a kept tab stays", async () 
   await within(side).findByRole("tab", { name: "replay.ts", selected: true });
 
   // replay.ts was opened deliberately, so a click in its tree opens a preview beside it.
+  // outbox.ts lives in another subtree, folded by default: reveal it first.
   const tree = within(side).getByRole("tree", { name: "Checkout files" });
+  await reveal(tree as HTMLElement, ["apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
   await userEvent.click(within(tree).getByRole("treeitem", { name: "outbox.ts" }));
   await within(side).findByRole("tab", { name: "outbox.ts", selected: true });
 
@@ -111,6 +122,8 @@ test("a file the pointer rests on in the tree shows at once when clicked", async
   const side = await panel();
   await within(side).findByRole("region", { name: /^Source of .*replay\.ts$/ });
   const tree = within(side).getByRole("tree", { name: "Checkout files" });
+  // outbox.ts lives in another subtree, folded by default: reveal it first.
+  await reveal(tree as HTMLElement, ["apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
   const row = within(tree).getByRole("treeitem", { name: "outbox.ts" });
   await userEvent.hover(row);
   await new Promise((resolve) => setTimeout(resolve, 400));
@@ -215,11 +228,19 @@ test("the Files tab keeps the checkout tree while a source tab remembers hiding 
     "pin files",
   );
   await userEvent.click(await screen.findByRole("option", { name: /^Pin Files/ }));
-  const tree = await within(side).findByRole("tree", { name: "Checkout files" });
+  await within(side).findByRole("tree", { name: "Checkout files" });
   expect(within(side).getByRole("complementary", { name: "Checkout files" })).toBeTruthy();
 
   // A file picked there opens in a tab of its own: the Files tab stays the tree.
-  await userEvent.click(within(tree).getByRole("treeitem", { name: "outbox.ts" }));
+  // Folders start folded, so filter for the file rather than browsing to it.
+  await userEvent.type(
+    within(side)
+      .getAllByRole("searchbox", { name: "Find files in the checkout" })
+      .at(-1) as HTMLElement,
+    "outbox",
+  );
+  const found = await within(side).findByRole("tree", { name: "Matching files" });
+  await userEvent.click(await within(found).findByRole("treeitem", { name: "outbox.ts" }));
   await within(side).findByRole("tab", { name: "outbox.ts", selected: true });
   expect(within(side).getByRole("tab", { name: "Files" })).toBeTruthy();
   // Files opens more than once: the launcher's Files turns the new tab into another Files tab

@@ -25,6 +25,7 @@ export const FileTabData = z.object({
   query: z.optional(z.string()),
   find: z.optional(z.object({ query: z.string(), index: z.number() })),
   collapsed: z.optional(z.array(z.string())),
+  treeScroll: z.optional(z.number().check(z.gte(0), z.lte(10_000_000))),
 });
 export type FileTabData = z.infer<typeof FileTabData>;
 
