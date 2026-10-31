@@ -1,197 +1,211 @@
 import { expect, test } from "vitest";
-import type { ActiveGroups } from "./home-groups.ts";
 import {
-  activeRows,
+  focusRows,
   homeFootStart,
   homeRowKey,
-  settledRows,
-  type ActiveRowGroups,
+  projectFold,
+  inboxFold,
+  searchRows,
+  treeRows,
   type HomeRow,
 } from "./home-rows.ts";
+import type { HomeTree, TreeProject } from "./home-tree.ts";
 
 /** The rows as short words, to read the list top to bottom. */
 const words = (rows: readonly HomeRow[]) =>
   rows.map((row) => {
     switch (row.kind) {
-      case "pinned-header":
-        return `pinned ${row.count}`;
-      case "pinned-end":
-        return "—";
-      case "group-header":
-        return `${row.group} ${row.count}${row.open ? "" : " (folded)"}`;
+      case "inbox-header":
+        return `Inbox ${row.count}${row.open ? "" : " (folded)"}`;
+      case "place":
+        return `${row.place} ${row.count}`;
+      case "projects-label":
+        return "Projects";
+      case "project-header":
+        return `[${row.project}]${row.open ? "" : " (folded)"}`;
+      case "project-settled":
+        return `${row.count} settled${row.open ? " (open)" : ""}`;
+      case "quiet-header":
+        return `Quiet ${row.count}${row.open ? " (open)" : ""}`;
+      case "quiet-project":
+        return `quiet ${row.project} ${row.settled}`;
       case "snoozed-header":
-        return `snoozed ${row.count}`;
-      case "settled-header":
-        return row.count === undefined ? row.label : `${row.label} ${row.count}`;
+        return `Snoozed ${row.count}`;
       case "settled-more":
         return `more ${row.state}`;
+      case "empty":
+        return row.text;
+      case "label":
+        return row.count === undefined ? row.label : `${row.label} · ${row.count}`;
       case "unsent":
         return "unsent";
+      case "thread":
+        return row.withProject ? `${row.id}@` : row.id;
       default:
         return row.id;
     }
   });
 
-const none: ActiveGroups = {
-  "needs-you": [],
+const project = (id: string, patch: Partial<TreeProject> = {}): TreeProject => ({
+  id,
+  threads: [],
+  open: [],
+  running: 0,
+  inbox: 0,
+  settled: [],
+  settledTotal: 0,
+  ...patch,
+});
+
+const built = (patch: Partial<HomeTree> = {}): HomeTree => ({
+  inbox: [],
   running: [],
-  today: [],
-  yesterday: [],
-  week: [],
-  earlier: [],
-  listed: [],
-};
-const arranged = (
-  groups: Partial<ActiveGroups>,
-  rest: Partial<Omit<ActiveRowGroups, "groups">> = {},
-): ActiveRowGroups => ({ pinned: [], snoozed: [], ...rest, groups: { ...none, ...groups } });
+  recent: [],
+  projects: [],
+  quiet: [],
+  order: [],
+  ...patch,
+});
 
-test("Pinned leads, then each group with threads under its heading, in the panel's order", () => {
-  const rows = activeRows(
-    arranged(
-      { today: ["t"], "needs-you": ["n"], running: ["r"], earlier: ["e"] },
-      { pinned: ["p"] },
-    ),
+test("the Inbox leads with its threads, then Running, Recent and each project", () => {
+  const rows = treeRows(
+    built({
+      inbox: ["asks"],
+      running: ["works"],
+      recent: [{ id: "old", at: 1, settled: true }],
+      projects: [project("ace", { threads: ["works", "rests"], open: ["works", "rests"] })],
+    }),
+    { includeUnsent: true },
   );
   expect(words(rows)).toEqual([
-    "pinned 1",
-    "p",
-    "—",
-    "needs-you 1",
-    "n",
+    "unsent",
+    "Inbox 1",
+    "asks@",
     "running 1",
-    "r",
-    "today 1",
-    "t",
-    "earlier 1",
-    "e",
+    "recent 1",
+    "Projects",
+    "[ace]",
+    "works",
+    "rests",
   ]);
 });
 
-test("with nothing pinned there is no Pinned heading, except as a drop zone mid-drag", () => {
-  expect(words(activeRows(arranged({ today: ["a"] })))).toEqual(["today 1", "a"]);
-  expect(words(activeRows(arranged({ today: ["a"] }), { pinZone: true }))).toEqual([
-    "pinned 0",
-    "—",
-    "today 1",
-    "a",
-  ]);
+test("an empty Inbox says the person is all caught up", () => {
+  expect(words(treeRows(built())).slice(0, 2)).toEqual(["Inbox 0", "You’re all caught up."]);
 });
 
-test("a folded group keeps its heading and count, and only the open thread in sight", () => {
-  const groups = arranged({ today: ["a", "b", "c"], yesterday: ["y"] });
-  expect(words(activeRows(groups, { collapsed: ["today"] }))).toEqual([
-    "today 3 (folded)",
-    "yesterday 1",
-    "y",
-  ]);
-  expect(words(activeRows(groups, { collapsed: ["today"], current: "b" }))).toEqual([
-    "today 3 (folded)",
+test("a folded project keeps only the open thread in sight", () => {
+  const tree = built({ projects: [project("ace", { threads: ["a", "b"], open: ["a", "b"] })] });
+  const folded = [projectFold("ace")];
+  expect(words(treeRows(tree, { collapsed: folded })).slice(-1)).toEqual(["[ace] (folded)"]);
+  expect(words(treeRows(tree, { collapsed: folded, current: "b" })).slice(-2)).toEqual([
+    "[ace] (folded)",
     "b",
-    "yesterday 1",
-    "y",
   ]);
+  expect(words(treeRows(tree, { collapsed: [inboxFold] }))[0]).toBe("Inbox 0 (folded)");
 });
 
-test("unsent work leads, above the Pinned group", () => {
-  expect(
-    words(activeRows(arranged({ today: ["a"] }, { pinned: ["p"] }), { includeUnsent: true })),
-  ).toEqual(["unsent", "pinned 1", "p", "—", "today 1", "a"]);
-});
-
-test("Snoozed closes the Active tab and shows its threads only when open", () => {
-  const groups = arranged({ today: ["a"] }, { snoozed: ["z1", "z2"] });
-  expect(words(activeRows(groups))).toEqual(["today 1", "a", "snoozed 2"]);
-  expect(words(activeRows(groups, { snoozedOpen: true }))).toEqual([
-    "today 1",
-    "a",
-    "snoozed 2",
-    "z1",
-    "z2",
-  ]);
-  expect(words(activeRows(groups, { current: "z2" }))).toEqual(["today 1", "a", "snoozed 2", "z2"]);
-});
-
-test("while searching, matching settled threads follow the active matches under their heading", () => {
-  const rows = activeRows(arranged({ running: ["r"] }), { settledMatches: ["s1", "s2"] });
-  expect(words(rows)).toEqual(["running 1", "r", "Settled 2", "s1", "s2"]);
-});
-
-test("the foot starts at the Snoozed heading", () => {
-  const rows = activeRows(arranged({ today: ["a"] }, { snoozed: ["z"] }));
-  expect(homeFootStart(rows.map((item) => ({ item })))).toBe(2);
-  expect(homeFootStart(activeRows(arranged({ today: ["a"] })).map((item) => ({ item })))).toBe(-1);
-});
-
-test("no thread id can take a heading's key, whatever it is called", () => {
-  const rows = activeRows(
-    arranged(
-      { today: ["section:pinned-header", "group:today"] },
-      { pinned: ["p"], snoozed: ["s"] },
-    ),
-    { settledMatches: ["section:settled:matches"] },
-  );
-  const keys = rows.map(homeRowKey);
-  expect(new Set(keys).size).toBe(keys.length);
-});
-
-test("a thread keeps its key in every group and tab, so each move slides", () => {
-  const keys = [
-    homeRowKey({ kind: "pinned", id: "x" }),
-    homeRowKey({ kind: "thread", id: "x", group: "running" }),
-    homeRowKey({ kind: "thread", id: "x", group: "today" }),
-    homeRowKey({ kind: "settled", id: "x" }),
-  ];
-  expect(new Set(keys).size).toBe(1);
-});
-
-const local = (month: number, date: number, hour = 12, year = 2026) =>
-  new Date(year, month - 1, date, hour).getTime();
-
-test("the Settled tab groups by week, then by month, newest first", () => {
-  // Saturday 31 October 2026.
-  const now = local(10, 31, 15);
-  const rows = settledRows(
-    [
-      { id: "today", at: local(10, 31, 9) },
-      { id: "monday", at: local(10, 26, 9) },
-      { id: "last-sunday", at: local(10, 25, 9) },
-      { id: "last-monday", at: local(10, 19, 9) },
-      { id: "october", at: local(10, 18, 9) },
-      { id: "september", at: local(9, 3) },
-      { id: "last-year", at: local(12, 20, 12, 2025) },
+test("N settled opens that project's settled threads in place, with a foot while more load", () => {
+  const tree = built({
+    projects: [
+      project("ace", { threads: ["a"], open: ["a"], settled: ["s1", "s2"], settledTotal: 5 }),
+      project("web", { threads: ["w"], open: ["w"], settled: ["s3"], settledTotal: 1 }),
     ],
-    now,
-  );
-  expect(words(rows)).toEqual([
-    "This week",
-    "today",
-    "monday",
-    "Last week",
-    "last-sunday",
-    "last-monday",
-    "October",
-    "october",
-    "September",
-    "september",
-    "December 2025",
-    "last-year",
-  ]);
-});
-
-test("the Settled tab says when older threads are loading or failed to load", () => {
-  const now = local(10, 31);
-  expect(words(settledRows([{ id: "a", at: now }], now, "loading"))).toEqual([
-    "This week",
+  });
+  expect(words(treeRows(tree)).slice(-6)).toEqual([
+    "[ace]",
     "a",
+    "5 settled",
+    "[web]",
+    "w",
+    "1 settled",
+  ]);
+  const open = treeRows(tree, { settledOpen: ["ace"], settledFoot: () => "loading" });
+  expect(words(open).slice(-9)).toEqual([
+    "[ace]",
+    "a",
+    "5 settled (open)",
+    "s1",
+    "s2",
     "more loading",
+    "[web]",
+    "w",
+    "1 settled",
   ]);
-  expect(words(settledRows([], now, "error"))).toEqual(["more error"]);
 });
 
-test("a hand-sorted list draws its threads under no heading, even when folded", () => {
-  expect(words(activeRows(arranged({ listed: ["b", "a"] }), { collapsed: ["listed"] }))).toEqual([
-    "b",
-    "a",
+test("quiet projects fold under one heading at the foot of Projects", () => {
+  const tree = built({
+    projects: [project("ace", { threads: ["a"], open: ["a"] })],
+    quiet: [project("docs", { settledTotal: 4 }), project("cli", { settledTotal: 1 })],
+  });
+  expect(words(treeRows(tree)).slice(-1)).toEqual(["Quiet 2"]);
+  expect(words(treeRows(tree, { quietOpen: true })).slice(-3)).toEqual([
+    "Quiet 2 (open)",
+    "quiet docs 4",
+    "quiet cli 1",
   ]);
+});
+
+test("Snoozed closes the list, below the free space", () => {
+  const rows = treeRows(built(), { snoozed: ["z"], snoozedOpen: true });
+  expect(words(rows).slice(-2)).toEqual(["Snoozed 1", "z"]);
+  expect(homeFootStart(rows.map((item) => ({ item })))).toBe(rows.length - 2);
+});
+
+test("Running's focused list names each thread's project", () => {
+  const tree = built({ running: ["w", "i"] });
+  expect(words(focusRows({ kind: "running" }, { tree, now: 0 }))).toEqual(["w@", "i@"]);
+});
+
+test("Recent's focused list groups by day, newest first", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const now = new Date(2026, 9, 31, 15).getTime();
+  const tree = built({
+    recent: [
+      { id: "a", at: now - 1000, settled: false },
+      { id: "b", at: now - day, settled: true },
+      { id: "c", at: now - 3 * day, settled: true },
+    ],
+  });
+  expect(words(focusRows({ kind: "recent" }, { tree, now }))).toEqual([
+    "Today",
+    "a",
+    "Yesterday",
+    "b",
+    "Earlier this week",
+    "c",
+  ]);
+});
+
+test("a project's focused tabs list its open threads, Inbox ones included, or its settled", () => {
+  const tree = built({
+    projects: [project("ace", { threads: ["b"], open: ["a", "b"], settled: ["s"] })],
+  });
+  const active = focusRows({ kind: "project", id: "ace", tab: "active" }, { tree, now: 0 });
+  expect(words(active)).toEqual(["a", "b"]);
+  const settled = focusRows(
+    { kind: "project", id: "ace", tab: "settled" },
+    { tree, now: 0, foot: "more" },
+  );
+  expect(words(settled)).toEqual(["s", "more more"]);
+});
+
+test("search lists matching threads, then settled matches, each under its count", () => {
+  expect(words(searchRows(["a"], ["s1", "s2"]))).toEqual([
+    "Threads · 1",
+    "a@",
+    "Settled · 2",
+    "s1",
+    "s2",
+  ]);
+});
+
+test("no thread id can take a heading's key, and a thread keeps its key in any place", () => {
+  const thread: HomeRow = { kind: "thread", id: "section:inbox-header", place: "inbox", withProject: true };
+  const header: HomeRow = { kind: "inbox-header", count: 0, open: true };
+  expect(homeRowKey(thread)).not.toBe(homeRowKey(header));
+  expect(homeRowKey({ kind: "thread", id: "x", place: "inbox", withProject: true })).toBe(
+    homeRowKey({ kind: "thread", id: "x", place: "project", withProject: false }),
+  );
 });

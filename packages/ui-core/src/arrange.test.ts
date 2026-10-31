@@ -10,8 +10,9 @@ const state = (patch: Partial<OrganizerState> = {}): OrganizerState => ({
   baseline: 0,
   project: null,
   snoozedOpen: false,
-  homeTab: "active",
   collapsed: [],
+  settledOpen: [],
+  quietOpen: false,
   ...patch,
 });
 
