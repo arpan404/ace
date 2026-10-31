@@ -273,22 +273,34 @@ Keep glass cheap:
 
 Animate only `transform` and `opacity`. JS timers read `motionMs` from `@ace/ui-core`.
 
-Only live-activity indicators run forever: the spinner, the working glyph's walk, the sidebar's
-dashed working mark, the startup mark's breath, the indeterminate progress sweep and Tailwind's
-`animate-pulse`. Each shows work happening right now and goes away when it ends. They move only
-transform or opacity and pause and dim only while the daemon is unreachable (reconnecting,
-offline or failed), never while it connects or starts. They keep running under reduced motion, as
-macOS keeps its own activity indicators: a still spinner reads as a hung app. The progress sweep,
-the one that travels, breathes in place instead.
-`bun run check:ui` refuses any other `infinite` animation, and `apps/web/motion-css.test.ts`
-builds the stylesheet to check every animation it names has keyframes.
+Nothing loops forever. Live state is shown by a still mark: the status glyphs (working is a ring
+split in two, background an open ring around a dot, subagents three arcs; each drawn unlike every
+settled state), the Spinner's ring, the streaming caret, a working subagent's activity and the
+title of a tab an agent drives in foreground ink. An infinite animation keeps the compositor
+drawing frames for as long as anything works, in every thread the sidebar shows: measured with an
+agent working and nothing streaming, looping indicators took idle CPU from 6% to 39%, and even
+stepped motion left 20%. Live marks dim while the daemon is unreachable (reconnecting, offline or
+failed), never while it connects or starts; a glyph whose facts are stale dims the same way.
+
+Two animations may repeat, each brief and tied to something the person is waiting on:
+
+- `.fx-breathe`, the startup mark's breath, only while ace starts.
+- `.fx-indeterminate`, a progress bar that can't tell how far along it is, only during that
+  transfer: a frozen indeterminate bar would read as stuck. Under reduced motion it breathes in
+  place instead of sweeping.
+
+Finite motion stays: entrances and exits, and a live step's words sweep three times when the step
+starts (`.step-shimmer`) and then hold still. `bun run check:ui` refuses any other `infinite`
+animation; `apps/web/motion-css.test.ts` builds the stylesheet to check every animation it names
+has keyframes and none but those two loops; `tools/web-perf/src/live-motion.process.test.ts`
+checks the production build with an agent working runs no endless animation.
 
 **Reduce motion** is System, On or Off. `<html>` gets `data-reduce-motion` when the setting is
 On, or when it's System and the OS prefers reduced motion. Under it:
 
 - Fades stay. Distances (`--rise`, `--slide`) become 0, `--ease-spring` falls back to `--ease-out`,
   and Base UI popups don't scale.
-- Live activity indicators keep running (see above).
+- Live marks are still anyway; the indeterminate progress bar breathes instead of sweeping.
 - Anything marked `.fx-flourish` stops. Use it for sheens, glows and trails such as the Ultra
   effort sheen.
 - Fixed slides opt out with `motion-reduce:` utilities. For example, sheets don't slide in from

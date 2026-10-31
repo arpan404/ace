@@ -559,9 +559,10 @@ test("a group leads with its providers' marks, not a status glyph, and a child's
   const second = within(pair).getByRole("link", { name: "Open Review second, Running" });
   const live = second.querySelector("[data-detail]");
   expect(live?.getAttribute("data-detail")).toBe("live");
-  expect(live?.className).toContain("agent-shimmer");
+  // What it does now reads in foreground ink, without motion; its result reads muted.
+  expect(live?.classList.contains("text-foreground")).toBe(true);
   await act(async () => app.daemon.apply("inline-subagents", [facts.endTurn("second")]));
   const done = await within(pair).findByRole("link", { name: "Open Review second, Done" });
   expect(done.querySelector("[data-detail='live']")).toBeNull();
-  expect(done.querySelector(".agent-shimmer")).toBeNull();
+  expect(done.querySelector(".text-foreground[data-detail]")).toBeNull();
 });

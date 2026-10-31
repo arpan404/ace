@@ -52,6 +52,15 @@ export function AssistantMessage(props: { threadId: string; itemId: string; betw
         }}
         stream={`${props.threadId}/${props.itemId}`}
         streaming={streaming}
+        tail={
+          streaming && (
+            <span
+              role="status"
+              aria-label="Streaming"
+              className="ml-0.5 inline-block h-[1em] w-[3px] rounded-full bg-current align-[-0.15em] text-muted-foreground"
+            />
+          )
+        }
       />
       {answer.partial && (
         <div className="mt-2 text-xs text-muted-foreground">

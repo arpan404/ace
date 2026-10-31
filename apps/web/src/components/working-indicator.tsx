@@ -5,11 +5,10 @@ import { cn } from "@/lib/cn.ts";
 import { TimeContext } from "@/lib/time.ts";
 
 /*
- * Something is working: the Aperture working glyph (its ring's halves swinging, status-glyph.tsx),
- * words, and how long it has run in tabular figures ("Working for 3m 6s"). The glyph moves by a
- * CSS animation on the compositor, with no React render and no timer; while the work waits it
- * holds its rest pose. Any row that shows something working can use `WorkingIndicator` for the
- * same look.
+ * Something is working: the Aperture working glyph (its ring split in two, status-glyph.tsx),
+ * words, and how long it has run in tabular figures ("Working for 3m 6s"). The glyph holds still;
+ * while the work waits it dims. Any row that shows something working can use `WorkingIndicator`
+ * for the same look.
  */
 
 /** "1m 14s" since `from`, written straight into the element on the shared clock. */
@@ -37,9 +36,9 @@ export function WorkingIndicator(props: {
   label?: string;
   /** When the work began; no time without it. */
   from?: number | undefined;
-  /** A time it reached and holds (a wait): shown still, the glyph still. */
+  /** A time it reached and holds (a wait): shown still, the glyph dimmed. */
   held?: number | undefined;
-  /** Whether the glyph moves; still while the work waits (and whenever a time is held). */
+  /** Whether the work advances; the glyph dims while it waits (and whenever a time is held). */
   moving?: boolean | undefined;
   className?: string;
 }) {

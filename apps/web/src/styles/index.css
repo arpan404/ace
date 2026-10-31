@@ -252,7 +252,6 @@
     border: 1.5px solid color-mix(in oklab, currentColor 25%, transparent);
     border-top-color: currentColor;
   }
-  /* Streaming status line only. */
 }
 
 /*

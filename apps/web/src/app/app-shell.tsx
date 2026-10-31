@@ -40,8 +40,8 @@ const PullRequestTab = deferredComponent(() => loadPullRequestTab().then((m) => 
 /**
  * Wallpaper, the one sidebar (the thread list, or Settings' pages) and the selected view.
  * `data-connection` carries the daemon connection's state. While the daemon is unreachable
- * (`data-live-held`, live-motion.ts) live spinners pause and dim, since nothing they stand for
- * can arrive (no layout changes); while it connects or starts they keep moving.
+ * (`data-live-held`, live-motion.ts) live indicators dim, since nothing they stand for can
+ * arrive (no layout changes); while it connects or starts they stay at full strength.
  */
 export function AppShell() {
   const shell = useRouteFocus();
@@ -65,7 +65,6 @@ export function AppShell() {
                   // Focus belongs to the inner panes; the shell must never become a scrollport.
                   // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
                   "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip",
-                  "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
                   "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:opacity-60",
                 )}
               >
