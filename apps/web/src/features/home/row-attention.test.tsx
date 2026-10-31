@@ -52,6 +52,30 @@ function turnFacts(turn: string, outcome: "completed" | "failed"): Fact[] {
   ];
 }
 
+const named = (title: string) => ({ name: new RegExp(`^${title}`) });
+/** A row's attention level and whether it reads muted. */
+const level = (element: HTMLElement) => {
+  const row = element.closest<HTMLElement>("[data-attention]");
+  if (!row) throw new Error("No row");
+  return { level: row.dataset.attention, muted: row.hasAttribute("data-muted") };
+};
+const says = (element: HTMLElement, text: string) =>
+  within(element).queryByText(text, { exact: true });
+
+/** A thread's row in the Inbox, opening the Inbox first. */
+const inbox = async (title: string) => {
+  if (!screen.queryByRole("dialog", { name: "Inbox" }))
+    await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
+  const dialog = await screen.findByRole("dialog", { name: "Inbox" });
+  return within(dialog).findByRole("link", named(title));
+};
+
+/** Open a thread from its Inbox row, which closes the Inbox. */
+const openFromInbox = async (title: string) => {
+  await userEvent.click(await inbox(title));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Inbox" })).toBeNull());
+};
+
 async function setup() {
   const history = createMemoryHistory({ initialEntries: ["/new"] });
   // The daemon's clock runs a little ahead of this device's first launch, so its results are
@@ -70,43 +94,22 @@ async function setup() {
   await app.open("/new");
   const list = within(await screen.findByRole("navigation", { name: "Threads" }));
   await list.findByRole("link", { name: /^Rewrite the install page/ });
-  const named = (title: string) => ({ name: new RegExp(`^${title}`) });
   /** A thread's row in its project. */
   const link = (title: string) => list.getByRole("link", named(title));
   const inProject = (title: string) => list.queryByRole("link", named(title));
-  /** A thread's row in the Inbox, opening the Inbox first. */
-  const inbox = async (title: string) => {
-    if (!screen.queryByRole("dialog", { name: "Inbox" }))
-      await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Inbox" });
-    return within(dialog).findByRole("link", named(title));
-  };
-  /** A row's attention level and whether it reads muted. */
-  const level = (element: HTMLElement) => {
-    const row = element.closest<HTMLElement>("[data-attention]");
-    if (!row) throw new Error("No row");
-    return { level: row.dataset.attention, muted: row.hasAttribute("data-muted") };
-  };
   const row = (title: string) => level(link(title));
-  const says = (element: HTMLElement, text: string) =>
-    within(element).queryByText(text, { exact: true });
   const word = (title: string, text: string) => says(link(title), text);
   const visit = async (path: string) => act(() => history.push(path));
-  /** Open a thread from its Inbox row, which closes the Inbox. */
-  const openFromInbox = async (title: string) => {
-    await userEvent.click(await inbox(title));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Inbox" })).toBeNull());
-  };
   // A row's status gives way to its actions under the pointer: open it, then move the pointer on.
   const open = async (title: string) => {
     await userEvent.click(link(title));
     await userEvent.unhover(link(title));
   };
-  return { app, link, inProject, inbox, level, row, says, word, visit, open, openFromInbox };
+  return { app, link, inProject, row, word, visit, open };
 }
 
 test("a done thread says Done in the Inbox until it is opened, then rests quiet in its project with only its age", async () => {
-  const { link, inProject, inbox, level, row, says, word, visit, openFromInbox } = await setup();
+  const { link, inProject, row, word, visit } = await setup();
   const title = "Ship the release notes";
   expect(inProject(title)).toBeNull();
   await waitFor(async () => expect(says(await inbox(title), "Done")).toBeTruthy());
@@ -122,7 +125,7 @@ test("a done thread says Done in the Inbox until it is opened, then rests quiet 
 });
 
 test("new activity after reading sends a thread back to the Inbox as unread", async () => {
-  const { app, inProject, inbox, level, row, says, visit, openFromInbox } = await setup();
+  const { app, inProject, row, visit } = await setup();
   const title = "Ship the release notes";
   await openFromInbox(title);
   await visit("/new");
@@ -136,7 +139,7 @@ test("new activity after reading sends a thread back to the Inbox as unread", as
 });
 
 test("a thread that needs you stays strong in the Inbox after it is opened", async () => {
-  const { inProject, inbox, level, says, visit, openFromInbox } = await setup();
+  const { inProject, visit } = await setup();
   const title = "Approval sheet loses its state on rotate";
   expect(level(await inbox(title))).toEqual({ level: "needs-you", muted: false });
   await openFromInbox(title);
@@ -151,7 +154,7 @@ test("a thread that needs you stays strong in the Inbox after it is opened", asy
 });
 
 test("a failure is strong in the Inbox until seen, then a quiet Failed in its project", async () => {
-  const { inbox, level, row, says, word, visit, openFromInbox } = await setup();
+  const { row, word, visit } = await setup();
   const title = "Migrate the billing table";
   await waitFor(async () =>
     expect(level(await inbox(title))).toEqual({ level: "failed", muted: false }),
@@ -177,7 +180,7 @@ test("a working row that isn't open is calm with a live indicator; the open one 
 });
 
 test("Mark as unread on a quiet row's menu sends it back to the Inbox as Done", async () => {
-  const { app, inProject, inbox, level, row, says } = await setup();
+  const { app, inProject, row } = await setup();
   const title = "Ship the release notes";
   await act(() =>
     app.client.command({
@@ -203,11 +206,11 @@ test("an unsent thread waits loudly in the Inbox and a stopped one rests quiet i
   const stopped = await list.findByRole("link", { name: /^Finish the background build/ });
   expect(list.queryByRole("link", { name: /^Check the saved message/ })).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
-  const inbox = within(await screen.findByRole("dialog", { name: "Inbox" }));
-  const unsent = await inbox.findByRole("link", { name: /^Check the saved message/ });
-  expect(within(unsent).getByText("Not sent").closest<HTMLElement>("[data-tone]")?.dataset.tone).toBe(
-    "needs-you",
-  );
+  const panel = within(await screen.findByRole("dialog", { name: "Inbox" }));
+  const unsent = await panel.findByRole("link", { name: /^Check the saved message/ });
+  expect(
+    within(unsent).getByText("Not sent").closest<HTMLElement>("[data-tone]")?.dataset.tone,
+  ).toBe("needs-you");
   expect(within(stopped).queryByText(/Stopped|Agent stopped/)).toBeNull();
   expect(
     stopped.querySelector("[data-tone='waiting'] svg, [data-tone='waiting'] [data-state]"),

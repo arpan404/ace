@@ -55,7 +55,9 @@ test("an open row's details close as soon as the list scrolls", async () => {
   await userEvent.hover(card(/^Dedupe thread events/));
   await screen.findByLabelText(/^Details for Dedupe thread events/);
   fireEvent.scroll(listViewport());
-  await waitFor(() => expect(screen.queryByLabelText(/^Details for Dedupe thread events/)).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByLabelText(/^Details for Dedupe thread events/)).toBeNull(),
+  );
 });
 
 /**
