@@ -54,9 +54,7 @@ test("the main agent never reads as done while a resumed subagent still works", 
   );
   // The main agent's own turn is over, but a resumed run still works under it.
   await waitFor(async () =>
-    expect((await agentRow(work, "Claude Code")).getAttribute("aria-label")).toMatch(
-      /: waiting/,
-    ),
+    expect((await agentRow(work, "Claude Code")).getAttribute("aria-label")).toMatch(/: waiting/),
   );
   expect(isBreathing(await agentRow(work, "Claude Code"))).toBe(true);
   expect(isBreathing(await agentRow(work, "Recover stale leases"))).toBe(true);
@@ -126,5 +124,7 @@ test("each agent row's tooltip names its provider and model; the header what the
   // A subagent's effort isn't recorded, so none is shown.
   expect(devices.getAttribute("title")).toMatch(/Claude Code · Opus 5\.5\nStarted /);
   expect(devices.textContent).not.toContain("High");
-  expect((await agentRow(work, "Devices shared media")).getAttribute("title")).toMatch(/^.*\nCodex/);
+  expect((await agentRow(work, "Devices shared media")).getAttribute("title")).toMatch(
+    /^.*\nCodex/,
+  );
 });
