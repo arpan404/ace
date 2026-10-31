@@ -36,10 +36,11 @@ test("typing in the panel's search lists matching threads, then settled matches 
     expect(within(threads()).getByRole("heading", { name: /^Settled · 1/ })).toBeTruthy(),
   );
   expect(rowTitles()).toEqual(["Bump Codex app-server to 0.48"]);
-  // Escape clears the search and the whole list comes back.
+  // Escape clears the search and the project tree comes back.
   await userEvent.keyboard("{Escape}");
   expect((search() as HTMLInputElement).value).toBe("");
-  await waitFor(() => expect(rowTitles()).toContain("Partial refunds double-count tax"));
+  await waitFor(() => expect(rowTitles()).toContain("Dedupe thread events after reconnect"));
+  expect(rowTitles()).not.toContain("Bump Codex app-server to 0.48");
   expect(within(threads()).queryByRole("heading", { name: /^Settled/ })).toBeNull();
 });
 
@@ -64,16 +65,27 @@ test("a search with no match says so", async () => {
   expect(rowTitles()).toEqual([]);
 });
 
-test("a project's N settled opens only that project's settled threads, in place", async () => {
+test("History's project chip lists only that project's settled threads, and All projects lists both", async () => {
   await openWorkbench();
+  // Both settled long ago: neither stays in its project.
   expect(rowTitles()).not.toContain("Invoice PDF locale fallback");
-  const billing = within(threads()).getByRole("button", { name: "1 settled in billing-api" });
-  await userEvent.click(billing);
-  expect(billing.getAttribute("aria-expanded")).toBe("true");
-  await waitFor(() => expect(rowTitles()).toContain("Invoice PDF locale fallback"));
-  expect(rowTitles()).not.toContain("Bump Codex app-server to 0.48");
-  await userEvent.click(
-    within(threads()).getByRole("button", { name: "1 settled in billing-api" }),
+  await userEvent.click(screen.getByRole("link", { name: /^History/ }));
+  const main = await screen.findByRole("main");
+  await within(main).findByRole("heading", { level: 2, name: "History" });
+  const titles = () =>
+    within(main)
+      .queryAllByRole("link")
+      .map((link) => link.getAttribute("aria-label")?.split(", ")[0]);
+  await waitFor(() =>
+    expect(titles()).toEqual(
+      expect.arrayContaining(["Bump Codex app-server to 0.48", "Invoice PDF locale fallback"]),
+    ),
   );
-  await waitFor(() => expect(rowTitles()).not.toContain("Invoice PDF locale fallback"));
+  const billing = within(main).getByRole("button", { name: "billing-api" });
+  await userEvent.click(billing);
+  expect(billing.getAttribute("aria-pressed")).toBe("true");
+  await waitFor(() => expect(titles()).toEqual(["Invoice PDF locale fallback"]));
+  await userEvent.click(within(main).getByRole("button", { name: "All projects" }));
+  await waitFor(() => expect(titles()).toContain("Bump Codex app-server to 0.48"));
+  expect(titles()).toContain("Invoice PDF locale fallback");
 });

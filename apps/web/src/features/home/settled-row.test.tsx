@@ -1,36 +1,30 @@
 import { workbench } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
 const title = "Bump Codex app-server to 0.48";
 const named = new RegExp(`^${title}`);
+const settledName = new RegExp(`^${title}\\. Settled`);
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 
-/** Home with the workbench's merged Codex bump settled and ace's settled threads open. */
+/**
+ * Home with the workbench's merged Codex bump settled moments ago: the UI's clock reads just
+ * past the daemon's, so the thread is still within its grace period and stays in its project.
+ */
 async function openSettled() {
-  const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.home.organizer",
-    JSON.stringify({ baseline: 0, project: null, settledOpen: ["ace"] }),
-  );
   const history = createMemoryHistory({ initialEntries: ["/"] });
-  const app = harness({ storage, history });
+  const app = harness({ history, uiClock: () => 600_000 });
   await app.client.start();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  await app.client.command({
-    type: "thread.settle",
-    threadId: ThreadId.parse("thread-bump-codex"),
-  });
   await app.open("/");
   const link = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
     "link",
-    { name: named },
+    { name: settledName },
   );
   const row = link.parentElement;
   if (!row) throw new Error("No row container");
@@ -42,14 +36,17 @@ function settledAt(app: ReturnType<typeof harness>) {
   return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
 }
 
-test("in its project a settled thread is one line of title and age, without branch or provider", async () => {
-  const { link, row } = await openSettled();
-  // The title leads (its project heads the list it sits in); its PR or diff and age follow.
-  expect(link.textContent).toMatch(new RegExp(`^${title}`));
-  expect(link.textContent).toMatch(/\d+[smhdw]$|\b[A-Z][a-z]{2}$/);
-  expect(row.textContent).not.toContain("chore/codex-048");
+test("in its project a recently settled thread is a dimmed two-line row: title, PR and age, then branch and Settled", async () => {
+  const { link } = await openSettled();
+  const [first, second] = [...link.children];
+  if (!first || !second) throw new Error("Expected two lines");
+  // Line 1: the title, then the merged PR and age.
+  expect(first.textContent).toMatch(new RegExp(`^${title}#212·(\\d+[smhdw]|[A-Z][a-z]{2})$`));
+  // Line 2: its branch and the word Settled; no provider mark on either line.
+  expect(second.textContent).toBe("chore/codex-048·Settled");
   expect(within(link).queryByRole("img", { name: /Codex/ })).toBeNull();
-  // Assistive tech still hears the context the line leaves out.
+  // Assistive tech hears Settled first, then the context the lines leave out.
+  expect(link.getAttribute("aria-label")).toMatch(settledName);
   expect(link.getAttribute("aria-label")).toContain("Codex");
 });
 

@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { openSearchSheet } from "@/test/open-search.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
-/** 46 settled threads in ace, its only threads: ace is a quiet project. */
+/** 46 settled threads in ace, its only threads, all long past the grace period: only in History. */
 async function history() {
   const storage = memoryKeyValue();
   storage.setItem("ace.home.organizer", JSON.stringify({ baseline: 0, project: null }));
@@ -24,31 +24,31 @@ async function history() {
   }
   return app;
 }
-/** The settled rows the list draws: a settled row is a link with its title. */
-const settledRows = (nav: HTMLElement) =>
-  within(nav).queryAllByRole("link", { name: /^(Finished history \d+|Bump Codex)/ });
+/** History's rows: each is a link with its thread's title. */
+const historyRows = (main: HTMLElement) =>
+  within(main).queryAllByRole("link", { name: /^(Finished history \d+|Bump Codex)/ });
 
-test("a quiet project's Settled list loads older threads as its end comes into view, and retries a failed page", async () => {
+test("History pages older settled threads as its end comes into view, and retries a failed page", async () => {
   const app = await history();
   const fail = vi.spyOn(app.client, "threadsMore").mockRejectedValueOnce(new Error("offline"));
-  await app.open("/new");
+  await app.open("/history");
   const lease = app.client.threads();
   try {
-    const nav = await screen.findByRole("navigation", { name: "Threads" });
-    // With nothing open, ace folds under Quiet projects with the daemon's count of its settled.
-    await userEvent.click(await within(nav).findByRole("button", { name: /^Quiet projects/ }));
-    await userEvent.click(await within(nav).findByRole("button", { name: "ace, 46 settled" }));
-    expect(screen.getByRole("tab", { name: "Settled" }).getAttribute("aria-selected")).toBe("true");
-    // Every row is in view here, so the end is too: the first page fails and offers a retry.
-    const retry = await within(nav).findByRole("button", { name: /Couldn’t load older threads/ });
+    const main = await screen.findByRole("main");
+    await within(main).findByRole("heading", { level: 2, name: "History" });
+    // The list's end is in view from the start: the first older page fails and offers a retry.
+    const retry = await within(main).findByRole("button", {
+      name: "Couldn’t load older threads. Retry",
+    });
     expect(lease.store.ids).toHaveLength(20);
-    expect(settledRows(nav)).toHaveLength(20);
+    expect(historyRows(main)).toHaveLength(20);
     await userEvent.click(retry);
     // No button to press after that: each page arrives as the end shows, until none are left.
     await waitFor(() => expect(lease.store.ids).toHaveLength(46));
-    await waitFor(() => expect(settledRows(nav)).toHaveLength(46));
+    await waitFor(() => expect(historyRows(main)).toHaveLength(46));
     expect(new Set(lease.store.ids).size).toBe(46);
-    expect(within(nav).queryByRole("button", { name: /Show|Retry|Couldn’t/ })).toBeNull();
+    expect(within(main).queryByRole("button", { name: /Retry|Couldn’t/ })).toBeNull();
+    expect(within(main).queryByText("Loading older threads…")).toBeNull();
   } finally {
     fail.mockRestore();
     lease.release();

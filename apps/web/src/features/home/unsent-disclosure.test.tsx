@@ -5,24 +5,26 @@ import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 /**
- * Adding Unsent work must not move the Threads panel (issue #848): it stays on the tree, with
- * each project's settled threads and Snoozed folded away, while a new draft is typed and sent.
+ * Adding Unsent work must not move the Threads panel (issue #848): it stays on its project tree,
+ * with the long-settled Codex bump left to History, while a new draft is typed and sent.
  */
 async function openWorkbench() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/new?project=relay");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
-  await nav.findByRole("link", { name: /Partial refunds/ });
+  await nav.findByRole("link", { name: /^Dedupe thread events/ });
   return { app, nav };
 }
 
-/** The panel shows its tree, with ace's settled threads still folded. */
+/** The panel shows its project tree: ace open on its running thread. */
 const onActive = () => {
   expect(document.querySelector('[data-slot="panel-top"] h2')?.textContent).toBe("Threads");
-  expect(
-    screen.getByRole("button", { name: "1 settled in ace" }).getAttribute("aria-expanded"),
-  ).toBe("false");
+  const nav = within(screen.getByRole("navigation", { name: "Threads" }));
+  expect(nav.getByRole("button", { name: /^ace, 1 running/ }).getAttribute("aria-expanded")).toBe(
+    "true",
+  );
+  expect(nav.getByRole("link", { name: /^Dedupe thread events/ })).toBeTruthy();
 };
 
 test("typing a draft keeps the panel on its tree with settled threads out of the list", async () => {

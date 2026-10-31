@@ -51,10 +51,7 @@ test("projects group their threads, and keyboard navigation crosses project boun
 
 test("the project filter narrows the tree to one project", async () => {
   const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.home.organizer",
-    JSON.stringify({ project: "ace", baseline: 0, settledOpen: false }),
-  );
+  storage.setItem("ace.home.organizer", JSON.stringify({ project: "ace", baseline: 0 }));
   const app = harness({ storage });
   seed(app);
   await app.open("/new?project=ace");
@@ -81,10 +78,7 @@ test("failed and working tasks both keep visible status words", async () => {
 
 test("the project filter also narrows unsent starts without hiding matching work", async () => {
   const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.home.organizer",
-    JSON.stringify({ project: "ace", baseline: 0, settledOpen: false }),
-  );
+  storage.setItem("ace.home.organizer", JSON.stringify({ project: "ace", baseline: 0 }));
   const app = harness({ storage });
   seed(app);
   await app.open("/new?project=ace");
@@ -163,7 +157,7 @@ test("navigation includes every Unsent link in both directions", async () => {
   }
 });
 
-test("Snoozed folds quiet tasks away but leaves a request in the main list", async () => {
+test("Snoozed folds quiet tasks away, and a snoozed task that asks for you waits in the Inbox", async () => {
   const now = 100_000;
   const app = harness({ clock: () => now, uiClock: () => now });
   seed(app);
@@ -192,7 +186,13 @@ test("Snoozed folds quiet tasks away but leaves a request in the main list", asy
   ]);
   const snoozed = await nav.findByRole("button", { name: "Snoozed 1" });
   await waitFor(() => expect(nav.queryByRole("link", { name: /^First task/ })).toBeNull());
-  expect(nav.getByRole("link", { name: /^Last task/ })).toBeTruthy();
+  // The request leaves Snoozed and its project for the Inbox.
+  expect(nav.queryByRole("link", { name: /^Last task/ })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Inbox, 1 waiting" }));
+  const inbox = await screen.findByRole("dialog", { name: "Inbox" });
+  expect(within(inbox).getByRole("link", { name: /^Last task/ })).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Inbox" })).toBeNull());
   await userEvent.click(snoozed);
   expect(await nav.findByRole("link", { name: /^First task/ })).toBeTruthy();
 });
@@ -268,11 +268,11 @@ test("an Unsent-only list supports forward and backward navigation", async () =>
 });
 
 test.each([
-  ["not_sent", "Not sent"],
-  ["uncertain", "Review a message"],
+  ["not_sent", "Not sent", "the Inbox"],
+  ["uncertain", "Review a message", "its project"],
 ] as const)(
-  "renewed %s queue recovery is visible while Snoozed stays closed",
-  async (reason, label) => {
+  "renewed %s queue recovery shows in %s while Snoozed stays closed",
+  async (reason, label, place) => {
     const now = 100_000;
     const app = harness({ clock: () => now, uiClock: () => now });
     for (const [id, title] of [
@@ -295,9 +295,16 @@ test.each([
       expect(nav.queryByRole("link", { name: /^Recover the saved message/ })).toBeNull(),
     );
     app.daemon.holdQueue("recovery", reason);
-    const row = await nav.findByRole("link", {
-      name: new RegExp(`^Recover the saved message.*${label}`),
-    });
+    const name = new RegExp(`^Recover the saved message.*${label}`);
+    let row: HTMLElement;
+    if (place === "the Inbox") {
+      // A message that wasn't sent needs the person: it waits in the Inbox, not its project.
+      await userEvent.click(await screen.findByRole("button", { name: "Inbox, 1 waiting" }));
+      row = await within(await screen.findByRole("dialog", { name: "Inbox" })).findByRole("link", {
+        name,
+      });
+      expect(nav.queryByRole("link", { name })).toBeNull();
+    } else row = await nav.findByRole("link", { name });
     const word = within(row).getByText(label, { exact: true });
     // A wait reads as quiet words: no status glyph beside it.
     if (reason === "uncertain")
