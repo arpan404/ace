@@ -1,6 +1,14 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /*
@@ -63,6 +71,35 @@ cpSync(join(web, "pkg"), join(out, "pkg"), {
   recursive: true,
   filter: (source) => !source.endsWith(".ace-build"),
 });
-cpSync(join(web, "licenses"), join(out, "licenses"), { recursive: true });
+// The license tree is hundreds of files; installed updaters refuse archives over
+// their entry budget (`releaseArchiveLimits` in `@ace/service`), and nothing loads
+// these files at runtime, so they ship as one consolidated notice.
+const licenseRoot = join(web, "licenses");
+if (!existsSync(licenseRoot)) {
+  process.stderr.write(
+    "markit licenses missing: expected a licenses tree in packages/markit/web.\n",
+  );
+  process.exit(1);
+}
+const noticePaths = [];
+const collectNotices = (directory) => {
+  const entries = readdirSync(directory, { withFileTypes: true }).toSorted((a, b) =>
+    a.name < b.name ? -1 : 1,
+  );
+  for (const entry of entries) {
+    const full = join(directory, entry.name);
+    if (entry.isDirectory()) collectNotices(full);
+    else if (entry.isFile()) noticePaths.push(full);
+  }
+};
+collectNotices(licenseRoot);
+const notices = noticePaths
+  .map((full) => {
+    const heading = relative(licenseRoot, full);
+    const text = readFileSync(full, "utf8").trimEnd();
+    return `${"=".repeat(78)}\n${heading}\n${"=".repeat(78)}\n\n${text}\n`;
+  })
+  .join("\n");
+writeFileSync(join(out, "licenses.txt"), notices);
 
 process.stdout.write("markit web assets synced to apps/web/public/markit\n");
