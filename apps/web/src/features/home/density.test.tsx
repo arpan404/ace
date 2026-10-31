@@ -101,7 +101,7 @@ test("the project filter also narrows unsent starts without hiding matching work
   expect(nav.queryByRole("link", { name: /^relay pending task/ })).toBeNull();
 });
 
-test("arrows and j/k cross the pinned boundary in both directions", async () => {
+test("arrows and j/k cross the pinned boundary in both directions, via the next group's heading", async () => {
   const app = harness();
   seed(app);
   await app.open("/new");
@@ -109,15 +109,20 @@ test("arrows and j/k cross the pinned boundary in both directions", async () => 
   await nav.findByRole("link", { name: /^Last task/ });
   await app.client.command({ type: "thread.pin", threadId: ThreadId.parse("first"), pinned: true });
   const pinned = await nav.findByRole("link", { name: /^First task.*Pinned/ });
+  const heading = nav.getByRole("button", {
+    name: /^(Needs you|Running|Today|Yesterday|This week|Earlier) \d/,
+  });
   const next = nav.getByRole("link", { name: /^Last task/ });
   pinned.focus();
   await userEvent.keyboard("{ArrowDown}");
+  await waitFor(() => expect(document.activeElement).toBe(heading));
+  await userEvent.keyboard("{ArrowDown}");
   await waitFor(() => expect(document.activeElement).toBe(next));
-  await userEvent.keyboard("{ArrowUp}");
+  await userEvent.keyboard("{ArrowUp}{ArrowUp}");
   await waitFor(() => expect(document.activeElement).toBe(pinned));
-  await userEvent.keyboard("j");
+  await userEvent.keyboard("jj");
   await waitFor(() => expect(document.activeElement).toBe(next));
-  await userEvent.keyboard("k");
+  await userEvent.keyboard("kk");
   await waitFor(() => expect(document.activeElement).toBe(pinned));
 });
 
@@ -164,7 +169,7 @@ test("Snoozed folds quiet tasks away but leaves a request in the main list", asy
       threadId: ThreadId.parse(id),
       until: now + 3_600_000,
     });
-  await nav.findByRole("button", { name: "Snoozed (2)" });
+  await nav.findByRole("button", { name: "Snoozed 2" });
   app.daemon.apply("last", [
     {
       type: "interaction.opened",
@@ -178,7 +183,7 @@ test("Snoozed folds quiet tasks away but leaves a request in the main list", asy
       },
     },
   ]);
-  const snoozed = await nav.findByRole("button", { name: "Snoozed (1)" });
+  const snoozed = await nav.findByRole("button", { name: "Snoozed 1" });
   await waitFor(() => expect(nav.queryByRole("link", { name: /^First task/ })).toBeNull());
   expect(nav.getByRole("link", { name: /^Last task/ })).toBeTruthy();
   await userEvent.click(snoozed);
@@ -205,7 +210,7 @@ test("Snoozed lists what wakes soonest first, and each row says when it wakes", 
       threadId: ThreadId.parse(id),
       until: now + hours * 3_600_000,
     });
-  await userEvent.click(await nav.findByRole("button", { name: "Snoozed (2)" }));
+  await userEvent.click(await nav.findByRole("button", { name: "Snoozed 2" }));
   await nav.findByRole("link", { name: /^Wakes sooner/ });
   const rows = nav.getAllByRole("link", { name: /^Wakes / });
   expect(rows.map((row) => row.getAttribute("aria-label")?.split(".")[0])).toEqual([
@@ -277,7 +282,7 @@ test.each([
         threadId: ThreadId.parse(id),
         until: now + 3_600_000,
       });
-    const closed = await nav.findByRole("button", { name: "Snoozed (2)" });
+    const closed = await nav.findByRole("button", { name: "Snoozed 2" });
     expect(closed.getAttribute("aria-expanded")).toBe("false");
     await waitFor(() =>
       expect(nav.queryByRole("link", { name: /^Recover the saved message/ })).toBeNull(),
@@ -290,7 +295,7 @@ test.each([
     // A wait reads as quiet words: no status glyph beside it.
     if (reason === "uncertain")
       expect(word.closest("[data-tone]")?.querySelector("[data-state]")).toBeNull();
-    const remaining = await nav.findByRole("button", { name: "Snoozed (1)" });
+    const remaining = await nav.findByRole("button", { name: "Snoozed 1" });
     expect(remaining.getAttribute("aria-expanded")).toBe("false");
     expect(nav.queryByRole("link", { name: /^Review this later/ })).toBeNull();
   },

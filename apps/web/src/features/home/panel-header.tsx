@@ -101,8 +101,8 @@ export function PanelTabs(props: {
               selected ? "text-foreground" : "text-subtle-foreground hover:text-muted-foreground",
             )}
           >
-            {tab.label}
-            <span className="ml-1 font-normal tabular-nums">{tab.count}</span>
+            {tab.label}{" "}
+            <span className="font-normal tabular-nums">{tab.count}</span>
           </button>
         );
       })}

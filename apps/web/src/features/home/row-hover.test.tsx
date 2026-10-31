@@ -167,7 +167,7 @@ test("the hover clock folds quiet work into Snoozed until the time picked", asyn
   if (!id) throw new Error("Missing scenario");
   await userEvent.click(screen.getByRole("button", { name: `Snooze ${title}` }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
-  await userEvent.click(await within(threads()).findByRole("button", { name: "Snoozed (1)" }));
+  await userEvent.click(await within(threads()).findByRole("button", { name: "Snoozed 1" }));
   expect(card(/^Dedupe.*Snoozed until tomorrow/)).toBeTruthy();
   expect(threadOf(app, id)?.snoozedUntil).toBeDefined();
   expect(before("Backpressure on broadcast fan-out", title)).toBe(true);
