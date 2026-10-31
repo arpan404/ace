@@ -8,8 +8,8 @@ import { QuietLink, Section } from "./summary-section.tsx";
 
 /**
  * What the thread did since this device last read it, when it moved on while the person was
- * away: one line of counts and the agent's latest words. It reads the catch-up digest from the
- * cursor the visit began at (ADR 0062), so following the thread now doesn't erase it; Dismiss
+ * away: its counts and the agent's latest words. It reads the catch-up digest from the
+ * cursor the visit began at (ADR 0062), so following the thread now doesn't erase it; Clear
  * hides it, and the next visit starts from the cursor this one advanced.
  */
 function useCatchUp(threadId: string): {
