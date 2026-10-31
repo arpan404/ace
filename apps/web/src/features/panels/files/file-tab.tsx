@@ -339,8 +339,10 @@ export function FileTab(props: TabViewProps) {
               current={path}
               query={query}
               onQuery={setQuery}
-              collapsed={data.collapsed ?? []}
+              collapsed={data.collapsed}
               onCollapsed={(collapsed) => update({ collapsed })}
+              scrollTop={data.treeScroll ?? 0}
+              onScroll={(treeScroll) => update({ treeScroll })}
               onOpen={open}
               onUpload={(files, folder) => void fileActions.uploadFiles(files, folder)}
               footer={

@@ -15,6 +15,7 @@ import {
   type FileTreeRow,
 } from "@ace/ui-core";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -27,6 +28,7 @@ import { Icon } from "@/components/icon.tsx";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
+import { attachWorkspaceScroll } from "@/lib/workspace/index.ts";
 import { Highlighted } from "./highlighted-path.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -57,8 +59,12 @@ export function FileTree(props: {
   /** The filter's text, owned by the tab so its breadcrumb can narrow it to a folder. */
   query: string;
   onQuery(query: string): void;
-  collapsed: readonly string[];
+  /** Folders the person folded; unset collapses everything but the current file's parents. */
+  collapsed: readonly string[] | undefined;
   onCollapsed(folders: string[]): void;
+  /** Where the tree was scrolled, owned by the tab so opening a file keeps it. */
+  scrollTop?: number | undefined;
+  onScroll?(scrollTop: number): void;
   /** Shown under the tree: an upload in progress or what stopped it. */
   footer?: ReactNode;
 }) {
@@ -77,11 +83,37 @@ export function FileTree(props: {
     () => buildFileTree(searching ? (results ?? []) : (listing.data?.paths ?? props.known)),
     [searching, results, listing.data, props.known],
   );
-  // Folders start open: the known tree is small and search results are worth seeing whole.
-  const collapsed = useMemo(() => new Set(props.collapsed), [props.collapsed]);
+  // Folders start folded: a checkout holds far more than a screen, and search results show whole.
+  // The tab keeps which folders the person folded; unset, only the current file's parents stand
+  // open so it shows. Searching ignores folding, so every match is visible.
+  const currentPath = props.current;
+  const ancestors = useMemo(
+    () => new Set(currentPath ? ancestorFolders(currentPath) : []),
+    [currentPath],
+  );
+  const allFolders = useMemo(() => {
+    const out: string[] = [];
+    const walk = (nodes: typeof tree) => {
+      for (const node of nodes) {
+        if (node.kind === "folder") {
+          out.push(node.path);
+          walk(node.children);
+        }
+      }
+    };
+    walk(tree);
+    return out;
+  }, [tree]);
+  const collapsed = useMemo(
+    () => (props.collapsed === undefined ? undefined : new Set(props.collapsed)),
+    [props.collapsed],
+  );
   const rows = useMemo(
-    () => checkoutTreeRows(tree, (folder) => !collapsed.has(folder)),
-    [tree, collapsed],
+    () =>
+      checkoutTreeRows(tree, (folder) =>
+        searching ? true : collapsed ? !collapsed.has(folder) : ancestors.has(folder),
+      ),
+    [tree, collapsed, searching, ancestors],
   );
   const [focusKey, setFocusKey] = useState<string>();
   const [dropTarget, setDropTarget] = useState<string>();
@@ -91,7 +123,10 @@ export function FileTree(props: {
     : (rows.find((row) => row.node.path === props.current)?.node.path ?? rows[0]?.node.path);
 
   const toggle = (folder: string, open?: boolean) => {
-    const next = new Set(collapsed);
+    // Folding before the tab ever stored a choice materializes the starting point (everything
+    // folded but the current file's parents), so the toggle applies to what the person saw.
+    const base = collapsed ?? new Set(allFolders.filter((each) => !ancestors.has(each)));
+    const next = new Set(base);
     const shouldOpen = open ?? next.has(folder);
     if (shouldOpen) next.delete(folder);
     else next.add(folder);
@@ -198,6 +233,19 @@ export function FileTree(props: {
     setDropTarget(folder);
   };
   const upload = useRef<HTMLInputElement>(null);
+  // Opening a file keeps the tree where it was: the tab owns the scroll position, restored once
+  // the rows are tall enough and saved when scrolling settles or the tab goes away.
+  const initialScroll = useRef(props.scrollTop ?? 0);
+  const onScrollRef = useRef(props.onScroll);
+  useEffect(() => {
+    onScrollRef.current = props.onScroll;
+  });
+  const attachScroll = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    return attachWorkspaceScroll(node, initialScroll.current, (position) =>
+      onScrollRef.current?.(position),
+    );
+  }, []);
 
   let status: ReactNode = null;
   if (searching && !online)
@@ -298,7 +346,7 @@ export function FileTree(props: {
           }}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <div ref={attachScroll} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         <div
           ref={list}
           role="tree"
