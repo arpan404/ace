@@ -1,7 +1,7 @@
 import type { ForgePrDetail, LinkedPullRequest } from "@ace/protocol";
 import { pluralCount } from "@ace/ui-core";
 import { GitPullRequestIcon, XIcon } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { skipToken, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { usePrPrefetch, prDetailKey } from "@/lib/forge-pr-detail.ts";
@@ -43,7 +43,8 @@ function PrRow(props: {
   const prefetch = usePrPrefetch(props.workspaceId);
   const detail = useQuery<ForgePrDetail>({
     queryKey: prDetailKey(props.workspaceId, pr.repo, pr.number),
-    enabled: false,
+    // Read from the cache only: the PR panel reads the forge, the Summary never does.
+    queryFn: skipToken,
   }).data;
   const ci = detail ? ciWords[detail.status.ci] : "";
   const size =

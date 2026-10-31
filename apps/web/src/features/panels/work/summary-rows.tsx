@@ -184,13 +184,16 @@ export function AgentLine(
     ? asks
       ? `asks: ${asks}`
       : agentStep({ status, interaction: props.request })
-    : status.state === "failed" || (own && node.live)
-      ? agentStep({ status, item: tool })
-      : node.live
-        ? below.working || below.commands
-          ? `waiting on ${pluralCount(below.working + below.commands, below.working ? "agent" : "command")}`
-          : agentStep({ status, item: tool })
-        : (agentOutcome(identity.spawn) ?? "finished");
+    : status.state === "failed"
+      ? // Its own words are in its view; a raw provider error doesn't belong in the tree.
+        "couldn't finish"
+      : own && node.live
+        ? agentStep({ status, item: tool })
+        : node.live
+          ? below.working || below.commands
+            ? `waiting on ${pluralCount(below.working + below.commands, below.working ? "agent" : "command")}`
+            : agentStep({ status, item: tool })
+          : (agentOutcome(identity.spawn) ?? "finished");
   const folded = props.expanded === false ? foldWords(below) : "";
   const end = agent.endedAt ?? (node.live ? Math.max(now, agent.createdAt) : undefined);
   const time =
