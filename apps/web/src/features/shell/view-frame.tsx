@@ -98,7 +98,12 @@ export function ViewListPage(props: { title: string; fallback: ReactNode }) {
  * column's header. It is the window's drag area; on the sheet it leaves room for the sheet's own
  * close button at its end.
  */
-export function PanelHeader(props: { title: string; actions?: ReactNode }) {
+export function PanelHeader(props: {
+  title: string;
+  actions?: ReactNode;
+  /** Extra classes for the row, such as a container name its actions query. */
+  className?: string | undefined;
+}) {
   const { sheet } = useViewFrame();
   return (
     <div
@@ -106,6 +111,7 @@ export function PanelHeader(props: { title: string; actions?: ReactNode }) {
       className={cn(
         "group/heading flex h-(--header-h) shrink-0 items-center gap-1 pl-4 [-webkit-app-region:drag] [&_a]:[-webkit-app-region:no-drag] [&_button]:[-webkit-app-region:no-drag] [&_input]:[-webkit-app-region:no-drag]",
         sheet ? "pr-12" : "pr-2.5",
+        props.className,
       )}
     >
       <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-foreground">

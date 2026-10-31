@@ -48,7 +48,7 @@ export function nextNeedingYou(
 }
 
 /**
- * Moving between threads in the sidebar's order (pinned, then the work in hand, then recent;
+ * Moving between threads in the sidebar's order (pinned, then each Active group in turn;
  * snoozed and settled stay folded away): the next, the previous, and the next that needs you.
  * Other machines' threads are in that order as Home lists them, and open on their machine
  * (ADR 0102).
@@ -68,10 +68,7 @@ export function useThreadSteps() {
   });
   const current = threadId && machine ? machineListId(machine, threadId) : threadId;
   const navigate = useNavigate();
-  const order = useMemo(
-    () => [...list.pinned, ...list.active, ...list.recent],
-    [list.pinned, list.active, list.recent],
-  );
+  const order = useMemo(() => [...list.pinned, ...list.listed], [list.pinned, list.listed]);
   const needsYou = useMemo(() => new Set(list.needsYou), [list.needsYou]);
   const go = (id: string | undefined) => {
     if (!id) return;

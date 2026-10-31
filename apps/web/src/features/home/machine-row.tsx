@@ -57,15 +57,17 @@ function AwayRow(props: { machine: Machine; threadKey: string; threadId: string 
       data-row-focus=""
       draggable={false}
       aria-label={`${entry.title}. ${props.machine.name}, ${status}`}
-      className="flex h-[80px] w-full flex-col justify-center gap-1 rounded-md px-3 py-2.5 text-left text-ui outline-none focus-ring-inset hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      className="flex h-[52px] w-full flex-col justify-center gap-0.5 rounded-md px-2.5 py-[7px] text-left text-ui outline-none focus-ring-inset hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
-      <span className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-muted-foreground">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-md leading-5 font-medium text-muted-foreground">
+          {entry.title}
+        </span>
+        <span className="shrink-0 text-meta text-muted-foreground">{status}</span>
+      </span>
+      <span className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
         <MachineMark icon={props.machine.icon} primary={false} />
         <span className="min-w-0 flex-1 truncate">{props.machine.name}</span>
-        <span className="shrink-0">{status}</span>
-      </span>
-      <span className="min-w-0 truncate text-md leading-5 font-medium text-muted-foreground">
-        {entry.title}
       </span>
     </Link>
   );

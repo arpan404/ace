@@ -29,13 +29,18 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 test("Home and End move to the first and last row of the list", async () => {
   await openApp();
   const all = rows();
-  const first = all[0];
-  // The list ends on the folded Settled section's toggle, the last row ↓ reaches.
-  const settled = screen.getByRole("button", { name: /^Settled \(\d+\)/ });
-  if (!first || all.length < 2) throw new Error("The list needs two threads");
+  // The list's first and last stops: rows, or group headings.
+  const stops = [
+    ...screen
+      .getByRole("list", { name: "Threads" })
+      .querySelectorAll("[data-row-focus], [data-section-toggle]"),
+  ];
+  const first = stops[0];
+  const last = stops.at(-1);
+  if (!first || !last || all.length < 3) throw new Error("The list needs three threads");
   all[1]?.focus();
   await userEvent.keyboard("{End}");
-  await waitFor(() => expect(document.activeElement).toBe(settled));
+  await waitFor(() => expect(document.activeElement).toBe(last));
   await userEvent.keyboard("{Home}");
   await waitFor(() => expect(document.activeElement).toBe(first));
 });
