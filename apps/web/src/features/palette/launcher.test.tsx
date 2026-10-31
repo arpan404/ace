@@ -44,9 +44,7 @@ test("⌘K, ⇧⌘K and the sidebar's Search all open the one launcher", async (
   await waitFor(() =>
     expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull(),
   );
-  await userEvent.click(
-    within(screen.getByRole("navigation", { name: "App" })).getByRole("button", { name: "Search" }),
-  );
+  await userEvent.click(screen.getByRole("button", { name: "Search" }));
   expect(await launcher()).toBeTruthy();
 });
 
