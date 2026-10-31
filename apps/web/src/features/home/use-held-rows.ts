@@ -53,9 +53,10 @@ export function useListHold(dragging: boolean, timers: Timers = browserTimers) {
 
 /**
  * The rows to draw: `rows` itself while the list is free; while it holds, the rows in the places
- * they were drawn. A row that changes kind (pinned, settled) still moves, being the person's own
- * doing, as does the Pinned group, ordered by the person (a drag lands at once), and a row that
- * needs you rises at once unless a drag is under way.
+ * they were drawn. A row that changes kind (pinned, settled), being the person's own doing, still
+ * moves, as does one that changes group (Running to Today), so no heading misstates it; so does
+ * the Pinned group, ordered by the person (a drag lands at once), and a row that needs you rises
+ * at once unless a drag is under way.
  */
 export function useHeldRows(
   rows: readonly HomeRow[],
@@ -72,6 +73,9 @@ export function useHeldRows(
         homeRowKey,
         (row, was) =>
           row.kind !== was.kind ||
+          // A thread that starts or stops needing the person or working changes group: it
+          // moves, so its heading never misstates it.
+          (row.kind === "thread" && was.kind === "thread" && row.group !== was.group) ||
           row.kind === "pinned" ||
           row.kind === "pinned-header" ||
           row.kind === "pinned-end" ||

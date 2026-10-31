@@ -40,6 +40,22 @@ export function homeLane(entry: ThreadListEntry, input: LaneInput): HomeLane {
   return "rest";
 }
 
+/**
+ * `homeLane` for one clock, catalog and baseline, worked out once per entry snapshot: entries
+ * are replaced, never changed, so a list update re-reads only the threads that changed.
+ */
+export function laneReader(input: LaneInput): (entry: ThreadListEntry) => HomeLane {
+  const lanes = new WeakMap<ThreadListEntry, HomeLane>();
+  return (entry) => {
+    let lane = lanes.get(entry);
+    if (lane === undefined) {
+      lane = homeLane(entry, input);
+      lanes.set(entry, lane);
+    }
+    return lane;
+  };
+}
+
 /** The Active tab's groups below Pinned, top to bottom. */
 export const activeGroupKeys = [
   "needs-you",
@@ -87,7 +103,10 @@ function daysBefore(midnight: number, days: number): number {
  * The day group of a thread at rest, by its last activity: Today, Yesterday, This week (since
  * Monday), then Earlier. Activity a moment ahead of the clock counts as today.
  */
-export function dayGroupOf(at: number, now: number): Exclude<ActiveGroupKey, "needs-you" | "running"> {
+export function dayGroupOf(
+  at: number,
+  now: number,
+): Exclude<ActiveGroupKey, "needs-you" | "running"> {
   const today = startOfDay(now);
   if (at >= today) return "today";
   if (at >= daysBefore(today, 1)) return "yesterday";

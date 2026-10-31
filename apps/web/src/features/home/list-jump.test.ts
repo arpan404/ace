@@ -11,9 +11,10 @@ test("numbers go to thread rows as drawn, skipping headings, Unsent and leaving 
     row({ kind: "pinned", id: "p1" }),
     row({ kind: "pinned-end" }),
     row({ kind: "unsent" }),
-    row({ kind: "thread", id: "gone" }, "exit"),
-    row({ kind: "thread", id: "t1" }),
-    row({ kind: "settled-header", count: 1 }),
+    row({ kind: "group-header", group: "today", count: 2, open: true }),
+    row({ kind: "thread", id: "gone", group: "today" }, "exit"),
+    row({ kind: "thread", id: "t1", group: "today" }),
+    row({ kind: "settled-header", key: "matches", label: "Settled", count: 1 }),
     row({ kind: "settled", id: "s1" }),
   ];
   expect(jumpTargets(rows)).toEqual(["p1", "t1", "s1"]);
@@ -21,7 +22,7 @@ test("numbers go to thread rows as drawn, skipping headings, Unsent and leaving 
 
 test("only the first nine threads get a number", () => {
   const rows = Array.from({ length: 12 }, (_, index) =>
-    row({ kind: "thread", id: `t${index + 1}` }),
+    row({ kind: "thread", id: `t${index + 1}`, group: "today" }),
   );
   expect(jumpTargets(rows)).toEqual(["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9"]);
 });

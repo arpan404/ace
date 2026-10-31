@@ -1,71 +1,44 @@
-import type { SidebarSource } from "@ace/client";
-import { useClient, useSidebarStore } from "@ace/client-react";
-import { isRemoved, isSettled, settledFirstRows, settledMoreRows } from "@ace/ui-core";
+import type { SidebarReader } from "@ace/client";
+import { useClient, useSidebar } from "@ace/client-react";
 import { useState } from "react";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 
-/** Each "Show more" asks the daemon for at most this many pages before it stops. */
-const pagesPerReveal = 4;
+/** Home's own window still holds older settled threads back (the archive pages its own). */
+const olderLeft = (reader: SidebarReader) =>
+  reader.window === reader.homeWindow && reader.window?.before !== undefined;
 
-/** Settled threads the store holds, as the daemon pages them: not pinned, not removed. */
-function loadedSettled(store: SidebarSource): number {
-  let count = 0;
-  for (const id of store.ids) {
-    const entry = store.thread(id);
-    if (entry && entry.pinned !== true && !isRemoved(entry) && isSettled(entry)) count++;
-  }
-  return count;
-}
-
-interface Reveal {
-  /** What the count belongs to: the project filter and whether the section is open. */
+interface Request {
+  /** What the request belongs to: the project and device filters. */
   key: string;
-  shown: number;
   loading: boolean;
   error: boolean;
 }
 
 /**
- * How much of the open Settled section shows: its first rows, then each "Show more" reveals the
- * next batch, loading older pages from the daemon as the batch needs them. Closing the section
- * or changing the project filter starts again from the first rows.
+ * The Settled tab's paging: every loaded settled thread shows, and scrolling near the end asks
+ * the daemon for the next page (`more`) while it still holds older ones back. A failed page
+ * shows a retry at the end; changing the project or device filter starts over. Another
+ * machine's threads all arrive at once, so they never page.
  */
-export function useSettledPaging(project: string | null, open: boolean, device?: string) {
+export function useSettledPaging(project: string | null, device?: string) {
   const client = useClient();
   const own = usePrimaryMachine().id;
-  const store = useSidebarStore();
-  const key = JSON.stringify([project, open, device]);
-  const first: Reveal = { key, shown: settledFirstRows, loading: false, error: false };
-  const [held, setReveal] = useState<Reveal>(first);
-  const reveal = held.key === key ? held : first;
-  if (held.key !== key) setReveal(first);
-  const update = (patch: Partial<Reveal>) =>
-    setReveal((current) => (current.key === key ? { ...current, ...patch } : current));
+  const key = JSON.stringify([project, device]);
+  const left = useSidebar(["window", "homeWindow"], olderLeft) ?? false;
+  const [held, setRequest] = useState<Request>({ key, loading: false, error: false });
+  const request = held.key === key ? held : { key, loading: false, error: false };
+  const hasMore = left && (!device || device === own);
+  const update = (patch: Partial<Request>) =>
+    setRequest((current) => ({ ...(current.key === key ? current : request), ...patch, key }));
   const more = async () => {
-    if (reveal.loading || !store) return;
-    const target = reveal.shown + settledMoreRows;
-    if (device && device !== own) {
-      update({ shown: target, loading: false, error: false });
-      return;
-    }
-    update({ shown: target, loading: true, error: false });
+    if (request.loading || !hasMore) return;
+    update({ loading: true, error: false });
     try {
-      for (
-        let pages = 0;
-        // Only Home's own window pages settled threads; the archive's pages archived ones.
-        pages < pagesPerReveal &&
-        store.window === store.homeWindow &&
-        store.window?.before &&
-        loadedSettled(store) < target;
-        pages++
-      )
-        await client.threadsMore();
+      await client.threadsMore();
       update({ loading: false });
     } catch {
-      // Show what did arrive; a retry asks for the next batch from there.
-      const arrived = Math.min(target, Math.max(reveal.shown, loadedSettled(store)));
-      update({ shown: arrived, loading: false, error: true });
+      update({ loading: false, error: true });
     }
   };
-  return { shown: reveal.shown, loading: reveal.loading, error: reveal.error, more };
+  return { hasMore, loading: request.loading, error: request.error, more };
 }

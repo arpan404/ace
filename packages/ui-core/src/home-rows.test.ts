@@ -124,7 +124,10 @@ test("the foot starts at the Snoozed heading", () => {
 
 test("no thread id can take a heading's key, whatever it is called", () => {
   const rows = activeRows(
-    arranged({ today: ["section:pinned-header", "group:today"] }, { pinned: ["p"], snoozed: ["s"] }),
+    arranged(
+      { today: ["section:pinned-header", "group:today"] },
+      { pinned: ["p"], snoozed: ["s"] },
+    ),
     { settledMatches: ["section:settled:matches"] },
   );
   const keys = rows.map(homeRowKey);

@@ -28,9 +28,9 @@ export function RowActions(props: {
   const title = props.entry.title;
   return (
     <div
-      // Centred on the top line (10px padding, 16px line), so the row never moves.
+      // Centred on the title line (7px padding, 20px line), so the row never moves.
       className={cn(
-        "absolute top-4.5 right-1.5 -translate-y-1/2 items-center gap-0.5",
+        "absolute top-[17px] right-1.5 -translate-y-1/2 items-center gap-0.5",
         props.shown ? "flex" : "hidden has-[[data-popup-open]]:flex",
       )}
       role="presentation"
