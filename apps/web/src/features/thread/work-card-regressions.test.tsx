@@ -1,4 +1,4 @@
-import { openMachineMenu, openWorkPanel } from "@/test/open-work.ts";
+import { agentRow, isBreathing, openMachineMenu, openWorkPanel } from "@/test/open-work.ts";
 import { facts, replayCursor, workCardScenario } from "@ace/fake-daemon";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -76,7 +76,7 @@ test("tree folds and Summary scroll position survive a remount", async () => {
   ) {
     if (!this.hasAttribute("data-work-scroll")) return 0;
     // The scroll region's own rows: the mock grows with the rendered tree, as the
-    // Summary's Working and Done sections do, so a lost restoration still fails.
+    // Summary's agent tree does, so a lost restoration still fails.
     return (this.querySelectorAll('[role="treeitem"]').length ?? 0) * 40 + 200;
   });
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (
@@ -116,15 +116,20 @@ test("cached work is marked last seen until the connection is fresh again", asyn
   app.play(scenario).runUntilBlocked();
   await app.open(`/t/${scenario.thread.id}`);
   const work = await openWorkPanel();
-  expect(within(work).getByRole("treeitem", { name: "Write retry tests: Working" })).toBeTruthy();
+  expect(isBreathing(await agentRow(work, "Write retry tests"))).toBe(true);
   act(() => {
     app.daemon.refuseConnections(true);
     app.daemon.disconnectAll();
   });
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
-  await within(work).findByRole("treeitem", { name: "Write retry tests: Last seen" });
-  expect(within(work).queryByRole("treeitem", { name: "Write retry tests: Done" })).toBeNull();
+  // Not done, and not shown as moving either: it is what was last seen.
+  const stale = await within(work).findByRole("treeitem", {
+    name: /^Write retry tests: last seen /,
+  });
+  expect(isBreathing(stale)).toBe(false);
   act(() => app.daemon.refuseConnections(false));
   await waitFor(() => expect(app.client.state).toBe("ready"));
-  await within(work).findByRole("treeitem", { name: "Write retry tests: Working" });
+  await waitFor(async () =>
+    expect(isBreathing(await agentRow(work, "Write retry tests"))).toBe(true),
+  );
 });

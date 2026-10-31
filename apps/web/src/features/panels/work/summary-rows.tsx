@@ -92,7 +92,7 @@ function RowFrame(
   },
 ) {
   return (
-    <div className="group/row relative flex min-w-0 items-center rounded-md hover:bg-accent">
+    <div className="group/row relative flex min-w-0 flex-wrap items-center rounded-md hover:bg-accent">
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- Enter opens it through the tree's key handler */}
       <div
         role="treeitem"
@@ -180,7 +180,7 @@ export function AgentLine(
   const asking =
     props.request !== undefined || (status.state === "blocked" && status.on === "human");
   const tone = asking ? "needs-you" : status.state === "failed" ? "failed" : undefined;
-  const step = props.request
+  const current = props.request
     ? asks
       ? `asks: ${asks}`
       : agentStep({ status, interaction: props.request })
@@ -194,6 +194,9 @@ export function AgentLine(
             ? `waiting on ${pluralCount(below.working + below.commands, below.working ? "agent" : "command")}`
             : agentStep({ status, item: tool })
           : (agentOutcome(identity.spawn) ?? "finished");
+  const fresh = useLiveConnection().fresh;
+  // Facts kept from before the connection dropped: what it was doing when last seen.
+  const step = !fresh && node.live ? `last seen ${current}` : current;
   const folded = props.expanded === false ? foldWords(below) : "";
   const end = agent.endedAt ?? (node.live ? Math.max(now, agent.createdAt) : undefined);
   const time =
@@ -282,16 +285,27 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
       onOpen={show}
       actions={
         task.stoppable ? (
-          <button
-            type="button"
-            tabIndex={-1}
-            data-stop=""
-            disabled={stop.busy}
-            onClick={() => void stop.send({ type: "background_task.stop", taskId: task.id })}
-            className="focus-ring mr-1.5 hidden shrink-0 rounded-sm px-1 text-xs text-muted-foreground group-focus-within/row:inline group-hover/row:inline hover:text-foreground pointer-coarse:inline"
-          >
-            {stop.busy ? "Stopping…" : "Stop"}
-          </button>
+          <>
+            {stop.failed && (
+              <span
+                role="alert"
+                data-tone="failed"
+                className="order-last w-full px-2 pb-1 text-xs text-(--tone-text)"
+              >
+                Couldn't stop this command. Try again.
+              </span>
+            )}
+            <button
+              type="button"
+              tabIndex={-1}
+              data-stop=""
+              disabled={stop.busy}
+              onClick={() => void stop.send({ type: "background_task.stop", taskId: task.id })}
+              className="focus-ring mr-1.5 hidden shrink-0 rounded-sm px-1 text-xs text-muted-foreground group-focus-within/row:inline group-hover/row:inline hover:text-foreground pointer-coarse:inline"
+            >
+              {stop.busy ? "Stopping…" : "Stop"}
+            </button>
+          </>
         ) : undefined
       }
     >
@@ -302,11 +316,7 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
         $
       </span>
       <span className="min-w-0 flex-1 truncate font-mono text-xs">{command}</span>
-      {stop.failed && (
-        <span role="alert" data-tone="failed" className="shrink-0 text-xs text-(--tone-text)">
-          Couldn't stop it
-        </span>
-      )}
+
       <RowTime>{end - task.startedAt >= 1000 ? formatSpan(task.startedAt, end) : ""}</RowTime>
     </RowFrame>
   );

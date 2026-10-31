@@ -189,9 +189,7 @@ test("an action an agent already runs in the background shows the agent's shell,
   const app = await openThread();
   const summary = await openWorkPanel();
   await userEvent.click(
-    await within(summary).findByRole("button", {
-      name: /^Show bun run dev:relay/,
-    }),
+    await within(summary).findByRole("treeitem", { name: /^\$ bun run dev:relay/ }),
   );
   const panel = await sidePanel();
   expect(await within(panel).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();

@@ -133,7 +133,7 @@ test("on a phone the header's panel toggle opens Summary in the panel sheet and 
   await openThread();
   await userEvent.click(panelToggle());
   const work = await screen.findByRole("tabpanel", { name: "Summary" });
-  expect(await within(work).findByRole("region", { name: "Background" })).toBeTruthy();
+  expect(await within(work).findByRole("status", { name: /^Thread status/ })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });

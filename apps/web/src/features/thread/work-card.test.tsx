@@ -50,10 +50,8 @@ test("the details card holds the workspace and branch only; what runs lives in S
   expect(within(card).queryByRole("button", { name: /subagents? working/ })).toBeNull();
   await userEvent.keyboard("{Escape}");
   const summary = await openWorkPanel();
-  expect(
-    await within(summary).findByRole("button", { name: "Show bun run dev output" }),
-  ).toBeTruthy();
-  expect(within(summary).getByRole("tree", { name: "Agent tree" })).toBeTruthy();
+  const tree = await within(summary).findByRole("tree", { name: "Agent tree" });
+  expect(within(tree).getByRole("treeitem", { name: "$ bun run dev: running" })).toBeTruthy();
 });
 
 test("the git action offers Commit & push while the checkout has uncommitted changes", async () => {
