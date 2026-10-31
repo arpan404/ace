@@ -1,5 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
-import { act, configure, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, configure, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
@@ -263,7 +263,10 @@ test("a rejected new-thread save preserves both prompts and the original file th
   ).toBe(true);
 });
 
-test("Edit on a refused new thread puts its message back in New thread for its project", async () => {
+/** The main column, read afresh: Retry moves it to the started thread. */
+const main = () => screen.getByRole("main");
+
+test("Edit on a refused new thread changes its message in place, and Retry starts it with the new words", async () => {
   const made = harness();
   for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
   // In the checkout, so the refusal is the message's, not a worktree's.
@@ -275,12 +278,28 @@ test("Edit on a refused new thread puts its message back in New thread for its p
     await screen.findByRole("combobox", { name: "Message" }),
     "Bring my refused start back{Enter}",
   );
+  // Edit opens the refused start's words over the same send, without leaving it.
   await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
-  await screen.findByRole("heading", { level: 1, name: "New thread" });
-  expect(await screen.findByRole("button", { name: "Project: relay" })).toBeTruthy();
-  await waitFor(() =>
-    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
-      "Bring my refused start back",
-    ),
-  );
+  const dialog = await screen.findByRole("dialog", { name: "Edit message" });
+  const field = within(dialog).getByRole("textbox", { name: "Message" });
+  expect((field as HTMLTextAreaElement).value).toBe("Bring my refused start back");
+  await userEvent.type(field, " with tests");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit message" })).toBeNull());
+  expect(await within(main()).findByText("Bring my refused start back with tests")).toBeTruthy();
+  expect(within(main()).getByText("Not sent")).toBeTruthy();
+  // Retry starts the thread in relay with the edited words.
+  made.daemon.restoreRequests();
+  await userEvent.click(within(main()).getByRole("button", { name: "Retry" }));
+  await waitFor(() => {
+    const view = made.daemon.snapshot({ kind: "threads" });
+    const titles =
+      view?.kind === "threads"
+        ? Object.values(view.threads)
+            .filter((each) => each.workspaceId === "relay")
+            .map((each) => each.title)
+        : [];
+    expect(titles).toContain("Bring my refused start back with tests");
+  });
+  await waitFor(() => expect(within(main()).queryByText("Not sent")).toBeNull());
 });
