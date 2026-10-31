@@ -260,3 +260,145 @@ test("cold text still streams before the full read finishes and cached chunks pr
   f.lease.release();
   await f.client.close();
 });
+
+const windowTarget = { threadId: "thread", itemId: "older", before: 1, after: 1 };
+async function keepWindow(f: Awaited<ReturnType<typeof open>>) {
+  const before = f.sent.filter((message) => message.type === "items.window").length;
+  const pending = f.client.itemsWindow(windowTarget);
+  await expect
+    .poll(() => f.sent.filter((message) => message.type === "items.window").length)
+    .toBe(before + 1);
+  const request = f.sent.findLast((message) => message.type === "items.window");
+  if (!request || request.type !== "items.window") throw new Error("No window request");
+  f.deliver({
+    type: "items.window",
+    requestId: request.requestId,
+    threadId: "thread",
+    seq: 10,
+    targetSeq: 2,
+    items: [finished("older", "Previously read")],
+    itemSeqs: { older: 2 },
+    itemsBefore: null,
+    itemsAfter: 3,
+  });
+  return pending;
+}
+
+test("explicit cached history remains readable offline without relaxing authoritative reads", async () => {
+  const m = disk();
+  const f = await open(m.storage, () => day);
+  const page = await keepWindow(f);
+  f.closeSocket(1006);
+  await expect.poll(() => f.client.state).not.toBe("ready");
+  expect(await f.client.cachedItemsWindow(windowTarget)).toEqual({ freshness: "cached", page });
+  await expect(f.client.itemsWindow(windowTarget)).rejects.toMatchObject({ code: "offline" });
+  expect(f.sent.filter((message) => message.type === "items.window")).toHaveLength(1);
+  f.lease.release();
+  await f.client.close();
+});
+
+test("explicit cached history cannot be read after revocation or cache clearing", async () => {
+  const m = disk();
+  const f = await open(m.storage, () => day);
+  await keepWindow(f);
+  await f.client.clearReadSnapshots();
+  expect(await f.client.cachedItemsWindow(windowTarget)).toBeUndefined();
+  await keepWindow(f);
+  f.closeSocket(4003);
+  await expect.poll(() => f.client.state).toBe("fatal");
+  expect(await f.client.cachedItemsWindow(windowTarget)).toBeUndefined();
+  f.lease.release();
+  await f.client.close();
+});
+
+test("stale cache access does not let a changed revision pass an authoritative read", async () => {
+  const m = disk();
+  const f = await open(m.storage, () => day);
+  const old = await keepWindow(f);
+  await f.reconnect(11);
+  f.deliver({
+    type: "snapshot",
+    subscriptionId: f.wire("thread").subscriptionId,
+    seq: 11,
+    view: view("Changed", 11),
+  });
+  await expect.poll(() => f.lease.store.cursor).toBe(11);
+  expect(await f.client.cachedItemsWindow(windowTarget)).toEqual({
+    freshness: "cached",
+    page: old,
+  });
+  const requests = f.sent.filter((message) => message.type === "items.window").length;
+  const read = f.client.itemsWindow(windowTarget);
+  await expect
+    .poll(() => f.sent.filter((message) => message.type === "items.window").length)
+    .toBe(requests + 1);
+  const request = f.sent.findLast((message) => message.type === "items.window");
+  if (!request || request.type !== "items.window") throw new Error("No current window request");
+  f.deliver({
+    ...old,
+    requestId: request.requestId,
+    seq: 11,
+    items: [finished("older", "Edited after reconnect")],
+  });
+  expect((await read).items).toEqual([finished("older", "Edited after reconnect")]);
+  f.lease.release();
+  await f.client.close();
+});
+
+test.each(["clear", "reload", "revoke"] as const)(
+  "a cached read crossing %s cannot return its discarded data",
+  async (action) => {
+    const m = disk();
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    let held = false;
+    const storage: ReadSnapshotStorage = {
+      ...m.storage,
+      get: async (key) => {
+        const value = await m.storage.get(key);
+        if (held && key.includes("/history/")) {
+          entered.resolve();
+          await resume.promise;
+        }
+        return value;
+      },
+    };
+    const f = await open(storage, () => day);
+    await keepWindow(f);
+    held = true;
+    const pending = f.client.cachedItemsWindow(windowTarget);
+    await entered.promise;
+    if (action === "clear") await f.client.clearReadSnapshots();
+    else if (action === "reload") await f.client.forgetThread("thread");
+    else {
+      f.closeSocket(4003);
+      await expect.poll(() => f.client.state).toBe("fatal");
+    }
+    resume.resolve();
+    expect(await pending).toBeUndefined();
+    f.lease.release();
+    await f.client.close();
+  },
+);
+
+test("cached history respects expiry, cancellation and the daemon identity", async () => {
+  const m = disk();
+  let at = day;
+  const f = await open(m.storage, () => at);
+  await keepWindow(f);
+  const abort = new AbortController();
+  abort.abort();
+  await expect(
+    f.client.cachedItemsWindow(windowTarget, { signal: abort.signal }),
+  ).rejects.toMatchObject({ code: "aborted" });
+  const other = harness(m.storage, 32, {
+    host: "ff8b7094-4ec9-4f45-b244-625b3cd50fbd",
+    now: () => at,
+  });
+  expect(await other.client.cachedItemsWindow(windowTarget)).toBeUndefined();
+  await other.client.close();
+  at += 7 * day;
+  expect(await f.client.cachedItemsWindow(windowTarget)).toBeUndefined();
+  f.lease.release();
+  await f.client.close();
+});

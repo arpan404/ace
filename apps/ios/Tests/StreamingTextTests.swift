@@ -15,6 +15,22 @@ import Testing
          "base": base, "cut": cut, "append": append]
     }
 
+    @Test func editsDuringAReplacementApplyToIncomingTextWhileTheOldAnswerStaysVisible() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("thread")
+        let reset: [String: Any] = ["type": "thread.reset", "threadId": "thread", "epoch": 1]
+        let ready: [String: Any] = ["type": "thread.ready", "threadId": "thread", "epoch": 1, "count": 1]
+        let original: [String: Any] = ["type": "thread.item", "threadId": "thread", "epoch": 1, "id": "a", "row": row("Old answer")]
+        #expect(model.receive(try frame([reset, original, ready])))
+        let replacement: [String: Any] = ["type": "thread.item", "threadId": "thread", "epoch": 1, "id": "a", "row": row("New")]
+        #expect(model.receive(try frame([reset, replacement])))
+        #expect(model.thread?.items["a"]?.row.text == "Old answer")
+        #expect(model.receive(try frame([edit(1, base: 3, cut: 0, append: " answer")])))
+        #expect(model.thread?.items["a"]?.row.text == "Old answer")
+        #expect(model.receive(try frame([ready])))
+        #expect(model.thread?.items["a"]?.row.text == "New answer")
+    }
+
     @Test func anEditExtendsOrSlidesTheRowShown() throws {
         let model = ClientModel(now: { 0 })
         model.open("thread")

@@ -4,6 +4,11 @@ import Foundation
 /// web keeps its thread stores warm. Reopening one shows it at once and tells the bridge so; the
 /// bridge then sends only what changed since (`bridge/native-ledger.ts`, which keeps as many).
 /// Kept threads take no updates while they are not open.
+///
+/// Reading sessions (where the reader was in each thread) are kept alongside,
+/// bounded independently like the web scroll memory: a thread evicted from the
+/// shelf keeps its session until the session bound pushes it out, and clearing
+/// the cache clears sessions too.
 @MainActor struct ThreadShelf {
     static let capacity = 6
     /// Least recently shown first.
@@ -11,6 +16,7 @@ import Foundation
 
     /// Keep a thread the person is leaving. One that never finished loading isn't worth showing.
     mutating func keep(_ thread: ThreadModel) {
+        thread.refresh = nil
         threads.removeAll { $0.id == thread.id }
         guard thread.loaded else { return }
         threads.append(thread)

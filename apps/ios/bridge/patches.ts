@@ -37,33 +37,40 @@ export function followThread(
   ledger?: NativeLedger,
   prefix: "thread:" | "reading:" = "thread:",
 ) {
-  const positions = new Map<string, number>();
+  const positions = new Map<string, { index: number; seq: number | null }>();
   /** Where native's positions start in `store.order` (`anchoredOffset`), so a row knows its place. */
   let offset = 0;
+  /** Explicit bounded snapshot revisions: one per whole-thread pass for this visit. */
+  let snapshotRevision = 0;
   const put = (key: string, read: () => Record<string, unknown> | undefined) => {
     pump.put(prefix + key, () => {
       const patch = read();
       return patch && { ...patch, threadId, epoch };
     });
   };
+  const seqOf = (id: string): number | null => store.itemSeq?.(id) ?? null;
   const row = (id: string, index?: number) => {
-    if (index !== undefined) positions.set(id, index);
+    if (index !== undefined) positions.set(id, { index, seq: seqOf(id) });
     const known = positions.get(id);
     // Its place in the order, as the positions say, so its actions never scan the order for it.
-    const at = known === undefined ? undefined : known + offset;
+    const at = known === undefined ? undefined : known.index + offset;
     put(`item:${id}`, () => {
       const item = store.item(id);
+      if (!item) {
+        const knownSeq = positions.get(id)?.seq ?? seqOf(id);
+        const reason = store.deleted?.(id) ? "deleted" : "evicted";
+        return { type: "thread.item", id, row: null, seq: knownSeq, reason };
+      }
       return {
         type: "thread.item",
         id,
-        row: item
-          ? {
-              ...itemRow(item, positions.get(id), store.truncated(id)),
-              ...itemDetail(item, stepContext(store, item)),
-              thought: thoughtOf(store, item),
-              actions: messageActionsOf(store, item, at) ?? null,
-            }
-          : null,
+        row: {
+          ...itemRow(item, positions.get(id)?.index, store.truncated(id)),
+          creationSeq: seqOf(id),
+          ...itemDetail(item, stepContext(store, item)),
+          thought: thoughtOf(store, item),
+          actions: messageActionsOf(store, item, at) ?? null,
+        },
       };
     });
   };
@@ -78,9 +85,15 @@ export function followThread(
     if (keys === "all") {
       positions.clear();
       offset = 0;
+      snapshotRevision += 1;
+      const before = store.itemsBefore ?? null;
       if (!ledger?.begin()) {
         pump.clear(prefix);
-        put("reset", () => ({ type: "thread.reset" }));
+        const revision = snapshotRevision;
+        put("reset", () => ({ type: "thread.reset", revision, before }));
+      } else {
+        const revision = snapshotRevision;
+        put("snapshot.begin", () => ({ type: "thread.snapshot.begin", revision, before }));
       }
       // Stable snapshot order, in bounded chunks. Streaming changes touch only their row.
       store.order.forEach((id, index) => row(id, index));
@@ -93,7 +106,11 @@ export function followThread(
           if (id !== undefined && store.item(id)?.type === "reasoning") row(id);
         };
         const retained = new Set(store.order);
-        offset = anchoredOffset(positions, store.order);
+        const order = store.order;
+        offset = anchoredOffset(
+          new Map([...positions].map(([id, value]) => [id, value.index])),
+          order,
+        );
         for (const id of positions.keys())
           if (!retained.has(id)) {
             positions.delete(id);
@@ -104,12 +121,12 @@ export function followThread(
           if (!positions.has(id)) {
             row(id, index);
             thought(at);
-          } else if (positions.get(id) !== index) {
-            positions.set(id, index);
+          } else if (positions.get(id)?.index !== index) {
+            positions.set(id, { index, seq: seqOf(id) });
             put(`position:${id}`, () => ({
               type: "thread.position",
               id,
-              index: positions.get(id) ?? null,
+              index: positions.get(id)?.index ?? null,
             }));
           }
         });

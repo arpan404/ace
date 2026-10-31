@@ -111,12 +111,27 @@ import SQLite3
         let model = ClientModel(now: { 0 })
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
         await model.connect(target: try target(), directory: root, itemLimit: 2200)
-        try await until { model.connection == "ready" && model.inbox["ios-tree"] != nil }
-        #expect(model.inbox["ios-tree"]?.state == "working")
+        try await until { model.connection == "ready" }
+        model.open("ios-tree")
+        try await until("the child keeps its parent's thread working") { model.thread?.loaded == true }
+        #expect(model.thread?.metadata?.state == "working")
         model.open("ios-stream")
-        try await until { (model.thread?.items.count ?? 0) >= 200 && model.thread?.loaded == true }
-        let text = model.thread?.items.values.first { !$0.row.complete }?.row.text
-        try await until { model.thread?.items.values.first { !$0.row.complete }?.row.text != text }
+        try await until("the bounded live tail loads") { (model.thread?.items.count ?? 0) >= 200 && model.thread?.loaded == true }
+        let stream = try #require(model.thread?.items.values.first { !$0.row.complete && $0.row.role == "assistant" })
+        struct Prose: Decodable { let text: String }
+        let request: [String: Any] = ["type": "native.message", "threadId": "ios-stream", "itemId": stream.row.id]
+        let first = try await model.service(request, as: Prose.self).text
+        // The bounded row preview eventually stops growing. The authenticated
+        // full-message read must still expose the words arriving after it.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        var latest = first
+        while latest == first, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+            latest = try await model.service(request, as: Prose.self).text
+        }
+        #expect(latest.hasPrefix(first))
+        #expect(latest.count > first.count)
         #expect(model.error == nil)
         #expect(model.largestFrame <= 32768)
         #expect((model.thread?.order.count ?? 0) >= 200)

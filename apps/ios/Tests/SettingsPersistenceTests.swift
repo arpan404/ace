@@ -37,7 +37,7 @@ import Testing
         let (coordinator, sessions) = try await twoMachines(try suite())
         sessions.session("studio")?.patch(#"{"type":"notifications.config","preferences":{"quietHours":{"timeZone":"UTC","startMinute":1320,"endMinute":420},"includePreview":false}}"#)
         sessions.session("mac")?.patch(#"{"type":"notifications.config","preferences":{"includePreview":false}}"#)
-        await settle()
+        try await settle { coordinator.preferences(for: "studio").quietHours != nil }
         #expect(coordinator.preferences(for: "studio").quietHours?.startMinute == 1320)
         #expect(coordinator.preferences(for: "mac").quietHours == nil)
 
@@ -110,7 +110,11 @@ import Testing
     // MARK: Helpers
 
     /// Patches reach the model on a main-actor task, as they do from the VM's thread.
-    private func settle() async { for _ in 0..<50 { await Task.yield() } }
+    private func settle(_ ready: () -> Bool) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while !ready(), clock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+    }
     private func suite() throws -> UserDefaults { try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)")) }
     private func twoMachines(_ defaults: UserDefaults, center: RecordingCenter = RecordingCenter()) async throws -> (NotificationCoordinator, Sessions) {
         let sessions = Sessions()

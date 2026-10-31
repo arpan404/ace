@@ -122,6 +122,22 @@ test("reopening a kept thread sends only what changed and leaves native holding 
   expect(new Map([...held.rows].toSorted())).toEqual(new Map([...fresh.rows].toSorted()));
 });
 
+test("reopening a kept thread with no changes resends almost nothing and native still matches", async () => {
+  const fake = fixture();
+  seed(fake, "kept", 8);
+  const client = connect(fake);
+  const held = new Held();
+  await openVisit(client, held, "kept", 1, false);
+  leave(2);
+  const second = await openVisit(client, held, "kept", 3, true);
+  // No reset and no row churn: the ledger suppresses every unchanged patch.
+  expect(second.some((frame) => frame.type === "thread.reset")).toBe(false);
+  expect(second.filter((frame) => frame.type === "thread.item")).toEqual([]);
+  const fresh = new Held();
+  await openVisit(client, fresh, "kept", 4, false);
+  expect(new Map([...held.rows].toSorted())).toEqual(new Map([...fresh.rows].toSorted()));
+});
+
 test("a warm reopen the bridge no longer remembers resets native before sending the thread", async () => {
   const fake = fixture();
   seed(fake, "first", 2);

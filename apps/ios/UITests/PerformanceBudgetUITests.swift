@@ -435,18 +435,17 @@ extension XCUIApplication {
     }
     /// Opens a thread from its inbox row; true once the app reports the open finished.
     @discardableResult func openThread(_ id: String, timeout: TimeInterval = 30) -> Bool {
-        // Over a phone's open thread the list is its drawer.
-        let sidebar = buttons["thread.sidebar"]
+        // Return to the full-screen list on a compact phone.
+        let sidebar = navigationBars.buttons.element(boundBy: 0)
         if !buttons["inbox.settings"].isHittable, sidebar.exists { sidebar.tap() }
         let row = revealRow("thread.\(id)")
         let before = probe["opens"]
         row.tap()
         return waitForCount("opens", from: before, timeout: timeout)
     }
-    /// On from a thread to another one: beside the list (iPad) or from the drawer a phone's
-    /// thread opens over it, a thread never closes, and opening another one closes it.
+    /// Return to the list and open the fixture's form thread.
     func goBack() {
-        let sidebar = buttons["thread.sidebar"]
+        let sidebar = navigationBars.buttons.element(boundBy: 0)
         if !buttons["inbox.settings"].isHittable, sidebar.exists { sidebar.tap() }
         revealRow("thread.ios-form").tap()
         let deadline = Date(timeIntervalSinceNow: 10)

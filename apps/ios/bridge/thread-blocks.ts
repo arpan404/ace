@@ -334,7 +334,7 @@ export function followBlocks(
   store: ThreadSource,
   put: Put,
   scope?: BlockScope,
-): { tap: ChangeTap; block(key: string): Block | undefined } {
+): { tap: ChangeTap; block(key: string): Block | undefined; snapshot(): readonly Block[] } {
   turnTreeOf(store);
   ledgerOf(store);
   const read = createBlockReader(scope?.agentId);
@@ -465,5 +465,5 @@ export function followBlocks(
     }
     for (const key of touched) emit(key);
   };
-  return { tap, block: (key) => blocks.get(key) };
+  return { tap, block: (key) => blocks.get(key), snapshot: () => [...blocks.values()] };
 }

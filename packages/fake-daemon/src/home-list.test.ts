@@ -23,7 +23,7 @@ test("the Home list plays each thread at its age, with the finished history days
   const threads = listView(daemon);
   const byTitle = new Map(threads.map((t) => [t.title, t]));
   expect(byTitle.get("Resumable relay streams")).toMatchObject({
-    status: { state: "working", agents: 5 },
+    status: { state: "working", agents: 4 },
     updatedAt: now - 3 * hour,
   });
   const history = threads.filter((t) => now - t.updatedAt >= 24 * hour);

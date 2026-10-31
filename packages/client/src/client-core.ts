@@ -14,6 +14,7 @@ import {
 import type {
   TurnsPageInput,
   ItemsWindowInput,
+  CachedItemsWindow,
   ThreadSearchInput,
   ThreadCatchUpInput,
   ThreadReadStateInput,
@@ -907,21 +908,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   async itemsWindow(input: ItemsWindowInput, options: RequestOptions = {}) {
     if (this.state !== "ready" || this.closed) throw new ClientError("offline");
-    // Lazily loaded with the service wire so packages/protocol/src/long-thread.ts
-    // stays out of the client worker's eager startup path (apps/web/worker-bundle.ts).
-    const service = await loadServiceWire();
-    const parsed = service.ItemsWindowRequest.safeParse({
-      type: "items.window",
-      requestId: "cache",
-      ...input,
-    });
-    if (!parsed.success) throw new ClientError("protocol", "Invalid read parameters");
-    const payload = parsed.data;
+    const { service, key } = await this.#windowQuery(input);
     const load = () => this.#threadReply({ type: "items.window", ...input }, options);
     return (
       this.#history?.read(
         input.threadId,
-        JSON.stringify(payload),
+        key,
         service.ItemsWindowResponse,
         (page) =>
           page.threadId === input.threadId && this.#historyRevision(input.threadId) === page.seq,
@@ -929,6 +921,39 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         options.signal,
       ) ?? load()
     );
+  }
+  /** A previously authorized disk copy only. Callers must label it stale and disable actions. */
+  async cachedItemsWindow(
+    input: ItemsWindowInput,
+    options: RequestOptions = {},
+  ): Promise<CachedItemsWindow | undefined> {
+    if (options.signal?.aborted) throw new ClientError("aborted");
+    const history = this.#history;
+    if (this.closed || !this.#hostId || !history) return undefined;
+    const current = history.fence(input.threadId);
+    const { service, key } = await this.#windowQuery(input);
+    if (!current() || this.closed) return undefined;
+    const page = await history
+      .entry(
+        input.threadId,
+        key,
+        service.ItemsWindowResponse,
+        (value) => value.threadId === input.threadId,
+        options.signal,
+      )
+      .get();
+    return current() && !this.closed && page ? { freshness: "cached", page } : undefined;
+  }
+  async #windowQuery(input: ItemsWindowInput) {
+    // Keep history schemas out of the worker's eager startup bundle.
+    const service = await loadServiceWire();
+    const parsed = service.ItemsWindowRequest.safeParse({
+      type: "items.window",
+      requestId: "cache",
+      ...input,
+    });
+    if (!parsed.success) throw new ClientError("protocol", "Invalid read parameters");
+    return { service, key: JSON.stringify(parsed.data) };
   }
   threadSearch(input: ThreadSearchInput, options: RequestOptions = {}) {
     return this.#threadReply({ type: "thread.search", ...input }, options);

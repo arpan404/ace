@@ -105,7 +105,29 @@ export class NativeLedger {
     const removals: [string, () => Record<string, unknown>][] = [];
     for (const [key, text] of this.#entries)
       if (removable.test(key) && !pass.has(key))
-        removals.push([key, () => ({ ...(JSON.parse(text) as object), row: null, epoch })]);
+        removals.push([
+          key,
+          () => {
+            let seq: number | null = null;
+            try {
+              const parsed = JSON.parse(text) as {
+                row?: { seq?: unknown; creationSeq?: unknown } | null;
+              };
+              const candidate = parsed.row?.seq ?? parsed.row?.creationSeq;
+              if (typeof candidate === "number") seq = candidate;
+            } catch {
+              seq = null;
+            }
+            const base = { ...(JSON.parse(text) as object), row: null, epoch } as Record<
+              string,
+              unknown
+            >;
+            // Preserve the last known creation sequence for eviction inference.
+            // Reason stays absent here (no store access); incremental removals carry it.
+            if (seq !== null) base.seq = seq;
+            return base;
+          },
+        ]);
     return removals;
   }
   get passing(): boolean {

@@ -11,10 +11,14 @@ import Foundation
         var patch = item("older", text: "Earlier message", index: 0)
         patch["epoch"] = -1
         model.beginReadingScroll()
+        #expect(model.readingSettled, "A drag with no pending page may request history")
         model.holdReading()
+        #expect(!model.readingSettled)
         model.receive(try frame([patch, ["type": "reading.settled", "threadId": "a", "epoch": -1]]))
         #expect(reading.items.isEmpty)
+        #expect(!model.readingSettled, "Do not page again before buffered rows reach the viewport")
         model.endReadingScroll()
+        #expect(model.readingSettled)
         #expect(reading.order == ["older"])
         #expect(reading.items["older"]?.row.text == "Earlier message")
     }

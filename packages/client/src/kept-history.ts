@@ -37,6 +37,13 @@ export class KeptHistory {
     return value;
   }
 
+  /** Invalidates a whole logical read across cache clears, reloads and asynchronous decoding. */
+  fence(scope: string): () => boolean {
+    const epoch = this.#epoch;
+    const generation = this.#threads.get(scope) ?? 0;
+    return () => epoch === this.#epoch && generation === (this.#threads.get(scope) ?? 0);
+  }
+
   /** A generation-bound entry, also used by streaming readers that save only on completion. */
   entry<T>(
     scope: string,
@@ -45,9 +52,7 @@ export class KeptHistory {
     accept: (value: T) => boolean,
     signal?: AbortSignal,
   ) {
-    const epoch = this.#epoch;
-    const generation = this.#threads.get(scope) ?? 0;
-    const current = () => epoch === this.#epoch && generation === (this.#threads.get(scope) ?? 0);
+    const current = this.fence(scope);
     const key = `history/${encodeURIComponent(scope)}/${query}`;
     return {
       get: async (): Promise<T | undefined> => {

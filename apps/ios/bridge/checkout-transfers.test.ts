@@ -152,7 +152,7 @@ async function connect(
     storage: { load: async () => null, save: async () => {} },
     scheduler: {
       set: (delay, callback) => {
-        const timer = setTimeout(callback, Math.min(delay, 20));
+        const timer = setTimeout(callback, delay);
         return () => clearTimeout(timer);
       },
     },
@@ -203,8 +203,9 @@ test("a folder's archive previews what goes in, then saves to the phone whole", 
   });
   const saved = await until(() => {
     const last = sink.last("files.download", "archive");
-    return last?.phase === "saved" && last;
+    return last && last.phase !== "saving" && last;
   });
+  expect(saved.phase, String(saved.message ?? "")).toBe("saved");
   const file = [...phone.files.values()][0];
   expect(file?.name).toBe("docs.tar.gz");
   // A gzip stream, as long as the patch says.

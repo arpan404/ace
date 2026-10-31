@@ -312,7 +312,7 @@ const server = Bun.serve<undefined>({
         .object({
           id: z
             .string()
-            .regex(/^ios-many-[a-z]+$/)
+            .regex(/^ios-many-[a-zA-Z0-9-]+$/)
             .max(64),
         })
         .parse(await request.json());

@@ -5,6 +5,63 @@ import Testing
 /// Reopening a thread shown recently, view-only machines on the new request cards and composer
 /// controls, and the steps a settled log reads. Native models only; the bridge is recorded.
 @Suite @MainActor struct ThreadGapsTests {
+    @Test func leavingAPartialReplacementKeepsTheOldMessagesButRequestsAFreshSnapshotOnReturn() async throws {
+        let (model, session) = try await connected()
+        let reset: [String: Any] = ["type": "thread.reset", "threadId": "thread", "epoch": 1]
+        let ready: [String: Any] = ["type": "thread.ready", "threadId": "thread", "epoch": 1, "count": 1]
+        model.receive(try frame([reset, item("old", thread: "thread", epoch: 1, index: 0), ready]))
+        model.receive(try frame([reset, item("new", thread: "thread", epoch: 1, index: 0)]))
+        model.back()
+        model.open("thread")
+        #expect(model.thread?.order == ["old"])
+        #expect(model.thread?.loaded == true)
+        // The bridge already acknowledged the partial incoming rows, which were discarded.
+        // It must send them again rather than diffing against its last delivery ledger.
+        #expect(session.opens.last?["warm"] as? Bool == false)
+    }
+
+    @Test func replacementFramesKeepMessagesVisibleUntilTheReadyFence() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("thread")
+        let reset: [String: Any] = ["type": "thread.reset", "threadId": "thread", "epoch": 1]
+        let ready: [String: Any] = ["type": "thread.ready", "threadId": "thread", "epoch": 1, "count": 1]
+        model.receive(try frame([reset, item("old", thread: "thread", epoch: 1, index: 0),
+                                 block("old-block", thread: "thread", epoch: 1, items: ["old"], index: 0), ready]))
+        let shown = try #require(model.thread)
+        model.receive(try frame([reset]))
+        #expect(shown.loaded)
+        #expect(shown.order == ["old"])
+        #expect(shown.screen.blockOrder == ["old-block"])
+        model.receive(try frame([item("new", thread: "thread", epoch: 1, index: 0)]))
+        #expect(shown.order == ["old"])
+        model.receive(try frame([block("new-block", thread: "thread", epoch: 1, items: ["new"], index: 0), ready]))
+        #expect(model.thread === shown)
+        #expect(shown.order == ["new"])
+        #expect(shown.items["old"] == nil)
+        #expect(shown.screen.blockOrder == ["new-block"])
+        #expect(shown.loaded)
+    }
+
+    @Test func aReplacementKeepsRowIdentityAndIgnoresThePreviousVisitsReadyFence() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("thread")
+        let reset: [String: Any] = ["type": "thread.reset", "threadId": "thread", "epoch": 1]
+        let ready: [String: Any] = ["type": "thread.ready", "threadId": "thread", "epoch": 1, "count": 1]
+        model.receive(try frame([reset, item("ask", thread: "thread", epoch: 1, index: 0),
+                                 block("turn", thread: "thread", epoch: 1, items: ["ask"], index: 0), ready]))
+        let shown = try #require(model.thread)
+        let keptItem = try #require(shown.items["ask"])
+        let keptBlock = try #require(shown.screen.blocks["turn"])
+        model.receive(try frame([reset, item("ask", thread: "thread", epoch: 1, index: 0)]))
+        model.receive(try frame([["type": "thread.ready", "threadId": "thread", "epoch": 0, "count": 0]]))
+        #expect(shown.screen.blockOrder == ["turn"])
+        model.receive(try frame([block("turn", thread: "thread", epoch: 1, items: ["ask"], index: 0), ready]))
+        #expect(shown.items["ask"] === keptItem)
+        #expect(shown.screen.blocks["turn"] === keptBlock)
+        #expect(shown.order == ["ask"])
+        #expect(shown.screen.blockOrder == ["turn"])
+    }
+
     @Test func aThreadLeftAndReopenedShowsItsTranscriptAtOnceAndTakesOnlyItsNewGenerationsChanges() async throws {
         let (model, session) = try await connected()
         model.receive(try frame([

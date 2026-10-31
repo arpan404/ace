@@ -108,12 +108,12 @@ import XCTest
         XCTAssertFalse(app.tabBars.buttons["Threads"].reachable, "as on a phone, the tab bar steps aside for a thread")
         XCTAssertEqual(input.value as? String, "Keep this draft")
         screenshot("ipad-narrow-window-thread")
-        // The list comes out over the thread as a drawer, carrying the places the tab bar would.
-        app.buttons["thread.sidebar"].tap()
+        // Back returns to the full-screen list and its tab bar.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.buttons["thread.ios-approval"].waitForHittable(timeout: 10))
-        XCTAssertTrue(app.buttons["sidebar.threads"].reachable)
+        XCTAssertTrue(app.tabBars.buttons["Threads"].reachable)
         screenshot("ipad-narrow-window")
-        app.buttons["drawer.close"].tap()
+        app.buttons["thread.ios-approval"].tap()
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertEqual(input.value as? String, "Keep this draft")
         // Wide again: the sidebar and its places are back, the tab bar gone, nothing lost.
@@ -162,8 +162,8 @@ import XCTest
         XCTAssertTrue(list.waitForNotHittable(timeout: 10), "back to compact, the thread stays on top")
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertEqual(input.value as? String, "Keep this draft")
-        // The thread's sidebar button brings the list out over it, as on any phone.
-        app.buttons["thread.sidebar"].tap()
+        // Back returns to the list, as on any phone.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(list.waitForHittable(timeout: 10))
     }
 

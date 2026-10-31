@@ -77,11 +77,48 @@ class CancellationSignal {
     this.#listeners.clear();
   }
 }
-class CancellationController {
-  readonly signal = new CancellationSignal();
-  abort(reason: unknown = new Error("Aborted")): void {
-    this.signal.abort(reason);
+function cancellationAPIs(host: NativeHost) {
+  type Source = Pick<
+    AbortSignal,
+    "aborted" | "reason" | "addEventListener" | "removeEventListener"
+  >;
+  class Signal extends CancellationSignal {
+    static abort(reason: unknown = new Error("Aborted")): Signal {
+      const signal = new Signal();
+      signal.abort(reason);
+      return signal;
+    }
+
+    static any(sources: Iterable<Source>): Signal {
+      const inputs = [...sources];
+      const signal = new Signal();
+      const aborted = () => {
+        const source = inputs.find((input) => input.aborted);
+        if (!source) return;
+        for (const input of inputs) input.removeEventListener("abort", aborted);
+        signal.abort(source.reason);
+      };
+      if (inputs.some((input) => input.aborted)) aborted();
+      else for (const input of inputs) input.addEventListener("abort", aborted, { once: true });
+      return signal;
+    }
+
+    static timeout(delay: number): Signal {
+      if (!Number.isSafeInteger(delay) || delay < 0) throw new RangeError("Invalid timeout");
+      const signal = new Signal();
+      host.timer(host.uuid(), delay, () => {
+        signal.abort(Object.assign(new Error("The operation timed out"), { name: "TimeoutError" }));
+      });
+      return signal;
+    }
   }
+  class Controller {
+    readonly signal = new Signal();
+    abort(reason: unknown = new Error("Aborted")): void {
+      this.signal.abort(reason);
+    }
+  }
+  return { Controller, Signal };
 }
 
 const URLParts = z.strictObject({
@@ -222,7 +259,9 @@ export function installWebPlatform(host: NativeHost, target: object = globalThis
     },
   );
   add("URL", absoluteURL(host));
-  add("AbortController", CancellationController);
+  const cancellation = cancellationAPIs(host);
+  add("AbortController", cancellation.Controller);
+  add("AbortSignal", cancellation.Signal);
   add("queueMicrotask", (callback: () => void) => {
     void Promise.resolve().then(callback);
   });
