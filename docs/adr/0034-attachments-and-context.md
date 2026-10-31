@@ -311,3 +311,13 @@ cache keeps the estimated total across roots under 128 MiB by retiring the least
 recently used unheld roots. The most recently used root is always kept whole, so
 a repository larger than the budget still completes in full; the existing
 100,000-entry cap still fails explicitly rather than truncating.
+
+## Ordinary folder support
+
+Standalone Chats create ordinary directories, so context indexing now accepts non-Git
+roots without initializing a repository. The fallback uses the shared workspace
+walker with bounded traversal and the context package's no-symlink containment
+checks. Watcher updates reconcile changed files and subtrees. Git repositories
+retain their Git listing and ignore semantics. Only Git's explicit non-repository
+response selects the fallback; other repository errors retain their diagnostic.
+This supersedes the non-Git restriction above.

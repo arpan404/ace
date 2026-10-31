@@ -12,15 +12,7 @@ import "./markit-ace.css";
 import { checkoutLinkPath, localLinkPath, normalizedPath } from "@ace/ui-core/file-references";
 import { contentHash, isCheckoutPath, readAceLink } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { PullRequestOpener, pullRequestAt, useOpenWebAddress } from "../web-link.tsx";
 import { fileTab, pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { cn } from "@/lib/cn.ts";
@@ -48,7 +40,6 @@ interface ProseProps {
   stream?: string | undefined;
   streaming?: boolean | undefined;
   className?: string | undefined;
-  tail?: ReactNode;
   thread?: { threadId: string; cwd?: string; itemId?: string } | undefined;
 }
 
@@ -125,7 +116,6 @@ function MarkitView(props: {
   finalized: boolean;
   stream: string;
   className?: string | undefined;
-  tail?: ReactNode;
   callbacks: MarkitCallbacks;
 }) {
   // The message reads as plain text until markit's first render replaces it, so an answer is
@@ -185,7 +175,6 @@ function MarkitView(props: {
     <div className={cn("markit-ace", blockRhythm, props.className)}>
       {!drawn && <p className="whitespace-pre-wrap">{markdown}</p>}
       <div ref={attach} />
-      {props.tail}
     </div>
   );
 }
@@ -222,7 +211,6 @@ function MarkitPlainProse(props: ProseProps) {
       finalized={!props.streaming}
       stream={fallbackStream(props)}
       className={props.className}
-      tail={props.tail}
       callbacks={callbacks}
     />
   );
@@ -321,7 +309,6 @@ function MarkitThreadProse(
       finalized={!props.streaming}
       stream={fallbackStream(props)}
       className={props.className}
-      tail={props.tail}
       callbacks={callbacks}
     />
   );

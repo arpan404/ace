@@ -25,7 +25,7 @@ import { HostProblem } from "./host-problem.ts";
 const MiB = 1024 * 1024;
 const planId = z.string().min(1).max(256);
 export const HostStorageRequest = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("host.storage") }),
+  z.object({ type: z.literal("host.storage"), force: z.boolean().optional() }),
   z.object({
     type: z.literal("host.storage.preview"),
     /** Every settled worktree, as the web's "Delete all settled worktrees". */
@@ -51,7 +51,7 @@ export type HostStorageRequest = z.infer<typeof HostStorageRequest>;
 export interface StorageUsageView {
   rows: { kind: string; title: string; detail: string; size: string }[];
   database: { size: string; detail: string };
-  /** "Measured in a bounded batch; refresh for more." when the host stopped early. */
+  /** "Measurement incomplete. Refresh to try again." when the host stopped early. */
   partial: string | null;
   /** One line for every failed worktree backup, then up to three paths. */
   backups: { line: string; paths: string[] } | null;
@@ -105,7 +105,7 @@ export function usageView(usage: StorageUsage): StorageUsageView {
       size: formatBytes(usage.databaseBytes),
       detail: `${formatBytes(usage.reclaimableDatabaseBytes)} can be reclaimed by compacting.`,
     },
-    partial: usage.complete ? null : "Measured in a bounded batch; refresh for more.",
+    partial: usage.complete ? null : "Measurement incomplete. Refresh to try again.",
     backups: failed.length
       ? {
           line:
@@ -211,7 +211,7 @@ export class HostStorage {
   async answer(request: HostStorageRequest, signal: AbortSignal): Promise<unknown> {
     switch (request.type) {
       case "host.storage":
-        return this.#page(signal);
+        return this.#page(signal, request.force);
       case "host.storage.preview": {
         const plan = await this.#storage(
           request.worktrees
@@ -259,14 +259,17 @@ export class HostStorage {
         return this.#page(signal);
     }
   }
-  async #page(signal: AbortSignal) {
+  async #page(signal: AbortSignal, force?: boolean) {
     const [usage, settings] = await Promise.allSettled([
-      this.#storage({ op: "storage.usage" }, signal),
+      this.#storage({ op: "storage.usage", ...(force === undefined ? {} : { force }) }, signal),
       this.#settings(signal),
     ]);
     if (settings.status === "rejected") throw settings.reason;
     const measured =
       usage.status === "fulfilled" && usage.value.kind === "usage" ? usage.value.usage : undefined;
+    // A failed explicit scan must not replace the kept measurement with an empty page.
+    if (force && !measured)
+      throw new HostProblem("Couldn't update storage usage. Pull to try again.");
     return {
       type: "host.storage",
       usage: measured ? usageView(measured) : null,

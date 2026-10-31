@@ -3,7 +3,8 @@ import SwiftUI
 /// What ships inside the app and its licence. The interface uses Apple's system fonts (SF Pro,
 /// SF Mono). The only third-party images are the providers' marks (LobeHub Icons, and OpenAI's
 /// Blossom from its brand kit). The JavaScript bridge bundles ace's own packages, Zod and the
-/// shared HTML renderer's parse5/entities dependencies; answers' math is typeset with KaTeX.
+/// shared HTML renderer's parse5/entities dependencies. Markdown, math and code colours are drawn
+/// by markit, whose own notices (its Rust dependencies, the math font) ship in its bundle.
 struct LicencesView: View {
     private struct Entry: Identifiable {
         let name: String
@@ -22,22 +23,29 @@ struct LicencesView: View {
               notice: "OpenAI's trademark, unmodified from OpenAI's brand kit, shown only to identify OpenAI's own products. It is not licensed under ace's licence."),
         Entry(name: "parse5", licence: "MIT", notice: Self.bundledNotice("parse5-license")),
         Entry(name: "entities", licence: "BSD 2-Clause", notice: Self.bundledNotice("entities-license")),
-        Entry(name: "KaTeX", licence: "MIT", notice: Self.bundledNotice("katex-license")),
+        Entry(name: "markit", licence: "Apache License 2.0", notice: MarkitNoticesView.summary),
     ]
     private static func bundledNotice(_ name: String) -> String {
         guard let url = Bundle.main.url(forResource: name, withExtension: "txt"), let text = try? String(contentsOf: url, encoding: .utf8) else { return "See \(name).txt in the app bundle." }
         return text
     }
     var body: some View {
-        List(entries) { entry in
-            Section {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                    Text(entry.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                    Text(entry.licence).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    Text(entry.notice).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+        List {
+            ForEach(entries) { entry in
+                Section {
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                        Text(entry.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
+                        Text(entry.licence).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text(entry.notice).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
+                    .padding(.vertical, AceTheme.Spacing.sm)
+                    .accessibilityElement(children: .combine)
                 }
-                .padding(.vertical, AceTheme.Spacing.sm)
-                .accessibilityElement(children: .combine)
+                .insetRowBackground()
+            }
+            Section {
+                NavigationLink("markit's third-party licences") { MarkitNoticesView() }
+                    .accessibilityIdentifier("licences.markit")
             }
             .insetRowBackground()
         }

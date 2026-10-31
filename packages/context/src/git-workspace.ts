@@ -1,3 +1,4 @@
+import { folderIndex, updateFolderIndex } from "./folder-index.ts";
 import { z } from "zod";
 import { withGit, type GitProcessOptions } from "./git-process.ts";
 import { StringDecoder } from "node:string_decoder";
@@ -57,6 +58,7 @@ export class GitWorkspace implements WorkspaceFiles {
   readonly root: string;
   index: PathIndex;
   private cap: number;
+  private ordinaryFolder = false;
   private options: GitProcessOptions;
   constructor(root: string, cap = 100_000, options: GitProcessOptions = {}) {
     this.options = options;
@@ -87,7 +89,11 @@ export class GitWorkspace implements WorkspaceFiles {
         "Incomplete Git listing",
       );
     });
-    requireContext(result.code === 0, "invalid_request", "Workspace must be a Git repository");
+    requireContext(
+      result.code === 0,
+      "invalid_request",
+      result.stderr.trim() || "Cannot list workspace files",
+    );
   }
   async initialize(): Promise<void> {
     requireContext(
@@ -95,6 +101,29 @@ export class GitWorkspace implements WorkspaceFiles {
       "outside_workspace",
       "Workspace root must be canonical",
     );
+    const repository = await withGit(
+      this.root,
+      ["rev-parse", "--is-inside-work-tree"],
+      this.options,
+      async (child) => {
+        child.stdin.end();
+        child.stdout.resume();
+      },
+    );
+    this.ordinaryFolder =
+      repository.code === 128 &&
+      repository.stderr.startsWith(
+        "fatal: not a git repository (or any of the parent directories):",
+      );
+    requireContext(
+      repository.code === 0 || this.ordinaryFolder,
+      "invalid_request",
+      repository.stderr.trim() || "Cannot inspect workspace repository",
+    );
+    if (this.ordinaryFolder) {
+      this.index = await folderIndex(this.root, this.cap);
+      return;
+    }
     const next = new PathIndex(this.cap);
     await this.listing(["ls-files", "-z", "--cached", "--others", "--exclude-standard"], (path) =>
       next.update(path, true),
@@ -107,6 +136,14 @@ export class GitWorkspace implements WorkspaceFiles {
   }
   private async checked(path: string): Promise<string> {
     const contained = await containedPath(this.root, path);
+    if (this.ordinaryFolder) {
+      requireContext(
+        !contained.local.split(/[\\/]/).includes(".git"),
+        "ignored",
+        "Git metadata cannot be mentioned",
+      );
+      return contained.absolute;
+    }
     const ignored = await ignoredPaths(this.root, [contained.local], this.options);
     requireContext(!ignored.has(contained.local), "ignored", "Path is ignored by Git");
     return contained.absolute;
@@ -155,8 +192,16 @@ export class GitWorkspace implements WorkspaceFiles {
    * are proven per path before Git sees it; ancestors are stat'ed once.
    */
   async update(paths: readonly string[]): Promise<void> {
-    if (paths.some((path) => path.endsWith(".gitignore") || path.startsWith(".git/"))) {
+    if (
+      paths.some(
+        (path) => path === ".git" || path.endsWith(".gitignore") || path.startsWith(".git/"),
+      )
+    ) {
       await this.initialize();
+      return;
+    }
+    if (this.ordinaryFolder) {
+      await updateFolderIndex(this.root, this.index, this.cap, paths);
       return;
     }
     const scope: MetadataScope = new Map();

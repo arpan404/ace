@@ -43,11 +43,9 @@ export function AgentsSettings() {
         <DefaultProvider />
         <AccessDefaultRow />
         <SettingSwitch setting={settingKeys.worktree} entry="threads.useWorktree" />
-        <SettingSwitch
-          setting={settingKeys.forkOnSwitch}
-          entry="threads.forkOnSwitch"
-          description="The thread you switch from stays as it was."
-        />
+      </SettingSection>
+      <SettingSection label="Switching providers" scope="daemon">
+        <SettingSwitch setting={settingKeys.forkOnSwitch} entry="threads.forkOnSwitch" />
       </SettingSection>
       <RecoverySettings />
       <RoleSettings />
@@ -84,7 +82,7 @@ function ThreadListSettings() {
       </SettingRow>
       <SettingRow
         {...settingRow("threads.autoSettleAfter")}
-        description="Threads that need you never settle."
+        description="Move finished threads out of the active list after this delay. Threads that need you stay active."
       >
         <DaemonSlot control={autoSettle}>
           <Select
@@ -127,7 +125,7 @@ function DefaultProvider() {
       label: providerChoiceLabel({ name: providerNames[value], state: "not_installed" }),
     });
   return (
-    <SettingRow {...row} description="Change it in any thread.">
+    <SettingRow {...row} description={row.description}>
       {error.providers ? (
         <ProviderReadError message={error.providers} retry={error.retry} />
       ) : (

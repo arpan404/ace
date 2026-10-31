@@ -1,6 +1,55 @@
-import { screen, within, waitFor } from "@testing-library/react";
+import { act, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { createQueryClient } from "@/app.tsx";
+import { fakeClient } from "@/test/fake-client.ts";
+import { storageUsageKey } from "@/lib/storage-usage-policy.ts";
+
+test("storage keeps the previous rows while a forced measurement runs and reports a failed refresh", async () => {
+  const queries = createQueryClient();
+  queries.setQueryData(storageUsageKey, {
+    categories: [],
+    databaseBytes: 2_000_000,
+    reclaimableDatabaseBytes: 0,
+    measuredAt: 60_000,
+    complete: true,
+    backups: [],
+  });
+  const gate = Promise.withResolvers<void>();
+  const scans: unknown[] = [];
+  const app = harness({
+    queryClient: queries,
+    uiClock: () => 120_000,
+    client(daemon) {
+      const client = fakeClient(daemon);
+      const request = client.request.bind(client);
+      vi.spyOn(client, "request").mockImplementation(async (input, options) => {
+        if (input.type === "storage.request" && input.operation.op === "storage.usage") {
+          scans.push(input.operation);
+          await gate.promise;
+          throw new Error("Scan interrupted");
+        }
+        return request(input, options);
+      });
+      return client;
+    },
+  });
+  await app.open("/settings/storage");
+  expect(await screen.findByText("2.0 MB")).toBeTruthy();
+  expect(screen.getByText("Measured 1m ago.")).toBeTruthy();
+  const refresh = screen.getByRole("button", { name: "Refresh usage" });
+  await userEvent.click(refresh);
+  expect(scans).toEqual([{ op: "storage.usage", force: true }]);
+  expect(screen.getByText("2.0 MB")).toBeTruthy();
+  expect(screen.getByText("Updating storage usage…")).toBeTruthy();
+  expect(refresh).toHaveProperty("disabled", true);
+  await userEvent.click(refresh);
+  expect(scans).toHaveLength(1);
+  gate.resolve();
+  expect(await screen.findByText(/Couldn't update storage usage/)).toBeTruthy();
+  expect(screen.getByText("2.0 MB")).toBeTruthy();
+  await waitFor(() => expect(refresh).toHaveProperty("disabled", false));
+});
 import { harness } from "@/test/harness.tsx";
 
 test("storage scans through the browser worker client", async () => {
@@ -208,4 +257,86 @@ test("forcing one worktree keeps the delete-all preview scoped to worktrees and 
   await userEvent.click(within(dialog).getByRole("button", { name: "Remove items" }));
   expect(await within(list).findByText("Removed")).toBeTruthy();
   expect(within(list).getByText("Keep · Pinned thread")).toBeTruthy();
+});
+
+test("reopening storage paints an old measurement while the normal cached response is delayed", async () => {
+  const queries = createQueryClient();
+  const app = harness({ queryClient: queries, uiClock: () => 120_000 });
+  app.daemon.seedServices({ storageDatabase: { bytes: 2_000_000, reclaimable: 0 } });
+  await app.open("/settings/storage");
+  expect(await screen.findByText("2.0 MB")).toBeTruthy();
+  await userEvent.click(screen.getByRole("link", { name: "Appearance" }));
+  await screen.findByRole("heading", { name: /^Appearance$/ });
+  await queries.invalidateQueries({ queryKey: storageUsageKey, refetchType: "none" });
+  const gate = Promise.withResolvers<void>();
+  const operations: unknown[] = [];
+  const request = app.client.request.bind(app.client);
+  vi.spyOn(app.client, "request").mockImplementation(async (input, options) => {
+    if (input.type === "storage.request" && input.operation.op === "storage.usage") {
+      operations.push(input.operation);
+      await gate.promise;
+    }
+    return request(input, options);
+  });
+  app.daemon.seedServices({ storageDatabase: { bytes: 3_000_000, reclaimable: 0 } });
+  await userEvent.click(screen.getByRole("link", { name: "Storage" }));
+  expect(await screen.findByText("2.0 MB")).toBeTruthy();
+  expect(screen.getByText("Updating storage usage…")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Preview cleanup" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("spinbutton", { name: "Worktrees retention days" })).toBeTruthy();
+  expect(operations).toEqual([{ op: "storage.usage" }]);
+  gate.resolve();
+  expect(await screen.findByText("3.0 MB")).toBeTruthy();
+});
+
+test("offline storage keeps its last measurement and reconnect reads the saved cache without forcing", async () => {
+  const app = harness();
+  app.daemon.seedServices({ storageDatabase: { bytes: 2_000_000, reclaimable: 0 } });
+  await app.open("/settings/storage");
+  expect(await screen.findByText("2.0 MB")).toBeTruthy();
+  act(() => {
+    app.daemon.refuseConnections(true);
+    app.daemon.disconnectAll();
+  });
+  expect(await screen.findByText("Offline. Showing the previous measurement.")).toBeTruthy();
+  expect(screen.getByText("2.0 MB")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Refresh usage" })).toHaveProperty("disabled", true);
+  const gate = Promise.withResolvers<void>();
+  const operations: unknown[] = [];
+  const request = app.client.request.bind(app.client);
+  vi.spyOn(app.client, "request").mockImplementation(async (input, options) => {
+    if (input.type === "storage.request" && input.operation.op === "storage.usage") {
+      operations.push(input.operation);
+      await gate.promise;
+    }
+    return request(input, options);
+  });
+  app.daemon.seedServices({ storageDatabase: { bytes: 3_000_000, reclaimable: 0 } });
+  app.daemon.refuseConnections(false);
+  await waitFor(() => expect(operations).toEqual([{ op: "storage.usage" }]));
+  expect(screen.getByText("2.0 MB")).toBeTruthy();
+  gate.resolve();
+  expect(await screen.findByText("3.0 MB")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Refresh usage" })).toHaveProperty("disabled", false);
+});
+
+test("an incomplete measurement keeps measured values and clears its warning after a complete refresh", async () => {
+  const queries = createQueryClient();
+  queries.setQueryData(storageUsageKey, {
+    categories: [{ kind: "logs", bytes: 100_000, items: 2 }],
+    databaseBytes: 2_000_000,
+    reclaimableDatabaseBytes: 0,
+    measuredAt: 60_000,
+    complete: false,
+    backups: [],
+  });
+  const app = harness({ queryClient: queries, uiClock: () => 120_000 });
+  app.daemon.seedServices({ storageDatabase: { bytes: 3_000_000, reclaimable: 0 } });
+  await app.open("/settings/storage");
+  expect(await screen.findByText("2.0 MB")).toBeTruthy();
+  expect(screen.getByText("100 KB")).toBeTruthy();
+  expect(screen.getByText("Measurement incomplete. Refresh to try again.")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Refresh usage" }));
+  expect(await screen.findByText("3.0 MB")).toBeTruthy();
+  expect(screen.queryByText("Measurement incomplete. Refresh to try again.")).toBeNull();
 });

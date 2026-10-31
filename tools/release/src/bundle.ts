@@ -45,7 +45,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|worktree-io|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|install|device-tools|metadata-host-client)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|worktree-io|usage-scanner|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|install|device-tools|metadata-host-client)\.ts$/,
             },
             async (args) => {
               // Windows paths arrive with backslashes; the rewrites below match `/` paths.
@@ -64,6 +64,11 @@ export async function bundleDaemon(
                   "/daemon/src/storage/worktree-io.ts",
                   "./worktree-worker.ts",
                   "./storage-worktree-worker.mjs",
+                ],
+                [
+                  "/daemon/src/storage/usage-scanner.ts",
+                  "./usage-worker.ts",
+                  "./storage-usage-worker.mjs",
                 ],
               ]) {
                 if (source && worker && output && args.path.endsWith(source))
@@ -202,8 +207,6 @@ export async function bundleDaemon(
   const workspaceIncluded = [...inputs].some((input) =>
     input.endsWith("packages/workspace/src/descriptor.ts"),
   );
-  if (workspaceIncluded)
-    await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   if ([...inputs].some((input) => input.endsWith("packages/terminal/src/pty.ts")))
     stageTerminalGuardian(repo, root, target);
   const helpers = [
@@ -216,6 +219,7 @@ export async function bundleDaemon(
     ["apps/daemon/src/cursor-account-terminal.ts", "cursor-account-terminal.mjs"],
     ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],
     ["apps/daemon/src/storage/worktree-worker.ts", "storage-worktree-worker.mjs"],
+    ["apps/daemon/src/storage/usage-worker.ts", "storage-usage-worker.mjs"],
     ["apps/daemon/src/stall-watchdog-worker.ts", "stall-watchdog-worker.mjs"],
     ["packages/adapter-cursor/src/host-entry.ts", "cursor-sdk-host.mjs"],
     ["packages/adapter-cursor/src/api-key-entry.ts", "cursor-api-key.mjs"],
@@ -253,6 +257,10 @@ export async function bundleDaemon(
     for (const input of Object.keys(helper.metafile.inputs)) inputs.add(input);
     scripts.push(...Object.keys(helper.metafile.outputs));
   }
+  // A worker can be the only consumer of pinned filesystem access. Its native dependency
+  // becomes visible only after helper builds have contributed their inputs.
+  if ([...inputs].some((input) => input.endsWith("packages/workspace/src/descriptor.ts")))
+    await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   // esbuild reports output paths relative to the working directory.
   await assertAsciiScripts(scripts.map((path) => resolve(path)));
   return [...inputs];

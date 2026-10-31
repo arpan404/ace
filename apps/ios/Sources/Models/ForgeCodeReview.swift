@@ -38,7 +38,8 @@ enum ForgeFileSides: Decodable, Sendable, Equatable {
     struct Block: Decodable, Sendable, Equatable {
         /// `same`, `del` or `add`.
         let kind: String
-        let blocks: [ForgeRichBlock]
+        /// The block's Markdown source.
+        let text: String
     }
     /// One side of an image: bytes (base64), none (added or removed), or why it can't be drawn.
     struct Image: Decodable, Sendable, Equatable {

@@ -9,6 +9,11 @@ options:
   bundleIdPrefix: app.ace
   deploymentTarget:
     iOS: "18.0"
+# markit renders Markdown, math and code (packages/markit, Rust behind a Swift package). Its core,
+# `Artifacts/MarkitCore.xcframework`, and licence notices are built by `bun run markit`.
+packages:
+  Markit:
+    path: ../../packages/markit/platforms/ios
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -83,6 +88,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - target: AceActivity
+      - package: Markit
       - sdk: JavaScriptCore.framework
       - sdk: libsqlite3.tbd
   AceActivity:

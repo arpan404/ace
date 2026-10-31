@@ -11,7 +11,6 @@ import { FileRevisions, findFile } from "./forge-code.ts";
 import { ForgeRange } from "./forge-commits.ts";
 import { prDetail } from "./forge-pr-reads.ts";
 import { ForgeRefusal, type ForgeReads } from "./forge-reads.ts";
-import { repositoryBlocks, type RichBlock } from "./forge-rich.ts";
 
 /*
  * A changed file read whole on both sides, for what its patch can't show well: a Markdown
@@ -48,7 +47,8 @@ export type SidesReply =
   | {
       type: "forge.pull.file.sides";
       as: "rendered";
-      blocks: { kind: "same" | "del" | "add"; blocks: RichBlock[] }[];
+      /** Each block of the Markdown as its source, drawn on the phone (GitHub flavour). */
+      blocks: { kind: "same" | "del" | "add"; text: string }[];
       /** Blocks past the phone's budget; the rest read on GitHub. */
       hidden: number;
       /** The commits drawn. */
@@ -177,7 +177,6 @@ export async function readFileSides(
       revisions,
     };
   }
-  const repository = detail.status.ref.repository;
   const changes = blockDiff(
     markdownBlocks(textOf(before)),
     markdownBlocks(textOf(after)),
@@ -188,7 +187,7 @@ export async function readFileSides(
     as: "rendered",
     blocks: changes.slice(0, blockBudget).map((change) => ({
       kind: change.kind,
-      blocks: repositoryBlocks(preview(change.item, 16_384), repository),
+      text: preview(change.item, 16_384),
     })),
     hidden: Math.max(0, changes.length - blockBudget),
     revisions,

@@ -39,7 +39,7 @@ struct SkillSourceView: View {
                             if let hash { review = PluginReviewRequest(operation: ["type": "plugins.edit", "name": component.plugin, "path": component.path, "expectedHash": hash, "text": source]) }
                         }.disabled(source == original || source.utf16.count > 262144)
                     } else {
-                        MarkdownView(text: source)
+                        AceMarkdown(text: source)
                         if model.canOperate { Button("Edit source") { editing = true }.disabled(source.utf16.count > 262144) }
                     }
                 }

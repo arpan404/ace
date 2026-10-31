@@ -237,4 +237,4 @@ jobs:
       - name: Web long-thread budgets (paging, turn jumps, search and live tail)
         run: cd tools/web-perf && bun run long-thread
       - name: Web markdown streaming budgets (a 40 KB answer, worker time per update, remounts)
-        run: cd tools/web-perf && bun run markdown-stream
+        run: cd tools/web-perf && bun run markit-stream

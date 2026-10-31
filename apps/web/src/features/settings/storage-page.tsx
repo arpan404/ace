@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
-import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { useStorageUsage } from "./use-storage-usage.ts";
+import { useNow } from "@/lib/time.ts";
+import { formatAgo } from "@ace/ui-core";
+import { Skeleton } from "@/components/ui/skeleton.tsx";
 import type { StorageApply, StorageCompaction, StoragePlan, StorageRequest } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -15,7 +18,7 @@ import { StorageCompactAction, StoragePlanPreview } from "./storage-plan.tsx";
 import { itemCount, storageLabels } from "@ace/ui-core/host-care";
 import { formatBytes } from "@ace/ui-core/byte-size";
 import { FailedBackups, WorktreeStorageSettings } from "./worktree-storage.tsx";
-import { StorageRetention } from "@ace/protocol";
+import { StorageKind, StorageRetention } from "@ace/protocol";
 
 /**
  * Settings › Storage for the machine Settings edits: what its data takes, a reviewed cleanup,
@@ -24,6 +27,7 @@ import { StorageRetention } from "@ace/protocol";
 export function StorageSettings() {
   const client = useClient();
   const ready = useConnectionState() === "ready";
+  const now = useNow();
   const [plan, setPlan] = useState<StoragePlan>();
   const [result, setResult] = useState<StorageApply>();
   const [forceItems, setForceItems] = useState<string[]>([]);
@@ -35,18 +39,7 @@ export function StorageSettings() {
     if (response.result.kind === "error") throw new Error(response.result.message);
     return response.result;
   };
-  const usage = useDaemonQuery({
-    queryKey: ["storage", "usage"],
-    read: async (daemon, signal) => {
-      const reply = await daemon.request(
-        { type: "storage.request", operation: { op: "storage.usage" } },
-        { signal },
-      );
-      const response = reply.result;
-      if (response.kind !== "usage") throw new Error("Unexpected storage response.");
-      return response.usage;
-    },
-  });
+  const { query: usage, refresh: refreshUsage } = useStorageUsage();
   const preview = async (
     operation: Extract<StorageRequest["operation"], { op: "cleanup.plan" }>,
   ) => {
@@ -87,7 +80,7 @@ export function StorageSettings() {
       });
       if (response.kind !== "apply") throw new Error("Unexpected cleanup response.");
       setResult(response.apply);
-      await usage.refetch();
+      await refreshUsage();
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -105,7 +98,7 @@ export function StorageSettings() {
       const response = await request(operation);
       if (response.kind !== "compaction") throw new Error("Unexpected compaction response.");
       setCompaction(response.compaction);
-      await usage.refetch();
+      await refreshUsage();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Compaction could not finish.");
     } finally {
@@ -149,25 +142,44 @@ export function StorageSettings() {
               }
             />
             {!usage.data.complete && (
-              <SettingNote>Measured in a bounded batch; refresh for more.</SettingNote>
+              <SettingNote>Measurement incomplete. Refresh to try again.</SettingNote>
             )}
             <FailedBackups backups={usage.data.backups} />
+            <SettingNote role={usage.isError ? "alert" : "status"}>
+              {usage.isError
+                ? "Couldn't update storage usage. Showing the previous measurement. Refresh to try again."
+                : !ready
+                  ? "Offline. Showing the previous measurement."
+                  : usage.isFetching
+                    ? "Updating storage usage…"
+                    : `Measured ${formatAgo(usage.data.measuredAt, now)}.`}
+            </SettingNote>
           </>
         ) : (
-          <SettingNote role={usage.isError ? "alert" : "status"}>
-            {usage.isError
-              ? "Couldn't measure storage. Refresh to try again."
-              : ready
-                ? "Measuring storage…"
-                : "Reconnect to measure storage."}
-          </SettingNote>
+          <>
+            {StorageKind.options.map((kind) => (
+              <SettingRow key={kind} title={storageLabels[kind]} inline>
+                <Skeleton className="h-3 w-16" />
+              </SettingRow>
+            ))}
+            <SettingRow title="Transcript database" inline>
+              <Skeleton className="h-3 w-16" />
+            </SettingRow>
+            <SettingNote role={usage.isError ? "alert" : "status"}>
+              {usage.isError
+                ? "Couldn't measure storage. Refresh to try again."
+                : ready
+                  ? "Measuring storage…"
+                  : "Reconnect to measure storage."}
+            </SettingNote>
+          </>
         )}
         <SettingFooter>
           <Button
             size="sm"
             variant="ghost"
-            disabled={!ready || busy}
-            onClick={() => void usage.refetch()}
+            disabled={!ready || busy || usage.isFetching}
+            onClick={() => void refreshUsage().catch(() => {})}
           >
             Refresh usage
           </Button>

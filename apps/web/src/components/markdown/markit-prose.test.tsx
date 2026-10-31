@@ -12,12 +12,4 @@ describe("an answer stays readable whether or not markit can render it", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(screen.getByText(/All remotes pruned\./)).toBeTruthy();
   });
-
-  it("keeps the streaming cursor beside the text", () => {
-    render(
-      <MarkitProse text="Working" streaming tail={<span role="status" aria-label="Streaming" />} />,
-    );
-    expect(screen.getByText("Working")).toBeTruthy();
-    expect(screen.getByRole("status", { name: "Streaming" })).toBeTruthy();
-  });
 });

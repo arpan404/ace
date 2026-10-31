@@ -154,6 +154,10 @@
       "maximum": 9007199254740991,
       "type": "integer"
     },
+    "prSettledKey": {
+      "maxLength": 131072,
+      "type": "string"
+    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },

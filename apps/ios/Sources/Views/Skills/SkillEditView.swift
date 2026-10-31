@@ -48,7 +48,7 @@ struct SkillEditView: View {
                     .transition(.opacity)
                 }
                 InsetHeader("Instructions").padding(.horizontal, AceTheme.Spacing.lg)
-                SourceTextView(document: SourceDocument(key: "\(page.hash)|\(session)", text: page.body, colours: [], runs: [], marks: [:]),
+                SourceTextView(document: SourceDocument(key: "\(page.hash)|\(session)", text: page.body, language: nil, marks: [:]),
                                wrap: true, editable: !saving, line: nil, handle: handle, dirty: { bodyDirty = $0 })
                     .accessibilityIdentifier("skill.edit.body")
                     .ignoresSafeArea(.container, edges: .bottom)

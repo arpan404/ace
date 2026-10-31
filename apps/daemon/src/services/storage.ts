@@ -20,7 +20,16 @@ export async function startStorage(context: ServiceContext): Promise<void> {
     root: context.config.dataDir,
     worktrees,
   };
-  const storage = new StorageService(owner);
+  const storage = new StorageService(
+    owner,
+    {},
+    {
+      runtime: {
+        schedule: context.options.storageSchedule ?? storageSchedule,
+        failed: backgroundFailure(context, "Storage usage scan failed"),
+      },
+    },
+  );
   context.resources.own(() => storage.close(), "storage operations");
   context.resources.onShutdown(() => {
     storage.stop();
@@ -43,6 +52,7 @@ export async function startStorage(context: ServiceContext): Promise<void> {
         : reviewer !== "storage:scheduler" || scheduled,
   );
   context.services.storage = storage;
+  storage.startUsage();
   const schedule = new ScheduledStorageCleanup(
     owner,
     storage,

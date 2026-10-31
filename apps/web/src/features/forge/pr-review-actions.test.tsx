@@ -126,7 +126,7 @@ test("a suggestion commits on its own or with others as one batch, never from an
     await screen.findByRole("button", { name: "Heart: 2, including you" });
     // The outdated thread's suggestion offers nothing to commit.
     expect(screen.getAllByRole("button", { name: "Commit suggestion" })).toHaveLength(2);
-    const named = screen.getByText("Name it.").closest("li");
+    const named = screen.getByText(/Name it\./).closest("li");
     if (!named) throw new Error("Missing the named suggestion's thread");
     await userEvent.click(within(named).getByRole("button", { name: "Commit suggestion" }));
     const message = await screen.findByRole<HTMLInputElement>("textbox", {

@@ -340,3 +340,87 @@ verification should include these production mutations:
 - Omit either running journal or its startup replay.
 - Drop replay deletion coverage when purging a transcript.
 - Apply a preview before the user's confirmation.
+
+## Usage snapshots and automatic scans
+
+`storage.usage` without `force`, or with `force: false`, returns the last valid
+measurement. With no valid snapshot, startup performs no activity probes or
+usage scans until the first usage request. That first read starts and awaits a
+scan, and enables idle retries even if the attempt fails. A persisted valid
+snapshot enables automatic scheduling immediately after restart.
+Explicit Refresh sends `{"op":"storage.usage","force":true}` and awaits a new
+scan, or joins the scan already running. All clients and automatic scans share
+one scanner. The explicit `ace storage usage` CLI command also requests a forced
+measurement. Usage and explicit refresh both retain read authority. Concurrent
+refreshes join the active scan rather than queueing scans. A cached read stays
+available while that scanner works. No push
+event announces a new measurement; a client sees it on its next usage read.
+The response retains the scanner's `measuredAt` and `complete` fields, including
+`complete: false` for bounded partial measurements. Backup outcomes remain live
+from the existing backup journal.
+
+The daemon atomically saves the measurement and its next deadline in SQLite.
+The binding includes the data root and host, so a copied database cannot supply
+another root or host's measurement. Invalid persisted data is ignored. The next
+automatic scan is due four hours after the last complete scan finishes.
+A valid partial result is displayed and persisted, but retries after 15 minutes,
+subject to the same idle gate. Restart preserves that retry deadline. Each scan
+starts afresh; Refresh does not advance a traversal cursor or promise to cover
+more data. A root that exceeds the scanner limits can continue to report a
+partial measurement.
+Restarting does not extend that deadline. A failed or cancelled scan keeps the
+previous snapshot. These measurements never authorize cleanup; planning and
+apply still inspect and validate their own current inventory.
+
+When due, automatic scans wait for measured CPU busy time at or below 20% and
+aggregate disk throughput at or below 1 MiB/s. CPU uses `os.cpus()` time deltas.
+macOS reads the second interval from `iostat`; Linux samples the kernel disk
+sector counters twice; Windows reads the CIM physical disk throughput counter.
+Probes run only when due, use bounded asynchronous commands without elevated
+privileges, and accept cancellation. Disk counters can include multiple layers
+on Linux, which can defer a scan conservatively. A missing tool, counter, access
+refusal or unrecognized output means activity is unknown. Unknown activity does
+not establish an idle disk and postpones automatic scans for 15 minutes. Busy
+activity retries after one minute, and sampling or scan errors after five
+minutes. Explicit Refresh and the first uncached read bypass this idle gate;
+they retain the scanner's resource limits.
+
+Cleanup and compaction invalidate the measurement generation before effects
+begin. The previous snapshot remains visible, but a scan from before those
+effects cannot replace it. Before effects begin, the mutation waits for the
+scanner's required `waitForIdle()` ownership barrier, which resolves only after
+its children exit and release their read handles. It waits even when the scan
+caller already rejected after a reap timeout. A five-second cancellation
+deadline refuses the mutation if the scanner cannot stop. This wait is separate
+from the refresh promise, which waits for mutations and then scans again. Mutations make the automatic deadline due immediately, including after
+partial failures. Scans receive an abort signal after ten minutes. Shutdown
+aborts probes and scans, calls the worker's close method, and bounds the wait
+for usage shutdown to five seconds. Worker cancellation must settle promptly
+before a later scan starts.
+
+Disk counter formats follow the [Linux kernel I/O statistics documentation](https://cdn.kernel.org/doc/html/latest/admin-guide/iostats.html)
+and Microsoft's [physical disk performance counters](<https://learn.microsoft.com/en-us/previous-versions/aa394262(v=vs.85)>).
+
+### Worker resource limits
+
+The scanner forks one read-only Node process per measurement and reaps it before
+admitting another. Filesystem operations are sequential. Traversal pauses for one
+millisecond every 32 steps; transcript and registry pages also yield. Usage only
+measures registered worktrees, without Git status or cleanup inspection. Cleanup
+retains its separate ownership and Git validation.
+
+Default measurement limits are 10 seconds, 250,000 traversal steps, depth 64, and
+10,000 names in any one directory. Results that hit a limit or an unreadable path
+are lower bounds with `complete: false`. Each attempt starts afresh. A partial
+measurement does not imply that another refresh will cover additional paths.
+
+Cancellation gives the child one second to cooperate, then sends a kill and waits
+at most two seconds for exit. Missing exit evidence rejects the caller but keeps
+the scanner slot occupied. Mutation admission separately waits for actual exit,
+so a rejected scan never serves as proof that its read handles were released.
+
+Run the temporary-fixture benchmark with
+`node apps/daemon/src/storage/usage-worker.bench.ts`. One macOS run on Node 26.7.0
+measured 20,000 files and 2,560,000 log bytes completely in 1,552 ms, with daemon
+event-loop p99 delay 6.71 ms and cancellation in 12 ms. These are fixture results;
+filesystem latency, directory shape, and host activity affect real measurements.

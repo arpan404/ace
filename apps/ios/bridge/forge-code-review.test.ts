@@ -170,7 +170,7 @@ test("side by side, a change's removed and added lines share a row", async () =>
   expect(row?.[1] === null ? undefined : file.lines[row?.[1] ?? -1]?.kind).toBe("add");
 });
 
-test("the Markdown guide reads as rendered blocks, its changed paragraphs removed and added", async () => {
+test("the Markdown guide reads as its blocks, its changed paragraphs removed and added", async () => {
   const { ask } = await connected();
   const file = (await ask({ type: "forge.pull.file", ...pull, path: guide })) as FileView;
   expect(file.rendered).toBe(true);
@@ -180,7 +180,7 @@ test("the Markdown guide reads as rendered blocks, its changed paragraphs remove
     path: guide,
     as: "rendered",
   })) as {
-    blocks: { kind: string; blocks: { k: string }[] }[];
+    blocks: { kind: string; text: string }[];
   };
   expect(reply.blocks.map((block) => block.kind)).toEqual([
     "same",
@@ -191,7 +191,8 @@ test("the Markdown guide reads as rendered blocks, its changed paragraphs remove
     "add",
     "add",
   ]);
-  expect(reply.blocks.at(-1)?.blocks[0]?.k).toBe("alert");
+  // Each block arrives as its Markdown source, for the phone to draw in GitHub's flavour.
+  expect(reply.blocks.at(-1)?.text).toMatch(/^> \[!/);
 });
 
 test("a file's sides are read at the commits its diff showed, and say which they are", async () => {

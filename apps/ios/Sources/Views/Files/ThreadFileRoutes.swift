@@ -96,7 +96,7 @@ struct ThreadFileRoutes: ViewModifier {
     }
 }
 
-extension MarkdownView {
+extension AceMarkdown {
     /// An agent's local links open through the thread (`fileLinks`); web links open as usual.
     func fileLinks(_ opener: FileLinkOpener?, itemId: String) -> some View {
         environment(\.openURL, OpenURLAction { url in

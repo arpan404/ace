@@ -37,7 +37,6 @@ import {
 import { bodyKey } from "./forge-task.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
 import { keyOf, type ForgeLabelView } from "./forge-rows.ts";
-import { repositoryBlocks, type RichBlock } from "./forge-rich.ts";
 
 /*
  * One pull request as the phone's page shows it: the header, the merge gates and the one
@@ -104,7 +103,6 @@ export interface PullReply {
   commits: number;
   changedFiles: number;
   body: string;
-  bodyBlocks: RichBlock[];
   /** The description's task boxes tick and save. */
   tasks: boolean;
   /** What the Timeline holds, in words: "4 comments · 2 open conversations". */
@@ -228,7 +226,6 @@ export async function readPull(
     commits: detail.commits,
     changedFiles: detail.changedFiles,
     body: preview(detail.body, 32_768),
-    bodyBlocks: repositoryBlocks(preview(detail.body, 32_768), status.ref.repository),
     tasks: lifecycle?.snapshot.editableFields.includes("body") ?? false,
     conversation: conversationWords(status),
     labels: detail.labels.slice(0, 20).map((name) => ({

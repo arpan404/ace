@@ -53,7 +53,7 @@ struct ForgeDiffLines: View {
                 ForEach(line.drafts) { draft in
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                         Text("Pending").meta(AceTone.needsYou.text)
-                        MarkdownView(text: draft.body)
+                        AceMarkdown(text: draft.body)
                     }
                     .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
                 }

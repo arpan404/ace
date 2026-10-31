@@ -48,6 +48,10 @@
       "maximum": 9007199254740991,
       "type": "integer"
     },
+    "prSettledKey": {
+      "maxLength": 131072,
+      "type": "string"
+    },
     "readAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

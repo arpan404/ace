@@ -1,3 +1,4 @@
+import { settingDescriptions } from "./setting-descriptions.ts";
 import { agentSettingTitles } from "@ace/ui-core";
 import { desktopCli } from "@/boot/desktop-cli.ts";
 import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
@@ -480,9 +481,13 @@ export const settingsIndex: readonly SettingEntry[] = entries;
 const byId = new Map<string, SettingEntry>(entries.map((entry) => [entry.id, entry]));
 
 /** A row's anchor and title, from the index: `<SettingRow {...settingRow("…")} />`. */
-export function settingRow(id: SettingId): { id: string; title: string } {
+export function settingRow(id: SettingId): {
+  id: string;
+  title: string;
+  description: string | undefined;
+} {
   const entry = byId.get(id);
-  return { id, title: entry?.title ?? id };
+  return { id, title: entry?.title ?? id, description: settingDescriptions[id] };
 }
 
 /** The page a setting lives on, by its title in the nav. */

@@ -49,7 +49,7 @@ struct ForgeRenderedDiffView: View {
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
                 .frame(width: 12, alignment: .leading)
                 .accessibilityHidden(true)
-            ForgeRichView(blocks: block.blocks, scope: scope)
+            ForgeText(text: block.text, scope: scope)
         }
         .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.xs)
         .frame(maxWidth: .infinity, alignment: .leading)

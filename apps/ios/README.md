@@ -11,9 +11,12 @@ and native pairing flows for iOS and Android.
 
 ## Run
 
-From this directory, with dependencies installed at the repository root:
+From this directory, with dependencies installed at the repository root, the markit
+submodule checked out and Rust's iOS targets added (`generate` builds markit's core):
 
 ```sh
+git submodule update --init --recursive
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 bun run generate
 bun run spike:daemon
 ```
@@ -244,7 +247,14 @@ thought's header (`thoughtLabel`); event blocks carry the web's own event decisi
 divider), re-read when the order around them changes; answer blocks say whether they still
 stream. A truncated finished answer reads its whole text in place (`native.message`).
 
-SwiftUI renders blocks with native Markdown (`Models/Markdown.swift`, SF Mono code blocks),
+Markdown, math and code colours are drawn natively by markit (`packages/markit`, Rust behind
+its Swift package; `bun run generate` builds its `MarkitCore.xcframework` from the submodule
+with `bun run markit`, which needs Rust with the `aarch64-apple-ios` and `aarch64-apple-ios-sim`
+targets). `Views/Markdown/AceMarkdown.swift` wraps `MarkitInline` in ace's look
+(`AceMarkdownTheme`): code blocks with Copy and a fold past 22 lines, diff fences, tables and
+math typeset as images without a web view. A streaming answer reaches markit 10 to 20 times a
+second (`Models/StreamPace.swift`); finished text shows at once. An image an answer names draws
+when the thread captured it (`native.image`, the daemon's `image.resolve`). SwiftUI renders
 work logs on a step rail, inline subagent rows worded as the web's (`@ace/ui-core`
 subagent-row: meta, live detail, elapsed; a delegated child thread pushes, a native
 subagent's lane opens a sheet), question and approval cards on the strip above the composer
@@ -374,13 +384,14 @@ an older head reads "Changed since viewed". Images compare side by side or by sw
 through the daemon. A tapped line, extended with Select more, takes one comment across the span.
 `bridge/forge-code-review.test.ts` and `ForgeCodeReviewUITests` cover them.
 
-Pull request and issue text draws natively from blocks `bridge/forge-rich.ts` builds with the
-web's rules (`@ace/ui-core/forge-rich`): GitHub's HTML subset through the web's allowlist,
-alerts, emoji, mentions, references, footnotes, tables, details, light and dark pictures and
-task boxes that tick through `forge.task`. Images and videos come only through the daemon's
-media path (`forge.media`), private uploads included. SVG, WebM and mermaid draw in a small
-offline web view; `bun run generate` copies mermaid's standalone build to
-`Resources/mermaid.js`. The Inbox segment lists GitHub notifications (`forge.inbox`); pull
+Pull request and issue text is drawn by markit in GitHub's flavour (`Views/Forge/ForgeText.swift`
+over the text the bridge remembers as shown): GitHub's HTML allowlist, alerts, emoji, mentions,
+issue and commit references (opening on the forge, `Models/ForgeLinks.swift`), footnotes, tables
+and task boxes that tick through `forge.task` at markit's offset of the mark. Images come only
+through the daemon's media path (`forge.media`), private uploads included; SVG images, videos
+and bare upload links stay links. Mermaid diagrams draw in a small offline web view handed to
+markit once drawn (`MermaidDiagram.swift`); `bun run generate` copies mermaid's standalone build
+to `Resources/mermaid.js`. The Inbox segment lists GitHub notifications (`forge.inbox`); pull
 requests and issues open in the app, from other repositories too.
 
 ## Several machines
@@ -571,8 +582,8 @@ web's Files tool. Each screen asks one `native.files` service request at a time.
 the daemon's listing (at most 1,000 paths) in the web's order, folders opened in place, with
 `git.status` letters (M, A, D, R, U from `changeLetters`); folders holding a change start open.
 The system search field is quick open through `mention.complete`. A file reads like the web's
-viewer: up to 2 MB (`checkoutViewLimit`), coloured by the shared grammar highlighter
-(`@ace/ui-core/source-highlight`, sent as compact runs for the first 256 KiB of text) with
+viewer: up to 2 MB (`checkoutViewLimit`), coloured by markit off the main thread
+(`Views/Files/SourceColours.swift`, in the language `bridge/checkout-marks.ts` names) with
 change bars from `git.diff` (`lineMarks`), in a TextKit 2 view with a fixed line-number gutter
 and the system find navigator. Markdown renders with its source a tap away; images draw;
 binary and larger files offer Share. Text up to 1 MB edits and saves with `write` over the

@@ -182,7 +182,7 @@ struct AutomationWhenSection: View {
 
     private func menu(_ title: String, selection: String, _ options: [AutomationChoice], id: String,
                       set: @escaping (String) -> Void) -> some View {
-        Picker(title, selection: Binding(get: { selection }, set: set)) {
+        Picker(title, selection: Binding(get: { selection }, set: { value in set(value) })) {
             ForEach(options) { option in Text(option.label).tag(option.value) }
         }
         .pickerStyle(.menu)

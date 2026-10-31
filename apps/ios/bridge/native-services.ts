@@ -29,10 +29,10 @@ import type { PatchSink } from "./agents.ts";
 import type { CheckoutFiles } from "./checkout-files.ts";
 import { NativeFilesRequest } from "./checkout-request.ts";
 import { NativeAttachmentRequest, readNativeAttachment } from "./native-attachment.ts";
+import { NativeImageRequest, readNativeImage } from "./native-image.ts";
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeTerminalInputRequest, writeNativeTerminalInput } from "./native-terminal-input.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
-import { NativeRichRequest, readNativeRich } from "./native-rich.ts";
 import {
   ThreadFileIndex,
   NativeThreadFilesRequest,
@@ -316,11 +316,6 @@ export class NativeServices {
         this.#reply(id, true, readSentPrompt(this.owner, sent.data), "");
         return;
       }
-      const rich = NativeRichRequest.safeParse(raw);
-      if (rich.success) {
-        this.#reply(id, true, await readNativeRich(rich.data), "");
-        return;
-      }
       const turns = NativeTurnsRequest.safeParse(raw);
       if (turns.success) {
         this.#reply(id, true, await readNativeTurns(this.owner, turns.data, controller.signal), "");
@@ -419,6 +414,11 @@ export class NativeServices {
         this.#reply(id, true, await readNativeMedia(this.owner, media.data, controller.signal), "");
         return;
       }
+      const image = NativeImageRequest.safeParse(raw);
+      if (image.success) {
+        this.#reply(id, true, await readNativeImage(this.owner, image.data, controller.signal), "");
+        return;
+      }
       const attachment = NativeAttachmentRequest.safeParse(raw);
       if (attachment.success) {
         this.#reply(
@@ -489,7 +489,10 @@ export class NativeServices {
   }
 }
 
-/** Pull to refresh on the forge lists and pages reads GitHub again. */
+/** Explicit refreshes bypass the phone's fresh read cache as well as the daemon cache. */
 function refreshing(request: unknown): boolean {
-  return z.object({ fresh: z.literal(true) }).safeParse(request).success;
+  return (
+    z.object({ fresh: z.literal(true) }).safeParse(request).success ||
+    z.object({ type: z.literal("host.storage"), force: z.literal(true) }).safeParse(request).success
+  );
 }

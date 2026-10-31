@@ -55,8 +55,8 @@ struct FileSearchRow: Decodable, Sendable, Identifiable, Hashable {
     var id: String { path }
 }
 
-/// A file as the file screen shows it: text (with the web's colours and change marks), an
-/// image, or why it can't be shown.
+/// A file as the file screen shows it: text (with the language it is coloured in and its change
+/// marks), an image, or why it can't be shown.
 struct FileContent: Decodable, Sendable {
     let kind: String
     let size: Int?
@@ -66,10 +66,8 @@ struct FileContent: Decodable, Sendable {
     let data: String?
     let markdown: Bool?
     let editable: Bool?
-    /// Each colour as [light, dark] hex; run colour N is `colours[N - 1]`.
-    let colours: [[String]]?
-    /// Flat [length, colour, …] in UTF-16 units over the whole text.
-    let runs: [Int]?
+    /// The language markit colours the text in; nil shows it plain.
+    let language: String?
     let marks: [LineMark]?
 }
 /// A line changed since the last commit: "added", "modified" or "removed" (lines gone above it).

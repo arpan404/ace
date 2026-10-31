@@ -96,13 +96,12 @@ import XCTest
         timeline.tap()
         let comment = element(app, "forge.comment.issue:2452")
         XCTAssertTrue(comment.waitForExistence(timeout: 20))
-        let boxes = comment.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'forge.task.'"))
-        let open = boxes.matching(NSPredicate(format: "value == 'Not done'")).firstMatch
+        // markit draws a box as a glyph in the text, a link where the box ticks.
+        let open = comment.links.matching(NSPredicate(format: "label BEGINSWITH '☐'")).firstMatch
         if !open.waitForExistence(timeout: 10) { screenshot("task-missing") }
-        XCTAssertTrue(open.exists)
-        XCTAssertTrue(open.isEnabled, "The box in your own comment ticks")
+        XCTAssertTrue(open.exists, "The box in your own comment ticks")
         app.lower(open)
-        let done = boxes.matching(NSPredicate(format: "value == 'Done'"))
+        let done = comment.links.matching(NSPredicate(format: "label BEGINSWITH '☑'"))
         let before = done.count
         open.tap()
         let ticked = expectation(for: NSPredicate(format: "count > \(before)"), evaluatedWith: done)
