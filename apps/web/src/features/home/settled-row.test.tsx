@@ -12,12 +12,12 @@ const title = "Bump Codex app-server to 0.48";
 const named = new RegExp(`^${title}`);
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 
-/** Home with the workbench's merged Codex bump settled and the Settled section open. */
+/** Home with the workbench's merged Codex bump settled and the Settled tab showing. */
 async function openSettled() {
   const storage = memoryKeyValue();
   storage.setItem(
     "ace.home.organizer",
-    JSON.stringify({ baseline: 0, project: null, settledOpen: true }),
+    JSON.stringify({ baseline: 0, project: null, homeTab: "settled" }),
   );
   const history = createMemoryHistory({ initialEntries: ["/"] });
   const app = harness({ storage, history });
@@ -61,9 +61,10 @@ test("→ moves from a settled row to Unsettle, which brings the thread back to 
   const unsettle = screen.getByRole("button", { name: `Unsettle ${title}` });
   expect(document.activeElement).toBe(unsettle);
   await userEvent.keyboard("{Enter}");
-  await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
+  await waitFor(() => expect(screen.getByRole("tab", { name: "Settled 0" })).toBeTruthy());
   expect(settledAt(app)).toBeUndefined();
-  expect(within(threads()).getByRole("link", { name: named })).toBeTruthy();
+  await userEvent.click(screen.getByRole("tab", { name: /^Active/ }));
+  expect(await within(threads()).findByRole("link", { name: named })).toBeTruthy();
 });
 
 test("a settled row's ⋯ opens the row's thread actions", async () => {
