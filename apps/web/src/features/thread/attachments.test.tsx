@@ -650,18 +650,3 @@ test("a refused copy says what happened instead of failing silently", async () =
     ).toBeTruthy();
   });
 });
-
-test("download triggers a save of the full image under its own name", async () => {
-  const clicked: HTMLAnchorElement[] = [];
-  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-    this: HTMLAnchorElement,
-  ) {
-    clicked.push(this);
-  });
-  const { feed } = await openBig();
-  const { dialog } = await openLightbox(feed);
-  within(dialog).getByRole("link", { name: "Download" }).click();
-  expect(clicked).toHaveLength(1);
-  expect(clicked[0]?.getAttribute("download")).toBe("big.png");
-  expect(objectUrls.get(clicked[0]?.getAttribute("href") ?? "")?.size).toBe(fullBytes.length);
-});

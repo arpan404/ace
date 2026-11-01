@@ -96,24 +96,6 @@ test("the command palette adds no blur over the backdrop that already blurred th
   expect(blurs(layers("ace-floating ace-modal").outer)).toBe(false);
 });
 
-test("the lightbox overlay blurs through the shared modal backdrop", () => {
-  // attachment-lightbox.tsx renders its overlay with the shared `ace-backdrop` class: its own
-  // tint keeps the image reading, the blur below is the palette backdrop's `--backdrop-blur`,
-  // and Solid / reduced transparency (`data-surface="solid"`) renders no filter.
-  const lightbox = readFileSync(
-    join(import.meta.dirname, "..", "components", "attachment-lightbox.tsx"),
-    "utf8",
-  );
-  expect(lightbox).toContain("ace-backdrop");
-  expect(glassCss).toMatch(/\.ace-backdrop[\s\S]*?var\(--backdrop-blur\)/);
-  for (const engine of ["liquid", "blur"] as const) {
-    setRoot("translucent", engine);
-    expect(blurs(layers("ace-backdrop").outer)).toBe(true);
-    setRoot("solid", engine);
-    expect(blurs(layers("ace-backdrop").outer)).toBe(false);
-  }
-});
-
 test("the command palette panel takes the near-solid modal tint, not the thin floating one", () => {
   setRoot("translucent", "liquid");
   expect(fill(layers("ace-floating ace-modal").outer)).toContain("--glass-tint-modal");

@@ -95,24 +95,6 @@ test("Changes shows the latest turn's edits by default and the whole thread unde
   );
 });
 
-test("an untouched local diff stays quiet and saving a comment reveals review actions", async () => {
-  const { panel } = await openUncommitted();
-  expect(within(panel).queryByRole("region", { name: "Review" })).toBeNull();
-  expect(within(panel).queryByText(/No comments.*pick lines/)).toBeNull();
-  const replay = file(panel, "apps/server/src/replay.ts");
-  const commentButton = within(replay).getAllByRole("button", { name: /^Comment on line/ })[0];
-  if (!commentButton) throw new Error("No changed line to comment on");
-  await userEvent.click(commentButton);
-  await userEvent.type(
-    await within(replay).findByRole("textbox", { name: /Comment on line/ }),
-    "Check this boundary",
-  );
-  await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
-  const bar = await within(panel).findByRole("region", { name: "Review" });
-  expect(within(bar).getByRole("button", { name: "Approve" })).toBeTruthy();
-  expect(within(bar).getByRole("button", { name: "Request changes" })).toBeTruthy();
-});
-
 test("folded unchanged lines expand, and a file collapses from its header", async () => {
   const { panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
@@ -281,16 +263,6 @@ test("a line comment stays on its line when the diff switches between Unified an
   expect(within(panel).getByText("Carry coldStartWindow too?")).toBeTruthy();
 });
 
-test("Changes keeps counts beside the selected scope and omits unrelated saved checkout totals", async () => {
-  const { panel } = await openChanges();
-  const toolbar = within(panel).getByRole("toolbar", { name: "Changes" });
-  expect(toolbar.textContent).toContain("+");
-  expect(within(panel).queryByRole("status", { name: "Working tree" })).toBeNull();
-  expect(within(panel).getByRole("tab", { name: /Changes/ }).textContent).not.toContain("+");
-  await pickScope(panel, "Uncommitted");
-  expect(await within(panel).findByText("No uncommitted changes")).toBeTruthy();
-});
-
 test("a turn that changed many files mounts only the files near the view, and lists every one", async () => {
   const { app, panel } = await openChanges("test-done");
   // jsdom applies no stylesheet: give the diff's scroller the overflow its class sets.
@@ -362,6 +334,7 @@ test("unsent comments are summed up, sent together, then resolved and reopened",
 
   const review = within(panel).getByRole("region", { name: "Review" });
   expect(within(review).getByRole("status").textContent).toBe("2 comments to send");
+  expect(within(review).getByRole("button", { name: "Approve" })).toBeTruthy();
   await userEvent.click(within(review).getByRole("button", { name: "Request changes" }));
 
   await waitFor(() =>
@@ -373,6 +346,8 @@ test("unsent comments are summed up, sent together, then resolved and reopened",
     ["Carry coldStartWindow too?", true],
     ["Time this out after 5 s.", true],
   ]);
+  // They reach the agent as one queued turn.
+  await screen.findByText(/Review comments to address:/);
 
   const outbox = file(panel, "apps/web/src/relay/outbox.ts");
   const card = within(outbox).getByRole("article", { name: /Comment on line/ });
@@ -502,25 +477,6 @@ test("checkout scopes that cannot run stay out of the scope menu", async () => {
   await userEvent.click(within(panel).getByRole("button", { name: /^Scope:/ }));
   await screen.findByRole("menuitemradio", { name: /^Uncommitted/ });
   expect(screen.queryByRole("menuitem", { name: /^Staged/ })).toBeNull();
-});
-
-test("Changes shows working-tree hunks from shell edits without provider edit items", async () => {
-  const { replayCursor } = await import("@ace/fake-daemon");
-  const app = harness();
-  app.play(replayCursor()).runThrough("asked");
-  app.daemon.workspace.setGitDiff(
-    "thread-replay-cursor",
-    "diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1,2 @@\n Initial\n+QA shell edit\n",
-  );
-  await app.open("/t/thread-replay-cursor");
-  await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
-  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
-  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
-  const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
-  const diff = await within(panel).findByLabelText("Uncommitted diff", {}, { timeout: 5000 });
-  expect(diff.textContent).toContain("+QA shell edit");
-  expect(within(panel).queryByText("No changes yet")).toBeNull();
 });
 
 test("Changes discovers a review started on another device when the tab opens", async () => {

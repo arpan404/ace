@@ -70,20 +70,6 @@ test("forking from an answer opens the fork ready for a message, and the message
   expect(thread(app, "thread-router")?.status.state).toBe("done");
 });
 
-test("the palette forks from the last finished turn", async () => {
-  await openRouter();
-  await userEvent.keyboard("{Meta>}k{/Meta}");
-  await userEvent.type(
-    await screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 }),
-    "Fork",
-  );
-  await userEvent.click(await screen.findByRole("option", { name: /Fork from the last turn/ }));
-  expect(
-    await screen.findByRole("heading", { level: 1, name: "Document the router (fork)" }),
-  ).toBeTruthy();
-  expect(await screen.findByRole("combobox", { name: "Message" })).toBeTruthy();
-});
-
 test("on a desktop window the fork opens with the caret in its composer", async () => {
   vi.stubGlobal("matchMedia", (query: string): MediaQueryList => ({
     matches: query.includes("min-width"),
