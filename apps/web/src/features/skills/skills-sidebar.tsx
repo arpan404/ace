@@ -72,8 +72,8 @@ type CatalogRow =
   | { kind: "home"; home: SkillHome; label: string; count: number; open: boolean; first: boolean }
   | { kind: "skill"; skill: Skill };
 
-/** A label is a 28px line with the gap above it; a skill is one `--row-height` line and 1px. */
-const estimateOf = (row: CatalogRow) => (row.kind === "skill" ? 37 : row.first ? 32 : 48);
+/** A label and a skill are each one `--row-height` line: the label with the gap above it, the skill with 1px below. */
+const estimateOf = (row: CatalogRow) => (row.kind === "skill" ? 37 : row.first ? 40 : 56);
 
 /**
  * Skills' list in the sidebar: every skill the person's agents can load, by where it lives. A

@@ -42,6 +42,11 @@ export function listGroup(list: HTMLElement, heading: string | RegExp) {
   return {
     rows: () => rowsUnder(list, heading),
     getByRole,
+    getAllByRole: (role: string, options?: ByRoleOptions) => {
+      const found = all(role, options);
+      if (!found.length) throw new Error(`No ${role} rows under "${String(heading)}"`);
+      return found;
+    },
     queryAllByRole: all,
     findByRole: (role: string, options?: ByRoleOptions) => waitFor(() => getByRole(role, options)),
     findByText: (text: string | RegExp) =>
