@@ -323,47 +323,6 @@ writeFileSync(join(root, "package-lock.json"), JSON.stringify({ packages: { "nod
     await work.close();
   }
 });
-test("a 302 to another HTTPS URL installs and its entrypoint reads back", async () => {
-  const work = await temporary();
-  const service = await registry(
-    work.root,
-    async () => new Response(body([sample()])),
-    async (url, options) => {
-      if (options?.redirect !== "manual") throw new Error("unexpected redirect");
-      if (String(url) === "https://example.org/artifact")
-        return new Response(null, {
-          status: 302,
-          headers: { location: "https://example.org/real-artifact" },
-        });
-      return new Response("synthetic artifact");
-    },
-  );
-  try {
-    await service.catalog.refresh();
-    const digest = plan(
-      await service.handle({
-        type: "registry.install-plan",
-        requestId: "plan",
-        acpAgentId: "official:sample",
-        runtime: "binary",
-      }),
-    );
-    const installed = await service.handle({
-      type: "registry.install-intent",
-      requestId: "install",
-      intentId: "redirect-approved",
-      digest,
-    });
-    if (!installed.result.ok || !("installation" in installed.result))
-      throw new Error("Missing installation");
-    expect(
-      await readFile((await service.resolve(installed.result.installation)).command, "utf8"),
-    ).toBe("synthetic artifact");
-  } finally {
-    await service.close();
-    await work.close();
-  }
-});
 test("a redirect to an http URL never publishes an installation", async () => {
   const work = await temporary();
   const service = await registry(
@@ -491,7 +450,7 @@ test("a redirect to bytes with the wrong sha256 never publishes an installation"
     await work.close();
   }
 });
-test("five redirects install while a sixth is refused", async () => {
+test("a chain of five HTTPS redirects installs and its entrypoint reads back", async () => {
   const work = await temporary();
   const service = await registry(
     work.root,
