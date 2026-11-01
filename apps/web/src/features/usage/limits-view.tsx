@@ -188,8 +188,8 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
   const countdown = resetCountdown(window.resetsAt, now);
   const tone = headroomTone(window.leftPercent);
   const out = tone === "out";
-  const fresh =
-    window.leftPercent === 100 && (window.pace === undefined || window.pace === "behind");
+  // Nothing used yet: the window is fresh, whenever it would reset.
+  const fresh = window.leftPercent === 100;
   const old = now - window.observedAt > freshMs;
   return (
     <li className={rowGrid}>

@@ -58,7 +58,7 @@ export function TokensSection(props: {
           of input from cache
         </span>
       </SectionHeading>
-      <div aria-hidden className="flex h-1.5 gap-0.5 overflow-hidden rounded-full">
+      <div aria-hidden className="flex h-1.5 max-w-160 gap-0.5 overflow-hidden rounded-full">
         {used.map((row) => (
           <span
             key={row.kind}

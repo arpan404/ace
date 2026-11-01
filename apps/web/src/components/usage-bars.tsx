@@ -10,8 +10,8 @@ const toneFill: Record<HeadroomTone, string> = {
 
 const barWidth = 3;
 const barGap = 2;
-const barTop = 3;
-const barHeight = 14;
+const barTop = 2;
+const barHeight = 16;
 
 /**
  * The rail's Usage glyph: a tiny bar chart in a 20px box, one 3px bar per provider (2px apart,

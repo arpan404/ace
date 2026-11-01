@@ -125,7 +125,7 @@ test("each account is listed once, with each of its windows beneath it", async (
   ]);
 });
 
-test("a window used faster than it runs says it is ahead of pace; one with room says on pace", async () => {
+test("only a window used faster than it runs says so; one on pace says nothing", async () => {
   const app = harness();
   // Four of five hours left with half used: running out early. A week barely used: room to spare.
   report(app.daemon, "codex-personal", {
@@ -135,7 +135,8 @@ test("a window used faster than it runs says it is ahead of pace; one with room 
   await app.open("/usage");
   const personal = await accountBlock("Codex", "Personal");
   expect(within(personal).getByText("Ahead of pace")).toBeTruthy();
-  expect(within(personal).getByText("On pace")).toBeTruthy();
+  expect(within(personal).getAllByText("Ahead of pace")).toHaveLength(1);
+  expect(personal.textContent).not.toContain("On pace");
 });
 
 test("a window whose reset passed since its reading keeps its place and says how old it is", async () => {
@@ -441,24 +442,24 @@ test("the total says how it grew against the same number of days before the rang
   await app.open("/usage");
   await show("Tokens");
   await waitFor(() =>
-    expect(screen.getByTestId("usage-growth").textContent).toBe("vs previous 30 days+100%"),
+    expect(screen.getByTestId("usage-total").textContent).toContain(
+      "100.0% more than the previous 30 days",
+    ),
   );
 });
 
-test("the figures name every machine they count, and one that goes offline is named, not dropped", async () => {
+test("the figures count every machine, and one that goes offline is named, not dropped", async () => {
   const app = harness({ machines: [{ hostId: "build-server", name: "Build server" }] });
   const server = app.machines.get("build-server");
   if (!server) throw new Error("no build server");
   app.daemon.services.usage.sources = [source("codex", "codex-personal", "gpt-5.3-codex", 5)];
   server.services.usage.sources = [source("codex", "codex-team", "gpt-5.3-codex", 5)];
   await app.open("/usage");
-  await waitFor(() =>
-    expect(screen.getByTestId("usage-coverage").textContent).toBe("All 2 machines"),
-  );
 
   await userEvent.click(await screen.findByRole("button", { name: "Today" }));
   await waitFor(() => expect(stat("Tokens")).toBe("200K"));
-  expect(screen.getByTestId("usage-coverage").textContent).toBe("All 2 machines");
+  // With every machine counted, the machine filter says it all; no coverage line.
+  expect(screen.queryByTestId("usage-coverage")).toBeNull();
 
   app.crashMachine("build-server");
   await waitFor(() =>
@@ -535,4 +536,13 @@ test("clicking a row in Where it went filters the whole page to it, and Clear un
   );
   await userEvent.click(screen.getByRole("button", { name: "Clear" }));
   await waitFor(() => expect(stat("Tokens")).toBe("6M"));
+});
+
+test("token types with none fold into one quiet line instead of zero rows", async () => {
+  const app = harness();
+  app.daemon.services.usage.sources = [source("codex", "codex-personal", "gpt-5.3-codex", 5)];
+  await app.open("/usage");
+  const table = await screen.findByRole("table", { name: "Tokens and cost by type" });
+  expect(within(table).queryByRole("rowheader", { name: /Cache writes/ })).toBeNull();
+  expect(screen.getByText("No cache writes in this period.")).toBeTruthy();
 });

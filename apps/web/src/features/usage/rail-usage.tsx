@@ -78,8 +78,8 @@ function UsageCard(props: {
       </p>
       {shown.map((entry) => (
         <section key={entry.key} aria-label={entry.providerLabel} className="mt-2.5">
-          <p className={`${cardGrid} h-6`}>
-            <span className="col-span-2 flex min-w-0 items-center gap-1.5 font-medium">
+          <p className="flex h-6 items-center gap-3">
+            <span className="flex min-w-0 items-center gap-1.5 font-medium">
               <ProviderIcon
                 provider={entry.provider}
                 acpAgentId={entry.acpAgentId}
@@ -88,7 +88,7 @@ function UsageCard(props: {
               />
               <span className="truncate">{entry.providerLabel}</span>
             </span>
-            <span className="col-span-2 truncate text-right text-xs text-subtle-foreground">
+            <span className="ml-auto shrink-0 text-right text-xs text-subtle-foreground">
               {entry.current?.account.label}
               {entry.accounts > 1 && ` · ${entry.accounts} accounts`}
             </span>
