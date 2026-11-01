@@ -79,6 +79,9 @@ the app the owner replaced that with the design below (round six of the mockups,
 
 ## Threads panel: Active on top
 
+_Superseded later on 2026-11-01 by "Threads panel: Inbox, Snoozed, Settled" below: the project
+tree, Show more, quiet projects and the panel's ways to History are gone._
+
 2026-11-01, the owner's choice after trying the Inbox overlay (and turning down a "Working"
 overlay in its place). Nothing floats over the list any more; the panel says what is in hand at
 its top.
@@ -252,6 +255,54 @@ about work in projects.
   bar shows a chat bubble before its title instead of the project's folder.
 - **Threads leaves chats out** of Active, its projects, its quiet projects, its History and its
   search hits. Move to project moves a chat into Threads.
+
+## Threads panel: Inbox, Snoozed, Settled
+
+2026-11-01, the owner's choice after trying Active on top with settled threads in their projects
+(prototype `inbox-approved`). With many agents on many machines, the project tree made the person
+scan folders to find what wanted them, and what was "done" lived in a different shape from what
+was open. The panel now reads like mail: every thread is in one of three places, and the order
+says what to do next.
+
+- **Three tabs** under the title row: **Inbox · Snoozed · Settled**, text tabs, the open one on
+  the `--active` fill; Inbox and Snoozed carry a quiet count. The open tab is kept per device
+  with the organizer (`Organizer.tab`). 1, 2 and 3 switch them from anywhere in the panel.
+- **One flat Inbox by urgency.** Every unsettled, unsnoozed thread across projects and machines,
+  in the order the person would act: pinned; needs you (a request, an unseen failure); running
+  (the whole agent tree counted); finished but unseen; idle. Each band is newest first. There
+  are no headings: the row's own status word says why it is where it is, and a heading would
+  repeat it. Newest first and Manual (Sort threads) keep the person's order below the pinned
+  threads. Placement reads the row attention (`threadsPanel` in ui-core), so a settled thread
+  whose tree still works or asks is in the Inbox, and a band never disagrees with its row.
+- **Snoozed** lists what waits for a time or an event, soonest first; each row says "until …"
+  where its status sits. **Settled** lists settled threads at rest, newest first, in muted
+  titles; it pages up to 100 as it scrolls, then points to search (⌘K) for older ones.
+- **Projects and devices are a filter, not the structure.** The title reads "Threads"; beside it
+  "Everywhere ▾" is the project and device filter the "ace ▾" caret used to open, and it narrows
+  all three tabs. The project tree, Show more, Quiet projects and the per-project History links
+  are gone. History stays as a page (`/history`), reached from the palette and its route.
+- **Rows** are the three-line task rows in every tab, pinned ones too (with a small pin glyph).
+  Hover keeps Snooze, Settle or Unsettle and ⋯. Settle and snooze confirm in a toast with Undo,
+  as archive and move already did; E settles the focused row and H opens its snooze menu.
+- **Event-based snooze.** Besides the times, the snooze menu offers **Until it needs you** for a
+  live thread (it returns the moment its tree asks for an approval or an answer, fails or
+  finishes) and **Until the PR changes** when it has a confirmed pull request (a new review or
+  comment, a push, or checks finishing). Waiting on the thread is the point of most snoozes; a
+  time only guesses when that will be.
+  - The command carries the event (`thread.snooze` `wake`); the daemon stores it with the snooze
+    as `snoozeWake` (for a PR, each linked PR's `updatedAt`, head, state and check roll-up at
+    that moment) and refuses one that can't apply (`snooze_not_live`, `snooze_no_pr`).
+    `snoozedUntil` stays as a 30-day backstop, so every reader of snoozes keeps working and
+    nothing sleeps for good.
+  - The wake is a pure rule (`snoozeWakeDue` in `@ace/projection`) that the daemon's organizer
+    applies whenever a thread's status, queue or details change, and to every thread when it
+    starts, so a wake missed across a restart still happens. The GitHub state refresh now reads
+    each linked PR's head commit and check roll-up for it.
+  - **Safety first (priority 1).** A snooze waiting on an event never hides a need: ui-core's
+    `isSnoozed` reads the same rule, so the row returns before the daemon's wake even arrives,
+    and the needs-you counts and notifications leave out only snoozes to a time the person
+    chose (`isSnoozedToTime`). The rail's Threads dot already counted snoozed threads that need
+    the person and still does; a request always shows in the Inbox, whatever the snooze.
 
 ## Consequences
 
