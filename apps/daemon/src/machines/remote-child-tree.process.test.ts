@@ -61,11 +61,11 @@ async function remoteChild() {
     await children.poll();
     await f.engine.flush();
   };
-  return { f, parent, report, tree: () => tree(f, parent) };
+  return { f, parent, report, tree: () => readTree(f, parent) };
 }
 
 /** The parent's agent tree, as the Summary joins it, with the remote child's row. */
-function tree(f: Awaited<ReturnType<typeof setup>>, parent: McpAttribution) {
+function readTree(f: Awaited<ReturnType<typeof setup>>, parent: McpAttribution) {
   const snapshot = f.store.snapshotThread(parent.threadId);
   const facts: ThreadWork = {
     agents: Object.values(snapshot.agents),
