@@ -259,6 +259,11 @@ export function useOptionalStorage(): KeyValueStorage | undefined {
   return useContext(ServicesContext)?.storage;
 }
 
+/** The app services where there is a `<LayoutProvider>`; undefined outside the shell. */
+export function useOptionalLayoutServices(): LayoutServices | undefined {
+  return useContext(ServicesContext);
+}
+
 /** Stable app services, independent of shell visibility and action registrations. */
 export function useLayoutServices(): LayoutServices {
   const value = useContext(ServicesContext);

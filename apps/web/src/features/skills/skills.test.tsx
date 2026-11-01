@@ -54,11 +54,11 @@ test("Skills opens on the first skill with its source from the plugin", async ()
   await open("/skills");
 
   expect(await screen.findByRole("heading", { level: 2, name: "Code review" })).toBeTruthy();
-  const source = await screen.findByText("Source file", { exact: true });
-  await userEvent.hover(source);
-  expect(await screen.findByRole("tooltip", { name: "skills/code-review/SKILL.md" })).toBeTruthy();
-  // The rendered instructions, not the folded raw Markdown beneath them.
+  // The source file's path reads under its label (#1528 shows row descriptions, not tooltips).
+  expect(await screen.findByText("Source file", { exact: true })).toBeTruthy();
   const section = within(screen.getByRole("region", { name: "Source" }));
+  expect(section.getByText("skills/code-review/SKILL.md", { exact: true })).toBeTruthy();
+  // The rendered instructions, not the folded raw Markdown beneath them.
   await userEvent.click(section.getByText("Read source", { exact: true }));
   expect(
     await section.findByText(/Review the changes since a fixed point/, { selector: "p" }),

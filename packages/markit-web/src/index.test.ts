@@ -66,6 +66,12 @@ describe("links in markit prose go only where they are safe", () => {
   it("treats relative paths and file urls as files on the thread host", () => {
     expect(markitLinkTarget("src/a.ts")).toEqual({ kind: "local", path: "src/a.ts" });
     expect(markitLinkTarget("./a.ts")).toEqual({ kind: "local", path: "./a.ts" });
+    // markit hands targets over percent-encoded; the path comes back as the answer wrote it.
+    expect(markitLinkTarget("/Users/me/Study%20Guide.pdf")).toEqual({
+      kind: "local",
+      path: "/Users/me/Study Guide.pdf",
+    });
+    expect(markitLinkTarget("a%zz.ts")).toEqual({ kind: "local", path: "a%zz.ts" });
     expect(markitLinkTarget("file:///tmp/a.ts")).toEqual({
       kind: "local",
       path: "file:///tmp/a.ts",

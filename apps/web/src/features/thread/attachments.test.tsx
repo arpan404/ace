@@ -125,7 +125,9 @@ test("a native image captured after the answer arrives appears inline from its o
     ),
   ]);
   await within(feed).findByText(/in the chat/);
-  expect(within(feed).queryByRole("img", { name: "Remote result" })).toBeNull();
+  // Until the capture lands, the image has no bytes to show (markit draws its alt text).
+  const pending = await within(feed).findByRole("img", { name: "Remote result" });
+  expect(pending.getAttribute("src")).toBeNull();
   act(() =>
     app.daemon.apply("thread-shots", [
       {
@@ -140,7 +142,8 @@ test("a native image captured after the answer arrives appears inline from its o
       },
     ]),
   );
-  const image = await within(feed).findByRole("img", { name: "Remote result" });
+  await waitFor(() => expect(pending.getAttribute("src")).not.toBeNull());
+  const image = within(feed).getByRole("img", { name: "Remote result" });
   expect(objectUrls.get(image.getAttribute("src") ?? "")?.size).toBe(fixtureBytes);
   expect(image.closest("p")?.textContent).toContain("in the chat.");
   expect(image.closest("p")?.querySelector("div")).toBeNull();
@@ -161,7 +164,7 @@ test("source links open the thread checkout and links outside it download from t
     "/Users/me/Downloads/Study Guide.pdf",
     "%PDF guide",
   );
-  await userEvent.click(await within(feed).findByRole("button", { name: "source" }));
+  await userEvent.click(await within(feed).findByRole("link", { name: "source" }));
   await screen.findByRole("tab", { name: /main.ts/ });
   const downloads: { name: string; blob: Blob | undefined }[] = [];
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
@@ -169,7 +172,7 @@ test("source links open the thread checkout and links outside it download from t
   ) {
     downloads.push({ name: this.download, blob: objectUrls.get(this.href) });
   });
-  await userEvent.click(within(feed).getByRole("button", { name: "the guide" }));
+  await userEvent.click(within(feed).getByRole("link", { name: "the guide" }));
   await waitFor(() => expect(downloads).toHaveLength(1));
   expect(downloads[0]?.name).toBe("Study Guide.pdf");
   expect(await downloads[0]?.blob?.text()).toBe("%PDF guide");
@@ -179,7 +182,7 @@ test("a link outside the checkout that the host can't serve says so", async () =
   const { feed } = await openMessage({}, [
     facts.message("root", "answer", "assistant", "See [other](/remote/other/main.ts)."),
   ]);
-  await userEvent.click(await within(feed).findByRole("button", { name: "other" }));
+  await userEvent.click(await within(feed).findByRole("link", { name: "other" }));
   expect(await screen.findByRole("heading", { name: "Couldn't open main.ts" })).toBeTruthy();
 });
 
@@ -260,8 +263,9 @@ test("a delayed capture outside the loaded transcript refreshes the answer's ima
     ),
     facts.message("root", "latest-chart", "assistant", "![Delayed chart](./home.png)"),
   ];
-  const { app, feed } = await openMessage({}, old, "Delayed chart");
-  await within(feed).findByText("Delayed chart");
+  const { app, feed } = await openMessage({}, old, "Older message 204");
+  const pending = await within(feed).findByRole("img", { name: "Delayed chart" });
+  expect(pending.getAttribute("src")).toBeNull();
   act(() =>
     app.daemon.apply("thread-shots", [
       {
@@ -283,7 +287,8 @@ test("a delayed capture outside the loaded transcript refreshes the answer's ima
       },
     ]),
   );
-  const image = await within(feed).findByRole("img", { name: "Delayed chart" }, { timeout: 3000 });
+  await waitFor(() => expect(pending.getAttribute("src")).not.toBeNull(), { timeout: 3000 });
+  const image = within(feed).getByRole("img", { name: "Delayed chart" });
   expect(objectUrls.get(image.getAttribute("src") ?? "")?.size).toBe(fixtureBytes);
 });
 

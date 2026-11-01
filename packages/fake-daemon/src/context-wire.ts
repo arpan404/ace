@@ -282,7 +282,12 @@ export class FakeContextWire {
                 item.agentId === view?.items[op.itemId]?.agentId) &&
               item.call.detail.kind === "image" &&
               (item.call.detail.path === op.reference ||
-                item.call.detail.sourcePath === op.reference),
+                item.call.detail.sourcePath === op.reference ||
+                // The daemon also files a capture under its path relative to the capturing
+                // agent's folder, so `./chart.png` finds `/work/chart.png` from `/work`.
+                (!op.reference.startsWith("/") &&
+                  item.call.detail.path ===
+                    `${view?.agents[item.agentId]?.cwd?.replace(/\/+$/, "")}/${op.reference}`)),
           );
         result =
           found?.type === "tool_call" &&

@@ -1,6 +1,6 @@
-import { useOptionalClient, useThreadMeta } from "@ace/client-react";
+import { useOptionalClient, useThreadMeta, useThreadStore } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
-import { ItemId, ThreadId, type ForgePrRef } from "@ace/protocol";
+import { ItemId, ThreadId, type ForgeIssueRef, type ForgePrRef } from "@ace/protocol";
 import {
   isMarkitWebImage,
   markitLinkTarget,
@@ -12,15 +12,35 @@ import "./markit-ace.css";
 import { checkoutLinkPath, localLinkPath, normalizedPath } from "@ace/ui-core/file-references";
 import { contentHash, isCheckoutPath, readAceLink } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { PullRequestOpener, pullRequestAt, useOpenWebAddress } from "../web-link.tsx";
-import { fileTab, pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
+import {
+  IssueOpener,
+  PullRequestOpener,
+  issueAt,
+  pullRequestAt,
+  useOpenWebAddress,
+} from "../web-link.tsx";
+import { displayName } from "../attachment-format.ts";
+import { LinkedFileOpener } from "../linked-file.tsx";
+import { applePlatform } from "@/lib/keymap.ts";
+import { asksForSystemBrowser, type LinkClick } from "@/lib/web-links.ts";
+import { fileTab, pullRequestTab, useOptionalWorkspace } from "@/lib/workspace/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { prefersReducedMotion } from "@/lib/motion.ts";
 import { updateInterval } from "./cadence.ts";
 import { blockRhythm } from "./rhythm.ts";
 import { renderMermaid } from "./mermaid-render.ts";
 import { StreamPace } from "./stream-pace.ts";
+import { watchImageCaptures } from "./image-refresh.ts";
+import { useFileLinks } from "./use-file-links.ts";
 
 /**
  * Agent prose rendered by markit (Rust + Wasm): CommonMark, tables, tasks, code fences with
@@ -41,24 +61,43 @@ interface ProseProps {
   streaming?: boolean | undefined;
   className?: string | undefined;
   thread?: { threadId: string; cwd?: string; itemId?: string } | undefined;
+  /**
+   * Forge text (PR and issue bodies, comments): draws `@name`, `#12` and commit hashes as links
+   * (markit's GitHub flavour), and gives the address each one opens.
+   */
+  forgeReference?: ForgeReferenceAddress | undefined;
 }
+
+type ForgeReferenceAddress = (reference: { kind: string; target: string }) => string | undefined;
 
 interface MarkitCallbacks {
   onLink: (url: string) => void;
+  /** A web link clicked to open in the system's browser (⌘/Ctrl or middle click). */
+  onSystemLink: (url: string, click: LinkClick) => void;
   onReference: (reference: { kind: string; target: string }) => void;
   resolveImage: (url: string, alt: string, signal: AbortSignal) => Promise<Blob | null>;
+  /** After markit draws: the element it drew into, and whether that text was the final one. */
+  drawn?: ((element: HTMLElement, finalized: boolean) => void) | undefined;
+  /** Subscribes `refresh` to whenever images still without bytes may have them now. */
+  watchImages?: ((refresh: () => void) => () => void) | undefined;
 }
 
 /** What a click in prose can open, beyond the system browser. */
 interface LinkActions {
-  openWeb: (url: string) => unknown;
+  openWeb: (url: string, click?: LinkClick) => Promise<void>;
   openPullRequest?: ((pr: ForgePrRef) => void) | undefined;
+  openIssue?: ((issue: ForgeIssueRef) => void) | undefined;
   openThread: (threadId: string, machine: string | undefined) => void;
   openFile?: ((path: string) => void) | undefined;
+  /** A file an answer names (`socket.ts:3`), found in the thread's checkout. */
+  openMention?: ((target: string) => void) | undefined;
+  forgeReference?: ForgeReferenceAddress | undefined;
 }
 
 /** Link and reference handling shared by every prose surface. */
-function linkCallbacks(actions: LinkActions): Pick<MarkitCallbacks, "onLink" | "onReference"> {
+function linkCallbacks(
+  actions: LinkActions,
+): Pick<MarkitCallbacks, "onLink" | "onSystemLink" | "onReference"> {
   const onLink = (url: string) => {
     const target = markitLinkTarget(url);
     if (!target) return;
@@ -71,12 +110,18 @@ function linkCallbacks(actions: LinkActions): Pick<MarkitCallbacks, "onLink" | "
     // A pull request on any forge host opens in a side panel when there is one to show it.
     const pr = pullRequestAt(target.href);
     if (pr && actions.openPullRequest) return actions.openPullRequest(pr);
-    void actions.openWeb(target.href);
+    // An issue opens ace's page for it, where the screen has one.
+    const issue = issueAt(target.href);
+    if (issue && actions.openIssue) return actions.openIssue(issue);
+    void actions.openWeb(target.href).catch(() => {});
   };
   return {
     onLink,
-    onReference: ({ kind, target }) =>
-      kind === "file" ? actions.openFile?.(target) : onLink(target),
+    onSystemLink: (url, click) => void actions.openWeb(url, click).catch(() => {}),
+    onReference: (reference) => {
+      if (reference.kind === "file") return actions.openMention?.(reference.target);
+      onLink(actions.forgeReference?.(reference) ?? reference.target);
+    },
   };
 }
 
@@ -117,20 +162,26 @@ function MarkitView(props: {
   stream: string;
   className?: string | undefined;
   callbacks: MarkitCallbacks;
+  flavor: "agent" | "github";
 }) {
   // The message reads as plain text until markit's first render replaces it, so an answer is
   // never blank: not while the worker starts, and not if it cannot run at all.
   const [drawn, setDrawn] = useState(false);
+  const element = useRef<HTMLElement | null>(null);
+  const sentFinal = useRef(false);
   const markit = useMarkit({
     workerURL: markitWorkerPath(),
-    flavor: proseFlavor,
+    flavor: props.flavor,
     code: codeChrome,
     onLink: props.callbacks.onLink,
     onReference: props.callbacks.onReference,
     resolveImage: props.callbacks.resolveImage,
     renderDiagram: (language: string, source: string) =>
       language === "mermaid" ? renderMermaid(source, pageScheme()) : null,
-    onRender: () => setDrawn(true),
+    onRender: () => {
+      setDrawn(true);
+      if (element.current) props.callbacks.drawn?.(element.current, sentFinal.current);
+    },
   });
   const { markdown, finalized, stream } = props;
   // A streaming message reaches markit 10 to 20 times a second, like the previous renderer
@@ -149,6 +200,7 @@ function MarkitView(props: {
       },
       interval: (lastMs) => updateInterval(lastMs, prefersReducedMotion()),
       send(text, done) {
+        sentFinal.current = done;
         const started = performance.now();
         return markit.render(text, { finalized: done }).then((patch) => {
           if (patch.superseded || import.meta.env.MODE !== "perf") return;
@@ -169,10 +221,38 @@ function MarkitView(props: {
   useEffect(() => {
     pace.current?.push(markdown, finalized);
   }, [markdown, finalized]);
+  const { watchImages } = props.callbacks;
+  useEffect(() => watchImages?.(() => markit.refreshImages()), [markit, watchImages]);
   // The controller is stable; its ref callback attaches the renderer to this element.
-  const attach = useCallback((element: HTMLElement | null) => markit.ref(element), [markit]);
+  const attach = useCallback(
+    (node: HTMLElement | null) => {
+      element.current = node;
+      markit.ref(node);
+    },
+    [markit],
+  );
+  // markit hands every plain click on a link to `onLink`, without the click. A ⌘/Ctrl or middle
+  // click on a web link is taken here first (capture runs before markit's listener) and opens
+  // in the system's browser, as `WebLink` does.
+  const { onSystemLink } = props.callbacks;
+  const systemClick = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (!(event.target instanceof Element) || !asksForSystemBrowser(event, applePlatform)) return;
+      const href = event.target.closest("a[href]")?.getAttribute("href");
+      const target = href ? markitLinkTarget(href) : undefined;
+      if (target?.kind !== "web") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onSystemLink(target.href, event);
+    },
+    [onSystemLink],
+  );
   return (
-    <div className={cn("markit-ace", blockRhythm, props.className)}>
+    <div
+      className={cn("markit-ace", blockRhythm, props.className)}
+      onClickCapture={systemClick}
+      onAuxClickCapture={systemClick}
+    >
       {!drawn && <p className="whitespace-pre-wrap">{markdown}</p>}
       <div ref={attach} />
     </div>
@@ -197,13 +277,15 @@ function useThreadNavigation(): LinkActions["openThread"] {
 function MarkitPlainProse(props: ProseProps) {
   const openWeb = useOpenWebAddress();
   const openPullRequest = useContext(PullRequestOpener);
+  const openIssue = useContext(IssueOpener);
   const openThread = useThreadNavigation();
+  const { forgeReference } = props;
   const callbacks = useMemo(
     () => ({
-      ...linkCallbacks({ openWeb, openPullRequest, openThread }),
+      ...linkCallbacks({ openWeb, openPullRequest, openIssue, openThread, forgeReference }),
       resolveImage: (url: string, _alt: string, signal: AbortSignal) => pageImage(url, signal),
     }),
-    [openWeb, openPullRequest, openThread],
+    [openWeb, openPullRequest, openIssue, openThread, forgeReference],
   );
   return (
     <MarkitView
@@ -212,6 +294,7 @@ function MarkitPlainProse(props: ProseProps) {
       stream={fallbackStream(props)}
       className={props.className}
       callbacks={callbacks}
+      flavor={forgeReference ? "github" : proseFlavor}
     />
   );
 }
@@ -256,29 +339,50 @@ function MarkitThreadProse(
   const { client } = props;
   const { threadId, cwd, itemId } = props.thread;
   const meta = useThreadMeta(threadId);
-  const workspace = useWorkspaceActions(threadId);
+  const workspace = useOptionalWorkspace(threadId);
   const openWeb = useOpenWebAddress();
   const panelOpener = useContext(PullRequestOpener);
+  const openIssue = useContext(IssueOpener);
+  const downloadLinked = useContext(LinkedFileOpener);
   const openThread = useThreadNavigation();
   const root = (meta?.details?.worktree ?? meta?.details?.workspace?.path)?.replace(/\/+$/, "");
   const workspaceId = meta?.workspaceId;
+  const fileLinks = useFileLinks({ client, threadId, root, workspace });
+  // Only an answer that shows an image follows the thread for captures.
+  const captures = useThreadStore(props.text.includes("![") ? threadId : undefined);
 
   const callbacks = useMemo(() => {
     const base = cwd ?? root;
+    const actions = workspace?.actions;
     const openFile = (target: string) => {
-      const relative = checkoutLinkPath(localLinkPath(target) ?? target, root, cwd);
-      if (relative && isCheckoutPath(relative)) workspace.open(fileTab(relative));
+      const path = localLinkPath(target) ?? target;
+      const relative = checkoutLinkPath(path, root, cwd);
+      if (relative && isCheckoutPath(relative)) return actions?.open(fileTab(relative));
+      // Outside the checkout: the host serves the file because this message links it.
+      if (itemId)
+        downloadLinked?.({ threadId, itemId, reference: target, name: displayName(path) });
     };
     const openPullRequest =
       panelOpener ??
-      (workspaceId
+      (workspaceId && actions
         ? (pr: ForgePrRef) =>
-            workspace.open(
+            actions.open(
               pullRequestTab({ workspaceId, repository: pr.repository, number: pr.number }),
             )
         : undefined);
     return {
-      ...linkCallbacks({ openWeb, openPullRequest, openThread, openFile }),
+      ...linkCallbacks({
+        openWeb,
+        openPullRequest,
+        openIssue,
+        openThread,
+        openFile,
+        openMention: fileLinks.open,
+      }),
+      drawn: fileLinks.drawn,
+      watchImages: captures
+        ? (refresh: () => void) => watchImageCaptures(captures, refresh)
+        : undefined,
       resolveImage: async (url: string, _alt: string, signal: AbortSignal) => {
         if (shouldResolveMarkitImage(url)) return pageImage(url, signal);
         if (signal.aborted || isMarkitWebImage(url)) return null;
@@ -292,8 +396,12 @@ function MarkitThreadProse(
     };
   }, [
     client,
+    captures,
     cwd,
+    downloadLinked,
+    fileLinks,
     itemId,
+    openIssue,
     openThread,
     openWeb,
     panelOpener,
@@ -310,6 +418,7 @@ function MarkitThreadProse(
       stream={fallbackStream(props)}
       className={props.className}
       callbacks={callbacks}
+      flavor={proseFlavor}
     />
   );
 }

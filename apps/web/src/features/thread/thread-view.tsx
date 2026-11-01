@@ -66,6 +66,7 @@ import { DelegateBottom } from "./subagent/delegate-bottom.tsx";
 import { GuestBottom } from "./guest/guest-bottom.tsx";
 import { QueuedLaunch } from "./subagent/queued-launch.tsx";
 import { ThreadForgeLinks } from "@/components/forge-links.tsx";
+import { ThreadLinkedFiles } from "@/components/linked-file.tsx";
 
 /**
  * A thread New thread started a moment ago, until the daemon names it: its view's code loads
@@ -119,7 +120,9 @@ export function ThreadView(props: {
         }
       >
         <ThreadForgeLinks threadId={props.threadId}>
-          <ThreadScreen threadId={props.threadId} target={props.target} crumb={props.crumb} />
+          <ThreadLinkedFiles>
+            <ThreadScreen threadId={props.threadId} target={props.target} crumb={props.crumb} />
+          </ThreadLinkedFiles>
         </ThreadForgeLinks>
       </Suspense>
     </ThreadNavProvider>

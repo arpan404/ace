@@ -37,6 +37,7 @@ export {
   usePreferredPlace,
   usePreferredSize,
   useScopeWorkspace,
+  useOptionalWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
 } from "./react.tsx";
