@@ -1,3 +1,4 @@
+import { DatabaseSync } from "node:sqlite";
 import { HostId, ThreadId } from "@ace/protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { desktopDaemon, notificationFixture } from "./notification-test-support.ts";
@@ -125,4 +126,29 @@ test("a paired machine's child left waiting is not caught up on this machine; a 
   });
   await settle();
   expect(desktop.received).toHaveLength(1);
+});
+
+test("after upgrading a format 4 store, a child delegated here before ownership was recorded is not caught up", async () => {
+  const { f, desktop } = await quitDesktop();
+  const local = f.thread(),
+    delegated = f.thread();
+  // Recorded as delegated here by a paired machine, with no event saying so in the log, and the
+  // notification store left in the format from before ownership was kept.
+  f.store.atomic((db) =>
+    db
+      .prepare("INSERT INTO machine_threads VALUES (?,?,?,?,?,?)")
+      .run(delegated, "device-a", "delegate", "host-a", "parent-on-a", Date.now()),
+  );
+  const older = new DatabaseSync(f.path);
+  older.exec("PRAGMA user_version=4");
+  older.close();
+  f.needsYou(delegated, Date.now() - 600_000);
+  f.needsYou(local, Date.now() - 600_000);
+
+  await desktop.connect();
+  await vi.waitFor(() => expect(desktop.received).toHaveLength(1));
+  expect(desktop.received[0]).toMatchObject({ status: "catch_up", threadIds: [local] });
+  const upgraded = new DatabaseSync(f.path, { readOnly: true });
+  expect(upgraded.prepare("PRAGMA user_version").get()?.user_version).toBe(5);
+  upgraded.close();
 });

@@ -95,6 +95,10 @@ export class NotificationDatabase {
       .parse(this.db.prepare("PRAGMA user_version").get()?.user_version);
     if (version === 0 && !this.db.prepare("SELECT 1 FROM sqlite_master LIMIT 1").get())
       this.transaction(() => this.db.exec(`${schema} PRAGMA user_version=${FORMAT};`));
+    // Format 5 records which threads a paired machine delegated here (`CompactThread.remote`).
+    // A format 4 store keeps its rows: none is marked yet, and the daemon marks them through
+    // `markRemote` from its own records each time the worker starts.
+    else if (version === 4) this.transaction(() => this.db.exec(`PRAGMA user_version=${FORMAT};`));
     else if (version !== FORMAT) {
       this.db.close();
       throw new IncompatibleDataError(
@@ -138,8 +142,9 @@ export class NotificationDatabase {
     events: readonly MetadataEvent[],
     now: number,
     coverage?: { afterSeq: number; throughSeq: number },
-  ): void {
-    this.transaction(() => {
+  ): ThreadId[] {
+    return this.transaction(() => {
+      const flagged: ThreadId[] = [];
       let cursor = this.cursor();
       if (coverage && coverage.afterSeq > cursor) throw new Error(replayGap);
       const windows = this.sleep.list();
@@ -172,6 +177,7 @@ export class NotificationDatabase {
         const row = this.statement("SELECT body FROM threads WHERE id=?").get(event.threadId);
         if (!row) throw new Error("Missing notification thread");
         const state = CompactThread.parse(JSON.parse(String(row.body)));
+        const wasRemote = state.remote;
         const prior = this.statement("SELECT body FROM pending WHERE thread=?").get(event.threadId);
         const advanced = advance(
           state,
@@ -191,10 +197,11 @@ export class NotificationDatabase {
           JSON.stringify(CompactThread.parse(state)),
           event.threadId,
         );
-        // Alerts already queued for a thread that turned out to be a paired machine's are dropped.
-        if (state.deleted || state.remote) {
-          this.statement("DELETE FROM jobs WHERE thread=?").run(event.threadId);
-          this.ledger.forgetThread(event.threadId);
+        if (state.deleted) this.forget(event.threadId);
+        else if (state.remote && !wasRemote) {
+          // Alerts already queued for a thread found to be a paired machine's are dropped.
+          this.forget(event.threadId);
+          flagged.push(event.threadId);
         }
         if (pending) {
           if (!prior && this.count("pending") >= 10_000)
@@ -210,6 +217,43 @@ export class NotificationDatabase {
       this.statement("UPDATE cursor SET seq=? WHERE id=1").run(
         coverage ? Math.max(cursor, coverage.throughSeq) : cursor,
       );
+      return flagged;
+    });
+  }
+  /**
+   * Drops what is queued for a thread nobody here is to hear about. A catch-up alert is kept
+   * even when filed under it: it is rebuilt from the waits it still covers before it is sent,
+   * so the other threads it names still reach their device.
+   */
+  private forget(thread: ThreadId): void {
+    this.statement(
+      "DELETE FROM jobs WHERE thread=? AND json_extract(body,'$.status') IS NOT 'catch_up'",
+    ).run(thread);
+    this.statement("DELETE FROM pending WHERE thread=?").run(thread);
+    this.ledger.forgetThread(thread);
+  }
+  /**
+   * Marks threads a paired machine delegated here, from the daemon's own records, for a store
+   * that never saw the event saying so (one kept from before format 5). Returns those newly
+   * marked, whose sends still in flight the caller stops.
+   */
+  markRemote(threads: readonly ThreadId[]): ThreadId[] {
+    return this.transaction(() => {
+      const marked: ThreadId[] = [];
+      for (const thread of threads) {
+        const row = this.statement("SELECT body FROM threads WHERE id=?").get(thread);
+        if (!row) continue;
+        const state = CompactThread.parse(JSON.parse(String(row.body)));
+        if (state.remote) continue;
+        state.remote = true;
+        this.statement("UPDATE threads SET body=? WHERE id=?").run(
+          JSON.stringify(CompactThread.parse(state)),
+          thread,
+        );
+        this.forget(thread);
+        marked.push(thread);
+      }
+      return marked;
     });
   }
   private count(table: "pending" | "devices" | "jobs"): number {

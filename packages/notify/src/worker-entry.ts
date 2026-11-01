@@ -89,6 +89,9 @@ port.on("message", (input: unknown) => {
         case "revoke":
           service.revoke(call.device);
           break;
+        case "markRemote":
+          service.markRemote(call.threads);
+          break;
         case "snooze":
           service.snooze(call.thread, call.until);
           break;
