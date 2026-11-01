@@ -1,11 +1,10 @@
 import { z } from "zod";
 import type { AccountLimits, AccountWindow, ProviderLimits, UsageLimits } from "./usage-limits.ts";
 import { formatCountdown } from "./time.ts";
-import { joinNames } from "./join-names.ts";
 
 /*
- * How much room each provider has, for the rail's Usage bars, its hover card and the Usage
- * page's Now line. Every figure is a share LEFT.
+ * How much room each provider has, for the rail's Usage bars and its hover card. Every figure is
+ * a share LEFT.
  *
  * Pooled session headroom: ace can start a new thread on whichever of a provider's accounts has
  * room, so a provider's headroom is its BEST account's usable session left. An account's usable
@@ -254,20 +253,6 @@ export function approximately(ms: number): string {
   return `about ${days} ${days === 1 ? "day" : "days"}`;
 }
 
-/** Text with the parts to set in bold, so every client draws the same sentence. */
-export interface UsageLine {
-  parts: { text: string; strong?: boolean }[];
-  text: string;
-  /** A quiet second line when no suggestion takes it: "Its session resets in 9h 1m." */
-  after?: string | undefined;
-}
-
-const line = (...parts: (string | { text: string; strong: true })[]): UsageLine => {
-  const pieces = parts.map((part) => (typeof part === "string" ? { text: part } : part));
-  return { parts: pieces, text: pieces.map((part) => part.text).join("") };
-};
-const strong = (text: string) => ({ text, strong: true as const });
-
 const readable = (headroom: readonly PooledHeadroom[]) =>
   headroom.filter((entry) => entry.currentLeft !== null || entry.sessionLeft !== null);
 
@@ -289,60 +274,6 @@ export function tightestProvider(headroom: readonly PooledHeadroom[]): PooledHea
 
 function backIn(entry: PooledHeadroom, now: number): string {
   return entry.backAt === null ? "" : formatCountdown(entry.backAt - now);
-}
-
-/**
- * The Usage page's Now line. Who is out on every account and when they're back; else whose
- * account for new threads is out; else "You have room on every provider" and the tightest one,
- * with its forecast when it runs out before its reset. Undefined with nothing read.
- */
-export function usageNow(headroom: readonly PooledHeadroom[], now: number): UsageLine | undefined {
-  const out = outProviders(headroom);
-  const [first, ...rest] = out;
-  if (first) {
-    const names = joinNames(out.map((entry) => entry.providerLabel));
-    const verb = out.length === 1 ? "is" : "are";
-    const firstBack = backIn(first, now);
-    if (!rest.length)
-      return line(
-        strong(first.providerLabel),
-        ` is out on ${first.accounts > 1 ? "every account" : "its account"}`,
-        firstBack ? `; it's back in ${firstBack}.` : ".",
-      );
-    const backs = out
-      .filter((entry) => entry.backAt !== null)
-      .map(
-        (entry, index) =>
-          `${entry.providerLabel}${index === 0 ? " is back" : ""} in ${backIn(entry, now)}`,
-      );
-    return line(`${names} ${verb} out.${backs.length ? ` ${joinNames(backs)}.` : ""}`);
-  }
-  const stopped = readable(headroom).find((entry) => entry.currentLeft === 0 && entry.current);
-  if (stopped?.current) {
-    const back = stopped.session?.resetsAt;
-    return line(
-      strong(stopped.providerLabel),
-      `'s ${stopped.current.account.label} account is out`,
-      back ? `; it's back in ${formatCountdown(back - now)}.` : ".",
-    );
-  }
-  const tight = tightestProvider(headroom);
-  if (!tight) return undefined;
-  const left = tight.currentLeft ?? tight.sessionLeft ?? 0;
-  const runsOut = tight.session?.runsOutAt;
-  const resets = tight.session?.resetsAt;
-  return {
-    ...line(
-      "You have room on every provider. ",
-      strong(tight.providerLabel),
-      ` is the tightest: ${left}% of the session left`,
-      runsOut ? `, out in ${approximately(runsOut - now)} at this pace.` : ".",
-    ),
-    after:
-      resets && resets > now
-        ? `Its session resets in ${formatCountdown(resets - now)}.`
-        : undefined,
-  };
 }
 
 /** The hover card's one sentence about the tightest provider. */

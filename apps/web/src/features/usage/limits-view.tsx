@@ -154,11 +154,12 @@ function Account(props: {
 const freshMs = staleReadingMs;
 
 /**
- * Every window row is one 36px line: label (with "Ahead of pace" under it when it is), a bar of
- * at most 220px with the even-pace tick, the share left, and when it resets.
+ * Every window row is one 40px line: label (with "Ahead of pace" under it when it is), a bar of
+ * at most 220px with the even-pace tick, the share left, and when it resets. The label column
+ * keeps at least 7rem so "Session (5h)" and "Weekly" never truncate; the bar shrinks first.
  */
 const rowGrid =
-  "grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 sm:grid-cols-[minmax(0,11rem)_minmax(0,220px)_5.5rem_minmax(0,1fr)]";
+  "grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 sm:grid-cols-[minmax(7rem,11rem)_minmax(0,220px)_5.5rem_minmax(0,1fr)]";
 
 const barTone: Record<HeadroomTone, string> = {
   ok: "bg-foreground",
@@ -174,8 +175,10 @@ function WindowName(props: { window: AccountWindow; ahead: boolean }) {
         <span className="block truncate text-ui text-muted-foreground">{window.label}</span>
       </Tip>
       {props.ahead && (
-        <Tip label="At this rate the window runs out before it resets.">
-          <span className="block w-fit text-2xs text-status-needs-you">Ahead of pace</span>
+        <Tip label="Ahead of pace: at this rate the window runs out before it resets.">
+          <span className="block w-fit max-w-full truncate whitespace-nowrap text-2xs text-status-needs-you">
+            Ahead of pace
+          </span>
         </Tip>
       )}
     </div>

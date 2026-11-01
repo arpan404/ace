@@ -475,42 +475,27 @@ test("the figures count every machine, and one that goes offline is named, not d
   expect(screen.queryByRole("article", { name: /· Build server$/ })).toBeNull();
 });
 
-test("Now names the tightest provider and offers to make a fresher account the default", async () => {
+test("the page goes straight from the title to Limits, with no summary sentence", async () => {
   const app = harness();
-  for (const account of app.daemon.services.accounts) account.quota.windows = {};
-  report(app.daemon, "claude-personal", { five_hour: [62, 121 * minute, 300] });
-  report(app.daemon, "claude-work", { five_hour: [0, 300 * minute, 300] });
-  report(app.daemon, "codex-personal", { five_hour: [10, 4 * hour, 300] });
+  report(app.daemon, "codex-personal", { five_hour: [50, 4 * hour, 300] });
   await app.open("/usage");
-  await waitFor(() =>
-    expect(screen.getByTestId("usage-now").textContent).toBe(
-      "You have room on every provider. Claude Code is the tightest: 38% of the session left, out in about 2h at this pace.",
-    ),
-  );
-  const suggestion = screen.getByTestId("usage-suggestion");
-  expect(suggestion.textContent).toContain("Its Work account has a fresh session.");
-  await userEvent.click(
-    within(suggestion).getByRole("button", {
-      name: "Make Work the default for new Claude threads",
-    }),
-  );
-  await waitFor(() => expect(screen.queryByTestId("usage-suggestion")).toBeNull());
-  expect(
-    within(await accountBlock("Claude Code", "Work")).getByText("Used for new threads"),
-  ).toBeTruthy();
+  await accountBlock("Codex", "Personal");
+  expect(screen.queryByTestId("usage-now")).toBeNull();
+  expect(screen.queryByTestId("usage-suggestion")).toBeNull();
 });
 
-test("Now says who is out on every account and when they're back", async () => {
+test("the window label reads in full, through its accessible name and visible text", async () => {
   const app = harness();
-  for (const account of app.daemon.services.accounts) account.quota.windows = {};
-  report(app.daemon, "codex-personal", { five_hour: [100, 88 * minute, 300] });
-  report(app.daemon, "codex-team", { five_hour: [100, 150 * minute, 300] });
+  report(app.daemon, "codex-personal", {
+    five_hour: [50, 4 * hour, 300],
+    seven_day: [5, 4 * day, 10080],
+  });
   await app.open("/usage");
-  await waitFor(() =>
-    expect(screen.getByTestId("usage-now").textContent).toBe(
-      "Codex is out on every account; it's back in 1h 28m.",
-    ),
-  );
+  const personal = await accountBlock("Codex", "Personal");
+  expect(within(personal).getByRole("meter", { name: "Session (5h)" })).toBeTruthy();
+  expect(within(personal).getByText("Session (5h)").textContent).toBe("Session (5h)");
+  expect(within(personal).getByRole("meter", { name: "Weekly" })).toBeTruthy();
+  expect(within(personal).getByText("Ahead of pace").textContent).toBe("Ahead of pace");
 });
 
 test("clicking a row in Where it went filters the whole page to it, and Clear undoes it", async () => {
