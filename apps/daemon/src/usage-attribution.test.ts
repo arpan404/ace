@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { type Event, EventPayload, ThreadId } from "@ace/protocol";
-import { UsageStore, backfillBatch } from "@ace/usage";
+import { UsageStore, backfillBatch, type EventHistory } from "@ace/usage";
 import { Store } from "./store.ts";
 
 const at = Date.parse("2026-10-02T12:00Z");
@@ -33,12 +33,12 @@ function canonicalHistory(history: Store): Event[] {
         ...extra,
       },
     });
-  const agent = (thread: string, id: string, parentId: string | null = null) =>
-    append(thread, {
+  const agent = (threadId: string, id: string, parentId: string | null = null) =>
+    append(threadId, {
       type: "agent.created",
       agent: {
         id,
-        threadId: thread,
+        threadId,
         parentId,
         native: { provider: "codex", id },
         origin: parentId ? "provider_subagent" : "root",
@@ -50,8 +50,8 @@ function canonicalHistory(history: Store): Event[] {
       },
     });
   let items = 0;
-  const message = (thread: string, agentId: string, skills: string[], extra: object = {}) =>
-    append(thread, {
+  const message = (threadId: string, agentId: string, skills: string[], extra: object = {}) =>
+    append(threadId, {
       type: "item.created",
       item: {
         type: "message",
@@ -71,8 +71,8 @@ function canonicalHistory(history: Store): Event[] {
         ...extra,
       },
     });
-  const spend = (thread: string, agentId: string, inputTokens: number) =>
-    append(thread, {
+  const spend = (threadId: string, agentId: string, inputTokens: number) =>
+    append(threadId, {
       type: "usage.updated",
       agentId,
       inputTokens,
@@ -129,7 +129,7 @@ const attribution = (usage: UsageStore) => ({
   automation: grouped(usage, ["automation"]),
   role: grouped(usage, ["role"]),
 });
-async function replay(usage: UsageStore, history: Pick<Store, "readUsagePage">) {
+async function replay(usage: UsageStore, history: EventHistory) {
   const sink = {
     cursor: async () => usage.cursor(),
     ingest: async (batch: unknown) => usage.ingest(batch),
