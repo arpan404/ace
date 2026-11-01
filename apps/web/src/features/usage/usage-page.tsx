@@ -1,17 +1,17 @@
-import { ArrowsClockwiseIcon, ChartBarIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowsClockwiseIcon, ChartBarIcon, DevicesIcon, XIcon } from "@phosphor-icons/react";
 import { ManagedAccountProvider } from "@ace/protocol/accounts";
 import {
   catalogModelIds,
   catalogModelNames,
   dayRange,
   formatAgo,
-  growthBasis,
   previousSpan,
   tightestProvider,
   usageAccounts,
   usageDay,
   usageHeadroom,
   usageLimits,
+  usageMoney,
   usageNow,
   usageQueryFilters,
   usageReport,
@@ -25,6 +25,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
@@ -126,6 +127,8 @@ export function UsagePage() {
     const before = previousSpan(span.from, span.to);
     return usageReport(usage.data.previous, dayRange(before.from, before.to));
   }, [usage.data, span.from, span.to]);
+  // One money format for the page, to the scale of the period's total.
+  const money = usageMoney(report?.usd ?? 0);
   const lists = useMemo(() => usage.data && breakdownLists(usage.data.machines), [usage.data]);
   const name = breakdownNamer({
     machines: usage.data?.machines ?? [],
@@ -181,14 +184,29 @@ export function UsagePage() {
     <Screen title="Usage">
       <div className="h-full overflow-auto">
         <div className="mx-auto px-4 pt-6 pb-20 sm:px-10" style={{ maxWidth: 960 }}>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <h2 className="mr-auto text-2xl font-semibold tracking-title">Usage</h2>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
+            <h2 className="mr-auto text-2xl leading-8 font-semibold tracking-title">Usage</h2>
             <FilterMenu
               label="Machine"
               value={environmentId}
               options={[
-                { value: all, label: "All machines" },
-                ...machines.map((machine) => ({ value: machine.id, label: machine.name })),
+                {
+                  value: all,
+                  label: "All machines",
+                  icon: <DevicesIcon size={16} className="text-subtle-foreground" />,
+                },
+                ...machines.map((machine) => ({
+                  value: machine.id,
+                  label: machine.name,
+                  icon: (
+                    <MachineMark
+                      icon={machine.icon}
+                      primary={machine.primary}
+                      size={16}
+                      decorative
+                    />
+                  ),
+                })),
               ]}
               onValueChange={setEnvironmentId}
             />
@@ -200,11 +218,12 @@ export function UsagePage() {
               onValueChange={(next) => setRange(next)}
             />
           </div>
-          {machines.length > 1 && (
+          {/* The machine filter names what is shown; only a machine left out is worth a line. */}
+          {machines.length > 1 && !usage.coverage.complete && (
             <p
               aria-live="polite"
               data-testid="usage-coverage"
-              className={`mt-2 min-h-4 text-xs ${usage.coverage.complete ? "text-subtle-foreground" : "text-foreground"}`}
+              className="mt-2 text-xs text-foreground"
             >
               {usage.coverage.line}
             </p>
@@ -222,7 +241,7 @@ export function UsagePage() {
               </button>
             </p>
           )}
-          <div className="mt-5">
+          <div className="mt-6">
             <NowLine
               line={nowLine}
               suggestion={suggestion}
@@ -281,18 +300,19 @@ export function UsagePage() {
             )}
           </div>
           {usage.error ? (
-            <div className="mt-10">
+            <div className="mt-8">
               <Failed error={usage.error} retry={usage.retry} />
             </div>
           ) : !report || !lists ? (
-            <ListSkeleton label="usage" shape="row" rows={6} className="mt-10 min-h-80" />
+            <ListSkeleton label="usage" shape="row" rows={6} className="mt-8 min-h-80" />
           ) : (
             <>
               <SpendSection
                 report={report}
                 previous={previous}
                 period={periods[range]}
-                basis={growthBasis(Number(range))}
+                days={Number(range)}
+                money={money}
                 metric={metric}
                 onMetric={setMetric}
                 providerName={(id) => name("provider", id)}
@@ -300,10 +320,11 @@ export function UsagePage() {
                   applyFilter({ kind: "provider", key: id, label: name("provider", id) })
                 }
               />
-              <TokensSection report={report} period={periods[range]} />
+              <TokensSection report={report} period={periods[range]} money={money} />
               <WhereItWent
                 lists={lists}
                 metric={metric}
+                money={money}
                 name={name}
                 current={filter}
                 onFilter={applyFilter}

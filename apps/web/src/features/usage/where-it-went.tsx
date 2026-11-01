@@ -1,16 +1,14 @@
-import { useSidebarThread } from "@ace/client-react";
 import {
   breakdownKinds,
   breakdownTitles,
   breakdownTop,
   formatTokens,
-  formatUsd,
   type BreakdownKind,
   type BreakdownLine,
   type UsageFilter,
   unpricedLine,
 } from "@ace/ui-core";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { SectionHeading } from "./usage-parts.tsx";
 
@@ -24,7 +22,8 @@ export type BreakdownLists = Partial<Record<BreakdownKind, readonly BreakdownLin
 export function WhereItWent(props: {
   lists: BreakdownLists;
   metric: "cost" | "tokens";
-  /** The row's name in words; undefined to look it up per row (threads). */
+  money(value: number): string;
+  /** The row's name in words. */
   name(kind: BreakdownKind, key: string): string;
   current: UsageFilter | undefined;
   onFilter(filter: UsageFilter): void;
@@ -32,13 +31,14 @@ export function WhereItWent(props: {
   return (
     <section aria-labelledby="usage-where">
       <SectionHeading id="usage-where" title="Where it went" />
-      <div className="grid gap-x-7 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
         {breakdownKinds.map((kind) => (
           <BreakdownList
             key={kind}
             kind={kind}
             lines={props.lists[kind]}
             metric={props.metric}
+            money={props.money}
             name={(key) => props.name(kind, key)}
             current={props.current}
             onFilter={props.onFilter}
@@ -58,6 +58,7 @@ function BreakdownList(props: {
   kind: BreakdownKind;
   lines: readonly BreakdownLine[] | undefined;
   metric: "cost" | "tokens";
+  money(value: number): string;
   name(key: string): string;
   current: UsageFilter | undefined;
   onFilter(filter: UsageFilter): void;
@@ -70,7 +71,7 @@ function BreakdownList(props: {
   const shown = all ? (lines ?? []) : (lines ?? []).slice(0, breakdownTop);
   return (
     <div aria-label={title} role="group" data-kind={kind}>
-      <h3 className="mt-4 mb-1 text-xs font-semibold text-subtle-foreground">{title}</h3>
+      <h3 className="mb-1 text-xs font-semibold text-subtle-foreground">{title}</h3>
       {lines === undefined ? (
         <p className="py-1.5 text-xs text-subtle-foreground">Not recorded on this machine</p>
       ) : lines.length === 0 ? (
@@ -79,8 +80,7 @@ function BreakdownList(props: {
         <ul>
           {shown.map((line) => {
             const pressed = props.current?.kind === kind && props.current.key === line.key;
-            const label =
-              kind === "thread" ? <ThreadName id={line.key} /> : <>{props.name(line.key)}</>;
+            const label = props.name(line.key);
             return (
               <li key={line.key}>
                 <BreakdownRow
@@ -91,14 +91,14 @@ function BreakdownList(props: {
                       ? formatTokens(line.tokens)
                       : unpricedLine(line)
                         ? "Unpriced"
-                        : formatUsd(line.usd)
+                        : props.money(line.usd)
                   }
                   width={(value(line) / top) * 100}
                   onClick={() =>
                     props.onFilter({
                       kind,
                       key: line.key,
-                      label: kind === "thread" ? "this thread" : props.name(line.key),
+                      label: props.name(line.key),
                     })
                   }
                 />
@@ -122,7 +122,7 @@ function BreakdownList(props: {
 }
 
 function BreakdownRow(props: {
-  label: ReactNode;
+  label: string;
   value: string;
   width: number;
   pressed: boolean;
@@ -140,18 +140,12 @@ function BreakdownRow(props: {
     >
       <span className="truncate">{props.label}</span>
       <span className="text-right tabular-nums">{props.value}</span>
-      <span aria-hidden className="col-span-2 h-[3px] rounded-full bg-faint-foreground/50">
+      <span aria-hidden className="col-span-2 h-0.5 rounded-full bg-faint-foreground/40">
         <span
           style={{ width: `${Math.max(1, props.width)}%` }}
-          className="block h-full rounded-full bg-muted-foreground"
+          className="block h-full rounded-full bg-subtle-foreground"
         />
       </span>
     </button>
   );
-}
-
-/** A thread's title from the thread list; "Thread" for one it doesn't hold (another machine's). */
-function ThreadName(props: { id: string }) {
-  const thread = useSidebarThread(props.id);
-  return <>{thread?.title || "Thread"}</>;
 }

@@ -15,8 +15,7 @@ export type BreakdownKind =
   | "skill"
   | "automation"
   | "machine"
-  | "role"
-  | "thread";
+  | "role";
 
 export const breakdownKinds: readonly BreakdownKind[] = [
   "workspace",
@@ -26,7 +25,6 @@ export const breakdownKinds: readonly BreakdownKind[] = [
   "automation",
   "machine",
   "role",
-  "thread",
 ];
 
 export const breakdownTitles: Record<BreakdownKind, string> = {
@@ -37,7 +35,6 @@ export const breakdownTitles: Record<BreakdownKind, string> = {
   automation: "By automation",
   machine: "By machine",
   role: "Main agents and subagents",
-  thread: "By thread",
 };
 
 export const roleLabels: Record<string, string> = {

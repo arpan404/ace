@@ -1,53 +1,54 @@
 import type { HeadroomBar, HeadroomTone } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
-import { cn } from "@/lib/cn.ts";
 import { railPlaceClass } from "./rail-place.ts";
 
 const toneFill: Record<HeadroomTone, string> = {
-  ok: "fill-foreground",
+  ok: "fill-current",
   low: "fill-status-needs-you",
   out: "fill-status-failed",
 };
 
+const barWidth = 3;
+const barGap = 2;
+const barTop = 3;
+const barHeight = 14;
+
 /**
- * The rail's Usage glyph: a tiny bar chart, one bar per provider, as tall as its pooled session
- * left. A spent provider keeps a short red stub so its bar never vanishes; with nothing read,
- * the tracks alone show, quietly.
+ * The rail's Usage glyph: a tiny bar chart in a 20px box, one 3px bar per provider (2px apart,
+ * round ends), as tall as its pooled session left, over a quiet track in the glyph's own ink so it
+ * weighs what the other rail glyphs weigh. Amber when low; a spent provider keeps a short red stub
+ * so its bar never vanishes. With nothing read, three empty tracks show.
  */
 export function UsageBars(props: { bars: readonly HeadroomBar[]; size?: number }) {
-  const size = props.size ?? 22;
+  const size = props.size ?? 20;
   const bars = props.bars;
   const count = bars.length || 3;
-  const width = 4;
-  const gap = count > 3 ? 1.5 : 2.5;
-  const start = (24 - (count * width + (count - 1) * gap)) / 2;
-  const top = 4;
-  const height = 16;
+  const start = (20 - (count * barWidth + (count - 1) * barGap)) / 2;
   return (
-    <svg aria-hidden width={size} height={size} viewBox="0 0 24 24" data-slot="usage-bars">
+    <svg aria-hidden width={size} height={size} viewBox="0 0 20 20" data-slot="usage-bars">
       {Array.from({ length: count }, (_, index) => {
         const bar = bars[index];
-        const x = start + index * (width + gap);
+        const x = start + index * (barWidth + barGap);
         const fill = bar
-          ? Math.max(bar.tone === "out" ? 2.5 : 1.5, (height * Math.min(100, bar.left)) / 100)
+          ? Math.max(bar.tone === "out" ? 2 : barWidth, (barHeight * Math.min(100, bar.left)) / 100)
           : 0;
         return (
           <g key={bar?.key ?? index} data-tone={bar?.tone}>
             <rect
               x={x}
-              y={top}
-              width={width}
-              height={height}
-              rx={1.6}
-              className={cn("fill-faint-foreground", !bar && "opacity-60")}
+              y={barTop}
+              width={barWidth}
+              height={barHeight}
+              rx={barWidth / 2}
+              className="fill-current opacity-25"
             />
             {bar && (
               <rect
                 x={x}
-                y={top + height - fill}
-                width={width}
+                y={barTop + barHeight - fill}
+                width={barWidth}
                 height={fill}
-                rx={1.6}
+                rx={Math.min(barWidth / 2, fill / 2)}
                 className={toneFill[bar.tone]}
               />
             )}

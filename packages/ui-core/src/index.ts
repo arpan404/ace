@@ -186,6 +186,7 @@ export * from "./path-picker.ts";
 export * from "./usage-axis.ts";
 export * from "./usage-cost.ts";
 export * from "./usage-days.ts";
+export * from "./usage-format.ts";
 export * from "./usage-breakdown.ts";
 export * from "./usage-growth.ts";
 export * from "./usage-headroom.ts";

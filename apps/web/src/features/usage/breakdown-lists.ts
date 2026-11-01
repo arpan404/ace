@@ -17,17 +17,13 @@ type MachineRead = EnvironmentRead & { environment: Machine };
 
 /**
  * Every "Where it went" list from the machines read: each daemon's own breakdown rows, the
- * model and thread rows the report already reads, and one figure per machine.
+ * model rows the report already reads, and one figure per machine.
  */
 export function breakdownLists(machines: readonly MachineRead[]): BreakdownLists {
   const lists: BreakdownLists = {
     model: rankBreakdown(
       machines.map((read) => read.usage.models),
       "model",
-    ),
-    thread: rankBreakdown(
-      machines.map((read) => read.usage.threads),
-      "thread",
     ),
     machine: rankLines(
       machines

@@ -248,6 +248,9 @@ export function usageLimits(accounts: readonly UsageAccount[], now: number): Usa
   };
 }
 
+/** A window's length from its label when the provider doesn't say (Gemini's daily quota). */
+const labelMins: Record<string, number> = { "Session (5h)": 300, Daily: 1440, Weekly: 10080 };
+
 function accountLimits(
   account: AccountView,
   environment: string,
@@ -267,22 +270,17 @@ function accountLimits(
     signIn: account.usageSignIn,
     windows: windows.map((window) => {
       const stale = window.resetsAt !== null && window.resetsAt <= now;
+      const mins = window.windowDurationMins ?? labelMins[window.label];
       return {
         id: window.id,
         label: window.label,
         leftPercent: leftPercent(window.usedPercent),
         resetsAt: window.resetsAt,
-        pace: stale
-          ? undefined
-          : limitPace(window.usedPercent, window.resetsAt, window.windowDurationMins, now),
+        pace: stale ? undefined : limitPace(window.usedPercent, window.resetsAt, mins, now),
         observedAt: window.observedAt ?? account.quota.observedAt,
         stale,
-        evenLeftPercent: stale
-          ? undefined
-          : evenLeftPercent(window.resetsAt, window.windowDurationMins, now),
-        runsOutAt: stale
-          ? null
-          : windowRunsOutAt(window.usedPercent, window.resetsAt, window.windowDurationMins, now),
+        evenLeftPercent: stale ? undefined : evenLeftPercent(window.resetsAt, mins, now),
+        runsOutAt: stale ? null : windowRunsOutAt(window.usedPercent, window.resetsAt, mins, now),
       };
     }),
     noSessionWindow:

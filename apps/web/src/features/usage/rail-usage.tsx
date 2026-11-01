@@ -41,7 +41,13 @@ export function UsagePlace(props: { current: boolean }) {
         <UsageBars bars={usage.rail.bars} />
       </HoverCardTrigger>
       {open && (
-        <HoverCardContent side="right" align="end" className="w-85 px-4 pt-3.5 pb-2.5">
+        <HoverCardContent
+          side="right"
+          sideOffset={8}
+          align="end"
+          aria-label="Usage"
+          className="w-80 px-3 py-2"
+        >
           <UsageCard
             headroom={usage.headroom}
             now={usage.now}
@@ -54,6 +60,9 @@ export function UsagePlace(props: { current: boolean }) {
   );
 }
 
+/** One grid for every row of the card: label, bar, share left, reset. */
+const cardGrid = "grid grid-cols-[3.75rem_minmax(0,1fr)_2.5rem_3.75rem] items-center gap-x-2";
+
 function UsageCard(props: {
   headroom: readonly PooledHeadroom[];
   now: number;
@@ -62,22 +71,24 @@ function UsageCard(props: {
 }) {
   const shown = props.headroom.filter((entry) => entry.session || entry.weekly);
   return (
-    <div data-slot="usage-card">
-      <p className="text-ui font-semibold">Usage</p>
-      <p className="mt-0.5 text-ui text-muted-foreground">
+    <div data-slot="usage-card" className="text-ui tabular-nums">
+      <p className="leading-5 font-medium text-foreground">Usage</p>
+      <p className="mt-0.5 leading-5 text-muted-foreground">
         {headroomSentence(props.headroom, props.now)}
       </p>
       {shown.map((entry) => (
-        <section key={entry.key} aria-label={entry.providerLabel} className="mt-3">
-          <p className="flex items-center gap-2 text-ui font-semibold">
-            <ProviderIcon
-              provider={entry.provider}
-              acpAgentId={entry.acpAgentId}
-              size={14}
-              decorative
-            />
-            {entry.providerLabel}
-            <span className="ml-auto text-xs font-normal text-muted-foreground">
+        <section key={entry.key} aria-label={entry.providerLabel} className="mt-2.5">
+          <p className={`${cardGrid} h-6`}>
+            <span className="col-span-2 flex min-w-0 items-center gap-1.5 font-medium">
+              <ProviderIcon
+                provider={entry.provider}
+                acpAgentId={entry.acpAgentId}
+                size={14}
+                decorative
+              />
+              <span className="truncate">{entry.providerLabel}</span>
+            </span>
+            <span className="col-span-2 truncate text-right text-xs text-subtle-foreground">
               {entry.current?.account.label}
               {entry.accounts > 1 && ` · ${entry.accounts} accounts`}
             </span>
@@ -86,7 +97,7 @@ function UsageCard(props: {
           {entry.weekly && <CardWindow label="Weekly" window={entry.weekly} now={props.now} />}
         </section>
       ))}
-      <p className="mt-3 flex items-center justify-between border-t border-border pt-2 text-xs text-subtle-foreground">
+      <p className="mt-2.5 flex h-7 items-center justify-between border-t border-border text-xs text-subtle-foreground">
         <span>
           {props.observedAt === undefined
             ? "Not read yet"
@@ -116,20 +127,20 @@ function CardWindow(props: { label: string; window: AccountWindow; now: number }
   const tone = left === null ? "ok" : headroomTone(left);
   const countdown = resetCountdown(window.resetsAt, now);
   return (
-    <div className="mt-1.5 grid grid-cols-[4.5rem_minmax(0,1fr)_2.75rem_4rem] items-center gap-2 text-xs text-muted-foreground">
+    <div className={`${cardGrid} h-5 text-xs text-muted-foreground`}>
       <span>{props.label}</span>
-      <span aria-hidden className="h-1 overflow-hidden rounded-full bg-faint-foreground/60">
+      <span aria-hidden className="h-1 overflow-hidden rounded-full bg-faint-foreground/45">
         <span
           style={{ width: `${left ?? 0}%` }}
           className={cn("block h-full rounded-full", barTone[tone])}
         />
       </span>
-      <span className="text-right font-semibold text-foreground tabular-nums">
+      <span className="text-right font-medium text-foreground">
         {left === null ? "—" : `${left}%`}
       </span>
       <span
         className={cn(
-          "text-right whitespace-nowrap tabular-nums",
+          "truncate text-right",
           tone === "out" ? "text-status-failed" : "text-subtle-foreground",
         )}
       >

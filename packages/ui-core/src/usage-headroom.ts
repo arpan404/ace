@@ -190,6 +190,8 @@ export function approximately(ms: number): string {
 export interface UsageLine {
   parts: { text: string; strong?: boolean }[];
   text: string;
+  /** A quiet second line when no suggestion takes it: "Its session resets in 9h 1m." */
+  after?: string | undefined;
 }
 
 const line = (...parts: (string | { text: string; strong: true })[]): UsageLine => {
@@ -260,12 +262,19 @@ export function usageNow(headroom: readonly PooledHeadroom[], now: number): Usag
   if (!tight) return undefined;
   const left = tight.currentLeft ?? tight.sessionLeft ?? 0;
   const runsOut = tight.session?.runsOutAt;
-  return line(
-    "You have room on every provider. ",
-    strong(tight.providerLabel),
-    ` is the tightest: ${left}% of the session left`,
-    runsOut ? `, out in ${approximately(runsOut - now)} at this pace.` : ".",
-  );
+  const resets = tight.session?.resetsAt;
+  return {
+    ...line(
+      "You have room on every provider. ",
+      strong(tight.providerLabel),
+      ` is the tightest: ${left}% of the session left`,
+      runsOut ? `, out in ${approximately(runsOut - now)} at this pace.` : ".",
+    ),
+    after:
+      resets && resets > now
+        ? `Its session resets in ${formatCountdown(resets - now)}.`
+        : undefined,
+  };
 }
 
 /** The hover card's one sentence about the tightest provider. */

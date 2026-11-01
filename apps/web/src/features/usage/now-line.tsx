@@ -16,7 +16,7 @@ export function NowLine(props: {
   if (!line) return null;
   return (
     <section aria-label="Now" className="mt-1">
-      <p className="text-lg leading-snug font-semibold tracking-[-0.01em]" data-testid="usage-now">
+      <p className="text-lg leading-snug font-semibold tabular-nums" data-testid="usage-now">
         {line.parts.map((part, index) =>
           part.strong ? (
             <b key={part.text}>{part.text}</b>
@@ -27,6 +27,9 @@ export function NowLine(props: {
           ),
         )}
       </p>
+      {!suggestion && line.after && (
+        <p className="mt-1 text-ui text-muted-foreground tabular-nums">{line.after}</p>
+      )}
       {suggestion && (
         <p className="mt-1 text-ui text-muted-foreground" data-testid="usage-suggestion">
           {suggestion.text}{" "}

@@ -122,7 +122,7 @@ export interface EnvironmentRead {
 
 const breakdownLimit = 200;
 
-/** One environment's usage over the span: per day and provider, per model, per session, and each list. */
+/** One environment's usage over the span: per day and provider, per model, and each list. */
 async function readUsage(
   client: ClientApi,
   span: UsageSpan,
@@ -149,20 +149,15 @@ async function readUsage(
       }
     }),
   );
-  const [daily, models, threads, earlier, breakdowns] = await Promise.all([
+  const [daily, models, earlier, breakdowns] = await Promise.all([
     rows(client, "series", span, ["day", "provider"], filters, signal),
     rows(client, "summary", span, ["model", "provider"], filters, signal),
-    rows(client, "summary", span, ["thread", "provider"], filters, signal),
     rows(client, "series", before, ["day", "provider"], filters, signal),
     lists,
   ]);
   return {
-    usage: {
-      daily: daily.rows,
-      models: models.rows,
-      threads: threads.rows,
-      threadsTruncated: threads.truncated,
-    },
+    // The page shows no per-thread figures, so threads aren't read.
+    usage: { daily: daily.rows, models: models.rows, threads: [], threadsTruncated: false },
     previous: earlier.rows,
     breakdowns: Object.fromEntries(breakdowns.filter((entry) => entry[1] !== undefined)),
   };

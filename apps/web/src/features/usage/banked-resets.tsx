@@ -39,8 +39,9 @@ export function BankedResetAction(props: {
         href="https://claude.ai/settings/usage"
         target="_blank"
         rel="noreferrer"
+        aria-label="Use one in Claude"
       >
-        Use one in Claude
+        Use one
       </a>
     );
   if (entry.account.provider !== "codex" || !redeem) return null;

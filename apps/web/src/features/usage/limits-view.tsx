@@ -1,12 +1,12 @@
 import {
   formatAgo,
   headroomTone,
-  type HeadroomTone,
+  joinNames,
   resetCountdown,
   staleReadingMs,
   type AccountLimits,
   type AccountWindow,
-  type LimitPace,
+  type HeadroomTone,
   type ProviderLimits,
   type UsageLimits,
 } from "@ace/ui-core";
@@ -18,7 +18,8 @@ import { formatResets } from "@/features/accounts/index.ts";
 
 /**
  * Limits, account first: each provider's accounts listed once, each with its windows beneath it.
- * Every figure says what is left; resets, banked resets and pace are plain words.
+ * Every figure says what is left; resets, banked resets and pace are plain words. Providers that
+ * report nothing, and accounts ace can't tell apart, close the section as one quiet footnote.
  */
 export function LimitsView(props: {
   limits: UsageLimits;
@@ -26,22 +27,24 @@ export function LimitsView(props: {
   redeem?: RedeemReset | undefined;
 }) {
   const { providers, quiet, unsure } = props.limits;
+  const footnote = [quiet.length ? `No limits reported for ${joinNames(quiet)}.` : "", ...unsure]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-6">
       {providers.map((group) => (
         <ProviderSection key={group.key} group={group} now={props.now} redeem={props.redeem} />
       ))}
-      {quiet.length > 0 && (
-        <p className="text-xs text-subtle-foreground">No limits reported · {quiet.join(", ")}</p>
-      )}
-      {unsure.map((line) => (
-        <p key={line} className="text-xs text-subtle-foreground">
-          {line}
+      {footnote && (
+        <p data-testid="limits-footnote" className="text-xs text-subtle-foreground">
+          {footnote}
         </p>
-      ))}
+      )}
     </div>
   );
 }
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 function ProviderSection(props: {
   group: ProviderLimits;
@@ -51,17 +54,17 @@ function ProviderSection(props: {
   const { group } = props;
   return (
     <section aria-labelledby={`limits-${group.key}`}>
-      <div className="flex items-center gap-2 pt-4 pb-1.5">
-        <h2 id={`limits-${group.key}`} className="flex items-center gap-2 text-md font-semibold">
+      <div className="flex items-center gap-2 pb-1">
+        <h3 id={`limits-${group.key}`} className="flex items-center gap-2 text-md font-semibold">
           <ProviderIcon
             provider={group.provider}
             acpAgentId={group.acpAgentId}
-            size={14}
+            size={16}
             decorative
           />
           {group.providerLabel}
-        </h2>
-        <span className="ml-auto text-ui font-medium text-muted-foreground">
+        </h3>
+        <span className="ml-auto text-ui text-subtle-foreground tabular-nums">
           {plural(group.accounts.length, "account")}
         </span>
       </div>
@@ -80,7 +83,6 @@ function ProviderSection(props: {
 
 /** The provider's plan name as it reads beside the environment: "plus" → "Plus". */
 const planLabel = (plan: string) => plan.charAt(0).toUpperCase() + plan.slice(1);
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const expiry = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
 function Account(props: {
@@ -91,21 +93,22 @@ function Account(props: {
 }) {
   const { entry } = props;
   const banked = entry.bankedResets;
+  const canUse = props.redeem !== undefined || entry.account.provider === "claude";
   return (
     <article
       aria-label={`${props.provider} · ${entry.account.label} · ${entry.environment}`}
-      className="grid gap-x-6 gap-y-3 border-t border-border py-3 first-of-type:border-t-0 sm:grid-cols-[12.5rem_minmax(0,1fr)]"
+      className="grid gap-x-6 gap-y-2 border-t border-border py-3 first-of-type:border-t-0 sm:grid-cols-[13rem_minmax(0,1fr)]"
     >
-      <div className="min-w-0">
-        <h3 className="text-sm font-semibold break-words">{entry.account.label}</h3>
-        <p className="text-ui text-subtle-foreground">
+      <div className="min-w-0 text-ui leading-5">
+        <h4 className="truncate font-semibold">{entry.account.label}</h4>
+        <p className="truncate text-subtle-foreground">
           {entry.plan ? `${planLabel(entry.plan)} · ${entry.environment}` : entry.environment}
         </p>
         {entry.account.isDefault && (
-          <p className="mt-1.5 text-xs font-medium text-status-done">Used for new threads</p>
+          <p className="text-xs leading-5 font-medium text-status-done">Used for new threads</p>
         )}
         {banked !== undefined && banked > 0 && (
-          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-1 text-xs text-muted-foreground">
+          <div className="flex items-baseline gap-1 text-xs leading-5 whitespace-nowrap text-muted-foreground">
             <Tip
               label={`${plural(banked, "banked reset")}: each one resets this account's limits once, when you redeem it.${
                 entry.bankedExpiresAt !== null
@@ -116,29 +119,29 @@ function Account(props: {
               <span
                 // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
                 tabIndex={0}
-                className="rounded-xs focus-ring"
+                className="rounded-xs tabular-nums focus-ring"
               >
                 {plural(banked, "banked reset")}
               </span>
             </Tip>
-            {props.redeem !== undefined || entry.account.provider === "claude" ? (
+            {canUse && (
               <>
                 <span aria-hidden>·</span>
                 <BankedResetAction entry={entry} redeem={props.redeem} />
               </>
-            ) : null}
+            )}
           </div>
         )}
       </div>
-      <div className="flex min-w-0 flex-col gap-3">
-        <ul aria-label={`${entry.account.label} limits`} className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col">
+        <ul aria-label={`${entry.account.label} limits`} className="flex flex-col">
           {entry.windows.map((window) => (
             <WindowLine key={window.id} window={window} now={props.now} />
           ))}
         </ul>
-        {entry.signIn && <p className="text-ui text-muted-foreground">{entry.signIn}</p>}
+        {entry.signIn && <p className="text-ui leading-8 text-muted-foreground">{entry.signIn}</p>}
         {entry.noSessionWindow && (
-          <p className="text-xs text-subtle-foreground">
+          <p className="text-xs leading-8 text-subtle-foreground">
             No session (5h) limit reported for this account
           </p>
         )}
@@ -147,39 +150,37 @@ function Account(props: {
   );
 }
 
-const paceText: Record<"ahead", { label: string; tip: string }> = {
-  ahead: {
-    label: "Ahead of pace",
-    tip: "Ahead of pace: at this rate the window runs out before it resets.",
-  },
-};
-
-function Pace(props: { pace: LimitPace | undefined }) {
-  if (!props.pace) return null;
-  if (props.pace !== "ahead")
-    return <span className="block text-2xs text-subtle-foreground">On pace</span>;
-  const text = paceText[props.pace];
-  return (
-    <Tip label={text.tip}>
-      <span
-        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
-        tabIndex={0}
-        className={cn(
-          "block w-fit rounded-xs text-2xs underline decoration-dotted underline-offset-3 focus-ring",
-          "text-status-needs-you",
-        )}
-      >
-        {text.label}
-      </span>
-    </Tip>
-  );
-}
-
 /** A reading older than this says how old it is, and no longer counts as a limit. */
 const freshMs = staleReadingMs;
 
+/**
+ * Every window row is one 36px line: label (with "Ahead of pace" under it when it is), a bar of
+ * at most 220px with the even-pace tick, the share left, and when it resets.
+ */
 const rowGrid =
-  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 py-0.5 sm:grid-cols-[7.5rem_minmax(0,1fr)_3.5rem_8.5rem]";
+  "grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 sm:grid-cols-[minmax(0,11rem)_minmax(0,220px)_5.5rem_minmax(0,1fr)]";
+
+const barTone: Record<HeadroomTone, string> = {
+  ok: "bg-foreground",
+  low: "bg-status-needs-you",
+  out: "bg-status-failed",
+};
+
+function WindowName(props: { window: AccountWindow; ahead: boolean }) {
+  const { window } = props;
+  return (
+    <div className="min-w-0 leading-4">
+      <Tip label={window.label}>
+        <span className="block truncate text-ui text-muted-foreground">{window.label}</span>
+      </Tip>
+      {props.ahead && (
+        <Tip label="At this rate the window runs out before it resets.">
+          <span className="block w-fit text-2xs text-status-needs-you">Ahead of pace</span>
+        </Tip>
+      )}
+    </div>
+  );
+}
 
 function WindowLine(props: { window: AccountWindow; now: number }) {
   const { window, now } = props;
@@ -192,21 +193,7 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
   const old = now - window.observedAt > freshMs;
   return (
     <li className={rowGrid}>
-      <div className="min-w-0">
-        <span className="block text-ui break-words text-muted-foreground">{window.label}</span>
-        <Pace pace={window.pace} />
-      </div>
-      <p className="text-right whitespace-nowrap sm:order-3">
-        <span
-          className={cn(
-            "text-md leading-none font-semibold tabular-nums",
-            out && "text-status-failed",
-          )}
-        >
-          {window.leftPercent}%
-        </span>
-        <span className="sr-only"> left</span>
-      </p>
+      <WindowName window={window} ahead={window.pace === "ahead"} />
       <div
         role="meter"
         aria-label={window.label}
@@ -214,7 +201,7 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
         aria-valuemax={100}
         aria-valuenow={window.leftPercent}
         aria-valuetext={`${window.leftPercent}% left${countdown ? `, resets in ${countdown}` : ""}${old ? `, as of ${formatAgo(window.observedAt, now)}` : ""}`}
-        className="relative col-span-2 h-1.5 rounded-full bg-faint-foreground/50 sm:order-2 sm:col-span-1"
+        className="relative hidden h-1 rounded-full bg-faint-foreground/45 sm:block"
       >
         <span
           aria-hidden
@@ -225,16 +212,21 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
           <span
             aria-hidden
             data-slot="even-pace"
-            title="Even pace"
             style={{ left: `${window.evenLeftPercent}%` }}
-            className="absolute -inset-y-[3px] w-[1.5px] -translate-x-1/2 bg-subtle-foreground"
+            className="absolute top-1/2 h-2.5 w-[1.5px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground"
           />
         )}
       </div>
-      <div className="col-span-2 sm:order-4 sm:col-span-1 sm:text-right">
+      <p className="text-right whitespace-nowrap tabular-nums">
+        <span className={cn("text-md font-semibold", out && "text-status-failed")}>
+          {window.leftPercent}%
+        </span>
+        <span className="text-xs text-subtle-foreground"> left</span>
+      </p>
+      <div className="hidden min-w-0 text-right sm:block">
         <p
           className={cn(
-            "text-xs whitespace-nowrap sm:text-ui",
+            "truncate text-ui tabular-nums",
             out
               ? "text-status-failed"
               : tone === "low"
@@ -249,14 +241,14 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
           ) : (
             <Tip label={formatResets(window.resetsAt, now)}>
               {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
-              <span tabIndex={0} className="rounded-xs tabular-nums focus-ring">
+              <span tabIndex={0} className="rounded-xs focus-ring">
                 {out ? "back in" : "Resets in"} {countdown}
               </span>
             </Tip>
           )}
         </p>
         {old && (
-          <p className="text-2xs text-faint-foreground">
+          <p className="truncate text-2xs leading-3 text-faint-foreground">
             As of {formatAgo(window.observedAt, now)}
           </p>
         )}
@@ -265,29 +257,20 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
   );
 }
 
-const barTone: Record<HeadroomTone, string> = {
-  ok: "bg-foreground",
-  low: "bg-status-needs-you",
-  out: "bg-status-failed",
-};
-
 /**
- * A window whose reset passed after its last reading: what is left now is unknown until the
- * provider reports again, so it shows no figure, only how old the reading is.
+ * A window whose reset passed after its last reading: nothing has been used since, as far as
+ * ace knows, so it says so in words, with no bar and no figure, and when it reset.
  */
 function StaleLine(props: { window: AccountWindow; now: number }) {
   const { window, now } = props;
+  const words = window.label.startsWith("Session") ? "No session yet" : "Not used since its reset";
   return (
     <li className={rowGrid}>
-      <span className="text-ui break-words text-muted-foreground">{window.label}</span>
-      <p className="text-right text-md leading-none text-faint-foreground sm:order-3">—</p>
-      <div
-        aria-hidden
-        className="col-span-2 h-0.5 border-t border-dashed border-border sm:order-2 sm:col-span-1"
-      />
-      <p className="col-span-2 text-xs text-subtle-foreground sm:order-4 sm:col-span-1 sm:text-right">
+      <WindowName window={window} ahead={false} />
+      <p className="text-ui text-subtle-foreground sm:col-span-2">{words}</p>
+      <p className="hidden truncate text-right text-ui text-subtle-foreground tabular-nums sm:block">
         {window.resetsAt !== null && `Reset ${formatAgo(window.resetsAt, now)}`}
-        <span className="block text-2xs text-faint-foreground">
+        <span className="block text-2xs leading-3 text-faint-foreground">
           Read {formatAgo(window.observedAt, now)}
         </span>
       </p>

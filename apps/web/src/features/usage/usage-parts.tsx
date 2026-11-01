@@ -1,15 +1,20 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 
-/** A Usage section's heading: a quiet label, with its controls or note at the right. */
+/*
+ * The Usage page's one spacing scale: a section starts 32px under the one before it with its
+ * heading (`text-ui` 600 in muted ink), content 12px under the heading, 24px between groups.
+ */
+
+/** A section's heading, with a quiet note or its controls at the right. */
 export function SectionHeading(props: { id: string; title: string; children?: ReactNode }) {
   return (
-    <div className="mt-10 mb-1 flex min-h-7 items-center gap-3">
-      <h2 id={props.id} className="text-xs font-semibold text-subtle-foreground">
+    <div className="mt-8 mb-3 flex h-7 items-center gap-3">
+      <h2 id={props.id} className="text-ui font-semibold text-muted-foreground">
         {props.title}
       </h2>
       {props.children && (
-        <div className="ml-auto flex items-center gap-3 text-xs text-subtle-foreground">
+        <div className="ml-auto flex items-center gap-3 text-xs text-subtle-foreground tabular-nums">
           {props.children}
         </div>
       )}
@@ -17,11 +22,12 @@ export function SectionHeading(props: { id: string; title: string; children?: Re
   );
 }
 
-/** One figure with its label above it. */
+/** One figure with its label above it; `note` is a quiet line under the figure. */
 export function Stat(props: {
   label: string;
   value: string;
   tone?: "good" | undefined;
+  unit?: string | undefined;
   note?: string | undefined;
   testId?: string | undefined;
 }) {
@@ -35,10 +41,11 @@ export function Stat(props: {
         )}
       >
         {props.value}
-        {props.note && (
-          <span className="ml-1 text-xs font-normal text-subtle-foreground">{props.note}</span>
+        {props.unit && (
+          <span className="ml-1 text-xs font-normal text-subtle-foreground">{props.unit}</span>
         )}
       </dd>
+      {props.note && <dd className="text-xs text-muted-foreground">{props.note}</dd>}
     </div>
   );
 }
