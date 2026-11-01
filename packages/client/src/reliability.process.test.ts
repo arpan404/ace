@@ -1,10 +1,12 @@
 import { expect, test } from "vitest";
 import { createDevThread } from "@ace/daemon";
 import { Interaction, type EventPayload } from "@ace/protocol";
-import { setup, ready, when, barrier, message, itemId } from "./test-support.ts";
+import { sharedDaemon, ready, when, barrier, message, itemId } from "./test-support.ts";
+
+const harness = sharedDaemon();
 
 test("deleting an item notifies its readers and an older page cannot resurrect it", async () => {
-  const h = await setup();
+  const h = await harness();
   try {
     h.daemon.store.appendEvents(h.thread.id, [message]);
     const { client, faults } = h.make();
@@ -31,7 +33,7 @@ test("deleting an item notifies its readers and an older page cannot resurrect i
 });
 
 test("pending approvals above the old entity cap arrive through bounded snapshot frames", async () => {
-  const h = await setup();
+  const h = await harness();
   try {
     for (let start = 0; start < 10000; start += 100) {
       const events: EventPayload[] = [];
@@ -71,7 +73,7 @@ test("pending approvals above the old entity cap arrive through bounded snapshot
 });
 
 test("reconnect starts at most four subscriptions until their replay completion arrives", async () => {
-  const h = await setup();
+  const h = await harness();
   try {
     const { client, faults } = h.make();
     await ready(client);
@@ -120,7 +122,7 @@ test("reconnect starts at most four subscriptions until their replay completion 
 });
 
 test("offline command replay admits eight in flight and advances when durable replies arrive", async () => {
-  const h = await setup();
+  const h = await harness();
   try {
     const { client, faults } = h.make();
     await ready(client);
@@ -153,7 +155,7 @@ test("offline command replay admits eight in flight and advances when durable re
 });
 
 test("a refused subscription releases its replay slot without endlessly retrying itself", async () => {
-  const h = await setup();
+  const h = await harness();
   try {
     const { client, faults } = h.make();
     await ready(client);
