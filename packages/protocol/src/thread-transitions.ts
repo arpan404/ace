@@ -184,10 +184,13 @@ export const DelegatedFrom = z.object({
   /** The machine's name when it was delegated, for showing the parent as remote. */
   hostName: z.string().min(1).max(256).optional(),
   threadId: ThreadId,
-  /** The parent thread's title when it delegated, for naming it here. Lenient: bad is absent. */
-  threadTitle: z.string().min(1).max(256).optional().catch(undefined),
-  /** The parent thread's provider, for naming the agent that sent it work. Lenient: unknown is absent. */
-  provider: ProviderKind.optional().catch(undefined),
+  /** The parent thread's title when it delegated, for naming it here. */
+  threadTitle: z.string().min(1).max(256).optional(),
+  /**
+   * The parent thread's provider, for naming the agent that sent it work. Any string: a peer may
+   * run a provider this machine doesn't know, and clients read an unknown one as absent.
+   */
+  provider: z.string().min(1).max(64).optional(),
 });
 export type DelegatedFrom = z.infer<typeof DelegatedFrom>;
 /**
@@ -214,7 +217,7 @@ export const ThreadTransitionView = z.object({
   lineage: ThreadLineage.optional(),
   delegatedBy: DelegatedBy.optional(),
   delegatedFrom: DelegatedFrom.optional(),
-  startedBy: StartedBy.optional().catch(undefined),
+  startedBy: StartedBy.optional(),
   queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),
   switch: ThreadSwitch.optional(),

@@ -11,6 +11,8 @@
   --mk-removed: var(--color-diff-del);
   --mk-added-bg: color-mix(in srgb, var(--color-diff-add) 12%, transparent);
   --mk-removed-bg: color-mix(in srgb, var(--color-diff-del) 12%, transparent);
+  /* Selected formulas, and words in lines with inline math, are painted by markit itself. */
+  --mk-selection: var(--selection);
   font: inherit;
   color: var(--color-foreground);
   overflow-wrap: anywhere;

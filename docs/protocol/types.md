@@ -10470,7 +10470,7 @@ Example:
 | hostName | no | string | {"minLength":1,"maxLength":256} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | threadTitle | no | string | {"minLength":1,"maxLength":256} |
-| provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
+| provider | no | string | {"minLength":1,"maxLength":64} |
 
 Example:
 
@@ -17210,7 +17210,7 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | threadTitle | yes | string | {"maxLength":256} |
 | agentId | no | [AgentId.json](schema/AgentId.json) |  |
-| provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
+| provider | no | string | {"minLength":1,"maxLength":64} |
 | ceiling | no | ["read","operate"] |  |
 
 Example:
@@ -17238,14 +17238,16 @@ Example:
 ```json
 {
   "call": {
-    "args": {},
-    "op": "browser",
-    "tool": "browser_iwjavvsfeamegpgaodltj_rplrjvjgqsumnmfgahcncwzbumcfmwomkokuf_"
+    "delivery": "restart",
+    "op": "message",
+    "requestId": "8u2vbYY",
+    "text": "example",
+    "threadId": "example"
   },
   "origin": {
     "hostId": "example",
     "hostName": "example",
-    "provider": "antigravity",
+    "provider": "example",
     "threadId": "example",
     "threadTitle": "example"
   }
@@ -33644,7 +33646,6 @@ Example:
   "interactions": {},
   "itemOrder": [],
   "items": {},
-  "itemsBefore": null,
   "kind": "thread",
   "runs": {},
   "seq": 7,
@@ -33702,7 +33703,7 @@ Example:
     "delegatedBy": "example",
     "delegatedFrom": {
       "hostId": "example",
-      "provider": "pi",
+      "provider": "example",
       "threadId": "example"
     },
     "details": {
@@ -33847,32 +33848,26 @@ Example:
       "resumeAt": null,
       "revision": 7
     },
+    "queuedLaunch": {
+      "queuePosition": 9,
+      "text": "example"
+    },
     "readAt": 0,
     "settleWhenDone": true,
     "settledReason": "inactivity",
     "snoozeWake": {
       "on": "needs_you"
     },
-    "startedBy": "example",
     "status": {
       "interactions": 5,
       "state": "needs_you"
-    },
-    "switch": {
-      "at": 0,
-      "lossy": false,
-      "selection": {
-        "provider": "acp"
-      },
-      "state": "applied"
     },
     "title": "example",
     "unread": true,
     "updatedAt": 6,
     "workspaceId": "example"
   },
-  "usage": {},
-  "usageSnapshots": {}
+  "usage": {}
 }
 ```
 

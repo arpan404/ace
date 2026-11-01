@@ -32,7 +32,8 @@ export interface SentByThread {
         hostName?: string | undefined;
         threadId: string;
         threadTitle?: string | undefined;
-        provider?: ProviderKind | undefined;
+        /** Any provider name; one this client doesn't know names no provider. */
+        provider?: string | undefined;
       }
     | undefined;
 }
