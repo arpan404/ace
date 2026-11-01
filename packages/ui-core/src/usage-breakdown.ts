@@ -51,7 +51,13 @@ export interface BreakdownLine {
   key: string;
   tokens: number;
   usd: number;
+  /** Tokens from models ace has no price for: all of them reads "Unpriced", never $0.00. */
+  unpricedTokens?: number | undefined;
 }
+
+/** A line whose every token is from an unpriced model has no cost to show. */
+export const unpricedLine = (line: BreakdownLine) =>
+  line.tokens > 0 && (line.unpricedTokens ?? 0) >= line.tokens;
 
 /** Rows shown before "Show all". */
 export const breakdownTop = 5;
@@ -71,9 +77,10 @@ export function rankBreakdown(
       const key = row.dimensions[dimension];
       const tokens = usageTokens(row.totals);
       if (!key || tokens <= 0) continue;
-      const line = lines.get(key) ?? { key, tokens: 0, usd: 0 };
+      const line = lines.get(key) ?? { key, tokens: 0, usd: 0, unpricedTokens: 0 };
       line.tokens += tokens;
       line.usd += pricedUsd(row.totals);
+      line.unpricedTokens = (line.unpricedTokens ?? 0) + row.totals.unpricedTokens;
       lines.set(key, line);
     }
   return rankLines([...lines.values()]);

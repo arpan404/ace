@@ -29,7 +29,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { useMachines } from "@/lib/machines.ts";
+import { primaryMachineId, useMachines, type Machine } from "@/lib/machines.ts";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
@@ -97,8 +97,10 @@ export function UsagePage() {
     staleTime: 5 * 60_000,
     read: (client, signal) => listAutomations(client, signal),
   });
+  // This machine keeps one id while its host id is learnt, so its rows (and an open banked-reset
+  // dialog) aren't replaced when it arrives.
   const machineAccounts: MachineAccounts[] = accounts.map((entry) => ({
-    id: entry.environment.id,
+    id: entry.environment.primary ? primaryMachineId : entry.environment.id,
     name: entry.environment.name,
     // An offline machine's last accounts aren't counted: the coverage line names it instead.
     accounts: entry.environment.client ? entry.accounts : undefined,
@@ -149,6 +151,8 @@ export function UsagePage() {
       ...entry.account.windows.map((window) => window.observedAt ?? 0),
     ]),
   );
+  const machineFor = (id: string | undefined): Machine | undefined =>
+    machines.find((machine) => (id === primaryMachineId ? machine.primary : machine.id === id));
   const applyFilter = (next: UsageFilter) => {
     if (next.kind === "machine") {
       setEnvironmentId(next.key);
@@ -160,7 +164,7 @@ export function UsagePage() {
   };
   const makeDefault = async (pick: UsageSuggestion) => {
     const provider = ManagedAccountProvider.safeParse(pick.provider);
-    const machine = machines.find((candidate) => candidate.id === pick.account.environmentId);
+    const machine = machineFor(pick.account.environmentId);
     if (!provider.success || !machine?.client) throw new Error("Can't change this default");
     await machine.client.request({
       type: "accounts.setDefault",
@@ -172,15 +176,13 @@ export function UsagePage() {
   const canDefault =
     suggestion !== undefined &&
     ManagedAccountProvider.safeParse(suggestion.provider).success &&
-    machines.some(
-      (machine) => machine.id === suggestion.account.environmentId && machine.client !== undefined,
-    );
+    machineFor(suggestion.account.environmentId)?.client !== undefined;
   return (
     <Screen title="Usage">
       <div className="h-full overflow-auto">
         <div className="mx-auto px-4 pt-6 pb-20 sm:px-10" style={{ maxWidth: 960 }}>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <h1 className="mr-auto text-2xl font-semibold tracking-[-0.015em]">Usage</h1>
+            <h2 className="mr-auto text-2xl font-semibold tracking-title">Usage</h2>
             <FilterMenu
               label="Machine"
               value={environmentId}
@@ -265,9 +267,7 @@ export function UsagePage() {
                 limits={limits}
                 now={now}
                 redeem={async (entry, idempotencyKey) => {
-                  const machine = environments.find(
-                    (candidate) => candidate.id === entry.environmentId,
-                  );
+                  const machine = machineFor(entry.environmentId);
                   if (!machine?.client) throw new Error("Machine is offline");
                   const reply = await machine.client.request({
                     type: "accounts.consumeReset",

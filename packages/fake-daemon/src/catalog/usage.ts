@@ -98,6 +98,25 @@ const sources: readonly UsageSource[] = [
 
 const hour = 3_600_000;
 
+/*
+ * The newer dimensions, rotated by day and source so every list on the Usage page has a few
+ * values: projects of the development world, skills a turn used, automations that started a
+ * thread (most started by a person), and who spent it.
+ */
+const workspaces = ["ace", "relay", "billing-api", "ace", "ace-mobile"];
+const skills = ["release-desktop", null, "test-cleanup", null, "agents-sdk", "cloudflare", null];
+const automations = [
+  "auto-dependency-audit",
+  null,
+  null,
+  "auto-pr-review",
+  null,
+  null,
+  "auto-flaky-triage",
+];
+const roles = ["main", "main", "subagent", "main", "delegated", "subagent", "main"];
+const pick = <T>(list: readonly T[], at: number): T => list[at % list.length] as T;
+
 /**
  * Claude's running session totals for the development world's Claude threads: each session's
  * overall cost and its split by model (Claude Code hands small work to Haiku).
@@ -235,7 +254,7 @@ export class FakeUsage {
 
   /**
    * Answers `usage.series` / `usage.summary`. Groups and filters by day, thread, provider,
-   * account and model; other dimensions group as null. Like the daemon, a series is always per day.
+   * account, model, workspace, skill, automation and role; agent groups as null. Like the daemon, a series is always per day.
    */
   report(asked: UsageQuery, kind: "summary" | "series"): UsageResult {
     const query =
@@ -257,6 +276,10 @@ export class FakeUsage {
           provider: source.provider,
           account: source.account,
           model: source.model,
+          workspace: pick(workspaces, dayIndex + index),
+          skill: pick(skills, dayIndex * 3 + index),
+          automation: pick(automations, dayIndex * 2 + index),
+          role: pick(roles, dayIndex + index * 2),
         };
         const filtered = Object.entries(query.filters).some(
           ([dimension, allowed]) =>

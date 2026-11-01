@@ -8,6 +8,7 @@ import {
   type BreakdownKind,
   type BreakdownLine,
   type UsageFilter,
+  unpricedLine,
 } from "@ace/ui-core";
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
@@ -85,7 +86,13 @@ function BreakdownList(props: {
                 <BreakdownRow
                   label={label}
                   pressed={pressed}
-                  value={props.metric === "cost" ? formatUsd(line.usd) : formatTokens(line.tokens)}
+                  value={
+                    props.metric === "tokens"
+                      ? formatTokens(line.tokens)
+                      : unpricedLine(line)
+                        ? "Unpriced"
+                        : formatUsd(line.usd)
+                  }
                   width={(value(line) / top) * 100}
                   onClick={() =>
                     props.onFilter({

@@ -76,7 +76,7 @@ export function StackedChart(props: {
                   key={provider.id}
                   data-provider={provider.id}
                   style={{ height: `${(value / top) * 100}%` }}
-                  className={`block rounded-t-[2px] bg-(--provider) ${hover !== null && hover !== index ? "opacity-50" : ""}`}
+                  className={`block rounded-t-xs bg-(--provider) ${hover !== null && hover !== index ? "opacity-50" : ""}`}
                 />
               );
             })}

@@ -51,21 +51,20 @@ function ProviderSection(props: {
   const { group } = props;
   return (
     <section aria-labelledby={`limits-${group.key}`}>
-      <h2
-        id={`limits-${group.key}`}
-        className="flex items-center gap-2 pt-4 pb-1.5 text-md font-semibold"
-      >
-        <ProviderIcon
-          provider={group.provider}
-          acpAgentId={group.acpAgentId}
-          size={14}
-          decorative
-        />
-        {group.providerLabel}
+      <div className="flex items-center gap-2 pt-4 pb-1.5">
+        <h2 id={`limits-${group.key}`} className="flex items-center gap-2 text-md font-semibold">
+          <ProviderIcon
+            provider={group.provider}
+            acpAgentId={group.acpAgentId}
+            size={14}
+            decorative
+          />
+          {group.providerLabel}
+        </h2>
         <span className="ml-auto text-ui font-medium text-muted-foreground">
           {plural(group.accounts.length, "account")}
         </span>
-      </h2>
+      </div>
       {group.accounts.map((entry) => (
         <Account
           key={entry.key}
@@ -106,7 +105,7 @@ function Account(props: {
           <p className="mt-1.5 text-xs font-medium text-status-done">Used for new threads</p>
         )}
         {banked !== undefined && banked > 0 && (
-          <p className="mt-1.5 flex flex-wrap items-baseline gap-x-1 text-xs text-muted-foreground">
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-1 text-xs text-muted-foreground">
             <Tip
               label={`${plural(banked, "banked reset")}: each one resets this account's limits once, when you redeem it.${
                 entry.bankedExpiresAt !== null
@@ -128,7 +127,7 @@ function Account(props: {
                 <BankedResetAction entry={entry} redeem={props.redeem} />
               </>
             ) : null}
-          </p>
+          </div>
         )}
       </div>
       <div className="flex min-w-0 flex-col gap-3">

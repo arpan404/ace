@@ -21,10 +21,7 @@ export function NowLine(props: {
           part.strong ? (
             <b key={part.text}>{part.text}</b>
           ) : (
-            <span
-              key={part.text}
-              className={index > 0 ? "font-medium text-muted-foreground" : ""}
-            >
+            <span key={part.text} className={index > 0 ? "font-medium text-muted-foreground" : ""}>
               {part.text}
             </span>
           ),

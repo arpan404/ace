@@ -111,8 +111,8 @@ test("a breakdown sums every machine's rows per value and ranks by cost", () => 
   ];
   const studio = [row({ skill: "review" }, { inputTokens: 100, apiInputUsd: 1 })];
   expect(rankBreakdown([mac, studio], "skill")).toEqual([
-    { key: "review", tokens: 1000, usd: 1.5 },
-    { key: "release", tokens: 100, usd: 1 },
+    { key: "review", tokens: 1000, usd: 1.5, unpricedTokens: 0 },
+    { key: "release", tokens: 100, usd: 1, unpricedTokens: 0 },
   ]);
 });
 
