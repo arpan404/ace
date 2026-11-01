@@ -416,7 +416,7 @@ test("settled threads leave the Inbox, and the Settled tab lists every one of th
     await app.client.command({ type: "thread.settle", threadId: ThreadId.parse(`task-${index}`) });
   await app.open("/new");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
-  await userEvent.click(await nav.findByRole("tab", { name: "Settled" }));
+  await userEvent.click(await nav.findByRole("tab", { name: /^Settled/ }));
   // All seven at once: no project folds them behind Show more.
   await waitFor(() => expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(7));
   expect(nav.queryByRole("button", { name: /^Show / })).toBeNull();
