@@ -1,4 +1,4 @@
-import { expect, it, onTestFinished } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket } from "ws";
 import { DeviceClient, type DeviceTransportEvents } from "@ace/devices/client";
 import { DevicePlatform, DevicesService } from "@ace/devices";
@@ -37,6 +37,8 @@ async function setup(scopes: DeviceScope[], available = true) {
   const deadlines = new Set<() => void>();
   let serial = 0;
   let events: DeviceTransportEvents | undefined;
+  /** Every frame the daemon sent on this socket, in order. */
+  const frames: unknown[] = [];
   const client = new DeviceClient({
     id: () => `request-${++serial}`,
     schedule(run) {
@@ -62,6 +64,7 @@ async function setup(scopes: DeviceScope[], available = true) {
       );
       socket.on("message", (data) => {
         const message: unknown = JSON.parse(data.toString());
+        frames.push(message);
         if (
           typeof message === "object" &&
           message !== null &&
@@ -104,6 +107,8 @@ async function setup(scopes: DeviceScope[], available = true) {
     client,
     devices,
     deadlines,
+    frames,
+    open: () => socket.readyState === WebSocket.OPEN,
     reply: () => response.promise,
     nextReply() {
       response = Promise.withResolvers<void>();
@@ -165,4 +170,19 @@ it("an unavailable devices service returns a correlated explanation immediately"
     message: expect.stringMatching(/unavailable/i),
   });
   expect(f.deadlines.size).toBe(0);
+});
+
+it("a devices channel on an already loaded service is welcomed first, then told whether devices are on", async () => {
+  // The daemon was given a loaded service, so the channel subscribes before the welcome.
+  const f = await setup(["admin"]);
+
+  await vi.waitFor(() =>
+    expect(f.frames).toMatchObject([
+      { type: "welcome" },
+      { type: "devices.enabled", enabled: true },
+    ]),
+  );
+  expect(f.client.getSnapshot()).toMatchObject({ connected: true, enabled: true });
+  expect(f.client.getSnapshot().error).toBeUndefined();
+  expect(f.open()).toBe(true);
 });

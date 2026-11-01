@@ -16,6 +16,7 @@ import {
 import { framePicture } from "@ace/screen";
 import { DevicesService, deviceFailure } from "./service.ts";
 import type { Actor } from "./lease.ts";
+import { heldPushes } from "./held-pushes.ts";
 
 export interface DevicePeer {
   authorize(): boolean;
@@ -31,8 +32,21 @@ export interface DevicePeer {
   now?(): number;
   after?(ms: number, run: () => void): () => void;
 }
-/** A transport owner supplies authenticated identity and revocation checks. */
+/**
+ * A transport owner supplies authenticated identity and revocation checks. The channel speaks
+ * at once: use it where the client has already been welcomed.
+ */
 export function connectDevices(service: DevicesService, owner: string, peer: DevicePeer) {
+  const channel = reserveDevices(service, owner, peer);
+  channel.activate();
+  return channel;
+}
+/**
+ * A devices channel opened before the socket's welcome: it subscribes now (a full subscriber
+ * budget throws here, refusing the hello), but sends nothing until `activate`, called once the
+ * welcome has gone out. Changes in between are held and follow the opening snapshot.
+ */
+export function reserveDevices(service: DevicesService, owner: string, peer: DevicePeer) {
   const actor: Actor = { kind: "human", owner, guard: () => access() };
   const streams = new DeviceSubscriptions();
   const logs = new DeviceSubscriptions();
@@ -70,9 +84,13 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
     const thread = service.boundThread(id);
     if (thread && !peer.canReadThread(thread)) throw new Error("Device thread access denied");
   };
-  const send = async (message: DeviceServerMessage) => {
+  const pushes = heldPushes(async (message) => {
     access();
     await peer.send(message);
+  });
+  const send = async (message: DeviceServerMessage) => {
+    access();
+    await pushes.send(message);
   };
   const stateForPeer = (state: DeviceState): DeviceState => ({
     ...state,
@@ -86,14 +104,10 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
   const unwatchInventory = service.watchInventory((inventory) => {
     void send({ type: "devices.inventory", ...inventory }).catch(close);
   });
-  // Turning devices on or off reaches every view, including ones with no device sessions. A view
-  // that just connected, or reconnected after missing a change, is told the current value first:
-  // with devices on by default, turning them on may change nothing and so announce nothing.
-  const announceEnabled = (enabled: boolean) => {
+  // Turning devices on or off reaches every view, including ones with no device sessions.
+  const unwatchEnabled = service.watchEnabled((enabled) => {
     void send({ type: "devices.enabled", enabled }).catch(close);
-  };
-  const unwatchEnabled = service.watchEnabled(announceEnabled);
-  announceEnabled(service.isEnabled());
+  });
   /** Held while this connection's client says a Devices view is open. */
   let inventoryView: (() => void) | undefined;
   function close() {
@@ -115,6 +129,16 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
   }
   return {
     close,
+    /**
+     * The client has been welcomed: tell it whether devices are on, then anything that changed
+     * since this channel subscribed. A view that just connected, or reconnected after missing a
+     * change, needs the current value: with devices on by default, turning them on may change
+     * nothing and so announce nothing.
+     */
+    activate(): void {
+      if (closed) return;
+      void pushes.open([{ type: "devices.enabled", enabled: service.isEnabled() }]).catch(close);
+    },
     /** A viewer's `devices.ack`: frees its window, or asks for a keyframe. Never answered. */
     ack(raw: unknown): void {
       const message = DeviceAck.parse(raw);

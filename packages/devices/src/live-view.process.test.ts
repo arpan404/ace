@@ -10,7 +10,7 @@ import { ScreenManager } from "@ace/screen";
 import { ThreadId, AgentId } from "@ace/protocol";
 import type { DeviceServerMessage } from "@ace/protocol/devices";
 import { DeviceClient, DeviceClientError, type DeviceTransport } from "./client.ts";
-import { DevicesService, DevicePlatform, connectDevices, agentOwner } from "./index.ts";
+import { DevicesService, DevicePlatform, reserveDevices, agentOwner } from "./index.ts";
 
 /*
  * The iOS Simulator live view end to end, minus macOS: a fake `xcrun simctl` keeps the
@@ -158,12 +158,12 @@ async function fixture(
 /** A devices client connected to the service through the bridge, as the app connects. */
 function connect(service: DevicesService, owner = "browser-1") {
   const sent: DeviceServerMessage[] = [];
-  let channel: ReturnType<typeof connectDevices> | undefined;
+  let channel: ReturnType<typeof reserveDevices> | undefined;
   const transport: DeviceTransport = {
     open(events) {
-      // The daemon opens the devices channel only after its welcome, so pushes follow ready.
-      events.ready();
-      channel = connectDevices(service, owner, {
+      // As the daemon does with a loaded service: the channel subscribes before the welcome and
+      // speaks only once the welcome has gone out.
+      const opened = reserveDevices(service, owner, {
         authorize: () => true,
         canReadThread: () => true,
         agentExists: () => true,
@@ -177,6 +177,11 @@ function connect(service: DevicesService, owner = "browser-1") {
             events.message(piece);
           },
         },
+      });
+      channel = opened;
+      queueMicrotask(() => {
+        events.ready();
+        opened.activate();
       });
     },
     send(message) {
