@@ -3,7 +3,13 @@ import { createHash } from "node:crypto";
 import { ThreadId, type StorageKind, type StorageReason } from "@ace/protocol";
 import type { OwnedStorageCandidate, StorageOwner, StorageTarget } from "./types.ts";
 import { StorageFiles, storageId } from "./files.ts";
-import { storageProtections, storageTree } from "./ownership.ts";
+import {
+  loadProtectionFacts,
+  storageMembers,
+  storageProtections,
+  type ProtectionFacts,
+} from "./ownership.ts";
+import { treeProtections } from "./delegation-trees.ts";
 import { transcriptBytes, transcriptQueries } from "./transcript.ts";
 
 export interface StorageScan {
@@ -27,24 +33,40 @@ export class StorageInventory {
     queries?: readonly string[],
     going: () => boolean = () => true,
   ): Promise<OwnedStorageCandidate | undefined> {
-    const { store } = this.owner;
     // Measure first: it yields to the loop. Ownership and protections are read after the last
     // await, so the candidate never carries protections older than its size.
-    const bytes = await transcriptBytes(
+    const bytes = await this.measure(id, queries, going);
+    return this.threadCandidate(id, bytes, loadProtectionFacts(this.owner, [id]));
+  }
+  private measure(
+    id: ThreadId,
+    queries: readonly string[] | undefined,
+    going: () => boolean,
+  ): Promise<number | undefined> {
+    const { store } = this.owner;
+    return transcriptBytes(
       (sql) => store.statement(sql),
       id,
       queries ?? store.atomic((db) => transcriptQueries(db)),
       going,
     );
+  }
+  /** Synchronous: callers read `facts` after their last await. */
+  private threadCandidate(
+    id: ThreadId,
+    bytes: number | undefined,
+    facts: ProtectionFacts,
+  ): OwnedStorageCandidate | undefined {
+    const { store } = this.owner;
     const thread = store.getThread(id);
     if (!thread || bytes === undefined) return undefined;
-    const members = storageTree(store, id);
-    const protections = storageProtections(this.owner, members);
+    const members = facts.trees.tree(id);
+    const protections = treeProtections(facts.trees, facts.reasons, members, facts.memo);
     if (thread.archivedAt === undefined && thread.deletedAt === undefined)
       protections.push("not_archived");
     if (
       members.some((member) => {
-        const t = store.getThread(member);
+        const t = facts.threads.get(member);
         return t && t.archivedAt === undefined && t.deletedAt === undefined;
       })
     )
@@ -59,7 +81,7 @@ export class StorageInventory {
       // member would mark the rest recently modified and protect them from later rounds.
       modifiedAt: Math.max(
         ...members.map((member) => {
-          const t = member === id ? thread : store.getThread(member);
+          const t = member === id ? thread : facts.threads.get(member);
           if (!t || (member !== id && t.deletedAt !== undefined)) return 0;
           return Math.max(t.activityAt ?? t.updatedAt, t.archivedAt ?? 0, t.deletedAt ?? 0);
         }),
@@ -164,7 +186,7 @@ export class StorageInventory {
   }
   worktreeOwnership(path: string) {
     const { store } = this.owner;
-    const ids = [...new Set(this.worktreeOwners(path).flatMap((id) => storageTree(store, id)))];
+    const ids = storageMembers(store, this.worktreeOwners(path));
     const protections = storageProtections(this.owner, ids);
     const threads = ids.flatMap((id) => {
       const thread = store.getThread(id);
@@ -237,11 +259,27 @@ export class StorageInventory {
         .all();
       if (threads.length > 256) complete = false;
       const queries = store.atomic((db) => transcriptQueries(db));
+      const measured: [ThreadId, number | undefined][] = [];
+      let stopped = false;
       for (const row of threads.slice(0, 256)) {
-        const candidate = await this.thread(ThreadId.parse(row.id), queries, going);
-        if (candidate) candidates.push(candidate);
-        if (!going()) return { candidates, complete: false };
+        const id = ThreadId.parse(row.id);
+        measured.push([id, await this.measure(id, queries, going)]);
+        if (!going()) {
+          stopped = true;
+          break;
+        }
       }
+      // Ownership and protections for the whole page are read once, after the last
+      // measurement, so no candidate carries protections older than its size.
+      const facts = loadProtectionFacts(
+        this.owner,
+        measured.map(([id]) => id),
+      );
+      for (const [id, bytes] of measured) {
+        const candidate = this.threadCandidate(id, bytes, facts);
+        if (candidate) candidates.push(candidate);
+      }
+      if (stopped) return { candidates, complete: false };
     }
     if (!going()) return { candidates, complete: false };
     if (kinds.has("attachments") && services.context) {
