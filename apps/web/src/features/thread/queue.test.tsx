@@ -420,7 +420,8 @@ test("a refused edit keeps the unsaved text and the original queued message", as
   await userEvent.type(message, "Original wording{Enter}");
   await screen.findByRole("list", { name: "Queued messages" });
   await editInComposer();
-  app.daemon.refuseCommands("queue_conflict", "queue.edit");
+  // A refusal for its own sake; a conflict means another device changed it (its own path).
+  app.daemon.refuseCommands("forbidden", "queue.edit");
   await retypeAndEnter("Unsaved revision");
   await screen.findByRole("alertdialog", { name: "Couldn't save the message" });
   await waitFor(() => expect(composerBox().textContent).toBe("Unsaved revision"));
