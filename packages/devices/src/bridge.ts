@@ -86,10 +86,14 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
   const unwatchInventory = service.watchInventory((inventory) => {
     void send({ type: "devices.inventory", ...inventory }).catch(close);
   });
-  // Turning devices on or off reaches every view, including ones with no device sessions.
-  const unwatchEnabled = service.watchEnabled((enabled) => {
+  // Turning devices on or off reaches every view, including ones with no device sessions. A view
+  // that just connected, or reconnected after missing a change, is told the current value first:
+  // with devices on by default, turning them on may change nothing and so announce nothing.
+  const announceEnabled = (enabled: boolean) => {
     void send({ type: "devices.enabled", enabled }).catch(close);
-  });
+  };
+  const unwatchEnabled = service.watchEnabled(announceEnabled);
+  announceEnabled(service.isEnabled());
   /** Held while this connection's client says a Devices view is open. */
   let inventoryView: (() => void) | undefined;
   function close() {

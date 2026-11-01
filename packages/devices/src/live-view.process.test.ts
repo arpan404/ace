@@ -161,6 +161,8 @@ function connect(service: DevicesService, owner = "browser-1") {
   let channel: ReturnType<typeof connectDevices> | undefined;
   const transport: DeviceTransport = {
     open(events) {
+      // The daemon opens the devices channel only after its welcome, so pushes follow ready.
+      events.ready();
       channel = connectDevices(service, owner, {
         authorize: () => true,
         canReadThread: () => true,
@@ -176,7 +178,6 @@ function connect(service: DevicesService, owner = "browser-1") {
           },
         },
       });
-      queueMicrotask(() => events.ready());
     },
     send(message) {
       if (message.type === "devices.ack") channel?.ack(message);
@@ -195,7 +196,9 @@ function connect(service: DevicesService, owner = "browser-1") {
   });
   client.connect(transport);
   onTestFinished(() => client.disconnect());
-  return { client, sent };
+  /** The window comes back online on a fresh channel, as after a dropped socket. */
+  const reconnect = () => client.connect(transport);
+  return { client, sent, reconnect };
 }
 
 const deviceState = (client: DeviceClient) =>
@@ -255,6 +258,26 @@ it("turning devices on or off reaches every open view, even one with no device s
   await waitFor(() => expect(quiet.client.getSnapshot().enabled).toBe(true));
   await first.client.request({ op: "enable", enabled: false });
   await waitFor(() => expect(quiet.client.getSnapshot().enabled).toBe(false));
+  await first.client.request({ op: "enable", enabled: true });
+  await waitFor(() => expect(quiet.client.getSnapshot().enabled).toBe(true));
+});
+
+it("a window that was offline when devices were turned off reads them as off once it reconnects", async () => {
+  const f = await fixture();
+  const away = connect(f.service, "window-2");
+  const first = connect(f.service, "window-1");
+  await waitFor(() => expect(away.client.getSnapshot().enabled).toBe(true));
+  await waitFor(() => expect(first.client.getSnapshot().connected).toBe(true));
+
+  away.client.disconnect();
+  await first.client.request({ op: "enable", enabled: false });
+  away.reconnect();
+  await waitFor(() => expect(away.client.getSnapshot().enabled).toBe(false));
+
+  away.client.disconnect();
+  await first.client.request({ op: "enable", enabled: true });
+  away.reconnect();
+  await waitFor(() => expect(away.client.getSnapshot().enabled).toBe(true));
 });
 
 it("a second view that has no device sessions yet still learns that devices are on", async () => {
