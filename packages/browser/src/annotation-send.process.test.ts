@@ -12,8 +12,8 @@ const overlayPresent = "document.querySelector('ace-annotation-layer') !== null"
  * the right-most accent run inside the glass is that pill.
  */
 async function sendButton(
-  f: Awaited<ReturnType<typeof annotationFixture>>,
-  person: ReturnType<Awaited<ReturnType<typeof annotationFixture>>["connect"]>,
+  f: Awaited<ReturnType<typeof sharedAnnotationFixture>>,
+  person: ReturnType<Awaited<ReturnType<typeof sharedAnnotationFixture>>["connect"]>,
 ): Promise<{ x: number; y: number }> {
   const width = Number(await person.evaluate("innerWidth"));
   const height = Number(await person.evaluate("innerHeight"));
