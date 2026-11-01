@@ -14,6 +14,8 @@ import {
   machineJobs,
 } from "./machine-tables.ts";
 
+import { retiredWorkflowMigration } from "./retired-workflow-migration.ts";
+
 const migrations = [
   `CREATE TABLE events (
     seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, thread_id TEXT NOT NULL,
@@ -157,6 +159,7 @@ const migrations = [
   machineJobs,
   // Threads an agent opened with thread_start name their starter, backfilled from the journal.
   conversationStartedBy,
+  retiredWorkflowMigration,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the
