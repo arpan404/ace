@@ -121,9 +121,11 @@ async function deviceHelper({ config, log }: ServiceContext): Promise<string | u
   }
 }
 export function createDevicesSession(context: SocketContext): SocketService {
-  let channel: ReturnType<typeof import("@ace/devices").connectDevices> | undefined;
+  let channel: ReturnType<typeof import("@ace/devices").reserveDevices> | undefined;
   let stopWaiting: (() => void) | undefined;
   let closed = false;
+  /** The client accepts device pushes only once it has its welcome. */
+  let welcomed = false;
   const delivery = deviceControlDelivery({
     bufferedBytes: () => context.socket.bufferedAmount,
     after(ms, run) {
@@ -163,6 +165,10 @@ export function createDevicesSession(context: SocketContext): SocketService {
             context.socket.close(4013, "connection_limit");
         });
       });
+    },
+    welcomed() {
+      welcomed = true;
+      channel?.activate();
     },
     close() {
       closed = true;
@@ -207,9 +213,9 @@ export function createDevicesSession(context: SocketContext): SocketService {
   };
   async function open(service: DevicesService): Promise<void> {
     if (channel || closed || !context.connected() || !context.authorize("admin")) return;
-    const { connectDevices } = await import("@ace/devices");
+    const { reserveDevices } = await import("@ace/devices");
     if (channel || closed) return;
-    channel = connectDevices(service, context.sessionId, {
+    channel = reserveDevices(service, context.sessionId, {
       authorize: () => context.connected() && context.authorize("admin"),
       canReadThread: (threadId) => context.canReadThread(ThreadId.parse(threadId)),
       agentExists: (threadId, agentId) =>
@@ -228,5 +234,7 @@ export function createDevicesSession(context: SocketContext): SocketService {
           }),
       },
     });
+    // Opened before welcome (the service was already loaded), it waits for `welcomed`.
+    if (welcomed) channel.activate();
   }
 }

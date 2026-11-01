@@ -35,6 +35,8 @@ export interface SocketService {
   authenticated?(
     channel: Extract<ClientMessage, { type: "hello" }>["channel"],
   ): void | Promise<void>;
+  /** The welcome has been sent: the client now accepts this service's pushes. */
+  welcomed?(): void;
   handle?(message: SocketMessage, device: DeviceId): boolean | Promise<boolean>;
   command?: CommandRegistration;
   close?(): void;
