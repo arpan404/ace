@@ -85,15 +85,31 @@ test("the filter button shows a shortened selected device name and reveals its f
   const control = await screen.findByRole("button", {
     name: `Project filter: All projects, Device: ${name}`,
   });
-  // The device that narrows the list takes Everywhere's place, shortened.
-  expect(control.textContent).toBe("Build server wi…");
+  // The device that narrows the list is the title, truncated with an ellipsis when too long.
+  expect(control.textContent).toBe(name);
+  expect(control.querySelector(".truncate")).not.toBeNull();
   await userEvent.hover(control);
-  expect((await screen.findByRole("tooltip")).textContent).toBe(`All projects on ${name}`);
+  expect((await screen.findByRole("tooltip")).textContent).toBe(name);
   await userEvent.unhover(control);
   await chooseDevice("All devices");
-  // With no filter on, the button reads Everywhere.
+  // With no filter on, the title reads All projects.
   expect(screen.getByRole("button", { name: "Project filter: All projects" }).textContent).toBe(
-    "Everywhere",
+    "All projects",
+  );
+});
+
+test("choosing a device shows its name in the title", async () => {
+  const made = harness({ machines: [{ hostId: "build", name: "Build server" }] });
+  for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+  await made.open("/new?project=relay");
+  await screen.findByRole("combobox", { name: "Message" });
+  await chooseDevice("Build server");
+  const control = await screen.findByRole("button", {
+    name: "Project filter: All projects, Device: Build server",
+  });
+  expect(control.textContent).toBe("Build server");
+  expect(control.getAttribute("aria-label")).toBe(
+    "Project filter: All projects, Device: Build server",
   );
 });
 
