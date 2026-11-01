@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { logError, logFields } from "@ace/diagnostics";
-import { Command, HostId, MachineAgentAccess, MachineDescription, ThreadId } from "@ace/protocol";
+import {
+  Command,
+  CommandId,
+  DeviceId,
+  HostId,
+  MachineAgentAccess,
+  MachineDescription,
+  ThreadId,
+} from "@ace/protocol";
 import { redeemPairing } from "../client-access.ts";
 import { FleetLinks } from "../machines/fleet-links.ts";
 import { computerName } from "../computer-name.ts";
@@ -274,6 +282,9 @@ export function startMachines(context: ServiceContext): void {
       // acceptance commit together: a parent that refuses the send (stopped, say) keeps no
       // receipt and no cached refusal, so the next poll tries it again.
       store.atomic(() => {
+        // A refusal saved before refusals rolled back (a parent stopped then) is not final:
+        // left in place, its cached answer would stop this result for good.
+        store.releaseRefusedCommand(CommandId.parse(id), DeviceId.parse("ace-agent"));
         if (settled) recordSettled(parentThreadId, id, settled, text);
         const result = delegations.command(id, {
           type: "thread.send",

@@ -9,6 +9,7 @@ import {
   type Item,
 } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
+import { digest } from "./child-views.ts";
 import { pairedMachines } from "./machine-test-support.ts";
 
 type Pair = Awaited<ReturnType<typeof pairedMachines>>;
@@ -127,16 +128,16 @@ it("a finished child on a paired machine reaches its parent as one delegated-chi
   expect(JSON.stringify(items)).not.toContain("[ace: ");
 }, 60_000);
 
-it("a stopped parent shows no receipt for a remote result it hasn't taken, and gets it once it runs again", async () => {
-  const pair = await pairedMachines({ access: "operate" });
+/**
+ * The person stops the parent and its tree: the child on the other machine is cancelled there,
+ * and its result comes back while the parent is still stopped. Returns the child.
+ */
+async function settledUnderStoppedParent(pair: Pair): Promise<ThreadId> {
   const parent = pair.source.caller.threadId;
   const threadId = await delegated(pair);
   await vi.waitFor(() => expect(pair.target.h.contexts.get(threadId)).toBeDefined(), {
     timeout: 15_000,
   });
-
-  // The person stops the parent and its tree: the child on the other machine is cancelled
-  // there, and its result comes back while the parent is still stopped.
   expect(person(pair, { type: "thread.interrupt", threadId: parent, cascade: true }).ok).toBe(true);
   await pair.source.daemon.engine?.flush();
   await pair.emit(threadId, { type: "turn.ended", agent: "root", outcome: "interrupted" });
@@ -151,19 +152,14 @@ it("a stopped parent shows no receipt for a remote result it hasn't taken, and g
       ),
     { timeout: 15_000 },
   );
-  // Polls go by and each delivery is refused: nothing claims the stopped parent was told.
-  await new Promise((resolve) => setTimeout(resolve, 1_000));
-  expect(receipts(pair)).toEqual([]);
-  expect(parentInputs(pair).join("\n")).not.toContain(threadId);
+  return threadId;
+}
 
-  // The person sends it on again: the result reaches it then, once, with its one receipt.
-  expect(
-    person(pair, {
-      type: "thread.send",
-      threadId: parent,
-      input: [{ type: "text", text: "Go on" }],
-    }).ok,
-  ).toBe(true);
+/** The person sends the parent on again: the child's result reaches it then, once. */
+async function resumedOnce(pair: Pair, threadId: ThreadId) {
+  const parent = pair.source.caller.threadId;
+  const send = { type: "thread.send" as const, threadId: parent };
+  expect(person(pair, { ...send, input: [{ type: "text", text: "Go on" }] }).ok).toBe(true);
   await vi.waitFor(() => expect(receipts(pair)).toHaveLength(1), { timeout: 15_000 });
   expect(receipts(pair)[0]).toMatchObject({
     delivery: "ace-input",
@@ -173,4 +169,34 @@ it("a stopped parent shows no receipt for a remote result it hasn't taken, and g
     () => expect(parentInputs(pair).filter((text) => text.includes(threadId))).toHaveLength(1),
     { timeout: 15_000 },
   );
+}
+
+it("a stopped parent shows no receipt for a remote result it hasn't taken, and gets it once it runs again", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const threadId = await settledUnderStoppedParent(pair);
+  // Polls go by and each delivery is refused: nothing claims the stopped parent was told.
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  expect(receipts(pair)).toEqual([]);
+  expect(parentInputs(pair).join("\n")).not.toContain(threadId);
+  await resumedOnce(pair, threadId);
+}, 60_000);
+
+it("a remote result refused before refusals were retried still reaches its parent once it runs again", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const threadId = await settledUnderStoppedParent(pair);
+  // An older daemon kept the stopped parent's refusal of this result as the send's final answer.
+  const store = pair.source.daemon.store;
+  store.atomic((db) => {
+    const row = z
+      .object({ key: z.string() })
+      .parse(db.prepare("SELECT key FROM machine_child_outbox WHERE kind='result'").get());
+    const id = `machine-result:result:${digest(row.key)}`;
+    db.prepare("INSERT INTO command_receipts VALUES (?, ?, ?, ?)").run(
+      id,
+      "ace-agent",
+      0,
+      JSON.stringify({ commandId: id, ok: false, error: "cancelled" }),
+    );
+  });
+  await resumedOnce(pair, threadId);
 }, 60_000);

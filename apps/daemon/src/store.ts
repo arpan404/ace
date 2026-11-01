@@ -1063,6 +1063,9 @@ export class Store {
   releaseReviewCommand(commandId: CommandId, deviceId: DeviceId): void {
     this.receipts.releaseReviewCommand(commandId, deviceId);
   }
+  releaseRefusedCommand(commandId: CommandId, deviceId: DeviceId): void {
+    this.receipts.releaseRefusedCommand(commandId, deviceId);
+  }
   completeReviewCommand(
     commandId: CommandId,
     deviceId: DeviceId,

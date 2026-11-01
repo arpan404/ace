@@ -54,6 +54,17 @@ export class CommandReceipts {
       )
       .run(commandId, deviceId);
   }
+  /**
+   * Forgets a command's final refusal so the same id can run again. An accepted command, and one
+   * still waiting on a review or client action, stays as it is.
+   */
+  releaseRefusedCommand(commandId: CommandId, deviceId: DeviceId): void {
+    this.source
+      .statement(
+        "DELETE FROM command_receipts WHERE command_id = ? AND device_id = ? AND json_extract(result, '$.ok') = 0 AND coalesce(json_extract(result, '$.error'), '') NOT IN ('review_pending', 'client_action_pending')",
+      )
+      .run(commandId, deviceId);
+  }
   completeReviewCommand(
     commandId: CommandId,
     deviceId: DeviceId,
