@@ -48,6 +48,23 @@ test("an error row names the thread's provider when the notice doesn't", () => {
 test("a compaction reads as one system row", () => {
   const item = Item.parse({ ...base("c1"), type: "compaction" });
   expect(view([item], "c1")).toMatchObject({ kind: "system", text: "Context compacted" });
+  expect(view([item], "c1")).not.toHaveProperty("summary");
+});
+
+test("a compaction's summary opens from its row, without the provider's context envelopes", () => {
+  const item = Item.parse({
+    ...base("c2"),
+    type: "compaction",
+    summary:
+      "<system-reminder>\n<tools-used-before-summary>Bash</tools-used-before-summary>\n</system-reminder>\nSummary:\n1. Ship the sidebar",
+  });
+  expect(view([item], "c2")).toEqual({
+    kind: "system",
+    icon: "compaction",
+    text: "Context compacted",
+    at: item.createdAt,
+    summary: "Summary:\n1. Ship the sidebar",
+  });
 });
 
 test("a usage warning stays out of the transcript", () => {

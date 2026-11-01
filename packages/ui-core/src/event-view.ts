@@ -68,8 +68,17 @@ export type EventView =
       summary?: string | undefined;
     }
   | { kind: "task"; prompt: TaskPrompt }
-  /** A row with nothing to open: "Context compacted", an interruption. */
-  | { kind: "system"; icon: "restart" | "compaction"; text: string; at: number }
+  /**
+   * A quiet row: "Context compacted", an interruption. `summary`: what the provider kept of the
+   * conversation it compacted, folded behind the row; never a message of its own.
+   */
+  | {
+      kind: "system";
+      icon: "restart" | "compaction";
+      text: string;
+      at: number;
+      summary?: string | undefined;
+    }
   | { kind: "notSent"; notice: Notice; commandId: string }
   | { kind: "error"; error: ErrorInput; count: number }
   | { kind: "notice"; level: Notice["level"]; text: string }
@@ -186,8 +195,16 @@ export function eventView(
   switch (item.type) {
     case "notice":
       return noticeView(item, counts, provider);
-    case "compaction":
-      return { kind: "system", icon: "compaction", text: "Context compacted", at: item.createdAt };
+    case "compaction": {
+      const summary = item.summary ? sanitizeUserText(item.summary) : "";
+      return {
+        kind: "system",
+        icon: "compaction",
+        text: "Context compacted",
+        at: item.createdAt,
+        ...(summary ? { summary } : {}),
+      };
+    }
     case "html":
     case "image":
     case "artifact":
