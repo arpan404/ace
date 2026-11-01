@@ -182,7 +182,11 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
     if (p.synthetic !== true) yield* texts("message", string(p.text) ?? "", false);
     return;
   }
-  if (role === "user" && (p.isMeta === true || p.synthetic === true)) {
+  // Claude's compaction summary is provider-internal text, kept raw, never the person's words.
+  if (
+    role === "user" &&
+    (p.isMeta === true || p.synthetic === true || p.isCompactSummary === true)
+  ) {
     yield rawOnly();
     return;
   }

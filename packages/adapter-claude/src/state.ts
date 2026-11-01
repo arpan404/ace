@@ -63,6 +63,8 @@ export class ClaudeState {
   nativeQueued = 0;
   contentSeen = new Set<Key>();
   nativeByAgent = new Map<Key, string>();
+  /** A compaction waiting for the summary Claude writes next (`compaction.ts`). */
+  compaction: { item: Key; raw: RawPayload } | undefined;
   constructor(root: Key) {
     this.root = root;
   }

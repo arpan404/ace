@@ -129,6 +129,33 @@ test("valid final records without a newline are imported", async () => {
   await service.importSession(init(source.id), sink);
   expect(text(sink.items)).toContain("last message");
 });
+test("a Claude compaction summary imports as the compaction, never as the person's message", async () => {
+  const { service, path, source } = await setup();
+  const summary = "This session is being continued from a previous conversation.";
+  const records = [
+    { type: "system", subtype: "compact_boundary", sessionId: nativeId, cwd },
+    {
+      type: "user",
+      sessionId: nativeId,
+      cwd,
+      isCompactSummary: true,
+      isVisibleInTranscriptOnly: true,
+      message: { role: "user", content: summary },
+    },
+  ];
+  await appendFile(path, records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+  await service.scan();
+  const sink = memorySink();
+  await service.importSession(init(source.id), sink);
+  expect(sink.items.some((item) => item.type === "compaction")).toBe(true);
+  expect(
+    sink.items.some(
+      (item) =>
+        item.type === "message" &&
+        item.parts.some((part) => part.type === "text" && part.text.includes(summary)),
+    ),
+  ).toBe(false);
+});
 test("instance homes keep identical native session IDs separate", async () => {
   const env = await environment();
   cleanup.push(env.close);
