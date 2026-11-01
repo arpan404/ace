@@ -31,6 +31,8 @@ export interface ProblemSituation {
   attempt: string;
   /** A failure with no public code: the first line of what the tool said. */
   message?: string | undefined;
+  /** The tool's own message and detail (`toolSaid`), for a failure that names it in its hint. */
+  said?: string | undefined;
 }
 
 type Words = { title: string; hint?: string };
@@ -288,7 +290,12 @@ const agents: Record<string, Wording> = {
 
 /** Failures any of ace's tools can report, whichever family it is. */
 const shared: Record<string, Wording> = {
-  invalid_arguments: () => ({ title: "The agent's request was malformed" }),
+  // The agent fixes its arguments and calls again by itself: the step reads as the call it
+  // was, failed, and what the tool told the agent opens from it.
+  invalid_arguments: (_, { attempt, said }) => ({
+    title: attempt,
+    ...(said ? { hint: said } : {}),
+  }),
   invalid_data: () => ({ title: "The tool answered with something unexpected" }),
   timeout: () => ({ title: "No answer in time", hint: "Nothing changed. Try again." }),
   invalid_html: () => ({ title: "That page has content ace can't show" }),
@@ -373,6 +380,17 @@ function possessive(name: string): string {
 /** A sentence starting with its subject: "the app" opens one with a capital. */
 function capital(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** "Invalid tool arguments: Name a project on that machine…": a tool's message and detail. */
+export function toolSaid(
+  message: string | undefined,
+  detail: string | undefined,
+): string | undefined {
+  const parts = [message, detail]
+    .map((part) => part?.trim())
+    .filter((part): part is string => !!part);
+  return parts.length ? parts.join(": ") : undefined;
 }
 
 /** A failed step in words: what went wrong and what to do next. */
