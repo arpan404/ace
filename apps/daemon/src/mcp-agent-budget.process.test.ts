@@ -8,6 +8,7 @@ import {
   bareToolName,
   codexClientHeader,
   coreToolsHeader,
+  cursorClientHeader,
   developerInstructions,
   nodeScheduler,
   staticToolsHeader,
@@ -91,6 +92,8 @@ async function session() {
     });
   const core = await connect(coreToolsHeader);
   const fixed = await connect(staticToolsHeader);
+  // Cursor never reloads, so it lists the simulator tools a reloading client gets on first use.
+  const cursor = await connect(cursorClientHeader);
   if (!world.daemon.mcp) throw new Error("Missing MCP server");
   // The computer-use tools register only beside a screen helper: the macOS engine's, and the
   // session tools other platforms keep. Registration reads definitions; no helper starts.
@@ -106,9 +109,9 @@ async function session() {
   );
   // What the daemon knows at injection: the brief, roles, callable tools and access mode.
   const facts: SessionGuidance = connection.session?.() ?? {};
-  return { full, core, fixed, registered, facts };
+  return { full, core, fixed, cursor, registered, facts };
 }
-type Agents = Pick<Awaited<ReturnType<typeof session>>, "full" | "core" | "fixed">;
+type Agents = Pick<Awaited<ReturnType<typeof session>>, "full" | "core" | "fixed" | "cursor">;
 /** The tools a provider's model has in context on every request. */
 function upfront(provider: ProviderKind, { full, core, fixed }: Agents): ListedTool[] {
   if (instructionsOnly.has(provider) || namesOnly.has(provider)) return [];
@@ -117,9 +120,10 @@ function upfront(provider: ProviderKind, { full, core, fixed }: Agents): ListedT
   return reloading.has(provider) ? core.tools : fixed.tools;
 }
 /** The names a deferring client lists beside what it loads; Cursor separates them by commas. */
-function listedNames(provider: ProviderKind, { full }: Agents): string {
+function listedNames(provider: ProviderKind, { full, cursor }: Agents): string {
   if (!deferring.has(provider) && !namesOnly.has(provider)) return "";
-  return full.tools.map((tool) => tool.name).join(namesOnly.has(provider) ? ", " : " ");
+  const listed = provider === "cursor" ? cursor : full;
+  return listed.tools.map((tool) => tool.name).join(namesOnly.has(provider) ? ", " : " ");
 }
 const bareNames = (tools: ListedTool[]) => tools.map((tool) => bareToolName(tool.name)).toSorted();
 /**

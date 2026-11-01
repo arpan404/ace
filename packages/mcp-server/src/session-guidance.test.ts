@@ -111,6 +111,10 @@ it("native apps point at the screen tool the session can actually call", () => {
   });
   expect(session).toContain("native app or simulator: screen_open_app;");
   expect(session).not.toContain("screen_state");
+  // With only devices on, the guide opens the simulator tools; no screen tool exists to name.
+  const devices = developerInstructions("pi", { tools: ["context", "sim_list", "sim_ui"] });
+  expect(devices).toContain("native app or simulator: guide ace-computer-use;");
+  expect(devices).not.toContain("screen_");
 });
 
 it("Cursor lists every ace tool while its MCP meta tool shows names only, else a fixed list", () => {

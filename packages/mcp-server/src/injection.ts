@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   codexClientHeader,
   coreToolsHeader,
+  cursorClientHeader,
   callBudgetHeader,
   toolListingHeader,
   type ToolListing,
@@ -160,6 +161,8 @@ export function acpInjection(
           { name: "Authorization", value: `Bearer ${bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
           ...(header ? [header] : []),
+          // Cursor never reloads its list, so ace lists the on-demand tools from the start.
+          ...(provider === "cursor" ? [cursorClientHeader] : []),
         ],
       },
     ],
@@ -194,6 +197,8 @@ export function cursorSdkInjection(input: Injected) {
           "X-Ace-Instructions": "native",
           "X-Ace-Notifications": "stream",
           ...(header ? { [header.name]: header.value } : {}),
+          // Its list is cached for the connection, so ace lists the on-demand tools upfront.
+          [cursorClientHeader.name]: cursorClientHeader.value,
           // Cursor's SDK cancels any MCP call after 60 seconds; waiting tools end before that.
           [callBudgetHeader.name]: String(cursorCallBudgetSeconds),
         },

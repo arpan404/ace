@@ -26,10 +26,32 @@ export const staticToolsHeader = { name: "X-Ace-Tools", value: "static" } as con
  * `tools.mcp__ace__<name>(args)` without ever seeing an input schema, so `guide` and `tools_find`
  * return schemas and that call form to it.
  */
-export type AceClient = "codex";
+export type AceClient = "codex" | "cursor";
 export const codexClientHeader = { name: "X-Ace-Client", value: "codex" } as const;
+/** Cursor lists every tool too and caches that list for the connection's life. */
+export const cursorClientHeader = { name: "X-Ace-Client", value: "cursor" } as const;
 export function aceClient(header: string | null | undefined): AceClient | undefined {
-  return header === codexClientHeader.value ? "codex" : undefined;
+  if (header === codexClientHeader.value) return "codex";
+  return header === cursorClientHeader.value ? "cursor" : undefined;
+}
+
+/**
+ * The family whose simulator tools a session lists only once devices are first used. Devices
+ * are on by default, and their seven `sim_*` schemas would otherwise cost every session about
+ * 1,100 tokens of catalogue and their names on every request of a client that lists names.
+ */
+export const onDemandToolset = "ace-computer-use";
+/** A tool listed only once its family opens, even where every other tool is listed. */
+export function listedOnDemand(tool: string): boolean {
+  return bareToolName(tool).startsWith("sim_");
+}
+/**
+ * Whether a session that lists every tool holds the on-demand tools back until their family
+ * opens. Only where the client reloads on `tools/list_changed`: Claude Code and the Claude
+ * Agent SDK do; Codex and Cursor never reload, so they list them from the start as before.
+ */
+export function holdsOnDemandTools(listing: ToolListing, client: AceClient | undefined): boolean {
+  return listing === "all" && client === undefined;
 }
 
 /**
@@ -162,6 +184,10 @@ export class OpenToolsets {
   opened(principal: Principal, tool: string, args: unknown): boolean {
     const topic = openedToolset(tool, args);
     return topic !== undefined && this.add(principal, [topic]);
+  }
+  /** Whether this session has opened a family. */
+  isOpen(principal: Principal, toolset: string): boolean {
+    return this.open.get(principal)?.has(toolset) ?? false;
   }
   /** Opens these families; true when any of them was new. */
   add(principal: Principal, topics: readonly string[]): boolean {

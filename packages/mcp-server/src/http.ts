@@ -7,6 +7,9 @@ import { contextResources, createContextRegistry } from "./context-tool.ts";
 import type { KnowledgePort } from "./knowledge-tools.ts";
 import {
   OpenToolsets,
+  holdsOnDemandTools,
+  listedOnDemand,
+  onDemandToolset,
   aceClient,
   callBudgetHeader,
   callBudgetSeconds,
@@ -341,8 +344,20 @@ async function createHandler(
     const opens = (name: string, args: unknown, result: CallToolResult): boolean => {
       const call = dispatchedAceCall(name, args);
       return bareToolName(call.name) === aceToolSearch
-        ? listing === "core" && toolsets.add(principal, foundFamilies(result.structuredContent))
+        ? toolsets.add(principal, foundFamilies(result.structuredContent))
         : toolsets.opened(principal, call.name, call.input);
+    };
+    // A session listing every tool still holds the simulator tools back until devices are
+    // first used, where its client reloads (`holdsOnDemandTools`).
+    const holds = holdsOnDemandTools(listing, client);
+    const held = (tool: string) =>
+      holds && listedOnDemand(tool) && !toolsets.isOpen(principal, onDemandToolset);
+    /** Whether a successful call changed what this session lists, so its client must reload. */
+    const grows = (name: string, args: unknown, result: CallToolResult): boolean => {
+      if (listing === "core") return opens(name, args, result);
+      if (!holds || toolsets.isOpen(principal, onDemandToolset)) return false;
+      opens(name, args, result);
+      return toolsets.isOpen(principal, onDemandToolset);
     };
     const namesDestructive = namesDestructiveTools(listing, client);
     server.setRequestHandler("tools/list", async () => ({
@@ -353,7 +368,8 @@ async function createHandler(
       ]
         .filter(
           (tool) =>
-            toolsets.lists(principal, listing, tool.name, options.registry.toolset(tool.name)) ||
+            (toolsets.lists(principal, listing, tool.name, options.registry.toolset(tool.name)) &&
+              !held(tool.name)) ||
             (namesDestructive && tool.annotations?.destructiveHint === true),
         )
         // There tools_call never reaches a destructive tool, and its annotations say so.
@@ -390,8 +406,8 @@ async function createHandler(
           args,
           AbortSignal.any([context.mcpReq.signal, controller.signal]),
         ).finally(stopBeats);
-        // Only a core session's list grows, and only that session needs to reload it.
-        if (!result.isError && listing === "core" && opens(name, args, result)) announce(principal);
+        // Only this session's list grows, and only it needs to reload.
+        if (!result.isError && grows(name, args, result)) announce(principal);
         // A dispatched call is remembered as the tool it ran.
         const tool = dispatchedAceCall(name, args).name;
         return awareness ? withChanges(awareness, principal, tool, result, reader) : result;

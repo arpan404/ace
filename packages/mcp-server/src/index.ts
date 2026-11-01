@@ -126,6 +126,7 @@ export {
   acpShowsServerInstructions,
   cursorToolListing,
   codexClientHeader,
+  cursorClientHeader,
   coreTools,
   coreToolsHeader,
   openedToolset,
