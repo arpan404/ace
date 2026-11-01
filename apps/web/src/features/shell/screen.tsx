@@ -36,6 +36,7 @@ export function Screen(
   const header = (headerOwnsConnection: boolean) => (trailing?: ReactNode) => (
     <AppHeader
       title={props.title}
+      namedByPanel={props.namedByPanel}
       mark={props.mark}
       subtitle={props.subtitle}
       breadcrumb={props.breadcrumb}

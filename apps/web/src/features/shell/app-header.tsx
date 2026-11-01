@@ -27,6 +27,12 @@ export interface HeaderProps {
    * parent thread of a child thread. Muted; dropped first when the header is narrow.
    */
   crumb?: ReactNode;
+  /**
+   * The sidebar's panel already names this page (its heading, or its selected row): while the
+   * panel shows beside the column the title is for screen readers only, so the bar doesn't say
+   * it twice. Hidden or in a sheet, the title shows again.
+   */
+  namedByPanel?: boolean | undefined;
   /** Muted beside the title: the project on a thread, the page in Settings. */
   subtitle?: ReactNode;
   breadcrumb?: ReactNode;
@@ -162,6 +168,15 @@ export function AppHeader(
   const titleMenu = props.menu && !phone && !folded;
   // A phone's ⋯ also lists the panel's tools (a thread's Changes); the toggle stays visible.
   const tools = phone && props.trailing;
+  const titleHidden = !!props.namedByPanel && frame.sidebarShown && !frame.sheet && !phone;
+  // Nothing in view where the column starts (the title is the panel's): no marker there either.
+  const bare =
+    titleHidden &&
+    !props.crumb &&
+    !props.mark &&
+    !props.subtitle &&
+    !props.breadcrumb &&
+    !props.progress;
   return (
     <header
       ref={header}
@@ -169,7 +184,7 @@ export function AppHeader(
       className="@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"
     >
       {/* Where the sidebar meets the column, while both are on screen. */}
-      {frame.sidebarShown && !frame.sheet && (
+      {frame.sidebarShown && !frame.sheet && !bare && (
         <span aria-hidden data-boundary="sidebar" className={boundaryMarker} />
       )}
       <HeaderNav />
@@ -181,9 +196,11 @@ export function AppHeader(
           // The title keeps the room: the crumb truncates first and leaves a narrow header.
           <div className="flex min-w-0 shrink-[3] items-center gap-2 text-ui text-muted-foreground @max-[30rem]/header:hidden">
             <span className="flex min-w-0 items-center gap-1.5 truncate">{props.crumb}</span>
-            <span aria-hidden className="text-subtle-foreground">
-              /
-            </span>
+            {!titleHidden && (
+              <span aria-hidden className="text-subtle-foreground">
+                /
+              </span>
+            )}
           </div>
         )}
         <div className="min-w-0">
@@ -195,6 +212,7 @@ export function AppHeader(
             <h1
               className={cn(
                 "min-w-0 text-md font-medium",
+                titleHidden && "sr-only",
                 phone ? "line-clamp-2 leading-[18px] break-words" : "truncate",
               )}
             >

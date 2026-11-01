@@ -145,7 +145,7 @@ export function LibrarySkillPage(props: { entry: SkillEntry }) {
       </>
     ) : undefined;
   return (
-    <Screen title="Skills" menu={menu}>
+    <Screen title="Skills" namedByPanel menu={menu}>
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
       <div className="h-full overflow-auto">
         <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">

@@ -42,7 +42,7 @@ export function AutomationScreen(props: { id: string }) {
   const daemonKey = normalizeDaemonKey(url);
   if (!entry)
     return (
-      <Screen title="Automation">
+      <Screen title="Automation" namedByPanel>
         {pending ? (
           <div className={cn(readingColumn, "pt-6")}>
             <LoadingRegion label="automation" className="flex flex-col gap-3">
@@ -113,6 +113,7 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
   return (
     <Screen
       title={automation.title}
+      namedByPanel
       menu={
         <>
           <MenuItem

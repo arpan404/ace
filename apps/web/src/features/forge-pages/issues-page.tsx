@@ -245,7 +245,7 @@ export function IssuesPage(props: {
     </ListFrame>
   );
   return (
-    <Screen title="Issues" crumb={project ? choice.name(project) : undefined}>
+    <Screen title="Issues" namedByPanel crumb={project ? choice.name(project) : undefined}>
       {rows}
     </Screen>
   );

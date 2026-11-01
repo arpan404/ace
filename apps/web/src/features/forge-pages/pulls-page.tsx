@@ -382,7 +382,7 @@ export function PullRequestsPage(props: {
     </ListFrame>
   );
   return (
-    <Screen title="Pull requests" crumb={project ? choice.name(project) : undefined}>
+    <Screen title="Pull requests" namedByPanel crumb={project ? choice.name(project) : undefined}>
       {rows}
     </Screen>
   );

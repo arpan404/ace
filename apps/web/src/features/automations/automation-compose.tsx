@@ -40,13 +40,13 @@ export function NewAutomationScreen() {
   const { ids: projects, loaded } = useRegisteredProjects();
   if (!loaded)
     return (
-      <Screen title="New automation">
+      <Screen title="New automation" namedByPanel>
         <ComposeSkeleton />
       </Screen>
     );
   if (!projects.length || !projects[0])
     return (
-      <Screen title="New automation">
+      <Screen title="New automation" namedByPanel>
         <ProjectsEmptyState />
       </Screen>
     );
@@ -168,7 +168,7 @@ function ComposeAutomation(props: { initial: AutomationForm }) {
 
   const blocked = !ready ? "Reconnect to create this automation." : undefined;
   return (
-    <Screen title="New automation">
+    <Screen title="New automation" namedByPanel>
       <div
         ref={page}
         className="flex h-full min-h-0 flex-col overflow-y-auto pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] [scrollbar-gutter:stable]"

@@ -15,7 +15,7 @@ export function SkillPage(props: { skillId: string }) {
   const skill = skills.data?.find((entry) => entry.id === props.skillId);
   if (!skill)
     return (
-      <Screen title="Skills">
+      <Screen title="Skills" namedByPanel>
         {skills.isError ? (
           <EmptyState
             icon={CubeIcon}

@@ -61,6 +61,7 @@ export function PluginSkillPage(props: {
   return (
     <Screen
       title="Skills"
+      namedByPanel
       menu={
         <>
           {isPlugin && (

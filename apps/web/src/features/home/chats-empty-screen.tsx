@@ -20,7 +20,7 @@ export function ChatsEmptyScreen() {
   if (top) return <Navigate to="/t/$threadId" params={{ threadId: top }} replace />;
   if (!loaded)
     return (
-      <Screen title="Chats">
+      <Screen title="Chats" namedByPanel>
         <LoadingRegion
           label="Chats"
           className="flex h-full flex-col items-center justify-center gap-2 px-5 py-6"
@@ -30,7 +30,7 @@ export function ChatsEmptyScreen() {
       </Screen>
     );
   return (
-    <Screen title="Chats">
+    <Screen title="Chats" namedByPanel>
       <EmptyState
         icon={ChatsCircleIcon}
         heading
