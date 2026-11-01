@@ -17,13 +17,21 @@ import { railViews } from "./views.ts";
  * open there, so coming back from Settings or GitHub lands where they left; `start` before they
  * have been there.
  */
-function useLastPlace(here: boolean, start: string) {
+function useLastPlace(here: boolean, start: string): Place {
   const location = useRouterState({ select: (state) => state.location });
   const [last, setLast] = useState({ href: start, to: start, search: {} });
   if (here && location.href !== last.href)
     setLast({ href: location.href, to: location.pathname, search: location.search });
   return last;
 }
+
+interface Place {
+  href: string;
+  to: string;
+  search: object;
+}
+
+const exactMatch = { exact: true, includeSearch: true } as const;
 
 const needWord = (count: number) => `${count} ${count === 1 ? "needs" : "need"} you`;
 
@@ -36,11 +44,11 @@ function ThreadPlace(props: {
   icon: IconGlyph;
   shortcut: "goHome" | "goChats";
   current: boolean;
-  start: string;
+  /** Where it goes (`useLastPlace`), read in the same render as `current`. */
+  last: Place;
   signal: PlaceSignal;
 }) {
-  const last = useLastPlace(props.current, props.start);
-  const { signal } = props;
+  const { signal, last } = props;
   const tone = props.current ? undefined : signal.tone;
   const asks = tone === "needs-you" ? ` · ${needWord(signal.needsYou)}` : "";
   return (
@@ -50,6 +58,9 @@ function ThreadPlace(props: {
         search={last.search}
         aria-label={`${props.label}${asks.replace(" ·", ",")}`}
         aria-current={props.current ? "page" : undefined}
+        // The link marks itself current when it points at the open page: only an exact match,
+        // so Threads' last New thread never claims New chat's.
+        activeOptions={exactMatch}
         className={railPlaceClass}
       >
         <Icon icon={props.icon} size={20} active={props.current} />
@@ -72,6 +83,8 @@ export function AppRail(props: {
 }) {
   const current = useRailPlace();
   const signals = usePlaceSignals();
+  const threads = useLastPlace(current === "home", "/new");
+  const chats = useLastPlace(current === "chats", "/chats");
   return (
     <nav
       aria-label="App"
@@ -84,7 +97,7 @@ export function AppRail(props: {
           icon={CodeIcon}
           shortcut="goHome"
           current={current === "home"}
-          start="/new"
+          last={threads}
           signal={signals.threads}
         />
         <ThreadPlace
@@ -92,7 +105,7 @@ export function AppRail(props: {
           icon={ChatsCircleIcon}
           shortcut="goChats"
           current={current === "chats"}
-          start="/chats"
+          last={chats}
           signal={signals.chats}
         />
         <SpadeSoon />

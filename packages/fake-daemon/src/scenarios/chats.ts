@@ -8,8 +8,11 @@ const minute = 60_000;
 const hour = 60 * minute;
 const day = 24 * hour;
 
-/** A chat: a thread in its own hidden chat project, with no folder of the person's (ADR 0099). */
-function chat(
+/**
+ * A chat: a thread in its own hidden chat project, with no folder of the person's (ADR 0099).
+ * Without a reply it is still working.
+ */
+export function chatScenario(
   key: string,
   title: string,
   provider: ProviderKind,
@@ -22,7 +25,6 @@ function chat(
     turn("root"),
     message("root", "ask", "user", ask),
   ];
-  // Without a reply the chat is still working.
   if (reply) facts.push(message("root", "reply", "assistant", reply), endTurn("root"));
   return {
     thread: {
@@ -46,7 +48,7 @@ function chat(
 export function chats(): AgedScenario[] {
   return [
     {
-      scenario: chat(
+      scenario: chatScenario(
         "regex",
         "Regex for semver ranges",
         "claude",
@@ -56,7 +58,7 @@ export function chats(): AgedScenario[] {
       agoMs: 2 * minute,
     },
     {
-      scenario: chat(
+      scenario: chatScenario(
         "sql-window",
         "Window functions vs GROUP BY",
         "codex",
@@ -66,7 +68,7 @@ export function chats(): AgedScenario[] {
       agoMs: 35 * minute,
     },
     {
-      scenario: chat(
+      scenario: chatScenario(
         "trip",
         "Three days in Lisbon",
         "claude",
@@ -76,7 +78,7 @@ export function chats(): AgedScenario[] {
       agoMs: day + 2 * hour,
     },
     {
-      scenario: chat(
+      scenario: chatScenario(
         "tls",
         "How TLS 1.3 handshakes work",
         "codex",
@@ -86,7 +88,7 @@ export function chats(): AgedScenario[] {
       agoMs: 3 * day,
     },
     {
-      scenario: chat(
+      scenario: chatScenario(
         "rust-lifetimes",
         "Rust lifetimes, briefly",
         "claude",
@@ -96,7 +98,7 @@ export function chats(): AgedScenario[] {
       agoMs: 5 * day,
     },
     {
-      scenario: chat(
+      scenario: chatScenario(
         "espresso",
         "Dialing in espresso",
         "opencode",
@@ -106,7 +108,7 @@ export function chats(): AgedScenario[] {
       agoMs: 12 * day,
     },
     {
-      scenario: chat(
+      scenario: chatScenario(
         "resume",
         "Tighten my resume summary",
         "claude",

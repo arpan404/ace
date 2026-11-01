@@ -1,7 +1,6 @@
-import type { SidebarReader } from "@ace/client";
-import { useSidebar } from "@ace/client-react";
-import { useParams, useRouterState } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useSidebarThread, useThreadMeta } from "@ace/client-react";
+import { useRouterState } from "@tanstack/react-router";
+import { useState } from "react";
 import { useIsChatThread } from "@/lib/projects.ts";
 import { railPlace, type RailPlace } from "./views.ts";
 
@@ -17,20 +16,36 @@ export function useRailPlace(): RailPlace {
       return typeof search.project === "string" ? search.project : undefined;
     },
   });
-  const threadId = useParams({ strict: false, select: (params) => params.threadId });
+  // Another machine's thread (ADR 0102) is read under that machine's client, not this one.
+  const elsewhere = useRouterState({
+    select: (state) => {
+      const search: { machine?: unknown } = state.location.search;
+      return typeof search.machine === "string";
+    },
+  });
+  // From the address itself: a route's params lag its address for a render while it changes.
+  const threadId = openThreadOf(pathname);
   const isChat = useIsChatThread();
-  const openIsChat = useSidebar(
-    ["ids", "threads"],
-    useCallback(
-      (reader: SidebarReader) => {
-        const entry = threadId ? reader.thread(threadId) : undefined;
-        return entry ? isChat(entry) : undefined;
-      },
-      [threadId, isChat],
-    ),
-  );
-  const [previous, setPrevious] = useState<RailPlace>();
+  const listed = useSidebarThread(threadId ?? "");
+  // A chat the list hasn't paged in is known by the open thread's own details (the thread
+  // screen holds the same subscription).
+  const meta = useThreadMeta(listed || elsewhere ? undefined : threadId);
+  const open = listed ?? meta;
+  const openIsChat = threadId && open ? isChat(open) : undefined;
+  const [previous, setPrevious] = useState<{ place: RailPlace; pathname: string }>();
   const place = railPlace({ pathname, newProject, openIsChat, previous });
-  if (place !== previous) setPrevious(place);
+  if (!previous || place !== previous.place || pathname !== previous.pathname)
+    setPrevious({ place, pathname });
   return place;
+}
+
+/** The thread `/t/<id>` (or one of its pages) shows. */
+function openThreadOf(pathname: string): string | undefined {
+  const id = /^\/t\/([^/]+)/.exec(pathname)?.[1];
+  if (!id) return undefined;
+  try {
+    return decodeURIComponent(id);
+  } catch {
+    return id;
+  }
 }

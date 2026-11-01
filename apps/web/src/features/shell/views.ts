@@ -77,20 +77,23 @@ export type RailPlace = ReturnType<typeof activeView>;
 /**
  * The rail's place, with what is open: a chat's thread and New thread for a chat belong to Chats,
  * every other thread to Threads. `openIsChat` is undefined while the open thread isn't known yet
- * (a thread just started): it stays at `previous`, so the panel never flickers between the two.
+ * (a thread just started, or the list still loading): a chat just sent from New chat stays in
+ * Chats, so the panel never flickers; otherwise no place is current until the thread is known.
  */
 export function railPlace(input: {
   pathname: string;
   /** New thread's `?project=`. */
   newProject?: string | undefined;
   openIsChat: boolean | undefined;
-  previous?: RailPlace;
+  /** The place and path just before this one. */
+  previous?: { place: RailPlace; pathname: string } | undefined;
 }): RailPlace {
   const view = activeView(input.pathname);
   if (view !== "home") return view;
   if (input.pathname.startsWith("/t/")) {
-    if (input.openIsChat === undefined) return input.previous === "chats" ? "chats" : "home";
-    return input.openIsChat ? "chats" : "home";
+    if (input.openIsChat !== undefined) return input.openIsChat ? "chats" : "home";
+    const started = input.previous?.place === "chats" && input.previous.pathname === "/new";
+    return started ? "chats" : undefined;
   }
   return input.pathname === "/new" && input.newProject === chatChoice ? "chats" : "home";
 }

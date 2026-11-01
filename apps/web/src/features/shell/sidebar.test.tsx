@@ -115,8 +115,10 @@ test("Spade shows in the rail as coming soon, and is nothing to press", async ()
   expect(within(appNav()).queryByRole("button", { name: /Spade/ })).toBeNull();
   await userEvent.click(spade);
   expect(history.location.pathname).toBe("/new");
-  // Tabbing through the rail passes from Threads straight to GitHub.
+  // Tabbing through the rail passes from Threads to Chats, then over Spade straight to GitHub.
   place("Threads").focus();
+  await userEvent.tab();
+  expect(document.activeElement).toBe(place(/^Chats/));
   await userEvent.tab();
   expect(document.activeElement).toBe(place(/^GitHub/));
 });
