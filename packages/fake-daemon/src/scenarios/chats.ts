@@ -2,7 +2,7 @@ import type { Fact } from "@ace/core";
 import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
 import type { AgedScenario } from "./home-list.ts";
-import { endTurn, message, rootAgent, turn } from "./facts.ts";
+import { endTurn, message, rootAgent, tool, turn } from "./facts.ts";
 
 const minute = 60_000;
 const hour = 60 * minute;
@@ -116,6 +116,80 @@ export function chats(): AgedScenario[] {
         "Backend engineer who ships reliable services and keeps them fast.",
       ),
       agoMs: 40 * day,
+    },
+  ];
+}
+
+/**
+ * A chat whose agent asks to run a command and waits for the person's answer: a request, so it
+ * needs them (the Inbox, the Chats dot).
+ */
+export function askingChatScenario(key: string, title: string, ask: string, command: string) {
+  const scenario = chatScenario(key, title, "claude", ask, undefined);
+  const facts: Fact[] = [
+    tool("root", "run-call", {
+      kind: "shell",
+      title: `Run ${command}?`,
+      status: "awaiting_approval",
+      detail: { kind: "shell", command },
+    }),
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "run",
+      blocking: true,
+      item: "run-call",
+      request: {
+        kind: "approval",
+        title: `Run ${command}?`,
+        description: "Reads the folder; changes nothing.",
+        options: [
+          { id: "allow", label: "Approve", kind: "allow_once" },
+          { id: "deny", label: "Deny", kind: "deny" },
+        ],
+      },
+    },
+  ];
+  return {
+    ...scenario,
+    steps: [...scenario.steps, { kind: "facts", facts }, { kind: "await", interaction: "run" }],
+  } satisfies Scenario;
+}
+
+/**
+ * Chats on the fake world's build server (ADR 0102), so the Chats panel shows another machine's
+ * chats, its device filter and machine names: one asking now, one from yesterday, one older.
+ */
+export function buildServerChats(): AgedScenario[] {
+  return [
+    {
+      scenario: askingChatScenario(
+        "disk-usage",
+        "Why is the disk almost full?",
+        "The build server's disk is at 94%. What is taking the space?",
+        "du -sh /var/lib/docker",
+      ),
+      agoMs: 4 * minute,
+    },
+    {
+      scenario: chatScenario(
+        "cron",
+        "Cron syntax for every weekday at 6",
+        "codex",
+        "Cron for every weekday at 6 in the morning?",
+        "0 6 * * 1-5",
+      ),
+      agoMs: day + 5 * hour,
+    },
+    {
+      scenario: chatScenario(
+        "nginx",
+        "Nginx gzip settings",
+        "claude",
+        "Sensible gzip settings for nginx?",
+        "gzip on; gzip_types text/css application/javascript application/json; gzip_min_length 1024;",
+      ),
+      agoMs: 9 * day,
     },
   ];
 }

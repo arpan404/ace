@@ -196,9 +196,7 @@ function ThreadScreen(props: {
       <WorkCardContext value={workCard}>
         <Screen
           crumb={meta && (props.crumb ?? (parented ? <ThreadCrumb threadId={id} /> : undefined))}
-          mark={
-            meta && !props.crumb && !parented && <ProjectGlyph workspaceId={meta.workspaceId} />
-          }
+          mark={meta && !props.crumb && !parented && <ProjectGlyph thread={meta} />}
           title={
             renaming && thread ? (
               <Suspense fallback={null}>

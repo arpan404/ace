@@ -5,6 +5,7 @@ import { threadOn } from "@/lib/machine-routes.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { machineRow, useMachineThread } from "@/lib/machine-threads.ts";
 import { useMachines, type Machine } from "@/lib/machines.ts";
+import { ChatRowActions } from "./chat-row-actions.tsx";
 import { RecentlySettledRow } from "./settled-row.tsx";
 import { ThreadRow, type RowLead } from "./thread-row.tsx";
 
@@ -16,9 +17,13 @@ import { ThreadRow, type RowLead } from "./thread-row.tsx";
 export function MachineRow(props: {
   id: string;
   leaving: boolean;
-  /** A task row, or a recently settled row in its project. */
-  shape: "task" | "recently-settled";
+  /**
+   * A task row, a recently settled row in its project, or a chat in the Chats panel (a chat's
+   * hover actions; `settled` dims it).
+   */
+  shape: "task" | "recently-settled" | "chat";
   lead: RowLead;
+  settled?: boolean | undefined;
 }) {
   const ref = machineRow(props.id);
   const machine = useMachines().find((each) => each.id === ref?.hostId);
@@ -48,6 +53,7 @@ export function MachineRow(props: {
           leaving={props.leaving}
           machine={mark}
           lead={props.lead}
+          {...(props.shape === "chat" ? { actions: ChatRowActions, dimmed: props.settled } : {})}
         />
       )}
     </MachineScope>

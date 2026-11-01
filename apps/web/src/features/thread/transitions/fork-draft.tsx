@@ -67,7 +67,7 @@ export function ForkDraftView(props: { threadId: string; at: ForkDraftSearch }) 
     [props.threadId, meta, parentTitle],
   );
   return (
-    <Screen mark={meta && <ProjectGlyph workspaceId={meta.workspaceId} />} title={title}>
+    <Screen mark={meta && <ProjectGlyph thread={meta} />} title={title}>
       {thread && meta ? (
         <div
           data-thread-column

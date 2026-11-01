@@ -1,12 +1,12 @@
 import { useAgent, useSidebarThread, useThreadMeta } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
-import { FolderSimpleIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon, FolderSimpleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useScopedMachine } from "@/lib/machines.ts";
-import { useProjectName } from "@/lib/projects.ts";
+import { useIsChatThread, useProjectName, type ChatTestEntry } from "@/lib/projects.ts";
 
 /**
  * A child ace delegated names its parent thread before its title, as a link back. Any other
@@ -24,17 +24,20 @@ export function useHasParentCrumb(threadId: string): boolean {
 }
 
 /**
- * The folder glyph before a thread's title in the top bar: its project, named in its tooltip
- * and to assistive tech, after the machine when the work runs on another one (ADR 0102).
+ * The glyph before a thread's title in the top bar: its project's folder, named in its tooltip
+ * and to assistive tech, after the machine when the work runs on another one (ADR 0102). A chat
+ * has no project (ADR 0099): it shows the chat bubble and is named a chat.
  */
-export function ProjectGlyph(props: { workspaceId: string }) {
-  const name = useProjectName()(props.workspaceId);
+export function ProjectGlyph(props: { thread: ChatTestEntry }) {
+  const name = useProjectName()(props.thread.workspaceId);
+  const chat = useIsChatThread()(props.thread);
   const machine = useScopedMachine();
-  const said = machine ? `${machine.name} / ${name}` : name;
+  const what = chat ? "Chat" : name;
+  const said = machine ? `${machine.name} / ${what}` : what;
   return (
     <Tip label={said}>
-      <span role="img" aria-label={`Project ${said}`} className="inline-flex">
-        <Icon icon={FolderSimpleIcon} />
+      <span role="img" aria-label={chat ? said : `Project ${said}`} className="inline-flex">
+        <Icon icon={chat ? ChatCircleIcon : FolderSimpleIcon} />
       </span>
     </Tip>
   );

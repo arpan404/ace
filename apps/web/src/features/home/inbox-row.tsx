@@ -7,7 +7,14 @@ import { MachineScope } from "@/lib/machine-scope.tsx";
 import { machineRow } from "@/lib/machine-threads.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { useIsChatThread } from "@/lib/projects.ts";
-import { ProjectMark, RowContext, RowStatus, threadDetails, titleTone } from "./row-parts.tsx";
+import {
+  ProjectMark,
+  RowContext,
+  RowStatus,
+  threadDetails,
+  titleTone,
+  useManyDevices,
+} from "./row-parts.tsx";
 import { useOpenHere, type RowMachine } from "./thread-row.tsx";
 import { useThreadCard } from "./use-thread-card.ts";
 
@@ -39,13 +46,18 @@ function InboxLink(props: { threadId: string; machine?: RowMachine | undefined; 
   const data = useThreadCard(props.threadId, false);
   const current = useOpenHere(props.threadId, machine?.id);
   const isChat = useIsChatThread();
+  const many = useManyDevices();
+  const own = useMachines().find((each) => each.primary)?.name;
   if (!data) return null;
   const { entry } = data;
   const placed = machine
     ? { ...data.card, machine: machine.name, machineIcon: machine.icon }
     : data.card;
-  // A chat has no project to name (ADR 0099): it says Chat in the project's place.
-  const card = isChat(entry) ? { ...placed, project: "Chat" } : placed;
+  // A chat has no project to name (ADR 0099): it says Chat in the project's place, and with more
+  // than one device connected, the device it runs on.
+  const device = machine?.name ?? own;
+  const chatLabel = many && device ? `Chat · ${device}` : "Chat";
+  const card = isChat(entry) ? { ...placed, project: chatLabel } : placed;
   const attention = currentAttention(card.attention, current);
   return (
     <Link

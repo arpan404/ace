@@ -3,7 +3,9 @@ import { useSidebar, type SidebarKey } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { placeSignals, standingReader, type PlaceSignal, type PlaceSignals } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
-import { useOrganizer } from "@/features/organize/index.ts";
+import { useOrganizer, useOverlaidMachineEntries } from "@/features/organize/index.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import { useMachineEntries } from "@/lib/machine-threads.ts";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useIsChatThread } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
@@ -18,8 +20,8 @@ const signalsEqual = (a: PlaceSignals, b: PlaceSignals) =>
   signalEqual(a.threads, b.threads) && signalEqual(a.chats, b.chats);
 
 /**
- * The rail's dots for Threads and Chats, each from its own threads (`placeSignals`), read as
- * their rows read them. A list read back from disk claims nothing until the daemon confirms it,
+ * The rail's dots for Threads and Chats, each from its own threads (`placeSignals`) on every
+ * connected machine (ADR 0102), read as their rows read them. A list read back from disk claims nothing until the daemon confirms it,
  * since its requests may have been answered since. Re-renders only when a dot changes.
  */
 export function usePlaceSignals(): PlaceSignals {
@@ -31,6 +33,7 @@ export function usePlaceSignals(): PlaceSignals {
     [baseline, now, models],
   );
   const isChat = useIsChatThread();
+  const others = useOverlaidMachineEntries(useMachineEntries(useHostIdentity()?.hostId));
   const select = useCallback(
     (reader: SidebarReader): PlaceSignals => {
       if (reader.unconfirmed) return none;
@@ -38,9 +41,13 @@ export function usePlaceSignals(): PlaceSignals {
         const entry = reader.thread(id);
         return entry ? [entry] : [];
       });
-      return placeSignals({ entries, isChat, standing });
+      return placeSignals({
+        entries: others.length ? [...entries, ...others] : entries,
+        isChat,
+        standing,
+      });
     },
-    [isChat, standing],
+    [isChat, standing, others],
   );
   return useSidebar(keys, select, signalsEqual) ?? none;
 }

@@ -20,6 +20,8 @@ const Stored = z.object({
   project: z.string().nullable().catch(null),
   /** Home list device filter; absent is every device. */
   device: z.string().optional().catch(undefined),
+  /** The Chats panel's own device filter, apart from Threads'; absent is every device. */
+  chatDevice: z.string().optional().catch(undefined),
   snoozedOpen: z.boolean().catch(false),
   /** Projects the person folded (`projectFold`). */
   collapsed: z.array(z.string().max(4200)).max(500).catch([]),
@@ -63,6 +65,10 @@ export class Organizer {
     // Projects belong to a device, so a device switch clears the previous project's filter.
     this.set({ device, project: null });
   }
+  /** Narrow the Chats panel to one device (undefined: every device). */
+  setChatDevice(chatDevice: string | undefined): void {
+    this.set({ chatDevice });
+  }
   setSnoozedOpen(snoozedOpen: boolean): void {
     this.set({ snoozedOpen });
   }
@@ -80,11 +86,12 @@ export class Organizer {
     this.emit();
   }
   private persist(): void {
-    const { baseline, project, device, snoozedOpen, collapsed, quietOpen } = this.state;
+    const { baseline, project, device, chatDevice, snoozedOpen, collapsed, quietOpen } = this.state;
     writeJson(this.storage, storageKey, {
       baseline,
       project,
       device,
+      chatDevice,
       snoozedOpen,
       collapsed,
       quietOpen,

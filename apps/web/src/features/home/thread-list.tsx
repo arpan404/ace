@@ -493,9 +493,12 @@ export function ThreadList(props: {
                   {thread && machineRow(thread) ? (
                     <MachineRow
                       id={thread}
-                      shape={row.kind === "recently-settled" ? row.kind : "task"}
+                      shape={
+                        row.kind === "recently-settled" || row.kind === "chat" ? row.kind : "task"
+                      }
                       lead={rowLead(row)}
                       leaving={leaving}
+                      settled={row.kind === "chat" && row.settled}
                     />
                   ) : (
                     <>

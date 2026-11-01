@@ -1,6 +1,9 @@
+import { machineThreadKey } from "@ace/client/machines";
 import { useSidebarThread, useThreadMeta } from "@ace/client-react";
 import { useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
+import { useMachineThread } from "@/lib/machine-threads.ts";
+import { usePrimaryMachine } from "@/lib/machines.ts";
 import { useIsChatThread } from "@/lib/projects.ts";
 import { railPlace, type RailPlace } from "./views.ts";
 
@@ -16,21 +19,26 @@ export function useRailPlace(): RailPlace {
       return typeof search.project === "string" ? search.project : undefined;
     },
   });
-  // Another machine's thread (ADR 0102) is read under that machine's client, not this one.
-  const elsewhere = useRouterState({
+  // Another machine's thread (ADR 0102) is read from the machine pool, not this daemon's list.
+  const named = useRouterState({
     select: (state) => {
       const search: { machine?: unknown } = state.location.search;
-      return typeof search.machine === "string";
+      return typeof search.machine === "string" ? search.machine : undefined;
     },
   });
+  const own = usePrimaryMachine().id;
+  const elsewhere = named !== undefined && named !== own ? named : undefined;
   // From the address itself: a route's params lag its address for a render while it changes.
   const threadId = openThreadOf(pathname);
   const isChat = useIsChatThread();
-  const listed = useSidebarThread(threadId ?? "");
+  const listed = useSidebarThread(elsewhere ? "" : (threadId ?? ""));
+  const pooled = useMachineThread(
+    elsewhere && threadId ? machineThreadKey({ hostId: elsewhere, threadId }) : "",
+  );
   // A chat the list hasn't paged in is known by the open thread's own details (the thread
   // screen holds the same subscription).
   const meta = useThreadMeta(listed || elsewhere ? undefined : threadId);
-  const open = listed ?? meta;
+  const open = elsewhere ? pooled : (listed ?? meta);
   const openIsChat = threadId && open ? isChat(open) : undefined;
   const [previous, setPrevious] = useState<{ place: RailPlace; pathname: string }>();
   const place = railPlace({ pathname, newProject, openIsChat, previous });
