@@ -130,11 +130,11 @@ export class IntentDelivery {
         this.dependencies.repo.beginSend(intent, undefined);
         this.dependencies.repo.queue.reconcileUncertainty(actor.id, this.dependencies.clock.now());
       } else if (editableSend && !acknowledged && error instanceof InputRejected) {
-        // Refused unread, so sending it again is safe. A parent agent's message goes back in the
-        // queue for the next turn by itself; anything else waits for the person, as unsent input.
+        // Refused unread, so sending it again is safe. A steer that lost its turn goes back in
+        // the queue as the next message, and the queue says so; a refused queued send would be
+        // refused again at once, so it waits for the person, as unsent input.
         const message = error.message || "The provider refused the message";
-        // Only a steer that lost its turn: a refused queued send would be refused again at once.
-        if (intent.trigger === "parent_agent" && steered) this.requeue(intent, message);
+        if (steered) this.requeue(intent, message);
         else this.retainInput(intent, message, false);
       } else {
         // RPC failure cannot undo native consumption, nor prove nonconsumption.
@@ -291,6 +291,7 @@ export class IntentDelivery {
     repo.store.atomic(() => {
       repo.queue.clearUncertain(intent.id);
       repo.pending.requeue(intent, message);
+      repo.steerNotes.fellBack(intent.id);
       repo.beginSend(intent, undefined);
       // Its message no longer belongs to the turn it failed to join; the next run binds it.
       repo.admitInput(intent.command, intent.threadId, undefined, this.dependencies.clock.now());

@@ -263,6 +263,39 @@ A person's steer now reaches the model at once, however long the running command
 - **If the interrupt fails**, the engine does not retry it; the provider's own steer delivers the
   message when the command returns.
 
+## Amendment 2026-11-01: every steer goes in at the next step
+
+Another thread's agent sent three steers to a Claude Code thread running one short shell command
+after another. They sat in the tray as "Queued · 3" for about fifteen minutes and went in only
+after the person pressed Stop. Steer on their rows did nothing visible: the rows were already
+steers, and an edit keeps the message's trigger, so the engine still treated them as daemon
+input and kept them waiting for a moment with no foreground command running. None was ever
+claimed before the Stop. The thread kept no provider frames or steering logs, so why each gap
+between commands was missed isn't recorded. The rule below removes the dependency on catching
+that gap.
+
+- **Claude says `steerTiming: after_tool`.** Its CLI holds a `now` message until the running
+  foreground tool returns, which is what `after_tool` means. A person's steer still backgrounds
+  the tool rather than interrupting the turn: the yield route applies only where the session
+  can't background tools.
+- **Where the provider's steer waits for tools, every steer goes in at once.** Daemon input too
+  (an agent's message, a child's result). The provider lands it at the next tool boundary and
+  nothing is interrupted, so the engine no longer has to catch the boundary itself. Where the
+  provider's steer would cut into the command (Cursor, which restarts its operation), daemon
+  steers still wait for the command to end.
+- **The person can steer any waiting message in.** Steer on an agent's queued message records
+  that the person chose it (`engine_steer_notes.person`): from then on it is the person's steer,
+  and it moves a running command out of the way like one they typed. The message keeps its
+  origin, so the transcript still says which thread sent it.
+- **A refused steer falls back to the queue.** A steer the provider refused unread, whoever sent
+  it, goes back to the queue as the next message and the snapshot marks it `fellBack`. A steer
+  still waiting when its turn ends simply becomes the next message.
+- **The tray says what a steer is doing.** A waiting steer while the root turn runs reads
+  "Steering at the next step", with no Steer button. Between turns it reads "Sends as the next
+  message", and one that fell back reads "Couldn't steer · sends after this turn".
+- **`agent_message` defaults to steer for every target**, not only the caller's children
+  ([ADR 0013](0013-orchestration.md)).
+
 ## Amendment 2026-10-18: a Stop always settles
 
 A Stop of a whole thread (a cascading interrupt with no agent or run target) must leave the tree

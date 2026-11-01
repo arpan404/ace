@@ -1,4 +1,5 @@
 import type { Attachment } from "@ace/protocol";
+import { queuedSteer } from "@ace/ui-core";
 import {
   ArrowBendUpRightIcon,
   DotsSixVerticalIcon,
@@ -17,6 +18,7 @@ import { QueuedAttachments } from "./queued-attachments.tsx";
 import { queuedText, type QueueControls } from "./use-queue.ts";
 import { useComposerCompact } from "./composer-compact.ts";
 import { beginQueueEdit, cancelQueueEdit, useQueueEdit } from "./queue-edit.ts";
+import { useActiveRootRun } from "./stop-state.ts";
 const handleStyle =
   "focus-ring inline-grid size-5 shrink-0 cursor-grab place-items-center rounded-sm text-subtle-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing aria-disabled:cursor-default aria-disabled:opacity-40";
 
@@ -66,6 +68,7 @@ export function QueuedTray(props: {
   const order = queue.messages.map((message) => message.id).join("\n");
   const moving = queue.messages.some((message) => queue.busy(message.id));
   const uncertain = queue.messages.some((message) => message.state === "uncertain");
+  const turnRunning = !!useActiveRootRun(props.threadId);
   useLayoutEffect(() => {
     const cancelOnFocus = (event: FocusEvent) => {
       if (restoreFocus.current && event.target !== restoreFocus.current.handle)
@@ -167,6 +170,8 @@ export function QueuedTray(props: {
                 : busy
                   ? "This message is being updated."
                   : props.steerReason;
+              // Saving rows aren't the daemon's yet: they have no steering to report.
+              const steer = saving ? { canSteer: true } : queuedSteer(message, turnRunning);
               return (
                 <li
                   key={message.id}
@@ -177,9 +182,11 @@ export function QueuedTray(props: {
                       ? "Saving queued message"
                       : ambiguous
                         ? "This message may have been sent. Sending again may deliver it twice."
-                        : stopped
-                          ? "Queued message, paused after Stop"
-                          : "Queued message, not yet sent"
+                        : steer.note
+                          ? `Queued message. ${steer.note}`
+                          : stopped
+                            ? "Queued message, paused after Stop"
+                            : "Queued message, not yet sent"
                   }
                   className={cn(
                     "flex min-h-6.5 min-w-0 items-center gap-0.5 rounded-sm py-px",
@@ -244,6 +251,9 @@ export function QueuedTray(props: {
                   </div>
                   {saving && <span>Saving…</span>}
                   {ambiguous && <span>May have been sent</span>}
+                  {!ambiguous && steer.note && (
+                    <span className="shrink-0 px-1 text-subtle-foreground">{steer.note}</span>
+                  )}
                   {edited ? (
                     <>
                       <span className="shrink-0 px-1 text-subtle-foreground">
@@ -291,7 +301,7 @@ export function QueuedTray(props: {
                     >
                       Send again
                     </Button>
-                  ) : (
+                  ) : steer.canSteer ? (
                     <Button
                       variant="ghost"
                       size="xs"
@@ -308,7 +318,7 @@ export function QueuedTray(props: {
                       {/* A phone keeps the room for the message: the arrow alone, still named. */}
                       <span className={compact ? "sr-only" : undefined}>Steer</span>
                     </Button>
-                  )}
+                  ) : null}
                   <IconButton
                     icon={XIcon}
                     label="Remove queued message"

@@ -271,7 +271,8 @@ export async function harness(
     internalCommand,
     connect,
     errors,
-    async create() {
+    /** A thread whose first message is `text`. */
+    async create(text = "first") {
       const result = command({
         type: "thread.create",
         workspaceId: workspace,
@@ -284,7 +285,7 @@ export async function harness(
             }
           : {}),
         model: "model",
-        input: [{ type: "text", text: "first" }],
+        input: [{ type: "text", text }],
       });
       if (!result.ok) throw new Error(result.error);
       const thread = store.listThreads()[0];

@@ -32,3 +32,25 @@ export function repeatInput(host: ThreadHost, messageId: string): void {
   host.queued.push({ ...message, state: "queued" });
   host.queueDirty = true;
 }
+
+/**
+ * A message waiting as the real daemon keeps it: a steer held until the provider can take it
+ * (`steer`), or a steer the provider refused that fell back to the queue (`fell_back`).
+ */
+export function waitingSteer(
+  host: ThreadHost,
+  messageId: string,
+  text: string,
+  kind: "steer" | "fell_back",
+): void {
+  const input = [{ type: "text" as const, text }];
+  host.queued.push({
+    key: messageId,
+    input,
+    text: inputText(input, undefined),
+    delivery: kind === "steer" ? "steer" : "queue",
+    state: "queued",
+    ...(kind === "fell_back" ? { fellBack: true as const } : {}),
+  });
+  host.queueDirty = true;
+}
