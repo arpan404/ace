@@ -79,6 +79,8 @@ export const MachineCallOrigin = z.object({
   threadTitle: z.string().max(256),
   /** The calling agent, so each remote agent holds its own leases there (ADR 0105). */
   agentId: AgentId.optional(),
+  /** The calling thread's provider, so a child there can name who sent it work. Lenient. */
+  provider: ProviderKind.optional().catch(undefined),
   /** The calling thread's ceiling: a read-only thread never acts there. Absent is operate. */
   ceiling: z.enum(["read", "operate"]).optional(),
 });

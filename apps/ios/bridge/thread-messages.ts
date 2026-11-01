@@ -9,6 +9,7 @@ import {
   eventView,
   isLimitError,
   isLongMessage,
+  sentByLine,
   mayBeSystemInput,
   messageOrigin,
   referenceSegments,
@@ -178,6 +179,14 @@ function flatten(view: EventView) {
       return { ...row, icon: view.level, text: preview(view.text, 4096) };
     case "quiet":
       return { ...row, text: preview(view.text, 4096) };
+    case "sent":
+      // The sender's line and mark; the message's words open from it, as on the web.
+      return {
+        ...row,
+        provider: view.sent.provider ?? "",
+        text: sentByLine(view.sent),
+        detail: preview(view.text, 4096),
+      };
     default:
       return row;
   }
@@ -192,7 +201,7 @@ function isEvent(kind: string, item: Item | undefined): boolean {
 export function eventRow(store: ThreadSource, kind: string, itemId: string) {
   const item = store.item(itemId);
   if (!isEvent(kind, item)) return null;
-  return flatten(eventView(item, eventCounts(store, itemId), store.thread?.provider));
+  return flatten(eventView(item, eventCounts(store, itemId), store.thread?.provider, store.thread));
 }
 
 /** Whether a block's row reads the rows around it (×N, repeats), so it follows the order. */

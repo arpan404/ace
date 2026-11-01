@@ -207,6 +207,7 @@ export class TargetThreads {
                 hostId: origin.hostId,
                 hostName: origin.hostName,
                 threadId: origin.threadId,
+                ...(origin.provider ? { provider: origin.provider } : {}),
               },
             },
           ]

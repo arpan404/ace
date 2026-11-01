@@ -4,13 +4,13 @@ import { userBubble } from "./user-bubble.ts";
 import type { PendingSend } from "@ace/client";
 import { useItem, usePendingSends } from "@ace/client-react";
 import type { ContentPart } from "@ace/protocol";
-import { bubbleContent, formatClock, messageOrigin, saidAt } from "@ace/ui-core";
+import { bubbleContent, formatClock, messageOrigin, saidAt, sentFold } from "@ace/ui-core";
 import { AnnotationsCard } from "@/features/annotations/index.ts";
 import { ArrowBendDownRightIcon, CheckIcon, ClockIcon, CopyIcon } from "@phosphor-icons/react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useCopy } from "@/components/use-copy.ts";
-import { Suspense, useRef } from "react";
+import { Suspense, useRef, type ReactNode } from "react";
 import { imageGroupHeight, type LocalAttachment } from "@/components/attachment-format.ts";
 import { cn } from "@/lib/cn.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -83,6 +83,12 @@ function bubbleOf(input: readonly ContentPart[], attached: readonly { mimeType: 
   return { parts, text, files, readable, annotations };
 }
 
+/** A message another thread's agent sent: the line naming who sent it, and its words. */
+export interface SentContent {
+  line: ReactNode;
+  text: string;
+}
+
 /**
  * The person's message, as the daemon holds it: its attachments above, unframed, then a
  * right-aligned bubble of its words (none for a message of attachments only), with a quiet
@@ -90,21 +96,26 @@ function bubbleOf(input: readonly ContentPart[], attached: readonly { mimeType: 
  * hover or focus (always on touch). Only the daemon's item is drawn: a message still on its way
  * (or one that didn't go) is in the composer's strip, never here. Attached images show as
  * thumbnails and files by name, never by a host path (AT-1).
+ *
+ * A message another thread's agent sent (`sent`) is the same bubble: its line naming the sender
+ * stands where the eyebrow would, and its words, without ace's frame, fold to a few lines.
  */
-export function UserMessage(props: { threadId: string; itemId: string }) {
+export function UserMessage(props: { threadId: string; itemId: string; sent?: SentContent }) {
   const content = useRef<HTMLDivElement>(null);
   const { copied, copy } = useCopy();
   const item = useItem(leasable(props.threadId), props.itemId);
   const message = item?.type === "message" ? item : undefined;
   if (!message) return null;
-  const { parts, text, files, readable, annotations } = bubbleOf(
-    message.parts,
-    message.attachments ?? [],
-  );
+  const shown = bubbleOf(message.parts, message.attachments ?? []);
+  const { files, annotations } = shown;
+  const sent = props.sent;
+  const text = sent ? sent.text : shown.text;
+  const parts = sent ? undefined : shown.parts;
+  const readable = sent ? !!sent.text.trim() : shown.readable;
   if (!readable && !files) return null;
   return (
     <div className="group/bubble flex flex-col items-end">
-      <Eyebrow kind={messageOrigin(message)?.kind} />
+      {sent ? sent.line : <Eyebrow kind={messageOrigin(message)?.kind} />}
       {files && (
         <Suspense fallback={<AttachmentsRoom images={files.images} />}>
           <DeferredAttachments.Component
@@ -119,7 +130,12 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
       <div className="flex w-full min-w-0 flex-col items-end gap-1">
         {readable && (
           <div className={userBubble}>
-            <BubbleText text={text} parts={parts} ref={content} />
+            <BubbleText
+              text={text}
+              parts={parts}
+              ref={content}
+              fold={sent ? sentFold : undefined}
+            />
           </div>
         )}
         <div className={cn(messageActions("bubble"), "shrink-0")}>

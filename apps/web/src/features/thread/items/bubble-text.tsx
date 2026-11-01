@@ -4,32 +4,38 @@ import { useId, useState, type Ref } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { MessageReferences } from "./message-references.tsx";
-import { bubbleSegments, foldedLines, isLongMessage } from "@ace/ui-core";
+import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
+import { bubbleSegments, isLongMessage, personFold, type BubbleFold } from "@ace/ui-core";
 
-/** Prose lines are `text-prose`'s 1.6; the fold keeps `foldedLines` of them, the last fading. */
-const foldStyle = {
-  maxHeight: `${foldedLines * 1.6}em`,
-  maskImage: "linear-gradient(to bottom, #000 calc(100% - 3.2em), transparent)",
-};
+/** Prose lines are `text-prose`'s 1.6; the fold keeps `fold.shown` of them, the last fading. */
+const foldStyle = (fold: BubbleFold) => ({
+  maxHeight: `${fold.shown * 1.6}em`,
+  // A short fold fades only its last line, so most of what it keeps stays readable.
+  maskImage: `linear-gradient(to bottom, #000 calc(100% - ${fold.shown > 4 ? 3.2 : 1.6}em), transparent)`,
+});
 
 /**
  * The words inside the person's bubble: prose as typed, fenced blocks (or a paste that is plainly
  * code) in monospace on the code surface, mentions as chips. A long message shows its first ten
- * lines under a fade, with "Show more" / "Show less" at the bubble's foot.
+ * lines under a fade, with "Show more" / "Show less" at the bubble's foot. A message another
+ * thread's agent sent passes its own shorter `fold`; its button carries a caret, since most of
+ * such a brief is hidden.
  */
 export function BubbleText({
   text,
   parts,
   ref,
+  fold,
 }: {
   text: string;
   parts?: readonly ContentPart[] | undefined;
   /** The readable content, for Copy; the fold button stays outside it. */
   ref?: Ref<HTMLDivElement> | undefined;
+  fold?: BubbleFold | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const id = useId();
-  const long = isLongMessage(text);
+  const long = isLongMessage(text, fold ?? personFold);
   const folded = long && !open;
   const mentions = parts?.some((part) => part.type === "mention");
   return (
@@ -38,7 +44,7 @@ export function BubbleText({
         id={id}
         ref={ref}
         data-folded={folded || undefined}
-        style={folded ? foldStyle : undefined}
+        style={folded ? foldStyle(fold ?? personFold) : undefined}
         className={cn(folded && "overflow-hidden")}
       >
         {mentions && parts ? (
@@ -68,6 +74,12 @@ export function BubbleText({
             onClick={() => setOpen((value) => !value)}
           >
             {open ? "Show less" : "Show more"}
+            {fold &&
+              (open ? (
+                <CaretUpIcon aria-hidden size={12} />
+              ) : (
+                <CaretDownIcon aria-hidden size={12} />
+              ))}
           </Button>
         </div>
       )}

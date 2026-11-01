@@ -1,21 +1,14 @@
 import { z } from "zod";
 import { AgentConversationRecord, type ThreadId, type McpAttribution } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { agentConversationsTable } from "../conversation-tables.ts";
 
 /** Conversation ownership is distinct from child edges and never contributes to parent status. */
 export class ConversationJournal {
   private store: Store;
   constructor(store: Store) {
     this.store = store;
-    store.atomic((db) =>
-      db.exec(`CREATE TABLE IF NOT EXISTS agent_conversations (
-      thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
-      owner_thread TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
-      owner_agent TEXT NOT NULL, root_id TEXT NOT NULL, request_id TEXT NOT NULL, record TEXT NOT NULL,
-      UNIQUE(owner_thread,request_id)
-    ); CREATE INDEX IF NOT EXISTS agent_conversations_owner ON agent_conversations(owner_thread,thread_id);
-    CREATE INDEX IF NOT EXISTS agent_conversations_root ON agent_conversations(root_id,thread_id);`),
-    );
+    store.atomic((db) => db.exec(agentConversationsTable));
   }
   private decode(row: unknown) {
     if (!row) return undefined;

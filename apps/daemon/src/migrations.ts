@@ -4,6 +4,7 @@ import { basename, dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { threadColdTable } from "./thread-cold.ts";
+import { conversationStartedBy } from "./conversation-tables.ts";
 import { skillUsageTable } from "./skill-usage.ts";
 import {
   machineChildGenerations,
@@ -154,6 +155,8 @@ const migrations = [
   machineGrants,
   // Remote command jobs that hold their calling thread open; no rows exist before it.
   machineJobs,
+  // Threads an agent opened with thread_start name their starter, backfilled from the journal.
+  conversationStartedBy,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the
