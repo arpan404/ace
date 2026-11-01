@@ -73,11 +73,17 @@ export function ThreadsTabs(props: {
         );
       }}
     >
+      {/*
+       * The one selection indicator. Same fill and corner as the rail's current place
+       * (`railPlaceClass` in components/rail-place.ts, used by app-rail.tsx): a solid
+       * `--active` box in `rounded-md`, never a circle or a ring. It sits under the open
+       * tab and slides on transform only; see threads-tabs.css.
+       */}
       <span
         aria-hidden
         data-selected-index={index}
         style={{ "--i": index } as CSSProperties}
-        className="threads-tabs-thumb absolute top-1 left-1 size-7 rounded-full bg-active"
+        className="threads-tabs-thumb absolute top-1 left-1 size-7 rounded-md bg-active"
       />
       {threadsTabs.map(({ id }) => {
         const current = id === props.tab;
@@ -92,7 +98,7 @@ export function ThreadsTabs(props: {
               aria-label={labels[id]}
               onClick={() => props.onTab(id)}
               className={cn(
-                "threads-tabs-tab relative grid size-7 cursor-pointer place-items-center rounded-full focus-ring-inset active:scale-[0.96]",
+                "threads-tabs-tab relative grid size-7 cursor-pointer place-items-center rounded-md focus-ring-inset active:scale-[0.96]",
                 current
                   ? "text-foreground"
                   : "text-muted-foreground hover:bg-hover hover:text-foreground",

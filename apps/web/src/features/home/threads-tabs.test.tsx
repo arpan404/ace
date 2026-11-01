@@ -35,7 +35,7 @@ async function openHome() {
   return app;
 }
 
-test("pressing 2 selects Snoozed and the indicator follows it", async () => {
+test("pressing 2 then 3 moves the selection and the thumb follows it", async () => {
   await openHome();
   expect(tab("Inbox").getAttribute("aria-selected")).toBe("true");
   expect(thumb()?.getAttribute("data-selected-index")).toBe("0");
@@ -46,6 +46,23 @@ test("pressing 2 selects Snoozed and the indicator follows it", async () => {
 
   await waitFor(() => expect(tab("Snoozed").getAttribute("aria-selected")).toBe("true"));
   expect(thumb()?.getAttribute("data-selected-index")).toBe("1");
+
+  tab("Snoozed").focus();
+  await userEvent.keyboard("3");
+
+  await waitFor(() => expect(tab("Settled").getAttribute("aria-selected")).toBe("true"));
+  expect(thumb()?.getAttribute("data-selected-index")).toBe("2");
+});
+
+test("a mouse click selects without a focus-visible ring", async () => {
+  await openHome();
+  const snoozed = tab("Snoozed");
+  await userEvent.click(snoozed);
+
+  await waitFor(() => expect(tab("Snoozed").getAttribute("aria-selected")).toBe("true"));
+  expect(thumb()?.getAttribute("data-selected-index")).toBe("1");
+  // The keyboard-only ring never shows for a mouse click.
+  expect(snoozed.matches(":focus-visible")).toBe(false);
 });
 
 test("each tab tooltip shows its shortcut from the keymap", async () => {
