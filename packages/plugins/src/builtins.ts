@@ -80,16 +80,9 @@ export async function prepareBuiltinSkills(provider: "claude" | "codex", root: s
 }
 
 /**
- * Guides that load only when an agent asks for them (`guide` with their topic). They live
- * outside `skills/`, so no provider receives them as a native skill.
- */
-const guideOnly = ["offshift"] as const;
-
-/**
  * The shipped skills as guides for providers without native skills: name, the frontmatter's
  * one-line description and the body. Same files as the native projection, so one source.
- * Guide-only topics follow the skills. Frontmatter is parsed as the YAML that provider skill
- * loaders read, so a broken one fails here.
+ * Frontmatter is parsed as the YAML that provider skill loaders read, so a broken one fails here.
  */
 export async function builtinGuides(
   root = shippedRoot(),
@@ -99,8 +92,6 @@ export async function builtinGuides(
     name: skill.name,
     text: bundle?.text[`${skill.path}/SKILL.md`] ?? "",
   }));
-  for (const name of guideOnly)
-    sources.push({ name, text: await readFile(join(root, "guides", name, "SKILL.md"), "utf8") });
   return sources.map(({ name, text }) => {
     const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
     const meta = SkillFrontmatter.safeParse(parseYaml(match?.[1] ?? ""));

@@ -1,5 +1,4 @@
 import type { SQLOutputValue } from "node:sqlite";
-import { OffshiftRunMark } from "@ace/protocol/offshift";
 import {
   ProviderGoal,
   Thread,
@@ -57,7 +56,7 @@ const parts = {
     const value: unknown = JSON.parse(String(row.provider_metadata));
     return {
       ...metadataPart.parse(value),
-      ...goalRunPart.parse({ ...storedGoal(value), ...storedRun(value) }),
+      ...goalRunPart.parse({ ...storedGoal(value) }),
     };
   },
   capabilities: (row: Row) => {
@@ -108,7 +107,7 @@ const metadataPart = Thread.pick({
   titleSource: true,
   queue: true,
 });
-const goalRunPart = Thread.pick({ goal: true, run: true });
+const goalRunPart = Thread.pick({ goal: true });
 const capabilitiesPart = Thread.pick({ capabilities: true });
 const acpPart = Thread.pick(keysOf(ThreadProviderMetadata.shape));
 const partKeys: Record<ThreadPart, readonly string[]> = {
@@ -178,12 +177,4 @@ function storedGoal(metadata: unknown): { goal?: ProviderGoal } {
     typeof metadata === "object" && metadata !== null ? Reflect.get(metadata, "goal") : undefined,
   );
   return goal.success ? { goal: goal.data } : {};
-}
-
-/** A stored run mark the current schema can't read is dropped: the run's next write restores it. */
-function storedRun(metadata: unknown): { run?: OffshiftRunMark } {
-  const run = OffshiftRunMark.safeParse(
-    typeof metadata === "object" && metadata !== null ? Reflect.get(metadata, "run") : undefined,
-  );
-  return run.success ? { run: run.data } : {};
 }

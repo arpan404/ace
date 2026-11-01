@@ -231,7 +231,7 @@ function RowTime(props: { card: ThreadCard }) {
 }
 
 /**
- * An Active row's last line: where a settled tree's run stopped, then the branch and pull request lead; the provider keeps the trailing
+ * An Active row's last line: the branch and pull request lead; the provider keeps the trailing
  * slot. With more than one device connected, the machine's icon sits beside the provider's, its
  * name in the tooltip and the row's spoken details.
  */
@@ -240,7 +240,6 @@ export function RowContext(props: { card: ThreadCard }) {
   const devices = use(ManyDevices);
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
-      {card.run && <RunMark run={card.run} />}
       {card.branch && <MiddleTruncate text={card.branch.name} className="flex-1 font-mono" />}
       {card.pr !== undefined && (
         <span className="shrink-0">
@@ -275,27 +274,6 @@ export function RowContext(props: { card: ThreadCard }) {
         </span>
       </span>
     </div>
-  );
-}
-
-/**
- * Where a settled thread's Offshift run stopped: its phase word, after a paused ring in the
- * waiting colour when a blocker holds it. Only a settled tree has one (`ThreadCard.run`).
- */
-function RunMark(props: { run: NonNullable<ThreadCard["run"]> }) {
-  const { run } = props;
-  return (
-    <Tip label={run.label}>
-      <span
-        role="img"
-        aria-label={run.label}
-        data-run={run.blocked ? "blocked" : "open"}
-        className="inline-flex shrink-0 items-center gap-1 text-muted-foreground"
-      >
-        {run.blocked && <StatusGlyph state="paused" tone="waiting" size={12} />}
-        {run.phase}
-      </span>
-    </Tip>
   );
 }
 

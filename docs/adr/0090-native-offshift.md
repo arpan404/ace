@@ -1,6 +1,8 @@
 # 0090: Native Offshift workflow records
 
-Date: 2026-10-16. Updated 2026-10-20 (playbooks and steps; notifications, sidebar, review and arena). Status: accepted.
+Date: 2026-10-16. Updated 2026-10-20 (playbooks and steps; notifications, sidebar, review and arena). Status: withdrawn.
+
+Removed 2026-11-01: not needed; the owner will provide a skills set instead.
 
 ## Context
 

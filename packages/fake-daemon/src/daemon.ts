@@ -16,7 +16,6 @@ import { SettingsValues, ProviderConfigurations, ProjectCommand } from "@ace/pro
 import { stricterOffer } from "@ace/provider-kit/access-modes";
 import { ItemId } from "@ace/protocol";
 import type { AccessMode, AccessModeOffer } from "@ace/protocol";
-import type { OffshiftRunCard } from "@ace/protocol/offshift";
 import {
   fakePermissionCapabilities,
   fakeProviderPermissions,
@@ -906,10 +905,6 @@ export class FakeDaemon implements Host {
   ): void {
     const now = this.at(agoMs);
     this.append(this.thread(id), [{ type: "thread.updated", ...changes }], now);
-  }
-  /** A scripted Offshift run change, on the same stream as the daemon's run writes. */
-  updateOffshift(id: string, card: OffshiftRunCard, agoMs = 0): void {
-    this.append(this.thread(id), [{ type: "offshift.updated", card }], this.at(agoMs));
   }
   /** Push to every signed-in connection. */
   private broadcast(message: ServerMessage): void {

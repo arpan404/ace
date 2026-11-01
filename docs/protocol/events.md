@@ -101,24 +101,56 @@ Example:
 {
   "thread": {
     "autoSettleAt": 2,
-    "continuation": {
-      "actionId": "thread.continue_new",
-      "reason": "cursor_cli_retired",
-      "state": "read_only"
+    "capabilitiesRef": "example",
+    "createdAt": 5,
+    "delegatedFrom": {
+      "hostId": "example",
+      "threadId": "example",
+      "threadTitle": "example"
     },
-    "createdAt": 8,
-    "handoff": {
-      "bytes": 0,
-      "sourceThreadId": "example",
-      "truncated": false
+    "effectiveCapabilities": {
+      "accessModes": [],
+      "attachmentInput": {
+        "documents": [],
+        "embeddedContext": false,
+        "format": "opencode",
+        "maxInlineBytes": 1
+      },
+      "backgroundTaskControl": true,
+      "backgroundVisibility": "partial",
+      "fork": false,
+      "forkMode": "native",
+      "forkSubagents": false,
+      "goals": true,
+      "imageInput": false,
+      "interruptCascades": false,
+      "permissionModes": [],
+      "planMode": true,
+      "resume": false,
+      "rewindFiles": false,
+      "steer": true,
+      "subagentTranscripts": true,
+      "tokenUsage": true
     },
     "id": "example",
+    "imported": {
+      "importedAt": 2,
+      "instanceId": "example",
+      "native": {
+        "forkedFromNativeId": "example",
+        "installationId": "example",
+        "provider": "antigravity"
+      },
+      "sourceId": "example"
+    },
     "installationId": "example",
-    "instanceId": "example",
     "pinOrder": 4,
     "pinned": true,
     "prSettledKey": "example",
-    "provider": "cursor",
+    "provider": "codex",
+    "queuedLaunch": {
+      "text": "example"
+    },
     "readAt": 4,
     "rootAgentId": "example",
     "settleWhenDone": true,
@@ -137,12 +169,10 @@ Example:
     "snoozedUntil": 2,
     "startedBy": "example",
     "status": {
-      "agents": 9,
-      "state": "working"
+      "state": "new"
     },
     "title": "example",
-    "titleSource": "agent",
-    "updatedAt": 1,
+    "updatedAt": 3,
     "workspaceId": "example"
   },
   "type": "thread.created"
@@ -423,18 +453,9 @@ Example:
   "item": {
     "agentId": "example",
     "createdAt": 6,
-    "diagnostic": false,
     "id": "example",
-    "interactionId": "example",
-    "level": "error",
-    "raw": [],
-    "source": {
-      "bytes": 3,
-      "encoding": "utf-16le",
-      "streamId": "example"
-    },
-    "text": "example",
-    "type": "notice"
+    "summary": "example",
+    "type": "compaction"
   },
   "type": "item.created"
 }
@@ -615,6 +636,22 @@ Example:
 }
 ```
 
+### unknown
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"unknown"` |  |
+| raw | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "raw": null,
+  "type": "unknown"
+}
+```
+
 ### queue.updated
 
 | Field | Required | Type | Constraints |
@@ -633,43 +670,12 @@ Example:
 ```json
 {
   "exited": false,
+  "lastFailure": null,
   "paused": false,
-  "pendingCount": 7,
   "reason": null,
-  "resumeAt": null,
-  "revision": 4,
+  "resumeAt": 7,
+  "revision": 5,
   "type": "queue.updated"
-}
-```
-
-### offshift.updated
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| type | yes | `"offshift.updated"` |  |
-| card | yes | [OffshiftRunCard.json](schema/OffshiftRunCard.json) |  |
-
-Example:
-
-```json
-{
-  "card": {
-    "blocker": "example",
-    "criteria": [],
-    "criteriaCount": 7,
-    "ended": false,
-    "endpoint": "example",
-    "id": "J8v1IdQoWB",
-    "outcome": "example",
-    "outcomeTruncated": true,
-    "pending": [],
-    "pendingCount": 1,
-    "phase": "delivery",
-    "revision": "example",
-    "updatedAt": 7,
-    "version": 1
-  },
-  "type": "offshift.updated"
 }
 ```
 

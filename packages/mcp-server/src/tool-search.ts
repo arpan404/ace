@@ -42,7 +42,6 @@ const familyWords: Readonly<Record<string, string>> = {
   "ace-computer-use": "computer native app desktop window simulator",
   "ace-threads": "thread conversation history",
   visualize: "visual chart diagram",
-  offshift: "outcome deliver delivery own",
 };
 
 /** Each group's words stand in for one another. Stems, as `stem` returns them. */

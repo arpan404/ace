@@ -66,8 +66,6 @@ export function threadValue(reader: ThreadReader, key: string): unknown {
       return reader.thread;
     case "queue":
       return reader.queue;
-    case "offshift":
-      return reader.offshift;
     case "order":
       return reader.order;
     case "cursor":

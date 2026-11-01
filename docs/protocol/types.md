@@ -2433,29 +2433,6 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| op | yes | `"offshift"` |  |
-| request | yes | [OffshiftRequest.json](schema/OffshiftRequest.json) |  |
-| runOwner | no | [ThreadId.json](schema/ThreadId.json) |  |
-
-Example:
-
-```json
-{
-  "op": "offshift",
-  "request": {
-    "action": "block",
-    "note": "example",
-    "requestId": "T3",
-    "runId": "ZcCP1RQWT_C",
-    "version": 2
-  }
-}
-```
-
-### Variant 41
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
 | op | yes | `"project.read"` |  |
 | workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 
@@ -2467,7 +2444,7 @@ Example:
 }
 ```
 
-### Variant 42
+### Variant 41
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2484,7 +2461,7 @@ Example:
 }
 ```
 
-### Variant 43
+### Variant 42
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2499,12 +2476,12 @@ Example:
 {
   "branch": "example",
   "op": "thread.handoff",
-  "requestId": "cAjj.2",
+  "requestId": "q8Ogc8rLu",
   "threadId": "example"
 }
 ```
 
-### Variant 44
+### Variant 43
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2520,7 +2497,7 @@ Example:
 }
 ```
 
-### Variant 45
+### Variant 44
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2533,7 +2510,7 @@ Example:
 ```json
 {
   "op": "preview.close",
-  "previewId": "Nx",
+  "previewId": "15Qm",
   "threadId": "example"
 }
 ```
@@ -9959,12 +9936,12 @@ Example:
 
 ```json
 {
-  "seq": 2,
+  "seq": 5,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "kind": "threads",
-    "seq": 2,
+    "seq": 5,
     "threads": {}
   }
 }
@@ -16093,6 +16070,38 @@ Example:
 }
 ```
 
+### unknown
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [ItemId.json](schema/ItemId.json) |  |
+| agentId | yes | [AgentId.json](schema/AgentId.json) |  |
+| runId | no | [RunId.json](schema/RunId.json) |  |
+| createdAt | yes | [Timestamp.json](schema/Timestamp.json) |  |
+| nativeId | no | string | {"maxLength":256} |
+| executionSource | no | [ExecutionSource.json](schema/ExecutionSource.json) |  |
+| complete | no | boolean | {"default":true} |
+| inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
+| type | yes | `"unknown"` |  |
+| raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
+| data | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "agentId": "example",
+  "createdAt": 7,
+  "data": null,
+  "id": "example",
+  "inherited": {
+    "threadId": "example"
+  },
+  "nativeId": "example",
+  "type": "unknown"
+}
+```
+
 ### artifact
 
 | Field | Required | Type | Constraints |
@@ -16118,13 +16127,13 @@ Example:
 
 ```json
 {
-  "bytes": 2,
-  "complete": false,
-  "createdAt": 1,
+  "agentId": "example",
+  "bytes": 1,
+  "createdAt": 9,
   "id": "example",
   "mimeType": "example",
   "path": "example",
-  "source": "browser",
+  "source": "device",
   "type": "artifact"
 }
 ```
@@ -18796,7 +18805,6 @@ Example:
 | preview | no | string | {"maxLength":300} |
 | message | no | string | {"maxLength":300} |
 | threadIds | no | array | {"minItems":1,"maxItems":100,"items":{"allOf":[{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},{"type":"string","minLength":1,"maxLength":200}]}} |
-| run | no | object | {"properties":{"outcome":{"type":"string","enum":["stopped","blocked","delivered"]},"phase":{"$ref":"https://ace.local/protocol/v1/OffshiftPhase.json"}},"required":["outcome","phase"]} |
 
 Example:
 
@@ -19042,10 +19050,6 @@ Example:
     "id": "example",
     "interactionId": "example",
     "preview": "example",
-    "run": {
-      "outcome": "delivered",
-      "phase": "delivery"
-    },
     "status": "background_done",
     "threadId": "example",
     "title": "example"
@@ -19273,1352 +19277,6 @@ Example:
 {
   "requestId": "example",
   "type": "notification.unregister.result"
-}
-```
-
-## OffshiftActor
-
-[JSON Schema](schema/OffshiftActor.json), input validation.
-
-### person
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| kind | yes | `"person"` |  |
-| deviceId | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/DeviceId.json"},{"type":"null"}]} |
-| device | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]} |
-
-Example:
-
-```json
-{
-  "device": null,
-  "deviceId": null,
-  "kind": "person"
-}
-```
-
-### agent
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| kind | no | `"agent"` |  |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
-| model | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]} |
-
-Example:
-
-```json
-{
-  "model": "example",
-  "provider": "claude",
-  "threadId": "example"
-}
-```
-
-## OffshiftAuthor
-
-[JSON Schema](schema/OffshiftAuthor.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| kind | no | `"agent"` |  |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
-| model | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]} |
-
-Example:
-
-```json
-{
-  "model": "example",
-  "provider": "cursor",
-  "threadId": "example"
-}
-```
-
-## OffshiftCardAuthor
-
-[JSON Schema](schema/OffshiftCardAuthor.json), input validation.
-
-### person
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| kind | yes | `"person"` |  |
-| device | yes | union | {"anyOf":[{"type":"string","maxLength":64},{"type":"null"}]} |
-
-Example:
-
-```json
-{
-  "device": "example",
-  "kind": "person"
-}
-```
-
-### Variant 2
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
-| model | yes | union | {"anyOf":[{"type":"string","maxLength":64},{"type":"null"}]} |
-
-Example:
-
-```json
-{
-  "model": "example",
-  "provider": "cursor"
-}
-```
-
-## OffshiftCardCriterion
-
-[JSON Schema](schema/OffshiftCardCriterion.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| description | yes | string | {"maxLength":160} |
-| independent | no | boolean | {"default":false} |
-| evidence | yes | array | {"maxItems":5,"items":{"type":"object","properties":{"kind":{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceKind.json"},"state":{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceState.json"},"recordedAt":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},{"type":"null"}]},"by":{"default":null,"anyOf":[{"$ref":"https://ace.local/protocol/v1/OffshiftCardAuthor.json"},{"type":"null"}]}},"required":["kind","state","recordedAt"]}} |
-
-Example:
-
-```json
-{
-  "description": "example",
-  "evidence": [],
-  "id": "tF"
-}
-```
-
-## OffshiftClientRequest
-
-[JSON Schema](schema/OffshiftClientRequest.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| type | yes | `"offshift.request"` |  |
-| requestId | yes | string | {"minLength":1,"maxLength":256} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| op | yes | [OffshiftPersonOperation.json](schema/OffshiftPersonOperation.json) |  |
-
-Example:
-
-```json
-{
-  "op": {
-    "action": "get",
-    "runId": "bcqqM9st"
-  },
-  "requestId": "example",
-  "threadId": "example",
-  "type": "offshift.request"
-}
-```
-
-## OffshiftClientResult
-
-[JSON Schema](schema/OffshiftClientResult.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| type | yes | `"offshift.result"` |  |
-| requestId | yes | string | {"minLength":1,"maxLength":256} |
-| ok | yes | boolean |  |
-| error | no | ["forbidden","not_found","conflict","invalid","unavailable"] |  |
-| message | no | string | {"maxLength":1024} |
-| view | no | [OffshiftView.json](schema/OffshiftView.json) |  |
-
-Example:
-
-```json
-{
-  "ok": false,
-  "requestId": "example",
-  "type": "offshift.result",
-  "view": {
-    "next": "example",
-    "pending": [],
-    "revision": "example",
-    "run": {
-      "blocker": null,
-      "createdAt": 9,
-      "criteria": [
-        {
-          "description": "example",
-          "id": "rEbS",
-          "independent": true,
-          "requiredKinds": [
-            "automated"
-          ]
-        }
-      ],
-      "endpoint": "example",
-      "evidence": [],
-      "id": "xkmmh.F.",
-      "note": "example",
-      "outcome": "example",
-      "phase": "plan",
-      "threadId": "example",
-      "updatedAt": 1,
-      "version": 4
-    },
-    "state": "waiting_on_tree",
-    "treeState": "unknown"
-  }
-}
-```
-
-## OffshiftCriteria
-
-[JSON Schema](schema/OffshiftCriteria.json), input validation.
-
-Semantic rule: Criterion IDs must be unique.
-
-Type: array. See JSON Schema for constraints.
-
-Example:
-
-```json
-[
-  {
-    "description": "example",
-    "id": "00KrV",
-    "independent": true,
-    "requiredKinds": [
-      "manual"
-    ]
-  }
-]
-```
-
-## OffshiftCriterion
-
-[JSON Schema](schema/OffshiftCriterion.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| description | yes | string | {"minLength":1,"maxLength":4096} |
-| requiredKinds | yes | array | {"minItems":1,"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceKind.json"}} |
-| independent | no | boolean |  |
-
-Example:
-
-```json
-{
-  "description": "example",
-  "id": "IvalfbHOo_D",
-  "requiredKinds": [
-    "ui"
-  ]
-}
-```
-
-## OffshiftEnded
-
-[JSON Schema](schema/OffshiftEnded.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| at | yes | [Timestamp.json](schema/Timestamp.json) |  |
-| by | yes | [OffshiftPerson.json](schema/OffshiftPerson.json) |  |
-| note | yes | string | {"minLength":1,"maxLength":4096} |
-
-Example:
-
-```json
-{
-  "at": 5,
-  "by": {
-    "device": null,
-    "deviceId": null,
-    "kind": "person"
-  },
-  "note": "example"
-}
-```
-
-## OffshiftEvidence
-
-[JSON Schema](schema/OffshiftEvidence.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| criterionId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| kind | yes | [OffshiftEvidenceKind.json](schema/OffshiftEvidenceKind.json) |  |
-| result | yes | ["pass","fail"] |  |
-| revision | yes | string | {"minLength":1,"maxLength":512,"description":"From get, before the check ran."} |
-| action | yes | string | {"minLength":1,"maxLength":4096} |
-| artifact | yes | string | {"minLength":1,"maxLength":4096} |
-| note | yes | string | {"minLength":1,"maxLength":4096} |
-| recordedAt | yes | [Timestamp.json](schema/Timestamp.json) |  |
-| by | no | union | {"default":null,"anyOf":[{"$ref":"https://ace.local/protocol/v1/OffshiftActor.json"},{"type":"null"}]} |
-
-Example:
-
-```json
-{
-  "action": "example",
-  "artifact": "example",
-  "criterionId": "YxT7ZOz",
-  "kind": "ui",
-  "note": "example",
-  "recordedAt": 0,
-  "result": "fail",
-  "revision": "example"
-}
-```
-
-## OffshiftEvidenceBatch
-
-[JSON Schema](schema/OffshiftEvidenceBatch.json), input validation.
-
-Type: array. See JSON Schema for constraints.
-
-Example:
-
-```json
-[
-  {
-    "action": "example",
-    "artifact": "example",
-    "criterionId": "3QqUtFb8Yfw",
-    "kind": "human",
-    "note": "example",
-    "result": "pass",
-    "revision": "example"
-  }
-]
-```
-
-## OffshiftEvidenceInput
-
-[JSON Schema](schema/OffshiftEvidenceInput.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| criterionId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| kind | yes | [OffshiftEvidenceKind.json](schema/OffshiftEvidenceKind.json) |  |
-| result | yes | ["pass","fail"] |  |
-| revision | yes | string | {"minLength":1,"maxLength":512,"description":"From get, before the check ran."} |
-| action | yes | string | {"minLength":1,"maxLength":4096} |
-| artifact | yes | string | {"minLength":1,"maxLength":4096} |
-| note | yes | string | {"minLength":1,"maxLength":4096} |
-
-Example:
-
-```json
-{
-  "action": "example",
-  "artifact": "example",
-  "criterionId": "8.kC40Ru",
-  "kind": "human",
-  "note": "example",
-  "result": "pass",
-  "revision": "example"
-}
-```
-
-## OffshiftEvidenceKind
-
-[JSON Schema](schema/OffshiftEvidenceKind.json), input validation.
-
-Type: ["automated","source","ui","human","manual"]. See JSON Schema for constraints.
-
-Example:
-
-```json
-"ui"
-```
-
-## OffshiftEvidenceState
-
-[JSON Schema](schema/OffshiftEvidenceState.json), input validation.
-
-Type: ["pass","fail","stale","missing","not_independent"]. See JSON Schema for constraints.
-
-Example:
-
-```json
-"stale"
-```
-
-## OffshiftPending
-
-[JSON Schema](schema/OffshiftPending.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| criterionId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| kind | yes | [OffshiftEvidenceKind.json](schema/OffshiftEvidenceKind.json) |  |
-| needs | no | `"independent"` |  |
-
-Example:
-
-```json
-{
-  "criterionId": "3",
-  "kind": "manual",
-  "needs": "independent"
-}
-```
-
-## OffshiftPerson
-
-[JSON Schema](schema/OffshiftPerson.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| kind | yes | `"person"` |  |
-| deviceId | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/DeviceId.json"},{"type":"null"}]} |
-| device | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]} |
-
-Example:
-
-```json
-{
-  "device": "example",
-  "deviceId": "example",
-  "kind": "person"
-}
-```
-
-## OffshiftPersonChange
-
-[JSON Schema](schema/OffshiftPersonChange.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| version | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
-| at | yes | [Timestamp.json](schema/Timestamp.json) |  |
-| by | yes | [OffshiftPerson.json](schema/OffshiftPerson.json) |  |
-| summary | yes | string | {"minLength":1,"maxLength":512} |
-
-Example:
-
-```json
-{
-  "at": 4,
-  "by": {
-    "device": null,
-    "deviceId": "example",
-    "kind": "person"
-  },
-  "summary": "example",
-  "version": 1
-}
-```
-
-## OffshiftPersonOperation
-
-[JSON Schema](schema/OffshiftPersonOperation.json), input validation.
-
-### Variant 1
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"start"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| outcome | yes | string | {"minLength":1,"maxLength":4096} |
-| endpoint | yes | string | {"minLength":1,"maxLength":4096} |
-| criteria | yes | [OffshiftCriteria.json](schema/OffshiftCriteria.json) |  |
-| playbook | no | [OffshiftPlaybookId.json](schema/OffshiftPlaybookId.json) |  |
-
-Example:
-
-```json
-{
-  "action": "start",
-  "criteria": [
-    {
-      "description": "example",
-      "id": "AUKtMoH6Kr",
-      "requiredKinds": [
-        "source"
-      ]
-    }
-  ],
-  "endpoint": "example",
-  "outcome": "example",
-  "playbook": "investigate",
-  "runId": "a"
-}
-```
-
-### Variant 2
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"get"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-
-Example:
-
-```json
-{
-  "action": "get",
-  "runId": "Zy8YGmqIL2"
-}
-```
-
-### Variant 3
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"step"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| expectedVersion | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| stepId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| state | yes | ["done","todo"] |  |
-| note | no | string | {"minLength":1,"maxLength":1024} |
-
-Example:
-
-```json
-{
-  "action": "step",
-  "expectedVersion": 5,
-  "runId": "C8yOQ",
-  "state": "todo",
-  "stepId": "Mza"
-}
-```
-
-### Variant 4
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"evidence"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| expectedVersion | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| criterionId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| kind | yes | [OffshiftEvidenceKind.json](schema/OffshiftEvidenceKind.json) |  |
-| result | yes | ["pass","fail"] |  |
-| revision | yes | [OffshiftRevision.json](schema/OffshiftRevision.json) |  |
-| note | yes | string | {"minLength":1,"maxLength":4096} |
-| link | no | string | {"minLength":1,"maxLength":2048} |
-
-Example:
-
-```json
-{
-  "action": "evidence",
-  "criterionId": "A87D_p8",
-  "expectedVersion": 6,
-  "kind": "manual",
-  "link": "example",
-  "note": "example",
-  "result": "fail",
-  "revision": "example",
-  "runId": "oA5"
-}
-```
-
-### Variant 5
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"revise"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| expectedVersion | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| criterion | yes | [OffshiftCriterion.json](schema/OffshiftCriterion.json) |  |
-
-Example:
-
-```json
-{
-  "action": "revise",
-  "criterion": {
-    "description": "example",
-    "id": "5pEY",
-    "requiredKinds": [
-      "human"
-    ]
-  },
-  "expectedVersion": 9,
-  "runId": "k1E"
-}
-```
-
-### Variant 6
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"advance"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| expectedVersion | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
-
-Example:
-
-```json
-{
-  "action": "advance",
-  "expectedVersion": 9,
-  "phase": "implement",
-  "runId": "9t.-tZ6Y2Nn"
-}
-```
-
-### Variant 7
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"resume"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| expectedVersion | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| note | yes | string | {"minLength":1,"maxLength":4096} |
-
-Example:
-
-```json
-{
-  "action": "resume",
-  "expectedVersion": 8,
-  "note": "example",
-  "runId": "L3C1Dg7"
-}
-```
-
-### Variant 8
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"end"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| expectedVersion | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| note | no | string | {"minLength":1,"maxLength":4096} |
-
-Example:
-
-```json
-{
-  "action": "end",
-  "expectedVersion": 9,
-  "runId": "xv_4A"
-}
-```
-
-## OffshiftPhase
-
-[JSON Schema](schema/OffshiftPhase.json), input validation.
-
-Type: ["plan","implement","verify","review","delivery"]. See JSON Schema for constraints.
-
-Example:
-
-```json
-"plan"
-```
-
-## OffshiftPlaybook
-
-[JSON Schema](schema/OffshiftPlaybook.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | [OffshiftPlaybookId.json](schema/OffshiftPlaybookId.json) |  |
-| purpose | yes | string | {"minLength":1,"maxLength":160} |
-| steps | yes | array | {"minItems":1,"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftPlaybookStep.json"}} |
-
-Example:
-
-```json
-{
-  "id": "fix",
-  "purpose": "example",
-  "steps": [
-    {
-      "id": "cIu",
-      "phase": "review",
-      "title": "example"
-    }
-  ]
-}
-```
-
-## OffshiftPlaybookId
-
-[JSON Schema](schema/OffshiftPlaybookId.json), input validation.
-
-Type: ["fix","feature","refactor","perf","investigate","ui","land"]. See JSON Schema for constraints.
-
-Example:
-
-```json
-"feature"
-```
-
-## OffshiftPlaybooks
-
-[JSON Schema](schema/OffshiftPlaybooks.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| playbooks | yes | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftPlaybook.json"}} |
-
-Example:
-
-```json
-{
-  "playbooks": []
-}
-```
-
-## OffshiftPlaybookStep
-
-[JSON Schema](schema/OffshiftPlaybookStep.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| title | yes | string | {"minLength":1,"maxLength":160} |
-| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
-| kinds | no | array | {"minItems":1,"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceKind.json"}} |
-
-Example:
-
-```json
-{
-  "id": "Z",
-  "phase": "review",
-  "title": "example"
-}
-```
-
-## OffshiftRequest
-
-[JSON Schema](schema/OffshiftRequest.json), input validation.
-
-### Variant 1
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"start"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| outcome | yes | string | {"minLength":1,"maxLength":4096} |
-| endpoint | yes | string | {"minLength":1,"maxLength":4096} |
-| criteria | yes | [OffshiftCriteria.json](schema/OffshiftCriteria.json) |  |
-| playbook | no | [OffshiftPlaybookId.json](schema/OffshiftPlaybookId.json) |  |
-| steps | no | [OffshiftStepsInput.json](schema/OffshiftStepsInput.json) |  |
-
-Example:
-
-```json
-{
-  "action": "start",
-  "criteria": [
-    {
-      "description": "example",
-      "id": "wEuUZN1ehG",
-      "independent": true,
-      "requiredKinds": [
-        "ui"
-      ]
-    }
-  ],
-  "endpoint": "example",
-  "outcome": "example",
-  "runId": "G_ytM0"
-}
-```
-
-### Variant 2
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"get"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-
-Example:
-
-```json
-{
-  "action": "get",
-  "runId": "UF3qP6vL"
-}
-```
-
-### Variant 3
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"list"` |  |
-
-Example:
-
-```json
-{
-  "action": "list"
-}
-```
-
-### Variant 4
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"playbooks"` |  |
-
-Example:
-
-```json
-{
-  "action": "playbooks"
-}
-```
-
-### Variant 5
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"advance"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| version | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
-| note | yes | string | {"minLength":1,"maxLength":4096} |
-
-Example:
-
-```json
-{
-  "action": "advance",
-  "note": "example",
-  "phase": "review",
-  "runId": "Q5CGzzPj",
-  "version": 2
-}
-```
-
-### Variant 6
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"block"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| version | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| note | yes | string | {"minLength":1,"maxLength":4096} |
-
-Example:
-
-```json
-{
-  "action": "block",
-  "note": "example",
-  "requestId": "GGJ.aa24",
-  "runId": "4A7DCG-2Is",
-  "version": 8
-}
-```
-
-### Variant 7
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"resume"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| version | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| note | yes | string | {"minLength":1,"maxLength":4096} |
-
-Example:
-
-```json
-{
-  "action": "resume",
-  "note": "example",
-  "runId": "e",
-  "version": 4
-}
-```
-
-### Variant 8
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"evidence"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| version | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| evidence | yes | [OffshiftEvidenceBatch.json](schema/OffshiftEvidenceBatch.json) |  |
-
-Example:
-
-```json
-{
-  "action": "evidence",
-  "evidence": [
-    {
-      "action": "example",
-      "artifact": "example",
-      "criterionId": "nAAPcxKV",
-      "kind": "automated",
-      "note": "example",
-      "result": "pass",
-      "revision": "example"
-    }
-  ],
-  "runId": "sD5w",
-  "version": 7
-}
-```
-
-### Variant 9
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"revise"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| version | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| criterion | yes | [OffshiftCriterion.json](schema/OffshiftCriterion.json) |  |
-| note | yes | string | {"minLength":1,"maxLength":4096} |
-
-Example:
-
-```json
-{
-  "action": "revise",
-  "criterion": {
-    "description": "example",
-    "id": "AZ7",
-    "requiredKinds": [
-      "source"
-    ]
-  },
-  "note": "example",
-  "requestId": ".OTz28Rao5",
-  "runId": "ni",
-  "version": 5
-}
-```
-
-### Variant 10
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | `"step"` |  |
-| runId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| version | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| stepId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| state | yes | ["done","skipped"] |  |
-| note | no | string | {"minLength":1,"maxLength":1024} |
-
-Example:
-
-```json
-{
-  "action": "step",
-  "requestId": "cfY.wSQ7",
-  "runId": "BPV2",
-  "state": "done",
-  "stepId": "C9g",
-  "version": 6
-}
-```
-
-## OffshiftResult
-
-[JSON Schema](schema/OffshiftResult.json), input validation.
-
-### Variant 1
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| run | yes | [OffshiftRun.json](schema/OffshiftRun.json) |  |
-| revision | yes | [OffshiftRevision.json](schema/OffshiftRevision.json) |  |
-| state | yes | ["active","blocked","needs_evidence","waiting_on_tree","complete","ended"] |  |
-| pending | yes | array | {"maxItems":320,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftPending.json"}} |
-| treeState | yes | ["working","waiting","needs_you","failed","done","unknown"] |  |
-| next | yes | string | {"minLength":1,"maxLength":1024} |
-
-Example:
-
-```json
-{
-  "next": "example",
-  "pending": [],
-  "revision": "example",
-  "run": {
-    "blocker": null,
-    "createdAt": 4,
-    "criteria": [
-      {
-        "description": "example",
-        "id": "flvh8ot",
-        "requiredKinds": [
-          "human"
-        ]
-      }
-    ],
-    "endpoint": "example",
-    "evidence": [],
-    "id": "N2r",
-    "note": "example",
-    "outcome": "example",
-    "owner": {
-      "model": "example",
-      "provider": "pi",
-      "threadId": "example"
-    },
-    "phase": "implement",
-    "steps": [],
-    "threadId": "example",
-    "updatedAt": 6,
-    "version": 4
-  },
-  "state": "waiting_on_tree",
-  "treeState": "done"
-}
-```
-
-### Variant 2
-
-Type: array. See JSON Schema for constraints.
-
-Example:
-
-```json
-[]
-```
-
-### Variant 3
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| playbooks | yes | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftPlaybook.json"}} |
-
-Example:
-
-```json
-{
-  "playbooks": []
-}
-```
-
-## OffshiftRevision
-
-[JSON Schema](schema/OffshiftRevision.json), input validation.
-
-Type: string. See JSON Schema for constraints.
-
-Example:
-
-```json
-"example"
-```
-
-## OffshiftRun
-
-[JSON Schema](schema/OffshiftRun.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| outcome | yes | string | {"minLength":1,"maxLength":4096} |
-| endpoint | yes | string | {"minLength":1,"maxLength":4096} |
-| criteria | yes | [OffshiftCriteria.json](schema/OffshiftCriteria.json) |  |
-| owner | no | union | {"default":null,"anyOf":[{"$ref":"https://ace.local/protocol/v1/OffshiftAuthor.json"},{"type":"null"}]} |
-| playbook | no | [OffshiftPlaybookId.json](schema/OffshiftPlaybookId.json) |  |
-| steps | no | array | {"default":[],"maxItems":24,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftStep.json"}} |
-| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
-| version | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| blocker | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]} |
-| note | yes | string | {"minLength":1,"maxLength":4096} |
-| evidence | yes | array | {"maxItems":320,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftEvidence.json"}} |
-| personChanges | no | array | {"default":[],"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftPersonChange.json"}} |
-| ended | no | union | {"default":null,"anyOf":[{"$ref":"https://ace.local/protocol/v1/OffshiftEnded.json"},{"type":"null"}]} |
-| startedBy | no | [OffshiftPerson.json](schema/OffshiftPerson.json) |  |
-| createdAt | yes | [Timestamp.json](schema/Timestamp.json) |  |
-| updatedAt | yes | [Timestamp.json](schema/Timestamp.json) |  |
-
-Example:
-
-```json
-{
-  "blocker": "example",
-  "createdAt": 0,
-  "criteria": [
-    {
-      "description": "example",
-      "id": "kRc2ATfX_",
-      "requiredKinds": [
-        "source"
-      ]
-    }
-  ],
-  "endpoint": "example",
-  "evidence": [],
-  "id": "6",
-  "note": "example",
-  "outcome": "example",
-  "phase": "plan",
-  "threadId": "example",
-  "updatedAt": 4,
-  "version": 1
-}
-```
-
-## OffshiftRunCard
-
-[JSON Schema](schema/OffshiftRunCard.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| outcome | yes | string | {"maxLength":512} |
-| outcomeTruncated | yes | boolean |  |
-| endpoint | yes | string | {"maxLength":256} |
-| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
-| blocker | yes | union | {"anyOf":[{"type":"string","maxLength":512},{"type":"null"}]} |
-| version | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| updatedAt | yes | [Timestamp.json](schema/Timestamp.json) |  |
-| revision | yes | [OffshiftRevision.json](schema/OffshiftRevision.json) |  |
-| criteria | yes | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftCardCriterion.json"}} |
-| criteriaCount | yes | integer | {"minimum":1,"maximum":64} |
-| pending | yes | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftPending.json"}} |
-| pendingCount | yes | integer | {"minimum":0,"maximum":320} |
-| steps | no | array | {"default":[],"maxItems":24,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"title":{"type":"string","minLength":1,"maxLength":160},"state":{"$ref":"https://ace.local/protocol/v1/OffshiftStepState.json"},"reason":{"type":"string","maxLength":160}},"required":["id","title","state"]}} |
-| playbook | no | [OffshiftPlaybookId.json](schema/OffshiftPlaybookId.json) |  |
-| next | no | string | {"maxLength":512} |
-| ended | no | boolean |  |
-| byPerson | no | boolean |  |
-
-Example:
-
-```json
-{
-  "blocker": "example",
-  "criteria": [],
-  "criteriaCount": 1,
-  "ended": false,
-  "endpoint": "example",
-  "id": "Mmc",
-  "next": "example",
-  "outcome": "example",
-  "outcomeTruncated": true,
-  "pending": [],
-  "pendingCount": 9,
-  "phase": "implement",
-  "revision": "example",
-  "updatedAt": 8,
-  "version": 6
-}
-```
-
-## OffshiftRunMark
-
-[JSON Schema](schema/OffshiftRunMark.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
-| state | yes | ["open","blocked","delivered","ended"] |  |
-| pendingCount | yes | integer | {"minimum":0,"maximum":320} |
-| playbook | no | [OffshiftPlaybookId.json](schema/OffshiftPlaybookId.json) |  |
-
-Example:
-
-```json
-{
-  "pendingCount": 2,
-  "phase": "plan",
-  "playbook": "ui",
-  "state": "ended"
-}
-```
-
-## OffshiftRunSummary
-
-[JSON Schema](schema/OffshiftRunSummary.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
-| outcome | yes | string | {"maxLength":512} |
-| outcomeTruncated | yes | boolean |  |
-
-Example:
-
-```json
-{
-  "id": "nGzXcpGWei",
-  "outcome": "example",
-  "outcomeTruncated": false,
-  "phase": "implement"
-}
-```
-
-## OffshiftStep
-
-[JSON Schema](schema/OffshiftStep.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| title | yes | string | {"minLength":1,"maxLength":160} |
-| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
-| state | yes | [OffshiftStepState.json](schema/OffshiftStepState.json) |  |
-| note | no | string | {"minLength":1,"maxLength":1024} |
-
-Example:
-
-```json
-{
-  "id": "HL",
-  "note": "example",
-  "phase": "delivery",
-  "state": "done",
-  "title": "example"
-}
-```
-
-## OffshiftStepInput
-
-[JSON Schema](schema/OffshiftStepInput.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| id | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| title | yes | string | {"minLength":1,"maxLength":160} |
-| phase | yes | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
-
-Example:
-
-```json
-{
-  "id": "fsBlR",
-  "phase": "delivery",
-  "title": "example"
-}
-```
-
-## OffshiftStepsInput
-
-[JSON Schema](schema/OffshiftStepsInput.json), input validation.
-
-Semantic rule: Step IDs must be unique.
-
-Type: array. See JSON Schema for constraints.
-
-Example:
-
-```json
-[
-  {
-    "id": "n542Wnj.u2",
-    "phase": "implement",
-    "title": "example"
-  }
-]
-```
-
-## OffshiftStepState
-
-[JSON Schema](schema/OffshiftStepState.json), input validation.
-
-Type: ["todo","done","skipped"]. See JSON Schema for constraints.
-
-Example:
-
-```json
-"todo"
-```
-
-## OffshiftUpdated
-
-[JSON Schema](schema/OffshiftUpdated.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| type | yes | `"offshift.updated"` |  |
-| card | yes | [OffshiftRunCard.json](schema/OffshiftRunCard.json) |  |
-
-Example:
-
-```json
-{
-  "card": {
-    "blocker": "example",
-    "byPerson": true,
-    "criteria": [],
-    "criteriaCount": 9,
-    "ended": true,
-    "endpoint": "example",
-    "id": "Zbwl7a",
-    "outcome": "example",
-    "outcomeTruncated": true,
-    "pending": [],
-    "pendingCount": 1,
-    "phase": "delivery",
-    "revision": "example",
-    "updatedAt": 7,
-    "version": 6
-  },
-  "type": "offshift.updated"
-}
-```
-
-## OffshiftView
-
-[JSON Schema](schema/OffshiftView.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| run | yes | [OffshiftRun.json](schema/OffshiftRun.json) |  |
-| revision | yes | [OffshiftRevision.json](schema/OffshiftRevision.json) |  |
-| state | yes | ["active","blocked","needs_evidence","waiting_on_tree","complete","ended"] |  |
-| pending | yes | array | {"maxItems":320,"items":{"$ref":"https://ace.local/protocol/v1/OffshiftPending.json"}} |
-| treeState | yes | ["working","waiting","needs_you","failed","done","unknown"] |  |
-| next | yes | string | {"minLength":1,"maxLength":1024} |
-
-Example:
-
-```json
-{
-  "next": "example",
-  "pending": [],
-  "revision": "example",
-  "run": {
-    "blocker": null,
-    "createdAt": 1,
-    "criteria": [
-      {
-        "description": "example",
-        "id": "2K_A-d9",
-        "requiredKinds": [
-          "ui"
-        ]
-      }
-    ],
-    "endpoint": "example",
-    "evidence": [],
-    "id": "ukwFQ",
-    "note": "example",
-    "outcome": "example",
-    "owner": {
-      "model": null,
-      "provider": "codex",
-      "threadId": "example"
-    },
-    "phase": "delivery",
-    "steps": [],
-    "threadId": "example",
-    "updatedAt": 6,
-    "version": 2
-  },
-  "state": "blocked",
-  "treeState": "unknown"
 }
 ```
 
@@ -24481,10 +23139,6 @@ Example:
     "actions": [],
     "backgroundCount": 1,
     "id": "example",
-    "run": {
-      "outcome": "stopped",
-      "phase": "delivery"
-    },
     "status": "background_done",
     "threadId": "example",
     "threadIds": [
@@ -31312,7 +29966,6 @@ Example:
 | --- | --- | --- | --- |
 | entitiesBefore | no | object | {"propertyNames":{"$ref":"https://ace.local/protocol/v1/EntityCollection.json"},"additionalProperties":{"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]}} |
 | queue | no | [QueueState.json](schema/QueueState.json) |  |
-| offshift | no | [OffshiftRunCard.json](schema/OffshiftRunCard.json) |  |
 | contextMeters | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ContextMeter.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | kind | yes | `"thread"` |  |
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -31336,147 +29989,102 @@ Example:
   "agentChildren": {},
   "agents": {},
   "backgroundTasks": {},
-  "contextMeters": {},
   "interactions": {},
   "itemOrder": [],
-  "itemSeqs": {},
   "items": {},
   "kind": "thread",
   "runs": {},
-  "seq": 7,
+  "seq": 1,
   "thread": {
-    "acpSupport": {
-      "capabilities": {
-        "imageInput": true,
-        "planMode": false,
-        "resume": false
-      },
-      "coverage": "source_profile",
-      "mcp": "unavailable",
-      "modeSelection": true,
-      "modelSelection": true,
-      "raw": {
-        "json": "example",
-        "truncated": true
-      },
-      "subagentSessions": true,
-      "visibility": "limited"
-    },
-    "capabilities": {
-      "accessModes": [],
-      "approvals": "sandbox-only",
-      "backgroundTaskControl": true,
-      "backgroundVisibility": "full",
-      "fork": false,
-      "forkMode": "none",
-      "forkSubagents": true,
-      "forkTranscript": true,
-      "goals": false,
-      "imageInput": true,
-      "interruptCascades": true,
-      "launchOptions": [],
-      "planMode": false,
-      "resume": true,
-      "rewindFiles": false,
-      "sessionOptions": false,
-      "steer": true,
-      "subagentTranscripts": true,
-      "tokenUsage": false
+    "activityAt": 1,
+    "autoSettle": false,
+    "autoSettleAt": 5,
+    "continuation": {
+      "actionId": "thread.continue_new",
+      "reason": "cursor_cli_retired",
+      "state": "read_only"
     },
     "createdAt": 3,
     "delegatedBy": "example",
     "delegatedFrom": {
       "hostId": "example",
+      "hostName": "example",
       "threadId": "example"
     },
-    "deletedAt": 0,
-    "effectiveCapabilities": {
-      "accessModes": [],
-      "attachmentInput": {
-        "documents": [],
-        "embeddedContext": false,
-        "format": "acp",
-        "maxInlineBytes": 7
+    "deletedAt": 6,
+    "details": {
+      "ahead": 8,
+      "baseBranch": "example",
+      "behind": 1,
+      "continuedFrom": {
+        "at": 2,
+        "hostId": "example",
+        "name": "example",
+        "threadId": "example"
       },
-      "backgroundTaskControl": false,
-      "backgroundVisibility": "full",
-      "childControls": "read-only",
-      "fork": true,
-      "imageInput": false,
-      "interruptCascades": true,
-      "launchOptions": [],
-      "permissionModes": [],
-      "planMode": true,
-      "resume": true,
-      "rewindFiles": true,
-      "steer": true,
-      "steeringMode": "native",
-      "subagentTranscripts": false,
-      "tokenUsage": true
-    },
-    "goal": {
-      "lastReason": "example",
-      "objective": "example",
-      "setAt": 3,
-      "status": "complete",
-      "tokenBudget": 2
-    },
-    "handoff": {
-      "bytes": 9,
-      "sourceThreadId": "example",
-      "truncated": true
-    },
-    "hasSentMessage": false,
-    "id": "example",
-    "instanceId": "example",
-    "lineage": {
-      "lossy": false,
-      "mode": "native",
-      "parentAgentId": "example",
-      "parentThreadId": "example",
-      "point": {
-        "runId": "example",
-        "type": "turn"
+      "diff": {
+        "additions": 3,
+        "deletions": 2,
+        "files": 0
+      },
+      "linkedPr": null,
+      "upstream": "example",
+      "workspaceChange": {
+        "at": 6,
+        "commandId": "example",
+        "error": "example",
+        "lossy": false,
+        "mode": "worktree",
+        "state": "applied"
+      },
+      "worktreeSetup": {
+        "at": 4,
+        "details": [],
+        "reason": "read_only",
+        "state": "failed"
       }
     },
+    "goal": {
+      "checks": 7,
+      "lastReason": "example",
+      "objective": "example",
+      "setAt": 9,
+      "status": "usage_limited",
+      "timeUsedSeconds": 2
+    },
+    "id": "example",
+    "installationId": "example",
+    "listOrder": 6,
     "live": {
-      "contextMeter": {
-        "at": 2,
-        "limit": 1,
-        "used": 1
-      },
-      "options": {},
-      "provider": "antigravity",
-      "rootRunId": null,
-      "step": "tests",
-      "subagentCount": 2
+      "model": "example",
+      "subagentCount": 0,
+      "watching": []
     },
-    "pinOrder": 6,
-    "prSettled": 6,
-    "provider": "acp",
-    "queuedLaunch": {
-      "text": "example"
-    },
-    "readAt": 7,
-    "rootAgentId": "example",
-    "snoozeWake": {
-      "on": "pr",
-      "prs": [
-        {
-          "head": "example",
-          "pr": "example",
-          "state": "open",
-          "updatedAt": 1
+    "movedFrom": {
+      "links": {
+        "linkedPr": {
+          "number": 4,
+          "state": "open"
+        },
+        "repository": {
+          "forge": "github",
+          "host": "qFcSEoxC",
+          "name": "PTnm5xN4xqc",
+          "owner": "i2s/tTTYElo./8fnG_b/tp4cL4tEmo/gP/FLLNzcfxLa"
         }
-      ]
+      },
+      "workspaceId": "example"
     },
+    "provider": "antigravity",
+    "rootAgentId": "example",
+    "settleWhenDone": true,
+    "settledAt": 7,
     "status": {
-      "on": "upstream",
-      "state": "waiting"
+      "interactions": 5,
+      "state": "needs_you"
     },
     "title": "example",
-    "titleSource": "provider",
-    "updatedAt": 5,
+    "updatedAt": 9,
     "workspaceId": "example"
   },
   "usage": {}
@@ -32465,7 +31073,6 @@ Example:
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | title | yes | string |  |
 | queue | no | [QueueState.json](schema/QueueState.json) |  |
-| run | no | [OffshiftRunMark.json](schema/OffshiftRunMark.json) |  |
 | goal | no | [ProviderGoal.json](schema/ProviderGoal.json) |  |
 | titleSource | no | ["provisional","provider","generated","person","agent"] |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
@@ -32502,8 +31109,17 @@ Example:
   "activityAt": 4,
   "archivedAt": 8,
   "autoSettleAt": 2,
-  "capabilitiesRef": "example",
+  "continuation": {
+    "actionId": "thread.continue_new",
+    "reason": "cursor_cli_retired",
+    "state": "read_only"
+  },
   "createdAt": 1,
+  "handoff": {
+    "bytes": 9,
+    "sourceThreadId": "example",
+    "truncated": false
+  },
   "id": "example",
   "imported": {
     "importedAt": 8,
@@ -32525,7 +31141,7 @@ Example:
   },
   "listOrder": 1,
   "prSettledKey": "example",
-  "provider": "claude",
+  "provider": "codex",
   "queue": {
     "paused": true,
     "pendingCount": 2,
@@ -32538,7 +31154,6 @@ Example:
     "state": "done"
   },
   "title": "example",
-  "titleSource": "generated",
   "updatedAt": 8,
   "workspaceId": "example"
 }
@@ -32937,7 +31552,6 @@ Example:
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | title | yes | string |  |
 | queue | no | [QueueState.json](schema/QueueState.json) |  |
-| run | no | [OffshiftRunMark.json](schema/OffshiftRunMark.json) |  |
 | goal | no | [ProviderGoal.json](schema/ProviderGoal.json) |  |
 | titleSource | no | ["provisional","provider","generated","person","agent"] |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
@@ -32969,25 +31583,35 @@ Example:
 
 ```json
 {
-  "acpSupport": {
-    "capabilities": {
-      "imageInput": false,
-      "planMode": true,
-      "resume": true
-    },
-    "coverage": "legacy",
-    "mcp": "unavailable",
-    "modeSelection": true,
-    "modelSelection": true,
-    "raw": {
-      "json": "example",
-      "truncated": false
-    },
-    "subagentSessions": true,
-    "visibility": "limited"
-  },
+  "acpAgentId": "example",
   "autoSettle": false,
-  "createdAt": 9,
+  "capabilities": {
+    "backgroundTaskControl": true,
+    "backgroundVisibility": "partial",
+    "fork": true,
+    "forkMode": "none",
+    "forkPoints": [],
+    "forkSubagents": false,
+    "goals": true,
+    "imageInput": true,
+    "interruptCascades": true,
+    "launchOptions": [],
+    "permissions": {
+      "guarantees": [],
+      "modes": [],
+      "nativeAutoReview": true,
+      "permissionModes": [],
+      "toolGate": false
+    },
+    "planMode": true,
+    "resume": true,
+    "rewindFiles": false,
+    "steer": false,
+    "steeringMode": "queue",
+    "subagentTranscripts": true,
+    "tokenUsage": false
+  },
+  "createdAt": 0,
   "deletedAt": 4,
   "details": {
     "baseBranch": "example",
@@ -33043,42 +31667,13 @@ Example:
     },
     "worktree": "example"
   },
-  "effectiveCapabilities": {
-    "backgroundTaskControl": true,
-    "backgroundVisibility": "none",
-    "childControls": "native",
-    "childFidelity": "placeholder",
-    "fork": true,
-    "forkMode": "native",
-    "forkPoints": [],
-    "imageInput": false,
-    "interruptCascades": true,
-    "launchOptions": [],
-    "planMode": true,
-    "resume": true,
-    "rewindFiles": true,
-    "sessionOptions": false,
-    "steer": false,
-    "steerTiming": "after_tool",
-    "subagentTranscripts": false,
-    "tokenUsage": false
-  },
-  "execution": {
-    "options": {},
-    "provider": "opencode"
+  "goal": {
+    "lastReason": "example",
+    "objective": "example",
+    "setAt": 2,
+    "status": "blocked"
   },
   "id": "example",
-  "installationId": "example",
-  "lineage": {
-    "lossy": false,
-    "mode": "portable",
-    "parentAgentId": "example",
-    "parentThreadId": "example",
-    "point": {
-      "itemId": "example",
-      "type": "item"
-    }
-  },
   "movedFrom": {
     "links": {
       "linkedPr": null,
@@ -33091,33 +31686,33 @@ Example:
     },
     "workspaceId": "example"
   },
-  "permission": {
-    "custom": "example",
-    "effective": "auto-review",
-    "override": "read-only",
-    "pending": false
-  },
   "pinOrder": 5,
   "prSettled": 3,
-  "provider": "codex",
+  "provider": "pi",
   "queue": {
     "paused": true,
     "reason": null,
     "resumeAt": 0,
     "revision": 6
   },
-  "run": {
-    "pendingCount": 6,
-    "phase": "implement",
-    "state": "delivered"
-  },
   "status": {
-    "state": "limited"
+    "on": "background_task",
+    "queuePosition": 5,
+    "slotsInUse": 6,
+    "state": "waiting"
+  },
+  "switch": {
+    "at": 3,
+    "error": "example",
+    "lossy": false,
+    "selection": {
+      "provider": "acp"
+    },
+    "state": "failed"
   },
   "title": "example",
-  "titleSource": "provisional",
   "unread": true,
-  "updatedAt": 5,
+  "updatedAt": 4,
   "workspaceId": "example"
 }
 ```
@@ -33719,7 +32314,6 @@ Example:
 | --- | --- | --- | --- |
 | entitiesBefore | no | object | {"propertyNames":{"$ref":"https://ace.local/protocol/v1/EntityCollection.json"},"additionalProperties":{"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]}} |
 | queue | no | [QueueState.json](schema/QueueState.json) |  |
-| offshift | no | [OffshiftRunCard.json](schema/OffshiftRunCard.json) |  |
 | contextMeters | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ContextMeter.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | kind | yes | `"thread"` |  |
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -33745,124 +32339,106 @@ Example:
   "backgroundTasks": {},
   "interactions": {},
   "itemOrder": [],
+  "itemSeqs": {},
   "items": {},
+  "itemsBefore": null,
   "kind": "thread",
   "runs": {},
-  "seq": 7,
+  "seq": 4,
   "thread": {
-    "acpAgentId": "example",
-    "activityAt": 9,
-    "archivedAt": 8,
-    "backend": "cursor-sdk",
-    "createdAt": 4,
-    "details": {
-      "ahead": 5,
-      "base": {
-        "fetch": "unreachable",
-        "head": "5bb517139d7eaab6e2a5fe8cd40d978e65fd6668beac690a46eb810aab947",
-        "ref": "example"
+    "acpSupport": {
+      "capabilities": {
+        "imageInput": true,
+        "planMode": false,
+        "resume": false
       },
-      "linkedPr": {
-        "draft": true,
-        "number": 7,
-        "state": "open"
+      "coverage": "source_profile",
+      "mcp": "unavailable",
+      "modeSelection": true,
+      "modelSelection": true,
+      "raw": {
+        "json": "example",
+        "truncated": true
       },
-      "pullRequestWorkspace": {
-        "baseBranch": "example",
-        "baseSha": "647fe533f1c69b2cccd122b9869e32ac9a84535ef74",
-        "context": "example",
-        "contextTruncated": true,
-        "headBranch": "example",
-        "headRepository": {
-          "forge": "github",
-          "host": "-ACUo",
-          "name": "dAMouK",
-          "owner": "GBSR/LvXGFrvUp/Ge73/R35yN3ZQU/vYpcvClDb66/Kma-mAP"
-        },
-        "headSha": "58a10ec67c0d6e74e01f900428c672ad531f334fab2",
-        "ref": {
-          "number": 9,
-          "repository": {
-            "forge": "gitlab",
-            "host": "kHVGbG",
-            "name": "u",
-            "owner": "3Y-loYV.P/2HSpFh/jIVTv0ddif/4uMm/cKfGz.nO/gzGsBZ6/s/SXiqafkan9"
-          }
-        }
-      },
-      "repository": {
-        "forge": "github",
-        "host": "4XUE",
-        "name": "RPqSBrL8VHC",
-        "owner": "KN3uoKM/nGpRZpSL7MW/Z"
-      },
-      "workspaceChange": {
-        "at": 1,
-        "branch": "example",
-        "commandId": "example",
-        "error": "example",
-        "lossy": true,
-        "mode": "worktree",
-        "state": "failed"
-      },
-      "worktreeMissing": true
+      "visibility": "limited"
     },
-    "goal": {
-      "checks": 7,
-      "lastReason": "example",
-      "objective": "example",
-      "status": "active",
-      "tokensUsed": 0
+    "archivedAt": 8,
+    "autoSettleAt": 9,
+    "capabilitiesRef": "example",
+    "continuation": {
+      "actionId": "thread.continue_new",
+      "reason": "cursor_cli_retired",
+      "state": "read_only"
+    },
+    "createdAt": 1,
+    "deletedAt": 3,
+    "effectiveCapabilities": {
+      "approvals": "sandbox-only",
+      "attachmentInput": {
+        "documents": [],
+        "embeddedContext": true,
+        "format": "claude",
+        "maxInlineBytes": 9
+      },
+      "backgroundTaskControl": false,
+      "backgroundVisibility": "full",
+      "fork": false,
+      "forkMode": "context-handoff",
+      "forkSubagents": true,
+      "forkTranscript": true,
+      "imageInput": true,
+      "interruptCascades": true,
+      "permissionModes": [],
+      "permissions": {
+        "modes": [],
+        "nativeAutoReview": true,
+        "permissionModes": [],
+        "toolGate": true
+      },
+      "planMode": true,
+      "resume": true,
+      "rewindFiles": true,
+      "steer": true,
+      "steeringMode": "interrupt-restart",
+      "subagentTranscripts": false,
+      "tokenUsage": true
+    },
+    "handoff": {
+      "bytes": 7,
+      "sourceThreadId": "example",
+      "truncated": false
     },
     "id": "example",
-    "lineage": {
-      "lossy": true,
-      "mode": "portable",
-      "parentAgentId": "example",
-      "parentThreadId": "example",
-      "point": {
-        "runId": "example",
-        "type": "turn"
-      }
+    "imported": {
+      "importedAt": 4,
+      "instanceId": "example",
+      "native": {
+        "installationId": "example",
+        "provider": "acp"
+      },
+      "sourceId": "example"
     },
-    "listOrder": 2,
+    "installationId": "example",
+    "listOrder": 3,
     "live": {
       "askingThreads": [],
       "options": {},
-      "runningSubagentCount": 5,
-      "subagentCount": 1,
-      "workingSince": 1
+      "provider": "cursor",
+      "rootRunId": null,
+      "waitingOn": 8
     },
-    "movedFrom": {
-      "links": {
-        "repository": {
-          "forge": "gitlab",
-          "host": "6JKC",
-          "name": "wIr",
-          "owner": "tRUWIS25ax/_Y0/h/VeCy6bgML/U8/F5OV226v/ivR/Ctm"
-        }
-      },
-      "workspaceId": "example"
-    },
-    "pinOrder": 3,
-    "prSettled": 8,
-    "provider": "antigravity",
-    "readAt": 0,
-    "rootAgentId": "example",
-    "settleWhenDone": true,
-    "settledReason": "inactivity",
-    "snoozeWake": {
-      "on": "needs_you"
-    },
+    "prSettled": 3,
+    "provider": "cursor",
+    "readAt": 3,
+    "settledAt": 0,
+    "snoozedUntil": 4,
     "startedBy": "example",
     "status": {
-      "on": "network",
-      "state": "waiting"
+      "state": "done"
     },
     "title": "example",
-    "titleSource": "provider",
     "unread": true,
-    "updatedAt": 5,
+    "updatedAt": 3,
     "workspaceId": "example"
   },
   "usage": {}
@@ -34847,10 +33423,9 @@ Example:
     "agentId": "example",
     "complete": false,
     "createdAt": 1,
+    "data": null,
     "id": "example",
-    "raw": [],
-    "summary": "example",
-    "type": "compaction"
+    "type": "unknown"
   },
   "seq": 10
 }

@@ -1,3 +1,4 @@
+import { decodeStoredPayload } from "./stored-decode.ts";
 import { ThreadReads } from "./thread-reads.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
@@ -1071,7 +1072,7 @@ export class Store {
         id: row.id,
         threadId: row.thread_id,
         at: row.at,
-        payload: JSON.parse(String(row.payload)),
+        payload: decodeStoredPayload(JSON.parse(String(row.payload))),
       });
       events.push(event);
       bytes += Buffer.byteLength(JSON.stringify(event));

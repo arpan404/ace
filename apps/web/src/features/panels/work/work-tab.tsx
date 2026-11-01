@@ -4,9 +4,7 @@ import { OptionalLeaseScope, useThread, useThreadMeta } from "@ace/client-react"
 import {
   changesByAgent,
   forestTally,
-  isActivelyRunning,
   latestChecks,
-  offshiftSummary,
   queuedInputLine,
   summaryPullRequests,
   turnAgentFiles,
@@ -22,7 +20,6 @@ import {
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
 import { SinceYouLooked, useShownCatchUp } from "./catch-up.tsx";
-import { OffshiftRun } from "./offshift-run.tsx";
 import { SummaryNow } from "./summary-now.tsx";
 import { SummaryPlan } from "./summary-plan.tsx";
 import { Results } from "./summary-results.tsx";
@@ -31,13 +28,10 @@ import { SummaryTree } from "./summary-tree.tsx";
 import { useAgentForest } from "./use-agent-forest.tsx";
 
 const queueOf = (reader: ThreadReader) => reader.queue;
-const offshiftOf = (reader: ThreadReader) => reader.offshift;
 
 /**
- * The thread at a glance, top to bottom: Now (one sentence and one grey line), an active
- * Offshift run, what happened since the person last looked, every agent of the thread and of the
- * threads it delegated, what came out of the work, the plan, and the project's automations in
- * one line. A section with nothing in it is left out. Everything reads bounded facts: the live
+ * The thread at a glance: current work, what happened since the person last looked,
+ * the agent tree, results, the plan, and the project's automations. A section with nothing in it is left out. Everything reads bounded facts: the live
  * entities of each thread and the turn index's digests, never a thread's history.
  */
 export default function WorkTab(props: TabViewProps) {
@@ -47,7 +41,6 @@ export default function WorkTab(props: TabViewProps) {
   const own = works.get(props.scope);
   const page = useServerQueue(props.scope).page;
   const hold = useThread(props.scope, ["queue"], queueOf) ?? page;
-  const card = useThread(props.scope, ["offshift"], offshiftOf);
   const plans = useShownPlans(props.scope);
   const turn = useLatestTurn(props.scope);
   const catchUp = useShownCatchUp(props.scope);
@@ -55,21 +48,7 @@ export default function WorkTab(props: TabViewProps) {
     thread?.workspaceId ?? "",
     thread?.details?.workspace?.path,
   );
-  const status = thread?.status;
-  const live = thread?.live;
   const agents = own?.agents;
-  const interactions = own?.interactions;
-  // The run is shown against the whole tree, so it never reads Done while anything still runs.
-  const run = useMemo(() => {
-    if (!card || !status) return undefined;
-    const request = interactions?.[0]?.request.kind;
-    return offshiftSummary(card, {
-      status,
-      live,
-      runningAgents: (agents ?? []).filter(isActivelyRunning).length,
-      request: request === undefined ? undefined : request === "approval" ? "approval" : "question",
-    });
-  }, [card, status, live, agents, interactions]);
   const linked = thread?.details?.linkedPrs;
   const prs = useMemo(() => summaryPullRequests(linked ?? []), [linked]);
   const checks = useMemo(() => (turn ? latestChecks(turn.digest.commands) : []), [turn]);
@@ -134,11 +113,6 @@ export default function WorkTab(props: TabViewProps) {
           queued={queued && `${queued.label} · ${queued.when}`}
         />
       </OptionalLeaseScope>
-      {run && !run.done && (
-        <Section name="Offshift">
-          <OffshiftRun run={run} />
-        </Section>
-      )}
       {catchUp.catchUp && <SinceYouLooked catchUp={catchUp.catchUp} onDismiss={catchUp.dismiss} />}
       {tree && (
         <Section name="Agents" count={String(total.working + total.done + total.syncing)}>
