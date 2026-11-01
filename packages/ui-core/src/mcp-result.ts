@@ -68,6 +68,8 @@ export interface McpFailure {
   code: string;
   message?: string | undefined;
   hint?: string | undefined;
+  /** What exactly was wrong, when the server says (`invalid_arguments`' fields). */
+  detail?: string | undefined;
 }
 
 /** A JSON object with a string `code` in `text`, as ace's MCP server answers a failure. */
@@ -80,10 +82,12 @@ function failureIn(text: string): McpFailure | undefined {
     if (typeof code !== "string" || !/^[a-z][a-z_.]{0,63}$/.test(code)) return undefined;
     const message = field(parsed, "message");
     const hint = field(parsed, "hint");
+    const detail = field(parsed, "detail");
     return {
       code,
       message: typeof message === "string" ? message : undefined,
       hint: typeof hint === "string" ? hint : undefined,
+      detail: typeof detail === "string" ? detail : undefined,
     };
   } catch {
     return undefined;

@@ -185,11 +185,9 @@ test("a silent failing pre-commit hook reports a safe hook failure and preserves
   }
 });
 
-test.each([
-  ["fatal: Authentication failed for https://token@example.org/private", "auth_failed"],
-  ["fatal: private /home/user/repo failed", "git_failed"],
-  ["fatal: Could not resolve host: example.invalid", "remote_unreachable"],
-])("push classifies %s without publishing local diagnostics", async (diagnostic, code) => {
+// The full table of push failures is a unit test of GitDiagnostics in diagnostics.test.ts.
+test("a failed push reports its classified cause without publishing local diagnostics", async () => {
+  const diagnostic = "fatal: Authentication failed for https://token@example.org/private";
   const root = await repository();
   await git(root, "remote", "add", "origin", "https://example.org/repo");
   const binary = await proxyGit(
@@ -198,7 +196,7 @@ test.each([
   const service = new GitService({ gitBinary: binary });
   try {
     await expect(service.push({ worktree: root, remote: "origin" })).rejects.toMatchObject({
-      code,
+      code: "auth_failed",
       message: "Git command failed",
       details: { code: 1 },
     });
@@ -250,28 +248,6 @@ test("commit distinguishes unmerged files from a command failure without changin
       }),
     ).rejects.toMatchObject({ code: "conflicts" });
     expect(await git(root, "ls-files", "--unmerged")).toEqual(index);
-  } finally {
-    await service.close();
-  }
-});
-
-test("successful hook traces do not misclassify a subsequent command failure", async () => {
-  const root = await repository();
-  await put(root, "tracked.txt", "edited\n");
-  const binary = await proxyGit(`if (args.includes('commit')) {
-    process.stderr.write(JSON.stringify({event:'child_start',sid:'a',child_id:0,child_class:'hook',hook_name:'pre-commit'})+'\\n');
-    process.stderr.write(JSON.stringify({event:'child_exit',sid:'a',child_id:0,code:0})+'\\n');
-    process.stderr.write('fatal: unrelated command failure\\n'); process.exit(1);
-  }`);
-  const service = new GitService({ gitBinary: binary });
-  try {
-    await expect(
-      service.commit({
-        worktree: root,
-        expectedHead: await scalar(root, "rev-parse", "HEAD"),
-        message: "fail",
-      }),
-    ).rejects.toMatchObject({ code: "git_failed", message: "Git command failed" });
   } finally {
     await service.close();
   }

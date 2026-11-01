@@ -7,6 +7,7 @@ import { accessRequest, redeemPairing } from "./client-access.ts";
 import { readConfig } from "./config.ts";
 import { startDaemon } from "./index.ts";
 import { cleanups } from "./remote-test-support.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 it.runIf(process.platform === "win32")(
   "on Windows, a LAN daemon makes its TLS identity itself, and pairing and revocation survive a restart",
@@ -21,7 +22,7 @@ it.runIf(process.platform === "win32")(
       ACE_ADVERTISE_HOST: "127.0.0.1",
       ACE_LOG_LEVEL: "silent",
     });
-    const first = await startDaemon({ config });
+    const first = await startDaemon({ config, engine: noProviderDiscovery });
     cleanups.push(() => first.close());
     const credential = readFileSync(first.tokenPath, "utf8");
     const origin = readFileSync(join(home, "daemon-endpoint"), "utf8");
@@ -32,7 +33,7 @@ it.runIf(process.platform === "win32")(
     const paired = await redeemPairing(issued.url, "Phone");
     await first.close();
 
-    const second = await startDaemon({ config });
+    const second = await startDaemon({ config, engine: noProviderDiscovery });
     cleanups.push(() => second.close());
     if (!second.remoteUrl || !second.fingerprint) throw new Error("Remote listener missing");
     expect(second.fingerprint).toBe(first.fingerprint);

@@ -2,9 +2,9 @@ import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { chmod, cp, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, inject } from "vitest";
+import { afterAll, afterEach, inject } from "vitest";
 import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 import { assertTestGitDirectory, testGitEnvironment } from "@ace/provider-kit/test-isolation";
 
@@ -19,8 +19,19 @@ afterEach(async () => {
   );
 });
 
+const templates: string[] = [];
+afterAll(async () => {
+  await Promise.all(
+    templates.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+  );
+});
+
+async function freshDirectory(): Promise<string> {
+  return realpath(await mkdtemp(join(tmpdir(), "ace-git-test-")));
+}
+
 export async function scratch(): Promise<string> {
-  const directory = await realpath(await mkdtemp(join(tmpdir(), "ace-git-test-")));
+  const directory = await freshDirectory();
   directories.push(directory);
   return directory;
 }
@@ -93,17 +104,43 @@ export async function scalar(repo: string, ...args: string[]): Promise<string> {
   return (await git(repo, ...args)).toString().replace(/\n$/, "");
 }
 
+const defaultFiles = {
+  "tracked.txt": "original\n",
+  ".gitignore": "ignored/\n*.secret\n",
+};
+
 export async function repository(
-  files: Record<string, string | Buffer> = {
-    "tracked.txt": "original\n",
-    ".gitignore": "ignored/\n*.secret\n",
-  },
+  files: Record<string, string | Buffer> = defaultFiles,
 ): Promise<string> {
-  const directory = await scratch();
+  return committedRepository(await scratch(), files);
+}
+
+/**
+ * A committed repository built once per file (call it in `beforeAll`) and removed after the
+ * file. Tests never use it directly: each takes its own `copyRepository` of it.
+ */
+export async function templateRepository(
+  files: Record<string, string | Buffer> = defaultFiles,
+): Promise<string> {
+  const directory = await freshDirectory();
+  templates.push(directory);
+  return committedRepository(directory, files);
+}
+
+/** A private copy of a `templateRepository`, removed after the test. */
+export async function copyRepository(template: string): Promise<string> {
+  const repo = join(await scratch(), basename(template));
+  await cp(template, repo, { recursive: true });
+  return repo;
+}
+
+async function committedRepository(
+  directory: string,
+  files: Record<string, string | Buffer>,
+): Promise<string> {
   if (process.platform === "win32") return windowsRepository(directory, files);
   const repo = join(directory, "repo with spaces\nand 雪");
-  // Copy only an empty initialized repository. Every test still creates its own
-  // real initial commit and owns every subsequent index/ref/worktree mutation.
+  // Start from the shared empty initialized repository and make a real initial commit.
   await cp(inject("gitTemplate"), repo, { recursive: true });
   await Promise.all(Object.entries(files).map(([path, content]) => put(repo, path, content)));
   await git(repo, "add", "--all");

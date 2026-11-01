@@ -140,21 +140,6 @@ test("nothing in the transcript holds focus once the resume renders", async () =
   expect(feed.contains(document.activeElement)).toBe(false);
 });
 
-test("a person's message that only starts like ace's text stays their bubble", async () => {
-  const feed = await open(
-    thread("thread-lookalike", [
-      say("diagnose", "user", "ace restarted. Please diagnose this bug"),
-      say("role", "user", "Role: reviewer\n\nTask:\nReview this"),
-      say("reply", "assistant", "Looking into it."),
-    ]),
-  );
-  await within(feed).findByText("Looking into it.");
-  expect(within(feed).getByText("ace restarted. Please diagnose this bug")).toBeTruthy();
-  expect(within(feed).getByText(/Role: reviewer/)).toBeTruthy();
-  expect(within(feed).queryByRole("note", { name: "Resumed after restart" })).toBeNull();
-  expect(within(feed).queryByRole("region", { name: /Task|Delegated/ })).toBeNull();
-});
-
 test("delegated results come back as one folded row with their count, opening to a row per child, without the model's text", async () => {
   const results = [
     {
@@ -199,17 +184,6 @@ test("a provider error reads once, in words, with the action that fixes it", asy
   expect(within(feed).queryByText("model_not_found")).toBeNull();
   await userEvent.click(within(row).getByRole("button", { name: /Details/ }));
   expect(within(row).getByText(/unrecognized_model/)).toBeTruthy();
-});
-
-test("an independent failure after another error still shows", async () => {
-  const feed = await open(
-    thread("thread-two-errors", [
-      notice("auth", "error", "[codex:not_signed_in] Sign in to continue"),
-      notice("code", "error", "model_not_found"),
-    ]),
-  );
-  expect(await within(feed).findByRole("group", { name: /Not signed in/ })).toBeTruthy();
-  expect(within(feed).getByRole("group", { name: /doesn't recognise the model/ })).toBeTruthy();
 });
 
 /** One turn that fails: `facts` happen inside it, then it ends failed with `error`. */

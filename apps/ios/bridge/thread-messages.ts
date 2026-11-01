@@ -139,7 +139,14 @@ function flatten(view: EventView) {
       };
     }
     case "system":
-      return { ...row, icon: view.icon, text: preview(view.text, 512), at: view.at };
+      return {
+        ...row,
+        icon: view.icon,
+        text: preview(view.text, 512),
+        // A compaction's summary opens from its row, as on the web.
+        detail: preview(view.summary ?? "", 4096),
+        at: view.at,
+      };
     case "refusal":
       return {
         ...row,

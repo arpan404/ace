@@ -13,6 +13,7 @@ import { readConfig } from "./config.ts";
 import { createDevThread } from "./commands.ts";
 import { BrowserClient } from "./browser-test-client.ts";
 import { ownedBrowserPids, waitForBrowserExit } from "./browser-test-process.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const executablePath = await detectChromium();
 const exec = promisify(execFile);
@@ -21,6 +22,7 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
     if (!executablePath) throw new Error("Missing explicit test Chromium");
     const home = await mkdtemp(join(tmpdir(), "ace-browser-wire-"));
     const daemon = await startDaemon({
+      engine: noProviderDiscovery,
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
       browser: { executablePath, ffmpeg: "/nonexistent/ffmpeg" },
     });

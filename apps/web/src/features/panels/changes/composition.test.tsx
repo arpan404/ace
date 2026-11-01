@@ -7,6 +7,7 @@ import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { showUncommitted, wholeFilePatch } from "@/test/uncommitted.ts";
 import { panelServices } from "../services.ts";
 import { discardDraft, saveDraft } from "@ace/ui-core/review";
+import { beginComposition } from "./compositions.ts";
 import { persistReview } from "./review-store.ts";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -145,10 +146,9 @@ test("repeated empty selections leave only the current editor while preserving a
   const { panel } = await openChanges();
   const block = within(panel).getByRole("region", { name: path });
   await begin(block, "Keep the written work", "const b = 4;");
-  for (let index = 0; index < 40; index++) {
-    const line = index % 2 === 0 ? 1 : 3;
+  // Blank editors don't pile up (the rule's cases are in compositions.test.ts).
+  for (const line of [1, 3, 1, 3])
     await userEvent.click(within(block).getByRole("button", { name: `Comment on line ${line}` }));
-  }
   expect(within(panel).getAllByRole("button", { name: /^Resume / })).toHaveLength(1);
   expect(within(block).getByRole("textbox", { name: "Comment on line 3" })).toHaveProperty(
     "value",
@@ -171,15 +171,23 @@ test("repeated empty selections leave only the current editor while preserving a
 }, 30000);
 
 test("the composition limit refuses a new selection while keeping written work editable and releases space after save", async () => {
-  const { panel } = await openChanges();
+  const { app, panel } = await openChanges();
   const block = within(panel).getByRole("region", { name: path });
-  for (let number = 1; number <= 32; number++) {
-    await userEvent.click(within(block).getByRole("button", { name: "Comment on line 2" }));
-    await userEvent.type(
-      within(block).getByRole("textbox", { name: "Comment on line 2" }),
-      `Keep ${number}`,
-    );
-  }
+  // Fill the client to its 32 editors: two written here, the 30 between copied from the first.
+  await userEvent.click(within(block).getByRole("button", { name: "Comment on line 2" }));
+  await userEvent.type(within(block).getByRole("textbox", { name: "Comment on line 2" }), "Keep 1");
+  const { compositions } = await panelServices(app.client);
+  const [first] = compositions.get().entries.values();
+  if (!first) throw new Error("No editor started");
+  act(() => {
+    for (let number = 2; number <= 31; number++)
+      beginComposition(compositions, { ...first, id: `copy-${number}`, text: `Keep ${number}` });
+  });
+  await userEvent.click(within(block).getByRole("button", { name: "Comment on line 2" }));
+  await userEvent.type(
+    within(block).getByRole("textbox", { name: "Comment on line 2" }),
+    "Keep 32",
+  );
   await userEvent.click(within(block).getByRole("button", { name: "Comment on line 1" }));
   expect(within(panel).getByRole("alert").textContent).toBe(
     "Save or cancel an unfinished comment before starting another.",

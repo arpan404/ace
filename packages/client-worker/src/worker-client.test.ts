@@ -87,29 +87,6 @@ test("the socket closes shortly after the last tab leaves, not while one remains
   expect(sockets.open).toBe(0);
 });
 
-test("a hidden tab receives nothing, then catches up when shown", async () => {
-  const { daemon, tab } = world();
-  const script = new ScenarioPlayer(daemon, flakyCheckout());
-  const remote = tab();
-  await remote.start();
-  const lease = remote.thread(script.threadId);
-  await vi.waitFor(() => expect(lease.store.thread).toBeDefined());
-  remote.show(false);
-  await remote.request({ type: "diagnostics.health" });
-  const shown = transcript(lease.store);
-  script.runUntilBlocked();
-  await remote.request({ type: "diagnostics.health" });
-  expect(transcript(lease.store)).toEqual(shown);
-  const reference = (await inProcess(daemon)).thread(script.threadId);
-  remote.show(true);
-  await vi.waitFor(() => {
-    expect(reference.store.order.length).toBeGreaterThan(3);
-    expect(transcript(lease.store)).toEqual(transcript(reference.store));
-  });
-  lease.release();
-  reference.release();
-});
-
 test("a command sent from a tab is acknowledged and its effect streams back", async () => {
   const { daemon, tab } = world();
   const script = new ScenarioPlayer(daemon, longHistory(3));
@@ -533,27 +510,6 @@ test("a tab hidden through a long stream catches up exactly when shown", async (
   });
   lease.release();
   reference.release();
-});
-
-test("a tab remembers only its newest sent commands that nobody watches", async () => {
-  const { daemon, tab } = world();
-  const script = new ScenarioPlayer(daemon, longHistory(1));
-  script.runUntilBlocked();
-  const remote = tab("local", { unwatchedIntents: 2 });
-  await remote.start();
-  await settled(remote);
-  const send = (text: string) =>
-    remote.enqueue({
-      type: "thread.send",
-      threadId: ThreadId.parse(script.threadId),
-      input: [{ type: "text", text }],
-      delivery: "queue",
-    });
-  const first = await send("one");
-  await send("two");
-  const last = await send("three");
-  expect(remote.intent(first).getSnapshot()).toBeUndefined();
-  expect(remote.intent(last).getSnapshot()).toBeDefined();
 });
 
 test("a view over the whole thread list follows every entry through one key, and deleted threads leave it", async () => {

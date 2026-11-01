@@ -470,6 +470,19 @@ test("a provider reconnecting by itself says so with its count, then reads Worki
   expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working", tone: "working" });
 });
 
+test("while the provider compacts its context the line says so with its timer, then reads Working", () => {
+  const thread = world({ state: "working", activity: "compacting" }, [said("ask", "user", 0)]);
+  const compacting = turnActivity(thread.reader, "root");
+  expect(compacting).toMatchObject({
+    label: "Compacting context",
+    tone: "working",
+    elapsedFrom: 0,
+  });
+  expect(timedWords(compacting?.label ?? "")).toBe("Compacting context for");
+  thread.status(working);
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working", tone: "working" });
+});
+
 test("a root waiting on its subagents says so instead of Working, keeping its timer", () => {
   const thread = world({ state: "blocked", on: "subagents", refs: ["web", "mobile"] }, [
     said("ask", "user", 0),

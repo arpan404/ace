@@ -986,6 +986,10 @@ it("Android UI read queues reject excess work without retaining extra native ope
   await writeFile(f.state, "booted");
   const reading = Promise.withResolvers<void>();
   const resume = Promise.withResolvers<void>();
+  // The first read reaches the fake adb; the queued reads replay its replies so the
+  // queue bound is tested without spawning 32 x 7 adb processes.
+  const replies = new Map<string, ReturnType<typeof probeOutput>>();
+  const { probeOutput } = await import("@ace/provider-kit/process");
   const manager = new DevicePlatform({
     platform: "linux",
     home: f.home,
@@ -996,8 +1000,10 @@ it("Android UI read queues reject excess work without retaining extra native ope
         reading.resolve();
         await resume.promise;
       }
-      const { probeOutput } = await import("@ace/provider-kit/process");
-      return probeOutput(command, args, options);
+      const key = [command, ...args].join("\0");
+      const reply = replies.get(key) ?? probeOutput(command, args, options);
+      replies.set(key, reply);
+      return reply;
     },
   });
   onTestFinished(() => manager.close());

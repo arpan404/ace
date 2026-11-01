@@ -8,6 +8,7 @@ import { Agent, DeviceId, McpScope } from "@ace/protocol";
 import { ScreenManager } from "@ace/screen";
 import { startDaemon, readConfig, createDevThread } from "./index.ts";
 import { Client } from "./socket-test-support.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 it("a configured daemon exposes scoped screen tools and returns screenshot images over MCP", async () => {
   const directory = await mkdtemp(join(tmpdir(), "screen-mcp-"));
@@ -25,6 +26,7 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
     env: { PAYLOAD_VALUE: "1", PAYLOAD_PADDING: "300000" },
   });
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: directory, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     screen,
   });

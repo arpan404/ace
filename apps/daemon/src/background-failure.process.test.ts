@@ -6,6 +6,7 @@ import { expect, test } from "vitest";
 import { accessRequest } from "./client-access.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { readConfig, startDaemon } from "./index.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 function sqliteFull(): Error {
   // A genuine node:sqlite SQLITE_FULL: this database may not grow past two pages.
@@ -29,6 +30,7 @@ test("a background storage pass that hits a full disk is logged with the free sp
   const startupMs = 54_321;
   const scheduled: { delay: number; work: () => void }[] = [];
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
     diskSpace: () => ({ bavail: 7, bsize: 4096 }),
     retentionTiming: { startupMs, intervalMs: 3_600_000, changeMs: 2_000, retryMs: 60_000 },

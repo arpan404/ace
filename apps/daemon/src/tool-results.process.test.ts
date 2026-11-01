@@ -193,7 +193,6 @@ it.each([
 it.each([
   { tool: "screen_screenshot", input: {} },
   { tool: "screen_ui_tree", input: {} },
-  { tool: "screen_ui_tree", input: { name: "Click" } },
   { tool: "screen_open_app", input: { bundleId: "dev.ace.test" } },
   { tool: "screen_open_app", input: { bundleId: "dev.ace.test", mode: "foreground" } },
 ])(

@@ -8,6 +8,9 @@ test.each([
   [{ name: "NetworkError" }, "unreachable"],
   [{ code: "ECONNREFUSED" }, "unreachable"],
   [{ status: 503 }, "unreachable"],
+  [{ status: 500 }, "unreachable"],
+  [{ status: 429 }, "rate_limited"],
+  [{ status: 401 }, "auth_expired"],
   [
     { name: "ClientError", reason: "UnexpectedStatus", cause: { status: 401, body: "secret" } },
     "auth_expired",

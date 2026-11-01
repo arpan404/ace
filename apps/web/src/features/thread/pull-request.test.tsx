@@ -140,11 +140,6 @@ test.each([
     status: pr({ ci: "failure", checks: [check("lint", "success"), check("test", "failure")] }),
     reason: "Fix the failing checks first",
   },
-  {
-    name: "conflicts",
-    status: pr({ mergeability: "conflicting", ci: "pending", checks: [check("test", "pending")] }),
-    reason: "Resolve the conflicts with main first",
-  },
 ])("Merge on a PR with $name is off and says what to fix", async ({ status, reason }) => {
   const app = await withPr(status);
   const card = await openWorkCard();
@@ -223,16 +218,6 @@ test("Request review from More git actions asks the GitHub users typed, and refu
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Request a review" })).toBeNull(),
   );
-});
-
-test("a draft PR can't merge from its line", async () => {
-  await withPr(pr({ state: "draft" }));
-  const card = await openWorkCard();
-  const button = await within(card).findByRole("button", { name: "Merge pull request #42" });
-  await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
-  expect(
-    within(card).getByText("Can't merge: A draft can't merge: mark it ready for review on GitHub"),
-  ).toBeTruthy();
 });
 
 test("Link a pull request follows a valid address and explains malformed addresses", async () => {

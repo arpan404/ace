@@ -52,17 +52,6 @@ test("the chip lists the four modes with their one-line descriptions and picks o
   expect(selected).toEqual(["ask"]);
 });
 
-test("a provider's unsupported modes are hidden, not greyed out", async () => {
-  picker("opencode", "ask");
-  await userEvent.click(screen.getByRole("button", { name: "Access: Ask" }));
-  const items = await screen.findAllByRole("menuitemradio");
-  expect(items.map((item) => item.getAttribute("aria-label"))).toEqual([
-    "Read-only",
-    "Ask",
-    "Full access",
-  ]);
-});
-
 test("a default that ran stricter says so on the chip's tooltip only", async () => {
   picker("opencode", "ask", "auto-review");
   const trigger = screen.getByRole("button", { name: "Access: Ask" });

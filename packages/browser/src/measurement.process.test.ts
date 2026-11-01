@@ -7,7 +7,7 @@ import { browserToolkit } from "./index.ts";
 const unused = async () => {
   throw new Error("not called");
 };
-import { executablePath, fixture, ref } from "./test-support.ts";
+import { executablePath, sharedFixture, ref } from "./test-support.ts";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 if (!executablePath)
@@ -27,7 +27,7 @@ document.querySelector('#start').onclick=()=>{
 
 describe.skipIf(!executablePath)("browser interaction measurements", () => {
   it("reports a main-thread stall and its missed compositor updates", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(scene(120));
     const snapshot = await f.execute({ action: "snapshot" });
@@ -49,7 +49,7 @@ describe.skipIf(!executablePath)("browser interaction measurements", () => {
     );
   }, 60_000);
   it("measures a smooth animation and returns one bounded JPEG filmstrip", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(scene(0));
     const snapshot = await f.execute({ action: "snapshot" });
@@ -71,7 +71,7 @@ describe.skipIf(!executablePath)("browser interaction measurements", () => {
     expect(data.length).toBeLessThanOrEqual(1024 * 1024);
   }, 60_000);
   it("observes while the person works in the tab and stops at a private tab", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "person");
     const observed = InteractionMeasurement.parse(

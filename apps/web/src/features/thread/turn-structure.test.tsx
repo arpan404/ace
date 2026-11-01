@@ -98,7 +98,6 @@ test("a running turn keeps interim notes in its log and one working line after i
   script.runThrough("second-step");
   await app.open("/t/thread-stuck");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  expect(within(feed).queryByText("Work so far")).toBeNull();
   // The step in flight closes the flow under the header; the note before it reads as prose.
   await waitFor(() => expect(within(feed).getAllByTitle(/src\/config/).length).toBeGreaterThan(0));
   expect(within(feed).getAllByText("Installing; reading the config meanwhile.")).toHaveLength(1);

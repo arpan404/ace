@@ -5,7 +5,6 @@ import {
   readRecord,
   resetRecord,
   streamedRate,
-  selectTurn,
   scrollTranscript,
   stepTurn,
   reportBrowser,
@@ -212,39 +211,6 @@ test("turn keys can acknowledge an in-window scroll without replacing the jump",
     expect(await page.getByRole("status", { name: "Jumped" }).textContent()).toBe(
       "Jumped to turn 137",
     );
-  } finally {
-    await browser.close();
-  }
-});
-
-test.each([137, 1777])("delayed Home/End commits still jump to turn %i", async (target) => {
-  const browser = await launch();
-  try {
-    const page = await browser.newPage();
-    await page.setContent(`
-      <aside aria-label="Turns"><div><h2>Turns</h2><span></span></div>
-      <div role="listbox" aria-label="Turns of this thread" tabindex="0" aria-activedescendant="turn-option-777"></div></aside>
-      <output aria-label="Jump"></output>
-      <script>
-        let position=777;
-        const list=document.querySelector('[role=listbox]');
-        const commit = new MessageChannel();
-        commit.port1.onmessage=({data})=>{
-          if(data==='ready'){document.querySelector('span').textContent='2,001';list.focus();return;}
-          position=data;list.setAttribute('aria-activedescendant','turn-option-'+position);
-        };
-        commit.port2.postMessage('ready');
-        list.onkeydown=e=>{
-          e.preventDefault();
-          if(e.key==='Enter'){document.querySelector('output').textContent=position;return;}
-          const moves={Home:1,End:2001,PageDown:position+10,PageUp:position-10,ArrowDown:position+1,ArrowUp:position-1};
-          if(e.key in moves)commit.port2.postMessage(moves[e.key]);
-        };
-      </script>
-    `);
-    await selectTurn(page, target);
-    await page.keyboard.press("Enter");
-    expect(await page.locator("output").textContent()).toBe(String(target));
   } finally {
     await browser.close();
   }

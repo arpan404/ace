@@ -1,17 +1,12 @@
 import { createDevThread } from "@ace/daemon";
-import { afterEach, expect, test } from "vitest";
+import { expect, test } from "vitest";
 import { Agent, HostId, ItemId } from "@ace/protocol";
-import { setup, ready, barrier, when, message, agentId } from "./test-support.ts";
+import { sharedDaemon, ready, barrier, when, message, agentId } from "./test-support.ts";
 import { webSocketTransport, type SocketLike } from "./index.ts";
-let cleanup: (() => Promise<void>) | undefined;
-afterEach(async () => {
-  await cleanup?.();
-  cleanup = undefined;
-});
+const harness = sharedDaemon();
 
 test("invalid read input rejects with a typed error without sending a frame", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client, faults } = h.make();
   await ready(client);
   const count = faults.sent.length;
@@ -21,8 +16,7 @@ test("invalid read input rejects with a typed error without sending a frame", as
 });
 
 test("a correlated response of the wrong result type rejects only that request", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client, faults } = h.make();
   await ready(client);
   faults.incoming = (event, frame, deliver) => {
@@ -49,8 +43,7 @@ test("a correlated response of the wrong result type rejects only that request",
 });
 
 test("a reconnect to a different daemon identity becomes fatal before state is replayed", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client, faults, scheduler } = h.make();
   await ready(client);
   faults.disconnect();
@@ -67,8 +60,7 @@ test("a reconnect to a different daemon identity becomes fatal before state is r
 });
 
 test("incremental active entities exceed the recent budget while both threads stay live", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client } = h.make({ limits: { entities: 1 } });
   await ready(client);
   const healthyThread = createDevThread(h.daemon.store, h.workspaceId);
@@ -114,8 +106,7 @@ test("incremental active entities exceed the recent budget while both threads st
 });
 
 test("a snapshot exceeding the wire item budget fails its scope instead of retaining hidden items", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client, faults } = h.make();
   await ready(client);
   faults.incoming = (event, frame, deliver) => {
@@ -153,8 +144,7 @@ test("a snapshot exceeding the wire item budget fails its scope instead of retai
 });
 
 test("snapshot decoding retains an opaque prototype-named item and its live deltas", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   if (message.type !== "item.created") throw new Error("fixture");
   const id = ItemId.parse("__proto__");
   h.daemon.store.appendEvents(h.thread.id, [{ ...message, item: { ...message.item, id } }]);
@@ -171,8 +161,7 @@ test("snapshot decoding retains an opaque prototype-named item and its live delt
 });
 
 test("a failed thread subscription leaves healthy reads and subscriptions usable", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client } = h.make();
   await ready(client);
   const failed = client.thread("missing-thread");
@@ -241,32 +230,29 @@ test("reopening a WebSocket adapter ignores late events from the previous socket
   expect(results).toEqual(["first open", "second open", "second close"]);
 });
 
-test.each(["??==", "YQ", "YQ=Z", "YR=="])(
-  "invalid base64 %s rejects only its correlated output read",
-  async (bytes) => {
-    const h = await setup();
-    cleanup = h.cleanup;
-    const { client, faults } = h.make();
-    await ready(client);
-    faults.incoming = (event, frame, deliver) => {
-      if (event.type === "error" && event.requestId)
-        deliver(
-          JSON.stringify({
-            type: "output.data",
-            requestId: event.requestId,
-            streamId: "missing",
-            offset: 0,
-            nextOffset: 1,
-            eof: true,
-            bytes,
-          }),
-        );
-      else deliver(frame);
-    };
-    await expect(
-      client.outputRead({ streamId: "missing", offset: 0, limit: 4 }),
-    ).rejects.toMatchObject({ code: "protocol" });
-    expect(client.state).toBe("ready");
-    await barrier(client, h.thread.id);
-  },
-);
+// Which texts count as invalid base64 is covered by base64.test.ts; one case proves the wiring.
+test.each(["YQ=Z"])("invalid base64 %s rejects only its correlated output read", async (bytes) => {
+  const h = await harness();
+  const { client, faults } = h.make();
+  await ready(client);
+  faults.incoming = (event, frame, deliver) => {
+    if (event.type === "error" && event.requestId)
+      deliver(
+        JSON.stringify({
+          type: "output.data",
+          requestId: event.requestId,
+          streamId: "missing",
+          offset: 0,
+          nextOffset: 1,
+          eof: true,
+          bytes,
+        }),
+      );
+    else deliver(frame);
+  };
+  await expect(
+    client.outputRead({ streamId: "missing", offset: 0, limit: 4 }),
+  ).rejects.toMatchObject({ code: "protocol" });
+  expect(client.state).toBe("ready");
+  await barrier(client, h.thread.id);
+});

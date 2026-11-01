@@ -281,19 +281,19 @@ test("a reconnect gap resumes from the held sequence without replacing loaded hi
   expect(loaded[0]).toBe("old-50");
   const held = store.cursor;
   // One frame of live events is lost on the way: the next one cannot apply.
-  let dropped = false;
+  // A dropped frame changes nothing in the store, so the hook signals the drop itself.
+  const dropped = Promise.withResolvers<void>();
+  let dropping = true;
   faults.incoming = (incoming, text, deliver) => {
-    if (!dropped && incoming.type === "events") {
-      dropped = true;
+    if (dropping && incoming.type === "events") {
+      dropping = false;
+      dropped.resolve();
       return;
     }
     deliver(text);
   };
   h.daemon.store.appendEvents(h.thread.id, [message("lost", "assistant")]);
-  await when(
-    store.select(["cursor"], () => dropped),
-    (value) => value,
-  );
+  await dropped.promise;
   h.daemon.store.appendEvents(h.thread.id, [message("after-gap", "user")]);
   await when(
     store.select(["order"], (reader) => reader.order.at(-1)),

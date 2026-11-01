@@ -16,6 +16,8 @@ export interface ReviewWorkerOptions {
   gitBinary?: string;
   createWorker?: (url: URL, options: WorkerOptions) => Worker;
   scheduleRecovery?: (callback: () => void, milliseconds: number) => () => void;
+  /** Schedules the isolate's idle retirement; a real unref'd timer by default. */
+  idleDelay?: (callback: () => void, milliseconds: number) => () => void;
 }
 
 export class ReviewIsolate {
@@ -54,11 +56,13 @@ export class ReviewIsolate {
       },
       {
         spawn: create,
-        delay(callback, milliseconds) {
-          const timer = setTimeout(callback, milliseconds);
-          timer.unref();
-          return () => clearTimeout(timer);
-        },
+        delay:
+          options.idleDelay ??
+          ((callback, milliseconds) => {
+            const timer = setTimeout(callback, milliseconds);
+            timer.unref();
+            return () => clearTimeout(timer);
+          }),
       },
     );
     this.worker.on("error", (error) =>

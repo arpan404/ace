@@ -6,7 +6,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { agentMcp, refNamed } from "./agent-mcp-test-support.ts";
 import { imageSize } from "./image-size.ts";
-import { executablePath, fixture, toolPort } from "./test-support.ts";
+import { executablePath, sharedFixture, toolPort } from "./test-support.ts";
 
 const Geometry = z.object({
   width: z.number(),
@@ -45,7 +45,7 @@ async function busySite() {
 
 describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => {
   it("a click computed from a downscaled screenshot's scale lands on what the image shows", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const agent = agentMcp(toolPort(f.service));
     await agent.ok("browser_settings", { action: "resize", width: 3200, height: 800 });
@@ -67,7 +67,7 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
   });
 
   it("navigate with waitUntil networkidle returns only once the page's requests are done", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     const site = await busySite();
     const agent = agentMcp(toolPort(f.service));
     await agent.ok("browser_open", { url: `${site}/`, waitUntil: "networkidle", timeout: 10_000 });
@@ -75,7 +75,7 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
   });
 
   it("a click whose press lands somewhere else is reported, never ok", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const agent = agentMcp(toolPort(f.service));
     // The button slips away as the pointer arrives: the press lands on the panel behind it.
@@ -92,7 +92,7 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
   });
 
   it("networkidle settles on a dev server page that keeps a reload stream and a long poll open", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     const server = createServer((request, response) => {
       if (request.url === "/events") {
         response.writeHead(200, { "Content-Type": "text/event-stream" });
@@ -129,7 +129,7 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
   }, 30_000);
 
   it("wait_for networkIdle waits out the requests a click started", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     const site = await busySite();
     const agent = agentMcp(toolPort(f.service));
     await agent.ok("browser_open", { url: `${site}/`, waitUntil: "networkidle" });
@@ -140,7 +140,7 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
   });
 
   it("wait_for url accepts a glob for a destination with an id and query", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     const site = await busySite();
     const agent = agentMcp(toolPort(f.service));
     await agent.ok("browser_open", { url: `${site}/` });
@@ -160,7 +160,7 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
   });
 
   it("wait_for timeMs pauses for that long", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const agent = agentMcp(toolPort(f.service));
     await f.evaluate("setTimeout(() => { window.settled = true }, 300); 0");
@@ -169,7 +169,7 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
   });
 
   it("browser_find takes query, as every other find tool does, and matches it as the name", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const agent = agentMcp(toolPort(f.service));
     const found = agent.raw(await agent.ok("browser_find", { query: "save" }));
@@ -178,7 +178,7 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
   });
 
   it("record_start records the background tab it is given, not the tab the person views", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const agent = agentMcp(toolPort(f.service));
     const viewed = f.service.state("thread").activeTabId;

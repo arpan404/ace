@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { CredentialRegistry, ToolRegistry, nodeScheduler } from "@ace/mcp-server";
 import { BrowserState, McpScope } from "@ace/protocol";
 import { browserToolkit } from "./index.ts";
-import { executablePath, fixture, textRef, toolPort } from "./test-support.ts";
+import { executablePath, fixture, sharedFixture, textRef, toolPort } from "./test-support.ts";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 const Text = z.object({
@@ -146,7 +146,7 @@ it("tells agents the tab works at a person's phone viewport, in tab lists and sc
 
 describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   it("opens a page, reads compact refs and acts on them", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     try {
       expect(jsonOf(await f.call("browser_open", { url: page.url }))).toMatchObject({
@@ -191,7 +191,7 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   }, 60_000);
 
   it("keeps a large page under budget, says it was cut, and narrows by scope or role", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     try {
       await f.call("browser_open", { url: `${page.url}/big` });
@@ -226,7 +226,7 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   }, 60_000);
 
   it("performs every act kind through one tool", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     const output = () => page.evaluate("document.getElementById('out').textContent");
     try {
@@ -282,7 +282,7 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   }, 60_000);
 
   it("an agent works in a tab of its own by tabId, and closing it leaves the first tab", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     const Tabs = z.object({
       tabs: z.array(
@@ -353,7 +353,7 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   }, 60_000);
 
   it("lists history entries, moves through them and reports navigation after an act", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     try {
       await f.call("browser_open", { url: `${page.url}/controls` });
@@ -383,7 +383,7 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
   }, 60_000);
 
   it("tells the agent which call recovers from a stale ref or a closed browser", async () => {
-    const page = await fixture();
+    const page = await sharedFixture();
     const f = agent(toolPort(page.service));
     try {
       await f.call("browser_open", { url: page.url });

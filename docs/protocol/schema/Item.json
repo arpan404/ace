@@ -621,8 +621,18 @@
           "maxLength": 256,
           "type": "string"
         },
+        "raw": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+          },
+          "type": "array"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "summary": {
+          "type": "string"
         },
         "tokensAfter": {
           "maximum": 9007199254740991,

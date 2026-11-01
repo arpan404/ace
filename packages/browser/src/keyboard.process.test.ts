@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { executablePath, fixture, ref } from "./test-support.ts";
+import { executablePath, sharedFixture, ref } from "./test-support.ts";
 
 describe.skipIf(!executablePath)("human numpad input", () => {
   it("edits with numpad navigation and inserts arithmetic keys at keypad location", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.execute({
       action: "type",

@@ -906,6 +906,19 @@ export class Store {
   readThread(id: ThreadId): FrozenThread | undefined {
     return this.threads.read(id);
   }
+  /** `readThread` for many threads in one statement. Missing threads have no entry. */
+  readThreads(ids: readonly ThreadId[]): Map<ThreadId, FrozenThread> {
+    const threads = new Map<ThreadId, FrozenThread>();
+    if (!ids.length) return threads;
+    const rows = this.statement(
+      `SELECT ${threadRowColumns}, revisions.revision AS row_revision FROM ${threadRowSource} LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id = threads.id WHERE threads.id IN (SELECT value FROM json_each(?))`,
+    ).all(JSON.stringify([...new Set(ids)]));
+    for (const row of rows) {
+      const thread = this.threads.decode(row, row.row_revision);
+      threads.set(thread.id, thread);
+    }
+    return threads;
+  }
   /** Live authorization checks do not need to deserialize a thread's historical payload. */
   hasLiveThread(id: ThreadId): boolean {
     return (
@@ -1062,6 +1075,9 @@ export class Store {
   }
   releaseReviewCommand(commandId: CommandId, deviceId: DeviceId): void {
     this.receipts.releaseReviewCommand(commandId, deviceId);
+  }
+  releaseRefusedCommand(commandId: CommandId, deviceId: DeviceId): void {
+    this.receipts.releaseRefusedCommand(commandId, deviceId);
   }
   completeReviewCommand(
     commandId: CommandId,

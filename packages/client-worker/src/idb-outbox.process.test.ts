@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { chromium } from "@playwright/test";
-import { expect, inject, test } from "vitest";
+import { chromium, type Browser } from "@playwright/test";
+import { afterAll, beforeAll, expect, inject, test } from "vitest";
 import { z } from "zod";
 
 declare module "vitest" {
@@ -16,55 +16,73 @@ declare module "vitest" {
   }
 }
 
-/** Native IndexedDB, a fresh browser profile and a loopback origin; no app or provider process. */
+/**
+ * Native IndexedDB on a loopback origin; no app or provider process. One browser serves the file,
+ * and each test opens its own context, so every test starts with empty storage.
+ */
+let shared: { browser: Browser; origin: string; close(): Promise<void> } | undefined;
+beforeAll(async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-idb-outbox-"));
+  const bundle = join(root, "adapter.js");
+  await promisify(execFile)("bun", [
+    "build",
+    fileURLToPath(new URL("./idb-outbox.ts", import.meta.url)),
+    "--target=browser",
+    `--outfile=${bundle}`,
+  ]);
+  const source = await readFile(bundle, "utf8");
+  await rm(root, { recursive: true, force: true });
+  const server = createServer((request, response) => {
+    response.setHeader(
+      "content-type",
+      request.url === "/adapter.js" ? "application/javascript" : "text/html",
+    );
+    response.end(
+      request.url === "/adapter.js" ? source : "<!doctype html><title>Storage edge</title>",
+    );
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const closeServer = () =>
+    new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    await closeServer();
+    throw new Error("Expected loopback server");
+  }
+  // The process project resolves the installed browser before HOME is isolated.
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: inject("chromiumExecutable"),
+  });
+  shared = {
+    browser,
+    origin: `http://127.0.0.1:${address.port}`,
+    async close() {
+      await browser.close();
+      await closeServer();
+    },
+  };
+});
+afterAll(async () => {
+  await shared?.close();
+});
+
 async function browserStorage(
   run: (evaluate: (source: string) => Promise<unknown>) => Promise<void>,
 ) {
-  const root = await mkdtemp(join(tmpdir(), "ace-idb-outbox-"));
+  if (!shared) throw new Error("The browser has not started");
+  const context = await shared.browser.newContext();
   try {
-    const bundle = join(root, "adapter.js");
-    await promisify(execFile)("bun", [
-      "build",
-      fileURLToPath(new URL("./idb-outbox.ts", import.meta.url)),
-      "--target=browser",
-      `--outfile=${bundle}`,
-    ]);
-    const source = await readFile(bundle, "utf8");
-    const server = createServer((request, response) => {
-      response.setHeader(
-        "content-type",
-        request.url === "/adapter.js" ? "application/javascript" : "text/html",
-      );
-      response.end(
-        request.url === "/adapter.js" ? source : "<!doctype html><title>Storage edge</title>",
-      );
-    });
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    try {
-      const address = server.address();
-      if (!address || typeof address === "string") throw new Error("Expected loopback server");
-      // The process project resolves the installed browser before HOME is isolated.
-      const browser = await chromium.launch({
-        headless: true,
-        executablePath: inject("chromiumExecutable"),
-      });
-      try {
-        const page = await browser.newPage();
-        await page.goto(`http://127.0.0.1:${address.port}`);
-        await run((sourceText) => page.evaluate(sourceText));
-      } finally {
-        await browser.close();
-      }
-    } finally {
-      await new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      );
-    }
+    const page = await context.newPage();
+    await page.goto(shared.origin);
+    await run((sourceText) => page.evaluate(sourceText));
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await context.close();
   }
 }
 
