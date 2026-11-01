@@ -1,5 +1,7 @@
 import { ThreadId, type StorageReason } from "@ace/protocol";
-import type { StorageOwner } from "./types.ts";
+import type { BrowserService } from "@ace/browser";
+import type { Engine } from "../engine/index.ts";
+import type { WorkspaceRuntime } from "../workspace-runtime.ts";
 import type { Store } from "../store.ts";
 import type { FrozenThread } from "../thread-cache.ts";
 import { DelegationTrees, treeProtections } from "./delegation-trees.ts";
@@ -12,6 +14,17 @@ export function hasTable(store: Store, name: string): boolean {
 }
 
 const each = "(SELECT value FROM json_each(?))";
+
+/** What protection checks read: the store, the live services that own work, and the plan. */
+export interface ProtectionOwner {
+  store: Store;
+  cleanupPlanId?: string;
+  services: {
+    engine?: Pick<Engine, "hasSession" | "liveWork"> | undefined;
+    workspaceActions?: Pick<WorkspaceRuntime, "hasOwnedWork"> | undefined;
+    browser?: Pick<BrowserService, "hasActiveSession"> | undefined;
+  };
+}
 
 /**
  * Loads delegation membership for `ids` with a bounded number of queries: their rows, every
@@ -101,7 +114,7 @@ function matching(
  * when nothing is executing now. A thread without a row has no entry.
  */
 export function threadReasons(
-  owner: StorageOwner,
+  owner: ProtectionOwner,
   rows: ReadonlyMap<ThreadId, FrozenThread>,
 ): Map<ThreadId, Set<StorageReason>> {
   const { store, services } = owner;
@@ -209,7 +222,7 @@ export interface ProtectionFacts {
 
 /** Reads the trees of `ids` and every member's own reasons, without awaiting. */
 export function loadProtectionFacts(
-  owner: StorageOwner,
+  owner: ProtectionOwner,
   ids: readonly ThreadId[],
 ): ProtectionFacts {
   const trees = loadDelegationTrees(owner.store, ids);
@@ -219,7 +232,10 @@ export function loadProtectionFacts(
 }
 
 /** Reasons that keep any member of the storage trees of `ids`. */
-export function storageProtections(owner: StorageOwner, ids: readonly ThreadId[]): StorageReason[] {
+export function storageProtections(
+  owner: ProtectionOwner,
+  ids: readonly ThreadId[],
+): StorageReason[] {
   const facts = loadProtectionFacts(owner, ids);
   return treeProtections(facts.trees, facts.reasons, ids);
 }
