@@ -1,5 +1,5 @@
 import { createDevThread } from "@ace/daemon";
-import { afterEach, expect, test } from "vitest";
+import { expect, test } from "vitest";
 import { Agent, HostId, ItemId } from "@ace/protocol";
 import { sharedDaemon, ready, barrier, when, message, agentId } from "./test-support.ts";
 import { webSocketTransport, type SocketLike } from "./index.ts";
