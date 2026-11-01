@@ -63,8 +63,17 @@ test("upgrading an unfinished Offshift run settles stale work and preserves old 
     await store.close();
     const db = new DatabaseSync(path);
     try {
-      // Reconstruct the previous release's workflow tables and schema version.
-      db.exec(`UPDATE schema_version SET version=version-1;
+      // Reconstruct the previous release: before both the workflow removal and the later
+      // machine-child liveness step, so undo that step's columns too.
+      db.exec(`DROP INDEX IF EXISTS machine_children_seen;
+        DROP INDEX IF EXISTS machine_children_stopping;
+        ALTER TABLE machine_children DROP COLUMN seen_at;
+        ALTER TABLE machine_children DROP COLUMN silent_since;
+        ALTER TABLE machine_children DROP COLUMN stop_started_at;
+        ALTER TABLE machine_children DROP COLUMN stop_attempts;
+        ALTER TABLE machine_children DROP COLUMN stop_last_at;
+        ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed;
+        UPDATE schema_version SET version=version-2;
         CREATE TABLE offshift_runs(thread_id TEXT,id TEXT,body TEXT,PRIMARY KEY(thread_id,id));
         CREATE TABLE offshift_receipts(thread_id TEXT,run_id TEXT,request_id TEXT,input TEXT);
       `);

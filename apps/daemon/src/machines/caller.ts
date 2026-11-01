@@ -180,9 +180,21 @@ export class MachineCaller {
     const detail = `${description.name} runs an older ace that can't choose an account. Update ace there, or omit accountId to use its default account.`;
     throw new AgentControlError("not_supported", detail, undefined, detail);
   }
+  /**
+   * Stops the child (ADR 0052): final and bounded. The children's ledger sends the cancel to its
+   * machine, again with backoff until that machine reports it ended, then calls it stopped here
+   * whether or not it confirmed.
+   */
   async cancel(id: ThreadId): Promise<AgentControlResult> {
     const child = this.deps.children.child(id);
     if (!child) return { ok: false, code: "not_found" };
+    this.deps.children.stop(id);
+    return { ok: true };
+  }
+  /** One cancel for the child, sent to its machine; the stop decides whether to send another. */
+  async sendCancel(id: ThreadId): Promise<void> {
+    const child = this.deps.children.child(id);
+    if (!child) return;
     try {
       await this.deps.directory.call(
         child.machine,
@@ -193,7 +205,6 @@ export class MachineCaller {
     } catch (error) {
       throw this.deps.directory.controlError(child.machine, error);
     }
-    return { ok: true };
   }
   /**
    * Follow-up work for a child there. The target keys the message by requestId, so a retry after

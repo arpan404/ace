@@ -1,5 +1,6 @@
 import type { Readable, Writable } from "node:stream";
 import { OutputTail, type CommandOutcome } from "./command-rules.ts";
+import { TERMINATE_GRACE_MS } from "../liveness/stop.ts";
 
 /** A spawned command whose whole process tree `stop` ends (provider-kit's supervised spawn). */
 export interface CommandProcess {
@@ -40,8 +41,8 @@ function closed(stream: Readable): Promise<void> {
   });
 }
 
-/** How long a stopped tree gets to exit after its polite signal. */
-const graceMs = 2_000;
+/** How long a stopped tree gets after SIGTERM before SIGKILL: the shared Stop grace (ADR 0052). */
+const graceMs = TERMINATE_GRACE_MS;
 
 /**
  * Runs one command line in its own process tree. It reads no input, keeps the last `tailBytes`

@@ -42,7 +42,13 @@ export const message = (requestId: string): MachineMessage => ({
  * `failSql` the next statement whose SQL contains it. `holdNextStatus` keeps the next status
  * reply (read now) from arriving until the test releases it.
  */
-export function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-"))) {
+export function machine(
+  home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-")),
+  options: {
+    stopPlan?: import("../liveness/stop.ts").StopPlan<"cancel">;
+    leaseMs?: number;
+  } = {},
+) {
   if (!homes.includes(home)) homes.push(home);
   const real = new Store(join(home, "events.sqlite"));
   stores.push(real);
@@ -102,7 +108,11 @@ export function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile
   const reads: { error?: unknown } = {};
   const answers = {
     resend: async (_machine: string): Promise<ResendAnswer> => "taken",
+    /** How the machine takes a cancel; by default it says it stopped nothing (never confirms). */
+    cancel: async (_id: string): Promise<void> => {},
   };
+  /** Every cancel sent there, by child id, in order. */
+  const cancels: string[] = [];
   /**
    * Changes to the caller's pairings: each machine is paired as `device-<machine>` unless set
    * here, to another device (linked again) or undefined (the pairing was removed).
@@ -124,6 +134,8 @@ export function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile
       };
     },
     pollMs: POLL_MS,
+    ...(options.stopPlan ? { stopPlan: options.stopPlan } : {}),
+    ...(options.leaseMs ? { leaseMs: options.leaseMs } : {}),
     status: async (_machine, _parent, ids) => {
       asked.push([...ids]);
       if (reads.error) throw reads.error;
@@ -134,6 +146,10 @@ export function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile
       const held = holds.next;
       holds.next = undefined;
       return held ? held.then(() => read) : read;
+    },
+    cancel: async (_machine, _parent, id) => {
+      cancels.push(id);
+      return answers.cancel(id);
     },
     resend: async (_machine, _parent, _child, sent) => {
       resent.push(sent.requestId);
@@ -211,6 +227,7 @@ export function machine(home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile
     state,
     asked,
     resent,
+    cancels,
     delivered,
     timers,
     clock,

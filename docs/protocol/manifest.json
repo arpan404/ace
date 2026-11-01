@@ -21,8 +21,8 @@
       "sha256": "d371a0f68d1e034fbadfd7ddcafde7857b95194b1f54d811c9593609242e9eba"
     },
     "mcp.md": {
-      "bytes": 59059,
-      "sha256": "f1ae1d957b0140cce9ce2693088d2b5ff4560e47fbaeebda85b46c306c60eb2c"
+      "bytes": 59233,
+      "sha256": "7667bf397c9942ac1c56c9c26039fe96a02cb7239baec0e678fc56ccf7108905"
     },
     "models.md": {
       "bytes": 16093,
@@ -257,8 +257,8 @@
       "sha256": "32c5801a45c238b08aa01e3ffe88311d96c7c660795b29cb706af51323236a36"
     },
     "schema/AgentMachine.json": {
-      "bytes": 476,
-      "sha256": "91dd2e48b071f2f59438fdb522d7b3600a481eaac37bc34265ee8cffb15c2ad6"
+      "bytes": 565,
+      "sha256": "7ae1f51a016f191052007953376063251b1c76d2951b8eb98f1731578422cfdb"
     },
     "schema/AgentModelRoster.json": {
       "bytes": 1219,
@@ -2225,8 +2225,8 @@
       "sha256": "f3fd2a5d2f8b62dc9823a794197e131cca6bd342f25b6432e98c4aa3f3844643"
     },
     "schema/MachineThreadView.json": {
-      "bytes": 2157,
-      "sha256": "95247035aedf9bf9fd01cef7ec5c98561ba2c43bddf80844e2a1747f373e49a6"
+      "bytes": 2246,
+      "sha256": "7ee94eb50e8fe7c388e88cd1f2128232de328954fc622d556e36abcc63b74407"
     },
     "schema/MachineToolGroup.json": {
       "bytes": 238,
@@ -2409,8 +2409,8 @@
       "sha256": "6276c904c7f297ba1ae236f1c1a2bb0f2ad56e304f382b8c25cb92dc5f4031e5"
     },
     "schema/MonitoredChild.json": {
-      "bytes": 1550,
-      "sha256": "f3cb788ec44e41ca611c03903ddc8ca3f3af46d9490ecdfcb0e1d3ffb26c358d"
+      "bytes": 1639,
+      "sha256": "2b709ff62ebf721312f8a06faaef1ddefa6f0b5c294f006f99f452bb399716ab"
     },
     "schema/MonitoredState.json": {
       "bytes": 266,
@@ -3147,6 +3147,10 @@
     "schema/RemoteAccessStatus.json": {
       "bytes": 1284,
       "sha256": "651a6d3fa04736cb888189b6672cfc0438194e8b0a9f91c4cf946cced675471f"
+    },
+    "schema/RemoteContact.json": {
+      "bytes": 192,
+      "sha256": "f7922217408e80e032751bd441645edee616edea2276f3c35ef6d06538646983"
     },
     "schema/RepositoryListInput.json": {
       "bytes": 961,
@@ -4321,8 +4325,8 @@
       "sha256": "30c3d9183eb051b60b3589a8b6914afbdf7179edd6945b5cd47168a7f7520990"
     },
     "schema/WatchedThread.json": {
-      "bytes": 1402,
-      "sha256": "a24c22e5ecf36c78f99f82597fa4c6367433c2f0e45f5ade8a56f13642235953"
+      "bytes": 1491,
+      "sha256": "f0940c062de5a35dff8d4106640e170938c076fd8d956ff15f04f0faad8a3cd3"
     },
     "schema/WebPushSubscription.json": {
       "bytes": 928,
@@ -4405,8 +4409,8 @@
       "sha256": "ec31fbdedc085c866700ded104763ffcc7c3ba7519a8b912f4c80417eb91cac5"
     },
     "schema/agents_status.output.json": {
-      "bytes": 6945,
-      "sha256": "326477e829d4e5e197ee45adbc104214843978fa62c834ba65e0d3b41038233a"
+      "bytes": 7153,
+      "sha256": "654fddf6a49127e7870df9a2f71e79d25c694e2440696ad8856b1f011b2eeccb"
     },
     "schema/ask.input.json": {
       "bytes": 926,
@@ -4461,8 +4465,8 @@
       "sha256": "87d5cd4f950216355f431887d62e84d6ba65124c654233e7fafc3a83f85cf802"
     },
     "schema/delegate.output.json": {
-      "bytes": 4721,
-      "sha256": "0b48e9f0ccc205101dd96680410a2544c9652366d286fd5ee87d3243985c0466"
+      "bytes": 4929,
+      "sha256": "ccf0c94cc57487b83569f06c1a08c1ec8f28cbef1b890edcf91d4e88b04cfa90"
     },
     "schema/handoff_read.input.json": {
       "bytes": 1196,
@@ -4637,14 +4641,14 @@
       "sha256": "9aed3398da0fd1db3f3fba4d8500623ba0be922b258cbd6db6cd275ed68377d1"
     },
     "schema/wait.output.json": {
-      "bytes": 3925,
-      "sha256": "571045442f6b19fd7ecf97ce180c84085c282b10849598f40e85882a4be2f437"
+      "bytes": 4105,
+      "sha256": "5689abd9740d125fc925f514b8ad6da3bf4252fdd3934fbe5031dc92265ef181"
     },
     "types.md": {
-      "bytes": 953288,
-      "sha256": "7eae1ae84d1ac85db57ea35b2e3322100c3172200fff79c81882c27923089dd3"
+      "bytes": 953785,
+      "sha256": "5d789f88389300c2e28da0ec7a01532191de35ad4939ade00bf5f2e8b34b5975"
     }
   },
-  "input": "d7530cf649d1ce023dd646c9d3c5ecd2c9808ecd96b59a2a5b4709b51503f068",
+  "input": "341982985313ac801c05c08160d486a5927f82a46037bca2ec4ebf54c28d7aa5",
   "version": 1
 }

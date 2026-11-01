@@ -128,3 +128,28 @@ export const machineJobs = `CREATE TABLE IF NOT EXISTS machine_jobs (
   machine TEXT NOT NULL, job_id TEXT NOT NULL, thread_id TEXT NOT NULL, agent_id TEXT NOT NULL,
   deadline INTEGER NOT NULL, stopping INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
   PRIMARY KEY (machine, job_id));`;
+
+/**
+ * Proof of life and stops for children on other machines (ADR 0052, "Stop and proof of life").
+ * - `seen_at`: when the child's machine last reported it. Backfilled from when it last changed,
+ *   but startup counts its lease from the daemon's own start, so downtime here is never blamed
+ *   on the child.
+ * - `silent_since`: its lease lapsed, so it is lost contact and no longer holds its parent; null
+ *   while it reports.
+ * - `stop_started_at`, `stop_attempts`, `stop_last_at`: a Stop in progress, so a restart picks up
+ *   where it was and one past its bound gives up at once.
+ * - `stopped_unconfirmed`: every cancel went out and its machine never confirmed the stop; it is
+ *   stopped here, and a later report records its real end without reviving it.
+ */
+export const machineChildLiveness = `
+  ALTER TABLE machine_children ADD COLUMN seen_at INTEGER;
+  ALTER TABLE machine_children ADD COLUMN silent_since INTEGER;
+  ALTER TABLE machine_children ADD COLUMN stop_started_at INTEGER;
+  ALTER TABLE machine_children ADD COLUMN stop_attempts INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE machine_children ADD COLUMN stop_last_at INTEGER;
+  ALTER TABLE machine_children ADD COLUMN stopped_unconfirmed INTEGER NOT NULL DEFAULT 0;
+  UPDATE machine_children SET seen_at = COALESCE(settled_at, created_at);
+  CREATE INDEX IF NOT EXISTS machine_children_seen ON machine_children(seen_at)
+    WHERE settled = 0;
+  CREATE INDEX IF NOT EXISTS machine_children_stopping ON machine_children(stop_started_at)
+    WHERE settled = 0 AND stop_started_at IS NOT NULL;`;

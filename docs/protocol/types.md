@@ -3065,11 +3065,13 @@ Example:
 | machine | yes | string | {"minLength":1,"maxLength":64} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
 | hostId | no | [HostId.json](schema/HostId.json) |  |
+| contact | no | [RemoteContact.json](schema/RemoteContact.json) |  |
 
 Example:
 
 ```json
 {
+  "contact": "unconfirmed",
   "hostId": "example",
   "machine": "example",
   "name": "example"
@@ -17696,6 +17698,7 @@ Example:
 | last | no | string | {"maxLength":160} |
 | needs | no | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/WatchedRequest.json"}} |
 | machine | no | string | {"maxLength":64} |
+| contact | no | [RemoteContact.json](schema/RemoteContact.json) |  |
 | status | yes | [ThreadStatus.json](schema/ThreadStatus.json) |  |
 | requests | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/MachinePendingRequest.json"}} |
 | notice | no | object | {"properties":{"text":{"type":"string","maxLength":400},"commandId":{"type":"string","minLength":1,"maxLength":128},"code":{"type":"string","minLength":1,"maxLength":64}},"required":["text","commandId","code"]} |
@@ -17704,13 +17707,13 @@ Example:
 
 ```json
 {
+  "contact": "unconfirmed",
   "elapsedSeconds": 2,
   "needs": [],
   "requests": [],
   "state": "working",
   "status": {
-    "agents": 9,
-    "state": "working"
+    "state": "unresponsive"
   },
   "step": "example",
   "threadId": "example",
@@ -18662,6 +18665,7 @@ Example:
 | queued | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | notice | no | string | {"maxLength":400} |
 | machine | no | string | {"maxLength":64} |
+| contact | no | [RemoteContact.json](schema/RemoteContact.json) |  |
 
 Example:
 
@@ -23932,6 +23936,18 @@ Example:
   "relayOverride": false,
   "transport": "local"
 }
+```
+
+## RemoteContact
+
+[JSON Schema](schema/RemoteContact.json), input validation.
+
+Type: ["lost","unconfirmed"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"lost"
 ```
 
 ## RepositoryListInput
@@ -35064,6 +35080,7 @@ Example:
 | last | no | string | {"maxLength":160} |
 | needs | no | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/WatchedRequest.json"}} |
 | machine | no | string | {"maxLength":64} |
+| contact | no | [RemoteContact.json](schema/RemoteContact.json) |  |
 
 Example:
 

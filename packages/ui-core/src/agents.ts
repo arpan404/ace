@@ -8,6 +8,7 @@ import type {
 } from "@ace/protocol";
 import { isActionableInteraction } from "@ace/core/human";
 import { agentStatusLabel, type Tone } from "./status.ts";
+import { remoteContactStep } from "./remote-contact.ts";
 import { providerNames } from "./providers.ts";
 import { firstLine } from "./line-text.ts";
 
@@ -142,9 +143,9 @@ export function agentTreeWork(
     if (agent.status.state === "blocked" && agent.status.on === "human")
       includeAncestors(agent.id, needsYou);
   }
-  for (const task of tasks)
-    if (task.status === "running" || task.status === "unknown")
-      includeAncestors(task.agentId, running);
+  // Only running work counts. A task ace lost track of (`unknown`: lost contact, ADR 0052) has
+  // no proof of life; work the daemon still can't rule out keeps the thread's own status live.
+  for (const task of tasks) if (task.status === "running") includeAncestors(task.agentId, running);
   for (const interaction of interactions) {
     if (interaction.state !== "pending") continue;
     // Pending work stays unsettled even when its working owner can continue without an answer.
@@ -170,6 +171,12 @@ export function agentWorkState(
   const running = work.running.has(agent.id);
   const needsYou = work.needsYou.has(agent.id);
   const waiting = running && !isRunning(agent);
+  // A remote child this machine can't vouch for says so in words, whatever its last status.
+  const contact = !running && !needsYou ? remoteContactStep(agent) : undefined;
+  if (contact) {
+    const words = contact.charAt(0).toUpperCase() + contact.slice(1);
+    return { running, needsYou, label: words, tone: "idle", activity: words };
+  }
   const label =
     !evidence.fresh && running
       ? "Last seen"
@@ -197,7 +204,7 @@ const taskStates: Record<BackgroundTask["status"], string> = {
   completed: "finished",
   failed: "failed",
   stopped: "stopped",
-  unknown: "possibly running",
+  unknown: "lost contact",
 };
 export const taskState = (task: BackgroundTask) => taskStates[task.status];
 
@@ -205,7 +212,7 @@ const taskLines: Record<BackgroundTask["status"], string> = {
   completed: "Finished",
   failed: "Failed",
   stopped: "Stopped",
-  unknown: "Stopped",
+  unknown: "Lost contact",
   running: "Running in background",
 };
 /** A background command's line in the transcript, before its command: "Running in background". */

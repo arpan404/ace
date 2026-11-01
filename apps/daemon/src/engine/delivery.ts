@@ -271,6 +271,8 @@ export async function executeIntent(
       registry.get(state.config.provider, repo.backend(actor.id)).capabilities;
     const session = actor.session;
     const failures: unknown[] = [];
+    // A provider that never answers its interrupt never holds the Stop (ADR 0052).
+    const interruptWithin = <T>(work: Promise<T>) => sessions.interruptWithin(work);
     if (p.cascade && !capabilities.interruptCascades) {
       const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
       const descendants = (id: string): string[] =>
@@ -280,16 +282,18 @@ export async function executeIntent(
       // One child the provider has lost track of never keeps the target itself running.
       for (const key of target ? descendants(target) : [])
         try {
-          await session.interrupt({ agent: key, cascade: false });
+          await interruptWithin(session.interrupt({ agent: key, cascade: false }));
         } catch (error) {
           failures.push(error);
         }
     }
     try {
-      await session.interrupt({
-        ...(agent === undefined ? {} : { agent }),
-        cascade: p.cascade,
-      });
+      await interruptWithin(
+        session.interrupt({
+          ...(agent === undefined ? {} : { agent }),
+          cascade: p.cascade,
+        }),
+      );
     } catch (error) {
       failures.push(error);
     }
@@ -300,7 +304,7 @@ export async function executeIntent(
       // A Stop always settles. When the provider can't stop the tree itself (its location was
       // lost, or it holds work it won't interrupt), ace ends the provider session: owned work is
       // cleaned up and everything still marked running ends with an unknown outcome.
-      await sessions.close(actor, "user");
+      await sessions.closeForStop(actor);
     }
   } else if (p.type === "interaction.resolve") {
     const entry = Object.entries(state.interactions).find(

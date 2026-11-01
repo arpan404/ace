@@ -840,7 +840,8 @@ export class Engine {
       const key = this.repo.nativeEntity(owner, "tasks", command.payload.taskId);
       if (!key?.startsWith(prefix)) return;
       const task = this.repo.state(owner)?.tasks[key];
-      if (task?.status !== "running")
+      // A hold that lost contact (`unknown`, ADR 0052) can still be stopped: that ends it for good.
+      if (task?.status !== "running" && task?.status !== "unknown")
         return { commandId: command.id, ok: false, error: "task_not_stoppable" };
       stop(key.slice(prefix.length), owner);
       return { commandId: command.id, ok: true };

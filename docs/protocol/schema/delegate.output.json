@@ -47,6 +47,13 @@
               "items": {
                 "additionalProperties": false,
                 "properties": {
+                  "contact": {
+                    "enum": [
+                      "lost",
+                      "unconfirmed"
+                    ],
+                    "type": "string"
+                  },
                   "elapsedSeconds": {
                     "maximum": 9007199254740991,
                     "minimum": 0,

@@ -70,6 +70,9 @@ export type DaemonOptions = {
   machines?: {
     transport?: import("../machines/transport.ts").MachineTransport;
     pollMs?: number;
+    /** Stop attempts and lease for children there (ADR 0052); the defaults are the ADR's. */
+    stopPlan?: import("../liveness/stop.ts").StopPlan<"cancel">;
+    leaseMs?: number;
     /** Redeems another machine's pairing link when Settings links to it. */
     redeem?: import("../machines/fleet-links.ts").FleetLinkDeps["redeem"];
   };
