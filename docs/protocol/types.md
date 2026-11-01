@@ -16970,6 +16970,26 @@ Example:
 }
 ```
 
+## MachineAccount
+
+[JSON Schema](schema/MachineAccount.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| provider | yes | string | {"minLength":1,"maxLength":64} |
+| id | yes | string | {"minLength":1,"maxLength":256} |
+| label | no | string | {"maxLength":256} |
+
+Example:
+
+```json
+{
+  "id": "example",
+  "label": "example",
+  "provider": "example"
+}
+```
+
 ## MachineAgentAccess
 
 [JSON Schema](schema/MachineAgentAccess.json), input validation.
@@ -17011,6 +17031,7 @@ Example:
 | role | yes | string | {"minLength":1,"maxLength":1024} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | model | no | string | {"minLength":1,"maxLength":256} |
+| account | no | string | {"minLength":1,"maxLength":256} |
 
 Example:
 
@@ -17324,12 +17345,15 @@ Example:
 | tools | yes | array | {"maxItems":16,"items":{"type":"string","maxLength":64},"x-ace-constraint":"Unknown tool groups are accepted and omitted from the decoded list."} |
 | providers | yes | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
 | transfers | no | boolean |  |
+| delegateAccounts | no | boolean |  |
+| accounts | no | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/MachineAccount.json"}} |
 
 Example:
 
 ```json
 {
   "access": "read",
+  "delegateAccounts": true,
   "hostId": "example",
   "name": "example",
   "projects": [],
@@ -17636,6 +17660,7 @@ Example:
 | tools | no | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/MachineToolGroup.json"}} |
 | providers | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
 | transfers | no | boolean |  |
+| accounts | no | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/MachineAccount.json"}} |
 | next | no | string | {"maxLength":256} |
 
 Example:
@@ -17645,6 +17670,7 @@ Example:
   "access": "read",
   "machine": "oxiNY-D7iFsAQgtWnx4rdkP4t2t32TcyED4gGF",
   "name": "example",
+  "next": "example",
   "providers": [],
   "status": "offline",
   "transfers": false

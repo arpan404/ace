@@ -46,7 +46,12 @@ const DelegateTask = z.strictObject({
   runRole: RunRole.optional().describe("A role from your Roles line."),
   provider: ProviderKind.optional().describe("Default: yours, or the one serving model."),
   model: z.string().min(1).max(256).optional().describe('Id or name, e.g. "opus 5.5".'),
-  accountId: z.string().min(1).max(256).optional().describe("Account id or label."),
+  accountId: z
+    .string()
+    .min(1)
+    .max(256)
+    .optional()
+    .describe("Account id or label; with machine, one of that machine's accounts from machines."),
   effort: z
     .string()
     .min(1)
@@ -179,7 +184,7 @@ const machines = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "The person's other paired machines: name (pass as machine), online, access, projects, tool groups, providers, and transfers (true: transfer can move work there). Use with delegate {machine, project}; children there join wait and agents_status.",
+    "The person's other paired machines: name (pass as machine), online, access, projects, tool groups, providers, accounts (pass an id or label as accountId) and transfers (true: transfer can move work there). Use with delegate {machine, project}; children there join wait and agents_status.",
   input: z.strictObject({}),
   output: controlResult(z.unknown()),
   run: (_, control) => control.run({ op: "machines" }),

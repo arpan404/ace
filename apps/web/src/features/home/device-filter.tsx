@@ -7,18 +7,32 @@ import {
   MenuSub,
   MenuSubTrigger,
 } from "@/components/ui/menu.tsx";
-import { MachineLabel } from "@/components/ui/machine-label.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useOrganizer } from "@/features/organize/index.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { useSidebarDevice } from "./device-filter-state.ts";
 
 const all = "\u0000all";
 const allLabel = (
-  <span className="inline-flex min-w-0 items-center gap-1.5">
-    <DevicesIcon aria-hidden size={14} className="shrink-0" />
+  <span className="inline-flex min-w-0 items-center gap-[9px]">
+    <DevicesIcon aria-hidden size={16} className="shrink-0" />
     <span className="truncate">All devices</span>
   </span>
 );
+
+/** One device row's glyph and name, with 16px icons in one column. */
+function DeviceRow(props: {
+  name: string;
+  icon: Parameters<typeof MachineMark>[0]["icon"];
+  primary: boolean | undefined;
+}) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-[9px]">
+      <MachineMark icon={props.icon} primary={props.primary} size={16} />
+      <span className="truncate">{props.name}</span>
+    </span>
+  );
+}
 
 /** Filter the Threads panel by device, as a submenu, only while there is a choice of devices. */
 export function DeviceFilter() {
@@ -33,7 +47,7 @@ export function DeviceFilter() {
       <MenuSub>
         <MenuSubTrigger aria-label={`Device filter: ${label}`}>
           {selected ? (
-            <MachineLabel name={label} icon={selected.icon} primary={selected.primary} />
+            <DeviceRow name={label} icon={selected.icon} primary={selected.primary} />
           ) : (
             allLabel
           )}
@@ -65,7 +79,7 @@ export function DeviceItems(props: {
       </MenuRadioItem>
       {machines.map((machine) => (
         <MenuRadioItem key={machine.id} value={machine.id} aria-label={machine.name} closeOnClick>
-          <MachineLabel name={machine.name} icon={machine.icon} primary={machine.primary} />
+          <DeviceRow name={machine.name} icon={machine.icon} primary={machine.primary} />
         </MenuRadioItem>
       ))}
     </MenuRadioGroup>

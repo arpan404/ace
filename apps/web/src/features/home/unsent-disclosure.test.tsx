@@ -18,9 +18,9 @@ async function openWorkbench() {
   return { app, nav };
 }
 
-/** The panel shows its Inbox everywhere: the running thread listed, the settled one not. */
+/** The panel shows its Inbox with no filter: All projects, the running thread listed, the settled one not. */
 const onInbox = () => {
-  expect(screen.getByRole("button", { name: /^Project filter/ }).textContent).toBe("Everywhere");
+  expect(screen.getByRole("button", { name: /^Project filter/ }).textContent).toBe("All projects");
   const nav = within(screen.getByRole("navigation", { name: "Threads" }));
   expect(nav.getByRole("tab", { name: /^Inbox/ }).getAttribute("aria-selected")).toBe("true");
   expect(nav.getByRole("link", { name: /^Dedupe thread events/ })).toBeTruthy();

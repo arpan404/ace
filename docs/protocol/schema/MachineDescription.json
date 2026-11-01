@@ -9,6 +9,16 @@
       ],
       "type": "string"
     },
+    "accounts": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MachineAccount.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "delegateAccounts": {
+      "type": "boolean"
+    },
     "grants": {
       "$ref": "https://ace.local/protocol/v1/MachineGrants.json"
     },
