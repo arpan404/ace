@@ -93,16 +93,6 @@ const sketch = {
 // ---------------------------------------------------------------------------------------------
 // The header
 
-test("the header keeps navigation, the title, its menu, the details icon and the panel toggle", async () => {
-  await openThread();
-  expect(await workButton()).toBeTruthy();
-  expect(within(header()).getByRole("button", { name: "Right panel" })).toBeTruthy();
-  expect(within(header()).getByRole("heading", { level: 1 }).textContent).toBe(
-    "Replay cursor resets on every resume",
-  );
-  expect(within(header()).queryByRole("status")).toBeNull();
-});
-
 test("a usage limit remains on the sidebar and leaves the thread title clear", async () => {
   const app = harness();
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");

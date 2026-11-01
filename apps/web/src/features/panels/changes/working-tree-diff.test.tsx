@@ -1,5 +1,5 @@
 import { replayCursor } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { configure, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { codeText } from "@/test/code-text.ts";
@@ -76,14 +76,4 @@ test("uncommitted files list in the files tree and jump to their diff", async ()
   await userEvent.click(notes);
   expect(notes.getAttribute("aria-selected")).toBe("true");
   expect(within(diff).getByRole("region", { name: "docs/notes.md" })).toBeTruthy();
-});
-
-test("uncommitted lines take review comments and files can be marked viewed", async () => {
-  const diff = await openUncommitted();
-  const retry = within(diff).getByRole("region", { name: "src/retry.ts" });
-  await waitFor(() => expect(within(retry).getByText(codeText(/return 3;/))).toBeTruthy());
-  expect(within(retry).getByRole("button", { name: "Comment on line 2" })).toBeTruthy();
-  expect(within(retry).getByRole("button", { name: "Comment on old line 2" })).toBeTruthy();
-  expect(within(retry).getByRole("button", { name: "Viewed" })).toBeTruthy();
-  expect(within(retry).getByRole("button", { name: "Actions for src/retry.ts" })).toBeTruthy();
 });

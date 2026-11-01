@@ -32,22 +32,6 @@ async function pick(select: string, option: string) {
   await userEvent.click(await screen.findByRole("option", { name: option }));
 }
 
-test("a switched-off agent setting stays off after leaving the page and coming back", async () => {
-  await harness().open("/settings/agents");
-  const worktree = await screen.findByRole("switch", { name: "New threads use a worktree" });
-  expect(worktree.getAttribute("aria-checked")).toBe("true");
-  await userEvent.click(worktree);
-
-  await goTo("Keyboard");
-  await screen.findByRole("heading", { level: 2, name: "Keyboard" });
-  await goTo("Agents");
-  expect(
-    (await screen.findByRole("switch", { name: "New threads use a worktree" })).getAttribute(
-      "aria-checked",
-    ),
-  ).toBe("false");
-});
-
 test("the switch preservation setting persists after leaving Agents", async () => {
   const app = harness();
   await app.open("/settings/agents");

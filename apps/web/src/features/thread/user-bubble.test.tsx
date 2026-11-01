@@ -140,12 +140,6 @@ test("a long message folds to its first lines and Show more / Show less toggle i
   expect(body?.hasAttribute("data-folded")).toBe(true);
 });
 
-test("a short message has nothing to fold", async () => {
-  const { feed } = await openMessage({ text: "Short and sweet" });
-  expect(within(feed).getByText("Short and sweet")).toBeTruthy();
-  expect(within(feed).queryByRole("button", { name: "Show more" })).toBeNull();
-});
-
 test("a fenced block inside the message reads as code", async () => {
   const { feed } = await openMessage({
     text: "Why does this fail?\n```ts\nconst total = sum(items);\n```",

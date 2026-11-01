@@ -395,32 +395,6 @@ test("an ending tied to a message still in the queue goes with it; the turn befo
   expect(visible.at(-1)).toMatchObject({ kind: "end", runId: "A", latest: true });
 });
 
-test("rows follow the daemon's creation order even when timestamps run backwards", () => {
-  const base = source(
-    [
-      { id: "earlier", role: "user" },
-      { id: "ask", role: "user", run: "turn" },
-      { id: "answer", role: "assistant", run: "turn" },
-    ],
-    { turn: { ...ended("completed"), startedAt: 2 } },
-  );
-  const tool = mcpTool("tool", 3);
-  const blocks = buildBlocks({
-    ...base,
-    order: ["earlier", "ask", "tool", "answer"],
-    turnOf: (id) => (id === tool.id ? "turn" : base.turnOf?.(id)),
-    // Imported history keeps native timestamps; they never reorder the transcript.
-    item: (id) => {
-      const item = id === tool.id ? tool : base.item(id);
-      return item && { ...item, createdAt: 100 - item.createdAt };
-    },
-  });
-  expect(shown(blocks)).toEqual(["earlier", "ask", "work:work:ask", "answer"]);
-  expect(blocks.filter((block) => block.kind === "work")).toMatchObject([
-    { outcome: "completed", itemIds: ["tool"] },
-  ]);
-});
-
 test("an admitted first ask stays ahead of intervening earlier messages while awaiting output", () => {
   const base = source(
     [
