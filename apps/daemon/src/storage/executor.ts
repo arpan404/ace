@@ -3,7 +3,7 @@ import { executeWorktreeCleanup } from "./worktree-executor.ts";
 import { CommandId, ThreadId } from "@ace/protocol";
 import type { StorageOwner, ReviewedStorageItem } from "./types.ts";
 import type { StorageInventory } from "./inventory.ts";
-import { hasTable, storageProtections, storageTree } from "./ownership.ts";
+import { hasTable, storageMembers, storageProtections } from "./ownership.ts";
 
 /** The journal commits "running" and admission fences before this shell performs effects. */
 export async function executeStorageItem(
@@ -86,15 +86,17 @@ export function fenceStorageItem(
       }
       ids = inventory.worktreeOwners(entry.target.path);
     }
-    const members = new Set(ids.flatMap((id) => storageTree(store, id)));
-    for (const member of members) {
-      const existing = store
-        .statement("SELECT plan_id FROM storage_cleanup_fences WHERE thread_id=?")
-        .get(member);
-      if (existing && existing.plan_id !== planId) throw new StorageRefusal("cleanup_in_progress");
+    const members = JSON.stringify(storageMembers(store, ids));
+    if (
       store
-        .statement("INSERT OR IGNORE INTO storage_cleanup_fences VALUES (?,?)")
-        .run(member, planId);
-    }
+        .statement(
+          "SELECT 1 FROM storage_cleanup_fences WHERE thread_id IN (SELECT value FROM json_each(?)) AND plan_id<>? LIMIT 1",
+        )
+        .get(members, planId)
+    )
+      throw new StorageRefusal("cleanup_in_progress");
+    store
+      .statement("INSERT OR IGNORE INTO storage_cleanup_fences SELECT value,? FROM json_each(?)")
+      .run(planId, members);
   });
 }
