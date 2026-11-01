@@ -10,7 +10,23 @@ const columns: Record<UsageDimension, string> = {
   account: "NULLIF(d.account,'')",
   model: "NULLIF(d.model,'')",
   workspace: "d.workspace",
+  skill: "d.skill",
+  automation: "t.automation",
+  // Read at query time, so a parent or delegation linked after the usage still applies.
+  role: "CASE WHEN t.delegated=1 THEN 'delegated' WHEN a.parent IS NOT NULL THEN 'subagent' ELSE 'main' END",
 };
+const dimensionNames = new Set<string>(UsageDimension.options);
+/**
+ * The rollup a query reads, with the joins its dimensions need. Skill rows live in their own
+ * table (one row per skill a turn used), carrying every other dimension so filters compose.
+ */
+function source(used: ReadonlySet<UsageDimension>): string {
+  const table = used.has("skill") ? "usage_skill_daily" : "usage_daily";
+  const thread = used.has("automation") || used.has("role");
+  return `${table} d${thread ? " LEFT JOIN usage_threads t ON t.thread=d.thread" : ""}${
+    used.has("role") ? " LEFT JOIN usage_agents a ON a.agent=d.agent" : ""
+  }`;
+}
 // Late cache classification produces signed adjustments. Linear pricing stays additive across groups.
 export const estimateSql = `((d.input-d.cached-d.write)*p.input + d.cached*p.cached +
   (d.write-d.write1h)*p.write + d.write1h*p.write1h + d.output*p.output)/1000000.0`;
@@ -55,6 +71,9 @@ export function queryRows(
       params.push(...values);
     }
   }
+  const from = source(
+    new Set([...groups, ...UsageDimension.options.filter((d) => q.filters[d] !== undefined)]),
+  );
   let cte = "";
   if (q.agentTree) {
     cte = `WITH RECURSIVE subtree(agent) AS (
@@ -79,16 +98,16 @@ export function queryRows(
     d.model AS pricing_model, d.billing,
     SUM(CAST(d.input AS REAL)) AS input, SUM(CAST(d.output AS REAL)) AS output, SUM(CAST(d.cached AS REAL)) AS cached,
     SUM(CAST(d.reasoning AS REAL)) AS reasoning, SUM(CAST(d.write AS REAL)) AS write, SUM(CAST(d.write1h AS REAL)) AS write1h, SUM(d.cost) AS cost
-    FROM usage_daily d WHERE ${clauses.join(" AND ")}
+    FROM ${from} WHERE ${clauses.join(" AND ")}
     GROUP BY ${[...groups.map((g) => queryColumns[g]), "d.model", "d.billing"].join(", ")}`;
   const sql =
     groups.length === 1 && groups[0] === "day"
       ? `${cte} SELECT ${selectGroups}, ${totalsSql}
-        FROM usage_daily d LEFT JOIN usage_prices p ON p.model=d.model
+        FROM ${from} LEFT JOIN usage_prices p ON p.model=d.model
         WHERE ${clauses.join(" AND ")} ${groupSql} ORDER BY ${order}${tie} LIMIT ?`
       : `${cte} SELECT ${selectGroups ? `${selectGroups}, ` : ""}${totalsSql}
         FROM (${aggregate}) d LEFT JOIN usage_prices p ON p.model=d.pricing_model
-        ${groups.length ? `GROUP BY ${groups.map((g) => columns[g]).join(", ")}` : ""} ORDER BY ${order}${tie} LIMIT ?`;
+        ${groups.length ? `GROUP BY ${groups.map((g) => `d."${g}"`).join(", ")}` : ""} ORDER BY ${order}${tie} LIMIT ?`;
   const result: UsageRow[] = [];
   let bytes = 2;
   let truncated = false;
@@ -99,22 +118,11 @@ export function queryRows(
     }
     const dimensions: Partial<Record<UsageDimension, unknown>> = {};
     for (const g of groups) dimensions[g] = row[g];
-    const {
-      day: _day,
-      thread: _thread,
-      agent: _agent,
-      provider: _provider,
-      account: _account,
-      model: _model,
-      workspace: _workspace,
-      ...totals
-    } = row;
+    const totals = Object.entries(row).filter(([key]) => !dimensionNames.has(key));
     const parsed = UsageRow.parse({
       dimensions,
       totals: {
-        ...boundedTotals(
-          Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, value ?? 0])),
-        ),
+        ...boundedTotals(Object.fromEntries(totals.map(([key, value]) => [key, value ?? 0]))),
         equivalentApiUsd:
           q.equivalentApiCost && !Number(row.missingPrices)
             ? boundedTotals({ equivalentApiUsd: row.equivalentApiUsd ?? 0 }).equivalentApiUsd
