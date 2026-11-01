@@ -31,23 +31,27 @@ daemon projection or protocol schema is needed.
   the tree reaches, one hidden loader per thread, only while the Summary tab is mounted. Threads
   are found breadth first and capped at six levels and sixteen threads (`forestBounds`). The
   client holds at most 32 thread subscriptions, shared with every other open view, so the
-  Summary's leases are *optional* (`ClientApi.thread(id, { optional })`, `OptionalLeaseScope`):
+  Summary's leases are _optional_ (`ClientApi.thread(id, { optional })`, `OptionalLeaseScope`):
   they take a slot only while more than `threadReserve` (8) stay free, a thread the person opens
   takes the slot of one only optional views hold, and a refused or displaced lease reads
   `no_room` as its store's error. The tree then shows that delegate's row with "not loaded" and
   tries again when `threadRoom` rises. A thread past the bound, or on another machine, also shows
   as its delegate's row alone.
 - **Facts must be current to read as settled.** Each thread's entry carries how current it is
-  (`ThreadWork.facts`: live, syncing, not loaded). A branch whose thread is syncing, unconfirmed or
-  still loading reads "syncing" (or "last seen …" while live), never "finished", and its mark
-  holds still. Now says Done only when no root of the tree is live and every loaded thread is
-  confirmed (`AgentForest.confirmed`); otherwise "Working" or "Syncing".
+  (`ThreadWork.facts`: live, syncing, not loaded). A thread is syncing until its first view has
+  arrived and the daemon confirmed it, so a new subscription whose snapshot is late never reads
+  as an empty, finished thread. A branch that is syncing, unconfirmed, still loading or not loaded
+  is unconfirmed, and so is every row above it: none of them reads "finished", counts as done or
+  folds into the done line, and their marks hold still. Now says Done only when no root of the
+  tree is live and nothing in it is unconfirmed (`AgentForest.confirmed`); otherwise "Working"
+  or "Syncing". A lease the person stops holding goes back to optional, in the worker too.
 - **Cycles.** A thread is placed once, under the first delegate that reaches it; the
   breadth-first walk never revisits a thread, so delegation loops end.
 - **Cost.** A thread's change replaces only that thread's entry, and each thread's own shape is
   kept by its facts object (`forestLayers`), so an unchanged thread isn't worked out again. The
   join appends into buckets and counts each row's tally once, bottom-up: linear in the loaded
-  agents and tasks (a test joins 4,000 agents against 500).
+  agents and tasks. `bun run --cwd packages/ui-core bench` times the join at a fixed four-thread
+  shape as only the sibling width grows 16x, and fails when the time grows more than 32x.
 - **Order and folding.** Under a parent, rows waiting on the person come first, then failed,
   working, running commands, and finished. Two or more finished siblings (settled, confirmed,
   loaded, not failed) fold into one "N done" line that opens in place; that choice is kept with
