@@ -22,6 +22,16 @@ import { startDaemon, readConfig, createDevThread } from "./index.ts";
 import { measurementFrames } from "./testing/measurement-frames.ts";
 
 async function noExtraMcp() {}
+// Provider frames are fed straight to the translators, so no installed CLI is probed.
+const absent = { installed: false, auth: "unknown" as const, loginHint: "unused" };
+const engine = {
+  adapterDiscovery: async () => ({
+    claude: absent,
+    codex: absent,
+    opencode: absent,
+    cursor: absent,
+  }),
+};
 
 export async function toolFixture(
   provider: ProviderKind,
@@ -67,6 +77,7 @@ export async function toolFixture(
   let daemon = await startDaemon({
     config: readConfig({ ACE_HOME: root, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     screen,
+    engine,
   });
   const thread = createDevThread(
     daemon.store,
@@ -252,6 +263,7 @@ export async function toolFixture(
         await daemon.close();
         daemon = await startDaemon({
           config: readConfig({ ACE_HOME: root, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+          engine,
         });
       },
       thread,
