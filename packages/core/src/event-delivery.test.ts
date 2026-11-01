@@ -139,4 +139,42 @@ describe("client-visible agent activity", () => {
     h.end();
     expect(h.view.status).toEqual({ state: "done" });
   });
+
+  it.each([
+    ["an item that streams in, as Codex sends it", "item"],
+    ["a status frame, as Claude sends it", "status"],
+  ])(
+    "a finished compaction stops reading as compacting with nothing after it, from %s",
+    (_, start) => {
+      const h = harness();
+      h.see();
+      h.start();
+      if (start === "item")
+        h.send({
+          type: "item.upsert",
+          agent: "root",
+          item: "compact",
+          draft: { type: "compaction", complete: false },
+        });
+      else h.send({ type: "activity", agent: "root", activity: "compacting" });
+      expect(h.agent("root")?.status).toEqual({ state: "working", activity: "compacting" });
+      h.send({
+        type: "item.upsert",
+        agent: "root",
+        item: "compact",
+        draft: { type: "compaction", complete: true },
+      });
+      expect(h.agent("root")?.status).toEqual({ state: "working", activity: "starting_turn" });
+    },
+  );
+
+  it("a provider that exits mid-compaction leaves nothing compacting", () => {
+    const h = harness();
+    h.see();
+    h.start();
+    h.send({ type: "activity", agent: "root", activity: "compacting" });
+    h.send({ type: "process.exited", deliberate: false, message: "gone" });
+    expect(h.agent("root")?.status.state).not.toBe("working");
+    expect(h.view.status.state).not.toBe("working");
+  });
 });

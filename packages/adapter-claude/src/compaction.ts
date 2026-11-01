@@ -7,7 +7,8 @@ import { list, object, raw, string, type Data } from "./native.ts";
  * the model continues from as the next user turn: in stream-json a `user` frame marked only
  * `isSynthetic` (the transcript file marks it `isCompactSummary`, which newer CLIs may forward).
  * That summary is provider-internal text: it folds into the compaction's own item, never a
- * message of its own.
+ * message of its own. Both frames are keyed by their uuid, so a redelivered one lands on the
+ * same item instead of adding a second compaction or a message.
  */
 
 const optionalCount = (value: unknown): number | undefined =>
@@ -15,12 +16,15 @@ const optionalCount = (value: unknown): number | undefined =>
 
 /** `system/compact_boundary`: the compaction's item, with the token counts Claude reports. */
 export function compactBoundary(state: ClaudeState, data: Data, seq: number): void {
+  const item = state.key("compact", string(data["uuid"]) || String(seq));
+  // Delivered again: the item already holds it (and maybe its summary).
+  if (state.compactions.has(item)) return;
   const meta = object(data["compact_metadata"]);
   const before = optionalCount(meta["pre_tokens"]);
   const after = optionalCount(meta["post_tokens"]);
-  const item = state.key("compact", String(seq));
   const boundary = raw(data);
-  state.compaction = { item, raw: boundary };
+  state.compactions.set(item, boundary);
+  state.compaction = item;
   state.emit({
     type: "item.upsert",
     agent: state.root,
@@ -47,28 +51,37 @@ function onlyText(data: Data): string | undefined {
 
 /**
  * Folds a received user frame into the compaction it summarizes, when it is that summary: the
- * main agent's synthetic turn right after a compaction, or one Claude marks as a summary.
- * Returns whether it did; any other frame of the main agent ends the wait for a summary.
+ * main agent's synthetic turn right after a compaction, one Claude marks as a summary, or one
+ * already folded and delivered again. Returns whether it did; any other frame of the main agent
+ * ends the wait for a summary.
  */
 export function compactSummary(state: ClaudeState, data: Data, seq: number): boolean {
-  if (state.agentFor(data) !== state.root) return false;
+  if (state.agentFor(data) !== state.root || data["type"] !== "user") {
+    if (state.agentFor(data) === state.root) state.compaction = undefined;
+    return false;
+  }
+  const uuid = string(data["uuid"]);
+  const folded = uuid ? state.compactSummaries.get(uuid) : undefined;
   const pending = state.compaction;
-  const marked = data["isCompactSummary"] === true;
-  const summary =
-    data["type"] === "user" && (marked || (pending && data["isSynthetic"] === true))
-      ? onlyText(data)
-      : undefined;
+  const eligible =
+    folded !== undefined ||
+    data["isCompactSummary"] === true ||
+    (pending !== undefined && data["isSynthetic"] === true);
+  const summary = eligible ? onlyText(data) : undefined;
   state.compaction = undefined;
   if (summary === undefined) return false;
+  const item = folded ?? pending ?? state.key("compact", uuid || String(seq));
+  if (uuid) state.compactSummaries.set(uuid, item);
+  const boundary = state.compactions.get(item);
   state.emit({
     type: "item.upsert",
     agent: state.root,
-    item: pending?.item ?? state.key("compact", string(data["uuid"], String(seq))),
+    item,
     draft: {
       type: "compaction",
       complete: true,
       summary,
-      raw: [...(pending ? [pending.raw] : []), raw(data)],
+      raw: [...(boundary ? [boundary] : []), raw(data)],
     },
   });
   return true;

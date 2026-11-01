@@ -198,6 +198,9 @@ function fold(
         else if (item.type === "message" && item.role === "assistant")
           record.activity = "responding";
         else if (item.type === "compaction") record.activity = "compacting";
+      } else if (item.type === "compaction" && record.activity === "compacting") {
+        // A finished compaction ends the compacting step even if no other frame follows it.
+        record.activity = "starting_turn";
       }
       break;
     }
