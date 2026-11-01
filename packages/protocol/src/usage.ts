@@ -81,6 +81,11 @@ export const UsageTotals = z.object({
   apiCacheReadUsd: adjustment.optional(),
   apiCacheWriteUsd: adjustment.optional(),
   apiOutputUsd: adjustment.optional(),
+  /**
+   * The part of `apiOutputUsd` for reasoning tokens, at the model's reasoning price (its output
+   * price when it lists none). Already inside `apiOutputUsd`; never add the two.
+   */
+  apiReasoningUsd: adjustment.optional(),
   /** What cache reads saved against the uncached input price, for priced models. */
   cacheSavingsUsd: adjustment.optional(),
 });

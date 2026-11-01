@@ -89,7 +89,8 @@
                       "needs_you",
                       "done",
                       "failed",
-                      "cancelled"
+                      "cancelled",
+                      "unknown"
                     ],
                     "type": "string"
                   },
@@ -132,6 +133,16 @@
                   "minimum": 0,
                   "type": "integer"
                 },
+                "queued": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "unknown": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "working": {
                   "maximum": 9007199254740991,
                   "minimum": 0,
@@ -140,12 +151,19 @@
               },
               "required": [
                 "working",
+                "queued",
                 "needs_you",
+                "unknown",
                 "done",
                 "failed",
                 "cancelled"
               ],
               "type": "object"
+            },
+            "omitted": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
             }
           },
           "required": [

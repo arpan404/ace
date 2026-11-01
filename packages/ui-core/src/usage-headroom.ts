@@ -125,16 +125,17 @@ export function usageHeadroom(limits: UsageLimits): PooledHeadroom[] {
   return limits.providers.map(pooledHeadroom);
 }
 
-/** One bar of the rail's Usage icon. */
+/** One bar of the rail's Usage icon: one account. */
 export interface HeadroomBar {
   key: string;
+  /** "Claude Code · Work"; the provider alone when it has one account. */
   label: string;
-  /** Pooled session left, 0–100. */
+  /** The account's usable session left, 0–100. */
   left: number;
   tone: HeadroomTone;
 }
 
-/** The rail icon: at most four bars, most-used provider first; `empty` with nothing to show. */
+/** The rail icon: one bar per account, at most four; none with nothing read. */
 export interface RailUsage {
   bars: HeadroomBar[];
   /** The icon's spoken name, which says the state in words. */
@@ -144,27 +145,38 @@ export interface RailUsage {
 const railBars = 4;
 
 /**
- * The rail's bars: one per provider used in the last seven days (tokens by provider kind), most
- * used first, at most four. Providers that can't be read are left out. Without usage figures
- * (`used` undefined, or nothing used this week), every provider with a reading shows, in the
- * page's order, so limits never hide behind a missing ranking.
+ * The rail's bars: one per account whose session can be read, so one account draws one bar and
+ * more accounts draw more, up to four. The accounts used most in the last seven days come first
+ * (`used`: tokens by account id); without usage figures (undefined, or nothing used this week),
+ * the page's order. Each bar is that account's usable session left: its session capped by its
+ * week. Accounts whose sign-in lapsed or whose session can't be read are left out.
  */
 export function railUsage(
-  headroom: readonly PooledHeadroom[],
+  limits: UsageLimits,
   used: ReadonlyMap<string, number> | undefined,
 ): RailUsage {
-  const readable = headroom.filter((entry) => entry.sessionLeft !== null);
+  const readable = limits.providers.flatMap((group) =>
+    group.accounts.flatMap((entry) => {
+      const left = usableSessionLeft(entry);
+      if (left === null) return [];
+      const label =
+        group.accounts.length > 1
+          ? `${group.providerLabel} · ${entry.account.label}`
+          : group.providerLabel;
+      return [{ key: entry.key, id: entry.account.id, label, left, tone: headroomTone(left) }];
+    }),
+  );
   const ranked =
     used && used.size > 0
       ? readable
-          .filter((entry) => (used.get(entry.provider) ?? 0) > 0)
-          .toSorted((a, b) => (used.get(b.provider) ?? 0) - (used.get(a.provider) ?? 0))
+          .filter((bar) => (used.get(bar.id) ?? 0) > 0)
+          .toSorted((a, b) => (used.get(b.id) ?? 0) - (used.get(a.id) ?? 0))
       : readable;
-  const bars = ranked.slice(0, railBars).map((entry) => {
-    const left = entry.sessionLeft ?? 0;
-    return { key: entry.key, label: entry.providerLabel, left, tone: headroomTone(left) };
-  });
-  return { bars, label: railLabel(bars) };
+  // Nothing used this week by any readable account: show them in the page's order.
+  const shown = (ranked.length ? ranked : readable)
+    .slice(0, railBars)
+    .map(({ id: _id, ...bar }) => bar);
+  return { bars: shown, label: railLabel(shown) };
 }
 
 function railLabel(bars: readonly HeadroomBar[]): string {

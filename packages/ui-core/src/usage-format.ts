@@ -48,3 +48,25 @@ export function growthSentence(
   if (ratio >= 10) return `${size} ${before(days)}`;
   return `${size} ${growth.direction === "up" ? "more" : "less"} than ${before(days)}`;
 }
+
+const priceDay = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+/**
+ * Where the page's prices come from, as one quiet line: "Prices from LiteLLM, updated Nov 1,
+ * 2026". The newest price date across the machines read; undefined when none says.
+ */
+export function priceNote(
+  reads: readonly { priceVersion?: string | undefined; priceAsOf?: string | undefined }[],
+): string | undefined {
+  const dated = reads.filter((read) => read.priceAsOf);
+  const newest = dated.toSorted((a, b) => ((b.priceAsOf ?? "") > (a.priceAsOf ?? "") ? 1 : -1))[0];
+  if (!newest?.priceAsOf) return undefined;
+  const from = newest.priceVersion?.startsWith("litellm") ? "LiteLLM" : "ace's price table";
+  const day = Date.parse(`${newest.priceAsOf}T00:00:00Z`);
+  return `Prices from ${from}, updated ${Number.isNaN(day) ? newest.priceAsOf : priceDay.format(day)}`;
+}

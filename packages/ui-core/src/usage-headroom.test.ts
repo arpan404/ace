@@ -60,13 +60,12 @@ function account(seed: Seed) {
   );
 }
 
-const headroom = (...seeds: Seed[]) =>
-  usageHeadroom(
-    usageLimits(
-      seeds.map((seed) => ({ account: account(seed), environment: "This Mac" })),
-      now,
-    ),
+const limits = (...seeds: Seed[]) =>
+  usageLimits(
+    seeds.map((seed) => ({ account: account(seed), environment: "This Mac" })),
+    now,
   );
+const headroom = (...seeds: Seed[]) => usageHeadroom(limits(...seeds));
 
 const claudePersonal: Seed = {
   provider: "claude",
@@ -102,51 +101,59 @@ test("an account whose sign-in lapsed or whose session can't be read doesn't cou
   expect(none?.sessionLeft ?? null).toBeNull();
 });
 
-test("the rail icon shows plenty, low and out per provider, most used first", () => {
-  const codex: Seed = {
-    provider: "codex",
-    id: "codex-personal",
-    label: "Personal",
-    isDefault: true,
-    session: [90, 60],
-  };
-  const list = headroom(claudePersonal, codex);
+const codexPersonal: Seed = {
+  provider: "codex",
+  id: "codex-personal",
+  label: "Personal",
+  isDefault: true,
+  session: [90, 60],
+};
+const bars = (rail: { bars: { label: string; left: number; tone: string }[] }) =>
+  rail.bars.map((bar) => [bar.label, bar.left, bar.tone]);
+
+test("one account draws one bar, named by its provider", () => {
+  expect(bars(railUsage(limits(claudePersonal), undefined))).toEqual([["Claude Code", 38, "ok"]]);
+});
+
+test("the icon grows a bar per account, most used first, up to four", () => {
+  const list = limits(
+    claudePersonal,
+    claudeWork,
+    codexPersonal,
+    { ...codexPersonal, id: "codex-team", label: "Team", isDefault: false, session: [100, 88] },
+    { ...codexPersonal, id: "codex-ci", label: "CI", isDefault: false, session: [10, 88] },
+  );
   const used = new Map([
-    ["codex", 900],
-    ["claude", 100],
+    ["codex-personal", 900],
+    ["claude-work", 500],
+    ["codex-team", 400],
+    ["claude-personal", 300],
+    ["codex-ci", 100],
   ]);
-  expect(railUsage(list, used).bars.map((bar) => [bar.label, bar.left, bar.tone])).toEqual([
-    ["Codex", 10, "low"],
-    ["Claude Code", 38, "ok"],
+  // Each bar is that account's own room: its session capped by its week.
+  expect(bars(railUsage(list, used))).toEqual([
+    ["Codex · Personal", 10, "low"],
+    ["Claude Code · Work", 43, "ok"],
+    ["Codex · Team", 0, "out"],
+    ["Claude Code · Personal", 38, "ok"],
   ]);
-  const out = headroom({ ...codex, session: [100, 88] });
-  expect(railUsage(out, undefined).bars[0]?.tone).toBe("out");
-  // A provider not used in the last week drops out of the icon.
-  expect(railUsage(list, new Map([["claude", 5]])).bars.map((bar) => bar.label)).toEqual([
-    "Claude Code",
+  // An account not used this week drops out of the icon.
+  expect(bars(railUsage(list, new Map([["claude-work", 5]])))).toEqual([
+    ["Claude Code · Work", 43, "ok"],
   ]);
 });
 
 test("the rail icon has no bars and says so with no usage data", () => {
-  const empty = railUsage([], undefined);
+  const empty = railUsage(limits(), undefined);
   expect(empty.bars).toEqual([]);
   expect(empty.label).toBe("Usage: no limits read yet");
 });
 
-test("the rail icon's name says each provider's room in words", () => {
-  const codex: Seed = {
-    provider: "codex",
-    id: "codex-personal",
-    label: "Personal",
-    isDefault: true,
-    session: [100, 88],
-  };
-  const list = headroom(claudePersonal, claudeWork, codex);
-  const used = new Map([
-    ["claude", 2],
-    ["codex", 1],
-  ]);
-  expect(railUsage(list, used).label).toBe("Usage: Claude Code 43% of session left, Codex out");
+test("the rail icon's name says each account's room in words", () => {
+  const list = limits(claudePersonal, { ...codexPersonal, session: [100, 88] });
+  expect(railUsage(list, undefined).label).toBe(
+    "Usage: Claude Code 38% of session left, Codex out",
+  );
 });
 
 test("with room everywhere, Now names the tightest provider and when it runs out at this pace", () => {

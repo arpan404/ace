@@ -118,6 +118,8 @@ export interface EnvironmentRead {
    * daemon that doesn't record skills or automations), so the list says so instead of failing.
    */
   breakdowns: Partial<Record<BreakdownDimension, readonly UsageRow[]>>;
+  /** The daemon's price table: its version ("litellm-…") and the day its prices are from. */
+  prices: { priceVersion: string; priceAsOf: string | undefined };
 }
 
 const breakdownLimit = 200;
@@ -159,6 +161,7 @@ async function readUsage(
     // The page shows no per-thread figures, so threads aren't read.
     usage: { daily: daily.rows, models: models.rows, threads: [], threadsTruncated: false },
     previous: earlier.rows,
+    prices: { priceVersion: daily.priceVersion, priceAsOf: daily.priceAsOf },
     breakdowns: Object.fromEntries(breakdowns.filter((entry) => entry[1] !== undefined)),
   };
 }

@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/MonitoredState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "working",
+    "queued",
+    "needs_you",
+    "done",
+    "failed",
+    "cancelled",
+    "unknown"
+  ],
+  "type": "string"
+}

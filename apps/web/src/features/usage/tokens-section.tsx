@@ -46,6 +46,8 @@ export function TokensSection(props: {
   report: UsageReport;
   period: string;
   money(value: number): string;
+  /** "Prices from LiteLLM, updated Nov 1, 2026". */
+  prices: string | undefined;
 }) {
   const table = tokenTable(props.report);
   const used = table.rows.filter((row) => row.tokens > 0);
@@ -129,6 +131,7 @@ export function TokensSection(props: {
         {table.unpricedTokens > 0 &&
           ` ${formatTokens(table.unpricedTokens)} tokens from unpriced models aren't in the costs.`}
       </p>
+      {props.prices && <p className="mt-1 text-xs text-subtle-foreground">{props.prices}</p>}
     </section>
   );
 }

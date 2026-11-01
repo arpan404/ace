@@ -44,8 +44,9 @@ export function tokenTable(report: UsageReport): TokenTable {
   const write1h = Math.min(write, Math.max(0, report.cacheWrite1hTokens));
   const output = Math.max(0, types.output);
   const reasoning = Math.min(output, Math.max(0, report.reasoningTokens));
-  // Reasoning is priced as output: its share of output's cost is its share of output's tokens.
-  const reasoningUsd = costs.output * ratio(reasoning, output);
+  // Reasoning is a part of output's cost at its own price; a daemon that doesn't split it out
+  // leaves it priced as output, so its share of output's cost is its share of the tokens.
+  const reasoningUsd = report.reasoningUsd ?? costs.output * ratio(reasoning, output);
   const parts: Omit<TokenRow, "tokenShare" | "costShare">[] = [
     { kind: "cacheRead", label: "Cache reads", tokens: types.cacheRead, usd: costs.cacheRead },
     {

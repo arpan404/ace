@@ -59,7 +59,7 @@
       "type": "integer"
     },
     "state": {
-      "$ref": "https://ace.local/protocol/v1/WatchedState.json"
+      "$ref": "https://ace.local/protocol/v1/MonitoredState.json"
     },
     "step": {
       "maxLength": 60,

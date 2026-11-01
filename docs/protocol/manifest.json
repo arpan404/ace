@@ -21,8 +21,8 @@
       "sha256": "d371a0f68d1e034fbadfd7ddcafde7857b95194b1f54d811c9593609242e9eba"
     },
     "mcp.md": {
-      "bytes": 69639,
-      "sha256": "3627e561e1a26cfa4c4cf5d154c5d3057b9ac735c52a70a7dd44d80509c4a43d"
+      "bytes": 69880,
+      "sha256": "39b9d0deb00e043feed32165016ff3248f3b6046b42357d59606269d9d78b0c5"
     },
     "models.md": {
       "bytes": 16093,
@@ -2401,12 +2401,16 @@
       "sha256": "b67fd5a6a10219b671c64285771102089b135cad870b328471ee1567685cd6d4"
     },
     "schema/MonitorSnapshot.json": {
-      "bytes": 1196,
-      "sha256": "049cd51bbacf200d5b4f1703a41d24c7f35b1cd3781ae44d852b205cb6ad76fe"
+      "bytes": 1590,
+      "sha256": "6276c904c7f297ba1ae236f1c1a2bb0f2ad56e304f382b8c25cb92dc5f4031e5"
     },
     "schema/MonitoredChild.json": {
-      "bytes": 1548,
-      "sha256": "83e6c7f5de2c2aea31972e7b948e9fb86246b9e9b1f7ee40d01dc27ca9e1060a"
+      "bytes": 1550,
+      "sha256": "f3cb788ec44e41ca611c03903ddc8ca3f3af46d9490ecdfcb0e1d3ffb26c358d"
+    },
+    "schema/MonitoredState.json": {
+      "bytes": 266,
+      "sha256": "da945ab034eaeb2c8a307d1b86f2fc3d15e401dfafb12f525bf0786ee44edd16"
     },
     "schema/NativeAccountProvider.json": {
       "bytes": 236,
@@ -4321,8 +4325,8 @@
       "sha256": "7ccc1a6cf98998e6b3d87d4447dcac78e814d8d311750b7aca7c45df7d2a7eee"
     },
     "schema/UsageTotals.json": {
-      "bytes": 2037,
-      "sha256": "bbe02820ba4fd863c19b7075af0c6a6e341c98f4eeb321610a015dc64f9ce0d7"
+      "bytes": 2092,
+      "sha256": "6d7e2fcecf83bcad81db77fd6bb03042a65987c8b7ca810ccad0fbda59c33a6c"
     },
     "schema/UsageUpdated.json": {
       "bytes": 2228,
@@ -4541,8 +4545,8 @@
       "sha256": "ec31fbdedc085c866700ded104763ffcc7c3ba7519a8b912f4c80417eb91cac5"
     },
     "schema/agents_status.output.json": {
-      "bytes": 6382,
-      "sha256": "e0f5e912bf8a86dfff3201a2004bf342cab1b40c796bc39ed7ec6d92a5b0357b"
+      "bytes": 6945,
+      "sha256": "326477e829d4e5e197ee45adbc104214843978fa62c834ba65e0d3b41038233a"
     },
     "schema/ask.input.json": {
       "bytes": 926,
@@ -4785,10 +4789,10 @@
       "sha256": "571045442f6b19fd7ecf97ce180c84085c282b10849598f40e85882a4be2f437"
     },
     "types.md": {
-      "bytes": 988300,
-      "sha256": "c5d9c1834db4bf4a340ca8b6537696203e4159318c6250bb6b5015f1ccc2b9c3"
+      "bytes": 988860,
+      "sha256": "e64fa7128771824163ddf8bbbe7a016bfc7bc421a7daa37da315c9485d5ada96"
     }
   },
-  "input": "18cea9e61acfd3692d4cf8e6bf3a92f8931b84ce8722e62a57b227d31be5c2dd",
+  "input": "cbf03a700407a6320c1cbf0fc42ebf8bc1aba03e5e0bdda6a4aacd59342cc2ae",
   "version": 1
 }

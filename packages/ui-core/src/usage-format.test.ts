@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { growthSentence, usageMoney, usagePercent } from "./usage-format.ts";
+import { growthSentence, priceNote, usageMoney, usagePercent } from "./usage-format.ts";
 
 test("money is whole dollars once the period reaches $100, cents below", () => {
   const large = usageMoney(1518);
@@ -18,4 +18,17 @@ test("change against the period before is said in words, never a bare sign", () 
   expect(growthSentence(100, 100, 30)).toBe("About the same as the previous 30 days");
   expect(growthSentence(5, 0, 30)).toBe("Nothing in the previous 30 days to compare");
   expect(growthSentence(0, 0, 30)).toBeUndefined();
+});
+
+test("the price note names LiteLLM and the newest price date among the machines read", () => {
+  expect(
+    priceNote([
+      { priceVersion: "litellm-2026-10-30/contract-v2", priceAsOf: "2026-10-30" },
+      { priceVersion: "litellm-2026-11-01/contract-v2", priceAsOf: "2026-11-01" },
+    ]),
+  ).toBe("Prices from LiteLLM, updated Nov 1, 2026");
+  expect(priceNote([{ priceVersion: "2026-10-07.1", priceAsOf: "2026-10-07" }])).toBe(
+    "Prices from ace's price table, updated Oct 7, 2026",
+  );
+  expect(priceNote([{ priceVersion: "litellm-x" }])).toBeUndefined();
 });

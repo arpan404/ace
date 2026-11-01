@@ -540,9 +540,31 @@ test("clicking a row in Where it went filters the whole page to it, and Clear un
 
 test("token types with none fold into one quiet line instead of zero rows", async () => {
   const app = harness();
-  app.daemon.services.usage.sources = [source("codex", "codex-personal", "gpt-5.3-codex", 5)];
+  const usage = app.daemon.services.usage;
+  usage.sources = [source("codex", "codex-personal", "gpt-5.3-codex", 5)];
+  // A period with no cache writes at all.
+  const answer = usage.report.bind(usage);
+  usage.report = (query, kind) => {
+    const result = answer(query, kind);
+    for (const row of result.rows)
+      Object.assign(row.totals, {
+        cacheWriteTokens: 0,
+        cacheWrite1hTokens: 0,
+        apiCacheWriteUsd: 0,
+      });
+    return result;
+  };
   await app.open("/usage");
   const table = await screen.findByRole("table", { name: "Tokens and cost by type" });
   expect(within(table).queryByRole("rowheader", { name: /Cache writes/ })).toBeNull();
   expect(screen.getByText("No cache writes in this period.")).toBeTruthy();
+});
+
+test("Spend and Tokens say where prices come from and when they were updated", async () => {
+  const app = harness();
+  app.daemon.services.usage.sources = [source("codex", "codex-personal", "gpt-5.3-codex", 5)];
+  await app.open("/usage");
+  const note = await screen.findAllByText(/^Prices from LiteLLM, updated \w+ \d+, \d{4}$/);
+  // Once under the Spend chart, once under the Tokens table.
+  expect(note).toHaveLength(2);
 });

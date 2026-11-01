@@ -123,3 +123,27 @@ test("clicking a breakdown row filters usage queries by its dimension; a machine
   expect(usageQueryFilters({ kind: "machine", key: "studio", label: "Studio" })).toEqual({});
   expect(usageQueryFilters(undefined)).toEqual({});
 });
+
+test("reasoning priced at its own rate is taken out of output's cost, not added to it", () => {
+  const priced = row(
+    { day: "2026-11-01", provider: "claude" },
+    {
+      inputTokens: 100,
+      outputTokens: 400,
+      reasoningTokens: 100,
+      apiInputUsd: 1,
+      apiOutputUsd: 4,
+      // Reasoning costs twice output's rate here: $2 of the $4.
+      apiReasoningUsd: 2,
+    },
+  );
+  const result = tokenTable(
+    usageReport(
+      [{ daily: [priced], models: [], threads: [], threadsTruncated: false }],
+      ["2026-11-01"],
+    ),
+  );
+  expect(result.rows.find((entry) => entry.kind === "reasoning")?.usd).toBeCloseTo(2);
+  expect(result.rows.find((entry) => entry.kind === "output")?.usd).toBeCloseTo(2);
+  expect(result.usd).toBeCloseTo(5);
+});

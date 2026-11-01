@@ -38,7 +38,7 @@ const source = (provider: string, account: string, daily: number): UsageSource =
 
 const appNav = () => screen.findByRole("navigation", { name: "App" });
 
-test("the rail's Usage icon says each provider's pooled session in words, most used first", async () => {
+test("the rail's Usage icon says each account's session in words, most used first", async () => {
   const app = harness();
   session(app.daemon, "claude-personal", 62, 121);
   session(app.daemon, "claude-work", 86, 180);
@@ -49,10 +49,10 @@ test("the rail's Usage icon says each provider's pooled session in words, most u
     source("claude", "claude-personal", 100_000),
   ];
   await app.open("/new");
-  // Codex was used most this week; Claude Code's pool is its best account, Personal.
+  // One bar per account used this week, Codex's Personal first: it was used most.
   expect(
     await within(await appNav()).findByRole("link", {
-      name: "Usage: Codex 62% of session left, Claude Code 38%",
+      name: "Usage: Codex · Personal 62% of session left, Claude Code · Personal 38%",
     }),
   ).toBeTruthy();
 });
@@ -69,7 +69,7 @@ test("a provider out on every account reads out in the icon's name and its card"
   ];
   await app.open("/new");
   const usage = await within(await appNav()).findByRole("link", {
-    name: "Usage: Codex out, Claude Code 90%",
+    name: "Usage: Codex · Personal out, Claude Code · Personal 90%",
   });
   await userEvent.hover(usage);
   const card = await screen.findByText("Codex is out; it's back in 1h 28m.");

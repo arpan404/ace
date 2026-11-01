@@ -18615,7 +18615,7 @@ Example:
 | id | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | parent | no | [ThreadId.json](schema/ThreadId.json) |  |
 | role | yes | string | {"maxLength":40} |
-| state | yes | [WatchedState.json](schema/WatchedState.json) |  |
+| state | yes | [MonitoredState.json](schema/MonitoredState.json) |  |
 | step | no | string | {"maxLength":60} |
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -18642,6 +18642,18 @@ Example:
 }
 ```
 
+## MonitoredState
+
+[JSON Schema](schema/MonitoredState.json), input validation.
+
+Type: ["working","queued","needs_you","done","failed","cancelled","unknown"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"queued"
+```
+
 ## MonitorSnapshot
 
 [JSON Schema](schema/MonitorSnapshot.json), input validation.
@@ -18649,7 +18661,8 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | children | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/MonitoredChild.json"}} |
-| counts | yes | object | {"properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"]} |
+| omitted | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| counts | yes | object | {"properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"queued":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"unknown":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","queued","needs_you","unknown","done","failed","cancelled"]} |
 
 Example:
 
@@ -18657,11 +18670,13 @@ Example:
 {
   "children": [],
   "counts": {
-    "cancelled": 7,
-    "done": 1,
-    "failed": 1,
-    "needs_you": 7,
-    "working": 3
+    "cancelled": 9,
+    "done": 3,
+    "failed": 7,
+    "needs_you": 1,
+    "queued": 1,
+    "unknown": 7,
+    "working": 7
   }
 }
 ```
@@ -35282,6 +35297,7 @@ Example:
     "apiCacheReadUsd": 4,
     "apiCacheWriteUsd": 2,
     "apiInputUsd": 0,
+    "cacheSavingsUsd": 5,
     "cacheWrite1hTokens": 5,
     "cacheWriteTokens": 3,
     "cachedInputTokens": 7,
@@ -35474,6 +35490,7 @@ Example:
 | apiCacheReadUsd | no | number |  |
 | apiCacheWriteUsd | no | number |  |
 | apiOutputUsd | no | number |  |
+| apiReasoningUsd | no | number |  |
 | cacheSavingsUsd | no | number |  |
 
 Example:
@@ -35481,7 +35498,7 @@ Example:
 ```json
 {
   "apiCacheReadUsd": 0,
-  "cacheSavingsUsd": 5,
+  "apiReasoningUsd": 5,
   "cacheWrite1hTokens": 5,
   "cacheWriteTokens": 5,
   "cachedInputTokens": 2,

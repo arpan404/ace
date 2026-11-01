@@ -24,6 +24,8 @@ export function SpendSection(props: {
   metric: Metric;
   onMetric(metric: Metric): void;
   money(value: number): string;
+  /** "Prices from LiteLLM, updated Nov 1, 2026". */
+  prices: string | undefined;
   providerName(id: string): string;
   /** Narrow the page to one provider. */
   onProvider(id: string): void;
@@ -91,6 +93,9 @@ export function SpendSection(props: {
           </li>
         ))}
       </ul>
+      {props.prices && cost && (
+        <p className="mt-2 ml-11 text-xs text-subtle-foreground">{props.prices}</p>
+      )}
     </section>
   );
 }

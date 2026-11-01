@@ -72,6 +72,11 @@ export interface UsageReport {
   subscriptionTokens: number;
   /** The API estimate for tokens on API-key accounts: what they are billed at list prices. */
   apiBilledUsd: number;
+  /**
+   * The part of `costTypes.output` for reasoning, at each model's reasoning price; undefined when
+   * a daemon too old to split it answered (the table then splits output cost by tokens).
+   */
+  reasoningUsd: number | undefined;
   models: ModelUsage[];
 }
 
@@ -153,6 +158,7 @@ export function usageReport(
     cacheWrite1hTokens: 0,
     subscriptionTokens: 0,
     apiBilledUsd: 0,
+    reasoningUsd: 0 as number | undefined,
   };
   const models = new Map<string, ModelUsage & { unpriced: number }>();
   for (const environment of environments) {
@@ -176,6 +182,12 @@ export function usageReport(
       report.cacheWrite1hTokens += totals.cacheWrite1hTokens;
       report.subscriptionTokens += totals.subscriptionTokens;
       report.apiBilledUsd += totals.estimatedUsd;
+      // One row without the split makes the whole figure unknown, never a partial sum.
+      if (report.reasoningUsd !== undefined)
+        report.reasoningUsd =
+          totals.apiReasoningUsd === undefined && totals.reasoningTokens > 0
+            ? undefined
+            : report.reasoningUsd + (totals.apiReasoningUsd ?? 0);
       report.tokenTypes.input +=
         totals.inputTokens - totals.cachedInputTokens - totals.cacheWriteTokens;
       report.tokenTypes.cacheRead += totals.cachedInputTokens;

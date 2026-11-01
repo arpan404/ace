@@ -22,9 +22,9 @@ export interface UsageHeadroom {
 }
 
 /**
- * This machine's room per provider, for the rail's Usage bars and their card. Limits come from
- * the app's live accounts read (a provider's limit push updates it); the seven-day ranking of
- * providers is read again only when a limit changes, never on a timer.
+ * This machine's room, for the rail's Usage bars (one per account) and their card (per
+ * provider). Limits come from the app's live accounts read (a provider's limit push updates it);
+ * the seven-day ranking of accounts is read again only when a limit changes, never on a timer.
  */
 export function useUsageHeadroom(): UsageHeadroom {
   const now = useNow();
@@ -45,11 +45,11 @@ export function useUsageHeadroom(): UsageHeadroom {
     staleTime: Number.POSITIVE_INFINITY,
     placeholderData: (previous) => previous,
     read: async (client, signal) => {
-      const query = UsageQuery.parse({ from, to, groupBy: ["provider"], limit: 50 });
+      const query = UsageQuery.parse({ from, to, groupBy: ["account"], limit: 100 });
       const reply = await client.request({ type: "usage.summary", query }, { signal });
       return new Map(
         reply.result.rows.map((row) => [
-          row.dimensions.provider ?? "",
+          row.dimensions.account ?? "",
           row.totals.inputTokens + row.totals.outputTokens,
         ]),
       );
@@ -57,16 +57,15 @@ export function useUsageHeadroom(): UsageHeadroom {
   });
   // Minute steps are enough for the bars; the card's countdowns read `now` themselves.
   const minute = Math.floor(now / 60_000);
-  const headroom = useMemo(
+  const limits = useMemo(
     () =>
-      usageHeadroom(
-        usageLimits(
-          (accounts ?? []).map((account) => ({ account, environment: "This machine" })),
-          minute * 60_000,
-        ),
+      usageLimits(
+        (accounts ?? []).map((account) => ({ account, environment: "This machine" })),
+        minute * 60_000,
       ),
     [accounts, minute],
   );
-  const rail = useMemo(() => railUsage(headroom, used.data), [headroom, used.data]);
+  const headroom = useMemo(() => usageHeadroom(limits), [limits]);
+  const rail = useMemo(() => railUsage(limits, used.data), [limits, used.data]);
   return { headroom, rail, observedAt, now };
 }

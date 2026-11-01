@@ -40,6 +40,7 @@ const totalsSql = `SUM(CAST(d.input AS REAL)) AS inputTokens, SUM(CAST(d.output 
   SUM(COALESCE(d.cached*p.cached/1000000.0,0)) AS apiCacheReadUsd,
   SUM(COALESCE(((d.write-d.write1h)*p.write + d.write1h*p.write1h)/1000000.0,0)) AS apiCacheWriteUsd,
   SUM(COALESCE(((d.output-d.reasoning)*p.output+d.reasoning*p.reasoning)/1000000.0,0)) AS apiOutputUsd,
+  SUM(COALESCE(d.reasoning*p.reasoning/1000000.0,0)) AS apiReasoningUsd,
   SUM(COALESCE(d.cached*(p.input-p.cached)/1000000.0,0)) AS cacheSavingsUsd,
   SUM(CASE WHEN p.model IS NULL THEN CAST(d.input AS REAL)+CAST(d.output AS REAL) ELSE 0 END) AS unpricedTokens,
   SUM(CASE WHEN p.model IS NULL THEN 1 ELSE 0 END) AS missingPrices,

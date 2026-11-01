@@ -11,6 +11,7 @@ import {
   usageDay,
   usageHeadroom,
   usageLimits,
+  priceNote,
   usageMoney,
   usageNow,
   usageQueryFilters,
@@ -129,6 +130,7 @@ export function UsagePage() {
   }, [usage.data, span.from, span.to]);
   // One money format for the page, to the scale of the period's total.
   const money = usageMoney(report?.usd ?? 0);
+  const prices = priceNote(usage.data?.machines.map((read) => read.prices) ?? []);
   const lists = useMemo(() => usage.data && breakdownLists(usage.data.machines), [usage.data]);
   const name = breakdownNamer({
     machines: usage.data?.machines ?? [],
@@ -313,6 +315,7 @@ export function UsagePage() {
                 period={periods[range]}
                 days={Number(range)}
                 money={money}
+                prices={prices}
                 metric={metric}
                 onMetric={setMetric}
                 providerName={(id) => name("provider", id)}
@@ -320,7 +323,12 @@ export function UsagePage() {
                   applyFilter({ kind: "provider", key: id, label: name("provider", id) })
                 }
               />
-              <TokensSection report={report} period={periods[range]} money={money} />
+              <TokensSection
+                report={report}
+                period={periods[range]}
+                money={money}
+                prices={prices}
+              />
               <WhereItWent
                 lists={lists}
                 metric={metric}
