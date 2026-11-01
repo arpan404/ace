@@ -24,8 +24,13 @@ export async function snapshotDatabases(dataDir: string, destination: string): P
   for (const name of names) {
     const db = new DatabaseSync(join(dataDir, name), { readOnly: true });
     try {
+      // Copy one read snapshot. Without an open read transaction, any write from another
+      // connection restarts SQLite's online backup, and a steady writer restarts it forever.
+      db.exec("BEGIN");
+      db.prepare("SELECT count(*) FROM sqlite_schema").get();
       await backup(db, join(destination, name));
     } finally {
+      if (db.isTransaction) db.exec("COMMIT");
       db.close();
     }
   }
