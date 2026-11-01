@@ -49,6 +49,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
 import { whenIdle } from "@/lib/idle.ts";
+import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
 import { DeferredThreadHotkeys, DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
@@ -143,6 +144,9 @@ function ThreadScreen(props: {
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [merging, setMerging] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  // Asked with the screen, not when ⋯ opens, so "Continue on…" is in the menu from the start
+  // instead of appearing under the pointer once the answer comes back.
+  useHasLinkedMachines();
   const id = props.threadId;
   const openForkOf = useOpenFork();
   const openFork = useCallback((point: ForkPoint) => openForkOf(id, point), [openForkOf, id]);
