@@ -29,7 +29,7 @@ function source(used: ReadonlySet<UsageDimension>): string {
 }
 // Late cache classification produces signed adjustments. Linear pricing stays additive across groups.
 export const estimateSql = `((d.input-d.cached-d.write)*p.input + d.cached*p.cached +
-  (d.write-d.write1h)*p.write + d.write1h*p.write1h + d.output*p.output)/1000000.0`;
+  (d.write-d.write1h)*p.write + d.write1h*p.write1h + ((d.output-d.reasoning)*p.output+d.reasoning*p.reasoning))/1000000.0`;
 const totalsSql = `SUM(CAST(d.input AS REAL)) AS inputTokens, SUM(CAST(d.output AS REAL)) AS outputTokens,
   SUM(CAST(d.cached AS REAL)) AS cachedInputTokens, SUM(CAST(d.reasoning AS REAL)) AS reasoningTokens,
   SUM(CAST(d.write AS REAL)) AS cacheWriteTokens, SUM(CAST(d.write1h AS REAL)) AS cacheWrite1hTokens,
@@ -39,7 +39,7 @@ const totalsSql = `SUM(CAST(d.input AS REAL)) AS inputTokens, SUM(CAST(d.output 
   SUM(COALESCE((d.input-d.cached-d.write)*p.input/1000000.0,0)) AS apiInputUsd,
   SUM(COALESCE(d.cached*p.cached/1000000.0,0)) AS apiCacheReadUsd,
   SUM(COALESCE(((d.write-d.write1h)*p.write + d.write1h*p.write1h)/1000000.0,0)) AS apiCacheWriteUsd,
-  SUM(COALESCE(d.output*p.output/1000000.0,0)) AS apiOutputUsd,
+  SUM(COALESCE(((d.output-d.reasoning)*p.output+d.reasoning*p.reasoning)/1000000.0,0)) AS apiOutputUsd,
   SUM(COALESCE(d.cached*(p.input-p.cached)/1000000.0,0)) AS cacheSavingsUsd,
   SUM(CASE WHEN p.model IS NULL THEN CAST(d.input AS REAL)+CAST(d.output AS REAL) ELSE 0 END) AS unpricedTokens,
   SUM(CASE WHEN p.model IS NULL THEN 1 ELSE 0 END) AS missingPrices,
@@ -95,18 +95,18 @@ export function queryRows(
   // Aggregate counts before evaluating prices. A year has many agent/day rows,
   // but only a few model/billing combinations per requested group.
   const aggregate = `SELECT ${selectGroups ? `${selectGroups}, ` : ""}
-    d.model AS pricing_model, d.billing,
+    d.model AS pricing_model, d.day AS pricing_day, d.billing,
     SUM(CAST(d.input AS REAL)) AS input, SUM(CAST(d.output AS REAL)) AS output, SUM(CAST(d.cached AS REAL)) AS cached,
     SUM(CAST(d.reasoning AS REAL)) AS reasoning, SUM(CAST(d.write AS REAL)) AS write, SUM(CAST(d.write1h AS REAL)) AS write1h, SUM(d.cost) AS cost
     FROM ${from} WHERE ${clauses.join(" AND ")}
-    GROUP BY ${[...groups.map((g) => queryColumns[g]), "d.model", "d.billing"].join(", ")}`;
+    GROUP BY ${[...groups.map((g) => queryColumns[g]), "d.day", "d.model", "d.billing"].join(", ")}`;
   const sql =
     groups.length === 1 && groups[0] === "day"
       ? `${cte} SELECT ${selectGroups}, ${totalsSql}
-        FROM ${from} LEFT JOIN usage_prices p ON p.model=d.model
+        FROM ${from} LEFT JOIN usage_prices p ON p.model=d.model AND d.day>=p.start AND d.day<p.end
         WHERE ${clauses.join(" AND ")} ${groupSql} ORDER BY ${order}${tie} LIMIT ?`
       : `${cte} SELECT ${groups.map((g) => `d."${g}" AS "${g}", `).join("")}${totalsSql}
-        FROM (${aggregate}) d LEFT JOIN usage_prices p ON p.model=d.pricing_model
+        FROM (${aggregate}) d LEFT JOIN usage_prices p ON p.model=d.pricing_model AND d.pricing_day>=p.start AND d.pricing_day<p.end
         ${groups.length ? `GROUP BY ${groups.map((g) => `d."${g}"`).join(", ")}` : ""} ORDER BY ${order}${tie} LIMIT ?`;
   const result: UsageRow[] = [];
   let bytes = 2;

@@ -165,3 +165,33 @@ holds only ace's APNs key and its own sealing key. It sees device tokens, daemon
 timing and size, never provider credentials, prompts, code, transcripts or alert text, and it
 stores nothing. Every other clause of this ADR stands: providers are still reached only through
 the person's own CLIs, and no other part of ace is hosted.
+
+## Amendment: public model prices
+
+Date: 2026-11-01. Approved by the owner. The local usage worker may fetch
+LiteLLM's public `model_prices_and_context_window.json` from
+`https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json`.
+It sends only conditional HTTP validators, never credentials, model ids, usage,
+prompts or other user data. Redirects are refused. This is a public metadata read,
+not provider inference, hosting or a credential proxy.
+
+The worker fetches only on usage ingestion, when a used model has no downloaded
+price or its own fetched-at time is at least three days old. `PRICE_MAX_AGE_MS`
+is the single expiry constant. There is no periodic or startup fetch. Requests
+are limited to one per hour across restarts; concurrent attempts coalesce and
+failures back off. Conditional validators are sent when all requested models
+are cached. A newly encountered model needs a body, so that request omits the
+validators. Requests time out in five seconds.
+
+The full response is parsed transiently in the worker; only models observed in
+usage are normalized and retained, with recent and most-used models first.
+`usage-price-cache.json` under the daemon's data directory stores per-model
+prices and fetched-at times, never the downloaded catalogue. A validated
+replacement is written to a temporary file then renamed atomically. Expired
+entries stay usable until replaced. A failed, malformed or partial download
+leaves the cache file byte-for-byte unchanged and logs one fixed line. Attempt
+limits/backoff live separately in `usage-price-cache.json.attempts`, so failure
+bookkeeping cannot alter good cached prices. SQLite pricing history also stores
+only models seen in usage. The bundled snapshot remains the offline fallback.
+Set `"fetchPrices": false` in `usage-settings.json` in that directory and restart
+the daemon to use only bundled prices, ignoring the downloaded cache.
