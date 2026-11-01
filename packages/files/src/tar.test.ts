@@ -3,9 +3,9 @@ import tar from "tar-stream";
 import { tarHeaders } from "./tar.ts";
 
 /** The first member's header as an independent tar reader decodes it. */
-async function readHeader(blocks: Buffer[]): Promise<tar.Headers> {
+async function readHeader(blocks: Buffer[]): Promise<tar.Header> {
   const extract = tar.extract();
-  const header = new Promise<tar.Headers>((resolve, reject) => {
+  const header = new Promise<tar.Header>((resolve, reject) => {
     extract.once("entry", (entry) => {
       resolve(entry);
       extract.destroy();

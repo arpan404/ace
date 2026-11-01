@@ -8,9 +8,7 @@ import {
   assertExpectations,
 } from "@ace/adapter-testkit";
 import { createOpenCodeAdapter } from "./index.ts";
-const versions = [
-  { path: "2.0.22/muse-spark-1.3-contributor", adapter: createOpenCodeAdapter() },
-];
+const versions = [{ path: "2.0.22/muse-spark-1.3-contributor", adapter: createOpenCodeAdapter() }];
 for (const version of versions) {
   const directory = fileURLToPath(
     new URL(`../../../fixtures/opencode/${version.path}/`, import.meta.url),

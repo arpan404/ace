@@ -54,4 +54,3 @@ test("4997.42 events/s is rejected and replaced only by a passing complete repea
   );
   expect(accepted).toBe(5040);
 });
-
