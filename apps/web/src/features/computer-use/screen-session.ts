@@ -86,16 +86,22 @@ const offline: ScreenSnapshot = {
   states: [],
 };
 
-function openSession(endpoint: DaemonEndpoint): ScreenSession {
+/**
+ * A new channel starts from what the last one knew for this endpoint (on or off, the grants,
+ * whether there's a helper), so returning to Computer use shows apps as on while it connects,
+ * never off then on. Each fact is replaced as soon as the daemon answers it again. Sessions
+ * aren't carried over: their pictures need the new channel.
+ */
+function openSession(endpoint: DaemonEndpoint, known: ScreenSnapshot = offline): ScreenSession {
   const client = new ScreenStreamClient({ id: () => crypto.randomUUID(), schedule });
   const listeners = new Set<() => void>();
   const holders = new Map<string, ScreenAgentScope>();
   let opening = true;
   let wasConnected = false;
-  let permissions: ScreenPermissions | undefined;
+  let permissions: ScreenPermissions | undefined = known.permissions;
   let permissionsProblem: ScreenSnapshot["permissionsProblem"];
-  let unavailable = false;
-  let snapshot: ScreenSnapshot = offline;
+  let unavailable = known.unavailable;
+  let snapshot: ScreenSnapshot = { ...offline, enabled: known.enabled, permissions, unavailable };
   const publish = () => {
     const next = client.getSnapshot();
     for (const state of next.states)
@@ -104,7 +110,7 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
       connected: next.connected,
       // Closed once an opened channel drops (it then carries why); one still connecting isn't.
       closed: !opening && !next.connected && next.error !== undefined,
-      enabled: next.enabled,
+      enabled: next.enabled ?? known.enabled,
       permissions,
       permissionsProblem,
       unavailable,
@@ -205,6 +211,9 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
   };
 }
 
+/** What each endpoint's last channel knew when it closed, for the next one to start from. */
+const lastKnown = new WeakMap<DaemonEndpoint, ScreenSnapshot>();
+
 interface Shared {
   session: ScreenSession;
   users: number;
@@ -216,7 +225,12 @@ const shared = new WeakMap<DaemonEndpoint, Shared>();
 function acquire(endpoint: DaemonEndpoint, client: ClientApi): Shared {
   let entry = shared.get(endpoint);
   if (!entry) {
-    entry = { session: openSession(endpoint), users: 0, stop: () => {}, listeners: new Set() };
+    entry = {
+      session: openSession(endpoint, lastKnown.get(endpoint)),
+      users: 0,
+      stop: () => {},
+      listeners: new Set(),
+    };
     shared.set(endpoint, entry);
     let wasReady = client.state === "ready";
     entry.stop = client.connectionState().subscribe(() => {
@@ -234,6 +248,7 @@ function release(endpoint: DaemonEndpoint, entry: Shared) {
   entry.users--;
   if (entry.users > 0) return;
   entry.stop();
+  lastKnown.set(endpoint, entry.session.get());
   entry.session.close();
   if (shared.get(endpoint) === entry) shared.delete(endpoint);
 }
@@ -241,8 +256,9 @@ function release(endpoint: DaemonEndpoint, entry: Shared) {
 function reopen(endpoint: DaemonEndpoint) {
   const entry = shared.get(endpoint);
   if (!entry) return;
+  const known = entry.session.get();
   entry.session.close();
-  entry.session = openSession(endpoint);
+  entry.session = openSession(endpoint, known);
   for (const listener of entry.listeners) listener();
 }
 

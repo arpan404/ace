@@ -273,3 +273,33 @@ test("enabling computer use replaces cached disabled permissions with the helper
     expect(within(permissions).queryByRole("button", { name: "Grant access" })).toBeNull(),
   );
 });
+
+test("coming back to Computer use shows apps as still on while the screen channel reconnects", async () => {
+  const { app } = await openSettings();
+  await app.open("/settings/computer-use");
+  await page();
+  await userEvent.click(await screen.findByRole("switch", { name: "Let agents use apps" }));
+  await waitFor(() => expect(app.daemon.screen.enabled).toBe(true));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("switch", { name: "Let agents use apps" }).getAttribute("aria-checked"),
+    ).toBe("true"),
+  );
+
+  await userEvent.click(screen.getByRole("link", { name: "General" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("switch", { name: "Let agents use apps" })).toBeNull(),
+  );
+  // Record every state the switch shows from the moment the page comes back.
+  const seen: (string | null)[] = [];
+  const observer = new MutationObserver(() => {
+    const toggle = screen.queryByRole("switch", { name: "Let agents use apps" });
+    if (toggle) seen.push(toggle.getAttribute("aria-checked"));
+  });
+  observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+  await userEvent.click(screen.getByRole("link", { name: "Computer use" }));
+  await page();
+  await waitFor(() => expect(seen.at(-1)).toBe("true"));
+  observer.disconnect();
+  expect(seen).not.toContain("false");
+});
