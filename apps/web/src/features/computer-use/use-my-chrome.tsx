@@ -83,6 +83,7 @@ export function UseMyChromeSettings() {
       ) : (
         <>
           <SettingRow
+            id="browser.userChrome.connection"
             title="Browser connection"
             description={
               installed

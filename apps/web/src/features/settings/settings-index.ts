@@ -186,6 +186,12 @@ const entries = [
     keywords: ["android", "emulator", "window", "headless", "sensors", "fingerprint", "camera"],
   },
   {
+    id: "browser.userChrome.connection",
+    page: "/settings/computer-use",
+    title: "Browser connection",
+    keywords: ["use my chrome", "extension", "install", "browser", "chrome"],
+  },
+  {
     id: "browser.userChrome.storageReads",
     page: "/settings/computer-use",
     title: "Let agents read cookies and site storage",

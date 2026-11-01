@@ -165,7 +165,9 @@ export function BrowserSettings() {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => void navigate({ to: "/settings/computer-use" })}
+            onClick={() =>
+              void navigate({ to: "/settings/computer-use", hash: "browser.userChrome.connection" })
+            }
           >
             Use my Chrome settings
           </Button>
