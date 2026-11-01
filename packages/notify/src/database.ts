@@ -157,6 +157,7 @@ export class NotificationDatabase {
           const state = CompactThread.parse({
             archived: event.payload.thread.archivedAt !== undefined,
             deleted: event.payload.thread.deletedAt !== undefined,
+            remote: event.payload.thread.remote === true,
             title: event.payload.thread.title.slice(0, 200),
             status: event.payload.thread.status,
           });
@@ -190,7 +191,8 @@ export class NotificationDatabase {
           JSON.stringify(CompactThread.parse(state)),
           event.threadId,
         );
-        if (state.deleted) {
+        // Alerts already queued for a thread that turned out to be a paired machine's are dropped.
+        if (state.deleted || state.remote) {
           this.statement("DELETE FROM jobs WHERE thread=?").run(event.threadId);
           this.ledger.forgetThread(event.threadId);
         }
@@ -323,7 +325,13 @@ export class NotificationDatabase {
         throw new Error("Notification queue full");
       const expires = now + 86_400_000;
       this.statement("INSERT INTO agent_notices VALUES(?,?)").run(notification.id, expires);
-      if (state.archived || state.deleted || this.snoozed(notification.threadId, now)) return;
+      if (
+        state.archived ||
+        state.deleted ||
+        state.remote ||
+        this.snoozed(notification.threadId, now)
+      )
+        return;
       for (const device of devices)
         this.statement(
           "INSERT INTO jobs(device,thread,body,due,expires,generation) VALUES(?,?,?,?,?,?)",
@@ -411,7 +419,7 @@ export class NotificationDatabase {
     });
   }
   private matches(state: CompactThread, notification: Notification, generation: number): boolean {
-    if (state.archived || state.deleted) return false;
+    if (state.archived || state.deleted || state.remote) return false;
     if (
       notification.status === "background_done" ||
       notification.status === "agent_says" ||

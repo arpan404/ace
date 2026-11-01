@@ -1,3 +1,4 @@
+import { HostId, ThreadId } from "@ace/protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { desktopDaemon, notificationFixture } from "./notification-test-support.ts";
 
@@ -100,4 +101,28 @@ test("a retried catch-up is rebuilt from the waits that still stand, and tells o
   await desktop.connect();
   await vi.waitFor(() => expect(desktop.received).toHaveLength(2));
   expect(desktop.received[1]).toMatchObject({ status: "catch_up", threadIds: [archived] });
+});
+
+test("a paired machine's child left waiting is not caught up on this machine; a local thread is", async () => {
+  const { f, desktop } = await quitDesktop();
+  const local = f.thread(),
+    delegated = f.thread();
+  f.store.appendEvents(delegated, [
+    {
+      type: "thread.updated",
+      delegatedFrom: { hostId: HostId.parse("host-a"), threadId: ThreadId.parse("parent-on-a") },
+    },
+  ]);
+  f.needsYou(local, Date.now() - 600_000);
+  f.needsYou(delegated, Date.now() - 600_000);
+
+  await desktop.connect();
+  await vi.waitFor(() => expect(desktop.received).toHaveLength(1));
+  expect(desktop.received[0]).toMatchObject({
+    status: "catch_up",
+    title: "1 thread needs you",
+    threadIds: [local],
+  });
+  await settle();
+  expect(desktop.received).toHaveLength(1);
 });
