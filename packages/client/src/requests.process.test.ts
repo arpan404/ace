@@ -1,15 +1,10 @@
-import { afterEach, expect, test } from "vitest";
+import { expect, test } from "vitest";
 import { ItemId } from "@ace/protocol";
-import { setup, ready, agentId, barrier, when } from "./test-support.ts";
-let cleanup: (() => Promise<void>) | undefined;
-afterEach(async () => {
-  await cleanup?.();
-  cleanup = undefined;
-});
+import { sharedDaemon, ready, agentId, barrier, when } from "./test-support.ts";
+const fresh = sharedDaemon();
 
 test("a request deadline rejects the waiter and a late response does not poison later reads", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client, faults, scheduler } = h.make();
   await ready(client);
   let held: string | undefined;
@@ -32,8 +27,7 @@ test("a request deadline rejects the waiter and a late response does not poison 
 });
 
 test("abort cancels an in-flight request and a pre-aborted read sends nothing", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client, faults } = h.make();
   await ready(client);
   faults.incoming = (event, frame, deliver) => {
@@ -56,8 +50,7 @@ test("abort cancels an in-flight request and a pre-aborted read sends nothing", 
 });
 
 test("request capacity bounds outstanding correlations and frees capacity after abort", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client, faults } = h.make({ limits: { requests: 1 } });
   await ready(client);
   faults.incoming = (event, frame, deliver) => {
@@ -79,8 +72,7 @@ test("request capacity bounds outstanding correlations and frees capacity after 
 });
 
 test("a durable command keeps waiting past a deadline until the accepted receipt returns", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client, faults, scheduler } = h.make();
   await ready(client);
   let receipt: string | undefined;
@@ -111,8 +103,7 @@ test("a durable command keeps waiting past a deadline until the accepted receipt
 });
 
 test("lazy output reads fetch successive chunks without accumulating output in the SDK", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const id = ItemId.parse("shell");
   h.daemon.store.appendEvents(h.thread.id, [
     {
@@ -154,8 +145,7 @@ test("lazy output reads fetch successive chunks without accumulating output in t
 });
 
 test("oversized frames fail without buffering or parsing more traffic", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client, faults } = h.make({ limits: { frameBytes: 300 } });
   await ready(client);
   let late: (() => void) | undefined;
@@ -187,8 +177,7 @@ test("oversized frames fail without buffering or parsing more traffic", async ()
 });
 
 test("output read byte limits preserve Unicode characters across chunks", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const id = ItemId.parse("unicode");
   h.daemon.store.appendEvents(h.thread.id, [
     {
@@ -228,8 +217,7 @@ test("output read byte limits preserve Unicode characters across chunks", async 
 });
 
 test("durable command capacity supplies unsent evidence without reserving an intent and permits retry", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client, faults } = h.make({ limits: { requests: 1 } });
   await ready(client);
   const controller = new AbortController();
@@ -258,8 +246,7 @@ test("durable command capacity supplies unsent evidence without reserving an int
 });
 
 test("a duplicate durable waiter at capacity keeps the admitted command uncertain until its original receipt arrives", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client, faults } = h.make({ limits: { requests: 1 } });
   await ready(client);
   const receipt = Promise.withResolvers<void>();
@@ -282,8 +269,7 @@ test("a duplicate durable waiter at capacity keeps the admitted command uncertai
 });
 
 test("an acknowledged command replay at capacity stays uncertain after restart removes its persisted intent", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const original = h.make({ storage: h.storage }).client;
   await ready(original);
   const payload = { type: "thread.archive", threadId: h.thread.id } as const;
@@ -323,8 +309,7 @@ test("an acknowledged command replay at capacity stays uncertain after restart r
 });
 
 test("settled intent eviction does not turn a known-ID capacity refusal into unsent evidence", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client, faults } = h.make({ limits: { requests: 1, intents: 1 } });
   await ready(client);
   const payload = { type: "thread.archive", threadId: h.thread.id } as const;
@@ -351,8 +336,7 @@ test("settled intent eviction does not turn a known-ID capacity refusal into uns
 for (const method of ["command", "enqueue"] as const) {
   for (const recording of ["succeeds", "fails"] as const) {
     test(`a same-ID ${method} is refused while direct recording is pending and recording ${recording} safely`, async () => {
-      const h = await setup();
-      cleanup = h.cleanup;
+      const h = await fresh();
       const { client } = h.make();
       await ready(client);
       const payload = { type: "thread.archive", threadId: h.thread.id } as const;
@@ -403,8 +387,7 @@ for (const method of ["command", "enqueue"] as const) {
 }
 
 test("an explicit enqueue awaiting host binding cannot have its offered ID reclaimed as fresh", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const reference = h.make();
   await ready(reference.client);
   const welcome = await reference.faults.wait((event) => event.type === "welcome");
