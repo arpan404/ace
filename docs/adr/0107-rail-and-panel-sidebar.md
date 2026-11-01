@@ -150,6 +150,16 @@ about work in projects.
 - **Paging.** The daemon pages settled threads across every project together and cannot page
   chats alone, so while the list's end is in view the panel keeps asking for older pages and
   keeps the chats among them.
+- **Every machine.** Chats run on a machine like any thread ([ADR 0102](0102-work-on-another-machine-in-this-window.md)).
+  The panel lists every connected machine's chats; each row acts on its own machine and names
+  it as Threads rows do (spoken name and hover card). With more than one device the title opens
+  a device filter kept apart from Threads' (`chatDevice` in the organizer); it narrows the list,
+  the search (this daemon's search isn't asked while another device is chosen, as in Threads)
+  and the paging, and an empty device reads "No chats on <device>" with "Show all devices".
+  New chat starts on the chosen device, else this machine, and makes the chat project there;
+  New thread's "on <device>" line moves it before sending. Other machines' chats that need the
+  person reach the Inbox ("Chat · <device>") and the Chats dot. While a chat is open the top
+  bar shows a chat bubble before its title instead of the project's folder.
 - **Threads leaves chats out** of its projects, its quiet projects, its History and its search
   hits. **The Inbox keeps them**: a chat that needs the person or finished unread shows there,
   with "Chat" in place of a project's name. Move to project moves a chat into Threads.
