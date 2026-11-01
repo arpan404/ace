@@ -165,15 +165,16 @@ test("an ended parent remains active until its nested child settles", async () =
       /: waiting /,
     ),
   );
+  // Its own turn ended, but its subagent still works: it never reads done.
+  expect(isBreathing(await agentRow(work, "Write retry tests"))).toBe(true);
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-1")]));
-  // Both subagents settled; the main agent still waits on its background command.
-  await waitFor(async () =>
-    expect(isBreathing(await agentRow(work, "Write retry tests"))).toBe(false),
-  );
+  // Both subagents settled: it joins the finished reader in one done line (ADR 0108), while the
+  // main agent still waits on its background command.
+  await userEvent.click(await within(work).findByRole("treeitem", { name: "2 done" }));
+  const settled = await agentRow(work, "Write retry tests");
+  expect(isBreathing(settled)).toBe(false);
   // The settled branch folds and says what it holds.
-  expect((await agentRow(work, "Write retry tests")).getAttribute("aria-label")).toMatch(
-    / · 1 done$/,
-  );
+  expect(settled.getAttribute("aria-label")).toMatch(/ · 1 done$/);
   expect(isBreathing(await agentRow(work, "Codex"))).toBe(true);
 });
 
