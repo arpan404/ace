@@ -30,7 +30,7 @@ export type AgentOrigin = z.infer<typeof AgentOrigin>;
  *   and it no longer holds its parent; it resumes if it reports again.
  * - `unconfirmed`: stopped here after every cancel went out, but its machine never confirmed it
  *   ended. Final: a later report records its real end and never makes it live again.
- * Decoded leniently: a value this build doesn't know reads as no contact problem.
+ * Optional and additive: builds that predate it ignore it.
  */
 export const RemoteContact = z.enum(["lost", "unconfirmed"]);
 export type RemoteContact = z.infer<typeof RemoteContact>;
@@ -41,7 +41,7 @@ export const AgentMachine = z.object({
   name: z.string().min(1).max(256),
   /** That machine's host id when known, so a window paired with it opens the child there. */
   hostId: HostId.optional(),
-  contact: RemoteContact.optional().catch(undefined),
+  contact: RemoteContact.optional(),
 });
 export type AgentMachine = z.infer<typeof AgentMachine>;
 

@@ -58,7 +58,7 @@ export const WatchedThread = z.object({
    * stopped reporting; read as `failed`, so it no longer holds a wait) or `unconfirmed` (stopped
    * here, read as `cancelled`, though its machine never confirmed it). Only this machine sets it.
    */
-  contact: RemoteContact.optional().catch(undefined),
+  contact: RemoteContact.optional(),
 });
 export type WatchedThread = z.infer<typeof WatchedThread>;
 export const WaitStatus = z.enum([
@@ -107,7 +107,7 @@ export const MonitoredChild = z.object({
   notice: z.string().max(400).optional(),
   machine: z.string().max(64).optional(),
   /** See WatchedThread.contact. */
-  contact: RemoteContact.optional().catch(undefined),
+  contact: RemoteContact.optional(),
 });
 export type MonitoredChild = z.infer<typeof MonitoredChild>;
 export const MonitorSnapshot = z.object({

@@ -20,11 +20,12 @@ test("a reachable remote child and a local one add no words", () => {
   expect(remoteContactStep({})).toBeUndefined();
 });
 
+const hold = (status: "running" | "unknown" | "stopped" | "completed") => ({
+  status,
+  stoppable: true,
+});
+
 test("the person can stop a hold while it runs or lost contact, never once it ended", () => {
-  const hold = (status: "running" | "unknown" | "stopped" | "completed") => ({
-    status,
-    stoppable: true,
-  });
   expect(
     ["running", "unknown", "stopped", "completed"].map((s) => holdStoppable(hold(s as never))),
   ).toEqual([true, true, false, false]);
