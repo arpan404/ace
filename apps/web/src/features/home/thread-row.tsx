@@ -69,8 +69,8 @@ export function useOpenHere(threadId: string, machine: string | undefined): bool
 
 /**
  * A thread in the sidebar. An Active row (`lead: "task"`) is three lines (`TaskLines`): project
- * and status, title, then branch, pull request, machine and provider; its actions sit beside the
- * status. Every other row is one line, its title and at most one small mark at the right edge
+ * and status, title, then branch, pull request, machine and provider; under the pointer or
+ * keyboard focus its actions take the status's place. Every other row is one line, its title and at most one small mark at the right edge
  * (`RowIndicator`), the rest in its spoken name and hover card; under the pointer or keyboard
  * focus its actions take the mark's place.
  */
