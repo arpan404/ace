@@ -1,4 +1,10 @@
-import type { ContextMeter, ProviderKind, QueueSnapshot, ThreadStatus } from "@ace/protocol";
+import type {
+  ContextMeter,
+  ProviderKind,
+  QueuedMessage,
+  QueueSnapshot,
+  ThreadStatus,
+} from "@ace/protocol";
 import { providerNames } from "./providers.ts";
 import { unavailableModelNotice } from "./model-availability.ts";
 import type { ExecutionSelection } from "@ace/protocol";
@@ -269,4 +275,19 @@ export function queueMoveAfter(
   if (index < 0 || index >= ids.length || target < 0 || target >= ids.length) return undefined;
   if (step === 1) return ids[target];
   return target === 0 ? null : ids[target - 1];
+}
+
+/**
+ * Whether a queued message still says what it said when it was read: the same words, attachments
+ * and context. A queue change that only moved it, or touched other messages, leaves it the same,
+ * so saving an edit over it overwrites nobody's change.
+ */
+export function sameQueuedContent(
+  read: Pick<QueuedMessage, "input" | "context">,
+  now: Pick<QueuedMessage, "input" | "context">,
+): boolean {
+  return (
+    JSON.stringify([read.input, read.context ?? null]) ===
+    JSON.stringify([now.input, now.context ?? null])
+  );
 }

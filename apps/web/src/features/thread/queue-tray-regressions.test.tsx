@@ -172,6 +172,50 @@ test("an edit moved beyond the visible page can still be saved from the composer
   );
 });
 
+test("an edit whose message another device rewrote keeps the edit and overwrites only on the next save", async () => {
+  const app = harness();
+  app.play(replayCursor()).runThrough("finding");
+  // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+  app.daemon.apply(threadId, [facts.toolDone("root", "spawn-test")]);
+  await app.open(`/t/${threadId}`);
+  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "Mine{Enter}");
+  await waitFor(() => expect(rows()).toHaveLength(1));
+  const edit = within(rows()[0] ?? document.body).getByRole("button", {
+    name: "Edit queued message",
+  });
+  await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(edit);
+  await waitFor(() => expect(messageBox().textContent).toBe("Mine"));
+  const before = await queue(app);
+  const entry = before.messages[0];
+  if (!entry) throw new Error("missing queued message");
+  await act(async () => {
+    await app.client.command(
+      {
+        type: "queue.edit",
+        threadId,
+        messageId: entry.id,
+        input: [{ type: "text", text: "Theirs" }],
+        expectedRevision: before.revision,
+      },
+      {},
+      "another-device-edit",
+    );
+  });
+  await userEvent.clear(messageBox());
+  await userEvent.type(messageBox(), "Revised{Enter}");
+  // Their words aren't overwritten unseen: the strip shows them and the edit stays.
+  const changed = await screen.findByRole("status", { name: "Changed on another device" });
+  expect(within(changed).getByText("Theirs")).toBeTruthy();
+  expect(messageBox().textContent).toBe("Revised");
+  expect((await queue(app)).messages[0]?.input).toEqual([{ type: "text", text: "Theirs" }]);
+  // Saving again replaces what it says now, on purpose.
+  await userEvent.type(messageBox(), "{Enter}");
+  await waitFor(async () =>
+    expect((await queue(app)).messages[0]?.input).toEqual([{ type: "text", text: "Revised" }]),
+  );
+});
+
 test("a pending keyboard reorder preserves focus deliberately moved to the composer", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");

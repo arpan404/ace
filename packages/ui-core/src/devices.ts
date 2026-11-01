@@ -108,9 +108,9 @@ export interface DeviceControls {
   inControl: boolean;
   /** Milliseconds left on your lease; 0 when you don't hold one. */
   leaseLeftMs: number;
-  /** One line: "Live · You're in control", "Off", "Live · The agent is in control". */
+  /** One line: "Live · You're in control", "Shut down", "Live · The agent is in control". */
   status: string;
-  /** Where the device is, without who controls it: "Live", "Booting…", "Off". */
+  /** Where the device is, without who controls it: "Live", "Booting…", "Shut down". */
   where: string;
   error: DeviceProblem | undefined;
 }

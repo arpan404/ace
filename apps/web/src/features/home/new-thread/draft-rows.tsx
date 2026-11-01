@@ -21,7 +21,10 @@ import { useSidebarDevice } from "../device-filter-state.ts";
  * this window's own, then each other connected machine's (ADR 0102), each row marked with its
  * machine and reopening on it. Discard takes a row away at once, with Undo.
  */
-export function DraftRows() {
+export function DraftRows(props: {
+  /** Only this project's drafts (Chats: its chats'); otherwise the organizer's project, or all. */
+  project?: string | undefined;
+}) {
   const identity = useHostIdentity();
   const device = useSidebarDevice();
   const others = useMachines().filter(
@@ -31,6 +34,7 @@ export function DraftRows() {
     <>
       {identity && (!device || device === identity.hostId) && (
         <MachineDrafts
+          only={props.project}
           host={identity.hostId}
           name={identity.displayName ?? "This machine"}
           icon={identity.icon}
@@ -38,7 +42,13 @@ export function DraftRows() {
       )}
       {others.map((machine) => (
         <MachineScope key={machine.id} machine={machine}>
-          <MachineDrafts host={machine.id} name={machine.name} icon={machine.icon} remote />
+          <MachineDrafts
+            only={props.project}
+            host={machine.id}
+            name={machine.name}
+            icon={machine.icon}
+            remote
+          />
         </MachineScope>
       ))}
     </>
@@ -47,13 +57,15 @@ export function DraftRows() {
 
 /** One machine's drafts, read and discarded under its own client. */
 function MachineDrafts(props: {
+  only: string | undefined;
   host: string;
   name: string;
   icon: MachineIcon | undefined;
   remote?: boolean;
 }) {
   const { storage } = useLayout();
-  const { project } = useOrganizerState();
+  const organized = useOrganizerState().project;
+  const project = props.only ?? organized;
   const directory = useProjectDirectory();
   const discard = useDiscardDraft(storage, props.host);
   const machine = useMachineSearch();

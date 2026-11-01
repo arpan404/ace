@@ -12,7 +12,7 @@ import { useShownPlans } from "@/lib/use-plans.ts";
 import { ThreadTransferStrip, useThreadTransferState } from "@/features/transfers/index.ts";
 import { failedHead, withoutMessage } from "./failed-head.ts";
 import { withoutAgentPending, withoutAgentResults } from "./queued-agent-result.ts";
-import { holdsTurn, stoppedHold } from "@ace/ui-core";
+import { holdsTurn, sameQueuedContent, stoppedHold } from "@ace/ui-core";
 import { HeldTurnStrip, useHeldTurn } from "./held-turn-strip.tsx";
 import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
@@ -120,6 +120,12 @@ export function ComposerStrip(props: {
       ).catch(() => undefined);
       const newer = page?.messages.find((entry) => entry.id === message.id);
       if (!page || !newer) return "gone" as const;
+      // The queue changed but this message still says what was read (another device moved it,
+      // or touched other messages): nothing would be overwritten, so save at the newer revision.
+      if (sameQueuedContent(message, newer)) {
+        const again = await all.edit(newer, text, page.revision);
+        if (again !== "conflict") return again;
+      }
       markQueueEditChanged(props.threadId, newer, page.revision);
       return "changed" as const;
     },
