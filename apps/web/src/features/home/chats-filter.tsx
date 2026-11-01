@@ -1,13 +1,12 @@
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
+import { PanelTitle, panelTitleText } from "@/components/ui/panel.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useOrganizer } from "@/features/organize/index.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { DeviceItems } from "./device-filter.tsx";
 import { useChatsDevice } from "./device-filter-state.ts";
-
-const title = "min-w-0 truncate text-lg font-semibold tracking-title text-foreground";
 
 /**
  * The Chats panel's title. While more than one device is connected it is "Chats" with a caret,
@@ -18,7 +17,7 @@ export function ChatsFilter() {
   const machines = useMachines();
   const deviceId = useChatsDevice();
   const organizer = useOrganizer();
-  if (machines.length < 2) return <h2 className={`flex-1 pl-2 ${title}`}>Chats</h2>;
+  if (machines.length < 2) return <PanelTitle>Chats</PanelTitle>;
   const device = machines.find((machine) => machine.id === deviceId);
   return (
     <span className="flex min-w-0 flex-1">
@@ -28,7 +27,7 @@ export function ChatsFilter() {
             aria-label={`Chats, Device: ${device?.name ?? "All devices"}`}
             className="inline-flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 transition-colors duration-(--motion-fast) focus-ring hover:bg-hover aria-expanded:bg-active"
           >
-            <span className={title}>Chats</span>
+            <span className={panelTitleText}>Chats</span>
             {device && (
               <span
                 aria-hidden

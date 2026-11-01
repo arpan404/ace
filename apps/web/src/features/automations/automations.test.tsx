@@ -116,7 +116,6 @@ test("the list groups upcoming automations, then paused ones, each with when it 
 
 test("searching the list keeps only the automations whose names match", async () => {
   const { sidebar } = await open("/automations/auto-dependency-audit");
-  await userEvent.click(screen.getByRole("button", { name: "Search automations" }));
   await userEvent.type(screen.getByRole("searchbox", { name: "Search automations" }), "flaky");
   await waitFor(() => expect(sidebar.queryByRole("link", { name: /Nightly/ })).toBeNull());
   expect(sidebar.getByRole("link", { name: /Flaky test triage/ })).toBeTruthy();

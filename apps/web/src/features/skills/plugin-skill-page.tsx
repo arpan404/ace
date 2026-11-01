@@ -9,7 +9,7 @@ import { StatusLabel } from "@/components/status-label.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { CompactViewRowBody, compactViewRowClass } from "@/components/ui/view-row.tsx";
+import { PanelRowBody, panelRow } from "@/components/ui/panel.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { AgentsMenu } from "./agents-menu.tsx";
@@ -201,15 +201,11 @@ function Contents(props: { components: readonly Skill[] }) {
           <ul key={group.kind} aria-label={group.label} className="flex flex-col gap-px">
             {members.map((skill) => (
               <li key={skill.id}>
-                <Link
-                  to="/skills/$skillId"
-                  params={{ skillId: skill.id }}
-                  className={compactViewRowClass}
-                >
-                  <CompactViewRowBody
+                <Link to="/skills/$skillId" params={{ skillId: skill.id }} {...panelRow()}>
+                  <PanelRowBody
                     icon={group.icon}
                     title={skillTitle(skill)}
-                    status={skill.enabled ? undefined : <StatusLabel tone="idle" label="Off" />}
+                    trailing={skill.enabled ? undefined : <StatusLabel tone="idle" label="Off" />}
                   />
                 </Link>
               </li>

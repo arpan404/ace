@@ -12,11 +12,9 @@ import {
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
-import { SearchField } from "@/components/search-field.tsx";
 import { SlashIcon } from "@/components/slash-icon.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
@@ -28,12 +26,8 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import {
-  CompactViewRowBody,
-  compactViewRowClass,
-  useViewListKeys,
-  ViewSidebarError,
-} from "@/components/ui/view-row.tsx";
+import { PanelDisclosure, PanelRowBody, panelRow, PanelSearch } from "@/components/ui/panel.tsx";
+import { useViewListKeys, ViewSidebarError } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { useSkillLibrary } from "./skills-library.tsx";
 import { useInstallDialog } from "./install-plugin.tsx";
@@ -93,15 +87,12 @@ export function SkillsSidebar() {
         </>
       }
       toolbar={
-        <div className="shrink-0 pr-2.5 pb-2 pl-3">
-          <SearchField
-            label="Search skills"
-            placeholder="Search skills"
-            value={query}
-            onValueChange={setQuery}
-            className="bg-sidebar-accent"
-          />
-        </div>
+        <PanelSearch
+          label="Search skills"
+          placeholder="Search skills"
+          value={query}
+          onValueChange={setQuery}
+        />
       }
     >
       {skills.isError ? (
@@ -121,34 +112,26 @@ export function SkillsSidebar() {
         />
       ) : (
         <nav aria-label="Skills catalog" {...listKeys}>
-          {groups.map(({ home, members }) => {
+          {groups.map(({ home, members }, index) => {
             const open = searching || !collapsed.has(home);
             const label = homeLabel(home, discovery.project?.name);
             return (
-              <Disclosure
-                key={home}
-                open={open}
-                className="mt-1 mb-2"
-                summaryClassName="w-full rounded-md px-3 py-2"
-                summary={
-                  <span>
+              <section key={home} aria-label={label} className={index ? "mt-5" : "mt-1"}>
+                <PanelDisclosure
+                  open={open}
+                  onClick={() =>
+                    setCollapsed((before) => {
+                      const next = new Set(before);
+                      if (next.has(home)) next.delete(home);
+                      else next.add(home);
+                      return next;
+                    })
+                  }
+                >
+                  <span className="min-w-0 flex-1 truncate">
                     {label} <span className="text-subtle-foreground">· {members.length}</span>
                   </span>
-                }
-                onClick={(event) => {
-                  // Only the summary toggles; the open state is owned here, not by the browser.
-                  const summary =
-                    event.target instanceof Element ? event.target.closest("summary") : null;
-                  if (summary?.parentElement !== event.currentTarget) return;
-                  event.preventDefault();
-                  setCollapsed((before) => {
-                    const next = new Set(before);
-                    if (next.has(home)) next.delete(home);
-                    else next.add(home);
-                    return next;
-                  });
-                }}
-              >
+                </PanelDisclosure>
                 <ul hidden={!open} aria-label={label} className="flex flex-col gap-px">
                   {members.map((skill) => (
                     <li key={skill.id}>
@@ -156,7 +139,7 @@ export function SkillsSidebar() {
                     </li>
                   ))}
                 </ul>
-              </Disclosure>
+              </section>
             );
           })}
         </nav>
@@ -168,11 +151,11 @@ export function SkillsSidebar() {
 function SkillRow({ skill }: { skill: Skill }) {
   const marks = rowMarks(skill.providers);
   return (
-    <Link to="/skills/$skillId" params={{ skillId: skill.id }} className={compactViewRowClass}>
-      <CompactViewRowBody
+    <Link to="/skills/$skillId" params={{ skillId: skill.id }} {...panelRow()}>
+      <PanelRowBody
         icon={kindIcon(skill.kind)}
         title={skillTitle(skill)}
-        status={
+        trailing={
           !skill.enabled ? (
             <StatusLabel tone="idle" label="Off" />
           ) : marks.length ? (
@@ -190,7 +173,7 @@ function AddMenu() {
   const install = useInstallDialog();
   return (
     <Menu>
-      <MenuTrigger render={<IconButton icon={PlusIcon} label="Add a skill" />} />
+      <MenuTrigger render={<IconButton icon={PlusIcon} label="Add a skill" size="panel" />} />
       <MenuContent align="end">
         <MenuItem
           icon={<Icon icon={PencilSimpleIcon} />}
@@ -213,7 +196,11 @@ function ProjectMenu() {
     <Menu>
       <MenuTrigger
         render={
-          <IconButton icon={FolderSimpleIcon} label={`Project: ${discovery.project?.name ?? ""}`} />
+          <IconButton
+            icon={FolderSimpleIcon}
+            label={`Project: ${discovery.project?.name ?? ""}`}
+            size="panel"
+          />
         }
       />
       <MenuContent align="end">

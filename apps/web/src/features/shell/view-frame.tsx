@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useSidebarInline } from "@/lib/breakpoints.ts";
-import { cn } from "@/lib/cn.ts";
+import { PanelTitle, PanelTitleRow } from "@/components/ui/panel.tsx";
 import { Screen } from "./screen.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
@@ -92,32 +92,15 @@ export function ViewListPage(props: { title: string; fallback: ReactNode }) {
 }
 
 /**
- * The panel's title row, under the window's top bar: the place's title and its actions, level
- * with the rail's first place.
+ * The panel's title row, under the window's top bar: the place's title and its actions (32px
+ * icon buttons), level with the rail's first place.
  */
-export function PanelHeader(props: {
-  title: string;
-  /** Before the title, such as a back arrow; the row's left padding tightens to suit it. */
-  leading?: ReactNode;
-  actions?: ReactNode;
-  /** Extra classes for the row, such as a container name its actions query. */
-  className?: string | undefined;
-}) {
+export function PanelHeader(props: { title: string; actions?: ReactNode }) {
   return (
-    <div
-      data-slot="panel-top"
-      className={cn(
-        "group/heading flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5",
-        props.leading ? "pl-2" : "pl-4",
-        props.className,
-      )}
-    >
-      {props.leading}
-      <h2 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-title text-foreground">
-        {props.title}
-      </h2>
+    <PanelTitleRow>
+      <PanelTitle>{props.title}</PanelTitle>
       {props.actions}
-    </div>
+    </PanelTitleRow>
   );
 }
 
@@ -134,7 +117,7 @@ function ListActions(props: { children: ReactNode }) {
 export function ViewSidebar(props: {
   title?: string;
   actions?: ReactNode;
-  /** Fixed rows under the heading (tabs, search). */
+  /** Fixed rows under the heading: the panel's search (`PanelSearch`), New automation. */
   toolbar?: ReactNode;
   children: ReactNode;
 }) {
