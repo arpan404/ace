@@ -1,5 +1,6 @@
 import type { CatalogModel, ThreadListEntry } from "@ace/protocol";
 import type { Arrangement, HomeSort } from "./arrange.ts";
+import type { ThreadsTab } from "./organizer.ts";
 import type { AttentionLevel } from "./row-attention.ts";
 import { threadCard } from "./thread-card.ts";
 import { activityOf, isSettled } from "./thread-state.ts";
@@ -15,9 +16,6 @@ import { activityOf, isSettled } from "./thread-state.ts";
  * with the row's own status word, and a settled thread whose tree still works or asks is in the
  * Inbox, never in Settled. Pure: the caller passes the clock.
  */
-
-/** The panel's three places. */
-export type ThreadsTab = "inbox" | "snoozed" | "settled";
 
 export const threadsTabs: readonly { id: ThreadsTab; label: string }[] = [
   { id: "inbox", label: "Inbox" },

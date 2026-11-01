@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { firstLaunch } from "./first-launch.ts";
 import { readJson, writeJson, type KeyValueStorage } from "./storage.ts";
-import type { ThreadsTab } from "./threads-panel.ts";
 
 /*
  * How this device shows the Home list. Settle, snooze, pin, read state, titles and deletion
@@ -14,6 +13,10 @@ import type { ThreadsTab } from "./threads-panel.ts";
 export const AutoSettle = z.enum(["1d", "2d", "1w", "never"]);
 export type AutoSettle = z.infer<typeof AutoSettle>;
 
+/** The Threads panel's three places (`threadsPanel`). */
+export const ThreadsTab = z.enum(["inbox", "snoozed", "settled"]);
+export type ThreadsTab = z.infer<typeof ThreadsTab>;
+
 const Stored = z.object({
   /** Activity before this moment counts as seen, so a first launch isn't all unread. */
   baseline: z.number(),
@@ -24,7 +27,7 @@ const Stored = z.object({
   /** The Chats panel's own device filter, apart from Threads'; absent is every device. */
   chatDevice: z.string().optional().catch(undefined),
   /** The Threads panel's open tab. */
-  tab: z.enum(["inbox", "snoozed", "settled"]).catch("inbox"),
+  tab: ThreadsTab.catch("inbox"),
 });
 type Stored = z.infer<typeof Stored>;
 

@@ -1,4 +1,5 @@
-import type { ThreadsPanel, ThreadsTab } from "./threads-panel.ts";
+import type { ThreadsTab } from "./organizer.ts";
+import type { ThreadsPanel } from "./threads-panel.ts";
 
 /*
  * The Threads panel's rows as the sidebar draws them (ADR 0107): the open tab's threads, one
