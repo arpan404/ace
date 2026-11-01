@@ -1,6 +1,6 @@
 import { facts, longHistory } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -68,7 +68,10 @@ test("a send whose turn doesn't start lets the strip show what is current after 
   await userEvent.type(message, "continue{Enter}");
   // The queue stays paused, so the turn never runs: the strip says so once the hold is up.
   await waitFor(() => expect(stripKind()).toBe("queue"), { timeout: 4_000 });
-  expect(screen.getByText("Queue paused")).toBeTruthy();
+  // The strip says it; the sidebar's row for the thread says it too (ADR 0107).
+  const strip = document.querySelector<HTMLElement>("[data-composer-strip]");
+  if (!strip) throw new Error("The composer strip isn't showing");
+  expect(within(strip).getByText("Queue paused")).toBeTruthy();
 });
 
 /** An idle thread whose queue holds what's sent, so a send would sit in the strip's hold. */
