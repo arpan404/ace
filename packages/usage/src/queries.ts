@@ -105,7 +105,7 @@ export function queryRows(
       ? `${cte} SELECT ${selectGroups}, ${totalsSql}
         FROM ${from} LEFT JOIN usage_prices p ON p.model=d.model
         WHERE ${clauses.join(" AND ")} ${groupSql} ORDER BY ${order}${tie} LIMIT ?`
-      : `${cte} SELECT ${selectGroups ? `${selectGroups}, ` : ""}${totalsSql}
+      : `${cte} SELECT ${groups.map((g) => `d."${g}" AS "${g}", `).join("")}${totalsSql}
         FROM (${aggregate}) d LEFT JOIN usage_prices p ON p.model=d.pricing_model
         ${groups.length ? `GROUP BY ${groups.map((g) => `d."${g}"`).join(", ")}` : ""} ORDER BY ${order}${tie} LIMIT ?`;
   const result: UsageRow[] = [];
