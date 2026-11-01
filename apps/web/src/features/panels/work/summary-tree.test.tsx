@@ -79,6 +79,8 @@ test("every row above a great-grandchild that still works stays live, never done
 
 test("a finished branch folds to one line saying what is inside, and the person's fold sticks", async () => {
   const { work } = await openNested();
+  // The two finished siblings share one "2 done" line; opened, each shows its own row.
+  await userEvent.click(within(work).getByRole("treeitem", { name: "2 done" }));
   const shell = await agentRow(work, "Rail-shell-web-sidebar");
   expect(shell.getAttribute("aria-expanded")).toBe("false");
   expect(shell.getAttribute("aria-label")).toMatch(/ · 1 done$/);
@@ -223,7 +225,7 @@ test("an agent ace delegated opens its own thread from the tree", async () => {
   expect(screen.getByRole("link", { name: "Relay docs for 0.9" })).toBeTruthy();
 });
 
-test("the agent tree is one Tab stop: arrows move and fold, Enter opens an agent, S reaches its Stop", async () => {
+test("the agent tree is one Tab stop: arrows move and fold, Enter opens an agent, S reaches its Stop and Escape or ← come back", async () => {
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");
   const work = await openThread(app, "/t/thread-cold-start");
@@ -235,7 +237,9 @@ test("the agent tree is one Tab stop: arrows move and fold, Enter opens an agent
       .getAllByRole("treeitem")
       .filter((item) => item.tabIndex === 0),
   ).toEqual([root]);
-  root.focus();
+  // Reach the tree's one Tab stop by keyboard.
+  for (let step = 0; step < 80 && document.activeElement !== root; step++) await userEvent.tab();
+  expect(document.activeElement).toBe(root);
   await userEvent.keyboard("{ArrowLeft}");
   expect(root.getAttribute("aria-expanded")).toBe("false");
   expect(within(tree).queryByRole("treeitem", { name: /^resume-sweep/ })).toBeNull();
@@ -243,11 +247,15 @@ test("the agent tree is one Tab stop: arrows move and fold, Enter opens an agent
   const sweep = await agentRow(work, "resume-sweep");
   expect(document.activeElement).toBe(sweep);
   expect(sweep.getAttribute("aria-level")).toBe("2");
+  const stop = within(work).getByRole("button", { name: "Stop resume-sweep" });
   await userEvent.keyboard("s");
-  expect(document.activeElement).toBe(
-    within(work).getByRole("button", { name: "Stop resume-sweep" }),
-  );
-  sweep.focus();
+  expect(document.activeElement).toBe(stop);
+  await userEvent.keyboard("{Escape}");
+  expect(document.activeElement).toBe(sweep);
+  await userEvent.keyboard("S");
+  expect(document.activeElement).toBe(stop);
+  await userEvent.keyboard("{ArrowLeft}");
+  expect(document.activeElement).toBe(sweep);
   await userEvent.keyboard("{Enter}");
   await screen.findByRole("heading", { level: 1, name: "resume-sweep" });
 });

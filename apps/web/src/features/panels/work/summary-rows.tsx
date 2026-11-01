@@ -4,7 +4,6 @@ import {
   askWords,
   backgroundCommand,
   foldWords,
-  forestTally,
   formatSpan,
   isRunning,
   pluralCount,
@@ -14,7 +13,7 @@ import {
 import { useItem, useThreadMeta } from "@ace/client-react";
 import type { Interaction, ProviderKind } from "@ace/protocol";
 import { CaretDownIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
@@ -44,10 +43,23 @@ export interface RowProps {
   onFold(): void;
 }
 
+/** Escape or ← on a row's Stop goes back to the row it belongs to. */
+function backToRow(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== "Escape" && event.key !== "ArrowLeft") return;
+  const row = event.currentTarget
+    .closest("[data-row-frame]")
+    ?.querySelector<HTMLElement>('[role="treeitem"]');
+  if (!row) return;
+  event.preventDefault();
+  event.stopPropagation();
+  row.focus();
+}
+
 /**
  * The tree's one status mark: the provider's own mark, in foreground ink and breathing while it
  * or anything under it works or waits, still at rest, dimmed once done. It holds still under
- * reduced motion and while the facts are stale.
+ * reduced motion and while the facts are stale: the connection dropped, or its thread hasn't
+ * been confirmed since the Summary opened.
  */
 export function LiveMark(props: {
   provider: ProviderKind;
@@ -55,10 +67,11 @@ export function LiveMark(props: {
   instance?: string | undefined;
   live: boolean;
   done: boolean;
+  stale?: boolean | undefined;
 }) {
   const fresh = useLiveConnection().fresh;
   const reduced = useReducedMotion();
-  const breathing = props.live && fresh && !reduced;
+  const breathing = props.live && fresh && !props.stale && !reduced;
   return (
     <span
       data-breathing={breathing ? "" : undefined}
@@ -92,7 +105,10 @@ function RowFrame(
   },
 ) {
   return (
-    <div className="group/row relative flex min-w-0 flex-wrap items-center rounded-md hover:bg-accent">
+    <div
+      data-row-frame=""
+      className="group/row relative flex min-w-0 flex-wrap items-center rounded-md hover:bg-accent"
+    >
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- Enter opens it through the tree's key handler */}
       <div
         role="treeitem"
@@ -176,7 +192,7 @@ export function AgentLine(
   const root = agent.origin === "root" && node.threadId === props.viewed;
   const asks = props.request ? askWords(props.request.request) : undefined;
   const own = isRunning(doer);
-  const below = forestTally(node.children);
+  const below = node.tally;
   const asking =
     props.request !== undefined || (status.state === "blocked" && status.on === "human");
   const tone = asking ? "needs-you" : status.state === "failed" ? "failed" : undefined;
@@ -195,9 +211,13 @@ export function AgentLine(
             : agentStep({ status, item: tool })
           : (agentOutcome(identity.spawn) ?? "finished");
   const fresh = useLiveConnection().fresh;
-  // Facts kept from before the connection dropped: what it was doing when last seen.
-  const step = !fresh && node.live ? `last seen ${current}` : current;
-  const folded = props.expanded === false ? foldWords(below) : "";
+  // Facts not confirmed since the connection dropped or the Summary opened: what it was doing
+  // when last seen, and never "finished" for a branch that may be working again.
+  const stale = !fresh || node.stale;
+  const seen = !stale ? current : node.live ? `last seen ${current}` : "syncing";
+  const step = node.notLoaded ? `${seen} · not loaded` : seen;
+  // A settled-looking stale row already says "syncing"; its fold adds nothing to that.
+  const folded = props.expanded === false && (node.live || !stale) ? foldWords(below) : "";
   const end = agent.endedAt ?? (node.live ? Math.max(now, agent.createdAt) : undefined);
   const time =
     end !== undefined && end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : "";
@@ -210,7 +230,7 @@ export function AgentLine(
           childThreadId: agent.childThreadId,
         });
   const name = identity.name;
-  const done = !node.live;
+  const done = !node.live && !stale;
   return (
     <RowFrame
       {...props}
@@ -223,11 +243,12 @@ export function AgentLine(
           <StopAgent
             threadId={node.threadId}
             agent={agent}
-            subagents={below.working + below.done}
+            subagents={below.working + below.done + below.syncing}
             pending
             inTree
             variant="ghost"
             className="mr-0.5 hidden group-focus-within/row:inline-flex group-hover/row:inline-flex pointer-coarse:inline-flex"
+            onKeyDown={backToRow}
           />
         ) : undefined
       }
@@ -238,11 +259,12 @@ export function AgentLine(
         instance={details.instance}
         live={node.live}
         done={done}
+        stale={stale}
       />
       <span
         className={cn(
           "max-w-[55%] min-w-0 shrink truncate font-medium",
-          done && "text-muted-foreground",
+          (done || stale) && "text-muted-foreground",
         )}
       >
         {name}
@@ -270,6 +292,7 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
   const stop = useStopIntent();
   const now = useNow();
   const command = backgroundCommand(task, item);
+  const fresh = useLiveConnection().fresh && !props.node.unconfirmed;
   const end = Math.max(now, task.startedAt);
   // Its output opens in this thread's terminal; a delegated thread's opens there.
   const show =
@@ -280,7 +303,7 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
     <RowFrame
       {...props}
       rowKey={props.node.key}
-      label={`$ ${command}: running`}
+      label={`$ ${command}: ${fresh ? "running" : "last seen running"}`}
       title={command}
       onOpen={show}
       actions={
@@ -300,6 +323,7 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
               tabIndex={-1}
               data-stop=""
               disabled={stop.busy}
+              onKeyDown={backToRow}
               onClick={() => void stop.send({ type: "background_task.stop", taskId: task.id })}
               className="focus-ring mr-1.5 hidden shrink-0 rounded-sm px-1 text-xs text-muted-foreground group-focus-within/row:inline group-hover/row:inline hover:text-foreground pointer-coarse:inline"
             >
@@ -318,6 +342,20 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
       <span className="min-w-0 flex-1 truncate font-mono text-xs">{command}</span>
 
       <RowTime>{end - task.startedAt >= 1000 ? formatSpan(task.startedAt, end) : ""}</RowTime>
+    </RowFrame>
+  );
+}
+
+/**
+ * Finished siblings folded into one quiet line, "19 done", in the grey of a row's step. A click
+ * (or →) opens them in place below it; the choice is kept with the tab's other folds.
+ */
+export function FinishedLine(props: RowProps & { rowKey: string; count: number }) {
+  const words = `${props.count} done`;
+  return (
+    <RowFrame {...props} label={words}>
+      <span aria-hidden className="w-3.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-subtle-foreground">{words}</span>
     </RowFrame>
   );
 }

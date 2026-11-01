@@ -3,7 +3,13 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { agentRow, isBreathing, openWorkPanel, summaryStatus } from "@/test/open-work.ts";
+import {
+  agentRow,
+  isBreathing,
+  openWorkPanel,
+  showFinished,
+  summaryStatus,
+} from "@/test/open-work.ts";
 
 beforeEach(() => localStorage.clear());
 async function open() {
@@ -77,9 +83,10 @@ test.each(["completed", "interrupted"] as const)(
     );
     expect(isBreathing(await agentRow(work, "Write retry tests"))).toBe(true);
     act(() => app.daemon.apply(scenario.thread.id, [facts.endTurn("worker-1")]));
-    await waitFor(async () =>
-      expect(isBreathing(await agentRow(work, "Write retry tests"))).toBe(false),
-    );
+    // Both settle and fold into one "2 done" line; opened, the parent rests.
+    await waitFor(() => within(work).getByRole("treeitem", { name: "2 done" }));
+    await showFinished(work);
+    expect(isBreathing(await agentRow(work, "Write retry tests"))).toBe(false);
   },
 );
 

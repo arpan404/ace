@@ -3,7 +3,13 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { agentRow, isBreathing, openWorkPanel, summaryStatus } from "@/test/open-work.ts";
+import {
+  agentRow,
+  isBreathing,
+  openWorkPanel,
+  showFinished,
+  summaryStatus,
+} from "@/test/open-work.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -39,6 +45,7 @@ test("a subagent resumed after a restart is one live row, and the thread is not 
 test("restart-failed, resumed, then done: one row per agent and nothing needs the person", async () => {
   const { work } = await openRestarted();
   await waitFor(async () => expect(await summaryStatus(work)).toMatch(/^Done/));
+  await showFinished(work);
   expect(rows(work, "Fix ack buffer replay")).toHaveLength(1);
   expect(rows(work, "Recover stale leases")).toHaveLength(1);
   expect(work.querySelector("[data-tone=failed], [data-tone=needs-you]")).toBeNull();

@@ -1,8 +1,8 @@
-import type { ForestNode, ThreadWork } from "@ace/ui-core";
+import { foldFinished, type ForestNode, type ThreadWork } from "@ace/ui-core";
 import type { Interaction } from "@ace/protocol";
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { AgentLine, CommandLine, guideLeft } from "./summary-rows.tsx";
+import { AgentLine, CommandLine, FinishedLine, guideLeft } from "./summary-rows.tsx";
 
 /** The key a person's fold of a row is kept under, with the Summary tab. */
 const foldKey = (row: string) => `fold:${row}`;
@@ -61,6 +61,8 @@ interface TreeContext {
   active: string | undefined;
   setActive(key: string): void;
   isOpen(node: ForestNode, depth: number): boolean;
+  /** Whether a run of finished siblings shows its rows; folded until the person opens it. */
+  isShown(key: string): boolean;
   fold(key: string, open: boolean): void;
   requests: ReadonlyMap<string, Interaction>;
 }
@@ -95,6 +97,7 @@ export function SummaryTree(props: {
     setActive,
     // The main agent's row stays open: it is the tree itself, not a branch of it.
     isOpen: (node, depth) => sections?.[foldKey(node.key)] ?? (node.live || depth === 0),
+    isShown: (key) => sections?.[foldKey(key)] ?? false,
     fold: (key, open) =>
       actions.updateUi("work", { sections: { ...sections, [foldKey(key)]: open } }),
     requests,
@@ -111,10 +114,46 @@ export function SummaryTree(props: {
   );
 }
 
-function Branch(props: { nodes: readonly ForestNode[]; depth: number; context: TreeContext }) {
-  return props.nodes.map((node) => (
-    <BranchNode key={node.key} node={node} depth={props.depth} context={props.context} />
-  ));
+/**
+ * One level of the tree. Under a parent, finished siblings fold into one "N done" row that opens
+ * in place; the tree's own roots always show.
+ */
+function Branch(props: {
+  nodes: readonly ForestNode[];
+  depth: number;
+  context: TreeContext;
+  parent?: string | undefined;
+}) {
+  const { depth, context } = props;
+  if (props.parent === undefined)
+    return props.nodes.map((node) => (
+      <BranchNode key={node.key} node={node} depth={depth} context={context} />
+    ));
+  return foldFinished(props.parent, props.nodes).map((row) => {
+    if (row.kind === "node")
+      return <BranchNode key={row.node.key} node={row.node} depth={depth} context={context} />;
+    const shown = context.isShown(row.key);
+    return (
+      <li key={row.key} role="none">
+        <FinishedLine
+          rowKey={row.key}
+          count={row.nodes.length}
+          depth={depth}
+          expanded={shown}
+          active={context.active === row.key}
+          onFocus={() => context.setActive(row.key)}
+          onFold={() => context.fold(row.key, !shown)}
+        />
+        {shown && (
+          <ul role="group">
+            {row.nodes.map((node) => (
+              <BranchNode key={node.key} node={node} depth={depth} context={context} />
+            ))}
+          </ul>
+        )}
+      </li>
+    );
+  });
 }
 
 function BranchNode(props: { node: ForestNode; depth: number; context: TreeContext }) {
@@ -150,7 +189,7 @@ function BranchNode(props: { node: ForestNode; depth: number; context: TreeConte
             className="pointer-events-none absolute top-0 bottom-2 w-px bg-border"
             style={{ left: guideLeft(depth) }}
           />
-          <Branch nodes={node.children} depth={depth + 1} context={context} />
+          <Branch nodes={node.children} depth={depth + 1} context={context} parent={node.key} />
         </ul>
       )}
     </li>

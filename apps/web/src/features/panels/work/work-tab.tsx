@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import type { ThreadReader } from "@ace/client";
-import { useThread, useThreadMeta } from "@ace/client-react";
+import { OptionalLeaseScope, useThread, useThreadMeta } from "@ace/client-react";
 import {
   changesByAgent,
   forestTally,
@@ -122,15 +122,18 @@ export default function WorkTab(props: TabViewProps) {
       className="@container/summary flex h-full min-h-0 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain px-1.5 pt-2 pb-3"
     >
       {loaders}
-      <SummaryNow
-        threadId={props.scope}
-        thread={thread}
-        roots={forest.roots}
-        works={works}
-        turn={turn}
-        prs={prs}
-        queued={queued && `${queued.label} · ${queued.when}`}
-      />
+      {/* Rows of delegated threads read them through optional leases, as the loaders do. */}
+      <OptionalLeaseScope>
+        <SummaryNow
+          threadId={props.scope}
+          thread={thread}
+          forest={forest}
+          works={works}
+          turn={turn}
+          prs={prs}
+          queued={queued && `${queued.label} · ${queued.when}`}
+        />
+      </OptionalLeaseScope>
       {run && !run.done && (
         <Section name="Offshift">
           <OffshiftRun run={run} />
@@ -138,8 +141,10 @@ export default function WorkTab(props: TabViewProps) {
       )}
       {catchUp.catchUp && <SinceYouLooked catchUp={catchUp.catchUp} onDismiss={catchUp.dismiss} />}
       {tree && (
-        <Section name="Agents" count={String(total.working + total.done)}>
-          <SummaryTree threadId={props.scope} roots={forest.roots} works={works} />
+        <Section name="Agents" count={String(total.working + total.done + total.syncing)}>
+          <OptionalLeaseScope>
+            <SummaryTree threadId={props.scope} roots={forest.roots} works={works} />
+          </OptionalLeaseScope>
         </Section>
       )}
       <Results

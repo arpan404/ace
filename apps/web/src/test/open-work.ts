@@ -93,3 +93,9 @@ export async function gitAction(name: string | RegExp) {
   await userEvent.click(await within(card).findByRole("button", { name: "More git actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name }));
 }
+
+/** Open every folded "N done" line of the agent tree, so the finished agents' rows show. */
+export async function showFinished(work: HTMLElement) {
+  for (const row of within(work).queryAllByRole("treeitem", { name: /^\d+ done$/ }))
+    if (row.getAttribute("aria-expanded") === "false") await userEvent.click(row);
+}

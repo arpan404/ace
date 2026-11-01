@@ -1,12 +1,12 @@
 import type { LinkedPullRequest, Thread, TurnSummary } from "@ace/protocol";
 import {
   forestAsker,
-  forestTally,
+  forestNow,
   nowLine,
   optionEffort,
   providerNames,
   type AgentForestNode,
-  type ForestNode,
+  type AgentForest,
   type ThreadWork,
 } from "@ace/ui-core";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
@@ -55,7 +55,7 @@ function askOf(asker: AgentForestNode, works: ReadonlyMap<string, ThreadWork>) {
 export function SummaryNow(props: {
   threadId: string;
   thread: Pick<Thread, "status" | "execution" | "provider" | "acpAgentId">;
-  roots: readonly ForestNode[];
+  forest: AgentForest;
   works: ReadonlyMap<string, ThreadWork>;
   turn: TurnSummary | undefined;
   prs: readonly LinkedPullRequest[];
@@ -63,15 +63,16 @@ export function SummaryNow(props: {
 }) {
   const now = useNow();
   const openSubagent = useOpenSubagent();
-  const asker = forestAsker(props.roots);
+  const roots = props.forest.roots;
+  const asker = forestAsker(roots);
   const identity = useAgentIdentity(asker?.threadId ?? "", asker?.agent);
-  const main = props.roots[0];
-  const below = main ? forestTally(main.children) : { working: 0, done: 0, commands: 0 };
+  const main = roots[0];
   const rootAgent = main?.kind === "agent" ? main.agent : undefined;
   const isMain = asker?.agent.origin === "root" && asker.threadId === props.threadId;
   const line = nowLine({
     status: props.thread.status,
-    tally: below,
+    // The whole tree, not just the thread's own status: never done while any branch is live.
+    ...forestNow(props.forest),
     turn: props.turn && {
       startedAt: props.turn.startedAt,
       endedAt: props.turn.endedAt,
