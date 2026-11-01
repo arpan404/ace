@@ -7,6 +7,7 @@ import { Command, DeviceId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { Client } from "./socket-test-support.ts";
 import { startDaemon, readConfig } from "./index.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 function get(url: string, cookie = "") {
   const target = new URL(url);
@@ -70,6 +71,7 @@ test("daemon startup serves health, its model catalog and an optional preview ga
   const address = upstream.address();
   if (!address || typeof address === "string") throw new Error("Missing upstream address");
   daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     toolkits: [],
     modelInstances: [],

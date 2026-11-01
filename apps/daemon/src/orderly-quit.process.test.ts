@@ -7,6 +7,7 @@ import { launchDaemon } from "./process-test-support.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { retainNotifications } from "./notification-test-support.ts";
 import { startDaemon, readConfig } from "./index.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 test("orderly CLI quit leaves no notification failure in stderr or durable logs", async ({
   onTestFinished,
@@ -85,6 +86,7 @@ test("a real notification worker failure remains visible in the durable daemon l
   // A saved push device needs the worker from startup; a fresh home never starts it.
   await retainNotifications(home);
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
     notificationWorker: () =>
       new Worker('throw new Error("real notification failure")', { eval: true }),

@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import type { Config } from "./config.ts";
 import { ScreenManager } from "@ace/screen";
 import { cleanups, setup } from "./remote-test-support.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 it.each([["read"], ["read", "operate"]])(
   "paired %j devices cannot observe screen state or grant screen approvals",
@@ -72,7 +73,7 @@ it("screen enablement pushes reach other devices and status survives a daemon re
     remotePort: 0,
     logLevel: "silent",
   };
-  let daemon = await startDaemon({ config, screen: makeScreen() });
+  let daemon = await startDaemon({ config, screen: makeScreen(), engine: noProviderDiscovery });
   cleanups.push(() => daemon.close());
   const token = (await readFile(daemon.tokenPath, "utf8")).trim();
   const connect = async (deviceId: string) => {
@@ -100,7 +101,7 @@ it("screen enablement pushes reach other devices and status survives a daemon re
   await owner.close();
   await second.close();
   await daemon.close();
-  daemon = await startDaemon({ config, screen: makeScreen() });
+  daemon = await startDaemon({ config, screen: makeScreen(), engine: noProviderDiscovery });
   const client = await connect("reconnected-device");
   client.send({ type: "screen.request", requestId: "status", operation: { op: "status" } });
   expect(await client.next()).toMatchObject({
