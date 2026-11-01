@@ -31,8 +31,9 @@ interface Rijan {
   onCancel: (id: string) => void;
 }
 
-function children(f: Awaited<ReturnType<typeof setup>>, rijan: Rijan) {
+function children(f: Awaited<ReturnType<typeof setup>>, rijan: Rijan, leaseMs?: number) {
   return new MachineChildren({
+    ...(leaseMs ? { leaseMs } : {}),
     store: f.store,
     engine: () => f.engine,
     now: f.clock.now,
@@ -77,11 +78,11 @@ const notSent = (id: ThreadId): MachineThreadView => ({
   requests: [],
 });
 
-async function parentWithChildren(count = ids.length, path?: string) {
-  const f = setup({}, path);
+async function parentWithChildren(count = ids.length, leaseMs?: number) {
+  const f = setup();
   const parent = await f.parent();
   const rijan: Rijan = { views: new Map(), silent: false, cancels: [], onCancel: () => {} };
-  const ledger = children(f, rijan);
+  const ledger = children(f, rijan, leaseMs);
   for (const id of ids.slice(0, count)) {
     ledger.add({
       id,
@@ -306,4 +307,38 @@ it("the parent is never shown done while one of its children is still live", asy
   expect(live).toContain(view.status.state);
   expect(view.forest.roots.some((root) => root.live)).toBe(true);
   expect(view.rows.filter((row) => row.live)).toHaveLength(1);
+});
+
+it("a wait on a child whose machine goes silent returns once it loses contact, instead of holding the parent's turn", async () => {
+  const lease = 60_000;
+  const { f, parent, rijan, ledger, at } = await parentWithChildren(1, lease);
+  const [id] = ids;
+  if (!id) throw new Error("no child");
+  rijan.views.set(id, {
+    ...notSent(id),
+    state: "working",
+    status: { state: "working", agents: 1 },
+  });
+  await at(f.clock.now() + 1_000);
+  f.service.monitor.attachRemote(ledger);
+  const caller = { sessionId: "s", threadId: parent.threadId, agentId: parent.agentId };
+  let settled = false;
+  const waiting = f.service.monitor
+    .wait(
+      caller,
+      { threadIds: [id], mode: "all", timeoutSeconds: 600 },
+      new AbortController().signal,
+    )
+    .finally(() => (settled = true));
+  await at(f.clock.now() + 1_000);
+  expect(settled).toBe(false);
+
+  rijan.silent = true;
+  await at(f.clock.now() + lease + 2_000);
+  const result = await waiting;
+  expect(result.ok).toBe(true);
+  expect(result.data).toMatchObject({
+    status: "ready",
+    threads: [expect.objectContaining({ threadId: id, contact: "lost" })],
+  });
 });
