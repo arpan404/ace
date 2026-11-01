@@ -1,14 +1,26 @@
 import { availability } from "./provider-mcp-availability.ts";
 import { z } from "zod";
 
+function missing(advertised: Set<string>, names: readonly string[]): void {
+  for (const name of names)
+    if (!advertised.has(name)) throw new Error(`Missing scoped feature catalog tool: ${name}`);
+}
+
+/**
+ * What a provider's agent does with ace's tools: authenticate, then, given a feature world, use
+ * the browser, the screen and a simulator. `headers` are the client's own (Cursor names itself),
+ * sent with every request beside the credential.
+ */
 export async function proof(
   url: string,
   authorization: string,
   features?: { url: string; deviceId: string },
+  headers: Readonly<Record<string, string>> = {},
 ) {
   const response = await fetch(url, {
     method: "POST",
     headers: {
+      ...headers,
       Authorization: authorization,
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
@@ -60,6 +72,7 @@ export async function proof(
       const featureResponse = await fetch(url, {
         method: "POST",
         headers: {
+          ...headers,
           Authorization: authorization,
           "Content-Type": "application/json",
           Accept: "application/json, text/event-stream",
@@ -97,33 +110,36 @@ export async function proof(
       if (!contentText) throw new Error("Missing feature text response");
       return JSON.parse(contentText);
     };
-    const catalogResponse = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: authorization,
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        "MCP-Protocol-Version": "2026-07-28",
-        "Mcp-Method": "tools/list",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 3,
-        method: "tools/list",
-        params: {
-          _meta: {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientInfo": { name: "fake-provider", version: "1" },
-            "io.modelcontextprotocol/clientCapabilities": {},
-          },
+    const listed = async () => {
+      const catalogResponse = await fetch(url, {
+        method: "POST",
+        headers: {
+          ...headers,
+          Authorization: authorization,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "MCP-Protocol-Version": "2026-07-28",
+          "Mcp-Method": "tools/list",
         },
-      }),
-    });
-    const tools = z
-      .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })).max(128) }) })
-      .parse(await catalogResponse.json()).result.tools;
-    const advertised = new Set(tools.map((tool) => tool.name));
-    for (const name of [
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 3,
+          method: "tools/list",
+          params: {
+            _meta: {
+              "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+              "io.modelcontextprotocol/clientInfo": { name: "fake-provider", version: "1" },
+              "io.modelcontextprotocol/clientCapabilities": {},
+            },
+          },
+        }),
+      });
+      const tools = z
+        .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })).max(128) }) })
+        .parse(await catalogResponse.json()).result.tools;
+      return new Set(tools.map((tool) => tool.name));
+    };
+    missing(await listed(), [
       ...[
         "open",
         "snapshot",
@@ -137,9 +153,14 @@ export async function proof(
         "settings",
       ].map((tool) => `browser_${tool}`),
       ...["ui_tree", "ui_act", "input", "screenshot"].map((tool) => `screen_${tool}`),
-      ...["list", "start", "stop", "ui", "act", "screenshot", "logs"].map((tool) => `sim_${tool}`),
-    ])
-      if (!advertised.has(name)) throw new Error(`Missing scoped feature catalog tool: ${name}`);
+    ]);
+    // As ace's guidance says, the agent reads the computer-use guide before a simulator; a client
+    // that reloads its list gets the simulator tools then, one that never reloads had them.
+    await successful("guide", { topic: "ace-computer-use" });
+    missing(
+      await listed(),
+      ["list", "start", "stop", "ui", "act", "screenshot", "logs"].map((tool) => `sim_${tool}`),
+    );
     await successful("browser_open", { url: featureUrl });
     // The snapshot is indented text, `- button "Save" [ref=e3-41]`, possibly inside a JSON result.
     const raw = (await successful("browser_snapshot")).content[0]?.text ?? "";
