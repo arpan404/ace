@@ -12,6 +12,15 @@ export function isRemoved(entry: ThreadListEntry): boolean {
   return entry.archivedAt !== undefined || entry.deletedAt !== undefined;
 }
 
+/**
+ * Delegated here by an agent on a paired machine. Its parent and its owner are on that machine,
+ * where it shows under the parent; here it is never a top-level thread and never counts toward
+ * this machine's needs-you or working signals. A link or search still opens it.
+ */
+export function isRemoteChild(entry: Pick<ThreadListEntry, "delegatedFrom">): boolean {
+  return entry.delegatedFrom !== undefined;
+}
+
 /** Older named threads stay compatible; a recorded empty draft never becomes a task by rename. */
 export function isDraft(entry: ThreadListEntry): boolean {
   return (
@@ -107,6 +116,7 @@ export function arrange(
     if (isRemoved(entry)) continue;
     // An untouched composer is not a task; sent input gives it a title or live state.
     if (isDraft(entry)) continue;
+    if (isRemoteChild(entry)) continue;
     if (state.project !== null && entry.workspaceId !== state.project) continue;
     if (entry.pinned === true) pinned.push(entry);
     // Recovery that arises after a snooze wakes the thread (daemon); one the person snoozed stays asleep.

@@ -2,9 +2,12 @@ import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import type { Thread, ThreadListCursor, ThreadListWindow, ThreadListEntry } from "@ace/protocol";
 import { threadRowColumns, threadRowSource } from "./thread-row.ts";
 type Summary = Pick<ThreadListWindow, "total" | "counts">;
-/** Counted in project totals: not an unsent draft. */
+/**
+ * Counted in project totals: not an unsent draft, nor a thread a paired machine's agent delegated
+ * here (it belongs under its parent there). Matches projection's sidebarPage counts.
+ */
 export const sidebarCounted =
-  "COALESCE(json_extract(client, '$.hasSentMessage'), 1) != 0 AND NOT (json_extract(client, '$.hasSentMessage') IS NULL AND json_extract(status, '$.state') = 'new' AND title = 'New thread')";
+  "COALESCE(json_extract(client, '$.hasSentMessage'), 1) != 0 AND NOT (json_extract(client, '$.hasSentMessage') IS NULL AND json_extract(status, '$.state') = 'new' AND title = 'New thread') AND json_extract(transitions, '$.delegatedFrom') IS NULL";
 // Queue attention and settled membership exactly match projection.sidebarSettled.
 const attention =
   "COALESCE(json_extract(provider_metadata, '$.queue.paused'), 0) = 1 AND json_extract(provider_metadata, '$.queue.resumeAt') IS NULL AND json_extract(provider_metadata, '$.queue.reason') IS NOT NULL AND json_extract(provider_metadata, '$.queue.reason') NOT IN ('limit', 'snooze') AND NOT (json_extract(provider_metadata, '$.queue.reason') = 'manual' AND COALESCE(json_extract(provider_metadata, '$.queue.pendingCount'), 0) = 0)";

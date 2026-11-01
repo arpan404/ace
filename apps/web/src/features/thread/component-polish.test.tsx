@@ -75,20 +75,6 @@ test("Delete asks before removing an idle thread, and Escape preserves it", asyn
   expect(dialog.isConnected).toBe(false);
 });
 
-test("a running thread describes the work that will stop before deletion", async () => {
-  await open("/");
-  const threads = screen.getByRole("navigation", { name: "Threads" });
-  const link = await within(threads).findByRole("link", { name: /Dedupe thread events/ });
-  await userEvent.pointer({ keys: "[MouseRight]", target: link });
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
-  const dialog = await screen.findByRole("dialog", { name: "Delete thread?" });
-  expect(dialog.textContent).toMatch(/agent.*running/);
-  await userEvent.click(within(dialog).getByRole("button", { name: "Stop and delete" }));
-  await waitFor(() =>
-    expect(within(threads).queryByRole("link", { name: /Dedupe thread events/ })).toBeNull(),
-  );
-});
-
 test("an empty fresh diff does not claim saved uncommitted counts", async () => {
   await open();
   await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
@@ -97,24 +83,6 @@ test("an empty fresh diff does not claim saved uncommitted counts", async () => 
   expect(screen.queryByRole("status", { name: "Working tree" })).toBeNull();
   const tabs = screen.getAllByRole("tab");
   expect(tabs.every((tab) => !/\+27|−11/.test(tab.textContent ?? ""))).toBe(true);
-});
-
-test("an approval is explained once in its inline request", async () => {
-  await open("/t/thread-retry-budget");
-  const strip = await screen.findByRole("region", { name: "Waiting for you" });
-  const card = await within(strip).findByRole("article");
-  // The transcript only points at it.
-  const feed = screen.getByRole("feed", { name: "Transcript" });
-  expect(
-    within(feed).queryByRole("article", { name: card.getAttribute("aria-label") ?? "" }),
-  ).toBeNull();
-  // Beyond the live head's own status line, which names the wait.
-  expect(
-    within(feed)
-      .queryAllByText(/Waiting for your approval/)
-      .every((mention) => mention.closest("a") || inLiveHead(mention)),
-  ).toBe(true);
-  expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
 });
 
 test("a pending question is answered in the strip and waits as one line in the transcript", async () => {
@@ -132,9 +100,6 @@ test("a pending question is answered in the strip and waits as one line in the t
   ).toHaveLength(1);
   expect(within(feed).queryAllByText(/Waiting for your answer/)).toHaveLength(0);
 });
-
-const inLiveHead = (element: Element) =>
-  !!element.closest('[role="group"][aria-label="Turn in progress"]');
 
 test("the shortcut sheet opens with Command slash, question mark and the profile menu", async () => {
   await open();

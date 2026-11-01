@@ -13,8 +13,8 @@
       "sha256": "b25bb8e5e1f374c1a6023ddcaf0eb8a43eeb0e8d68a0cb3b8dc7096463c2fd54"
     },
     "events.md": {
-      "bytes": 21840,
-      "sha256": "06b1bb7911c23cc77bc012ee37ca640c2cf7ef0f17708e46c5d7703adfb059b9"
+      "bytes": 22209,
+      "sha256": "56f073cdcdb3281f6c8fb1622115a5ae06836ee7b39ee5c144d6e3094355b26d"
     },
     "forge.md": {
       "bytes": 131807,
@@ -33,8 +33,8 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 108254,
-      "sha256": "fffaa7a8ea8c086c1a93922e37cef946e3862c715f661f249129e54e2cc48c19"
+      "bytes": 109649,
+      "sha256": "087138f3d3f532a699c08be77451c7358dbe9de559ca2d8d116fd436c211f4b8"
     },
     "requests.md": {
       "bytes": 107431,
@@ -249,8 +249,8 @@
       "sha256": "b614252adf65943d846846250cd5ec4c18e4b826af9ef1ab724f584fb2e7b96a"
     },
     "schema/AgentItem.json": {
-      "bytes": 16223,
-      "sha256": "dad9f765ad7d2dbcd2fc866973c97c14b7f129e317ee4dcafba12940d2e658a2"
+      "bytes": 16463,
+      "sha256": "3fce8b57e8c1371f87213d3c750fee7ff13e3ffdcfba209ba6318fad23869e20"
     },
     "schema/AgentLaunchOptions.json": {
       "bytes": 421,
@@ -964,6 +964,10 @@
       "bytes": 236,
       "sha256": "5786830ceea392ab4c423074b801aa786ef7cbf54fa8eff241589b0c7937fd0f"
     },
+    "schema/DelegatedFrom.json": {
+      "bytes": 477,
+      "sha256": "fc93ebc2d1ed98d02719b2c5fc04ef222e307eb99c767ae83cd30b3c5a86d59a"
+    },
     "schema/DelegationOutcome.json": {
       "bytes": 842,
       "sha256": "33d8cb9a126821ff31e88c5d42cc04dcc3375de831b4ce1c82a3b2b333199c69"
@@ -1153,8 +1157,8 @@
       "sha256": "21567123f34d6cb1202d462e74a6ae138d0b8128e08a231d80d06b2071ccac8a"
     },
     "schema/EventPayload.json": {
-      "bytes": 11795,
-      "sha256": "b32bc31980149079f2c256abbee024f1548d515d6da712704496c36a377ac01b"
+      "bytes": 11902,
+      "sha256": "6e2a1c38d8f4e999e07f637fb94697262abefa07ef18605ae8f648e0f390805f"
     },
     "schema/EventSequence.json": {
       "bytes": 193,
@@ -1985,8 +1989,8 @@
       "sha256": "5103449866d61ab00c55871c7c70676b0723bef5ea43500c013d155c337a0556"
     },
     "schema/Item.json": {
-      "bytes": 18069,
-      "sha256": "31b2e0779ebc08801a7cc862fa9f4a5f34621c0c1654b5002604ec5350ea7ff1"
+      "bytes": 18309,
+      "sha256": "3cbf9f6d0aeb3528cce535fdac1127b884f72089e2c5781e68ad5d5cf75e3673"
     },
     "schema/ItemId.json": {
       "bytes": 156,
@@ -3969,8 +3973,8 @@
       "sha256": "3ab486dbaf847ec5290ef397cba17a427409fef4b9bde35b6a2360c80df90148"
     },
     "schema/Thread.json": {
-      "bytes": 5804,
-      "sha256": "0ed0cb2e912cd031f6fad977f968477347b776126e880d2221e57b8549140988"
+      "bytes": 5899,
+      "sha256": "f0269b3c84976d932955bec5dd689081463dae2e9bf8c0a84b750c2a9543bade"
     },
     "schema/ThreadCatchUpRequest.json": {
       "bytes": 762,
@@ -4017,8 +4021,8 @@
       "sha256": "7572788c16d634d71fa18c68c1ec8608f39c07bd3bcab8e2e9261b35f95f08b6"
     },
     "schema/ThreadListEntry.json": {
-      "bytes": 5726,
-      "sha256": "c48a275c03319705bc6f8604f18278a81213296f4e2d2d17ad28d7be323bdeb9"
+      "bytes": 5821,
+      "sha256": "b28efc5a05d42aed3c512df710d78eb4eff1bdd2faaeccc4bb179001094be2d3"
     },
     "schema/ThreadListInput.json": {
       "bytes": 584,
@@ -4089,8 +4093,8 @@
       "sha256": "aed1b594beee4f5b5caa588049ae0061ad8ecb1264f67890bcaf633e01164561"
     },
     "schema/ThreadTransitionView.json": {
-      "bytes": 630,
-      "sha256": "6b2b2e202cefa52e684b3c95bb40c2e451a88562388ab70c93778ce290158664"
+      "bytes": 725,
+      "sha256": "787f54dee089bfd9167d2280ff26868033c35b3063fd16c658315b87fcb4d044"
     },
     "schema/ThreadView.json": {
       "bytes": 4906,
@@ -4761,10 +4765,10 @@
       "sha256": "571045442f6b19fd7ecf97ce180c84085c282b10849598f40e85882a4be2f437"
     },
     "types.md": {
-      "bytes": 981116,
-      "sha256": "b26e2abbe4ca8d9c77bff07aa39db0d8067aef277ab9ab575657165ed2bac6fb"
+      "bytes": 981914,
+      "sha256": "dcc740bfca4fc411f9e42bc0b535e5608bd9b04681c71113842f0796aaa60862"
     }
   },
-  "input": "21fef33997ff5b9061e25cd5d7e15fc6e325782bb3ae6a8c77da46aa9459c0a0",
+  "input": "8058a0653a61de18b50c906ddaf1078d08e027bd0d1e70349774ccd79ec9781c",
   "version": 1
 }

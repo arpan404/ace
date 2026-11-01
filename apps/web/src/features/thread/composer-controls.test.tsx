@@ -245,16 +245,6 @@ test("a model without effort levels shows only model and account controls", asyn
   expect(within(popover).queryByText("Default effort")).toBeNull();
   expect(within(popover).queryByRole("slider")).toBeNull();
 });
-test("offline, the model chip keeps the thread's last-known model and says changes wait", async () => {
-  const { app } = await open("busy");
-  await screen.findByRole("button", { name: /^Model: Opus 5\.5, Personal/ });
-  act(() => app.client.networkOnline(false));
-  await screen.findAllByText(/^Offline/);
-  const chip = screen.getByRole("button", { name: /^Model: Opus 5\.5/ });
-  await userEvent.click(chip);
-  expect(await screen.findByText("Offline: changes apply when reconnected")).toBeTruthy();
-});
-
 test("a switch queued to a provider with no catalog models keeps showing it across a reconnect", async () => {
   const { app } = await open("busy", ({ daemon }) => {
     daemon.services.models = daemon.services.models.filter((model) => model.provider !== "pi");

@@ -47,6 +47,8 @@ const Payload = z.discriminatedUnion("type", [
           archivedAt: Timestamp.optional(),
           deletedAt: Timestamp.optional(),
           snoozedUntil: Timestamp.optional(),
+          /** Delegated here by a paired machine's agent: its owner is alerted there. */
+          remote: z.literal(true).optional(),
         })
         .strict(),
     })
@@ -57,6 +59,7 @@ const Payload = z.discriminatedUnion("type", [
       title: z.string().max(200).optional(),
       status: ThreadStatus.optional(),
       archivedAt: Timestamp.nullable().optional(),
+      remote: z.literal(true).optional(),
     })
     .strict(),
   z
@@ -125,6 +128,7 @@ export function metadata(event: Event): MetadataEvent | undefined {
           archivedAt: p.thread.archivedAt,
           deletedAt: p.thread.deletedAt,
           snoozedUntil: p.thread.snoozedUntil,
+          ...(p.thread.delegatedFrom ? { remote: true } : {}),
         },
       };
       break;
@@ -134,6 +138,7 @@ export function metadata(event: Event): MetadataEvent | undefined {
         title: p.title?.slice(0, 200),
         status: p.status,
         archivedAt: p.archivedAt,
+        ...(p.delegatedFrom ? { remote: true } : {}),
       };
       break;
     case "agent.created":

@@ -142,7 +142,10 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
               <ArrowsInLineVerticalIcon aria-hidden size={14} />
             )
           }
-        />
+        >
+          {/* What the provider kept of the compacted conversation, folded behind the row. */}
+          {view.summary && <p>{view.summary}</p>}
+        </SystemRow>
       );
     case "notSent":
       return (

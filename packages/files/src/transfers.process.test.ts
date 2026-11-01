@@ -95,8 +95,9 @@ it("streams a 200 MiB binary to a slow reader with bounded daemon RSS and no unc
       const frame = decodeFileFrame(z.instanceof(Buffer).parse(await client.next()));
       expect(frame.offset).toBe(position);
       digest.update(frame.bytes);
+      // The receiver credits only after writing each frame. Flow control is proven by the
+      // metrics barrier below, not by slowness, so the frame is not fsynced (3,200 syncs).
       await sink.writeFile(frame.bytes);
-      await sink.sync(); // The receiver deliberately waits for durable storage before crediting.
       position += frame.bytes.length;
       if (position < size && position % (32 * CHUNK_SIZE) === 0) {
         client.send({ type: "test.metrics" });

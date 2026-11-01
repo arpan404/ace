@@ -41,3 +41,6 @@ native/screen-helper-windows/target/
 
 # Markit web worker + Wasm are built from the packages/markit submodule.
 apps/web/public/markit/
+
+# Per-file test timings from scripts/test-run.ts (bun run test, test:fast, ...).
+/test-timings/

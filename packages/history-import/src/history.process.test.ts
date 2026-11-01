@@ -129,6 +129,70 @@ test("valid final records without a newline are imported", async () => {
   await service.importSession(init(source.id), sink);
   expect(text(sink.items)).toContain("last message");
 });
+/** A compaction as Claude Code's transcript writes it: the boundary, then its summary. */
+async function compacted(summary: string) {
+  const { service, path, source } = await setup();
+  const records = [
+    {
+      type: "system",
+      subtype: "compact_boundary",
+      uuid: "boundary",
+      parentUuid: null,
+      sessionId: nativeId,
+      cwd,
+      compactMetadata: { trigger: "auto", preTokens: 900, postTokens: 40 },
+    },
+    {
+      type: "user",
+      uuid: "summary",
+      parentUuid: "boundary",
+      sessionId: nativeId,
+      cwd,
+      isCompactSummary: true,
+      isVisibleInTranscriptOnly: true,
+      message: { role: "user", content: summary },
+    },
+  ];
+  await appendFile(path, records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+  await service.scan();
+  const sink = memorySink();
+  await service.importSession(init(source.id), sink);
+  const compactions = sink.items.filter((item) => item.type === "compaction");
+  const said = sink.items.some(
+    (item) =>
+      item.type === "message" &&
+      item.parts.some((part) => part.type === "text" && part.text.includes(summary.slice(0, 40))),
+  );
+  /** Items whose raw holds the summary record itself. */
+  const holders = sink.items.filter((item) =>
+    ("raw" in item ? item.raw : []).some(
+      (raw) => "data" in raw && object(raw.data).isCompactSummary === true,
+    ),
+  );
+  return { compactions, said, holders, sink };
+}
+
+test("a Claude compaction summary imports onto its compaction, never as the person's message", async () => {
+  const summary = "This session is being continued from a previous conversation.";
+  const { compactions, said, holders } = await compacted(summary);
+  expect(compactions).toHaveLength(1);
+  expect(compactions[0]).toMatchObject({ summary, tokensBefore: 900, tokensAfter: 40 });
+  expect(said).toBe(false);
+  // The summary's record is kept once, with the compaction it belongs to.
+  expect(holders.map((item) => item.type)).toEqual(["compaction"]);
+});
+
+test("a compaction summary too large to travel inline still opens from its compaction", async () => {
+  const summary = `Summary:\n${"kept context ".repeat(6_000)}`;
+  const { compactions, said, sink } = await compacted(summary);
+  expect(compactions).toHaveLength(1);
+  expect(compactions[0]).toMatchObject({ summary });
+  expect(said).toBe(false);
+  // Its record goes to a blob, referenced by a hidden raw entry of its own.
+  expect(
+    sink.items.some((item) => item.type === "notice" && item.raw.some((raw) => "blobRef" in raw)),
+  ).toBe(true);
+});
 test("instance homes keep identical native session IDs separate", async () => {
   const env = await environment();
   cleanup.push(env.close);

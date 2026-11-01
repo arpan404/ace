@@ -13,6 +13,7 @@ import { startDaemon } from "./index.ts";
 import { Client, fixture, token } from "./socket-test-support.ts";
 
 import { cleanups, identity, setup } from "./remote-test-support.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 describe("remote access", () => {
   it("carries the pin and one-time code only in the URL fragment and consumes the code once", async () => {
     const f = await setup();
@@ -262,14 +263,14 @@ describe("remote access", () => {
       ACE_ADVERTISE_HOST: "127.0.0.1",
       ACE_LOG_LEVEL: "silent",
     });
-    const first = await startDaemon({ config: config });
+    const first = await startDaemon({ config: config, engine: noProviderDiscovery });
     const credential = readFileSync(first.tokenPath, "utf8");
     const origin = readFileSync(join(home, "daemon-endpoint"), "utf8");
     const issued = PairingResponse.parse(
       await accessRequest(origin, "/v1/pairings", { token: credential, method: "POST", body: {} }),
     );
     await first.close();
-    const second = await startDaemon({ config: config });
+    const second = await startDaemon({ config: config, engine: noProviderDiscovery });
     cleanups.push(() => second.close());
     if (!second.remoteUrl) throw new Error("Remote listener missing");
     // The same link, at wherever the restarted daemon listens (the test binds port 0).
@@ -290,7 +291,7 @@ describe("remote access", () => {
       ACE_ADVERTISE_HOST: "127.0.0.1",
       ACE_LOG_LEVEL: "silent",
     });
-    const first = await startDaemon({ config: config });
+    const first = await startDaemon({ config: config, engine: noProviderDiscovery });
     cleanups.push(() => first.close());
     const credential = readFileSync(first.tokenPath, "utf8");
     const origin = readFileSync(join(home, "daemon-endpoint"), "utf8");
@@ -307,7 +308,7 @@ describe("remote access", () => {
       }),
     );
     await first.close();
-    const second = await startDaemon({ config: config });
+    const second = await startDaemon({ config: config, engine: noProviderDiscovery });
     cleanups.push(() => second.close());
     if (!second.remoteUrl || !second.fingerprint) throw new Error("Remote listener missing");
     expect(second.fingerprint).toBe(first.fingerprint);

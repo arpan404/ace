@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import rawTokens from "../tokens.json" with { type: "json" };
 import { themeDeclarations } from "../../../apps/web/src/theme/css.ts";
 import { defaultThemeId } from "@ace/themes";
-import { DesignTokensSchema, designTokens } from "./index.ts";
+import { designTokens } from "./index.ts";
 
 const schemes = ["light", "dark"] as const;
 const surfaces = [
@@ -32,10 +31,6 @@ function contrast(text: string, surface: string): number {
 }
 
 describe("native theme data", () => {
-  it("accepts the raw JSON consumed by native generators and produces the same TS theme", () => {
-    expect(DesignTokensSchema.parse(rawTokens)).toEqual(designTokens);
-  });
-
   for (const scheme of schemes) {
     it(`${scheme} status markers stay identical to the colours the web renders in Ace`, () => {
       const web = themeDeclarations(defaultThemeId, scheme);

@@ -14,6 +14,7 @@ import { createAckTracker } from "./notification-ack.ts";
 import { failureDelay, maySleep, wakeDelay } from "./notification-wake.ts";
 import type { Store } from "./store.ts";
 import { acceptIntents, dropIntents, isNotice } from "./notification-intents.ts";
+import { delegatedHere } from "./notification-ownership.ts";
 
 const offline = () => false;
 const nobody = (): readonly DeviceId[] => [];
@@ -226,6 +227,12 @@ export function createDaemonNotifications(
       const recovered = await awake.attached.recover();
       cancelled();
       if (recovered) {
+        // Once replay has every thread, before anything is delivered: threads a paired machine
+        // delegated here alert nobody here, whether or not this store saw the event saying so.
+        for (const threads of delegatedHere(store)) {
+          await awake.worker.markRemote(threads, signal);
+          cancelled();
+        }
         await settleSleep(awake.worker);
         return;
       }

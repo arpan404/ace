@@ -3195,109 +3195,157 @@ Example:
 
 ```json
 {
-  "seq": 9,
+  "seq": 1,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "agentChildren": {},
     "agents": {},
     "backgroundTasks": {},
+    "entitiesBefore": {},
     "interactions": {},
     "itemOrder": [],
     "items": {},
     "kind": "thread",
     "offshift": {
-      "blocker": "example",
+      "blocker": null,
       "byPerson": false,
       "criteria": [],
-      "criteriaCount": 4,
+      "criteriaCount": 1,
       "ended": false,
       "endpoint": "example",
-      "id": "LVNzMFGp7",
+      "id": "K-H1D",
+      "next": "example",
       "outcome": "example",
       "outcomeTruncated": false,
       "pending": [],
-      "pendingCount": 8,
-      "phase": "delivery",
-      "playbook": "fix",
+      "pendingCount": 1,
+      "phase": "verify",
       "revision": "example",
-      "steps": [],
-      "updatedAt": 8,
-      "version": 1
+      "updatedAt": 7,
+      "version": 2
+    },
+    "queue": {
+      "lastFailure": null,
+      "paused": true,
+      "reason": null,
+      "resumeAt": 7,
+      "revision": 0
     },
     "runs": {},
-    "seq": 9,
+    "seq": 1,
     "thread": {
       "acpAgentId": "example",
-      "activitySeq": 1,
-      "archivedAt": 3,
-      "autoSettleAt": 0,
-      "backend": "acp",
-      "createdAt": 6,
-      "delegatedBy": "example",
-      "deletedAt": 2,
-      "execution": {
-        "options": {},
-        "provider": "antigravity"
+      "archivedAt": 9,
+      "autoSettleAt": 8,
+      "createdAt": 9,
+      "delegatedFrom": {
+        "hostId": "example",
+        "hostName": "example",
+        "threadId": "example"
       },
-      "goal": {
-        "checks": 5,
-        "objective": "example",
-        "status": "usage_limited",
-        "timeUsedSeconds": 2,
-        "tokensUsed": 9
+      "details": {
+        "ahead": 7,
+        "baseBranch": "example",
+        "behind": 8,
+        "branch": null,
+        "continuedOn": {
+          "at": 0,
+          "hostId": "example",
+          "name": "example",
+          "threadId": "example"
+        },
+        "head": "6940b0ad2ed68d4d040369b03bc6df47de9f652fc4f3f9a6212c814ef20338",
+        "linkedIssues": [],
+        "linkedPr": {
+          "draft": false,
+          "number": 2,
+          "state": "closed"
+        },
+        "machine": {
+          "host": "example",
+          "name": "example"
+        },
+        "mode": "local",
+        "pullRequestWorkspace": {
+          "baseBranch": "example",
+          "baseSha": "d0d09759d68c3e68e6cb9d0705d81437280a7ab2d",
+          "context": "example",
+          "contextTruncated": false,
+          "headBranch": "example",
+          "headRepository": null,
+          "headSha": "275b904f68b11187a14a9bb5f8a8edca39f97b62a635ec9e6f46962854f4",
+          "ref": {
+            "number": 10,
+            "repository": {
+              "forge": "gitlab",
+              "host": "M",
+              "name": "u_",
+              "owner": "LZ_uT5_H/ckkIr/xK7VZ/1Q3PVi/lDOYNhc"
+            }
+          }
+        },
+        "worktreeCreation": {
+          "actions": [],
+          "attempt": 2,
+          "cleanupComplete": false,
+          "commandId": "example",
+          "details": [],
+          "elapsedMs": 1,
+          "percent": 0,
+          "startedAt": 0,
+          "state": "running",
+          "step": "fetching",
+          "steps": []
+        }
       },
       "id": "example",
-      "instanceId": "example",
-      "listOrder": 0,
+      "listOrder": 8,
       "live": {
+        "account": "example",
         "asking": [],
-        "contextMeter": {
-          "at": 0,
-          "limit": 2,
-          "used": 9
-        },
-        "options": {},
-        "waitingOn": 7,
-        "workingSince": 4
+        "askingThreads": [],
+        "backgroundTaskCount": 2,
+        "rootRunId": "example",
+        "subagentCount": 9,
+        "waitingOn": 8
       },
       "permission": {
+        "custom": "example",
         "effective": null,
         "override": null,
         "pending": false
       },
       "prSettled": 2,
       "prSettledKey": "example",
-      "provider": "pi",
+      "provider": "opencode",
       "queuedLaunch": {
         "text": "example"
       },
-      "readAt": 2,
+      "readAt": 4,
       "settleWhenDone": true,
-      "snoozedUntil": 8,
+      "settledAt": 4,
       "status": {
-        "on": "upstream",
-        "queuePosition": 8,
+        "on": "queue",
+        "slotLimit": 4,
         "state": "waiting"
       },
       "switch": {
-        "at": 2,
-        "error": "example",
-        "lossy": true,
-        "recommendation": "delegate_task",
+        "at": 1,
+        "lossy": false,
         "selection": {
-          "model": "example",
           "options": {},
-          "provider": "codex"
+          "provider": "antigravity"
         },
         "state": "failed"
       },
       "title": "example",
       "unread": true,
-      "updatedAt": 4,
+      "updatedAt": 3,
       "workspaceId": "example"
     },
-    "usage": {}
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```

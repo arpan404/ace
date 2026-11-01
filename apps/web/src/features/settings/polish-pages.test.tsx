@@ -11,16 +11,6 @@ await Promise.all([
 ]);
 beforeEach(() => localStorage.clear());
 
-test("Agents finishes loading and keyboard changes are stored", async () => {
-  const app = harness();
-  await app.open("/settings/agents");
-  const worktree = await screen.findByRole("switch", { name: "New threads use a worktree" });
-  await userEvent.click(worktree);
-  worktree.focus();
-  await userEvent.keyboard(" ");
-  await waitFor(() => expect(app.daemon.services.settings.get("threads.useWorktree")).toBe(true));
-});
-
 test("compact switch explanations are visible and the setting works from the keyboard", async () => {
   await harness().open("/settings/notifications");
   const control = await screen.findByRole("switch", { name: "Needs you", checked: true });

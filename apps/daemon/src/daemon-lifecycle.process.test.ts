@@ -6,6 +6,7 @@ import { accessRequest } from "./client-access.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { readConfig, startDaemon } from "./index.ts";
 import { readShutdownReceipt } from "./shutdown-receipt.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -18,7 +19,10 @@ async function temporaryHome(prefix: string): Promise<string> {
 }
 test("a stop request is logged with its own source, then the stop with its duration", async () => {
   const home = await temporaryHome("ace-stop-request-");
-  const daemon = await startDaemon({ config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }) });
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
+    engine: noProviderDiscovery,
+  });
   cleanups.push(() => daemon.close());
   const origin = await readFile(join(home, "daemon-endpoint"), "utf8");
   const token = await readFile(daemon.tokenPath, "utf8");
@@ -42,7 +46,10 @@ test("a stop request is logged with its own source, then the stop with its durat
 
 test("an event loop blocked for more than a second is recorded in the daemon log", async () => {
   const home = await temporaryHome("ace-loop-stall-");
-  const daemon = await startDaemon({ config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }) });
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
+    engine: noProviderDiscovery,
+  });
   cleanups.push(() => daemon.close());
   const until = performance.now() + 1_600;
   while (performance.now() < until);

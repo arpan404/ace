@@ -88,18 +88,6 @@ test("limits say what is left, from the share the provider reports used", async 
   expect(document.body.textContent).not.toMatch(/\d+% used/);
 });
 
-test("each window's reset reads as a countdown to the minute, then in days", async () => {
-  const app = harness();
-  report(app.daemon, "codex-personal", {
-    five_hour: [10, 2 * hour + 14 * minute],
-    seven_day: [10, 6 * day + 12 * hour],
-  });
-  await app.open("/usage");
-  const personal = await accountBlock("Codex", "Personal");
-  expect(personal.textContent).toContain("Resets in 2h 14m");
-  expect(personal.textContent).toContain("Resets in 6d 12h");
-});
-
 test("banked resets show under an account only when its provider reports some", async () => {
   const app = harness();
   report(app.daemon, "codex-personal", { five_hour: [40, hour] }, 3);

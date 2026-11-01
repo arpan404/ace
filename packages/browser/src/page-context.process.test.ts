@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { executablePath, fixture, pixelPng } from "./test-support.ts";
+import { executablePath, sharedFixture, pixelPng } from "./test-support.ts";
 
 const person = { kind: "human", connectionId: "person" } as const;
 
 describe.skipIf(!executablePath)("ace's right-click menu over a page in ace's Chrome", () => {
   it("finds the link and image under a point, and hands over the image the page loaded", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(`new Promise((resolve) => {
       const link = document.createElement("a");
@@ -47,7 +47,7 @@ describe.skipIf(!executablePath)("ace's right-click menu over a page in ace's Ch
   }, 60_000);
 
   it("agents can't ask what is under the person's pointer", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await expect(f.execute({ action: "context_target", x: 1, y: 1 })).rejects.toThrow();
     await expect(f.execute({ action: "image_data", url: `${f.url}/pixel.png` })).rejects.toThrow();

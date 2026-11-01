@@ -8,6 +8,7 @@ import { z } from "zod";
 import { afterEach, expect, it } from "vitest";
 import { FilesServerMessage, ServerMessage } from "@ace/protocol";
 import { createDevThread, startDaemon } from "./index.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 /*
  * A phone's upload whose commit reply never arrived: the daemon published the file, the
@@ -65,6 +66,7 @@ it("resuming an upload the daemon already published answers COMMITTED, and commi
   const root = join(home, "workspace");
   await mkdir(root);
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: {
       dataDir: join(home, "data"),
       workspaceRoot: root,

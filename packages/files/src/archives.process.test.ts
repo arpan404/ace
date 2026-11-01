@@ -191,7 +191,8 @@ it("reports a changed root directory without crashing while an archive waits for
   client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
   expect(await client.next()).toMatchObject({ code: "CONFLICT" });
 });
-it("streams interoperable PAX archives with long UTF-8 names and complete files beyond 8 GiB", async () => {
+// Sizes beyond 8 GiB are PAX header records: tar.test.ts.
+it("streams interoperable PAX archives with long UTF-8 names", async () => {
   const f = await setup();
   const client = await f.connect();
   const name = "界".repeat(70);
@@ -218,40 +219,7 @@ it("streams interoperable PAX archives with long UTF-8 names and complete files 
   await mkdir(extracted);
   await run("tar", ["-xzf", output, "-C", extracted]);
   expect(await readFile(join(extracted, name), "utf8")).toBe("unicode bytes");
-  const huge = await open(join(f.root, "huge"), "w");
-  await huge.truncate(9 * 1024 ** 3);
-  await huge.close();
-  const big = Preview.parse(
-    await client.request({ op: "archive.preview", path: "", includeIgnored: false }),
-  );
-  expect(big.value.bytes).toBe(9 * 1024 ** 3 + Buffer.byteLength("unicode bytes"));
-  const transfer = Ready.parse(
-    await client.request({ op: "archive.download", previewId: big.value.previewId }),
-  );
-  const largeArchive = join(f.home, "large.tar.gz");
-  const largeOutput = await open(largeArchive, "w");
-  const digest = createHash("sha256");
-  let offset = 0;
-  try {
-    for (;;) {
-      client.send({ type: "files.credit", channel: transfer.channel, credits: 1 });
-      const next = await client.next();
-      if (!Buffer.isBuffer(next)) {
-        expect(next).toMatchObject({ type: "files.end", offset, sha256: digest.digest("hex") });
-        break;
-      }
-      const frame = decodeFileFrame(next);
-      await largeOutput.writeFile(frame.bytes);
-      digest.update(frame.bytes);
-      offset += frame.bytes.length;
-    }
-  } finally {
-    await largeOutput.close();
-  }
-  const listing = (await run("tar", ["-tvzf", largeArchive])).stdout;
-  expect(listing).toContain(String(9 * 1024 ** 3));
-  expect(listing).toContain("huge");
-}, 600_000);
+});
 
 const windows = process.platform === "win32";
 /** Saves a whole archive download to `file`; returns its byte count. */

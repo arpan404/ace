@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { afterEach } from "vitest";
+import { afterAll, afterEach, expect } from "vitest";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { ModelCatalog, openModelStorage } from "@ace/models";
 import { scriptedModelInstance, scriptedModelDiscovery } from "../testing/models.ts";
@@ -19,12 +19,18 @@ import {
 import { Store, Engine, AdapterRegistry, DelegationService } from "@ace/daemon";
 import { ManualClock, scriptFrames, start, end } from "../engine/test-support.ts";
 
-const homes: string[] = [];
-const cleanup: (() => Promise<void>)[] = [];
-afterEach(async () => {
-  for (const close of cleanup.splice(0).toReversed()) await close();
-  for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
-});
+/** What one scope created: closed in reverse order, then its homes removed. */
+type Scope = { homes: string[]; cleanup: (() => Promise<void>)[] };
+const perTest: Scope = { homes: [], cleanup: [] };
+const perFile: Scope = { homes: [], cleanup: [] };
+async function release(scope: Scope) {
+  for (const close of scope.cleanup.splice(0).toReversed()) await close();
+  for (const home of scope.homes.splice(0)) rmSync(home, { recursive: true, force: true });
+}
+afterEach(() => release(perTest));
+afterAll(() => release(perFile));
+/** A fixture made in a test lasts for that test; one made in `beforeAll` lasts for the file. */
+const scope = () => (expect.getState().currentTestName === undefined ? perFile : perTest);
 export function setup(
   policy: Partial<DelegationPolicy> = {},
   path?: string,
@@ -41,7 +47,7 @@ export function setup(
   steeringMode?: "interrupt-restart",
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
-  if (!path) homes.push(home);
+  if (!path) scope().homes.push(home);
   const dbPath = path ?? join(home, "events.sqlite");
   const store = new Store(dbPath);
   const workspace = store.createWorkspace(home, "workspace");
@@ -238,7 +244,7 @@ export function setup(
     await catalog.close();
     store.close();
   }
-  cleanup.push(close);
+  scope().cleanup.push(close);
   function caller(threadId: ThreadId): McpAttribution {
     const agentId = store.getThread(threadId)?.rootAgentId;
     if (!agentId) throw new Error("Root not materialized");

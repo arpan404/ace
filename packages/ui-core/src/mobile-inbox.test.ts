@@ -238,3 +238,19 @@ test("mobile rows name a canonical question and preserve the working token while
   expect(inboxStatus(on("mac", waiting), now)).toEqual({ label: "Waiting on 1", token: "working" });
   expect(sections([on("mac", waiting)])).toEqual({ Working: ["mac/parent"] });
 });
+
+test("the phone's inbox leaves out threads a paired machine's agents delegated to this one", () => {
+  const delegatedFrom = { hostId: "host-a", threadId: "parent-on-a" };
+  const result = sections([
+    on("mac", entry("mine", { state: "working", agents: 1 }, now)),
+    on(
+      "mac",
+      entry("theirs", { state: "needs_you", interactions: 1 }, now, {
+        hasSentMessage: true,
+        delegatedFrom,
+      }),
+    ),
+    on("mac", entry("their-run", { state: "working", agents: 1 }, now, { delegatedFrom })),
+  ]);
+  expect(result).toEqual({ Working: ["mac/mine"] });
+});

@@ -1,6 +1,6 @@
 import { app, nativeImage, powerSaveBlocker, type BrowserWindow, type NativeImage } from "electron";
 import type { DesktopSettings } from "../../shared/contract.ts";
-import type { WorkSummary } from "../link/thread-watch.ts";
+import { noWork, type WorkSummary } from "../link/thread-watch.ts";
 
 /**
  * Dock and taskbar state from the daemon's thread list: the needs-you badge, a bounce or
@@ -8,7 +8,7 @@ import type { WorkSummary } from "../link/thread-watch.ts";
  * while agents work, and the optional power-save blocker.
  */
 export class Attention {
-  private summary: WorkSummary = { needsYou: 0, working: 0, held: 0 };
+  private summary: WorkSummary = noWork;
   private blocker: number | undefined;
   private overlay: NativeImage | undefined;
   private settings: () => DesktopSettings;
@@ -43,7 +43,8 @@ export class Attention {
       );
       win.setProgressBar(next.working ? 2 : -1, { mode: next.working ? "indeterminate" : "none" });
     }
-    this.sleep(settings.preventSleep && next.working > 0);
+    // Work run here for a paired machine shows nowhere here, but still keeps the computer awake.
+    this.sleep(settings.preventSleep && next.working + next.hostedWorking > 0);
   }
 
   current(): WorkSummary {

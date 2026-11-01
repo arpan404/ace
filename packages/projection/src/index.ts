@@ -181,6 +181,8 @@ export function updateThread(thread: Thread, event: Event): void {
     if (payload.provider !== undefined) thread.provider = payload.provider;
     if (payload.lineage !== undefined) thread.lineage = structuredCopy(payload.lineage);
     if (payload.delegatedBy !== undefined) thread.delegatedBy = payload.delegatedBy;
+    if (payload.delegatedFrom !== undefined)
+      thread.delegatedFrom = structuredCopy(payload.delegatedFrom);
     if (payload.queuedLaunch === null) delete thread.queuedLaunch;
     else if (payload.queuedLaunch !== undefined)
       thread.queuedLaunch = structuredCopy(payload.queuedLaunch);

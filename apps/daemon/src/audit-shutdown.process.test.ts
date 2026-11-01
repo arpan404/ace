@@ -12,6 +12,7 @@ import { Resources } from "./services/resources.ts";
 import { runDaemonProcess } from "./process-daemon.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { retainNotifications } from "./notification-test-support.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 async function stalledWorker() {
   const root = await mkdtemp(join(tmpdir(), "ace-shutdown-audit-"));
@@ -22,6 +23,7 @@ async function stalledWorker() {
   const overallDeadline = Promise.withResolvers<() => void>();
   let release: (() => void) | undefined;
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: root, ACE_PORT: "0", ACE_LOG_LEVEL: "error" }),
     modelInstances: [],
     history: { instances: [] },
@@ -155,6 +157,7 @@ test("when a resource hangs, the deadline log names it and the next start report
     );
     await f.settle();
     const next = await startDaemon({
+      engine: noProviderDiscovery,
       config: readConfig({ ACE_HOME: f.root, ACE_PORT: "0", ACE_LOG_LEVEL: "info" }),
       modelInstances: [],
       history: { instances: [] },

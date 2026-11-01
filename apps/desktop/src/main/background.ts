@@ -16,7 +16,7 @@ import { NotificationRouter, type Alert } from "./notifications/router.ts";
 import { Attention } from "./os/attention.ts";
 import { StatusTray } from "./os/tray.ts";
 import { appLifetime } from "./os/lifetime.ts";
-import type { WorkSummary } from "./link/thread-watch.ts";
+import { noWork, type WorkSummary } from "./link/thread-watch.ts";
 
 export interface BackgroundOptions {
   userData: string;
@@ -68,7 +68,7 @@ export class Background {
   private browserLoad: Promise<void> | undefined;
   private stopped = false;
   /** Threads working or waiting on the person, as the daemon link last reported. */
-  private work: WorkSummary = { needsYou: 0, working: 0, held: 0 };
+  private work: WorkSummary = noWork;
   private hadWindow = false;
   /** The person was told, this run, that ace keeps running with no tray icon to show it. */
   private toldUnseen = false;
@@ -373,7 +373,7 @@ export class Background {
   /** Quitting now would close browser pages that working agents just used (#952). */
   agentsBrowsing(now: number, systemShutdown: boolean): boolean {
     return quitNeedsConfirmation({
-      working: this.work.working,
+      working: this.work.working + this.work.hostedWorking,
       lastAgentBrowse: this.browser?.views.lastDriven() ?? -Infinity,
       now,
       systemShutdown,

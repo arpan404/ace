@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, realpath, writeFile, rename, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile, rename, rm } from "node:fs/promises";
+import { afterAll, afterEach, beforeAll } from "vitest";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startDaemon, createDevThread, AdapterRegistry, type CommandHandler } from "@ace/daemon";
@@ -124,18 +125,74 @@ export class Faults {
     return new Promise((resolve) => this.watchers.push({ predicate, resolve }));
   }
 }
+type DaemonOptions = import("@ace/daemon").DaemonOptions;
+
+/** Each test runs against its own daemon, so it may change daemon-wide state freely. */
 export async function setup(
   handler?: CommandHandler,
-  history?: import("@ace/daemon").DaemonOptions["history"],
-  engine?: import("@ace/daemon").DaemonOptions["engine"],
-  devices?: import("@ace/daemon").DaemonOptions["devices"],
-  projects?: import("@ace/daemon").DaemonOptions["projects"],
+  history?: DaemonOptions["history"],
+  engine?: DaemonOptions["engine"],
+  devices?: DaemonOptions["devices"],
+  projects?: DaemonOptions["projects"],
+) {
+  const base = await startTestDaemon(handler, history, engine, devices, projects);
+  const scope = await base.scope(base.root);
+  return {
+    ...scope,
+    async cleanup() {
+      await scope.cleanup();
+      await base.close();
+    },
+  };
+}
+
+/**
+ * One daemon for the whole file; each call of the returned function gets its own workspace,
+ * thread, outbox file and clients, closed after the test. Use it only for tests that leave
+ * daemon-wide state (settings, devices, maintenance) alone and give their items IDs no other test
+ * in the file uses: item IDs are unique per daemon, not per thread. Client command IDs keep
+ * counting across tests so receipts never collide.
+ */
+export function sharedDaemon(
+  options: {
+    handler?: CommandHandler;
+    engine?: DaemonOptions["engine"];
+  } = {},
+): () => Promise<Harness> {
+  let base: TestDaemon | undefined;
+  const scopes: Harness[] = [];
+  beforeAll(async () => {
+    base = await startTestDaemon(options.handler, undefined, options.engine);
+  });
+  afterEach(async () => {
+    for (const scope of scopes.splice(0)) await scope.cleanup();
+  });
+  afterAll(async () => {
+    await base?.close();
+  });
+  return async () => {
+    if (!base) throw new Error("The shared daemon has not started");
+    const scope = await base.scope(await base.newDirectory());
+    scopes.push(scope);
+    return scope;
+  };
+}
+
+type TestDaemon = Awaited<ReturnType<typeof startTestDaemon>>;
+export type Harness = Awaited<ReturnType<TestDaemon["scope"]>>;
+
+async function startTestDaemon(
+  handler?: CommandHandler,
+  history?: DaemonOptions["history"],
+  engine?: DaemonOptions["engine"],
+  devices?: DaemonOptions["devices"],
+  projects?: DaemonOptions["projects"],
 ) {
   // Sessions refuse symlinked workspaces; macOS tmpdir is under the /var symlink.
-  const directory = await realpath(await mkdtemp(join(tmpdir(), "ace-client-")));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-client-")));
   const daemon = await startDaemon({
     config: {
-      dataDir: directory,
+      dataDir: root,
       host: "127.0.0.1",
       port: 0,
       listen: "local",
@@ -152,52 +209,66 @@ export async function setup(
     ...(projects ? { projects } : {}),
   });
   const token = (await readFile(daemon.tokenPath, "utf8")).trim();
-  const workspaceId = daemon.store.createWorkspace(directory, "test");
-  const thread = createDevThread(daemon.store, workspaceId);
-  const clients: Client[] = [];
   let sequence = 0;
-  const make = (overrides: Partial<ClientOptions> = {}) => {
-    const faults = new Faults(daemon.url);
-    const scheduler = new ManualScheduler();
-    const client = new Client({
-      deviceId: DeviceId.parse("test-device"),
-      transport: () => faults.create(),
-      storage: memoryStorage(),
-      credential: async () => token,
-      scheduler,
-      random: () => 0.5,
-      id: () => `client-${++sequence}`,
-      ...overrides,
-    });
-    clients.push(client);
-    return { client, faults, scheduler };
-  };
-  const storage: Storage = {
-    async load() {
-      try {
-        return await readFile(join(directory, "outbox.json"), "utf8");
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
-        throw error;
-      }
-    },
-    async save(value) {
-      const temporary = join(directory, "outbox.tmp");
-      await writeFile(temporary, value);
-      await rename(temporary, join(directory, "outbox.json"));
-    },
-  };
+  let directories = 0;
   return {
-    daemon,
-    directory,
-    thread,
-    workspaceId,
-    make,
-    storage,
-    async cleanup() {
-      for (const client of clients) await client.close();
+    root,
+    async newDirectory() {
+      const directory = join(root, `scope-${++directories}`);
+      await mkdir(directory);
+      return directory;
+    },
+    async scope(directory: string) {
+      const workspaceId = daemon.store.createWorkspace(directory, "test");
+      const thread = createDevThread(daemon.store, workspaceId);
+      const clients: Client[] = [];
+      const make = (overrides: Partial<ClientOptions> = {}) => {
+        const faults = new Faults(daemon.url);
+        const scheduler = new ManualScheduler();
+        const client = new Client({
+          deviceId: DeviceId.parse("test-device"),
+          transport: () => faults.create(),
+          storage: memoryStorage(),
+          credential: async () => token,
+          scheduler,
+          random: () => 0.5,
+          id: () => `client-${++sequence}`,
+          ...overrides,
+        });
+        clients.push(client);
+        return { client, faults, scheduler };
+      };
+      const outbox = join(directory, "outbox.json");
+      const storage: Storage = {
+        async load() {
+          try {
+            return await readFile(outbox, "utf8");
+          } catch (error) {
+            if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+            throw error;
+          }
+        },
+        async save(value) {
+          const temporary = join(directory, "outbox.tmp");
+          await writeFile(temporary, value);
+          await rename(temporary, outbox);
+        },
+      };
+      return {
+        daemon,
+        directory,
+        thread,
+        workspaceId,
+        make,
+        storage,
+        async cleanup() {
+          for (const client of clients.splice(0)) await client.close();
+        },
+      };
+    },
+    async close() {
       await daemon.close();
-      await rm(directory, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
     },
   };
 }

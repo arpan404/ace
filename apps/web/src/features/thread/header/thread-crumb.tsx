@@ -1,4 +1,5 @@
 import { useAgent, useSidebarThread, useThreadMeta } from "@ace/client-react";
+import type { DelegatedFrom } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { ChatCircleIcon, FolderSimpleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -14,13 +15,29 @@ import { useIsChatThread, useProjectName, type ChatTestEntry } from "@/lib/proje
  * A fork is a thread of its own; its transcript says where it was forked from.
  */
 export function ThreadCrumb(props: { threadId: string }) {
-  const parent = useThreadMeta(props.threadId)?.delegatedBy;
-  return parent ? <ParentCrumb threadId={parent} /> : null;
+  const meta = useThreadMeta(props.threadId);
+  if (meta?.delegatedBy) return <ParentCrumb threadId={meta.delegatedBy} />;
+  if (meta?.delegatedFrom) return <RemoteParentCrumb from={meta.delegatedFrom} />;
+  return null;
 }
 
 /** Whether the thread's header shows a parent before its title (`ThreadCrumb`). */
 export function useHasParentCrumb(threadId: string): boolean {
-  return useThreadMeta(threadId)?.delegatedBy !== undefined;
+  const meta = useThreadMeta(threadId);
+  return meta?.delegatedBy !== undefined || meta?.delegatedFrom !== undefined;
+}
+
+/**
+ * A child an agent on a paired machine delegated here: its parent lives on that machine, so the
+ * crumb names the machine rather than linking to a thread this machine doesn't have.
+ */
+function RemoteParentCrumb(props: { from: DelegatedFrom }) {
+  const machine = props.from.hostName ?? "another machine";
+  return (
+    <Tip label={`Delegated by a thread on ${machine}`}>
+      <span className="truncate">{machine}</span>
+    </Tip>
+  );
 }
 
 /**

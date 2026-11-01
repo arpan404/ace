@@ -9,6 +9,7 @@ import { ClientMessage, FilesServerMessage, ServerMessage, WorkspaceId } from "@
 import { startRelay, connectClientViaRelay } from "@ace/relay";
 import { startDaemon, createDevThread } from "./index.ts";
 import { ProjectStorage } from "./project-storage.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 /*
  * New thread on a phone browses a registered project's own folder before any thread exists:
@@ -69,6 +70,7 @@ async function setup(transport: "websocket" | "relay") {
   const relay = transport === "relay" ? await startRelay() : undefined;
   if (relay) cleanup.push(() => relay.close());
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: {
       dataDir: join(home, "data"),
       host: "127.0.0.1",

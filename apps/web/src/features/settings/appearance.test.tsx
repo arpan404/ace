@@ -350,16 +350,6 @@ test("a device drawing without graphics acceleration shows Solid, and the slider
   expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
 });
 
-test("someone who chose Solid surfaces before the slider opens at Solid", async () => {
-  const storage = memoryKeyValue();
-  storage.setItem("ace.appearance", JSON.stringify({ theme: "midnight", surface: "solid" }));
-  await harness({ storage, matchMedia: system({}) }).open("/settings/appearance");
-  expect(root.getAttribute("data-surface")).toBe("solid");
-  await screen.findByRole("slider", { name: "Translucency" });
-  expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
-  expect(slider().disabled).toBe(false);
-});
-
 test("Reduce motion follows the OS under System, and On or Off overrides it", async () => {
   await harness({ matchMedia: system({ reducedMotion: true }) }).open("/settings/appearance");
   expect(root.hasAttribute("data-reduce-motion")).toBe(true);

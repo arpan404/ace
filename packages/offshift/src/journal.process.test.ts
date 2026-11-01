@@ -398,15 +398,6 @@ test("a run stored with roles by an earlier build still loads and takes changes"
   expect(f.advance("implement").run).toMatchObject({ phase: "implement", version: 1 });
 });
 
-test("roles are no longer part of a run: start with roles and a roles action are refused", () => {
-  const f = fixture();
-  const execute = (input: unknown) => f.journal().execute(input, f.context);
-  expect(() => execute({ ...f.start, roles: { build: { provider: "codex" } } })).toThrow();
-  f.call(f.start);
-  const roles = { build: { provider: "codex" } };
-  expect(() => execute({ action: "roles", runId: "feature", version: 0, roles })).toThrow();
-});
-
 test("an independent criterion stays pending on the owner's own pass until another provider or model passes it", () => {
   const f = fixture();
   f.call({

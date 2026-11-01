@@ -546,7 +546,8 @@ test("saved messages beyond the visible page do not reappear as saving rows or t
   ).toBe(18);
 });
 
-test.each([17, 33, 257])(
+// 17 edits past the first page; 257 past the daemon's 256-message window.
+test.each([17, 257])(
   "a fresh client can edit retained input %i in the composer without running earlier messages",
   async (count) => {
     const queuedCount = Math.min(count, 256);
@@ -562,13 +563,21 @@ test.each([17, 33, 257])(
     try {
       await peer.start();
       await waitFor(() => expect(peer.state).toBe("ready"));
+      // Another device queued them, straight into the daemon (one outbox round trip each would
+      // spend most of the test's time).
       for (let index = 1; index <= queuedCount; index++)
-        await peer.command({
-          type: "thread.send",
-          threadId: ThreadId.parse(threadId),
-          input: [{ type: "text", text: `Retained input ${index}` }],
-          delivery: "queue",
-        });
+        expect(
+          app.daemon.command({
+            id: CommandId.parse(`retained-${index}`),
+            deviceId: DeviceId.parse("other-device"),
+            payload: {
+              type: "thread.send",
+              threadId: ThreadId.parse(threadId),
+              input: [{ type: "text", text: `Retained input ${index}` }],
+              delivery: "queue",
+            },
+          }).ok,
+        ).toBe(true);
       if (count > 256)
         app.daemon.restoreUncertainInput(threadId, {
           id: "unconfirmed-first",

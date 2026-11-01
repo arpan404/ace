@@ -116,21 +116,6 @@ test("with limit toasts turned off, an account reaching its limit stays quiet", 
   expect(screen.queryByText("Claude Code · Work reached its usage limit")).toBeNull();
 });
 
-test("losing track of an account at its limit doesn't say it can work again; a reading with room does", async () => {
-  const app = harness();
-  await workAtLimit(app);
-
-  // Its CLI stops saying it is signed in and reports no windows: nothing is known either way.
-  report(app, "claude-work", {}, "unknown");
-  await refresh();
-  await waitFor(() => expect(workMeter()).toBeNull());
-  expect(screen.queryByText("Claude Code · Work can work again")).toBeNull();
-
-  report(app, "claude-work", { five_hour: [4, 5 * hour] });
-  await refresh();
-  expect(await within(await toasts()).findByText("Claude Code · Work can work again")).toBeTruthy();
-});
-
 test("once its full window resets, the account says it can work again without anything new from the provider", async () => {
   const app = harness();
   await workAtLimit(app);

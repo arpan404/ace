@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/DelegatedFrom.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "hostId": {
+      "$ref": "https://ace.local/protocol/v1/HostId.json"
+    },
+    "hostName": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "hostId",
+    "threadId"
+  ],
+  "type": "object"
+}

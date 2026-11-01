@@ -17,11 +17,14 @@ import { measureCatalogue, renderMarkdown, type CatalogueMetrics, type TaskRow }
 
 // Tier A of the MCP eval harness (docs/evals/mcp/README.md): deterministic, no provider calls.
 // `bun run eval:mcp` sets ACE_EVAL_REPORT to write the JSON and markdown report.
+// Measurement tasks assert nothing, so they run only when the report is written. Gates are
+// correctness checks and run in every test run.
+const reporting = Boolean(process.env["ACE_EVAL_REPORT"]);
 const rows: TaskRow[] = [];
 let catalogue: CatalogueMetrics | undefined;
 
 for (const task of evalTasks)
-  test(`${task.gate ? "[gate] " : ""}${task.title}`, async () => {
+  test.skipIf(!task.gate && !reporting)(`${task.gate ? "[gate] " : ""}${task.title}`, async () => {
     const world = await evalWorld({ browser: task.needsBrowser ?? false });
     try {
       if (task.needsBrowser && !world.browser) {
@@ -36,7 +39,7 @@ for (const task of evalTasks)
     }
   });
 
-test("catalogue a full-access thread sees", async () => {
+test.skipIf(!reporting)("catalogue a full-access thread sees", async () => {
   const world = await evalWorld({ browser: true });
   try {
     const { agent, connection } = await world.agent({});
@@ -66,7 +69,7 @@ test("catalogue a full-access thread sees", async () => {
 
 afterAll(() => {
   const target = process.env["ACE_EVAL_REPORT"];
-  if (!target) return;
+  if (!target || !reporting) return;
   const order = new Map(evalTasks.map((task, index) => [task.id, index]));
   const report = {
     label: process.env["ACE_EVAL_LABEL"] ?? "latest",

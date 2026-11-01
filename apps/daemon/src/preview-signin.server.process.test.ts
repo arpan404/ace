@@ -10,6 +10,7 @@ import { startDaemon, readConfig } from "./index.ts";
 import { PreviewClient } from "./preview-client.ts";
 import { cleanups, setup } from "./remote-test-support.ts";
 import { Client, token } from "./socket-test-support.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const previewOptions = { host: "127.0.0.1", wildcardHost: "preview.test" };
 type Reply = { status: number; headers: IncomingHttpHeaders; body: string };
@@ -117,6 +118,7 @@ test("the desktop's host credential previews a forwarded dev server through the 
   });
   const port = await devServer("hello from the dev server");
   daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     toolkits: [],
     modelInstances: [],

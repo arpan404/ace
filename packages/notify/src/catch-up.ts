@@ -49,8 +49,9 @@ export class CatchUpLedger {
   }
   /**
    * Threads that need the person right now and that `device` hasn't been told about in this
-   * episode, longest-waiting first. Snoozed threads are left out, and so are threads with an
-   * alert still on its way (a coalescing alert, or a job for this device): those arrive alone.
+   * episode, longest-waiting first. Left out: snoozed threads; threads a paired machine delegated
+   * here, whose owner is alerted there; and threads with an alert still on its way (a coalescing
+   * alert, or a job for this device), which arrive alone.
    */
   missed(device: DeviceId, now: number): Missed[] {
     return this.statement(
@@ -59,6 +60,7 @@ export class CatchUpLedger {
        FROM threads t
        WHERE json_extract(t.body,'$.status.state')='needs_you'
          AND json_extract(t.body,'$.archived')=0 AND json_extract(t.body,'$.deleted')=0
+         AND COALESCE(json_extract(t.body,'$.remote'),0)=0
          AND NOT EXISTS (SELECT 1 FROM snoozes s WHERE s.thread=t.id AND s.until>?)
          AND NOT EXISTS (SELECT 1 FROM pending p WHERE p.thread=t.id)
          AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.thread=t.id AND j.device=?)
@@ -80,6 +82,7 @@ export class CatchUpLedger {
        FROM catch_up c JOIN threads t ON t.id=c.thread
        WHERE c.device=? AND json_extract(t.body,'$.status.state')='needs_you'
          AND json_extract(t.body,'$.archived')=0 AND json_extract(t.body,'$.deleted')=0
+         AND COALESCE(json_extract(t.body,'$.remote'),0)=0
          AND json_extract(t.body,'$.generation')=c.generation
          AND NOT EXISTS (SELECT 1 FROM snoozes s WHERE s.thread=t.id AND s.until>?)
        ORDER BY c.generation`,

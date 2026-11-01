@@ -1,6 +1,6 @@
 import { Menu, Tray, nativeImage, type NativeImage } from "electron";
 import type { DaemonStatus } from "../../shared/contract.ts";
-import type { WorkSummary } from "../link/thread-watch.ts";
+import { noWork, type WorkSummary } from "../link/thread-watch.ts";
 
 export interface TrayActions {
   open(): void;
@@ -16,7 +16,7 @@ export interface TrayActions {
 export class StatusTray {
   private tray: Tray | undefined;
   private status: DaemonStatus | undefined;
-  private summary: WorkSummary = { needsYou: 0, working: 0, held: 0 };
+  private summary: WorkSummary = noWork;
   /** What the tray shows now; a status or summary update that changes none of it is skipped. */
   private shown: string | undefined;
   private actions: TrayActions;

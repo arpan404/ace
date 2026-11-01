@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Actor } from "./session-options.ts";
-import { executablePath, fixture, ref } from "./test-support.ts";
+import { executablePath, sharedFixture, ref } from "./test-support.ts";
 
 /*
  * An agent's click aims at an element that is still moving (ADR 0067, "Clicks land where they
@@ -10,7 +10,7 @@ const agent: Actor = { kind: "agent", agentId: "agent" };
 const person: Actor = { kind: "human", connectionId: "person" };
 
 async function page(html: string) {
-  const f = await fixture();
+  const f = await sharedFixture();
   await f.navigate();
   const run = (expression: string) =>
     f.service.execute("thread", { action: "evaluate", expression }, person);

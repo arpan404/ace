@@ -16,6 +16,7 @@ import { afterEach, expect, it } from "vitest";
 import { startDaemon, readConfig, createDevThread, Store } from "./index.ts";
 import { startDaemonMcp } from "./mcp.ts";
 import { accessRequest, redeemPairing } from "./client-access.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -91,7 +92,7 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
     ACE_ADVERTISE_HOST: "127.0.0.1",
     ACE_LOG_LEVEL: "silent",
   });
-  const daemon = await startDaemon({ config: config });
+  const daemon = await startDaemon({ config: config, engine: noProviderDiscovery });
   cleanups.push(() => daemon.close());
   const { scope } = seed(daemon.store);
   const lease = daemon.mcp.openSession(scope, new AbortController().signal);
@@ -129,7 +130,7 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
   await daemon.close();
   expect(lease.principal.signal.aborted).toBe(true);
   expect(existsSync(endpointPath)).toBe(false);
-  const reopened = await startDaemon({ config: config });
+  const reopened = await startDaemon({ config: config, engine: noProviderDiscovery });
   cleanups.push(() => reopened.close());
   expect(reopened.store.devices.get(paired.device.id)).toMatchObject({
     name: "Integration device",
@@ -229,6 +230,7 @@ it("rolls back both intent and notice when event persistence fails", () => {
 
 it("thread_read reports the waiting state a child agent's approval gives its thread", async () => {
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home(), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
   });
   cleanups.push(() => daemon.close());
@@ -339,6 +341,7 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
     publishArtifact: async () => {},
   });
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: directory, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     screen,
   });

@@ -18,6 +18,7 @@ import { startDaemon, createDevThread, stubHandler, type DaemonOptions } from ".
 import { startServer } from "./server.ts";
 import { FilesWorkspaces } from "./files-workspaces.ts";
 import { message, shell } from "./payload-test-support.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -71,6 +72,7 @@ async function setup(relayUrl?: string, files?: DaemonOptions["files"]) {
   const root = join(home, "workspace");
   await mkdir(root);
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     ...(files ? { files } : {}),
     config: {
       dataDir: join(home, "data"),

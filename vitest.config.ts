@@ -5,6 +5,7 @@ import webProject from "./apps/web/vitest.config.ts";
 import clientReactProject from "./packages/client-react/vitest.config.ts";
 import { isolateTestProject } from "./scripts/test-project-isolation.ts";
 import { FailureDetailsReporter } from "./scripts/test-failure-reporter.ts";
+import { TimingReporter } from "./scripts/test-timing-reporter.ts";
 
 /** React packages run in their own jsdom projects with their own Vite plugins. */
 const react = ["apps/web/**", "packages/client-react/**"];
@@ -20,12 +21,29 @@ const browserStartupSuites = [
   "tools/web-perf/src/visualization-width.process.test.ts",
 ];
 const historyScaleSuite = "packages/history-import/src/scale.process.test.ts";
+// Release, performance and real-smoke process suites run before a release (bun run test:slow),
+// not before every merge. They keep the process project's setup and deadlines.
+const slowProcessSuites = [
+  "tools/release/src/**/*.process.test.ts",
+  "tools/web-perf/src/**/*.process.test.ts",
+  "tools/real-smoke/src/**/*.process.test.ts",
+  "{packages,tools,apps}/*/src/**/*.perf.process.test.ts",
+];
 // Four workers by default; ACE_TEST_WORKERS raises it on machines with more cores.
 const workers = Number(process.env.ACE_TEST_WORKERS) || 4;
 
 export default defineConfig({
   test: {
-    reporters: ["default", new FailureDetailsReporter()],
+    reporters: [
+      "default",
+      new FailureDetailsReporter(),
+      // scripts/test-run.ts sets the path; plain `vitest` runs record nothing.
+      new TimingReporter(
+        process.env.ACE_TEST_TIMINGS_FILE,
+        fileURLToPath(new URL(".", import.meta.url)),
+        workers,
+      ),
+    ],
     maxWorkers: workers,
     fsModuleCache: true,
     projects: [
@@ -42,6 +60,7 @@ export default defineConfig({
             "tools/*/src/**/*.test.ts",
             "apps/*/src/**/*.test.ts",
             "apps/ios/bridge/**/*.test.ts",
+            "scripts/*.test.ts",
           ],
           exclude: ["**/*.process.test.ts", historyWorkerReview, "**/node_modules/**", ...react],
           maxWorkers: workers,
@@ -56,7 +75,30 @@ export default defineConfig({
             "scripts/**/*.process.test.ts",
             historyWorkerReview,
           ],
-          exclude: ["**/node_modules/**", ...react, ...browserStartupSuites, historyScaleSuite],
+          exclude: [
+            "**/node_modules/**",
+            ...react,
+            ...browserStartupSuites,
+            historyScaleSuite,
+            ...slowProcessSuites,
+          ],
+          maxWorkers: workers,
+          sequence: { groupOrder: 1 },
+          testTimeout: PROCESS_TEST_TIMEOUT,
+          hookTimeout: PROCESS_TEST_TIMEOUT,
+          globalSetup: [
+            "./scripts/test-home-global-setup.ts",
+            "./scripts/process-test-setup.ts",
+            "./tools/web-perf/src/browser-test-setup.ts",
+          ],
+          setupFiles: ["./scripts/test-home-setup.ts"],
+        },
+      },
+      {
+        test: {
+          name: "slow-process",
+          include: slowProcessSuites,
+          exclude: ["**/node_modules/**", ...browserStartupSuites],
           maxWorkers: workers,
           sequence: { groupOrder: 1 },
           testTimeout: PROCESS_TEST_TIMEOUT,

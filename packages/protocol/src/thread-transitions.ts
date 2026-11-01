@@ -1,6 +1,6 @@
 import { NativeSessionId } from "./ids.ts";
 import { z } from "zod";
-import { AgentId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
+import { AgentId, HostId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { MessageContext } from "./context.ts";
 import { MessageText } from "./message-limits.ts";
@@ -167,6 +167,18 @@ export const DelegatedBy = ThreadId.meta({
   description: "The thread whose agent delegated this one through ace.",
 });
 /**
+ * The thread on a paired machine whose agent delegated this one here, and that machine. Its
+ * owner is the person on that machine: the thread is reached through its parent there, and is
+ * never a top-level thread on this machine.
+ */
+export const DelegatedFrom = z.object({
+  hostId: HostId,
+  /** The machine's name when it was delegated, for showing the parent as remote. */
+  hostName: z.string().min(1).max(256).optional(),
+  threadId: ThreadId,
+});
+export type DelegatedFrom = z.infer<typeof DelegatedFrom>;
+/**
  * Where a queued child waits: its parent's run-slot limit, how many slots are in use, and its own
  * 1-based place in the parent's queue. Every field is optional so a thread stored before the
  * daemon reported them still decodes, and older clients keep their current text.
@@ -189,6 +201,7 @@ export type QueuedLaunch = z.infer<typeof QueuedLaunch>;
 export const ThreadTransitionView = z.object({
   lineage: ThreadLineage.optional(),
   delegatedBy: DelegatedBy.optional(),
+  delegatedFrom: DelegatedFrom.optional(),
   queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),
   switch: ThreadSwitch.optional(),

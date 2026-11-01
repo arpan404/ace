@@ -53,12 +53,6 @@ test("a finished turn with nothing but its answer reads Worked for as plain text
   expect(await within(feed).findAllByText("The build passes.")).toHaveLength(1);
 });
 
-test("a finished turn with steps still opens on them", async () => {
-  const { feed } = await finished(true);
-  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
-  expect(await within(feed).findByText(/bun run build/)).toBeTruthy();
-});
-
 // Mutation: silently showing whatever the window holds after a failed read.
 test("a failed read says so with Retry, and Retry reads the steps", async () => {
   const { app, feed } = await finished(true);

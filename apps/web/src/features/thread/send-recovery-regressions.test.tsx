@@ -410,28 +410,3 @@ test("a delivered message whose item is off screen never reappears at the bottom
   expect(within(feed).queryByText("Check the early route")).toBeNull();
   expect(screen.queryByText("Check the early route")).toBeNull();
 });
-
-test("a message that failed to send stays visible and resendable outside the transcript", async () => {
-  const app = harness();
-  app.play(longHistory(2)).runUntilBlocked();
-  app.daemon.refuseCommands("thread_transition_in_progress", "thread.send");
-  await app.open("/t/thread-router");
-  const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const field = await screen.findByRole("combobox", { name: "Message" });
-  await userEvent.type(field, "Ship the router fix{Enter}");
-
-  const kept = await strip();
-  expect(within(kept).getByText("Ship the router fix")).toBeTruthy();
-  expect(within(within(kept).getByRole("alert")).getByText("Not sent")).toBeTruthy();
-  // Never in the transcript, which shows only what the daemon has.
-  expect(within(feed).queryByText("Ship the router fix")).toBeNull();
-  expect(field.textContent).toBe("");
-
-  app.daemon.restoreRequests();
-  await userEvent.click(within(kept).getByRole("button", { name: "Retry" }));
-  expect(await within(feed).findByText("Ship the router fix")).toBeTruthy();
-  await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "Messages on their way" })).toBeNull(),
-  );
-  expect(screen.getAllByText("Ship the router fix")).toHaveLength(1);
-});

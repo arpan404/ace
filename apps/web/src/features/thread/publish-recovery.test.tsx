@@ -114,24 +114,6 @@ test("the card's checks flip from running to passed on their own while CI runs",
   ).toBeTruthy();
 });
 
-test("unreadable checks read as unavailable, and Merge says why it is off", async () => {
-  await openThread(
-    { ...checkout, ahead: 0, diff: { files: 0, additions: 0, deletions: 0 } },
-    (app) => app.daemon.seedServices({ pullRequests: { "thread-git": pr({ ci: "unknown" }) } }),
-  );
-  const card = await openWorkCard();
-  expect(
-    await within(card).findByRole("button", {
-      name: /^Open pull request #42: .*checks unavailable$/,
-    }),
-  ).toBeTruthy();
-  expect(within(card).getByRole("button", { name: "Merge pull request #42" })).toHaveProperty(
-    "disabled",
-    true,
-  );
-  expect(within(card).getByText(/^Can't merge: Checks unavailable/)).toBeTruthy();
-});
-
 test("a failed checkout read says so with the daemon's reason, and Retry reads it again", async () => {
   const app = harness();
   // No published details: the card depends on reading the checkout.

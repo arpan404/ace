@@ -46,7 +46,7 @@ test("a push behind the remote is refused with the tracked remote head, and a le
     const mine = await commit(repo, "mine\n");
     await expect(service.push({ worktree: repo, remote: "origin" })).rejects.toMatchObject({
       code: "push_rejected",
-      details: { remoteHead: seen },
+      details: { remoteHead: seen, stderr: expect.stringContaining("[rejected]") },
     });
     expect(await scalar(remote, "rev-parse", "refs/heads/main")).toBe(seen);
     await service.push({ worktree: repo, remote: "origin", force: { lease: seen } });

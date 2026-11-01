@@ -366,6 +366,10 @@ export class NotificationWorker {
   async disconnect(session: string): Promise<void> {
     await this.call({ method: "disconnect", session });
   }
+  /** Threads a paired machine delegated here, at most 256 per call (`markRemote`). */
+  async markRemote(threads: readonly ThreadId[], signal?: AbortSignal): Promise<void> {
+    await this.call({ method: "markRemote", threads: [...threads] }, signal);
+  }
   async revoke(device: DeviceId, signal?: AbortSignal): Promise<void> {
     await this.call({ method: "revoke", device }, signal);
   }

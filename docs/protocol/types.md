@@ -3039,6 +3039,8 @@ Example:
 | type | yes | `"compaction"` |  |
 | tokensBefore | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
 | tokensAfter | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
+| summary | no | string |  |
+| raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
 
 Example:
 
@@ -3062,6 +3064,7 @@ Example:
     "threadId": "example"
   },
   "nativeId": "example",
+  "summary": "example",
   "tokensBefore": 0,
   "type": "compaction"
 }
@@ -9951,15 +9954,7 @@ Example:
   "view": {
     "kind": "threads",
     "seq": 1,
-    "threads": {},
-    "window": {
-      "before": {
-        "at": 7,
-        "id": "example"
-      },
-      "counts": [],
-      "total": 7
-    }
+    "threads": {}
   }
 }
 ```
@@ -10452,6 +10447,26 @@ Example:
 
 ```json
 "example"
+```
+
+## DelegatedFrom
+
+[JSON Schema](schema/DelegatedFrom.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| hostId | yes | [HostId.json](schema/HostId.json) |  |
+| hostName | no | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "hostId": "example",
+  "hostName": "example",
+  "threadId": "example"
+}
 ```
 
 ## DelegateTaskOperation
@@ -16046,6 +16061,8 @@ Example:
 | type | yes | `"compaction"` |  |
 | tokensBefore | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
 | tokensAfter | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
+| summary | no | string |  |
+| raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
 
 Example:
 
@@ -16057,6 +16074,7 @@ Example:
   "inherited": {
     "threadId": "example"
   },
+  "summary": "example",
   "type": "compaction"
 }
 ```
@@ -31300,6 +31318,10 @@ Example:
     "capabilitiesRef": "example",
     "createdAt": 0,
     "delegatedBy": "example",
+    "delegatedFrom": {
+      "hostId": "example",
+      "threadId": "example"
+    },
     "deletedAt": 6,
     "details": {
       "ahead": 8,
@@ -31357,7 +31379,6 @@ Example:
     "pinOrder": 6,
     "provider": "pi",
     "queuedLaunch": {
-      "slotsInUse": 6,
       "text": "example"
     },
     "readAt": 7,
@@ -32302,6 +32323,7 @@ Example:
 | imported | no | [ImportedProvenance.json](schema/ImportedProvenance.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
+| delegatedFrom | no | [DelegatedFrom.json](schema/DelegatedFrom.json) |  |
 | queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
@@ -32331,6 +32353,10 @@ Example:
   "autoSettleAt": 4,
   "capabilitiesRef": "example",
   "createdAt": 6,
+  "execution": {
+    "model": "example",
+    "provider": "antigravity"
+  },
   "handoff": {
     "bytes": 9,
     "sourceThreadId": "example",
@@ -32351,15 +32377,6 @@ Example:
   "snoozedUntil": 7,
   "status": {
     "state": "failed"
-  },
-  "switch": {
-    "at": 4,
-    "lossy": true,
-    "selection": {
-      "model": "example",
-      "provider": "antigravity"
-    },
-    "state": "applied"
   },
   "title": "example",
   "updatedAt": 8,
@@ -32774,6 +32791,7 @@ Example:
 | imported | no | [ImportedProvenance.json](schema/ImportedProvenance.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
+| delegatedFrom | no | [DelegatedFrom.json](schema/DelegatedFrom.json) |  |
 | queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
@@ -32792,6 +32810,14 @@ Example:
     "state": "read_only"
   },
   "createdAt": 2,
+  "delegatedFrom": {
+    "hostId": "example",
+    "hostName": "example",
+    "threadId": "example"
+  },
+  "execution": {
+    "provider": "acp"
+  },
   "goal": {
     "objective": "example",
     "setAt": 1,
@@ -32825,8 +32851,7 @@ Example:
   "prSettledKey": "example",
   "provider": "cursor",
   "queuedLaunch": {
-    "slotLimit": 4,
-    "slotsInUse": 2,
+    "slotLimit": 3,
     "text": "example"
   },
   "settleWhenDone": true,
@@ -32834,12 +32859,12 @@ Example:
     "state": "done"
   },
   "switch": {
-    "at": 8,
+    "at": 2,
     "lossy": true,
     "selection": {
-      "provider": "acp"
+      "provider": "opencode"
     },
-    "state": "queued"
+    "state": "failed"
   },
   "title": "example",
   "titleSource": "generated",
@@ -33421,6 +33446,7 @@ Example:
 | --- | --- | --- | --- |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
+| delegatedFrom | no | [DelegatedFrom.json](schema/DelegatedFrom.json) |  |
 | queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
@@ -33429,14 +33455,8 @@ Example:
 
 ```json
 {
-  "switch": {
-    "at": 3,
-    "error": "example",
-    "lossy": true,
-    "selection": {
-      "provider": "cursor"
-    },
-    "state": "applied"
+  "execution": {
+    "provider": "cursor"
   }
 }
 ```
@@ -33475,7 +33495,6 @@ Example:
   "backgroundTasks": {},
   "interactions": {},
   "itemOrder": [],
-  "itemSeqs": {},
   "items": {},
   "kind": "thread",
   "runs": {},
@@ -33540,8 +33559,7 @@ Example:
       "tokenUsage": true
     },
     "execution": {
-      "options": {},
-      "provider": "acp"
+      "provider": "codex"
     },
     "id": "example",
     "imported": {
@@ -33565,28 +33583,30 @@ Example:
     "pinOrder": 3,
     "prSettled": 3,
     "provider": "antigravity",
+    "queuedLaunch": {
+      "text": "example"
+    },
     "readAt": 0,
     "settledReason": "inactivity",
     "status": {
       "state": "done"
     },
     "switch": {
-      "at": 0,
+      "at": 8,
       "error": "example",
-      "lossy": false,
+      "lossy": true,
       "selection": {
         "options": {},
-        "provider": "acp"
+        "provider": "antigravity"
       },
-      "state": "applied"
+      "state": "queued"
     },
     "title": "example",
     "unread": true,
     "updatedAt": 3,
     "workspaceId": "example"
   },
-  "usage": {},
-  "usageSnapshots": {}
+  "usage": {}
 }
 ```
 
@@ -34569,15 +34589,11 @@ Example:
     "complete": false,
     "createdAt": 1,
     "id": "example",
+    "raw": [],
+    "summary": "example",
     "type": "compaction"
   },
-  "seq": 10,
-  "surface": {
-    "icon": {
-      "kind": "example"
-    },
-    "kind": "example"
-  }
+  "seq": 10
 }
 ```
 

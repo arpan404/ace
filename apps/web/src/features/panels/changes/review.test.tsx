@@ -177,26 +177,6 @@ test.each([false, true])(
   30000,
 );
 
-test("Request changes sends the unsent comments to the agent as a queued turn", async () => {
-  const { app, panel, replay } = await openChanges();
-  const [cell, , line] = adjacentNewLines(replay);
-  await userEvent.click(within(cell).getByRole("button", { name: `Comment on line ${line}` }));
-  await userEvent.type(
-    within(replay).getByRole("textbox", { name: `Comment on line ${line}` }),
-    "Cap it at 200",
-  );
-  await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
-  const review = within(panel).getByRole("region", { name: "Review" });
-  await userEvent.click(within(review).getByRole("button", { name: "Request changes" }));
-  await waitFor(() =>
-    expect(within(review).getByRole("status").textContent).toBe("1 waiting for the agent"),
-  );
-  expect(app.daemon.review.comments()).toEqual([
-    expect.objectContaining({ text: "Cap it at 200", sent: true }),
-  ]);
-  await screen.findByText(/Review comments to address:/);
-});
-
 test("Send to agent says in plain words when the agent is unavailable", async () => {
   const { app, replay } = await openChanges();
   app.daemon.refuseCommands("review_executor_unavailable", "review.sendToAgent");

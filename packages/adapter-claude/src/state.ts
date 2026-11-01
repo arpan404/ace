@@ -63,6 +63,12 @@ export class ClaudeState {
   nativeQueued = 0;
   contentSeen = new Set<Key>();
   nativeByAgent = new Map<Key, string>();
+  /** The compaction waiting for the summary Claude writes next (`compaction.ts`). */
+  compaction: Key | undefined;
+  /** Each compaction's boundary frame, by its item, so a redelivered boundary is a no-op. */
+  compactions = new Map<Key, RawPayload>();
+  /** Which compaction each summary (by its uuid) folded into, so a redelivery folds again. */
+  compactSummaries = new Map<string, Key>();
   constructor(root: Key) {
     this.root = root;
   }

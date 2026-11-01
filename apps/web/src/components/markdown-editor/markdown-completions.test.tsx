@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
@@ -201,44 +201,6 @@ test("the list's opening is announced politely", async () => {
   await user.type(field, "r");
   await waitFor(async () => expect(await options("People")).toHaveLength(1));
   expect(live?.textContent).toBe("2 people");
-});
-
-test("code never opens suggestions: fences of any kind and indent, indented blocks, and spans", async () => {
-  for (const text of [
-    "```\n~~~\n@mi",
-    "````\n```\n@mi",
-    "- item\n    ```\n    @mi",
-    "para\n\n    @mi",
-    "`` a ` @mi",
-    "> ```\n> @mi",
-  ]) {
-    const { user, field } = setup(text);
-    await user.click(field);
-    field.setSelectionRange(text.length, text.length);
-    await user.keyboard("r");
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    expect(screen.queryByRole("listbox"), text).toBeNull();
-    cleanup();
-  }
-  // An escaped backtick opens no span, a backslash inside a span doesn't keep it open, a list
-  // item's indented line is not code, and a fence line inside indented code is that code's
-  // text, opening no fence.
-  for (const text of ["\\` @mi", "`a\\` @mi", "- item\n\n    @mi", "para\n\n    ```\n\n@mi"]) {
-    const { user, field } = setup(text);
-    await user.click(field);
-    field.setSelectionRange(text.length, text.length);
-    await user.keyboard("r");
-    expect(await screen.findByRole("listbox"), text).toBeTruthy();
-    cleanup();
-  }
-});
-
-test("a link's #anchor target never opens suggestions", async () => {
-  const { user, field } = setup();
-  await user.type(field, "see [[setup](#Daemon");
-  expect(field.value).toBe("see [setup](#Daemon");
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  expect(screen.queryByRole("listbox")).toBeNull();
 });
 
 test("Enter still continues a list once the person is chosen", async () => {

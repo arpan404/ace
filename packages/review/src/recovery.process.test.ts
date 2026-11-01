@@ -211,6 +211,11 @@ test("normal idle retirement reopens the same owner without exhausting recovery"
       isolate.once("exit", () => retired.resolve());
       return isolate;
     },
+    // Retire as soon as the isolate goes idle instead of after the real idle window.
+    idleDelay(callback) {
+      const timer = setTimeout(callback, 0);
+      return () => clearTimeout(timer);
+    },
   });
   try {
     const command = list("idle-receipt");
@@ -226,7 +231,7 @@ test("normal idle retirement reopens the same owner without exhausting recovery"
     await owner.close();
     await rm(root, { recursive: true, force: true });
   }
-}, 25_000);
+});
 
 test("a Git child that exited before its report arrives does not fail the review in flight", async () => {
   const repo = await repository();

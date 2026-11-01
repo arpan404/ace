@@ -11,6 +11,7 @@ import {
   ThreadSwitch,
   ExecutionSource,
   DelegatedBy,
+  DelegatedFrom,
   QueuedLaunch,
 } from "./thread-transitions.ts";
 import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
@@ -129,6 +130,8 @@ export const Thread = z.object({
    * the message that launched it. Absent for a thread a person started.
    */
   delegatedBy: DelegatedBy.optional(),
+  /** Set when an agent on a paired machine delegated this thread here (`DelegatedFrom`). */
+  delegatedFrom: DelegatedFrom.optional(),
   /** Present while the thread, delegated past its parent's run slots, waits to start. */
   queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),
