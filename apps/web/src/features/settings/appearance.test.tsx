@@ -318,7 +318,7 @@ test("arrow keys move the slider and the floating layers follow live, and it's k
   });
 });
 
-test("past 100% the slider reads Extra, thins the tint further, and notes softer text", async () => {
+test("past 100% the slider reads Extra and the tint holds at the readable glass", async () => {
   const storage = memoryKeyValue();
   await harness({ storage, matchMedia: system({}) }).open("/settings/appearance");
   await settled();
@@ -327,8 +327,9 @@ test("past 100% the slider reads Extra, thins the tint further, and notes softer
   await userEvent.keyboard("{End}");
   expect(slider().getAttribute("aria-valuetext")).toBe("150% extra");
   expect(screen.getByText("150% extra")).toBeTruthy();
-  expect(root.style.getPropertyValue("--glass-tint")).not.toBe(safe);
-  expect(await screen.findByText(/Past 100% glass thins below AA contrast/)).toBeTruthy();
+  // Past the AA-safe end the glass holds instead of thinning toward invisible.
+  expect(root.style.getPropertyValue("--glass-tint")).toBe(safe);
+  expect(screen.queryByText(/Past 100% glass thins below AA contrast/)).toBeNull();
   expect(JSON.parse(storage.getItem("ace.appearance") ?? "{}").translucency).toBe(150);
 });
 

@@ -33,8 +33,8 @@ export const Appearance = z.object({
   accent: z.catch(z.enum(accentIds), "theme"),
   customAccent: z.catch(z.string().check(z.regex(/^#[0-9a-f]{6}$/i)), defaultCustomAccent),
   /**
-   * 0 is solid; `translucencyMax` is the theme's most translucent AA-safe glass, and
-   * `translucencyClearMax` is extra-clear glass past it (softer text, not guaranteed AA).
+   * 0 is solid; `translucencyMax` is the theme's most translucent AA-safe glass, and past it to
+   * `translucencyClearMax` the glass holds at that AA-safe glass.
    */
   translucency: z.catch(z.int().check(z.gte(0), z.lte(translucencyClearMax)), defaultTranslucency),
   reduceMotion: z.catch(ReduceMotion, "system"),

@@ -13,7 +13,6 @@ import { themeDeclarations } from "./css.ts";
 import { edgeMap, fitStep, glassEngine, glassGeometry, mapSize } from "./glass.ts";
 import {
   defaultTranslucency,
-  extraClearTintFloor,
   translucencyClearMax,
   translucencyMax,
   translucencyStep,
@@ -222,7 +221,7 @@ test("the slider runs from a solid tint with no blur to the theme's AA-safe glas
     }
 });
 
-test("past the AA-safe end glass keeps thinning toward a floor, and the filter stays full", () => {
+test("past the AA-safe end glass holds at the readable floor, and the filter stays full", () => {
   for (const id of themeIds)
     for (const scheme of ["light", "dark"] as const) {
       if (!themes[id][scheme].material.glass) continue;
@@ -235,10 +234,33 @@ test("past the AA-safe end glass keeps thinning toward a floor, and the filter s
       };
       const safe = at(translucencyMax);
       const clear = at(translucencyClearMax);
-      // Thinner, but still a surface; the blur is already at full strength.
-      expect(clear.alpha, `${id} ${scheme}`).toBeLessThan(safe.alpha);
-      expect(clear.alpha, `${id} ${scheme}`).toBeGreaterThanOrEqual(extraClearTintFloor);
+      // Still a surface at the theme's contrast-solved floor, never thinner; the blur is
+      // already at full strength.
+      expect(clear.alpha, `${id} ${scheme}`).toBe(safe.alpha);
+      expect(clear.alpha, `${id} ${scheme}`).toBe(themes[id][scheme].glassTint);
       expect(clear.blur, `${id} ${scheme}`).toBe(safe.blur);
+    }
+});
+
+/** Past 100% the tint never drops below the theme's contrast-solved floor, anywhere it can go. */
+test("glass above 100% stays readable: thinner never, invisible never, in every theme and scheme", () => {
+  // Solid, the AA-safe end (scale 1), past it (scale 1.5), and the maximum.
+  const stops = [0, translucencyMax, translucencyMax * 1.5, translucencyClearMax];
+  for (const id of themeIds)
+    for (const scheme of ["light", "dark"] as const) {
+      const floor = themes[id][scheme].glassTint;
+      const alphas = stops.map(
+        (translucency) =>
+          tint(themeDeclarations(id, scheme, themeAccent, translucency)["--glass-tint"]).alpha,
+      );
+      for (let i = 1; i < alphas.length; i++)
+        expect(alphas[i], `${id} ${scheme} at ${stops[i]}`).toBeLessThanOrEqual(alphas[i - 1]!);
+      for (let i = 0; i < alphas.length; i++) {
+        expect(alphas[i], `${id} ${scheme} at ${stops[i]}`).toBeGreaterThan(0);
+        expect(alphas[i], `${id} ${scheme} at ${stops[i]}`).toBeGreaterThanOrEqual(floor);
+      }
+      // The maximum holds the AA-safe glass: clearly see-through, never invisible.
+      expect(alphas.at(-1), `${id} ${scheme} at max`).toBe(floor);
     }
 });
 

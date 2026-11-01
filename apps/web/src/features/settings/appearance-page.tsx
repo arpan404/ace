@@ -60,8 +60,9 @@ const translucencyText = (value: number) =>
   value === 0 ? "Solid" : value > translucencyMax ? `${value}% extra` : `${value}%`;
 
 /**
- * Translucency, from Solid to the theme's most translucent AA-safe glass and past it to
- * extra-clear. Floating layers follow it live while it's dragged. Where layers are always
+ * Translucency, from Solid to the theme's most translucent AA-safe glass and past it. Floating
+ * layers follow it live while it's dragged. Past 100% the glass holds at its most translucent
+ * readable level, so text stays legible. Where layers are always
  * solid (a theme without glass, or the OS reducing transparency) it shows Solid, disabled,
  * and says why; the stored value is kept for later.
  */
@@ -71,14 +72,10 @@ function TranslucencyRow(props: {
   onValueChange(value: number): void;
 }) {
   const value = props.forcedSolid ? 0 : props.value;
-  const pastAa =
-    props.forcedSolid === undefined && value > translucencyMax
-      ? "Past 100% glass thins below AA contrast — text may be harder to read."
-      : undefined;
   return (
     <SettingRow
       {...settingRow("appearance.translucency")}
-      description={props.forcedSolid ?? pastAa ?? settingRow("appearance.translucency").description}
+      description={props.forcedSolid ?? settingRow("appearance.translucency").description}
     >
       <Slider
         label="Translucency"
