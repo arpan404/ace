@@ -30,13 +30,14 @@ import {
 } from "../web-link.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
 import { asksForSystemBrowser, type LinkClick } from "@/lib/web-links.ts";
-import { fileTab, pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { fileTab, pullRequestTab, useOptionalWorkspace } from "@/lib/workspace/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { prefersReducedMotion } from "@/lib/motion.ts";
 import { updateInterval } from "./cadence.ts";
 import { blockRhythm } from "./rhythm.ts";
 import { renderMermaid } from "./mermaid-render.ts";
 import { StreamPace } from "./stream-pace.ts";
+import { useFileLinks } from "./use-file-links.ts";
 
 /**
  * Agent prose rendered by markit (Rust + Wasm): CommonMark, tables, tasks, code fences with
@@ -65,6 +66,8 @@ interface MarkitCallbacks {
   onSystemLink: (url: string, click: LinkClick) => void;
   onReference: (reference: { kind: string; target: string }) => void;
   resolveImage: (url: string, alt: string, signal: AbortSignal) => Promise<Blob | null>;
+  /** After markit draws: the element it drew into, and whether that text was the final one. */
+  drawn?: ((element: HTMLElement, finalized: boolean) => void) | undefined;
 }
 
 /** What a click in prose can open, beyond the system browser. */
@@ -74,6 +77,8 @@ interface LinkActions {
   openIssue?: ((issue: ForgeIssueRef) => void) | undefined;
   openThread: (threadId: string, machine: string | undefined) => void;
   openFile?: ((path: string) => void) | undefined;
+  /** A file an answer names (`socket.ts:3`), found in the thread's checkout. */
+  openMention?: ((target: string) => void) | undefined;
 }
 
 /** Link and reference handling shared by every prose surface. */
@@ -101,7 +106,7 @@ function linkCallbacks(
     onLink,
     onSystemLink: (url, click) => void actions.openWeb(url, click).catch(() => {}),
     onReference: ({ kind, target }) =>
-      kind === "file" ? actions.openFile?.(target) : onLink(target),
+      kind === "file" ? actions.openMention?.(target) : onLink(target),
   };
 }
 
@@ -146,6 +151,8 @@ function MarkitView(props: {
   // The message reads as plain text until markit's first render replaces it, so an answer is
   // never blank: not while the worker starts, and not if it cannot run at all.
   const [drawn, setDrawn] = useState(false);
+  const element = useRef<HTMLElement | null>(null);
+  const sentFinal = useRef(false);
   const markit = useMarkit({
     workerURL: markitWorkerPath(),
     flavor: proseFlavor,
@@ -155,7 +162,10 @@ function MarkitView(props: {
     resolveImage: props.callbacks.resolveImage,
     renderDiagram: (language: string, source: string) =>
       language === "mermaid" ? renderMermaid(source, pageScheme()) : null,
-    onRender: () => setDrawn(true),
+    onRender: () => {
+      setDrawn(true);
+      if (element.current) props.callbacks.drawn?.(element.current, sentFinal.current);
+    },
   });
   const { markdown, finalized, stream } = props;
   // A streaming message reaches markit 10 to 20 times a second, like the previous renderer
@@ -174,6 +184,7 @@ function MarkitView(props: {
       },
       interval: (lastMs) => updateInterval(lastMs, prefersReducedMotion()),
       send(text, done) {
+        sentFinal.current = done;
         const started = performance.now();
         return markit.render(text, { finalized: done }).then((patch) => {
           if (patch.superseded || import.meta.env.MODE !== "perf") return;
@@ -195,7 +206,13 @@ function MarkitView(props: {
     pace.current?.push(markdown, finalized);
   }, [markdown, finalized]);
   // The controller is stable; its ref callback attaches the renderer to this element.
-  const attach = useCallback((element: HTMLElement | null) => markit.ref(element), [markit]);
+  const attach = useCallback(
+    (node: HTMLElement | null) => {
+      element.current = node;
+      markit.ref(node);
+    },
+    [markit],
+  );
   // markit hands every plain click on a link to `onLink`, without the click. A ⌘/Ctrl or middle
   // click on a web link is taken here first (capture runs before markit's listener) and opens
   // in the system's browser, as `WebLink` does.
@@ -302,30 +319,40 @@ function MarkitThreadProse(
   const { client } = props;
   const { threadId, cwd, itemId } = props.thread;
   const meta = useThreadMeta(threadId);
-  const workspace = useWorkspaceActions(threadId);
+  const workspace = useOptionalWorkspace(threadId);
   const openWeb = useOpenWebAddress();
   const panelOpener = useContext(PullRequestOpener);
   const openIssue = useContext(IssueOpener);
   const openThread = useThreadNavigation();
   const root = (meta?.details?.worktree ?? meta?.details?.workspace?.path)?.replace(/\/+$/, "");
   const workspaceId = meta?.workspaceId;
+  const fileLinks = useFileLinks({ client, threadId, root, workspace });
 
   const callbacks = useMemo(() => {
     const base = cwd ?? root;
+    const actions = workspace?.actions;
     const openFile = (target: string) => {
       const relative = checkoutLinkPath(localLinkPath(target) ?? target, root, cwd);
-      if (relative && isCheckoutPath(relative)) workspace.open(fileTab(relative));
+      if (relative && isCheckoutPath(relative)) actions?.open(fileTab(relative));
     };
     const openPullRequest =
       panelOpener ??
-      (workspaceId
+      (workspaceId && actions
         ? (pr: ForgePrRef) =>
-            workspace.open(
+            actions.open(
               pullRequestTab({ workspaceId, repository: pr.repository, number: pr.number }),
             )
         : undefined);
     return {
-      ...linkCallbacks({ openWeb, openPullRequest, openIssue, openThread, openFile }),
+      ...linkCallbacks({
+        openWeb,
+        openPullRequest,
+        openIssue,
+        openThread,
+        openFile,
+        openMention: fileLinks.open,
+      }),
+      drawn: fileLinks.drawn,
       resolveImage: async (url: string, _alt: string, signal: AbortSignal) => {
         if (shouldResolveMarkitImage(url)) return pageImage(url, signal);
         if (signal.aborted || isMarkitWebImage(url)) return null;
@@ -340,6 +367,7 @@ function MarkitThreadProse(
   }, [
     client,
     cwd,
+    fileLinks,
     itemId,
     openIssue,
     openThread,
