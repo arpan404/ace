@@ -18,9 +18,24 @@ async function openWorkbench() {
   return { app, nav };
 }
 
-/** The panel shows its Inbox with no filter: All projects, the running thread listed, the settled one not. */
+/** The panel shows its Inbox with no filter: Threads and Search on top, All projects below, the running thread listed, the settled one not. */
 const onInbox = () => {
-  expect(screen.getByRole("button", { name: /^Project filter/ }).textContent).toBe("All projects");
+  const panel = screen.getByRole("complementary", { name: "Threads" });
+  expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "Search" })).toBeTruthy();
+  const filter = screen.getByRole("button", { name: /^Project filter/ });
+  expect(filter.textContent).toBe("All projects");
+  // The filter sits in the row under the title row, beside New thread.
+  const titleRow = within(panel)
+    .getByRole("button", { name: "Search" })
+    .closest('[data-slot="panel-top"]');
+  expect(
+    within(titleRow as HTMLElement).queryByRole("button", { name: /^Project filter/ }),
+  ).toBeNull();
+  let row: HTMLElement | null = filter.parentElement;
+  while (row && !within(row).queryByRole("link", { name: "New thread" })) row = row.parentElement;
+  expect(row).toBeTruthy();
+  expect(row).not.toBe(titleRow);
   const nav = within(screen.getByRole("navigation", { name: "Threads" }));
   expect(nav.getByRole("tab", { name: /^Inbox/ }).getAttribute("aria-selected")).toBe("true");
   expect(nav.getByRole("link", { name: /^Dedupe thread events/ })).toBeTruthy();

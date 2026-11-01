@@ -5,8 +5,6 @@ import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
-import { panelTitleText } from "@/components/ui/panel.tsx";
-import { cn } from "@/lib/cn.ts";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -33,8 +31,8 @@ import { AddProjectItem, ManageProjectItems } from "@/features/projects/index.ts
 const all = "\u0000all";
 
 /**
- * The Threads panel's title: the project and device filter as its title. "All projects" with a
- * small caret opens the project and device filter (it narrows all three tabs to one project or
+ * The Threads panel's filter, in its own row under the title: "All projects" with a small
+ * caret opens the project and device filter (it narrows all three tabs to one project or
  * device, offers actions for each project and ends with Add project). A project shows its mark
  * and name; a device shows its glyph and name; both show the mark and name, then ` · `, then
  * the glyph and name, truncated with the full text in the tooltip. Every project the daemon
@@ -71,11 +69,9 @@ export function ProjectFilter() {
         <Tip label={fullTitle}>
           <MenuTrigger
             aria-label={`Project filter: ${label}${device ? `, Device: ${device.name}` : ""}`}
-            className="group/filter flex h-8 min-w-0 flex-1 items-center gap-1 rounded-md px-2 transition-colors duration-(--motion-fast) focus-ring hover:bg-hover aria-expanded:bg-active"
+            className="group/filter flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-md font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground aria-expanded:bg-active aria-expanded:text-foreground"
           >
-            <span
-              className={cn(panelTitleText, "flex min-w-0 flex-1 items-center gap-1.5 text-left")}
-            >
+            <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
               {project !== null && (
                 <ProjectMark
                   id={project}
