@@ -30,6 +30,7 @@ front end, which is not live yet.
 - **Threads' needs-you signal.** While the person is in another place and any thread needs them
   (the thread list's own rule: a needs-you status), Threads shows a dot in the needs-you colour,
   and its name and tooltip say how many. On Threads the list says it, so the rail adds nothing.
+  (Since Chats below, each of Threads and Chats counts only its own threads.)
 - **Narrow windows.** The sidebar sheet shows the rail and panel together.
 - **Spade is shown, not live.** Spade's mark sits in the rail, dimmed. It is a picture, not a
   control: it cannot be focused or pressed, has no route, and only its tooltip says
@@ -114,9 +115,47 @@ than a sidebar and a column each with its own header.
   same attention as everything else, a thread whose tree still works never shows the finished
   dot.
 
+## Chats
+
+2026-11-01, owner-approved design. Chats ([ADR 0099](0099-chats-without-a-project.md): threads
+started with no project, in a hidden chat project) get their own place, so the Threads panel is
+about work in projects.
+
+- **Rail.** Chats sits right under Threads, above Spade, with the speech-bubble glyph
+  (chats-circle, filled while current); Threads takes the code glyph (`</>`). Chats has its own
+  route, `/chats` (it opens the top chat, or says "No chats yet"); a chat opens at its usual
+  `/t/<id>`. The rail decides between the two from the open thread: Chats while a chat or New
+  chat (`/new?project=chat`) is open, Threads for any other thread. It reads the thread id from
+  the address itself and the thread from the list, else from the open thread's own details, so
+  it never shows both places current while the address changes. `g c` goes to Chats, and the
+  palette's Go to lists it.
+- **Dots per place.** Each place's dot comes from its own threads, by the same row attention
+  every row reads: the warning colour while one needs the person (its name and tooltip say how
+  many), blue for a failure or finished work not yet opened.
+- **Chats panel.** Its title row is "Chats", the Inbox bell (the same overlay as Threads') and
+  New chat, which opens New thread with no project straight away (the existing chat-creation
+  flow; nothing asks which project). Under it, "Search chats". Then one flat list: Pinned, then
+  Today, Yesterday, Previous 7 days and Earlier by last activity on this device's calendar
+  (`chatList` in ui-core, with the clock passed in). Rows are the Threads list's own: one line,
+  one mark, the hover card, the same keyboard, virtualization and motion; their hover actions
+  are Rename, Pin, Move to project and Delete, each the thread menus' own action.
+- **Settled chats stay by date.** No grace period and no History for chats: a settled chat stays
+  in its day, dimmed. One whose agent tree still works or waits is never dimmed, and its mark
+  is never the finished dot.
+- **Search.** Titles filter as the person types. The daemon's `search.query` can scope to one
+  project, not to every chat, so the panel asks it for threads and keeps the hits whose project
+  is a chat's (client-side); a hit for a chat the list hasn't loaded joins its day by the
+  matching message's time. Esc clears the field.
+- **Paging.** The daemon pages settled threads across every project together and cannot page
+  chats alone, so while the list's end is in view the panel keeps asking for older pages and
+  keeps the chats among them.
+- **Threads leaves chats out** of its projects, its quiet projects, its History and its search
+  hits. **The Inbox keeps them**: a chat that needs the person or finished unread shows there,
+  with "Chat" in place of a project's name. Move to project moves a chat into Threads.
+
 ## Consequences
 
-- Keyboard shortcuts (`g h`, `g u`, `g s`, `g p`, ⌘,) keep working and move the rail's selection,
+- Keyboard shortcuts (`g h`, `g c`, `g u`, `g s`, `g p`, ⌘,) keep working and move the rail's selection,
   since the selection follows the route. F6 and ⌘\ treat rail and panel as the one sidebar.
 - Tests and helpers that went through Back to app or the profile menu's Automations and Skills
   entries now use the rail.
