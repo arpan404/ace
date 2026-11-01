@@ -151,6 +151,8 @@ export class DelegationService {
       delivered: (caller, outcome) => this.delivered(caller, outcome),
       resuming: (id) => deps.engine.resuming(id),
       queueFacts: (child) => this.queueFacts(child),
+      report: (child, problem) =>
+        deps.onError(new Error(`agents_status listed child ${child} as read: ${problem}`)),
     });
     // Recovery visits indexed current work, never transcript history or old receipts.
     for (const participant of this.journal.activeParticipants()) {

@@ -358,8 +358,83 @@ test("compact tree displays retain the state of remote children beyond the displ
     });
     const snapshot = MonitorSnapshot.parse((await f.call({ op: "agents.status" })).data);
     expect(snapshot.children).toHaveLength(64);
+    expect(snapshot.omitted).toBe(1);
     expect(snapshot.counts.needs_you).toBe(1);
     expect(snapshot.counts.done).toBe(64);
+    // The one child waiting on the person leads the list, never the one cut from it.
+    expect(snapshot.children[0]).toMatchObject({ id: "remote-64", state: "needs_you" });
+  } finally {
+    await f.daemon.close();
+  }
+});
+
+test("a parent with more delegated descendants than the list holds still reads them all", async () => {
+  const f = await daemonFixture({ policy: { maxConcurrent: 64 } });
+  try {
+    const delegate = (prefix: string, count: number) =>
+      f.call(
+        AgentControlOperation.parse({
+          op: "delegate_task",
+          tasks: Array.from({ length: count }, (_, index) => ({
+            requestId: `${prefix}-${index}`,
+            provider: "claude",
+            role: `${prefix}-part-${index}`,
+            task: `Part ${index}`,
+          })),
+        }),
+      );
+    await delegate("first", 64);
+    // Past the run slots: these wait in the queue, still part of the tree.
+    await delegate("more", 2);
+    await f.daemon.engine?.flush();
+    const result = await f.call({ op: "agents.status" });
+    expect(result.ok).toBe(true);
+    const snapshot = MonitorSnapshot.parse(result.data);
+    expect(snapshot.children).toHaveLength(64);
+    expect(snapshot.omitted).toBe(2);
+    // Every child counts, whether it runs now or waits for a slot; none reads settled.
+    expect(snapshot.counts.working + snapshot.counts.queued).toBe(66);
+    expect(snapshot.counts.queued).toBeGreaterThan(0);
+    expect(snapshot.counts.done).toBe(0);
+  } finally {
+    await f.daemon.close();
+  }
+});
+
+test("a paired-machine child whose saved view this build can't read is listed as unknown, and the rest still list", async () => {
+  const f = await daemonFixture();
+  try {
+    const local = await spawn(f, "local");
+    // A newer build on the child's machine reported a state this one does not know.
+    const view = JSON.stringify({
+      threadId: "remote-new",
+      state: "steering",
+      title: "Review",
+      elapsedSeconds: 5,
+      status: { state: "working", agents: 1 },
+      requests: [],
+    });
+    f.daemon.store.atomic((db) =>
+      db
+        .prepare(
+          `INSERT INTO machine_children (id, request_key, parent_thread, parent_agent, machine, role,
+           provider, model, created_at, view, settled, delivered)
+           VALUES ('remote-new', 'remote-new-key', ?, ?, 'studio', 'Review-on-studio', 'claude',
+           NULL, 0, ?, 1, 1)`,
+        )
+        .run(f.caller.threadId, f.caller.agentId, view),
+    );
+    const result = await f.call({ op: "agents.status" });
+    expect(result.ok).toBe(true);
+    const snapshot = MonitorSnapshot.parse(result.data);
+    expect(snapshot.children).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: local, state: "working" }),
+        expect.objectContaining({ id: "remote-new", role: "Review-on-studio", state: "unknown" }),
+      ]),
+    );
+    // Unreadable is never settled: the tree still holds an open child.
+    expect(snapshot.counts).toMatchObject({ working: 1, unknown: 1, done: 0 });
   } finally {
     await f.daemon.close();
   }
