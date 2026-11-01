@@ -145,15 +145,17 @@ const railBars = 4;
 
 /**
  * The rail's bars: one per provider used in the last seven days (tokens by provider kind), most
- * used first, at most four. Providers that can't be read are left out. Without usage figures yet
- * (`used` undefined), every provider with a reading shows in the page's order.
+ * used first, at most four. Providers that can't be read are left out. Without usage figures
+ * (`used` undefined, or nothing used this week), every provider with a reading shows, in the
+ * page's order, so limits never hide behind a missing ranking.
  */
 export function railUsage(
   headroom: readonly ProviderHeadroom[],
   used: ReadonlyMap<string, number> | undefined,
 ): RailUsage {
   const readable = headroom.filter((entry) => entry.sessionLeft !== null);
-  const ranked = used
+  const ranked =
+    used && used.size > 0
     ? readable
         .filter((entry) => (used.get(entry.provider) ?? 0) > 0)
         .toSorted((a, b) => (used.get(b.provider) ?? 0) - (used.get(a.provider) ?? 0))

@@ -64,9 +64,10 @@ export const views: readonly View[] = [
   forgeView,
 ];
 
-/** The rail's place for a path: Settings is one too; Usage and Archived belong to none. */
-export function activeView(pathname: string): View["id"] | "settings" | undefined {
+/** The rail's place for a path: Settings and Usage are ones too; Archived belongs to none. */
+export function activeView(pathname: string): View["id"] | "settings" | "usage" | undefined {
   if (pathname.startsWith("/settings")) return "settings";
+  if (pathname === "/usage" || pathname.startsWith("/usage/")) return "usage";
   if (pathname === "/") return "home";
   return views.find((view) => view.matches.some((prefix) => pathname.startsWith(prefix)))?.id;
 }

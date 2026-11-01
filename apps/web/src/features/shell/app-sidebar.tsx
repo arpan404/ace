@@ -21,6 +21,8 @@ export function AppSidebar(props: {
   threads: ReactNode;
   /** GitHub's place in the rail (Inbox, Pull requests and Issues), current while one is open. */
   forge?: ((current: boolean) => ReactNode) | undefined;
+  /** Usage's place in the rail's foot. */
+  usage?: ((current: boolean) => ReactNode) | undefined;
 }) {
   const { setBody, bodyClaimed, sheet } = useViewFrame();
   const onForge = useRouterState({
@@ -36,7 +38,7 @@ export function AppSidebar(props: {
         {!sheet && <NavButtons />}
       </div>
       <div className="flex min-h-0 flex-1">
-        <AppRail forge={props.forge} />
+        <AppRail forge={props.forge} usage={props.usage} />
         <div
           data-slot="sidebar-panel"
           className={`flex min-h-0 min-w-0 flex-1 flex-col ${sheet ? "" : panelCanvasClass}`}

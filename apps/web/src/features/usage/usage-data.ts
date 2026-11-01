@@ -80,46 +80,81 @@ function reachable(environment: Machine): ClientApi {
   return environment.client;
 }
 
+/** The page's filters as usage queries take them: a dimension and its values. */
+export type UsageFilters = Partial<Record<UsageDimension, string[]>>;
+
 async function rows(
   client: ClientApi,
   kind: "summary" | "series",
   span: UsageSpan,
   groupBy: UsageDimension[],
-  providers: readonly string[] | undefined,
+  filters: UsageFilters,
   signal: AbortSignal,
+  limit = 1000,
 ): Promise<UsageResult> {
   const query = UsageQuery.parse({
     from: span.from,
     to: span.to,
     groupBy,
-    filters: providers ? { provider: [...providers] } : {},
+    filters,
     equivalentApiCost: true,
-    limit: 1000,
+    limit,
   });
   const type = kind === "series" ? "usage.series" : "usage.summary";
   return (await client.request({ type, query }, { signal })).result;
 }
 
+/** The "Where it went" lists each machine answers with its own query. */
+export const breakdownDimensions = ["workspace", "account", "skill", "automation", "role"] as const;
+export type BreakdownDimension = (typeof breakdownDimensions)[number];
+
 /** One environment's usage over the span, and its days before, for growth. */
-interface EnvironmentRead {
+export interface EnvironmentRead {
   usage: EnvironmentUsage;
   /** The same number of days just before the span, per day and provider. */
   previous: readonly UsageRow[];
+  /**
+   * Rows per breakdown dimension; undefined for one this daemon can't group by (an older
+   * daemon that doesn't record skills or automations), so the list says so instead of failing.
+   */
+  breakdowns: Partial<Record<BreakdownDimension, readonly UsageRow[]>>;
 }
 
-/** One environment's usage over the span: per day and provider, per model, per session. */
+const breakdownLimit = 200;
+
+/** One environment's usage over the span: per day and provider, per model, per session, and each list. */
 async function readUsage(
   client: ClientApi,
   span: UsageSpan,
-  providers: readonly string[] | undefined,
+  filters: UsageFilters,
   signal: AbortSignal,
 ): Promise<EnvironmentRead> {
   const before = { ...previousSpan(span.from, span.to), ready: span.ready };
-  const [daily, models, threads, earlier] = await Promise.all([
-    rows(client, "series", span, ["day", "provider"], providers, signal),
-    rows(client, "summary", span, ["model", "provider"], providers, signal),
-    rows(client, "summary", span, ["thread", "provider"], providers, signal),
-    rows(client, "series", before, ["day", "provider"], providers, signal),
+  const lists = Promise.all(
+    breakdownDimensions.map(async (dimension) => {
+      try {
+        const result = await rows(
+          client,
+          "summary",
+          span,
+          [dimension],
+          filters,
+          signal,
+          breakdownLimit,
+        );
+        return [dimension, result.rows] as const;
+      } catch (error) {
+        if (signal.aborted) throw error;
+        return [dimension, undefined] as const;
+      }
+    }),
+  );
+  const [daily, models, threads, earlier, breakdowns] = await Promise.all([
+    rows(client, "series", span, ["day", "provider"], filters, signal),
+    rows(client, "summary", span, ["model", "provider"], filters, signal),
+    rows(client, "summary", span, ["thread", "provider"], filters, signal),
+    rows(client, "series", before, ["day", "provider"], filters, signal),
+    lists,
   ]);
   return {
     usage: {
@@ -129,6 +164,7 @@ async function readUsage(
       threadsTruncated: threads.truncated,
     },
     previous: earlier.rows,
+    breakdowns: Object.fromEntries(breakdowns.filter((entry) => entry[1] !== undefined)),
   };
 }
 
@@ -140,14 +176,16 @@ async function readUsage(
 export function useEnvironmentUsage(
   environments: readonly Machine[],
   span: UsageSpan,
-  providers: readonly string[] | undefined,
+  filters: UsageFilters,
 ) {
   const reads = useQueries({
     queries: environments.map((environment) => ({
-      queryKey: ["usage-page", environment.id, "usage", span.from, span.to, providers ?? null],
+      queryKey: ["usage-page", environment.id, "usage", span.from, span.to, filters],
       enabled: span.ready && environment.client !== undefined,
+      // A new filter or range keeps the last figures on screen until the new ones arrive.
+      placeholderData: (previous: EnvironmentRead | undefined) => previous,
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        readUsage(reachable(environment), span, providers, signal),
+        readUsage(reachable(environment), span, filters, signal),
     })),
   });
   const reaches = environments.map((environment, index) => {
@@ -161,9 +199,12 @@ export function useEnvironmentUsage(
       reach: reaches[index] ?? "loading",
     })),
   );
-  const counted = reads.flatMap((read, index) =>
-    reaches[index] === "counted" && read.data ? [read.data] : [],
-  );
+  const counted = reads.flatMap((read, index) => {
+    const environment = environments[index];
+    return reaches[index] === "counted" && read.data && environment
+      ? [{ ...read.data, environment }]
+      : [];
+  });
   const settled = !reaches.includes("loading");
   return {
     data: settled
@@ -175,6 +216,7 @@ export function useEnvironmentUsage(
             threads: [],
             threadsTruncated: false,
           })),
+          machines: counted,
         }
       : undefined,
     coverage,
