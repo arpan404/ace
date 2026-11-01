@@ -6,7 +6,8 @@
       "enum": [
         "doctor",
         "toolchains",
-        "fix"
+        "fix",
+        "status"
       ],
       "type": "string"
     },

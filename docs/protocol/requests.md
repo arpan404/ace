@@ -1282,13 +1282,13 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"diagnostics.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | ["doctor","toolchains","fix"] |  |
+| operation | yes | ["doctor","toolchains","fix","status"] |  |
 
 Example:
 
 ```json
 {
-  "operation": "fix",
+  "operation": "status",
   "requestId": "example",
   "type": "diagnostics.request"
 }

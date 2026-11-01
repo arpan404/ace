@@ -15,7 +15,8 @@ export interface DoctorOutcome {
  */
 export class DoctorRuns {
   readonly #now: () => number;
-  #run: DiagnosticsRun = { state: "idle" };
+  #run: Exclude<DiagnosticsRun, { state: "running" }> = { state: "idle" };
+  #running: { operation: Operation; startedAt: number } | undefined;
   #pending: { operation: Operation; outcome: Promise<DoctorOutcome> } | undefined;
 
   constructor(now: () => number) {
@@ -23,7 +24,14 @@ export class DoctorRuns {
   }
 
   status(): DiagnosticsRun {
-    return this.#run;
+    if (!this.#running) return this.#run;
+    const { operation, startedAt } = this.#running;
+    return {
+      state: "running",
+      operation,
+      startedAt,
+      elapsedMs: Math.max(0, this.#now() - startedAt),
+    };
   }
 
   /** Start `operation`, or join it when it is already running; undefined while the other runs. */
@@ -34,7 +42,7 @@ export class DoctorRuns {
     if (this.#pending)
       return this.#pending.operation === operation ? this.#pending.outcome : undefined;
     const startedAt = this.#now();
-    this.#run = { state: "running", operation, startedAt };
+    this.#running = { operation, startedAt };
     const outcome = Promise.resolve()
       .then(task)
       .then(
@@ -56,6 +64,7 @@ export class DoctorRuns {
       )
       .finally(() => {
         this.#pending = undefined;
+        this.#running = undefined;
       });
     this.#pending = { operation, outcome };
     return outcome;

@@ -12154,7 +12154,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"diagnostics.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | ["doctor","toolchains","fix"] |  |
+| operation | yes | ["doctor","toolchains","fix","status"] |  |
 
 Example:
 
@@ -12177,6 +12177,7 @@ Example:
 | report | no | [DiagnosticReport.json](schema/DiagnosticReport.json) |  |
 | repairs | no | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/DiagnosticRepair.json"}} |
 | toolchains | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/Toolchain.json"}} |
+| run | no | [DiagnosticsRun.json](schema/DiagnosticsRun.json) |  |
 | error | no | string | {"maxLength":256} |
 
 Example:
@@ -12185,6 +12186,90 @@ Example:
 {
   "requestId": "example",
   "type": "diagnostics.result"
+}
+```
+
+## DiagnosticsRun
+
+[JSON Schema](schema/DiagnosticsRun.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | yes | `"idle"` |  |
+
+Example:
+
+```json
+{
+  "state": "idle"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | yes | `"running"` |  |
+| operation | yes | ["doctor","fix"] |  |
+| startedAt | yes | number |  |
+| elapsedMs | yes | number | {"minimum":0} |
+
+Example:
+
+```json
+{
+  "elapsedMs": 5,
+  "operation": "fix",
+  "startedAt": 5,
+  "state": "running"
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | yes | `"done"` |  |
+| operation | yes | ["doctor","fix"] |  |
+| startedAt | yes | number |  |
+| finishedAt | yes | number |  |
+| report | yes | [DiagnosticReport.json](schema/DiagnosticReport.json) |  |
+| repairs | no | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/DiagnosticRepair.json"}} |
+
+Example:
+
+```json
+{
+  "finishedAt": 0,
+  "operation": "doctor",
+  "report": {
+    "at": 2,
+    "checks": []
+  },
+  "startedAt": 1,
+  "state": "done"
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | yes | `"failed"` |  |
+| operation | yes | ["doctor","fix"] |  |
+| startedAt | yes | number |  |
+| finishedAt | yes | number |  |
+
+Example:
+
+```json
+{
+  "finishedAt": 5,
+  "operation": "doctor",
+  "startedAt": 9,
+  "state": "failed"
 }
 ```
 

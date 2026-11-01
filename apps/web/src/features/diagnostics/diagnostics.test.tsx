@@ -88,3 +88,22 @@ test("a failed check offers a retry and a failed export keeps the dialog open", 
     false,
   );
 });
+test("Run checks keeps going after leaving the page, and coming back shows it running, then its report", async () => {
+  const app = harness();
+  const finish = app.daemon.checks.hold();
+  await app.open("/settings/advanced");
+  await userEvent.click(await screen.findByRole("button", { name: "Run checks" }));
+  expect(await screen.findByText(/^Checking for \d+s\. You can leave this page/)).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("link", { name: "General" }));
+  await waitFor(() => expect(screen.queryByText(/^Checking for/)).toBeNull());
+  await userEvent.click(screen.getByRole("link", { name: "Advanced" }));
+
+  const button = await screen.findByRole<HTMLButtonElement>("button", { name: "Checking…" });
+  expect(button.disabled).toBe(true);
+  expect(screen.getByText(/^Checking for \d+s\./)).toBeTruthy();
+  finish();
+  const results = await screen.findByRole("list", { name: "Check results" });
+  expect(within(results).getByText("SQLite integrity: ok")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Run checks" })).toBeTruthy();
+});

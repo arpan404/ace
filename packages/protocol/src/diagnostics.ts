@@ -95,7 +95,13 @@ export type Toolchain = z.infer<typeof Toolchain>;
 const checksOperation = z.enum(["doctor", "fix"]);
 export const DiagnosticsRun = z.discriminatedUnion("state", [
   z.object({ state: z.literal("idle") }),
-  z.object({ state: z.literal("running"), operation: checksOperation, startedAt: z.number() }),
+  z.object({
+    state: z.literal("running"),
+    operation: checksOperation,
+    startedAt: z.number(),
+    /** How long it had run when this was read: clocks on two machines may disagree. */
+    elapsedMs: z.number().nonnegative(),
+  }),
   z.object({
     state: z.literal("done"),
     operation: checksOperation,

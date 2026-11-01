@@ -1462,6 +1462,7 @@ Example:
 | report | no | [DiagnosticReport.json](schema/DiagnosticReport.json) |  |
 | repairs | no | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/DiagnosticRepair.json"}} |
 | toolchains | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/Toolchain.json"}} |
+| run | no | [DiagnosticsRun.json](schema/DiagnosticsRun.json) |  |
 | error | no | string | {"maxLength":256} |
 
 Example:
