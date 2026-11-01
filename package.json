@@ -64,7 +64,7 @@
     "node-gyp": "11.5.0",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
-    "tsc-rs": "0.7.0",
+    "tsrs": "0.20.1-ts7.1.0-beta",
     "typescript": "7.0.2",
     "vitest": "^5.0.3",
     "zod": "^4.6.5"
