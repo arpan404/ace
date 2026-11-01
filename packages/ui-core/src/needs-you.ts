@@ -1,7 +1,8 @@
 import type { Agent, Interaction, InteractionRequest } from "@ace/protocol";
 import { isActionableInteraction } from "@ace/core/human";
 import { agentRuns } from "./agent-runs.ts";
-import { approvalCopy, commandFromTitle, commandRisk } from "./approval-copy.ts";
+import { approvalCopy, commandFromTitle } from "./approval-copy.ts";
+import { commandRisk } from "./command-risk.ts";
 
 /*
  * Everything in a thread's agent tree that waits on the person, in one list: requests to answer

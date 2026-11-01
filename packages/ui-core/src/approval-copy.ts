@@ -1,6 +1,7 @@
 import type { ApprovalOption, InteractionRequest } from "@ace/protocol";
 import { offeredOptions } from "./approvals.ts";
 import { addressHost } from "./browser-address.ts";
+import { type CommandRisk, commandRisk } from "./command-risk.ts";
 import { displayCommand, unwrapShellCommand } from "./step-display.ts";
 
 /*
@@ -67,7 +68,7 @@ export interface ApprovalCopy {
    */
   reason: string | undefined;
   /** What approving lets happen, honestly and briefly. `high` reads in the failure tone. */
-  risk: { level: "high" | "medium"; text: string } | undefined;
+  risk: CommandRisk | undefined;
   facts: ApprovalFact[];
   /** Code the person is asked to run, shown verbatim (a page script). */
   code: string | undefined;
@@ -245,36 +246,6 @@ export function commandFromTitle(title: string): string | undefined {
 /** A shell request's heading: its block shows the command, so the heading doesn't repeat it. */
 function heading(title: string, command: string | undefined): string {
   return command && title.includes(command) ? "Run this command?" : title;
-}
-
-const highRisk: readonly RegExp[] = [
-  /\bgit\s+push\b.*(--force\b|--force-with-lease\b|\s-f\b)/,
-  /\bgit\s+reset\s+--hard\b/,
-  /\bgit\s+clean\s+-[a-z]*f/,
-  /\brm\s+-[a-z]*r[a-z]*f|\brm\s+-[a-z]*f[a-z]*r/,
-  /\bsudo\b/,
-  /\bdrop\s+(table|database)\b/i,
-  /\bcurl\b[^|]*\|\s*(ba|z)?sh\b/,
-  /\bchmod\s+-R\b/,
-];
-const mediumRisk: readonly RegExp[] = [
-  /\b(npm|pnpm|yarn|bun)\s+(add|install|i)\b/,
-  /\b(pip|pip3|brew|cargo|gem)\s+(install|add)\b/,
-  /\bgit\s+push\b/,
-  /\b(curl|wget)\b/,
-  /\bdocker\s+(run|rm|system\s+prune)\b/,
-];
-
-/**
- * How careful to be with a shell command, from its text alone. Only commands that rewrite
- * history, delete recursively, escalate privileges or reach the network get a level.
- */
-export function commandRisk(command: string): ApprovalCopy["risk"] {
-  if (highRisk.some((pattern) => pattern.test(command)))
-    return { level: "high", text: "Hard to undo." };
-  if (mediumRisk.some((pattern) => pattern.test(command)))
-    return { level: "medium", text: "It reaches the network or changes what's installed." };
-  return undefined;
 }
 
 /**
