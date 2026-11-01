@@ -1,10 +1,18 @@
+import type { Fact } from "@ace/core";
 import { facts, nestedDelegation, nestedDelegationIds, type Scenario } from "@ace/fake-daemon";
+import { ThreadId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { gatedClient, memoryReadSnapshots, type Gate } from "@/test/gated-client.ts";
 import { harness } from "@/test/harness.tsx";
-import { agentRow, isBreathing, openWorkPanel, showFinished } from "@/test/open-work.ts";
+import {
+  agentRow,
+  isBreathing,
+  openWorkPanel,
+  showFinished,
+  summaryStatus,
+} from "@/test/open-work.ts";
 
 /*
  * The Summary's tree across threads when a delegated thread's facts aren't current (AGENTS.md
@@ -66,7 +74,7 @@ test("a delegated thread gives its room to threads the person opens, shows not l
     act(() => void opened.push(app.client.thread(id)));
     if (within(work).queryByRole("treeitem", { name: /not loaded/ })) break;
   }
-  const missing = await within(work).findByRole("treeitem", { name: /: .* · not loaded$/ });
+  const missing = await within(work).findByRole("treeitem", { name: /not loaded$/ });
   const name = (missing.getAttribute("aria-label") ?? "").split(":")[0] ?? "";
   expect(missing.getAttribute("aria-expanded")).toBeNull();
   for (const lease of opened) expect(lease.store.error).toBeUndefined();
@@ -129,4 +137,115 @@ test("nineteen finished siblings fold into one 19 done line below the live ones,
     (await within(again).findByRole("treeitem", { name: "19 done" })).getAttribute("aria-expanded"),
   ).toBe("true");
   expect(await agentRow(again, "Task 20")).toBeTruthy();
+});
+
+/** A delegate in `parent`'s tree whose work is the thread `child`, which already finished. */
+const delegated = (agent: string, child: string, name: string): Fact[] => [
+  facts.tool("root", `delegate-${agent}`, {
+    kind: "agent.spawn",
+    title: `Delegate ${name}`,
+    detail: { kind: "agent.spawn", prompt: name, agentType: "claude", childAgent: agent },
+  }),
+  {
+    type: "agent.seen",
+    agent,
+    parent: "root",
+    spawnedBy: `delegate-${agent}`,
+    origin: "ace",
+    fidelity: "full",
+    native: { provider: "claude", nativeId: agent },
+    cwd: "/Users/dev/acme",
+    name,
+  },
+  { type: "agent.external", agent, threadId: ThreadId.parse(child), status: { state: "done" } },
+];
+
+/** A thread of the chain, and the delegate it hands its work to. */
+interface ChainLink {
+  id: string;
+  parent: string | undefined;
+  next: readonly [agent: string, child: string, name: string] | undefined;
+}
+
+/** Three threads, each delegating to the next, all of them finished. */
+const chain: ChainLink[] = [
+  { id: "thread-cold", parent: undefined, next: ["build", "thread-cold-build", "Cold build"] },
+  {
+    id: "thread-cold-build",
+    parent: "thread-cold",
+    next: ["check", "thread-cold-check", "Cold check"],
+  },
+  { id: "thread-cold-check", parent: "thread-cold-build", next: undefined },
+];
+
+const finishedChain = (): Scenario[] =>
+  chain.map(({ id, parent, next }) => ({
+    thread: {
+      id,
+      workspaceId: "acme",
+      title: id,
+      provider: "claude",
+      ...(parent ? { parentThreadId: parent } : {}),
+    },
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          facts.rootAgent("claude"),
+          facts.turn("root"),
+          ...(next ? delegated(next[0], next[1], next[2]) : []),
+          facts.endTurn("root"),
+        ],
+      },
+    ],
+  }));
+
+test("a delegated thread whose first snapshot hasn't come is syncing: never done, and neither is anything above it", async () => {
+  const gate: Gate = { held: false, queue: [], newWires: true };
+  const app = harness({ client: (daemon) => gatedClient(daemon, memoryReadSnapshots(), gate) });
+  for (const scenario of finishedChain()) app.play(scenario).runUntilBlocked();
+  await app.open("/t/thread-cold");
+  await screen.findByRole("heading", { level: 1, name: "thread-cold" });
+  // Every delegated thread the Summary subscribes to from here on starts cold and held back.
+  gate.held = true;
+  const work = await openWorkPanel();
+  const build = await agentRow(work, "Cold build");
+  expect(build.getAttribute("aria-label")).toBe("Cold build: syncing");
+  expect(isBreathing(build)).toBe(false);
+  expect(await summaryStatus(work)).toBe("Syncing");
+
+  // The build thread arrives; the check thread under it is still cold.
+  act(() => {
+    for (const deliver of gate.queue.splice(0)) deliver();
+  });
+  await waitFor(() => expect(build.getAttribute("aria-expanded")).toBe("false"));
+  // Its own thread is confirmed, but something under it isn't: still not finished.
+  expect(build.getAttribute("aria-label")).toBe("Cold build: syncing");
+  expect(await summaryStatus(work)).toBe("Syncing");
+
+  act(() => {
+    gate.held = false;
+    for (const deliver of gate.queue.splice(0)) deliver();
+  });
+  await waitFor(async () => expect(await summaryStatus(work)).toMatch(/^Done/));
+  expect(build.getAttribute("aria-label")).not.toMatch(/syncing/);
+});
+
+test("when the focused agent finishes and folds into the done line, focus moves to that line", async () => {
+  const app = harness();
+  app.play(fleet).runUntilBlocked();
+  await app.open("/t/thread-fold");
+  const work = await openWorkPanel();
+  const root = await agentRow(work, "Claude Code");
+  for (let step = 0; step < 80 && document.activeElement !== root; step++) await userEvent.tab();
+  await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(await agentRow(work, "Task 0"));
+
+  act(() => app.daemon.apply("thread-fold", [facts.endTurn("s0")]));
+  const done = await within(work).findByRole("treeitem", { name: "20 done" });
+  await waitFor(() => expect(document.activeElement).toBe(done));
+  expect(done.tabIndex).toBe(0);
+  // The keys still work from there: → opens the line, ↓ reaches the agent that just finished.
+  await userEvent.keyboard("{ArrowRight}{ArrowDown}");
+  expect(document.activeElement).toBe(await agentRow(work, "Task 0"));
 });

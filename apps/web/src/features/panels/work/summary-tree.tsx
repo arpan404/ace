@@ -1,6 +1,6 @@
 import { foldFinished, type ForestNode, type ThreadWork } from "@ace/ui-core";
 import type { Interaction } from "@ace/protocol";
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { AgentLine, CommandLine, FinishedLine, guideLeft } from "./summary-rows.tsx";
 
@@ -56,6 +56,47 @@ function treeKeys(setActive: (key: string) => void, fold: (key: string, open: bo
   };
 }
 
+/**
+ * For every row of the tree, the row on screen that stands for it: itself when shown, the
+ * "N done" line it folded into, or the row of the folded branch it sits in. Mirrors `Branch`.
+ */
+function standIns(
+  roots: readonly ForestNode[],
+  isOpen: (node: ForestNode, depth: number) => boolean,
+  isShown: (key: string) => boolean,
+): Map<string, string> {
+  const stand = new Map<string, string>();
+  const hide = (nodes: readonly ForestNode[], by: string) => {
+    for (const node of nodes) {
+      stand.set(node.key, by);
+      hide(node.children, by);
+    }
+  };
+  const visit = (node: ForestNode, depth: number) => {
+    stand.set(node.key, node.key);
+    if (!node.children.length) return;
+    if (isOpen(node, depth)) walk(node.children, depth + 1, node.key);
+    else hide(node.children, node.key);
+  };
+  const walk = (nodes: readonly ForestNode[], depth: number, parent?: string) => {
+    if (parent === undefined) {
+      for (const node of nodes) visit(node, depth);
+      return;
+    }
+    for (const row of foldFinished(parent, nodes)) {
+      if (row.kind === "node") {
+        visit(row.node, depth);
+        continue;
+      }
+      stand.set(row.key, row.key);
+      if (isShown(row.key)) for (const node of row.nodes) visit(node, depth);
+      else hide(row.nodes, row.key);
+    }
+  };
+  walk(roots, 0);
+  return stand;
+}
+
 interface TreeContext {
   viewed: string;
   active: string | undefined;
@@ -90,23 +131,53 @@ export function SummaryTree(props: {
       }
     return map;
   }, [props.works]);
-  const active = selected ?? props.roots[0]?.key;
+  // The main agent's row stays open: it is the tree itself, not a branch of it.
+  const isOpen = useCallback(
+    (node: ForestNode, depth: number) =>
+      sections?.[foldKey(node.key)] ?? (node.live || depth === 0),
+    [sections],
+  );
+  const isShown = useCallback((key: string) => sections?.[foldKey(key)] ?? false, [sections]);
+  const stand = useMemo(
+    () => standIns(props.roots, isOpen, isShown),
+    [props.roots, isOpen, isShown],
+  );
+  // The selected row may have folded away (an agent finished into "N done"): the row standing
+  // for it takes the tree's Tab stop, so the tree is never left without one.
+  const active = (selected === undefined ? undefined : stand.get(selected)) ?? props.roots[0]?.key;
+  const tree = useRef<HTMLUListElement>(null);
+  const focusInside = useRef(false);
+  useLayoutEffect(() => {
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (!focusInside.current || !lost || active === undefined) return;
+    // Focus was on a row that just went away: carry it to the row that took its place, whose
+    // focus handler then makes it the selected row.
+    const rows = tree.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [];
+    for (const row of rows) if (row.dataset.row === active) row.focus();
+  }, [active]);
   const context: TreeContext = {
     viewed: props.threadId,
     active,
     setActive,
-    // The main agent's row stays open: it is the tree itself, not a branch of it.
-    isOpen: (node, depth) => sections?.[foldKey(node.key)] ?? (node.live || depth === 0),
-    isShown: (key) => sections?.[foldKey(key)] ?? false,
+    isOpen,
+    isShown,
     fold: (key, open) =>
       actions.updateUi("work", { sections: { ...sections, [foldKey(key)]: open } }),
     requests,
   };
   return (
     <ul
+      ref={tree}
       role="tree"
       aria-label="Agent tree"
       onKeyDown={treeKeys(setActive, context.fold)}
+      onFocus={() => (focusInside.current = true)}
+      onBlur={(event) => {
+        // A row that unmounts while focused blurs with nowhere to go: that keeps the focus here.
+        const next = event.relatedTarget;
+        if (next instanceof Node && !event.currentTarget.contains(next))
+          focusInside.current = false;
+      }}
       className="-mx-1"
     >
       <Branch nodes={props.roots} depth={0} context={context} />

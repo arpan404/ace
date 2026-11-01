@@ -1,6 +1,7 @@
 import {
   OptionalLeaseScope,
   useThreadError,
+  useThreadMeta,
   useThreadRoom,
   useThreadSyncing,
   useThreadUnconfirmed,
@@ -13,13 +14,17 @@ type Report = (threadId: string, work: ThreadWork | undefined) => void;
 
 const noAgents: ThreadWork["agents"] = [];
 
-/** How current a thread's facts are, from its subscription's own flags. */
+/**
+ * How current a thread's facts are, from its subscription's own flags. A new store starts with
+ * neither flag set and nothing in it: until its first view arrives it is syncing, never live.
+ */
 function useFacts(threadId: string): NonNullable<ThreadWork["facts"]> {
   const error = useThreadError(threadId);
   const syncing = useThreadSyncing(threadId);
   const unconfirmed = useThreadUnconfirmed(threadId);
+  const viewed = useThreadMeta(threadId) !== undefined;
   if (error) return "not_loaded";
-  return syncing || unconfirmed ? "syncing" : "live";
+  return !viewed || syncing || unconfirmed ? "syncing" : "live";
 }
 
 /** One thread's live entities and how current they are, for the forest. */

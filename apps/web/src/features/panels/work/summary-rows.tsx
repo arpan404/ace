@@ -214,10 +214,17 @@ export function AgentLine(
   // Facts not confirmed since the connection dropped or the Summary opened: what it was doing
   // when last seen, and never "finished" for a branch that may be working again.
   const stale = !fresh || node.stale;
-  const seen = !stale ? current : node.live ? `last seen ${current}` : "syncing";
-  const step = node.notLoaded ? `${seen} · not loaded` : seen;
-  // A settled-looking stale row already says "syncing"; its fold adds nothing to that.
-  const folded = props.expanded === false && (node.live || !stale) ? foldWords(below) : "";
+  // Settled-looking while something under it isn't confirmed or couldn't load: it may still be
+  // working, so it reads neither finished nor done. A failure or a request is known for sure.
+  const uncertain =
+    !node.live && node.unconfirmed && !stale && status.state !== "failed" && !props.request;
+  const unsure = node.live ? `last seen ${current}` : "syncing";
+  // An unloaded delegate says only "not loaded": that is why it isn't sure.
+  const seen = stale ? unsure : !uncertain ? current : node.notLoaded ? "" : "syncing";
+  const step = node.notLoaded ? (seen ? `${seen} · not loaded` : "not loaded") : seen;
+  // A settled-looking row that isn't sure already says so; its fold adds nothing to that.
+  const settledLook = !node.live && (stale || uncertain);
+  const folded = props.expanded === false && !settledLook ? foldWords(below) : "";
   const end = agent.endedAt ?? (node.live ? Math.max(now, agent.createdAt) : undefined);
   const time =
     end !== undefined && end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : "";
@@ -230,7 +237,7 @@ export function AgentLine(
           childThreadId: agent.childThreadId,
         });
   const name = identity.name;
-  const done = !node.live && !stale;
+  const done = !node.live && !stale && !uncertain;
   return (
     <RowFrame
       {...props}
@@ -259,12 +266,12 @@ export function AgentLine(
         instance={details.instance}
         live={node.live}
         done={done}
-        stale={stale}
+        stale={stale || uncertain}
       />
       <span
         className={cn(
           "max-w-[55%] min-w-0 shrink truncate font-medium",
-          (done || stale) && "text-muted-foreground",
+          (done || settledLook) && "text-muted-foreground",
         )}
       >
         {name}
