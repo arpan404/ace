@@ -1,5 +1,5 @@
 import type { ThreadListEntry } from "@ace/protocol";
-import { isDraft, isRemoved, pinOrderOf } from "./arrange.ts";
+import { isDraft, isRemoteChild, isRemoved, pinOrderOf } from "./arrange.ts";
 import type { ChatDay, HomeRow } from "./home-rows.ts";
 import { atRest, atWork, needsPerson, type Standing } from "./home-tree.ts";
 import { activityOf, isSettled } from "./thread-state.ts";
@@ -72,7 +72,8 @@ export function chatList(input: ChatListInput): ChatList {
   const rest: ThreadListEntry[] = [];
   const needsYou: string[] = [];
   for (const entry of input.entries) {
-    if (isRemoved(entry) || isDraft(entry) || !input.isChat(entry)) continue;
+    if (isRemoved(entry) || isDraft(entry) || isRemoteChild(entry) || !input.isChat(entry))
+      continue;
     const stands = input.standing(entry);
     if (entry.status.state === "needs_you") needsYou.push(entry.id);
     // Settled yet its tree still works or asks: Active, never dimmed.
@@ -158,7 +159,7 @@ export function placeSignals(input: Omit<ChatListInput, "now">): PlaceSignals {
   const threads: PlaceSignal = { tone: undefined, needsYou: 0 };
   const chats: PlaceSignal = { tone: undefined, needsYou: 0 };
   for (const entry of input.entries) {
-    if (isRemoved(entry) || isDraft(entry)) continue;
+    if (isRemoved(entry) || isDraft(entry) || isRemoteChild(entry)) continue;
     const level = input.standing(entry).level;
     const place = input.isChat(entry) ? chats : threads;
     if (level === "needs-you") {

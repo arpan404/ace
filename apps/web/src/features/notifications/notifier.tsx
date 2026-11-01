@@ -10,6 +10,7 @@ import {
   useSidebarThread,
 } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
+import { isRemoteChild } from "@ace/ui-core";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -124,7 +125,12 @@ function ThreadNotifier() {
   useEffect(() => {
     if (!statuses || !sidebar || !ready) return;
     const next = new Map<string, ThreadStatus["state"]>();
-    for (const id of sidebar.ids) next.set(id, sidebar.thread(id)?.status.state ?? "new");
+    for (const id of sidebar.ids) {
+      const thread = sidebar.thread(id);
+      // A paired machine's child is its owner's news there, not this person's.
+      if (thread && isRemoteChild(thread)) continue;
+      next.set(id, thread?.status.state ?? "new");
+    }
     const previous = seenThreads.current;
     seenThreads.current = next;
     if (!previous) return;

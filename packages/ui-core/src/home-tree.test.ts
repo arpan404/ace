@@ -179,3 +179,21 @@ test("the panel remembers folded projects and Quiet projects", () => {
   organizer.setFolded(projectFold("ace"), false);
   expect(new Organizer(storage, now).getState().collapsed).toEqual([projectFold("web")]);
 });
+
+/** Delegated here by an agent on a paired machine, whose thread is its parent. */
+const fromPairedMachine = {
+  hasSentMessage: true,
+  delegatedFrom: { hostId: "host-a", hostName: "Studio Mac", threadId: "parent-on-a" },
+};
+
+test("a thread delegated from a paired machine is not listed as a top-level thread on the host", () => {
+  const built = tree([
+    entry("mine", { state: "working", agents: 1 }, now - minute),
+    entry("asked", { state: "needs_you", interactions: 1 }, now, fromPairedMachine),
+    entry("rested", { state: "done" }, now - day, { ...fromPairedMachine, ...settledAt(now) }),
+  ]);
+  expect(built.active).toEqual(["mine"]);
+  expect(built.order).toEqual(["mine"]);
+  expect(built.settled).toEqual([]);
+  expect(projectOf(built, "ace")).toMatchObject({ active: 1, settled: [] });
+});
