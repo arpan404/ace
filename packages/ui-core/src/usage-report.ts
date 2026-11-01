@@ -64,6 +64,14 @@ export interface UsageReport {
   cachedInput: number;
   uncachedInput: number;
   cacheSavingsUsd: number;
+  /** Reasoning tokens, a part of output (providers bill them as output). */
+  reasoningTokens: number;
+  /** Cache writes kept for an hour, a part of cache writes. */
+  cacheWrite1hTokens: number;
+  /** Tokens on subscription accounts. */
+  subscriptionTokens: number;
+  /** The API estimate for tokens on API-key accounts: what they are billed at list prices. */
+  apiBilledUsd: number;
   models: ModelUsage[];
 }
 
@@ -141,6 +149,10 @@ export function usageReport(
     cachedInput: 0,
     uncachedInput: 0,
     cacheSavingsUsd: 0,
+    reasoningTokens: 0,
+    cacheWrite1hTokens: 0,
+    subscriptionTokens: 0,
+    apiBilledUsd: 0,
   };
   const models = new Map<string, ModelUsage & { unpriced: number }>();
   for (const environment of environments) {
@@ -160,6 +172,10 @@ export function usageReport(
       report.cachedInput += totals.cachedInputTokens;
       report.uncachedInput += totals.inputTokens - totals.cachedInputTokens;
       report.cacheSavingsUsd += totals.cacheSavingsUsd ?? 0;
+      report.reasoningTokens += totals.reasoningTokens;
+      report.cacheWrite1hTokens += totals.cacheWrite1hTokens;
+      report.subscriptionTokens += totals.subscriptionTokens;
+      report.apiBilledUsd += totals.estimatedUsd;
       report.tokenTypes.input +=
         totals.inputTokens - totals.cachedInputTokens - totals.cacheWriteTokens;
       report.tokenTypes.cacheRead += totals.cachedInputTokens;
