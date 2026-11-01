@@ -87,7 +87,7 @@ its top.
   machines, each row with its project's mark. Pinned threads lead it, then what needs the person
   (requests and unseen failures), then what is at work (the thread or its agent tree works or
   waits, or a background command runs), then the rest by last activity (the default sort,
-  Live activity; Newest first and Manual keep their own order). Finished work not yet opened keeps its blue dot on its row here. Membership
+  Live activity; Newest first and Manual keep their own order). Finished work not yet opened says Done on its row here. Membership
   is the daemon's settle facts read through the row attention (`homeTree` in ui-core), so a
   thread whose tree still works or asks is Active even if it was settled, and never sits in a
   project or History.
@@ -111,6 +111,26 @@ them (Automations' rows became one line; its search is always shown, like Chats'
 followed. GitHub's list pages lost their Inbox / Pull requests / Issues switch: the panel is the
 way between them, and it marks the list a pull request or issue page belongs to (Inbox when the
 page was opened from it).
+
+## Three-line Active rows, New thread beside Search, no History row
+
+Same day, from the owner's notes on the running app.
+
+- **Active rows are three lines again**, as the sidebar's task rows were before the unified
+  frame: line 1 the project's mark and name … the status word with its elapsed time ("Approve",
+  "Working 4m", "Waiting 3h", "Failed", in the status colours) or the age at rest; line 2 the
+  title; line 3 the branch · PR … the machine's mark with more than one device connected, and
+  the provider glyph with its account bubble. 80px, 12px side padding, 4px between rows. The
+  status word reads the same row attention as everything else, so a tree that still works or
+  waits never reads Done. Hover or focus puts Snooze, Settle and ⋯ beside the status, which
+  stays. Pinned rows, settled rows in their projects, snoozed rows and chats stay one line with
+  their one mark.
+- **New thread moved into the title row**, as a pencil after Search: "ace ▾" … Search, New
+  thread. Same behaviour (it asks for a project when there are several, Shift starts in the
+  current one, the `newThread` shortcut); the full-width New thread row is gone.
+- **No History row at the panel's foot.** History opens from each project's hover action
+  (prefiltered), a quiet project's row, the palette and its route; the foot's settled count went
+  with the row.
 
 ## Unified frame
 
@@ -175,7 +195,7 @@ than a sidebar and a column each with its own header.
   Pinned threads (each with a chat glyph; a pinned thread waiting in the Inbox stays there), and
   Projects: a folder glyph per project (open while expanded), its threads indented under the
   project's name, five at a time and then Show more. History stays at the foot.
-- **One-line rows.** Every row is one `--row-height` line of 14px text. Its right edge carries at
+- **One-line rows** (Active's unpinned rows went back to three lines; see above). Every row is one `--row-height` line of 14px text. Its right edge carries at
   most one mark, from its attention level: a warning dot (needs you), a failure dot (failed, not
   seen), a blue dot (finished, not seen), or a ring in the status's colour that breathes a few
   times and then holds still (the thread or its agent tree still works or waits; it never loops,
