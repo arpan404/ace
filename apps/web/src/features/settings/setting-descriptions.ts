@@ -5,6 +5,7 @@ export const settingDescriptions: Readonly<Partial<Record<string, string>>> = {
     "The provider new threads start with. You can choose another in each thread.",
   "terminals.openIn": "Where terminal tabs open in this window.",
   "editor.default": "The editor used when you open a project or file from ace.",
+  "usage.railMeasure": "What the rail's Usage icon shows for each account.",
   "threads.useWorktree":
     "Start new threads in separate Git worktrees so their changes stay isolated.",
   "threads.forkOnSwitch":

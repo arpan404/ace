@@ -8,7 +8,10 @@
     "provider",
     "account",
     "model",
-    "workspace"
+    "workspace",
+    "skill",
+    "automation",
+    "role"
   ],
   "type": "string"
 }

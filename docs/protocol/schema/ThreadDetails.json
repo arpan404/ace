@@ -176,6 +176,17 @@
     "repository": {
       "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
     },
+    "upstream": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "workspace": {
       "properties": {
         "defaultIcon": {

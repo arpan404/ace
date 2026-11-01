@@ -18615,7 +18615,7 @@ Example:
 | id | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | parent | no | [ThreadId.json](schema/ThreadId.json) |  |
 | role | yes | string | {"maxLength":40} |
-| state | yes | [WatchedState.json](schema/WatchedState.json) |  |
+| state | yes | [MonitoredState.json](schema/MonitoredState.json) |  |
 | step | no | string | {"maxLength":60} |
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -18642,6 +18642,18 @@ Example:
 }
 ```
 
+## MonitoredState
+
+[JSON Schema](schema/MonitoredState.json), input validation.
+
+Type: ["working","queued","needs_you","done","failed","cancelled","unknown"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"queued"
+```
+
 ## MonitorSnapshot
 
 [JSON Schema](schema/MonitorSnapshot.json), input validation.
@@ -18649,7 +18661,8 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | children | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/MonitoredChild.json"}} |
-| counts | yes | object | {"properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"]} |
+| omitted | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| counts | yes | object | {"properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"queued":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"unknown":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","queued","needs_you","unknown","done","failed","cancelled"]} |
 
 Example:
 
@@ -18657,11 +18670,13 @@ Example:
 {
   "children": [],
   "counts": {
-    "cancelled": 7,
-    "done": 1,
-    "failed": 1,
-    "needs_you": 7,
-    "working": 3
+    "cancelled": 9,
+    "done": 3,
+    "failed": 7,
+    "needs_you": 1,
+    "queued": 1,
+    "unknown": 7,
+    "working": 7
   }
 }
 ```
@@ -32718,6 +32733,7 @@ Example:
 | head | no | union | {"anyOf":[{"type":"string","pattern":"^[a-f0-9]{40,64}$"},{"type":"null"}]} |
 | ahead | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | behind | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| upstream | no | union | {"anyOf":[{"type":"string","maxLength":1024},{"type":"null"}]} |
 | baseBranch | no | string | {"maxLength":1024} |
 | base | no | [WorktreeBaseRecord.json](schema/WorktreeBaseRecord.json) |  |
 | repository | no | [ForgeRepository.json](schema/ForgeRepository.json) |  |
@@ -32734,21 +32750,12 @@ Example:
 ```json
 {
   "base": {
-    "head": "fc32634eb89c28b77d9ccbc7645f3d126b102d4a",
+    "head": "4eb89c28b77d9ccbc7645f3d126b102d4a6ee97adc0f884d90c0fb3",
     "ref": "example",
-    "remote": "UoCT"
+    "remote": "oCT_xjLFZ"
   },
-  "continuedOn": {
-    "at": 4,
-    "hostId": "example",
-    "name": "example",
-    "threadId": "example"
-  },
+  "baseBranch": "example",
   "linkedIssues": [],
-  "machine": {
-    "host": "example",
-    "name": "example"
-  },
   "mode": "worktree",
   "pullRequestWorkspace": {
     "baseBranch": "example",
@@ -32775,9 +32782,9 @@ Example:
   },
   "repository": {
     "forge": "github",
-    "host": "2aniyu46Op-",
-    "name": "g",
-    "owner": "kBveK/_rk_/elYs9fsB86m/sp4/y1HK4NG5d"
+    "host": "la-f",
+    "name": "sp4",
+    "owner": "Ys9/B86m"
   },
   "workspace": {
     "defaultIcon": null,
@@ -32936,23 +32943,49 @@ Example:
 
 ```json
 {
+  "acpSupport": {
+    "capabilities": {
+      "imageInput": false,
+      "planMode": true,
+      "resume": true
+    },
+    "coverage": "legacy",
+    "mcp": "unavailable",
+    "modeSelection": true,
+    "modelSelection": true,
+    "raw": {
+      "json": "example",
+      "truncated": false
+    },
+    "subagentSessions": true,
+    "visibility": "limited"
+  },
   "autoSettle": false,
-  "createdAt": 8,
+  "createdAt": 9,
   "deletedAt": 4,
   "details": {
-    "base": {
-      "head": "1dcd6180de1cc2c40dc349527dd525aaf9450e5ec500a5ab0f174d7db6a",
-      "ref": "example"
-    },
+    "baseBranch": "example",
     "behind": 1,
+    "continuedFrom": {
+      "at": 3,
+      "hostId": "example",
+      "name": "example",
+      "threadId": "example"
+    },
+    "diff": {
+      "additions": 1,
+      "deletions": 6,
+      "files": 5
+    },
+    "guest": {
+      "host": "example",
+      "name": "example"
+    },
     "head": null,
     "linkedPr": {
-      "draft": false,
-      "number": 4,
-      "state": "closed",
-      "url": "https://example.invalid/"
+      "number": 3,
+      "state": "merged"
     },
-    "linkedPrs": [],
     "pullRequestWorkspace": {
       "baseBranch": "example",
       "baseSha": "8080e23baaac29373eb1c7e8e6547a413c3a42ca93b2e99324d198eb",
@@ -32976,12 +33009,6 @@ Example:
         }
       }
     },
-    "repository": {
-      "forge": "github",
-      "host": "el",
-      "name": "XqgnojY1f.",
-      "owner": "W.Wv3k9/MWjzgmbp/zHOV6VPL/s.Lc2QpNNA/a/yTP0/a_o-3C8hba/Vl/1Kh7oSK4"
-    },
     "workspace": {
       "defaultIcon": null,
       "id": "example",
@@ -32990,34 +33017,81 @@ Example:
     },
     "worktree": "example"
   },
-  "handoff": {
-    "bytes": 7,
-    "sourceThreadId": "example",
-    "truncated": true
+  "effectiveCapabilities": {
+    "backgroundTaskControl": true,
+    "backgroundVisibility": "none",
+    "childControls": "native",
+    "childFidelity": "placeholder",
+    "fork": true,
+    "forkMode": "native",
+    "forkPoints": [],
+    "imageInput": false,
+    "interruptCascades": true,
+    "launchOptions": [],
+    "planMode": true,
+    "resume": true,
+    "rewindFiles": true,
+    "sessionOptions": false,
+    "steer": false,
+    "steerTiming": "after_tool",
+    "subagentTranscripts": false,
+    "tokenUsage": false
+  },
+  "execution": {
+    "options": {},
+    "provider": "opencode"
   },
   "id": "example",
   "installationId": "example",
-  "live": {
-    "account": "example",
-    "backgroundTaskCount": 4,
-    "options": {},
-    "runningSubagentCount": 6,
-    "watching": []
+  "lineage": {
+    "lossy": false,
+    "mode": "portable",
+    "parentAgentId": "example",
+    "parentThreadId": "example",
+    "point": {
+      "itemId": "example",
+      "type": "item"
+    }
+  },
+  "movedFrom": {
+    "links": {
+      "linkedPr": null,
+      "repository": {
+        "forge": "gitlab",
+        "host": "-VG1noVG",
+        "name": "zHOV6VPL",
+        "owner": "acv.QSzt/iTyz/U/h/uF3Qo/mgZ_zrbfdk/W.Wv3k9/PMWjzgmbp"
+      }
+    },
+    "workspaceId": "example"
+  },
+  "permission": {
+    "custom": "example",
+    "effective": "auto-review",
+    "override": "read-only",
+    "pending": false
   },
   "pinOrder": 5,
   "prSettled": 3,
-  "provider": "acp",
-  "queuedLaunch": {
-    "text": "example"
+  "provider": "codex",
+  "queue": {
+    "paused": true,
+    "reason": null,
+    "resumeAt": 0,
+    "revision": 6
+  },
+  "run": {
+    "pendingCount": 6,
+    "phase": "implement",
+    "state": "delivered"
   },
   "status": {
-    "interactions": 5,
-    "state": "needs_you"
+    "state": "limited"
   },
   "title": "example",
-  "titleSource": "agent",
+  "titleSource": "provisional",
   "unread": true,
-  "updatedAt": 2,
+  "updatedAt": 5,
   "workspaceId": "example"
 }
 ```
@@ -33650,78 +33724,22 @@ Example:
   "runs": {},
   "seq": 7,
   "thread": {
-    "acpSupport": {
-      "capabilities": {
-        "imageInput": false,
-        "planMode": true,
-        "resume": false
-      },
-      "coverage": "legacy",
-      "mcp": "stdio",
-      "modeSelection": true,
-      "modelSelection": false,
-      "raw": {
-        "json": "example",
-        "truncated": true
-      },
-      "subagentSessions": true,
-      "visibility": "limited"
-    },
+    "acpAgentId": "example",
     "activityAt": 9,
-    "capabilities": {
-      "accessModes": [],
-      "approvals": "sandbox-only",
-      "backgroundTaskControl": false,
-      "backgroundVisibility": "partial",
-      "fork": true,
-      "forkMode": "context-handoff",
-      "forkPoints": [],
-      "goals": true,
-      "imageInput": false,
-      "interruptCascades": true,
-      "launchOptions": [],
-      "permissionModes": [],
-      "permissions": {
-        "modes": [],
-        "nativeAutoReview": false,
-        "permissionModes": [],
-        "toolGate": true
-      },
-      "planMode": true,
-      "resume": true,
-      "rewindFiles": true,
-      "steer": false,
-      "subagentTranscripts": true,
-      "tokenUsage": false
-    },
-    "continuation": {
-      "actionId": "thread.continue_new",
-      "reason": "cursor_cli_retired",
-      "state": "read_only"
-    },
-    "createdAt": 5,
-    "delegatedBy": "example",
-    "delegatedFrom": {
-      "hostId": "example",
-      "provider": "example",
-      "threadId": "example"
-    },
+    "archivedAt": 8,
+    "backend": "cursor-sdk",
+    "createdAt": 4,
     "details": {
       "ahead": 5,
-      "continuedFrom": {
-        "at": 6,
-        "hostId": "example",
-        "name": "example",
-        "threadId": "example"
+      "base": {
+        "fetch": "unreachable",
+        "head": "5bb517139d7eaab6e2a5fe8cd40d978e65fd6668beac690a46eb810aab947",
+        "ref": "example"
       },
-      "diff": {
-        "additions": 4,
-        "deletions": 3,
-        "files": 9
-      },
-      "guest": {
-        "host": "example",
-        "name": "example"
+      "linkedPr": {
+        "draft": true,
+        "number": 7,
+        "state": "open"
       },
       "pullRequestWorkspace": {
         "baseBranch": "example",
@@ -33747,10 +33765,10 @@ Example:
         }
       },
       "repository": {
-        "forge": "gitlab",
-        "host": "ThfUD2CL8n",
-        "name": "k",
-        "owner": "scbfWpJ_Uv/jlQxl-04rY/umWYY5fp"
+        "forge": "github",
+        "host": "4XUE",
+        "name": "RPqSBrL8VHC",
+        "owner": "KN3uoKM/nGpRZpSL7MW/Z"
       },
       "workspaceChange": {
         "at": 1,
@@ -33763,108 +33781,62 @@ Example:
       },
       "worktreeMissing": true
     },
-    "effectiveCapabilities": {
-      "backgroundTaskControl": true,
-      "backgroundVisibility": "none",
-      "childControls": "read-only",
-      "fork": true,
-      "goals": false,
-      "imageInput": true,
-      "interruptCascades": true,
-      "launchOptions": [],
-      "planMode": true,
-      "resume": false,
-      "rewindFiles": false,
-      "steer": true,
-      "steerTiming": "after_tool",
-      "subagentTranscripts": false,
-      "tokenUsage": false
-    },
     "goal": {
+      "checks": 7,
+      "lastReason": "example",
       "objective": "example",
-      "status": "budget_limited"
-    },
-    "handoff": {
-      "bytes": 8,
-      "sourceThreadId": "example",
-      "truncated": false
+      "status": "active",
+      "tokensUsed": 0
     },
     "id": "example",
-    "imported": {
-      "importedAt": 9,
-      "instanceId": "example",
-      "native": {
-        "acpAgentId": "example",
-        "aliases": [],
-        "instanceId": "example",
-        "nativeId": "example",
-        "path": "example",
-        "provider": "acp"
-      },
-      "sourceId": "example"
-    },
-    "instanceId": "example",
     "lineage": {
       "lossy": true,
-      "mode": "native",
+      "mode": "portable",
       "parentAgentId": "example",
       "parentThreadId": "example",
       "point": {
-        "itemId": "example",
-        "type": "item"
+        "runId": "example",
+        "type": "turn"
       }
     },
     "listOrder": 2,
     "live": {
-      "account": "example",
-      "rootRunId": "example",
-      "runningSubagentCount": 8,
-      "subagentCount": 4
+      "askingThreads": [],
+      "options": {},
+      "runningSubagentCount": 5,
+      "subagentCount": 1,
+      "workingSince": 1
     },
     "movedFrom": {
       "links": {
-        "linkedIssues": [],
-        "linkedPr": {
-          "draft": false,
-          "number": 8,
-          "state": "open"
-        },
         "repository": {
           "forge": "gitlab",
-          "host": "q-nGqRZ",
-          "name": "JJB1tRUWIS2",
-          "owner": "SL7/dZ.RPqSBr/8VHCNch/ejhDN3M/ClIhj/GDjehmH/AvjEXIvg0w"
+          "host": "6JKC",
+          "name": "wIr",
+          "owner": "tRUWIS25ax/_Y0/h/VeCy6bgML/U8/F5OV226v/ivR/Ctm"
         }
       },
       "workspaceId": "example"
     },
     "pinOrder": 3,
     "prSettled": 8,
-    "provider": "pi",
-    "queue": {
-      "exited": true,
-      "paused": true,
-      "reason": "model_unavailable",
-      "resumeAt": null,
-      "revision": 7
-    },
-    "queuedLaunch": {
-      "queuePosition": 9,
-      "text": "example"
-    },
+    "provider": "antigravity",
     "readAt": 0,
+    "rootAgentId": "example",
     "settleWhenDone": true,
     "settledReason": "inactivity",
     "snoozeWake": {
       "on": "needs_you"
     },
+    "startedBy": "example",
     "status": {
-      "interactions": 5,
-      "state": "needs_you"
+      "on": "network",
+      "state": "waiting"
     },
     "title": "example",
+    "titleSource": "provider",
     "unread": true,
-    "updatedAt": 6,
+    "updatedAt": 5,
     "workspaceId": "example"
   },
   "usage": {}
@@ -35068,12 +35040,12 @@ Example:
 
 [JSON Schema](schema/UsageDimension.json), input validation.
 
-Type: ["day","thread","agent","provider","account","model","workspace"]. See JSON Schema for constraints.
+Type: ["day","thread","agent","provider","account","model","workspace","skill","automation","role"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"workspace"
+"role"
 ```
 
 ## UsageLimitsChanged
@@ -35198,7 +35170,7 @@ Semantic rule: to >= from, their difference is <= 365 days, and groupBy entries 
 | --- | --- | --- | --- |
 | from | yes | string | {"format":"date","pattern":"^(?:(?:\\d\\d[2468][048]\|\\d\\d[13579][26]\|\\d\\d0[48]\|[02468][048]00\|[13579][26]00)-02-29\|\\d{4}-(?:(?:0[13578]\|1[02])-(?:0[1-9]\|[12]\\d\|3[01])\|(?:0[469]\|11)-(?:0[1-9]\|[12]\\d\|30)\|(?:02)-(?:0[1-9]\|1\\d\|2[0-8])))$"} |
 | to | yes | string | {"format":"date","pattern":"^(?:(?:\\d\\d[2468][048]\|\\d\\d[13579][26]\|\\d\\d0[48]\|[02468][048]00\|[13579][26]00)-02-29\|\\d{4}-(?:(?:0[13578]\|1[02])-(?:0[1-9]\|[12]\\d\|3[01])\|(?:0[469]\|11)-(?:0[1-9]\|[12]\\d\|30)\|(?:02)-(?:0[1-9]\|1\\d\|2[0-8])))$"} |
-| groupBy | no | array | {"default":[],"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/UsageDimension.json"}} |
+| groupBy | no | array | {"default":[],"maxItems":10,"items":{"$ref":"https://ace.local/protocol/v1/UsageDimension.json"}} |
 | filters | no | object | {"default":{},"propertyNames":{"$ref":"https://ace.local/protocol/v1/UsageDimension.json"},"additionalProperties":{"minItems":1,"maxItems":50,"type":"array","items":{"type":"string","minLength":1,"maxLength":8192}}} |
 | agentTree | no | string | {"minLength":1,"maxLength":512} |
 | limit | no | integer | {"default":100,"minimum":1,"maximum":1000} |
@@ -35252,6 +35224,18 @@ Example:
 }
 ```
 
+## UsageRole
+
+[JSON Schema](schema/UsageRole.json), input validation.
+
+Type: ["main","subagent","delegated"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"main"
+```
+
 ## UsageRow
 
 [JSON Schema](schema/UsageRow.json), input validation.
@@ -35270,6 +35254,7 @@ Example:
     "apiCacheReadUsd": 4,
     "apiCacheWriteUsd": 2,
     "apiInputUsd": 0,
+    "cacheSavingsUsd": 5,
     "cacheWrite1hTokens": 5,
     "cacheWriteTokens": 3,
     "cachedInputTokens": 7,
@@ -35462,6 +35447,7 @@ Example:
 | apiCacheReadUsd | no | number |  |
 | apiCacheWriteUsd | no | number |  |
 | apiOutputUsd | no | number |  |
+| apiReasoningUsd | no | number |  |
 | cacheSavingsUsd | no | number |  |
 
 Example:
@@ -35469,7 +35455,7 @@ Example:
 ```json
 {
   "apiCacheReadUsd": 0,
-  "cacheSavingsUsd": 5,
+  "apiReasoningUsd": 5,
   "cacheWrite1hTokens": 5,
   "cacheWriteTokens": 5,
   "cachedInputTokens": 2,

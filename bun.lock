@@ -958,6 +958,7 @@
     "packages/usage": {
       "name": "@ace/usage",
       "dependencies": {
+        "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "zod": "^4.1.12",

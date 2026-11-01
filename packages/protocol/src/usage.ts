@@ -15,14 +15,26 @@ export const UsageDimension = z.enum([
   "account",
   "model",
   "workspace",
+  /**
+   * A skill the turn used (its name). A turn that used several skills counts in full under
+   * each one, so skill rows overlap and don't add up to the total.
+   */
+  "skill",
+  /** The automation that started the thread (its id); null for threads a person started. */
+  "automation",
+  /** Who spent it: `main` (a thread's own agent), `subagent` or `delegated` (a child thread). */
+  "role",
 ]);
 export type UsageDimension = z.infer<typeof UsageDimension>;
+/** The `role` dimension's values. */
+export const UsageRole = z.enum(["main", "subagent", "delegated"]);
+export type UsageRole = z.infer<typeof UsageRole>;
 const date = z.iso.date();
 export const UsageQuery = z
   .object({
     from: date,
     to: date,
-    groupBy: z.array(UsageDimension).max(7).default([]),
+    groupBy: z.array(UsageDimension).max(10).default([]),
     filters: z
       .partialRecord(UsageDimension, z.array(z.string().min(1).max(8192)).min(1).max(50))
       .default({}),
@@ -69,6 +81,11 @@ export const UsageTotals = z.object({
   apiCacheReadUsd: adjustment.optional(),
   apiCacheWriteUsd: adjustment.optional(),
   apiOutputUsd: adjustment.optional(),
+  /**
+   * The part of `apiOutputUsd` for reasoning tokens, at the model's reasoning price (its output
+   * price when it lists none). Already inside `apiOutputUsd`; never add the two.
+   */
+  apiReasoningUsd: adjustment.optional(),
   /** What cache reads saved against the uncached input price, for priced models. */
   cacheSavingsUsd: adjustment.optional(),
 });

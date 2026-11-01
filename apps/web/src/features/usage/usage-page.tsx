@@ -1,35 +1,48 @@
-import { ArrowsClockwiseIcon, ChartBarIcon } from "@phosphor-icons/react";
-import { ProviderKind } from "@ace/protocol";
+import { ArrowsClockwiseIcon, ChartBarIcon, DevicesIcon, XIcon } from "@phosphor-icons/react";
+import { ManagedAccountProvider } from "@ace/protocol/accounts";
 import {
   catalogModelIds,
   catalogModelNames,
   dayRange,
-  growthBasis,
+  formatAgo,
   previousSpan,
-  providerNames,
-  usageAccountProviders,
+  tightestProvider,
   usageAccounts,
   usageDay,
+  usageHeadroom,
   usageLimits,
+  priceNote,
+  usageMoney,
+  usageNow,
+  usageQueryFilters,
   usageReport,
+  usageSuggestion,
   type MachineAccounts,
+  type UsageFilter,
+  type UsageSuggestion,
 } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
-import { useMachines } from "@/lib/machines.ts";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { primaryMachineId, useMachines, type Machine } from "@/lib/machines.ts";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
+import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
+import { listAutomations } from "@/features/automation-data/index.ts";
 import { Screen } from "@/features/shell/index.ts";
+import { breakdownLists, breakdownNamer } from "./breakdown-lists.ts";
 import { LimitsView } from "./limits-view.tsx";
-import { SpendView } from "./spend-view.tsx";
+import { NowLine } from "./now-line.tsx";
+import { SpendSection, type Metric } from "./spend-section.tsx";
+import { TokensSection } from "./tokens-section.tsx";
 import {
   accountsCoverage,
   useEnvironmentAccounts,
@@ -37,38 +50,30 @@ import {
   useRefreshUsage,
   type UsageSpan,
 } from "./usage-data.ts";
+import { SectionHeading } from "./usage-parts.tsx";
+import { WhereItWent } from "./where-it-went.tsx";
 
-type View = "cost" | "tokens" | "limits";
-type Range = "1" | "7" | "30" | "90";
-const views = [
-  { value: "cost", label: "Cost" },
-  { value: "tokens", label: "Tokens" },
-  { value: "limits", label: "Limits" },
-] as const satisfies readonly { value: View; label: string }[];
+type Range = "1" | "30" | "90";
 const ranges = [
   { value: "1", label: "Today" },
-  { value: "7", label: "7 days" },
   { value: "30", label: "30 days" },
   { value: "90", label: "90 days" },
 ] as const satisfies readonly { value: Range; label: string }[];
+const periods: Record<Range, string> = { "1": "Today", "30": "Last 30 days", "90": "Last 90 days" };
 const all = "all";
 
-const providerName = (id: string) => {
-  const kind = ProviderKind.safeParse(id);
-  return kind.success ? providerNames[kind.data] : id;
-};
-
 /**
- * Usage (`/usage`): Cost, Tokens and Limits over the environments and providers chosen. Limits
- * always say what is left; money is the API estimate and never prices a model ace can't.
+ * Usage (`/usage`), one page top to bottom: Now (who has room, who is out), Limits per provider
+ * and account, Spend, Tokens and Where it went. A row in Where it went (or a provider in the
+ * legend) narrows the whole page to it through the usage queries' own filters.
  */
 export function UsagePage() {
   const now = useNow();
   const zone = useUsageTimeZone();
-  const [view, setView] = useState<View>("limits");
   const [range, setRange] = useState<Range>("30");
+  const [metric, setMetric] = useState<Metric>("cost");
   const [environmentId, setEnvironmentId] = useState<string>(all);
-  const [provider, setProvider] = useState<string>(all);
+  const [filter, setFilter] = useState<UsageFilter>();
   const machines = useMachines();
   // Offline machines stay in scope so the coverage line names them; nothing reads from them.
   const environments = machines.filter(
@@ -82,26 +87,35 @@ export function UsagePage() {
     to: usageDay(now, zone.timeZone),
     ready: zone.ready,
   };
-  const usage = useEnvironmentUsage(environments, span, provider === all ? undefined : [provider]);
+  const queryFilters = useMemo(() => usageQueryFilters(filter), [filter]);
+  const usage = useEnvironmentUsage(environments, span, queryFilters);
   const refresh = useRefreshUsage(online);
   const catalog = useModelCatalog();
   const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
   const modelId = useMemo(() => catalogModelIds(catalog ?? []), [catalog]);
+  const project = useProjectName();
+  const automations = useDaemonQuery({
+    queryKey: ["usage-page", "automations"],
+    staleTime: 5 * 60_000,
+    read: (client, signal) => listAutomations(client, signal),
+  });
+  // This machine keeps one id while its host id is learnt, so its rows (and an open banked-reset
+  // dialog) aren't replaced when it arrives.
   const machineAccounts: MachineAccounts[] = accounts.map((entry) => ({
-    id: entry.environment.id,
+    id: entry.environment.primary ? primaryMachineId : entry.environment.id,
     name: entry.environment.name,
     // An offline machine's last accounts aren't counted: the coverage line names it instead.
     accounts: entry.environment.client ? entry.accounts : undefined,
   }));
-  const listed = usageAccounts(machineAccounts, provider === all ? undefined : provider);
-  const providerOptions = [
-    { value: all, label: "All providers" },
-    ...usageAccountProviders(machineAccounts).map((id) => ({ value: id, label: providerName(id) })),
-  ];
-  const environmentOptions = [
-    { value: all, label: "All environments" },
-    ...machines.map((machine) => ({ value: machine.id, label: machine.name })),
-  ];
+  // Limits follow a provider or account filter; the other filters are about spend only.
+  const listed = usageAccounts(
+    machineAccounts,
+    filter?.kind === "provider" ? filter.key : undefined,
+  ).filter((entry) => filter?.kind !== "account" || entry.account.id === filter.key);
+  const limits = usageLimits(listed, now);
+  const headroom = usageHeadroom(limits);
+  const nowLine = usageNow(headroom, now);
+  const suggestion = usageSuggestion(headroom, tightestProvider(headroom)?.key);
   const days = useMemo(() => dayRange(span.from, span.to), [span.from, span.to]);
   const report = useMemo(
     () =>
@@ -114,126 +128,217 @@ export function UsagePage() {
     const before = previousSpan(span.from, span.to);
     return usageReport(usage.data.previous, dayRange(before.from, before.to));
   }, [usage.data, span.from, span.to]);
+  // One money format for the page, to the scale of the period's total.
+  const money = usageMoney(report?.usd ?? 0);
+  const prices = priceNote(usage.data?.machines.map((read) => read.prices) ?? []);
+  const lists = useMemo(() => usage.data && breakdownLists(usage.data.machines), [usage.data]);
+  const name = breakdownNamer({
+    machines: usage.data?.machines ?? [],
+    accounts: listed.map((entry) => entry.account),
+    machineList: machines,
+    project,
+    automation: (id) =>
+      [...(automations.data?.person ?? []), ...(automations.data?.threads ?? [])].find(
+        (entry) => entry.automation.id === id,
+      )?.automation.title,
+    modelName,
+  });
   const accountsLoaded = !limitsCoverage.missing.some((entry) => entry.reach === "loading");
   // Nothing to list only when no machine's accounts could be read.
   const accountsFailed =
     limitsCoverage.counted === 0
       ? accounts.find((entry) => entry.error && !entry.accounts)?.error
       : undefined;
-  const coverage = view === "limits" ? limitsCoverage : usage.coverage;
+  const observedAt = Math.max(
+    0,
+    ...listed.flatMap((entry) => [
+      entry.account.quota.observedAt,
+      ...entry.account.windows.map((window) => window.observedAt ?? 0),
+    ]),
+  );
+  const machineFor = (id: string | undefined): Machine | undefined =>
+    machines.find((machine) => (id === primaryMachineId ? machine.primary : machine.id === id));
+  const applyFilter = (next: UsageFilter) => {
+    if (next.kind === "machine") {
+      setEnvironmentId(next.key);
+      return;
+    }
+    setFilter((current) =>
+      current?.kind === next.kind && current.key === next.key ? undefined : next,
+    );
+  };
+  const makeDefault = async (pick: UsageSuggestion) => {
+    const provider = ManagedAccountProvider.safeParse(pick.provider);
+    const machine = machineFor(pick.account.environmentId);
+    if (!provider.success || !machine?.client) throw new Error("Can't change this default");
+    await machine.client.request({
+      type: "accounts.setDefault",
+      provider: provider.data,
+      instanceId: pick.account.account.id,
+    });
+    await refresh();
+  };
+  const canDefault =
+    suggestion !== undefined &&
+    ManagedAccountProvider.safeParse(suggestion.provider).success &&
+    machineFor(suggestion.account.environmentId)?.client !== undefined;
   return (
     <Screen title="Usage">
       <div className="h-full overflow-auto">
-        <div className="mx-auto px-4 pt-4 pb-20 sm:px-8" style={{ maxWidth: 1040 }}>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <nav aria-label="Usage filters" className="flex min-w-0 items-center gap-0.5">
-              <FilterMenu
-                label="Environment"
-                value={environmentId}
-                options={environmentOptions}
-                onValueChange={setEnvironmentId}
-              />
-              <span aria-hidden className="text-subtle-foreground">
-                /
-              </span>
-              <FilterMenu
-                label="Provider"
-                value={provider}
-                options={providerOptions}
-                onValueChange={setProvider}
-              />
-            </nav>
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              <SegmentedControl
-                label="View"
-                size="sm"
-                value={view}
-                options={views}
-                onValueChange={(next) => setView(next)}
-              />
-              {view !== "limits" && (
-                <SegmentedControl
-                  label="Range"
-                  size="sm"
-                  value={range}
-                  options={ranges}
-                  onValueChange={(next) => setRange(next)}
-                />
-              )}
-              <IconButton
-                icon={ArrowsClockwiseIcon}
-                label="Refresh"
-                size="sm"
-                onClick={() => void refresh()}
-              />
-            </div>
+        <div className="mx-auto px-4 pt-6 pb-20 sm:px-10" style={{ maxWidth: 960 }}>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
+            <h2 className="mr-auto text-2xl leading-8 font-semibold tracking-title">Usage</h2>
+            <FilterMenu
+              label="Machine"
+              value={environmentId}
+              options={[
+                {
+                  value: all,
+                  label: "All machines",
+                  icon: <DevicesIcon size={16} className="text-subtle-foreground" />,
+                },
+                ...machines.map((machine) => ({
+                  value: machine.id,
+                  label: machine.name,
+                  icon: (
+                    <MachineMark
+                      icon={machine.icon}
+                      primary={machine.primary}
+                      size={16}
+                      decorative
+                    />
+                  ),
+                })),
+              ]}
+              onValueChange={setEnvironmentId}
+            />
+            <SegmentedControl
+              label="Range"
+              size="sm"
+              value={range}
+              options={ranges}
+              onValueChange={(next) => setRange(next)}
+            />
           </div>
-          {machines.length > 1 && (
+          {/* The machine filter names what is shown; only a machine left out is worth a line. */}
+          {machines.length > 1 && !usage.coverage.complete && (
             <p
               aria-live="polite"
               data-testid="usage-coverage"
-              className={`mt-3 min-h-4 text-xs ${coverage.complete ? "text-subtle-foreground" : "text-foreground"}`}
+              className="mt-2 text-xs text-foreground"
             >
-              {coverage.line}
+              {usage.coverage.line}
             </p>
           )}
-          <div className="mt-8">
-            {view === "limits" ? (
-              accountsFailed ? (
-                <Failed error={accountsFailed} retry={() => void refresh()} />
-              ) : !accountsLoaded ? (
-                <ListSkeleton label="limits" shape="row" rows={5} className="min-h-80" />
-              ) : listed.length === 0 && !limitsCoverage.complete ? (
-                <EmptyState
-                  icon={ChartBarIcon}
-                  title="No limits could be read"
-                  description={limitsCoverage.line ?? undefined}
-                />
-              ) : listed.length === 0 ? (
-                <EmptyState
-                  icon={ChartBarIcon}
-                  title="No accounts yet"
-                  description="Add an account to see its limits."
-                  action={
-                    <Button size="sm" render={<Link to="/settings/providers" />}>
-                      Add account
-                    </Button>
-                  }
-                />
-              ) : (
-                <LimitsView
-                  limits={usageLimits(listed, now)}
-                  now={now}
-                  redeem={async (entry, idempotencyKey) => {
-                    const machine = environments.find(
-                      (candidate) => candidate.id === entry.environmentId,
-                    );
-                    if (!machine?.client) throw new Error("Environment is offline");
-                    const reply = await machine.client.request({
-                      type: "accounts.consumeReset",
-                      instanceId: entry.account.id,
-                      idempotencyKey,
-                    });
-                    await refresh();
-                    return reply.outcome;
-                  }}
-                />
-              )
-            ) : usage.error ? (
-              <Failed error={usage.error} retry={usage.retry} />
-            ) : !report ? (
-              <ListSkeleton label="usage" shape="row" rows={6} className="min-h-80" />
+          {filter && (
+            <p className="mt-3 flex items-center gap-2 text-ui text-muted-foreground">
+              Showing {filter.label} only
+              <button
+                type="button"
+                onClick={() => setFilter(undefined)}
+                className="inline-flex items-center gap-1 rounded-xs text-foreground hover:underline focus-ring"
+              >
+                <XIcon size={12} aria-hidden />
+                Clear
+              </button>
+            </p>
+          )}
+          <div className="mt-6">
+            <NowLine
+              line={nowLine}
+              suggestion={suggestion}
+              act={canDefault ? makeDefault : undefined}
+            />
+          </div>
+          <SectionHeading id="usage-limits" title="Limits">
+            {observedAt > 0 && <span>Updated {formatAgo(observedAt, now)}</span>}
+            <button
+              type="button"
+              aria-label="Refresh limits"
+              onClick={() => void refresh()}
+              className="grid size-6 place-items-center rounded-sm text-subtle-foreground hover:bg-hover hover:text-foreground focus-ring"
+            >
+              <ArrowsClockwiseIcon size={14} aria-hidden />
+            </button>
+          </SectionHeading>
+          <div aria-labelledby="usage-limits" role="region">
+            {accountsFailed ? (
+              <Failed error={accountsFailed} retry={() => void refresh()} />
+            ) : !accountsLoaded ? (
+              <ListSkeleton label="limits" shape="row" rows={4} className="min-h-48" />
+            ) : listed.length === 0 && !limitsCoverage.complete ? (
+              <EmptyState
+                icon={ChartBarIcon}
+                title="No limits could be read"
+                description={limitsCoverage.line ?? undefined}
+              />
+            ) : listed.length === 0 ? (
+              <EmptyState
+                icon={ChartBarIcon}
+                title="No accounts yet"
+                description="Add an account to see its limits."
+                action={
+                  <Button size="sm" render={<Link to="/settings/providers" />}>
+                    Add account
+                  </Button>
+                }
+              />
             ) : (
-              <SpendView
-                report={report}
-                previous={previous}
-                basis={growthBasis(Number(range))}
-                metric={view}
-                providerName={providerName}
-                modelName={modelName}
+              <LimitsView
+                limits={limits}
+                now={now}
+                redeem={async (entry, idempotencyKey) => {
+                  const machine = machineFor(entry.environmentId);
+                  if (!machine?.client) throw new Error("Machine is offline");
+                  const reply = await machine.client.request({
+                    type: "accounts.consumeReset",
+                    instanceId: entry.account.id,
+                    idempotencyKey,
+                  });
+                  await refresh();
+                  return reply.outcome;
+                }}
               />
             )}
           </div>
+          {usage.error ? (
+            <div className="mt-8">
+              <Failed error={usage.error} retry={usage.retry} />
+            </div>
+          ) : !report || !lists ? (
+            <ListSkeleton label="usage" shape="row" rows={6} className="mt-8 min-h-80" />
+          ) : (
+            <>
+              <SpendSection
+                report={report}
+                previous={previous}
+                period={periods[range]}
+                days={Number(range)}
+                money={money}
+                prices={prices}
+                metric={metric}
+                onMetric={setMetric}
+                providerName={(id) => name("provider", id)}
+                onProvider={(id) =>
+                  applyFilter({ kind: "provider", key: id, label: name("provider", id) })
+                }
+              />
+              <TokensSection
+                report={report}
+                period={periods[range]}
+                money={money}
+                prices={prices}
+              />
+              <WhereItWent
+                lists={lists}
+                metric={metric}
+                money={money}
+                name={name}
+                current={filter}
+                onFilter={applyFilter}
+              />
+            </>
+          )}
         </div>
       </div>
     </Screen>

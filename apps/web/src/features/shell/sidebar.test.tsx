@@ -139,7 +139,7 @@ test("Threads in the rail says a thread needs the person only while they are els
   expect(place("Threads").querySelector('[data-tone="needs-you"]')).toBeNull();
 });
 
-test("the profile menu holds the account, Usage and connection actions", async () => {
+test("the profile menu holds the account and connection actions; Usage is a rail place", async () => {
   await harness().open("/new");
   await title("New thread");
   await openProfileMenu();
@@ -152,18 +152,14 @@ test("the profile menu holds the account, Usage and connection actions", async (
   await title("New thread");
 
   const account = await openProfileMenu();
-  // Settings, Automations and Skills are places in the rail, so the menu doesn't repeat them.
+  // Settings, Usage, Automations and Skills are places in the rail, so the menu doesn't repeat them.
   expect(
     within(account)
       .getAllByRole("menuitem")
       .map((item) => item.textContent),
-  ).toEqual([
-    expect.stringMatching(/^Usage/),
-    "Archived threads",
-    expect.stringMatching(/^Keyboard shortcuts/),
-    "Connection",
-  ]);
-  await userEvent.click(within(account).getByRole("menuitem", { name: "Usage" }));
+  ).toEqual(["Archived threads", expect.stringMatching(/^Keyboard shortcuts/), "Connection"]);
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(place(/^Usage/));
   await title("Usage");
   expect(list("Threads")).toBeTruthy();
   // GitHub opens Pull requests first; its panel lists its three pages.

@@ -30,6 +30,13 @@ export interface AccountWindow {
   observedAt: number;
   /** Its reset has passed since that reading: what is left now is unknown until the next one. */
   stale: boolean;
+  /**
+   * Where an even pace would be now, as a share LEFT (100 at the window's start, 0 at its reset):
+   * the bar's even-pace tick. Undefined without the window's length and reset time.
+   */
+  evenLeftPercent: number | undefined;
+  /** When it runs out at the pace so far, if that is before it resets; else null. */
+  runsOutAt: number | null;
 }
 
 export interface AccountLimits {
@@ -108,6 +115,47 @@ export function limitPace(
   if (used - elapsed > 0.1) return "ahead";
   if (elapsed - used > 0.1) return "behind";
   return "on_pace";
+}
+
+/** The window's length and how far into it `now` is, as a share; undefined when unknown. */
+function elapsedShare(
+  resetsAt: number | null,
+  durationMins: number | undefined,
+  now: number,
+): { length: number; share: number } | undefined {
+  if (resetsAt === null || durationMins === undefined || durationMins <= 0) return undefined;
+  const length = durationMins * minute;
+  return { length, share: Math.min(1, Math.max(0, 1 - (resetsAt - now) / length)) };
+}
+
+/** The even-pace tick as a share left: 100 when the window starts, 0 when it resets. */
+export function evenLeftPercent(
+  resetsAt: number | null,
+  durationMins: number | undefined,
+  now: number,
+): number | undefined {
+  const elapsed = elapsedShare(resetsAt, durationMins, now);
+  return elapsed === undefined ? undefined : Math.round((1 - elapsed.share) * 100);
+}
+
+/**
+ * When a window runs out if use carries on at its pace so far (used share over elapsed time).
+ * Null when it would last until its reset, when it hasn't run long enough to say (five minutes),
+ * when nothing is used yet, or without its length and reset time. Already out: `now`.
+ */
+export function windowRunsOutAt(
+  usedPercent: number,
+  resetsAt: number | null,
+  durationMins: number | undefined,
+  now: number,
+): number | null {
+  const elapsed = elapsedShare(resetsAt, durationMins, now);
+  if (elapsed === undefined || resetsAt === null) return null;
+  if (usedPercent >= 100) return now;
+  const ran = elapsed.share * elapsed.length;
+  if (usedPercent <= 0 || ran < 5 * minute) return null;
+  const at = now + ((100 - usedPercent) / usedPercent) * ran;
+  return at < resetsAt ? Math.round(at) : null;
 }
 
 const sessionProviders = new Set(["codex", "claude"]);
@@ -200,6 +248,9 @@ export function usageLimits(accounts: readonly UsageAccount[], now: number): Usa
   };
 }
 
+/** A window's length from its label when the provider doesn't say (Gemini's daily quota). */
+const labelMins: Record<string, number> = { "Session (5h)": 300, Daily: 1440, Weekly: 10080 };
+
 function accountLimits(
   account: AccountView,
   environment: string,
@@ -219,16 +270,17 @@ function accountLimits(
     signIn: account.usageSignIn,
     windows: windows.map((window) => {
       const stale = window.resetsAt !== null && window.resetsAt <= now;
+      const mins = window.windowDurationMins ?? labelMins[window.label];
       return {
         id: window.id,
         label: window.label,
         leftPercent: leftPercent(window.usedPercent),
         resetsAt: window.resetsAt,
-        pace: stale
-          ? undefined
-          : limitPace(window.usedPercent, window.resetsAt, window.windowDurationMins, now),
+        pace: stale ? undefined : limitPace(window.usedPercent, window.resetsAt, mins, now),
         observedAt: window.observedAt ?? account.quota.observedAt,
         stale,
+        evenLeftPercent: stale ? undefined : evenLeftPercent(window.resetsAt, mins, now),
+        runsOutAt: stale ? null : windowRunsOutAt(window.usedPercent, window.resetsAt, mins, now),
       };
     }),
     noSessionWindow:

@@ -3195,13 +3195,21 @@ Example:
 
 ```json
 {
-  "seq": 5,
+  "seq": 1,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "kind": "threads",
-    "seq": 5,
-    "threads": {}
+    "seq": 1,
+    "threads": {},
+    "window": {
+      "before": {
+        "at": 6,
+        "id": "example"
+      },
+      "counts": [],
+      "total": 5
+    }
   }
 }
 ```

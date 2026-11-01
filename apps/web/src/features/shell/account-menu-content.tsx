@@ -1,11 +1,5 @@
 import { DaemonMenuItems } from "./daemon-menu-content.tsx";
-import {
-  ArchiveIcon,
-  ChartBarIcon,
-  InfoIcon,
-  KeyboardIcon,
-  PlugsIcon,
-} from "@phosphor-icons/react";
+import { ArchiveIcon, InfoIcon, KeyboardIcon, PlugsIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   MenuContent,
@@ -29,8 +23,8 @@ function desktopVersion(): string | undefined {
 
 /**
  * The profile's menu, loaded after the first paint (`SidebarMenu`): the person and the app,
- * with connection actions in their own submenu, usage and accounts, and the desktop version.
- * Settings, Automations and Skills are places in the rail above it, so they aren't repeated here.
+ * with connection actions in their own submenu, and the desktop version. Settings, Usage,
+ * Automations and Skills are places in the rail above it, so they aren't repeated here.
  */
 export function AccountMenuContent() {
   const layout = useLayout();
@@ -43,13 +37,6 @@ export function AccountMenuContent() {
         <span className="truncate">{name || "You"}</span>
       </div>
       <MenuSeparator />
-      <MenuItem
-        icon={<ChartBarIcon aria-hidden />}
-        shortcut="goUsage"
-        onClick={() => void navigate({ to: "/usage" })}
-      >
-        Usage
-      </MenuItem>
       <MenuItem
         icon={<ArchiveIcon aria-hidden />}
         onClick={() => void navigate({ to: "/archived" })}
