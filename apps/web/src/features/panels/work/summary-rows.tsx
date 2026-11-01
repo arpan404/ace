@@ -11,7 +11,7 @@ import {
   type CommandForestNode,
 } from "@ace/ui-core";
 import { useItem, useThreadMeta } from "@ace/client-react";
-import type { Interaction, ProviderKind } from "@ace/protocol";
+import type { BackgroundTask, Interaction, ProviderKind } from "@ace/protocol";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
@@ -234,7 +234,8 @@ export function AgentLine(
         openSubagent({
           threadId: node.threadId,
           agentId: agent.id,
-          childThreadId: agent.childThreadId,
+          // A child on another machine has no thread here: it opens as its parent's agent.
+          childThreadId: agent.machine ? undefined : agent.childThreadId,
         });
   const name = identity.name;
   const done = !node.live && !stale && !uncertain;
@@ -242,11 +243,16 @@ export function AgentLine(
     <RowFrame
       {...props}
       rowKey={node.key}
-      label={`${name}: ${step}${folded ? ` · ${folded}` : ""}`}
+      label={`${name}${agent.machine ? ` · ${agent.machine.name}` : ""}: ${step}${folded ? ` · ${folded}` : ""}`}
       title={[name, ...details.lines].filter(Boolean).join("\n")}
       onOpen={open}
       actions={
-        own && !root ? (
+        // A child on another machine stops through the work its parent holds for it.
+        agent.machine ? (
+          node.hold?.stoppable ? (
+            <TaskStop task={node.hold} />
+          ) : undefined
+        ) : own && !root ? (
           <StopAgent
             threadId={node.threadId}
             agent={agent}
@@ -275,6 +281,9 @@ export function AgentLine(
         )}
       >
         {name}
+        {agent.machine && (
+          <span className="font-normal text-subtle-foreground"> · {agent.machine.name}</span>
+        )}
       </span>
       <span
         data-tone={tone}
@@ -291,12 +300,42 @@ export function AgentLine(
   );
 }
 
+/** Stop for a running task, shown on hover, with a line under the row when it was refused. */
+function TaskStop(props: { task: BackgroundTask }) {
+  const stop = useStopIntent();
+  return (
+    <>
+      {stop.failed && (
+        <span
+          role="alert"
+          data-tone="failed"
+          className="order-last w-full px-2 pb-1 text-xs text-(--tone-text)"
+        >
+          {props.task.kind === "subagent"
+            ? "Couldn't stop this agent. Try again."
+            : "Couldn't stop this command. Try again."}
+        </span>
+      )}
+      <button
+        type="button"
+        tabIndex={-1}
+        data-stop=""
+        disabled={stop.busy}
+        onKeyDown={backToRow}
+        onClick={() => void stop.send({ type: "background_task.stop", taskId: props.task.id })}
+        className="focus-ring mr-1.5 hidden shrink-0 rounded-sm px-1 text-xs text-muted-foreground group-focus-within/row:inline group-hover/row:inline hover:text-foreground pointer-coarse:inline"
+      >
+        {stop.busy ? "Stopping…" : "Stop"}
+      </button>
+    </>
+  );
+}
+
 /** A background command still running, under the agent that started it, with Stop on hover. */
 export function CommandLine(props: RowProps & { node: CommandForestNode; viewed: string }) {
   const { task } = props.node;
   const item = useItem(props.node.threadId, task.toolCallId ?? "");
   const workspace = useWorkspaceActions(props.viewed);
-  const stop = useStopIntent();
   const now = useNow();
   const command = backgroundCommand(task, item);
   const fresh = useLiveConnection().fresh && !props.node.unconfirmed;
@@ -313,32 +352,7 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
       label={`$ ${command}: ${fresh ? "running" : "last seen running"}`}
       title={command}
       onOpen={show}
-      actions={
-        task.stoppable ? (
-          <>
-            {stop.failed && (
-              <span
-                role="alert"
-                data-tone="failed"
-                className="order-last w-full px-2 pb-1 text-xs text-(--tone-text)"
-              >
-                Couldn't stop this command. Try again.
-              </span>
-            )}
-            <button
-              type="button"
-              tabIndex={-1}
-              data-stop=""
-              disabled={stop.busy}
-              onKeyDown={backToRow}
-              onClick={() => void stop.send({ type: "background_task.stop", taskId: task.id })}
-              className="focus-ring mr-1.5 hidden shrink-0 rounded-sm px-1 text-xs text-muted-foreground group-focus-within/row:inline group-hover/row:inline hover:text-foreground pointer-coarse:inline"
-            >
-              {stop.busy ? "Stopping…" : "Stop"}
-            </button>
-          </>
-        ) : undefined
-      }
+      actions={task.stoppable ? <TaskStop task={task} /> : undefined}
     >
       <span
         aria-hidden

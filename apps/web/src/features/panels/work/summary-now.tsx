@@ -94,7 +94,7 @@ export function SummaryNow(props: {
           openSubagent({
             threadId: asker.threadId,
             agentId: asker.agent.id,
-            childThreadId: asker.agent.childThreadId,
+            childThreadId: asker.agent.machine ? undefined : asker.agent.childThreadId,
           })
       : undefined;
   return (

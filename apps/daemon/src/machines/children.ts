@@ -15,6 +15,7 @@ import {
 import type { Store } from "../store.ts";
 import type { Engine } from "../engine/index.ts";
 import type { RemoteChildren } from "../agent-control/monitor.ts";
+import { childAgentKey } from "../engine/remote-child-status.ts";
 import { clip, settledStates } from "../agent-control/watch-view.ts";
 import type { RequestMirror } from "./mirror.ts";
 import { ChildMessages, type Answer, type ChildMessagesDeps } from "./child-messages.ts";
@@ -187,6 +188,7 @@ export class MachineChildren implements RemoteChildren {
           role: child.role,
           title: child.title,
           status: view?.status ?? { state: "working", agents: 1 },
+          state: view?.state ?? "working",
           outcome: null,
         },
         "start",
@@ -269,6 +271,7 @@ export class MachineChildren implements RemoteChildren {
           role: row.role,
           title: savedView(row)?.title || row.role,
           status: { state: "working", agents: 1 },
+          state: "working",
           outcome: null,
         },
         "start",
@@ -450,7 +453,9 @@ export class MachineChildren implements RemoteChildren {
     const settled = settledStates.has(view.state) && view.requests.length === 0;
     const text = JSON.stringify(view);
     const name = this.deps.label(row.machine);
-    this.deps.mirror.sync(`child:${row.id}`, row.parent_thread, row.machine, name, view.requests);
+    this.deps.mirror.sync(`child:${row.id}`, row.parent_thread, row.machine, name, view.requests, {
+      agent: childAgentKey(row.id),
+    });
     if (text === row.view && !settled) return;
     this.deps.store.atomic(() => {
       // Each settle starts the window in which work started there is still noticed.
@@ -468,6 +473,7 @@ export class MachineChildren implements RemoteChildren {
           role: row.role,
           title: view.title || row.role,
           status: view.status,
+          state: view.state,
           outcome: settled
             ? {
                 threadId: row.id,

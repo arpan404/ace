@@ -1,4 +1,4 @@
-import { Agent, type AgentStatus } from "@ace/protocol";
+import { Agent, BackgroundTask, type AgentStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { wideForest } from "./agent-forest.fixture.ts";
 import {
@@ -310,4 +310,57 @@ test("the viewed thread's own failed subscription leaves the forest unsettled, r
   expect(agentForest("t1", new Map()).confirmed).toBe(false);
   works.set("t1", { ...thread([agent("t1", "root", idle)]), facts: "syncing" });
   expect(agentForest("t1", works).confirmed).toBe(false);
+});
+
+test("a remote child renders as an agent row with its provider, not a command", () => {
+  // As the daemon records a child on a paired machine: a summary agent that names the machine,
+  // and the running hold its parent keeps for it, naming that agent as the one doing the work.
+  const remote = Agent.parse({
+    id: "remote",
+    parentId: "root",
+    threadId: "t1",
+    childThreadId: "machine-child",
+    machine: { machine: "macbook-pro-rijan", name: "MacBook Pro Rijan" },
+    origin: "ace",
+    native: { provider: "codex" },
+    fidelity: "summary",
+    cwd: "",
+    role: "Rereview-1564-fixes",
+    status: { state: "working", activity: "responding" },
+    createdAt: clock++,
+  });
+  const hold = BackgroundTask.parse({
+    id: "hold",
+    agentId: "root",
+    owner: "ace",
+    kind: "subagent",
+    title: "Rereview-1564-fixes · MacBook Pro Rijan",
+    status: "running",
+    childAgentId: "remote",
+    stoppable: true,
+    startedAt: 0,
+  });
+  const works = new Map([
+    ["t1", { ...thread([agent("t1", "root", idle), remote]), tasks: [hold] }],
+  ]);
+  const forest = agentForest("t1", works);
+  const [row, ...others] = forest.roots[0]?.children ?? [];
+  expect(others).toEqual([]);
+  expect(row).toMatchObject({
+    kind: "agent",
+    agent: { native: { provider: "codex" }, machine: { name: "MacBook Pro Rijan" } },
+    live: true,
+    notLoaded: false,
+    unconfirmed: false,
+    hold: { id: "hold" },
+  });
+  expect(forestTally(forest.roots[0]?.children ?? [])).toEqual({
+    working: 1,
+    done: 0,
+    syncing: 0,
+    commands: 0,
+  });
+  // Its thread lives on the other machine: nothing here tries to load it.
+  expect(forest.reach).toEqual([]);
+  expect(forest.confirmed).toBe(true);
 });

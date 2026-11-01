@@ -57,7 +57,9 @@ export class ThreadLiveness {
     for (const owner of ids) {
       const state = this.ports.repo.state(owner);
       for (const record of Object.values(state?.agents ?? {}))
-        if (record.agent.childThreadId) ids.add(record.agent.childThreadId);
+        // A child on another machine lives there; its machine's own tree owns it.
+        if (record.agent.childThreadId && !record.agent.machine)
+          ids.add(record.agent.childThreadId);
     }
     return [...ids];
   }

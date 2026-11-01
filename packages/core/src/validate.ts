@@ -45,6 +45,7 @@ const allowed: Record<Fact["type"], string[]> = {
     "role",
     "model",
     "background",
+    "machine",
   ],
   "agent.linked": ["agent", "parent", "spawnedBy", "background", "name", "model"],
   "input.admitted": ["agent", "nativeInputId", "commandId"],

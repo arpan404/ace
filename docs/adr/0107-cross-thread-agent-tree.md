@@ -46,6 +46,16 @@ daemon projection or protocol schema is needed.
   tree is live, nothing in it is unconfirmed and the viewed thread's own facts are confirmed
   (`AgentForest.confirmed`); otherwise "Working"
   or "Syncing". A lease the person stops holding goes back to optional, in the worker too.
+- **Children on other machines.** A child delegated to a paired machine (ADR 0078) is a summary
+  agent in its parent like a local child (`ace-child:<thread>`, `Agent.childThreadId`), with
+  `Agent.machine` naming where it runs. Its status is what that machine last reported: the
+  daemon maps the machine's own reading (`WatchedState`, the one `agents_status` shows) to the
+  agent, so failed reads failed, done reads done, a queue held for the person reads as needing
+  them, and only working or queued reads live. Requests it mirrors into the parent open on that
+  agent and count once. The parent's hold on it (a `subagent` task) names that agent as
+  `childAgentId`, so the tree draws one agent row (the provider's mark, its role, a quiet machine
+  label) instead of a command, and its Stop ends the hold, which cancels the child there. Its
+  thread is never loaded here and adds no rows of its own: its machine reports no tree.
 - **Cycles.** A thread is placed once, under the first delegate that reaches it; the
   breadth-first walk never revisits a thread, so delegation loops end.
 - **Cost.** A thread's change replaces only that thread's entry, and each thread's own shape is

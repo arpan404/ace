@@ -70,6 +70,8 @@ export class RequestMirror {
     machine: string,
     name: string,
     requests: readonly MachinePendingRequest[],
+    /** The parent's agent they are about: a child's own row, so they count once, there. */
+    on: { agent?: string } = {},
   ): void {
     const engine = this.deps.engine();
     if (!engine) return;
@@ -92,6 +94,7 @@ export class RequestMirror {
               data: { machine, threadId: remote.threadId, interactionId: remote.interactionId },
             },
           ],
+          on.agent,
         );
         this.open.set(id, { source, machine, parentThreadId, key, localId, remote });
       } catch (error) {

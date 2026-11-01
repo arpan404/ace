@@ -876,9 +876,11 @@ export class Engine {
     key: string,
     request: import("@ace/protocol").InteractionRequest,
     raw: import("@ace/protocol").RawPayload[],
+    /** The agent it is about, such as a child on another machine; the root when not in the tree. */
+    about?: string,
   ) {
     const state = this.repo.requireState(threadId);
-    const agent = state.rootKey ?? "root";
+    const agent = about !== undefined && state.agents[about] ? about : (state.rootKey ?? "root");
     // A host approval (one mirrored from another machine) raised while one of ace's own tools
     // runs reads on that tool's row.
     const item =
