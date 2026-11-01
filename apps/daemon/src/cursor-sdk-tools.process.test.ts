@@ -79,15 +79,15 @@ it("Cursor SDK consumes the daemon lease and calls browser, screen and device to
           .object({
             type: z.literal("http"),
             url: z.string(),
-            headers: z.object({ Authorization: z.string() }),
+            headers: z.object({ Authorization: z.string() }).catchall(z.string()),
           })
           .parse(options.mcpServers?.ace);
         expect(JSON.stringify(process.env)).not.toContain(server.headers.Authorization.slice(7));
+        const { Authorization, ...own } = server.headers;
+        // Cursor never reloads its list, so it names itself and lists the device tools upfront.
+        expect(own).toMatchObject({ "X-Ace-Client": "cursor" });
         expect(
-          await proof(server.url, server.headers.Authorization, {
-            url: f.browserUrl,
-            deviceId: f.deviceId,
-          }),
+          await proof(server.url, Authorization, { url: f.browserUrl, deviceId: f.deviceId }, own),
         ).toBe(thread.id);
         return {
           agentId: "fake-sdk",
