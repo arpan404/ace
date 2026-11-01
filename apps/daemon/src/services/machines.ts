@@ -258,6 +258,8 @@ export function startMachines(context: ServiceContext): void {
     now,
     schedule,
     pollMs,
+    ...(options.machines?.stopPlan ? { stopPlan: options.machines.stopPlan } : {}),
+    ...(options.machines?.leaseMs ? { leaseMs: options.machines.leaseMs } : {}),
     status: async (machine, parent, ids) => {
       if (!caller) throw new Error("Machine calls are not ready");
       return caller.status(machine, parent, ids);
@@ -265,6 +267,10 @@ export function startMachines(context: ServiceContext): void {
     resend: async (machine, parent, child, message) => {
       if (!caller) throw new Error("Machine calls are not ready");
       return caller.resend(machine, parent, child, message);
+    },
+    cancel: async (_machine, _parent, id) => {
+      if (!caller) throw new Error("Machine calls are not ready");
+      await caller.sendCancel(id);
     },
     mirror,
     label: (machine) => directory.label(machine),
@@ -345,13 +351,14 @@ export function startMachines(context: ServiceContext): void {
     jobs: () => jobs,
     ceiling: (threadId) => (services.engine?.access(threadId) === "read-only" ? "read" : "operate"),
   });
-  const machines = caller;
+  // Stop is final (ADR 0052): the children's ledger sends the cancel, again until confirmed, and
+  // calls it stopped after the last attempt either way.
   const cancel = (id: string) => {
-    const child = children.child(id);
-    if (!child || child.settled) return;
-    void machines
-      .cancel(ThreadId.parse(id))
-      .catch((error: unknown) => log.log("warn", "Machine child not stopped", logError(error)));
+    try {
+      children.stop(ThreadId.parse(id));
+    } catch (error) {
+      log.log("warn", "Machine child not stopped", logError(error));
+    }
   };
   services.engine?.bindHostInteractions(
     (command) => mirror.resolve(command) ?? children.resolve(command),

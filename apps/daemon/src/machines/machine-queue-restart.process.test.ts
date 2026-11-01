@@ -179,16 +179,16 @@ it("a delegation made before the slot table existed counts against the limit onc
 
   // The database goes back to the layout before run slots were tracked: the delegation is in
   // machine_threads only, before the two schema steps that track them (and the grants, remote
-  // jobs and started-by steps after them, which need nothing back). Starting the daemon upgrades
-  // it.
+  // jobs and started-by steps after them, which need nothing back, and the liveness step, whose
+  // columns go too). Starting the daemon upgrades it.
   await pair.restartTarget((dataDir) => {
     const db = new DatabaseSync(join(dataDir, "events.sqlite"));
     try {
       db.exec(
-        "DROP TABLE machine_child_launches; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_cursors; DROP INDEX machine_children_unsettled; DROP INDEX machine_children_parent; DROP INDEX machine_children_undelivered; DROP INDEX machine_children_lost; ALTER TABLE machine_children DROP COLUMN device_id; ALTER TABLE machine_children DROP COLUMN lost_at; ALTER TABLE machine_children DROP COLUMN lost_key; ALTER TABLE machine_children DROP COLUMN lost_ask",
+        "DROP INDEX machine_children_seen; DROP INDEX machine_children_stopping; ALTER TABLE machine_children DROP COLUMN seen_at; ALTER TABLE machine_children DROP COLUMN silent_since; ALTER TABLE machine_children DROP COLUMN stop_started_at; ALTER TABLE machine_children DROP COLUMN stop_attempts; ALTER TABLE machine_children DROP COLUMN stop_last_at; ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed; DROP TABLE machine_child_launches; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_cursors; DROP INDEX machine_children_unsettled; DROP INDEX machine_children_parent; DROP INDEX machine_children_undelivered; DROP INDEX machine_children_lost; ALTER TABLE machine_children DROP COLUMN device_id; ALTER TABLE machine_children DROP COLUMN lost_at; ALTER TABLE machine_children DROP COLUMN lost_key; ALTER TABLE machine_children DROP COLUMN lost_ask",
       );
       const version = Number(db.prepare("SELECT version FROM schema_version").get()?.version);
-      db.prepare("UPDATE schema_version SET version=?").run(version - 5);
+      db.prepare("UPDATE schema_version SET version=?").run(version - 6);
     } finally {
       db.close();
     }

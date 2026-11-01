@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { InteractionId, ThreadId } from "./ids.ts";
+import { RemoteContact } from "./agent.ts";
 import { QueueFacts } from "./thread-transitions.ts";
 
 /**
@@ -52,6 +53,12 @@ export const WatchedThread = z.object({
   needs: z.array(WatchedRequest).max(8).optional(),
   /** The paired machine this child runs on, when it is not this one (ADR 0078). */
   machine: z.string().max(64).optional(),
+  /**
+   * A child on another machine that this machine can't vouch for (ADR 0052): `lost` (its machine
+   * stopped reporting; read as `failed`, so it no longer holds a wait) or `unconfirmed` (stopped
+   * here, read as `cancelled`, though its machine never confirmed it). Only this machine sets it.
+   */
+  contact: RemoteContact.optional().catch(undefined),
 });
 export type WatchedThread = z.infer<typeof WatchedThread>;
 export const WaitStatus = z.enum([
@@ -99,6 +106,8 @@ export const MonitoredChild = z.object({
   /** A message to it that failed or was kept back after it was accepted, and what ace did. */
   notice: z.string().max(400).optional(),
   machine: z.string().max(64).optional(),
+  /** See WatchedThread.contact. */
+  contact: RemoteContact.optional().catch(undefined),
 });
 export type MonitoredChild = z.infer<typeof MonitoredChild>;
 export const MonitorSnapshot = z.object({

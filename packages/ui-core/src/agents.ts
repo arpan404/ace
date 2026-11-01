@@ -142,9 +142,9 @@ export function agentTreeWork(
     if (agent.status.state === "blocked" && agent.status.on === "human")
       includeAncestors(agent.id, needsYou);
   }
-  for (const task of tasks)
-    if (task.status === "running" || task.status === "unknown")
-      includeAncestors(task.agentId, running);
+  // Only running work counts. A task ace lost track of (`unknown`: lost contact, ADR 0052) has
+  // no proof of life; work the daemon still can't rule out keeps the thread's own status live.
+  for (const task of tasks) if (task.status === "running") includeAncestors(task.agentId, running);
   for (const interaction of interactions) {
     if (interaction.state !== "pending") continue;
     // Pending work stays unsettled even when its working owner can continue without an answer.
@@ -197,7 +197,7 @@ const taskStates: Record<BackgroundTask["status"], string> = {
   completed: "finished",
   failed: "failed",
   stopped: "stopped",
-  unknown: "possibly running",
+  unknown: "lost contact",
 };
 export const taskState = (task: BackgroundTask) => taskStates[task.status];
 
@@ -205,7 +205,7 @@ const taskLines: Record<BackgroundTask["status"], string> = {
   completed: "Finished",
   failed: "Failed",
   stopped: "Stopped",
-  unknown: "Stopped",
+  unknown: "Lost contact",
   running: "Running in background",
 };
 /** A background command's line in the transcript, before its command: "Running in background". */

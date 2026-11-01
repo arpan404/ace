@@ -3,6 +3,10 @@ import { contact, REMOTE_CHILD_LEASE_MS, renew } from "./lease.ts";
 import { holdsParent, standing } from "./standing.ts";
 import {
   attempted,
+  INTERRUPT_GRACE_MS,
+  KILL_GRACE_MS,
+  REMOTE_CANCEL_WAITS_MS,
+  TERMINATE_GRACE_MS,
   nextStop,
   PROCESS_STOP,
   REMOTE_STOP,
@@ -32,7 +36,7 @@ function runOut<A extends string>(plan: StopPlan<A>, start: number) {
 test("a hung local process gets interrupt, SIGTERM, then SIGKILL, and is stopped within the bound", () => {
   const { actions, gaveUpAt } = runOut(PROCESS_STOP, 1_000);
   expect(actions.map((entry) => entry.action)).toEqual(["interrupt", "terminate", "kill"]);
-  expect(actions[1]?.at).toBe(1_000 + PROCESS_STOP[0].waitMs);
+  expect(actions[1]?.at).toBe(1_000 + INTERRUPT_GRACE_MS);
   expect(gaveUpAt - 1_000).toBe(stopBound(PROCESS_STOP));
   expect(stopBound(PROCESS_STOP)).toBeLessThanOrEqual(10_000);
 });
@@ -41,7 +45,7 @@ test("a background shell that ignores SIGTERM is sent SIGKILL after the grace", 
   const { actions } = runOut(SIGNAL_STOP, 0);
   expect(actions).toEqual([
     { action: "terminate", at: 0 },
-    { action: "kill", at: SIGNAL_STOP[0].waitMs },
+    { action: "kill", at: TERMINATE_GRACE_MS },
   ]);
 });
 
@@ -55,14 +59,12 @@ test("a remote cancel that is never confirmed is sent again with growing waits, 
 });
 
 test("a stop kept across a restart picks up where it was, and one past its bound gives up at once", () => {
-  const halfway = attempted(attempted(startStop(0), 0), REMOTE_STOP[0].waitMs);
+  const [first, second] = REMOTE_CANCEL_WAITS_MS;
+  const halfway = attempted(attempted(startStop(0), 0), first);
   // Restarted inside the second wait: it waits out the rest, then sends the third cancel.
-  const inside = REMOTE_STOP[0].waitMs + 1_000;
-  expect(nextStop(REMOTE_STOP, halfway, inside)).toEqual({
-    kind: "wait",
-    until: REMOTE_STOP[0].waitMs + REMOTE_STOP[1].waitMs,
-  });
-  expect(nextStop(REMOTE_STOP, halfway, inside + REMOTE_STOP[1].waitMs)).toMatchObject({
+  const inside = first + 1_000;
+  expect(nextStop(REMOTE_STOP, halfway, inside)).toEqual({ kind: "wait", until: first + second });
+  expect(nextStop(REMOTE_STOP, halfway, inside + second)).toMatchObject({
     kind: "attempt",
     step: 2,
   });
@@ -99,7 +101,7 @@ test("only live work and a stop inside its bound hold the parent", () => {
   const stopping = standing({ ended: false, lease, stop: { plan: SIGNAL_STOP, progress } }, 100);
   const gaveUp = standing(
     { ended: false, lease, stop: { plan: SIGNAL_STOP, progress: attempted(progress, 3_000) } },
-    3_000 + SIGNAL_STOP[1].waitMs,
+    3_000 + KILL_GRACE_MS,
   );
   expect([live, lost, ended, stopping, gaveUp].map((at) => at.kind)).toEqual([
     "live",

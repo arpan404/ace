@@ -74,7 +74,10 @@ export function nextStop<Action extends string>(
   progress: StopProgress,
   now: number,
 ): StopDecision<Action> {
-  const { attempts, lastAttemptAt } = progress;
+  const { attempts, lastAttemptAt, startedAt } = progress;
+  // The bound runs from the Stop itself: attempts missed while the daemon was down never
+  // stretch it. A clock that went back before the start doesn't end it early.
+  if (now >= startedAt + stopBound(plan) && attempts > 0) return { kind: "give_up" };
   if (attempts === 0 || lastAttemptAt === null) return attemptAt(plan, 0);
   const previous = plan[Math.min(attempts, plan.length) - 1];
   const due = lastAttemptAt + (previous?.waitMs ?? 0);
