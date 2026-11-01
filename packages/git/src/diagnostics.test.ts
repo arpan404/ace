@@ -1,6 +1,10 @@
 import { expect, test } from "vitest";
 import { GitDiagnostics } from "./diagnostics.ts";
 
+function trace(event: object) {
+  return `${JSON.stringify(event)}\n`;
+}
+
 function classify(stderr: string) {
   const diagnostics = new GitDiagnostics();
   diagnostics.accept(Buffer.from(stderr));
@@ -18,7 +22,6 @@ test.each([
 });
 
 test("successful hook traces do not misclassify a subsequent command failure", () => {
-  const trace = (event: object) => `${JSON.stringify(event)}\n`;
   expect(
     classify(
       trace({ event: "child_start", sid: "a", child_id: 0, child_class: "hook" }) +
