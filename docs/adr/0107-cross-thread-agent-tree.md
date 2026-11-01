@@ -43,7 +43,8 @@ daemon projection or protocol schema is needed.
   as an empty, finished thread. A branch that is syncing, unconfirmed, still loading or not loaded
   is unconfirmed, and so is every row above it: none of them reads "finished", counts as done or
   folds into the done line, and their marks hold still. Now says Done only when no root of the
-  tree is live and nothing in it is unconfirmed (`AgentForest.confirmed`); otherwise "Working"
+  tree is live, nothing in it is unconfirmed and the viewed thread's own facts are confirmed
+  (`AgentForest.confirmed`); otherwise "Working"
   or "Syncing". A lease the person stops holding goes back to optional, in the worker too.
 - **Cycles.** A thread is placed once, under the first delegate that reaches it; the
   breadth-first walk never revisits a thread, so delegation loops end.
