@@ -532,7 +532,10 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   // The header reads the provisional title; the message is the first bubble, on its way.
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect storm" });
   const feed = screen.getByRole("feed", { name: "Transcript" });
-  expect(within(feed).getByText("Trace the **reconnect** storm @src/relay.ts")).toBeTruthy();
+  // The bubble renders the message's markdown, so it reads with "reconnect" in bold.
+  const bubble = (_: string, node: Element | null) =>
+    node?.tagName === "P" && node.textContent === "Trace the reconnect storm @src/relay.ts";
+  expect(await within(feed).findByText(bubble)).toBeTruthy();
   expect(within(feed).getByText("Will apply when reconnected")).toBeTruthy();
   expect(screen.getByRole("status", { name: /^(Preparing worktree|Starting .+)…$/ })).toBeTruthy();
   expect(listed(made)).toHaveLength(workbench().length);
@@ -552,9 +555,7 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   });
   expect(created).toMatchObject({ workspaceId: "relay" });
   const opened = screen.getByRole("feed", { name: "Transcript" });
-  expect(within(opened).getAllByText("Trace the **reconnect** storm @src/relay.ts")).toHaveLength(
-    1,
-  );
+  expect(await within(opened).findAllByText(bubble)).toHaveLength(1);
 });
 
 afterEach(() => vi.restoreAllMocks());
