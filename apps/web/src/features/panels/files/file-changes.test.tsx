@@ -58,7 +58,7 @@ test("a changed file opens its uncommitted diff in Changes", async () => {
   await userEvent.click(
     await within(panel).findByRole("button", { name: "Show uncommitted changes" }),
   );
-  expect(within(panel).getByRole("button", { name: "Scope: Uncommitted" })).toBeTruthy();
+  expect(await within(panel).findByRole("button", { name: "Scope: Uncommitted" })).toBeTruthy();
   const diff = await within(panel).findByLabelText("Uncommitted diff");
   const file = within(diff).getByRole("region", { name: "src/retry.ts" });
   expect(within(file).getByText(codeText(/return 1;/))).toBeTruthy();
