@@ -1,5 +1,5 @@
 import type { Item } from "@ace/protocol";
-import { toolProblem } from "./ace-tool-problems.ts";
+import { toolProblem, toolSaid } from "./ace-tool-problems.ts";
 import { aceCallOf, aceToolWords } from "./ace-tools.ts";
 import { repeatCount } from "./repeated-events.ts";
 
@@ -48,12 +48,59 @@ function operationOf(item: Notice): string | undefined {
   return undefined;
 }
 
+const threadRead = ["thread_read"];
+const threadsFind = ["threads_find"];
+const queueEdit = ["queue_edit"];
+const threadControl = ["thread_control"];
+/**
+ * The MCP tools behind each agent-control operation the daemon names, where the names differ
+ * (`delegate_task` is the `delegate` tool). Any other operation is its tool with `_` for `.`.
+ */
+const operationTools: Readonly<Record<string, readonly string[]>> = {
+  delegate_task: ["delegate"],
+  "thread.message": ["agent_message"],
+  "agent.status": ["agents_status"],
+  "agents.status": ["agents_status"],
+  "agents.models": ["models"],
+  "projects.list": ["projects_find"],
+  "thread.read_output": threadRead,
+  "queue.list": threadRead,
+  "preview.list": threadRead,
+  "thread.search": threadsFind,
+  "threads.list": threadsFind,
+  "queue.edit": queueEdit,
+  "queue.cancel": queueEdit,
+  "queue.steer": queueEdit,
+  "queue.reorder": queueEdit,
+  "thread.unlink_pr": ["thread_link_pr"],
+  "automation.manage": [
+    "automation_put",
+    "automation_remove",
+    "automation_run",
+    "automations_list",
+  ],
+  "thread.rename": threadControl,
+  "thread.regenerate_title": threadControl,
+  "thread.configure": threadControl,
+  "thread.handoff": threadControl,
+  "thread.interrupt": threadControl,
+  "thread.settle": threadControl,
+  "thread.unsettle": threadControl,
+  "thread.snooze": threadControl,
+  "preview.close": threadControl,
+  "project.rename": threadControl,
+};
+
+function toolsOf(operation: string): readonly string[] {
+  return operationTools[operation] ?? [operation.replaceAll(".", "_")];
+}
+
 /**
  * What the tool tried, imperative ("read a thread"), from the tool the operation names. The
  * report carries no arguments, so the tool reads as acting on a thread, never "this thread".
  */
 function attemptOf(operation: string | undefined): string {
-  const tool = operation?.replaceAll(".", "_");
+  const tool = operation ? toolsOf(operation)[0] : undefined;
   const words = tool ? aceToolWords("ace", tool, { threadId: "a thread" }) : undefined;
   if (!words) return "finish that ace tool call";
   const said = words.target ? `${words.awaiting} ${words.target}` : words.awaiting;
@@ -65,7 +112,12 @@ export function toolRefusal(item: Item | undefined): ToolRefusal | undefined {
   if (!isRefusal(item)) return undefined;
   const code = item.code ?? "execution_failed";
   const operation = operationOf(item);
-  const problem = toolProblem({ family: "agents", code, attempt: attemptOf(operation) });
+  const problem = toolProblem({
+    family: "agents",
+    code,
+    attempt: attemptOf(operation),
+    said: toolSaid(item.title, item.text),
+  });
   const label = labels[code];
   return {
     label: label ?? problem.title,
@@ -83,7 +135,7 @@ export function reportsOn(report: Item | undefined, call: Item | undefined): boo
   if (!isRefusal(report) || call?.agentId !== report.agentId) return false;
   const operation = operationOf(report);
   const ace = aceCallOf(call);
-  return !!operation && !!ace && ace.tool === operation.replaceAll(".", "_");
+  return !!operation && !!ace && toolsOf(operation).includes(ace.tool);
 }
 
 /** Whether one of ace's own calls answered as failed, by its status or its typed MCP result. */

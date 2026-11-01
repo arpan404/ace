@@ -1,6 +1,11 @@
 import type { Item, RawPayload, ToolStatus } from "@ace/protocol";
 import { bareToolName } from "@ace/provider-kit/ace-tool-names";
-import { toolProblem, type AceToolFamily, type ToolProblem } from "./ace-tool-problems.ts";
+import {
+  toolProblem,
+  toolSaid,
+  type AceToolFamily,
+  type ToolProblem,
+} from "./ace-tool-problems.ts";
 import { aceSpecs, unknownAceTool } from "./ace-tool-specs-ace.ts";
 import { computerSpecs } from "./ace-tool-specs-computer.ts";
 import {
@@ -263,6 +268,7 @@ function viewOf(spec: AceToolSpec, call: AceToolCall, context: AceToolContext): 
       input: typeof spec.input === "function" ? spec.input(args) : spec.input,
       mode: context.app?.mode,
       attempt: lowerFirst(words.target ? `${words.awaiting} ${words.target}` : words.awaiting),
+      said: toolSaid(failure?.message, failure?.detail),
       message:
         code === "failed"
           ? call.error
