@@ -218,6 +218,10 @@ models, stale windows and missing observation sources remain explicit.
 
 Owner approved replacing the manually maintained table with LiteLLM's public list.
 ADR 0002's public model prices amendment governs fetching and the opt-out.
+Fetching is on demand from usage ingestion only, at most hourly, for missing or
+three-day-old per-model prices. Only seen usage models are cached; full response
+objects are transient in the worker. Expired rates remain usable on failures.
+The atomic price cache and the attempt/backoff sidecar are separate.
 Regenerate the offline snapshot with `node scripts/update-usage-prices.ts` and
 format it with oxfmt. Entries without valid token input/output rates are ignored;
 unknown fields are tolerated. Non-price documents never replace the cache.

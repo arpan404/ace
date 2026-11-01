@@ -20,14 +20,6 @@ const refresh = new PriceRefresh(
 await refresh.load();
 const store = new UsageStore(config.path, { ...config.settings, prices: activePrices });
 target = store;
-void refresh.refresh(store.hasUnpricedModels());
-const timer = setInterval(
-  () => {
-    void refresh.refresh(store.hasUnpricedModels());
-  },
-  60 * 60 * 1000,
-);
-timer.unref();
 if (!parentPort) throw new Error("Usage worker requires parent port");
 const port = parentPort;
 port.on("message", (input: unknown) => {
@@ -40,7 +32,7 @@ port.on("message", (input: unknown) => {
         break;
       case "ingest":
         value = store.ingest(call.batch);
-        void refresh.refresh(store.hasUnpricedModels());
+        void refresh.refresh(store.modelsInUse());
         break;
       case "sessionTotals":
         value = store.sessionTotalsFor(call.query);
@@ -55,7 +47,6 @@ port.on("message", (input: unknown) => {
         value = store.burn(call.account, call.window, call.now);
         break;
       case "close":
-        clearInterval(timer);
         void refresh.close();
         store.close();
         value = null;

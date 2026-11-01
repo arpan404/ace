@@ -1,88 +1,133 @@
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { z } from "zod";
-import { PriceTable, type UsageSettings } from "./settings.ts";
+import { ModelPrice, type PriceTable, type UsageSettings } from "./settings.ts";
 import { parseLiteLLM, priceUrl } from "./litellm.ts";
 
+export const PRICE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const hour = 3_600_000;
 const Cache = z.object({
-  prices: PriceTable.optional(),
-  checked: z.number().default(0),
-  extra: z.number().default(0),
-  retry: z.number().default(0),
-  failures: z.number().default(0),
-  etag: z.string().optional(),
-  modified: z.string().optional(),
+  models: z.record(
+    z.string(),
+    z.object({
+      price: ModelPrice,
+      asOf: z.iso.date(),
+      fetchedAt: z.number().nonnegative(),
+      etag: z.string().optional(),
+      modified: z.string().optional(),
+    }),
+  ),
 });
-/** Lives only in the usage worker. Scheduling metadata survives idle worker retirement. */
+const Attempts = z.object({ next: z.number().default(0), failures: z.number().default(0) });
+async function atomicWrite(path: string, value: unknown): Promise<void> {
+  await writeFile(`${path}.tmp`, JSON.stringify(value), { mode: 0o600 });
+  await rename(`${path}.tmp`, path);
+}
+
+/** On-demand worker-only cache. Failed attempts change only the throttle sidecar. */
 export class PriceRefresh {
-  private cache = Cache.parse({});
+  private cache = Cache.parse({ models: {} });
+  private attempts = Attempts.parse({});
   private pending: Promise<void> | undefined;
   private closed = false;
-  constructor(
-    privatePath: string,
-    privateSettings: UsageSettings,
-    privateNow: () => number,
-    privateFetch: typeof fetch,
-    privateApply: (prices: PriceTable) => void,
-    privateLog: () => void,
-  ) {
-    this.path = privatePath;
-    this.settings = privateSettings;
-    this.now = privateNow;
-    this.fetch = privateFetch;
-    this.apply = privateApply;
-    this.log = privateLog;
-  }
   private readonly path: string;
   private readonly settings: UsageSettings;
   private readonly now: () => number;
   private readonly fetch: typeof fetch;
   private readonly apply: (prices: PriceTable) => void;
   private readonly log: () => void;
+  constructor(
+    path: string,
+    settings: UsageSettings,
+    now: () => number,
+    network: typeof fetch,
+    apply: (prices: PriceTable) => void,
+    log: () => void,
+  ) {
+    this.path = path;
+    this.settings = settings;
+    this.now = now;
+    this.fetch = network;
+    this.apply = apply;
+    this.log = log;
+  }
+  private table(): PriceTable {
+    const asOf = Object.values(this.cache.models)
+      .map((entry) => entry.asOf)
+      .toSorted()
+      .at(-1);
+    return {
+      version: `litellm-${asOf ?? "empty"}`,
+      asOf,
+      sources: [priceUrl],
+      models: Object.fromEntries(
+        Object.entries(this.cache.models).map(([model, entry]) => [
+          model,
+          { ...entry.price, asOf: entry.asOf },
+        ]),
+      ),
+    };
+  }
   async load(): Promise<void> {
     if (!this.settings.fetchPrices) return;
     try {
       this.cache = Cache.parse(JSON.parse(await readFile(this.path, "utf8")));
     } catch {
-      /* First run, missing or damaged cache uses the bundle. */
+      /* Missing/old-format cache uses the bundled fallback without changing the file. */
     }
-    if (this.cache.prices) this.apply(this.cache.prices);
+    try {
+      this.attempts = Attempts.parse(JSON.parse(await readFile(`${this.path}.attempts`, "utf8")));
+    } catch {
+      /* First use has no throttle state. */
+    }
+    if (Object.keys(this.cache.models).length) this.apply(this.table());
   }
-  refresh(unknownModel = false): Promise<void> {
-    if (this.closed || !this.settings.fetchPrices) return Promise.resolve();
+  /** The worker passes only models observed in usage, recent/most-used first. No timers. */
+  refresh(models: readonly string[]): Promise<void> {
+    if (this.closed || !this.settings.fetchPrices || !models.length) return Promise.resolve();
     if (this.pending) return this.pending;
     const now = this.now();
-    if (now < this.cache.retry) return Promise.resolve();
-    const daily = !this.cache.checked || now - this.cache.checked >= 24 * hour;
-    const extra = unknownModel && (!this.cache.extra || now - this.cache.extra >= hour);
-    if (!daily && !extra) return Promise.resolve();
-    this.pending = this.download(daily, now).finally(() => {
+    const due = [...new Set(models)].filter((model) => {
+      const entry = this.cache.models[model];
+      return !entry || now - entry.fetchedAt >= PRICE_MAX_AGE_MS;
+    });
+    if (now < this.attempts.next || !due.length) return Promise.resolve();
+    this.pending = this.download(due, now).finally(() => {
       this.pending = undefined;
     });
     return this.pending;
   }
-  private async save(): Promise<void> {
-    await writeFile(`${this.path}.tmp`, JSON.stringify(this.cache), { mode: 0o600 });
-    await rename(`${this.path}.tmp`, this.path);
-  }
-  private async download(daily: boolean, now: number): Promise<void> {
-    if (daily) this.cache.checked = now;
-    // A daily request also consumes this hour's discovery allowance.
-    this.cache.extra = now;
+  private async download(models: string[], now: number): Promise<void> {
     try {
-      await this.save();
+      this.attempts.next = now + hour;
+      await atomicWrite(`${this.path}.attempts`, this.attempts);
       const headers: Record<string, string> = {};
-      if (this.cache.etag) headers["If-None-Match"] = this.cache.etag;
-      if (this.cache.modified) headers["If-Modified-Since"] = this.cache.modified;
+      // A 304 cannot supply a newly encountered model. Fetch a body in that case.
+      const first = this.cache.models[models[0] ?? ""];
+      const conditional =
+        first !== undefined &&
+        models.every((model) => {
+          const entry = this.cache.models[model];
+          return (
+            entry !== undefined && entry.etag === first.etag && entry.modified === first.modified
+          );
+        });
+      if (conditional && first?.etag) headers["If-None-Match"] = first.etag;
+      if (conditional && first?.modified) headers["If-Modified-Since"] = first.modified;
       const response = await this.fetch(priceUrl, {
         headers,
         redirect: "error",
         credentials: "omit",
         signal: AbortSignal.timeout(5000),
       });
-      if (response.status !== 304) {
+      const next = Cache.parse(this.cache);
+      if (response.status === 304) {
+        if (!conditional) throw new Error("No cached prices for 304");
+        for (const model of models) {
+          const entry = next.models[model];
+          if (entry) entry.fetchedAt = now;
+        }
+      } else {
         if (!response.ok) throw new Error("Price request failed");
-        // Bound both streaming bodies and advertised sizes before JSON parsing.
         if (Number(response.headers.get("content-length")) > 16 * 1024 * 1024)
           throw new Error("Price list too large");
         const reader = response.body?.getReader();
@@ -100,38 +145,42 @@ export class PriceRefresh {
         } finally {
           await reader.cancel();
         }
-        const prices = PriceTable.parse(
-          parseLiteLLM(
-            JSON.parse(Buffer.concat(chunks).toString("utf8")),
-            new Date(now).toISOString().slice(0, 10),
-          ),
+        const date = new Date(now).toISOString().slice(0, 10);
+        // Full JSON exists only transiently while parsing in this worker. Normalize/retain
+        // only requested models; never build or persist a normalized full catalogue.
+        const prices = parseLiteLLM(
+          JSON.parse(Buffer.concat(chunks).toString("utf8")),
+          date,
+          models,
         );
-        const previous = this.cache;
-        this.cache = {
-          ...this.cache,
-          prices,
-          etag: response.headers.get("etag") ?? undefined,
-          modified: response.headers.get("last-modified") ?? undefined,
-        };
-        try {
-          await this.save();
-        } catch (error) {
-          this.cache = previous;
-          throw error;
+        if (!Object.keys(prices.models).length) {
+          this.attempts.failures = 0;
+          await atomicWrite(`${this.path}.attempts`, this.attempts);
+          return;
         }
-        if (!this.closed) this.apply(prices);
-      } else if (!this.cache.prices) throw new Error("No cached list for 304");
-      this.cache.failures = 0;
-      this.cache.retry = 0;
-      await this.save();
+        for (const [model, price] of Object.entries(prices.models))
+          next.models[model] = {
+            price,
+            asOf: date,
+            fetchedAt: now,
+            etag: response.headers.get("etag") ?? undefined,
+            modified: response.headers.get("last-modified") ?? undefined,
+          };
+      }
+      const validated = Cache.parse(next);
+      await atomicWrite(this.path, validated);
+      this.cache = validated;
+      if (!this.closed) this.apply(this.table());
+      this.attempts.failures = 0;
+      await atomicWrite(`${this.path}.attempts`, this.attempts);
     } catch {
-      this.cache.failures++;
-      this.cache.retry =
-        now + Math.min(24 * hour, hour * 2 ** Math.min(5, this.cache.failures - 1));
+      this.attempts.failures++;
+      this.attempts.next =
+        now + Math.min(24 * hour, hour * 2 ** Math.min(5, this.attempts.failures - 1));
       try {
-        await this.save();
+        await atomicWrite(`${this.path}.attempts`, this.attempts);
       } catch {
-        /* Keep usable in-memory prices. */
+        /* Best effort throttle. */
       }
       this.log();
     }

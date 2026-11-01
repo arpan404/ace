@@ -1,11 +1,16 @@
 import { expect, test } from "vitest";
 import { join } from "node:path";
-import { PriceRefresh } from "./price-refresh.ts";
+import { readFile } from "node:fs/promises";
+import { PRICE_MAX_AGE_MS, PriceRefresh } from "./price-refresh.ts";
 import { defaultPrices, UsageSettings } from "./settings.ts";
 import { setup, query } from "./test-support.ts";
 
 const hour = 3_600_000;
-const body = { "future-model": { input_cost_per_token: 2e-6, output_cost_per_token: 4e-6 } };
+const body = {
+  "future-model": { input_cost_per_token: 2e-6, output_cost_per_token: 4e-6 },
+  "another-model": { input_cost_per_token: 3e-6, output_cost_per_token: 5e-6 },
+  "unused-model": { input_cost_per_token: 8e-6, output_cost_per_token: 9e-6 },
+};
 const goodReply = () => new Response(JSON.stringify(body), { headers: { etag: '"v1"' } });
 const rate = (input: number, asOf: string) => ({
   version: asOf,
@@ -53,79 +58,129 @@ function fixture() {
     },
   };
 }
-test("an unknown usage model triggers one refresh then existing usage is priced", async () => {
+test("a new usage model fetches once and caches only that model from the full catalogue", async () => {
   const f = fixture();
   const refresh = f.create();
   await refresh.load();
+  expect(f.requests).toBe(0);
   expect(f.h.totals().unpricedTokens).toBe(1e6);
-  await Promise.all([refresh.refresh(f.h.store.hasUnpricedModels()), refresh.refresh(true)]);
+  await Promise.all([refresh.refresh(f.h.store.modelsInUse()), refresh.refresh(["future-model"])]);
+  const cache = JSON.parse(await readFile(join(f.h.home, "prices.json"), "utf8"));
+  expect(Object.keys(cache.models)).toEqual(["future-model"]);
+  expect(cache.models["future-model"].fetchedAt).toBe(Date.parse("2026-11-01T00:00Z"));
   expect(f.requests).toBe(1);
   expect(f.h.totals({ ...query, equivalentApiCost: true }).equivalentApiUsd).toBe(2);
-  expect(f.h.totals().unpricedTokens).toBe(0);
 });
-test("daily requests use conditional headers and the daily limit survives restart", async () => {
+test("a price under three days old avoids fetching even after worker restart", async () => {
   const f = fixture();
   let refresh = f.create();
   await refresh.load();
-  await refresh.refresh();
+  await refresh.refresh(f.h.store.modelsInUse());
+  f.advance(PRICE_MAX_AGE_MS - 1);
   refresh = f.create();
   await refresh.load();
-  f.advance(24 * hour - 1);
-  await refresh.refresh();
+  await refresh.refresh(f.h.store.modelsInUse());
   expect(f.requests).toBe(1);
-  f.advance(1);
+  await refresh.refresh([]);
+  expect(f.requests).toBe(1);
+});
+test("three-day expiry revalidates prices conditionally and renews each fetched-at time", async () => {
+  const f = fixture();
+  const refresh = f.create();
+  await refresh.load();
+  await refresh.refresh(f.h.store.modelsInUse());
+  f.advance(PRICE_MAX_AGE_MS);
   f.reply(() => new Response(null, { status: 304 }));
-  await refresh.refresh();
+  await refresh.refresh(f.h.store.modelsInUse());
   expect(f.requests).toBe(2);
   expect(f.headers[1]?.get("If-None-Match")).toBe('"v1"');
-  expect(f.h.totals().unpricedTokens).toBe(0);
+  await refresh.refresh(f.h.store.modelsInUse());
+  expect(f.requests).toBe(2);
+  const cache = JSON.parse(await readFile(join(f.h.home, "prices.json"), "utf8"));
+  expect(cache.models["future-model"].fetchedAt).toBe(
+    Date.parse("2026-11-01T00:00Z") + PRICE_MAX_AGE_MS,
+  );
 });
-test("unknown-model bursts get at most one additional request per hour across restart", async () => {
+test("a second used model waits for the hourly allowance then adds only its price", async () => {
   const f = fixture();
   let refresh = f.create();
   await refresh.load();
-  await refresh.refresh();
-  for (let i = 0; i < 20; i++) await refresh.refresh(true);
+  await refresh.refresh(f.h.store.modelsInUse());
+  const before = JSON.parse(await readFile(join(f.h.home, "prices.json"), "utf8"));
+  f.h.agent("second", null, "another-model");
+  f.h.usage(1e6, "second");
+  for (let i = 0; i < 20; i++) await refresh.refresh(f.h.store.modelsInUse());
   expect(f.requests).toBe(1);
-  f.advance(hour);
-  await refresh.refresh(true);
-  expect(f.requests).toBe(2);
   refresh = f.create();
   await refresh.load();
-  await refresh.refresh(true);
+  await refresh.refresh(f.h.store.modelsInUse());
+  expect(f.requests).toBe(1);
+  f.advance(hour);
+  await refresh.refresh(f.h.store.modelsInUse());
   expect(f.requests).toBe(2);
+  expect(f.headers[1]?.has("If-None-Match")).toBe(false);
+  const cache = JSON.parse(await readFile(join(f.h.home, "prices.json"), "utf8"));
+  expect(Object.keys(cache.models).toSorted()).toEqual(["another-model", "future-model"]);
+  expect(cache.models["future-model"]).toEqual(before.models["future-model"]);
+  expect(f.h.totals().unpricedTokens).toBe(0);
 });
-test("bad downloads preserve disk prices and failures back off", async () => {
+test("per-model validators and ages remain independent when a newer model is added", async () => {
   const f = fixture();
   const refresh = f.create();
   await refresh.load();
-  await refresh.refresh();
+  await refresh.refresh(f.h.store.modelsInUse());
   f.advance(hour);
-  f.reply(() => new Response('{"error": "bad"}'));
-  await refresh.refresh(true);
-  expect(f.requests).toBe(2);
-  expect(f.h.totals().unpricedTokens).toBe(0);
-  const restarted = f.create();
-  await restarted.load();
-  await restarted.refresh(true);
-  expect(f.requests).toBe(2);
-  expect(f.h.totals({ ...query, equivalentApiCost: true }).equivalentApiUsd).toBe(2);
+  f.h.agent("second", null, "another-model");
+  f.h.usage(1e6, "second");
+  f.reply(() => new Response(JSON.stringify(body), { headers: { etag: '"v2"' } }));
+  await refresh.refresh(f.h.store.modelsInUse());
+  const before = JSON.parse(await readFile(join(f.h.home, "prices.json"), "utf8"));
+  f.advance(PRICE_MAX_AGE_MS - hour);
+  f.reply(() => new Response(null, { status: 304 }));
+  await refresh.refresh(f.h.store.modelsInUse());
+  expect(f.headers[2]?.get("If-None-Match")).toBe('"v1"');
+  const after = JSON.parse(await readFile(join(f.h.home, "prices.json"), "utf8"));
+  expect(after.models["another-model"]).toEqual(before.models["another-model"]);
+  expect(after.models["future-model"].fetchedAt).toBeGreaterThan(
+    before.models["future-model"].fetchedAt,
+  );
 });
-test("offline starts with bundled prices and disabling fetching ignores the disk list", async () => {
+test.each(["bad", "partial", "offline"])(
+  "an expired price survives a %s download and cache bytes stay unchanged",
+  async (kind) => {
+    const f = fixture();
+    const refresh = f.create();
+    await refresh.load();
+    await refresh.refresh(f.h.store.modelsInUse());
+    const before = await readFile(join(f.h.home, "prices.json"));
+    f.advance(PRICE_MAX_AGE_MS + 1);
+    f.reply(() => {
+      if (kind === "offline") throw new Error("offline");
+      return new Response(kind === "bad" ? '{"error":"bad"}' : '{"future-model":');
+    });
+    await refresh.refresh(f.h.store.modelsInUse());
+    expect(f.requests).toBe(2);
+    expect(await readFile(join(f.h.home, "prices.json"))).toEqual(before);
+    expect(f.h.totals({ ...query, equivalentApiCost: true }).equivalentApiUsd).toBe(2);
+    const restarted = f.create();
+    await restarted.load();
+    await restarted.refresh(f.h.store.modelsInUse());
+    expect(f.requests).toBe(2);
+    expect(await readFile(join(f.h.home, "prices.json"))).toEqual(before);
+  },
+);
+test("offline uses bundled prices without creating a price cache", async () => {
   const f = fixture();
   const refresh = f.create();
   await refresh.load();
   f.reply(() => {
     throw new Error("offline");
   });
-  await refresh.refresh();
+  await refresh.refresh(f.h.store.modelsInUse());
   f.h.agent("priced", null, "claude-sonnet-4-6");
   f.h.usage(1e6, "priced");
   expect(f.h.totals().apiInputUsd).toBe(3);
-  const disabled = f.create(false);
-  await disabled.load();
-  await disabled.refresh(true);
-  expect(f.requests).toBe(1);
+  await expect(readFile(join(f.h.home, "prices.json"))).rejects.toThrow();
 });
 test("daily estimates retain observed price dates and new prices cover older unpriced days", () => {
   const h = setup();
@@ -143,13 +198,13 @@ test("offline-only mode ignores a successfully downloaded list", async () => {
   const f = fixture();
   const online = f.create();
   await online.load();
-  await online.refresh();
+  await online.refresh(f.h.store.modelsInUse());
   f.h.store.updatePrices(defaultPrices);
   expect(f.h.totals().unpricedTokens).toBe(0); // The online store retains its observed historical rate.
   f.h.reopen({ fetchPrices: false });
   const offline = f.create(false);
   await offline.load();
-  await offline.refresh(true);
+  await offline.refresh(f.h.store.modelsInUse());
   expect(f.requests).toBe(1);
   expect(f.h.totals().unpricedTokens).toBe(1e6);
 });

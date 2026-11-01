@@ -1,6 +1,6 @@
 import { UsageBatch } from "./events.ts";
 import { matchModel } from "./litellm.ts";
-import { type PriceTable } from "./settings.ts";
+import { defaultPrices, type PriceTable } from "./settings.ts";
 import { SessionTotals } from "./session-totals.ts";
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { UsageResult, type UsageResult as Result } from "@ace/protocol";
@@ -23,7 +23,6 @@ export class UsageStore {
   private priceAsOf: string | undefined;
   private readonly day: (at: number) => string;
   private prices: PriceTable;
-  private unpriced = false;
   private readonly known = new Set<string>();
   constructor(path: string, settings: unknown = {}) {
     this.settings = UsageSettings.parse(settings);
@@ -36,7 +35,11 @@ export class UsageStore {
     this.db = new DatabaseSync(path);
     try {
       migrate(this.db, this.settings.timezone);
-      for (const row of this.db.prepare("SELECT DISTINCT model FROM usage_daily").iterate())
+      for (const row of this.db
+        .prepare(
+          "SELECT model FROM usage_daily GROUP BY model ORDER BY MAX(day), SUM(CAST(input AS REAL)+output)",
+        )
+        .iterate())
         this.known.add(String(row.model));
       this.updatePrices(prices);
       this.sessionTotals = new SessionTotals(this.db);
@@ -78,22 +81,28 @@ export class UsageStore {
           this.statement("SELECT model FROM usage_agents WHERE agent=?").get(payload.agentId)
             ?.model ?? "",
         );
-      if (model && !this.known.has(model)) {
+      if (model) {
+        if (!this.known.has(model)) this.insertPrice(model);
+        this.known.delete(model);
         this.known.add(model);
-        this.insertPrice(model);
       }
     }
     return result;
   }
   private insertPrice(model: string): void {
     const key = matchModel(model, this.prices.models);
-    const rate = key === undefined ? undefined : this.prices.models[key];
+    const fallback = matchModel(model, defaultPrices.models);
+    const rate =
+      key === undefined
+        ? fallback === undefined
+          ? undefined
+          : defaultPrices.models[fallback]
+        : this.prices.models[key];
     if (!rate) {
       const historical =
         this.settings.fetchPrices &&
         this.statement("SELECT 1 FROM usage_price_history WHERE model=? LIMIT 1").get(model);
       if (historical) this.insertHistory(model);
-      else if (model) this.unpriced = true;
       return;
     }
     const values = [
@@ -123,7 +132,11 @@ export class UsageStore {
     )
       this.statement(
         "INSERT OR REPLACE INTO usage_price_history VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run(model, this.prices.asOf ?? "0000", ...values);
+      ).run(
+        model,
+        rate.asOf ?? (key === undefined ? defaultPrices.asOf : this.prices.asOf) ?? "0000",
+        ...values,
+      );
     this.insertHistory(model);
   }
   private insertHistory(model: string): void {
@@ -142,17 +155,15 @@ export class UsageStore {
     this.priceAsOf = this.prices.asOf;
     this.db.exec("BEGIN; DELETE FROM usage_prices;");
     try {
-      this.unpriced = false;
-      for (const model of new Set([...Object.keys(this.prices.models), ...this.known]))
-        this.insertPrice(model);
+      for (const model of this.known) this.insertPrice(model);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
   }
-  hasUnpricedModels(): boolean {
-    return this.unpriced;
+  modelsInUse(): string[] {
+    return [...this.known].toReversed().filter(Boolean);
   }
   sessionTotalsFor(input: unknown) {
     return this.sessionTotals.list(input);

@@ -16,10 +16,17 @@ const Entry = z
   .passthrough();
 
 /** Unknown entries are ignored individually; a non-price document is rejected. */
-export function parseLiteLLM(input: unknown, date: string): PriceTable {
+export function parseLiteLLM(input: unknown, date: string, wanted?: readonly string[]): PriceTable {
   const entries = z.record(z.string(), z.unknown()).parse(input);
   const models: PriceTable["models"] = {};
-  for (const [key, value] of Object.entries(entries)) {
+  const selected =
+    wanted === undefined
+      ? Object.entries(entries)
+      : wanted.flatMap((model) => {
+          const key = matchModel(model, entries);
+          return key === undefined ? [] : [[model, entries[key]] as const];
+        });
+  for (const [key, value] of selected) {
     if (key === "sample_spec") continue;
     const parsed = Entry.safeParse(value);
     if (!parsed.success) continue;
@@ -36,7 +43,13 @@ export function parseLiteLLM(input: unknown, date: string): PriceTable {
       reasoning: (p.output_cost_per_reasoning_token ?? p.output_cost_per_token) * 1e6,
     };
   }
-  if (!Object.keys(models).length) throw new Error("No valid LiteLLM token prices");
+  if (
+    !Object.keys(models).length &&
+    !Object.entries(entries).some(
+      ([key, value]) => key !== "sample_spec" && Entry.safeParse(value).success,
+    )
+  )
+    throw new Error("No valid LiteLLM token prices");
   return { version: `litellm-${date}`, asOf: date, sources: [priceUrl], models };
 }
 
@@ -62,7 +75,10 @@ const aliases: Record<string, string> = {
 };
 /** Exact route first; explicit alias; known CLI route stripped; first-party namespaces.
  * Never substring/fuzzy match or choose an arbitrary reseller's rate. */
-export function matchModel(model: string, models: PriceTable["models"]): string | undefined {
+export function matchModel(
+  model: string,
+  models: Readonly<Record<string, unknown>>,
+): string | undefined {
   const bare = model.replace(/#.*$/, "");
   const slash = bare.indexOf("/");
   const route = bare.slice(0, slash);
