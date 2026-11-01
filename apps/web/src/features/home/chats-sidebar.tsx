@@ -9,10 +9,12 @@ import { useOrganizer, useOverlaidMachineEntries } from "@/features/organize/ind
 import { useHeld } from "@/lib/held.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { useMachineEntries } from "@/lib/machine-threads.ts";
+import { chatChoice } from "@/lib/chat-choice.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { ChatHits } from "./chat-row.tsx";
 import { ChatsFilter } from "./chats-filter.tsx";
 import { useChatsDevice } from "./device-filter-state.ts";
+import { DraftRows } from "./new-thread/draft-rows.tsx";
 import { useSettledPaging } from "./settled-paging.ts";
 import { ThreadList } from "./thread-list.tsx";
 import { useChatList } from "./use-chat-list.ts";
@@ -20,7 +22,7 @@ import { useNewChat } from "./use-new-chat.ts";
 
 /**
  * The Chats panel (ADR 0099, ADR 0107), on the canvas beside the rail: its title row ("Chats",
- * New chat), "Search chats", then Active, every unsettled chat (pinned ones first, then what
+ * New chat), "Search chats", then chats not sent yet, then Active, every unsettled chat (pinned ones first, then what
  * needs the person, then what is at work), then the settled chats under Today, Yesterday,
  * Previous 7 days and Earlier, dimmed.
  * The rows are the Threads list's own (one line, one mark, the hover card, keyboard and motion),
@@ -55,6 +57,13 @@ export function ChatsSidebar() {
         onValueChange={setQuery}
       />
       <nav aria-label="Chats" className="flex min-h-0 flex-1 flex-col">
+        {/* A chat not sent yet waits on top, as Threads keeps its own drafts. */}
+        <div className="hidden shrink-0 px-2 has-[ul]:block">
+          <div className="flex items-center gap-2 px-2.5 py-2 text-xs text-muted-foreground">
+            Unsent
+          </div>
+          <DraftRows project={chatChoice} />
+        </div>
         {!loaded ? (
           skeleton && <ListSkeleton label="chats" shape="thread" />
         ) : !chats.any ? (
