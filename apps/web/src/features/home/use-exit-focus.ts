@@ -13,7 +13,8 @@ interface DrawnRow {
 
 /**
  * When the row holding focus leaves the list (archived, settled, snoozed, from its menu or a
- * shortcut), focus moves on to the next row, or the one before when it was the last, instead of
+ * shortcut), or leaves its place for another part of it (settled out of Active into its
+ * project), focus moves on to the next row where it was, or the one before when it was the last, instead of
  * falling back to the page. Returns the list's focus handlers that remember the focused row.
  */
 export function useFocusAfterExit(
@@ -21,7 +22,7 @@ export function useFocusAfterExit(
   drawn: readonly DrawnRow[],
   mount: (index: number) => void,
 ) {
-  const focused = useRef<{ key: string | number; index: number }>(undefined);
+  const focused = useRef<{ key: string | number; index: number; kind: HomeRow["kind"] }>(undefined);
   const latest = useRef({ mount, drawn });
   useLayoutEffect(() => {
     latest.current = { mount, drawn };
@@ -32,8 +33,11 @@ export function useFocusAfterExit(
     if (!held || !scroller) return;
     const index = drawn.findIndex((row) => row.key === held.key);
     const row = drawn[index];
-    if (row && row.phase !== "exit") {
-      focused.current = { key: held.key, index };
+    // Drawn as another kind of row (an Active thread now settled in its project) it has moved
+    // away: focus stays where it was, on the row that took its place.
+    const moved = row !== undefined && row.item.kind !== held.kind;
+    if (row && row.phase !== "exit" && !moved) {
+      focused.current = { key: held.key, index, kind: row.item.kind };
       return;
     }
     focused.current = undefined;
@@ -49,8 +53,9 @@ export function useFocusAfterExit(
       }
       // The rows as drawn now: the leaving row may have gone while a menu closed.
       const rows = latest.current.drawn;
-      const at = rows.findIndex((each) => each.key === held.key);
-      const box = at < 0 ? null : scroller.querySelector(`[data-index="${at}"]`);
+      const found = rows.findIndex((each) => each.key === held.key);
+      const box = found < 0 ? null : scroller.querySelector(`[data-index="${found}"]`);
+      const at = moved ? -1 : found;
       // Only when focus went with the row; never take it back from wherever it was moved.
       const lost = !active || active === doc.body || (box !== null && box.contains(active));
       if (!lost) return;
@@ -72,7 +77,7 @@ export function useFocusAfterExit(
       const box = event.target.closest<HTMLElement>("[data-index]");
       const index = Number(box?.dataset.index);
       const row = Number.isInteger(index) ? drawn[index] : undefined;
-      if (row) focused.current = { key: row.key, index };
+      if (row) focused.current = { key: row.key, index, kind: row.item.kind };
     },
     onBlur: (event: FocusEvent<HTMLElement>) => {
       const next = event.relatedTarget;

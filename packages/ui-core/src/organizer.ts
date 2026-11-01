@@ -5,8 +5,8 @@ import { readJson, writeJson, type KeyValueStorage } from "./storage.ts";
 /*
  * How this device shows the Home list. Settle, snooze, pin, read state, titles and deletion
  * belong to the daemon (ADR 0057) and arrive on each thread list entry; what stays here is
- * view state: the unread baseline of a first launch, the project filter and which disclosures
- * are open.
+ * view state: the unread baseline of a first launch, the project filter, and which of the
+ * Threads panel's projects and disclosures are folded or open.
  */
 
 /** The daemon's auto-settle window (`threads.autoSettleAfter`). */
@@ -20,8 +20,13 @@ const Stored = z.object({
   project: z.string().nullable().catch(null),
   /** Home list device filter; absent is every device. */
   device: z.string().optional().catch(undefined),
+  /** The Chats panel's own device filter, apart from Threads'; absent is every device. */
+  chatDevice: z.string().optional().catch(undefined),
   snoozedOpen: z.boolean().catch(false),
-  settledOpen: z.boolean().catch(false),
+  /** Projects the person folded (`projectFold`). */
+  collapsed: z.array(z.string().max(4200)).max(500).catch([]),
+  /** Quiet projects (only settled threads) shown at the foot of Projects. */
+  quietOpen: z.boolean().catch(false),
 });
 type Stored = z.infer<typeof Stored>;
 
@@ -41,7 +46,8 @@ export class Organizer {
       baseline: firstLaunch(storage, now),
       project: null,
       snoozedOpen: false,
-      settledOpen: false,
+      collapsed: [],
+      quietOpen: false,
     };
     const stored = readJson(storage, storageKey, Stored, fresh);
     this.state = stored;
@@ -59,11 +65,20 @@ export class Organizer {
     // Projects belong to a device, so a device switch clears the previous project's filter.
     this.set({ device, project: null });
   }
+  /** Narrow the Chats panel to one device (undefined: every device). */
+  setChatDevice(chatDevice: string | undefined): void {
+    this.set({ chatDevice });
+  }
   setSnoozedOpen(snoozedOpen: boolean): void {
     this.set({ snoozedOpen });
   }
-  setSettledOpen(settledOpen: boolean): void {
-    this.set({ settledOpen });
+  /** Fold or unfold a project (`projectFold`). */
+  setFolded(key: string, folded: boolean): void {
+    const rest = this.state.collapsed.filter((each) => each !== key);
+    this.set({ collapsed: folded ? [...rest, key] : rest });
+  }
+  setQuietOpen(quietOpen: boolean): void {
+    this.set({ quietOpen });
   }
   private set(patch: Partial<Stored>): void {
     this.state = { ...this.state, ...patch };
@@ -71,13 +86,15 @@ export class Organizer {
     this.emit();
   }
   private persist(): void {
-    const { baseline, project, device, snoozedOpen, settledOpen } = this.state;
+    const { baseline, project, device, chatDevice, snoozedOpen, collapsed, quietOpen } = this.state;
     writeJson(this.storage, storageKey, {
       baseline,
       project,
       device,
+      chatDevice,
       snoozedOpen,
-      settledOpen,
+      collapsed,
+      quietOpen,
     } satisfies Stored);
   }
   private emit(): void {

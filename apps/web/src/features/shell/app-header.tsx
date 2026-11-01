@@ -6,6 +6,7 @@ import {
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
+import { boundaryMarker } from "@/components/ui/rules.ts";
 import { Suspense, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { SidebarTrigger } from "@/components/ui/sidebar.tsx";
@@ -17,8 +18,10 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
 export interface HeaderProps {
-  /** 13px medium. Rendered as the view's h1. */
+  /** 14px medium. Rendered as the view's h1. */
   title: ReactNode;
+  /** A glyph just before the title, with no separator: a thread's project folder. */
+  mark?: ReactNode;
   /**
    * Where the title sits, before it and a "/": a thread's project (badge and name), or the
    * parent thread of a child thread. Muted; dropped first when the header is narrow.
@@ -41,11 +44,11 @@ export interface HeaderProps {
 }
 
 /**
- * Back, forward and the sidebar's toggle. They stay at the header's far left whether the sidebar
- * shows or not, so the sidebar's top keeps only the wordmark and Search beside the macOS traffic
- * lights. ⌘[ and ⌘] go back and forward; ⌘\ shows or hides the sidebar.
+ * Back, forward and the sidebar's toggle, right after the macOS traffic lights: in the sidebar's
+ * top row while it shows beside the column, at the header's far left while it doesn't.
+ * ⌘[ and ⌘] go back and forward; ⌘\ shows or hides the sidebar.
  */
-function NavButtons() {
+export function NavButtons() {
   const nav = useHistoryNav();
   const frame = useViewFrame();
   return (
@@ -69,16 +72,33 @@ function NavButtons() {
         icon={SidebarSimpleIcon}
         label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
         shortcut="toggleSidebar"
-        onClick={frame.sidebarShown ? frame.hideSidebar : frame.showSidebar}
+        onClick={(event) => {
+          const focused = document.activeElement === event.currentTarget;
+          if (frame.sidebarShown) frame.hideSidebar();
+          else frame.showSidebar();
+          if (focused) focusSidebarToggle();
+        }}
       />
     </>
   );
 }
 
 /**
- * The header's far left: back, forward and the sidebar toggle, in both sidebar states and on a
- * narrow window, where the toggle opens the sidebar's sheet. On a phone, the way back to the
- * thread list.
+ * The toggle moves between the sidebar's top row and the header as the sidebar shows and hides:
+ * focus follows it to the one now on screen, once it has rendered.
+ */
+function focusSidebarToggle() {
+  requestAnimationFrame(() => {
+    const toggles = document.querySelectorAll<HTMLElement>('[data-sidebar="trigger"]');
+    [...toggles].find((toggle) => !toggle.closest("[inert]"))?.focus();
+  });
+}
+
+/**
+ * The header's far left while the sidebar isn't beside the column: back, forward and the sidebar
+ * toggle (on a narrow window the toggle opens the sidebar's sheet). On a phone, the way back to
+ * the thread list. With the sidebar shown they sit in its top row instead, so the title starts
+ * where the column does.
  */
 export function HeaderNav() {
   const frame = useViewFrame();
@@ -87,6 +107,7 @@ export function HeaderNav() {
   // No sidebar at all (first-run setup): nothing to show, but the desktop app still clears the
   // macOS traffic lights by this slot's margin, so the title never sits under them.
   if (!frame.hasSidebar) return <div aria-hidden data-slot="header-nav" className="shrink-0" />;
+  if (frame.sidebarShown && !frame.sheet) return null;
   return (
     // `header-nav`: with no sidebar beside it, the desktop app clears the traffic lights here.
     <div
@@ -111,21 +132,25 @@ export function HeaderNav() {
 }
 
 /**
- * The one header every screen uses: back, forward and the sidebar toggle, then the title and its
- * subtitle; on the right the actions, the ⋯ menu, the screen's tools (a thread's details icon) and
- * the side panel's toggle, with no rule between them. 44px, a drag region in Electron, hairline only once the content scrolls. Every control
- * is a 30px box on one centre line. On a phone it keeps the sidebar toggle, the title (two lines
- * if need be), the status mark, one ⋯, screen tools and the panel toggle; the panel's other
- * tools (a thread's Changes) go in that ⋯.
+ * The main column's part of the window's one top bar, on the frame colour above the canvas: the
+ * title (after its project glyph) starting where the column starts, then on the right the
+ * actions, the ⋯ menu, the screen's tools (a thread's Work/Summary) and the side panel's toggle
+ * (beside a docked side panel the header stops at its edge, and the panel's strip, the bar's part
+ * above the panel, ends with the toggle).
+ * Back, forward and the sidebar toggle lead it only while the sidebar isn't beside the column.
+ * 44px, a drag region in Electron, no rule under it: the canvas's own edge is the line. Every
+ * control is a 30px box on one centre line. On a phone it keeps the sidebar toggle, the title
+ * (two lines if need be), the status mark, one ⋯, screen tools and the panel toggle; the panel's
+ * other tools (a thread's Changes) go in that ⋯.
  */
 export function AppHeader(
   props: HeaderProps & {
-    scrolled: boolean;
-    /** The far-right cluster: the panel's toggle, while the panel isn't showing beside it. */
+    /** The far-right cluster: the side panel's toggle. */
     trailing?: ReactNode;
   },
 ) {
   const phone = usePhone();
+  const frame = useViewFrame();
   // The title comes first. Beside an open side panel the header is a container: below 720px
   // the actions drop their labels (they keep their accessible names and shortcut tooltips);
   // only below 420px, or on a phone, do they fold, together with the title menu, into one ⋯.
@@ -140,14 +165,18 @@ export function AppHeader(
   return (
     <header
       ref={header}
-      className={cn(
-        // The hairline is drawn with box-shadow, not a border, so the 44px row keeps its exact centre.
-        "@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 shadow-[inset_0_-1px_0_transparent] transition-shadow duration-(--motion-base) [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
-        props.scrolled && "shadow-[inset_0_-1px_0_var(--border)]",
-      )}
+      data-slot="app-header"
+      className="@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"
     >
+      {/* Where the sidebar meets the column, while both are on screen. */}
+      {frame.sidebarShown && !frame.sheet && (
+        <span aria-hidden data-boundary="sidebar" className={boundaryMarker} />
+      )}
       <HeaderNav />
-      <div className="ml-1.5 flex min-w-0 flex-1 items-center gap-2">
+      <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
+        {props.mark && !phone && (
+          <span className="flex shrink-0 items-center text-muted-foreground">{props.mark}</span>
+        )}
         {props.crumb && !phone && (
           // The title keeps the room: the crumb truncates first and leaves a narrow header.
           <div className="flex min-w-0 shrink-[3] items-center gap-2 text-ui text-muted-foreground @max-[30rem]/header:hidden">

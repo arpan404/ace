@@ -41,7 +41,7 @@ test("an archived card leaves the list at once for assistive tech, then fades ou
   const fading = within(threads()).getByText("Invoice PDF locale fallback");
   expect(fading.closest("[inert]")).not.toBeNull();
 
-  // Once the exit has played the card is gone and the list is one row shorter.
+  // Once the exit has played the card is gone, and the list is one row shorter.
   await waitFor(() =>
     expect(within(threads()).queryByText("Invoice PDF locale fallback")).toBeNull(),
   );

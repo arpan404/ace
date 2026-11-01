@@ -238,3 +238,35 @@ test("a draft survives leaving the New issue page and coming back, and is gone o
     within(form).getByRole<HTMLTextAreaElement>("textbox", { name: "Description" }).value,
   ).toBe("");
 });
+
+/** GitHub's panel and the link it marks as the current page. */
+const panelCurrent = () =>
+  within(screen.getByRole("complementary", { name: "GitHub" }))
+    .getAllByRole("link")
+    .filter((link) => link.getAttribute("aria-current") === "page")
+    .map((link) => link.textContent);
+
+test("list pages carry no Inbox / Pull requests / Issues switch; GitHub's panel moves between them", async () => {
+  const app = withRepository();
+  await app.open("/pulls?project=ace");
+  await screen.findByRole("navigation", { name: "Pull requests" });
+  expect(screen.queryByRole("tablist")).toBeNull();
+  expect(screen.queryByRole("tab", { name: "Issues" })).toBeNull();
+  // The page keeps its own filters.
+  expect(screen.getByRole("toolbar", { name: "Pull request filters" })).toBeTruthy();
+  await waitFor(() => expect(panelCurrent()).toEqual(["Pull requests"]));
+  const panel = within(screen.getByRole("complementary", { name: "GitHub" }));
+  await userEvent.click(panel.getByRole("link", { name: "Issues" }));
+  await screen.findByRole("navigation", { name: "Issues" });
+  expect(screen.queryByRole("tablist")).toBeNull();
+  await waitFor(() => expect(panelCurrent()).toEqual(["Issues"]));
+});
+
+test("GitHub's panel marks a pull request's page as Pull requests, or Inbox when opened from it", async () => {
+  const app = withRepository();
+  const view = await app.open("/pulls/ace/229");
+  await waitFor(() => expect(panelCurrent()).toEqual(["Pull requests"]));
+  view.unmount();
+  await app.open("/pulls/ace/229?back=%2Finbox");
+  await waitFor(() => expect(panelCurrent()).toEqual(["Inbox"]));
+});

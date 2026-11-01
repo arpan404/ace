@@ -1,10 +1,10 @@
-import { useRef, useState } from "react";
-import type { ReactNode, UIEvent } from "react";
+import type { ReactNode } from "react";
 import { PausedNotice } from "@/components/paused-notice.tsx";
 import { SandboxNotice } from "./sandbox-notice.tsx";
 import { useToastAnchor } from "@/lib/toast-clearance.ts";
 import type { WorkspaceDefinition } from "@/lib/workspace/index.ts";
 import { AppHeader, type HeaderProps } from "./app-header.tsx";
+import { canvasClass } from "./canvas.ts";
 import { ConnectionNotice } from "./connection-notice.tsx";
 import { ConnectionOwner } from "./connection-owner.tsx";
 import { Workspace } from "./workspace/workspace.tsx";
@@ -17,9 +17,9 @@ export interface ScreenWorkspace {
 }
 
 /**
- * The main column of every route: the shared header, the content and, where a screen has a
- * workspace, the side panel beside it. Slices fill `children` and register tab kinds; the
- * frame, keyboard map, persistence and motion are the shell's.
+ * The main column of every route: its part of the window's top bar, then the canvas with the
+ * content and, where a screen has a workspace, the side panel beside it. Slices fill `children`
+ * and register tab kinds; the frame, keyboard map, persistence and motion are the shell's.
  */
 export function Screen(
   props: HeaderProps & {
@@ -27,33 +27,16 @@ export function Screen(
     children: ReactNode;
   },
 ) {
-  const [scrolled, setScrolled] = useState(false);
-  const shown = useRef(false);
   const pane = useToastAnchor();
-  // Any scroller inside the content draws the header hairline once it leaves the top. A
-  // transcript following a streaming answer scrolls every update: only a change re-renders.
-  const onScroll = (event: UIEvent) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    const next = target.scrollTop > 0;
-    if (next === shown.current) return;
-    shown.current = next;
-    setScrolled(next);
-  };
   const main = (
-    <main
-      ref={pane}
-      id="main"
-      tabIndex={-1}
-      onScrollCapture={onScroll}
-      className="relative min-h-0 flex-1 outline-none"
-    >
+    <main ref={pane} id="main" tabIndex={-1} className="relative min-h-0 flex-1 outline-none">
       {props.children}
     </main>
   );
   const header = (headerOwnsConnection: boolean) => (trailing?: ReactNode) => (
     <AppHeader
       title={props.title}
+      mark={props.mark}
       subtitle={props.subtitle}
       breadcrumb={props.breadcrumb}
       crumb={props.crumb}
@@ -63,7 +46,6 @@ export function Screen(
       status={props.status}
       progress={props.progress}
       notice={headerOwnsConnection ? <ConnectionNotice /> : null}
-      scrolled={scrolled}
       trailing={trailing}
     />
   );
@@ -91,9 +73,11 @@ export function Screen(
         ) : (
           <>
             {header(headerOwnsConnection)()}
-            <PausedNotice />
-            <SandboxNotice />
-            <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
+            <div className={`${canvasClass} flex-col`}>
+              <PausedNotice />
+              <SandboxNotice />
+              <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
+            </div>
           </>
         )
       }

@@ -67,7 +67,10 @@ export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./file-tree.ts";
 export * from "./first-launch.ts";
+export * from "./chat-list.ts";
+export * from "./home-history.ts";
 export * from "./home-rows.ts";
+export * from "./home-tree.ts";
 export * from "./list-selection.ts";
 export * from "./pin-drag.ts";
 export * from "./pin-order.ts";
@@ -127,6 +130,7 @@ export { newestAgentPage, opensAgentPage } from "./agent-page.ts";
 export * from "./status.ts";
 export * from "./storage.ts";
 export * from "./thread-card.ts";
+export * from "./thread-match.ts";
 export * from "./thread-menu.ts";
 export { readAceLink, type AceLink } from "./ace-link.ts";
 export * from "./thread-state.ts";
@@ -263,6 +267,7 @@ export {
   type RowAttention,
   type RowAttentionInput,
 } from "./row-attention.ts";
+export { rowIndicator, type RowIndicator } from "./row-indicator.ts";
 export {
   sanitizeUserText,
   stripAceOriginMarker,

@@ -69,6 +69,8 @@ export function harness(
     connection?: DaemonConnection;
     history?: RouterHistory;
     storage?: KeyValueStorage;
+    /** The window's own storage (session storage), which outlives a reload of this window. */
+    windowStorage?: KeyValueStorage;
     matchMedia?: (query: string) => MediaQueryList;
     /** The browser draws without graphics acceleration. */
     softwareRendering?: boolean;
@@ -177,6 +179,7 @@ export function harness(
                 client={client}
                 queryClient={options.queryClient ?? createQueryClient()}
                 storage={storage}
+                windowStorage={options.windowStorage}
                 history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
                 machines={machines}
               />

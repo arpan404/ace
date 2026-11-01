@@ -8,7 +8,7 @@ import { usePrPages } from "./lists.ts";
 import { useProjectChoice } from "./project-choice.ts";
 
 /**
- * The sidebar's GitHub button with what it knows: how many open pull requests of the project
+ * GitHub's place in the rail with what it knows: how many open pull requests of the project
  * last looked at wait on the person (a review asked of them, failing checks or conflicts on
  * their PR, an agent waiting), by the same next-step rule as the list, and how many inbox
  * notifications are unread. Both come from the lists' own first pages, cached and kept between

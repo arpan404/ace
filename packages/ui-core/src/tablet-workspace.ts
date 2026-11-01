@@ -54,7 +54,7 @@ const initial = ["changes", "files"] as const;
  * over the thread as a phone does. The panel's width is its `size`, kept between `min` and the
  * window less `keep`.
  */
-export const tabletPanelLimits: PanelLimits = { min: 320, keep: 440, overlayStrip: 0 };
+export const tabletPanelLimits: PanelLimits = { min: 320, keep: 440 };
 /** The panel's width until the person drags its edge. */
 export const tabletDefaultSize = 400;
 

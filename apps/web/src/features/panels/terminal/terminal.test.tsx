@@ -166,6 +166,7 @@ test("the panel's + opens a new tab's launcher beside the terminals", async () =
 test("hiding the side panel keeps every shell, and ⌘J returns to the same one", async () => {
   const { app, panel } = await openTerminal();
   await selectedTab(panel, "zsh");
+  // Docked, the panel's toggle ends its strip, in the top bar above it.
   await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
   expect(names(app)).toEqual(["tests", "zsh"]);

@@ -1,12 +1,12 @@
-import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
-import { useSidebar, useSidebarLoaded } from "@ace/client-react";
-import { settledTotal as settledCount } from "@ace/ui-core";
-import { Link } from "@tanstack/react-router";
+import { ChatsIcon, ClockCounterClockwiseIcon, NotePencilIcon } from "@phosphor-icons/react";
+import { useSidebarLoaded } from "@ace/client-react";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { Suspense } from "react";
-import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { PanelRowBody, panelRow, PanelTitleRow } from "@/components/ui/panel.tsx";
+import { PaletteButton } from "@/features/shell/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { useNewThreadEntry } from "@/features/projects/index.ts";
+import { useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useHeld } from "@/lib/held.ts";
@@ -15,12 +15,13 @@ import { useMachineEntries } from "@/lib/machine-threads.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
-import { ThreadsActions } from "./project-filter.tsx";
+import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useSidebarDevice } from "./device-filter-state.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
+import { usePanelRows } from "./use-panel-rows.ts";
 import {
   useOrganizer,
   useOrganizerState,
@@ -33,17 +34,18 @@ const StartedTitlePublisher = deferredComponent(() =>
 );
 
 /**
- * Home's list in the sidebar: one list of tasks across projects, pinned first, then in the order
- * of what is owed, with Snoozed and Settled folded away at the foot. The toolbar holds the project filter
- * (Add project lives in its menu) and New thread.
+ * The Threads panel, under the window's top bar (ADR 0107): its title row ("ace" and its filter
+ * caret, Search), a New thread row, then the list: Active, every unsettled thread across
+ * projects (pinned ones first, then what needs the person, then what is at work, then the rest),
+ * then Projects, each folding open in place with only its settled threads, quiet projects folded
+ * at the foot, and History below the list. Chats are the Chats panel's. Search (⌘K) opens the
+ * palette.
  */
 export function HomeSidebar() {
-  // Other machines' threads join the one flat list, each row marked with its machine.
+  // Other machines' threads join the list, each row marked with its machine.
   const host = useHostIdentity()?.hostId;
   const others = useOverlaidMachineEntries(useMachineEntries(host));
   const list = useHomeList(others);
-  // The daemon's count of settled threads, while it still holds some back.
-  const settledTotal = useSidebar(["homeWindow"], (reader) => settledCount(reader.homeWindow));
   const { project } = useOrganizerState();
   const device = useSidebarDevice();
   const deviceName = useMachines().find((machine) => machine.id === device)?.name;
@@ -52,39 +54,23 @@ export function HomeSidebar() {
   const loaded = useSidebarLoaded();
   // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
   const skeleton = useHeld(!loaded);
-  const empty = [list.pinned, list.active, list.recent, list.snoozed, list.settled].every(
-    (ids) => !ids.length,
-  );
+  const rows = usePanelRows({ list });
+  const { tree } = list;
+  // No thread at all: projects that hold none (Quiet projects) don't count.
+  const empty =
+    [list.pinned, list.listed, list.snoozed, list.settled].every((ids) => !ids.length) &&
+    !tree.projects.length;
   const directory = useProjectDirectory();
   const keys = useResolvedKeymap();
-  const entry = useNewThreadEntry();
-  const { only } = entry;
   return (
-    <>
-      <div className="@container/thread-filters flex h-9 shrink-0 items-center gap-0.5 px-2">
-        <ThreadsActions />
-        <span className="flex-1" />
-        <Tip label="New thread" shortcut="newThread">
-          <Link
-            to="/new"
-            {...(only ? { search: { project: only } } : {})}
-            aria-label="New thread"
-            className="relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
-            onClick={(event) => {
-              // Shift skips the question (the current project); several projects ask which.
-              if (event.shiftKey) {
-                event.preventDefault();
-                entry.here();
-              } else if (!only) {
-                event.preventDefault();
-                entry.start();
-              }
-            }}
-          >
-            <Icon icon={NotePencilIcon} />
-          </Link>
-        </Tip>
-      </div>
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <PanelTitleRow className="@container/thread-filters">
+        <span className="flex min-w-0 flex-1">
+          <ProjectFilter />
+        </span>
+        <PaletteButton />
+      </PanelTitleRow>
+      <NewThreadRow />
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
           <Suspense fallback={null}>
@@ -129,18 +115,97 @@ export function HomeSidebar() {
                   >
                     Show all devices
                   </button>
+                ) : directory.loaded && !directory.projects.length ? (
+                  <AddProjectAction />
                 ) : undefined
               }
             />
-            <ThreadList list={list} />
+            <ThreadList rows={unsentOnly} needsYou={list.needsYou} pinned={list.pinned} />
           </>
         ) : (
-          <ThreadList
-            list={list}
-            settledTotal={device && device !== host ? undefined : settledTotal}
-          />
+          <ThreadList rows={rows} needsYou={list.needsYou} pinned={list.pinned} />
         )}
       </nav>
-    </>
+      {loaded && <HistoryFoot count={list.settledTotal} />}
+    </div>
   );
 }
+
+/** With no project yet, the empty panel's way to add one. */
+function AddProjectAction() {
+  const projects = useProjectDialogs();
+  return (
+    <button
+      type="button"
+      className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
+      onClick={() => projects.open({ kind: "add", tab: "sources" })}
+      onPointerEnter={projects.preload}
+    >
+      Add project
+    </button>
+  );
+}
+
+/**
+ * The panel's first row: New thread, as a pencil and the words. With one project it opens New
+ * thread there; with several it asks which (Shift skips the question: the current project).
+ */
+function NewThreadRow() {
+  const entry = useNewThreadEntry();
+  const { only } = entry;
+  const here = useRouterState({ select: (state) => state.location.pathname === "/new" });
+  return (
+    <div className="shrink-0 px-2 pb-1">
+      <Tip label="New thread" shortcut="newThread">
+        <Link
+          to="/new"
+          {...(only ? { search: { project: only } } : {})}
+          aria-label="New thread"
+          aria-current={here ? "page" : undefined}
+          {...panelRow()}
+          onClick={(event) => {
+            if (event.shiftKey) {
+              event.preventDefault();
+              entry.here();
+            } else if (!only) {
+              event.preventDefault();
+              entry.start();
+            }
+          }}
+        >
+          <PanelRowBody icon={NotePencilIcon} title="New thread" />
+        </Link>
+      </Tip>
+    </div>
+  );
+}
+
+/** The quiet way to History at the panel's foot, with how many threads it holds. */
+function HistoryFoot(props: { count: number }) {
+  const here = useRouterState({ select: (state) => state.location.pathname === "/history" });
+  return (
+    <div className="shrink-0 px-2 pt-1 pb-2">
+      <Link
+        to="/history"
+        aria-current={here ? "page" : undefined}
+        {...panelRow(
+          "text-muted-foreground hover:text-foreground aria-[current=page]:text-foreground",
+        )}
+      >
+        <PanelRowBody
+          icon={ClockCounterClockwiseIcon}
+          title="History"
+          trailing={
+            props.count > 0 && (
+              <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+                {props.count}
+              </span>
+            )
+          }
+        />
+      </Link>
+    </div>
+  );
+}
+
+const unsentOnly = [{ kind: "unsent" as const }];

@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { logError, logFields } from "@ace/diagnostics";
-import { Command, HostId, MachineAgentAccess, MachineDescription, ThreadId } from "@ace/protocol";
+import {
+  Command,
+  CommandId,
+  DeviceId,
+  HostId,
+  MachineAgentAccess,
+  MachineDescription,
+  ThreadId,
+} from "@ace/protocol";
 import { redeemPairing } from "../client-access.ts";
 import { FleetLinks } from "../machines/fleet-links.ts";
 import { computerName } from "../computer-name.ts";
@@ -19,6 +27,7 @@ import { switchRevocation } from "../machines/grant-rules.ts";
 import { commandHost } from "../machines/command-host-shell.ts";
 import { MachineDirectory } from "../machines/directory.ts";
 import { MachineChildren } from "../machines/children.ts";
+import type { SettledChild } from "../machines/child-results.ts";
 import { RequestMirror } from "../machines/mirror.ts";
 import { MachineCaller } from "../machines/caller.ts";
 import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
@@ -221,6 +230,28 @@ export function startMachines(context: ServiceContext): void {
     },
     log: record("warn"),
   });
+  /**
+   * A remote child's result as a local child's: a receipt row in the parent, and the injected
+   * text registered as ace's so its echo folds into that row. A parent agent the engine no longer
+   * knows only loses the row: the result is still sent, so the parent is never left waiting.
+   */
+  const recordSettled = (parent: ThreadId, id: string, settled: SettledChild, text: string) => {
+    try {
+      services.engine?.delegationSettled(
+        parent,
+        settled.parentAgentId,
+        id,
+        [settled.outcome],
+        "ace-input",
+        text,
+      );
+    } catch (error) {
+      record("warn")("Remote child result sent without its receipt row", {
+        id: settled.outcome.threadId,
+        error: String(error),
+      });
+    }
+  };
   const children = new MachineChildren({
     store,
     engine,
@@ -238,21 +269,36 @@ export function startMachines(context: ServiceContext): void {
     mirror,
     label: (machine) => directory.label(machine),
     host: (machine) => directory.host(machine),
-    deliver: (parentThreadId, key, text) => {
+    deliver: (parentThreadId, key, body, settled) => {
       const parent = store.getThread(parentThreadId);
       if (!parent || parent.deletedAt !== undefined) return;
       // Not ready yet is a failure the poll retries, never a delivery.
       const delegations = services.agentControl?.delegations;
       if (!delegations) throw new Error("Agent control is not ready");
-      const result = delegations.command(`machine-result:${key}`, {
-        type: "thread.send",
-        threadId: parentThreadId,
-        input: [{ type: "text", text }],
-        delivery: "queue",
-        trigger: "subagent_result",
-        origin: { kind: "subagent_result" },
+      const id = `machine-result:${key}`;
+      const text = `[ace-origin:delegation.${settled ? "settled" : "message_notice"}:${id}]\n${body}`;
+      // A result is recorded as a local child's is: one receipt row in the parent's transcript,
+      // with the injected text kept for the provider only. The receipt, the send and its
+      // acceptance commit together: a parent that refuses the send (stopped, say) keeps no
+      // receipt and no cached refusal, so the next poll tries it again.
+      store.atomic(() => {
+        // A refusal saved before refusals rolled back (a parent stopped then) is not final:
+        // left in place, its cached answer would stop this result for good.
+        store.releaseRefusedCommand(CommandId.parse(id), DeviceId.parse("ace-agent"));
+        if (settled) recordSettled(parentThreadId, id, settled, text);
+        const result = delegations.command(id, {
+          type: "thread.send",
+          threadId: parentThreadId,
+          input: [{ type: "text", text }],
+          delivery: "queue",
+          trigger: "subagent_result",
+          origin: {
+            kind: "subagent_result",
+            ...(settled ? { threadIds: [settled.outcome.threadId] } : {}),
+          },
+        });
+        if (!result.ok) throw new Error(result.error ?? "Result delivery refused");
       });
-      if (!result.ok) throw new Error(result.error ?? "Result delivery refused");
     },
     waiting: (id) => services.agentControl?.delegations.monitor.watching(id) ?? false,
     isDescendant: (child, ancestor) =>

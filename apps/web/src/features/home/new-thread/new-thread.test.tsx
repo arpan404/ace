@@ -1,5 +1,5 @@
 import { openEffortControl, chooseEffort, chooseSpeed } from "@/test/model-control.ts";
-import { openProfileView } from "@/test/navigation.ts";
+import { openProfileView, openThreads } from "@/test/navigation.ts";
 import { workbench } from "@ace/fake-daemon";
 import { CatalogModel } from "@ace/protocol";
 import { configure, act, cleanup, screen, waitFor, within } from "@testing-library/react";
@@ -276,7 +276,7 @@ test("⇧⌘N starts in the project Home is narrowed to, before the last one use
 
   await openProfileView("Automations");
   await screen.findByRole("heading", { level: 1, name: "Automations" });
-  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await openThreads();
   await screen.findByRole("button", { name: "Project: relay" });
 });
 

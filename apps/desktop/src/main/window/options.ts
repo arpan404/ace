@@ -4,8 +4,8 @@ import { minimumSize, type Rectangle } from "./bounds.ts";
 /**
  * The page paints the whole window: the sidebar and reading column are opaque and only floating
  * layers are glass (docs/design/visual-language.md), so no platform material sits behind it.
- * - macOS: hidden inset title bar, traffic lights over the top of the sidebar and the sidebar's
- *   top row (16 px from the top and left).
+ * - macOS: hidden inset title bar, traffic lights at the left of the window's top bar (16 px
+ *   from the left, on its centre line).
  * - Windows 11: hidden title bar with native caption buttons overlaid.
  * - Linux: the system frame.
  */
@@ -49,7 +49,7 @@ export function windowOptions(options: {
     return {
       ...base,
       titleBarStyle: "hiddenInset",
-      // Centred on the 50 px header's midline (the lights are about 14 px tall).
+      // Centred on the 44 px top bar's midline (the lights are about 14 px tall).
       trafficLightPosition: { x: 16, y: 18 },
     };
   if (options.platform === "win32")
@@ -107,34 +107,27 @@ export function captionSymbolColor(background: string, osDark = false): string {
 }
 
 /**
- * macOS: the traffic lights span x 16–68 at the top of the window, over the start of the sidebar's
- * top row, which drags the window. Every first control starts at x ≥ 80, 12 px clear of them: the
- * sidebar's wordmark after them, the header's back, forward and sidebar toggle (`header-nav`)
- * after them with the sidebar hidden (the full-view strip, the side panel's `header-nav`, 4 px
- * further in to make up its narrower padding), and on a narrow window (the sidebar in a sheet)
- * the header clears them from the window's edge. With the sidebar shown, the header starts past
- * it and needs no room.
+ * macOS: the traffic lights span x 16–68 at the top of the window, at the left of its one top
+ * bar. Every first control starts at x ≥ 80, 12 px clear of them: back, forward and the sidebar
+ * toggle in the sidebar's top row (`sidebar-top`) while it shows, else at the header's far left
+ * (`header-nav`, after its own 12 px padding), whether the sidebar is hidden or in a sheet.
  * Full screen hides the lights, so none of this applies there; the preload marks
  * `<html data-fullscreen>`.
  */
 export const macTitleBarCss = `
 :root:not([data-fullscreen]) [data-slot="sidebar-top"] { padding-left: 80px; }
 :root:not([data-fullscreen]) [data-sidebar="hidden"] [data-slot="header-nav"] { margin-left: 68px; }
-:root:not([data-fullscreen]) [data-sidebar="hidden"] [data-panel] [data-slot="header-nav"] { margin-left: 72px; }
 :root:not([data-fullscreen]) [data-sidebar="sheet"] [data-slot="header-nav"] { margin-left: 68px; }
 `;
 
 /**
  * Windows: the caption buttons (`titleBarOverlay`) cover the window's top-right corner, the
  * width the `titlebar-area-*` env values leave over. The screen header keeps its controls clear
- * of them while it reaches the window's right edge; beside a side panel docked at the right
- * (`data-docked="right"`, set on Windows only), the panel's own strip makes that room.
+ * of them while it reaches the window's right edge; beside a docked side panel
+ * (`data-beside-panel`) it stops at the panel, whose strip clears them itself.
  */
 export const windowsTitleBarCss = `
-:root header:has(> [data-slot="header-nav"]) {
+:root :not([data-beside-panel]) > header[data-slot="app-header"] {
   padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 10px);
-}
-:root:has([data-panel][data-docked="right"]) header:has(> [data-slot="header-nav"]) {
-  padding-right: 10px;
 }
 `;

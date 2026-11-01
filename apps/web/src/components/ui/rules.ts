@@ -8,12 +8,20 @@
  *   panels never take one: their sections part by spacing and a small muted label.
  * - `listDivider`: hairlines between the rows of one list or card.
  * - `controlDivider`: a short vertical rule between two control groups in a toolbar.
+ * - `boundaryMarker`: a short vertical rule in the top bar where two of the app's parts meet
+ *   (sidebar and column, column and side panel), on the edge the canvas's hairline runs down.
  *
  * Sidebar thread rows never take a rule: they separate by their hover and selected fills.
  */
 export const toolbarEdge = "shadow-[inset_0_-1px_0_var(--border)]";
 export const sectionRule = "border-t border-border";
 export const listDivider = "divide-y divide-border-soft";
+/**
+ * Placed at the left edge of the part that starts there (its parent positioned), 20px tall and
+ * centred. It never takes a pointer, so the bar still drags the window under it.
+ */
+export const boundaryMarker =
+  "pointer-events-none absolute top-1/2 left-0 h-5 w-px -translate-y-1/2 bg-border";
 export const controlDivider = "mx-1 h-4 w-px shrink-0 bg-border";
 /** `controlDivider` turned on its side, between the groups of a vertical rail of controls. */
 export const railDivider = "my-1 h-px w-4 shrink-0 bg-border";

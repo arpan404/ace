@@ -377,6 +377,15 @@
         "threads.forkOnSwitch": {
           "type": "boolean"
         },
+        "threads.keepSettledFor": {
+          "enum": [
+            "0d",
+            "1d",
+            "3d",
+            "7d"
+          ],
+          "type": "string"
+        },
         "threads.limitPolicy": {
           "enum": [
             "manual",

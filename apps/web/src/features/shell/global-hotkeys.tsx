@@ -36,6 +36,7 @@ export function GlobalHotkeys(props: {
   // A focused browser panel handles ⌘R first and reloads its own page instead.
   useHotkey(keymap.reloadApp.keys, () => reloadApp());
   useHotkey(keymap.goHome.keys, () => void navigate({ to: "/" }));
+  useHotkey(keymap.goChats.keys, () => void navigate({ to: "/chats" }));
   useHotkey(keymap.goAutomations.keys, () => void navigate({ to: "/automations" }));
   useHotkey(keymap.goSkills.keys, () => void navigate({ to: "/skills" }));
   useHotkey(keymap.goUsage.keys, () => void navigate({ to: "/usage" }));

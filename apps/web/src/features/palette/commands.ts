@@ -53,6 +53,7 @@ type Destination =
   | "/new"
   | "/usage"
   | "/archived"
+  | "/history"
   | "/settings";
 
 /** The order groups show in with an empty query: what's at hand first, the long lists after. */
@@ -191,6 +192,7 @@ export function usePaletteGroups(
             run: go("/usage"),
             keys: keymap.goUsage.keys,
           },
+          { id: "go-history", label: "History", icon: "view", run: go("/history") },
           { id: "go-archived", label: "Archived threads", icon: "view", run: go("/archived") },
           {
             id: "go-settings",

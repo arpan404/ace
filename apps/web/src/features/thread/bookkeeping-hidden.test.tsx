@@ -1,6 +1,6 @@
 import { facts, type Scenario } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
-import { act, configure, screen, within } from "@testing-library/react";
+import { act, configure, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
@@ -88,8 +88,10 @@ test("a thread whose only open work stands for a subagent waits on 1 subagent, i
 
 test("ace's own bookkeeping holds the thread open but no surface lists or names it", async () => {
   const { row } = await turnEndedLeaving([bookkeeping]);
-  // Something still holds the thread: never Done, yet nothing is counted or named.
-  expect(await within(row).findByText("Background", { exact: true })).toBeTruthy();
+  // Something still holds the thread: the quiet background ring, never Done, nothing named.
+  await waitFor(() =>
+    expect(row.querySelector("[data-indicator]")?.getAttribute("data-tone")).toBe("background"),
+  );
   expect(within(row).queryByText("Done", { exact: true })).toBeNull();
   expect(screen.queryByRole("status", { name: /^Running \d|^Waiting for/ })).toBeNull();
   expect(screen.queryByText(/exceeded its limit/)).toBeNull();

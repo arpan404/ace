@@ -1,3 +1,4 @@
+import { openThreads } from "@/test/navigation.ts";
 import { longHistory, replayCursor, teamAtLimit, workbench } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -61,7 +62,7 @@ test("a renamed default account immediately names the new-thread composer and pi
   await userEvent.hover(renamed);
   await userEvent.click(within(renamed).getByRole("button", { name: "Make default" }));
   await within(renamed).findByText("Default");
-  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await openThreads();
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio Work/ });
   // The chip's account badge is decorative; the provider mark names the account (6ce23181d).
   expect(within(chip).getByRole("img", { name: "Claude Code · Studio Work" })).toBeTruthy();

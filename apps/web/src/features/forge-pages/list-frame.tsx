@@ -1,7 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { SearchField } from "@/components/search-field.tsx";
-import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useDebouncedValue } from "@/lib/debounced.ts";
@@ -43,10 +41,11 @@ function SearchBox(props: { label: string; value: string; onValue(value: string)
 }
 
 /**
- * A list page's frame: one pinned bar over the rows, with the Inbox / Pull requests / Issues
- * switch on the left and, on the right, search, the list's menus (state, filters) and its one
- * action. Every band shares one gutter (`--forge-gutter`), so the switch and the rows start on
- * the same edge. Nothing changes size while scrolling, so the rows never jump.
+ * A list page's frame: one pinned bar over the rows, with search and the list's menus (state,
+ * filters) on the left and its one action on the right. The page's title is the top bar's, and
+ * GitHub's panel moves between Inbox, Pull requests and Issues, so the bar carries no switch of
+ * its own. Every band shares one gutter (`--forge-gutter`), so the bar and the rows start on the
+ * same edge. Nothing changes size while scrolling, so the rows never jump.
  */
 export function ListFrame(props: {
   kind: "inbox" | "pulls" | "issues";
@@ -64,7 +63,6 @@ export function ListFrame(props: {
   strip?: ReactNode;
   children: ReactNode;
 }) {
-  const navigate = useNavigate();
   const { ref, onScroll } = useListScroll(props.kind, props.address, props.ready);
   const header = useSteadyHeader(ref);
   useRememberList(props.kind);
@@ -85,27 +83,6 @@ export function ListFrame(props: {
         className={cn("sticky top-0 z-[2] bg-background px-(--forge-gutter)", toolbarEdge)}
       >
         <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 py-2.5">
-          <Tabs
-            value={props.kind}
-            onValueChange={(value) =>
-              void navigate({
-                to: value === "issues" ? "/issues" : value === "inbox" ? "/inbox" : "/pulls",
-              })
-            }
-          >
-            <TabsList aria-label="Inbox, pull requests and issues" className="-ml-2.5 gap-0.5">
-              <TabsTab value="inbox" className={titleTab}>
-                Inbox
-              </TabsTab>
-              <TabsTab value="pulls" className={titleTab}>
-                Pull requests
-              </TabsTab>
-              <TabsTab value="issues" className={titleTab}>
-                Issues
-              </TabsTab>
-            </TabsList>
-          </Tabs>
-          <span className="flex-1" />
           <div
             role="toolbar"
             aria-label={filtersLabel[props.kind]}
@@ -116,6 +93,7 @@ export function ListFrame(props: {
             )}
             {props.menus}
           </div>
+          <span className="flex-1" />
           {props.actions && <div className="ml-1.5 flex items-center">{props.actions}</div>}
         </div>
         {props.strip}
@@ -149,7 +127,3 @@ function useSteadyHeader(scroller: { current: HTMLDivElement | null }) {
 
 /** The page's one gutter: 16px in a narrow column, 32px beside it. */
 export const forgeGutter = "[--forge-gutter:1rem] sm:[--forge-gutter:2rem]";
-
-/** Inbox / Pull requests / Issues, the current one on the flat selected fill. */
-const titleTab =
-  "h-7 rounded-md px-2.5 text-ui font-medium text-muted-foreground hover:not-data-active:bg-hover hover:text-foreground data-active:bg-active data-active:text-foreground";

@@ -1,10 +1,5 @@
 import { ProjectMark } from "@/components/project-mark.tsx";
-import {
-  FolderPlusIcon,
-  CaretDownIcon,
-  FolderSimpleIcon,
-  DotsThreeIcon,
-} from "@phosphor-icons/react";
+import { CaretDownIcon, FolderSimpleIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { projectBadge, projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -31,45 +26,16 @@ import { DeviceFilter } from "./device-filter.tsx";
 import { useSidebarDevice } from "./device-filter-state.ts";
 import { useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
-import {
-  useProjectDialogs,
-  AddProjectItem,
-  ManageProjectItems,
-} from "@/features/projects/index.ts";
-
-/**
- * The task list's project filter, which ends with Add project. With no project yet there is
- * nothing to filter, so Add project stands in its place.
- */
-export function ThreadsActions() {
-  const directory = useProjectDirectory();
-  const projects = useProjectDialogs();
-  const machines = useMachines();
-  if (directory.loaded && directory.projects.length === 0 && machines.length < 2) {
-    return (
-      <button
-        type="button"
-        className="inline-flex h-8 items-center gap-1.5 rounded-sm px-2 text-sm font-medium text-muted-foreground focus-ring hover:bg-sidebar-accent hover:text-foreground"
-        onClick={() => projects.open({ kind: "add", tab: "sources" })}
-        onPointerEnter={projects.preload}
-      >
-        <Icon icon={FolderPlusIcon} size={14} />
-        Add project
-      </button>
-    );
-  }
-  return (
-    <span className="flex min-w-0 items-center gap-0.5">
-      <ProjectFilter />
-    </span>
-  );
-}
+import { AddProjectItem, ManageProjectItems } from "@/features/projects/index.ts";
 
 const all = "\u0000all";
 
 /**
- * "All projects ▾" narrows Home to one project and offers actions for each project. Every project the daemon
- * lists is here, with or without threads, beside any project only threads still mention.
+ * The Threads panel's title: "ace" with a small caret, which opens the project and device filter
+ * (it narrows the panel to one project or device, offers actions for each project and ends with
+ * Add project). While a project filter is on, its name takes the title's place; a device filter
+ * adds the device's mark. Every project the daemon lists is here, with or without threads,
+ * beside any project only threads still mention.
  */
 export function ProjectFilter() {
   const organizer = useOrganizer();
@@ -96,16 +62,16 @@ export function ProjectFilter() {
 
   return (
     <Menu>
-      <Tip label={device?.name ?? label} disabled={!device}>
+      <Tip label={device ? `${label} on ${device.name}` : "Filter threads"}>
         <MenuTrigger
           aria-label={`Project filter: ${label}${device ? `, Device: ${device.name}` : ""}`}
-          className="group/filter inline-flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent"
+          className="group/filter inline-flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 text-lg font-semibold tracking-title text-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-hover aria-expanded:bg-active"
         >
-          <span className="max-w-35 truncate font-medium text-foreground">{label}</span>
+          <span className="min-w-0 truncate">{project !== null ? label : "ace"}</span>
           {device && (
             <span
               aria-hidden
-              className="ml-1 inline-flex shrink-0 items-center gap-1.5 text-subtle-foreground transition-colors duration-(--motion-fast) group-hover/filter:text-muted-foreground group-aria-expanded/filter:text-muted-foreground"
+              className="inline-flex shrink-0 items-center gap-1.5 text-sm font-normal tracking-normal text-subtle-foreground"
             >
               <MachineMark icon={device.icon} primary={device.primary} />
               <span data-selected-device-name className="hidden @min-[18rem]/thread-filters:inline">
@@ -113,14 +79,10 @@ export function ProjectFilter() {
               </span>
             </span>
           )}
-          <CaretDownIcon
-            aria-hidden
-            size={12}
-            className="shrink-0 text-subtle-foreground transition-colors duration-(--motion-fast) group-hover/filter:text-muted-foreground group-aria-expanded/filter:text-muted-foreground"
-          />
+          <CaretDownIcon aria-hidden size={12} className="shrink-0 text-muted-foreground" />
         </MenuTrigger>
       </Tip>
-      <MenuContent align="start" className="max-h-[60vh] min-w-64 overflow-y-auto">
+      <MenuContent align="end" className="max-h-[60vh] min-w-64 overflow-y-auto">
         <DeviceFilter />
         <MenuRadioGroup
           value={project ?? all}

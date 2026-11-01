@@ -20,7 +20,7 @@ const allLabel = (
   </span>
 );
 
-/** Filter the flat task list by device, only while there is a choice of devices. */
+/** Filter the Threads panel by device, as a submenu, only while there is a choice of devices. */
 export function DeviceFilter() {
   const machines = useMachines();
   const device = useSidebarDevice();
@@ -39,29 +39,35 @@ export function DeviceFilter() {
           )}
         </MenuSubTrigger>
         <MenuContent side="right" align="start" className="max-h-[60vh] overflow-y-auto">
-          <MenuRadioGroup
-            value={device ?? all}
-            onValueChange={(value) =>
-              organizer.setDevice(typeof value === "string" && value !== all ? value : undefined)
-            }
-          >
-            <MenuRadioItem value={all} closeOnClick>
-              {allLabel}
-            </MenuRadioItem>
-            {machines.map((machine) => (
-              <MenuRadioItem
-                key={machine.id}
-                value={machine.id}
-                aria-label={machine.name}
-                closeOnClick
-              >
-                <MachineLabel name={machine.name} icon={machine.icon} primary={machine.primary} />
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
+          <DeviceItems device={device} onDevice={(next) => organizer.setDevice(next)} />
         </MenuContent>
       </MenuSub>
       <MenuSeparator />
     </>
+  );
+}
+
+/** All devices, then each device, as radio items: the device filters' one list. */
+export function DeviceItems(props: {
+  device: string | undefined;
+  onDevice(device: string | undefined): void;
+}) {
+  const machines = useMachines();
+  return (
+    <MenuRadioGroup
+      value={props.device ?? all}
+      onValueChange={(value) =>
+        props.onDevice(typeof value === "string" && value !== all ? value : undefined)
+      }
+    >
+      <MenuRadioItem value={all} closeOnClick>
+        {allLabel}
+      </MenuRadioItem>
+      {machines.map((machine) => (
+        <MenuRadioItem key={machine.id} value={machine.id} aria-label={machine.name} closeOnClick>
+          <MachineLabel name={machine.name} icon={machine.icon} primary={machine.primary} />
+        </MenuRadioItem>
+      ))}
+    </MenuRadioGroup>
   );
 }

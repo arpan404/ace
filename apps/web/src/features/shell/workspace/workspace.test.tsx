@@ -72,11 +72,10 @@ test("a thread's tabs stay with it and come back on return", async () => {
   expect(selected(await sidePanel()).textContent).toBe(web);
 });
 
-test("keyboard Back and Forward walk thread history, with the arrows in the header while the sidebar shows", async () => {
+test("keyboard Back and Forward walk thread history, with the arrows in the top bar while the sidebar shows", async () => {
   await openColdStart();
-  const header = screen.getByRole("banner");
-  expect(within(header).getByRole("button", { name: "Back" })).toBeTruthy();
-  expect(within(header).getByRole("button", { name: "Forward" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Forward" })).toBeTruthy();
   const threads = screen.getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /Migrate settings schema/ }));
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
@@ -201,6 +200,89 @@ test("hiding the side panel keeps its tabs, and the header then keeps only its t
   expect(selected(back).textContent).toBe(web);
 });
 
+/** Whether `nodes` come in this order in the document. */
+const inOrder = (nodes: HTMLElement[]) =>
+  nodes.every(
+    (node, at) =>
+      at === 0 ||
+      !!(nodes[at - 1]!.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING),
+  );
+
+test("docked open, the panel's strip is the top bar above it: tabs, +, full view, then the toggle", async () => {
+  await openColdStart();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await sidePanel();
+  // The column's part of the bar keeps the title and its own tools; the panel's are above it.
+  const header = within(screen.getByRole("banner"));
+  expect(header.getByRole("heading", { level: 1, name: coldStart })).toBeTruthy();
+  expect(header.queryByRole("button", { name: "Right panel" })).toBeNull();
+  expect(header.queryByRole("tab")).toBeNull();
+  // One strip, no second row: the tabs, +, full view and the toggle at the far right.
+  expect(within(panel).getAllByRole("tablist")).toHaveLength(1);
+  const tabs = within(panel).getByRole("tablist", { name: "Thread panel tabs" });
+  expect(within(tabs).getByRole("tab", { name: /Summary/, selected: true })).toBeTruthy();
+  const toggle = within(panel).getByRole("button", { name: "Right panel" });
+  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  expect(
+    inOrder([
+      tabs,
+      within(panel).getByRole("button", { name: "New tab" }),
+      within(panel).getByRole("button", { name: "Full view" }),
+      toggle,
+    ]),
+  ).toBe(true);
+});
+
+test("resizing the docked panel moves the top bar's split with its edge", async () => {
+  await openColdStart();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await sidePanel();
+  const handle = within(panel).getByRole("separator", { name: "Resize thread panel" });
+  handle.focus();
+  await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
+  const width = Number(handle.getAttribute("aria-valuenow"));
+  // The strip is the panel's own top row, so its left edge is the panel's at every width.
+  expect(panel.style.width).toBe(`${width}px`);
+  expect(within(panel).getByRole("tablist", { name: "Thread panel tabs" })).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "Right panel" })).toBeTruthy();
+});
+
+/** The top bar's short rules where two of the app's parts meet. */
+const boundaries = () =>
+  [...document.querySelectorAll<HTMLElement>("[data-boundary]")].map(
+    (marker) => marker.dataset.boundary,
+  );
+
+test("the top bar marks where the sidebar, the column and a docked panel meet, and only while both sides are there", async () => {
+  await openColdStart();
+  expect(boundaries()).toEqual(["sidebar"]);
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await sidePanel();
+  expect(boundaries()).toEqual(["sidebar", "panel"]);
+  // The panel's marker heads its strip, at the panel's edge.
+  expect(panel.querySelector("[data-boundary]")?.getAttribute("data-boundary")).toBe("panel");
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  expect(boundaries()).toEqual(["sidebar"]);
+
+  await userEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  await waitFor(() => expect(boundaries()).toEqual([]));
+});
+
+test("closing the docked panel from its strip takes the strip away and leaves focus on the header's toggle", async () => {
+  await openColdStart();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await sidePanel();
+  within(panel).getByRole("button", { name: "Right panel" }).focus();
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  expect(screen.queryByRole("tablist", { name: "Thread panel tabs" })).toBeNull();
+  const toggle = within(screen.getByRole("banner")).getByRole("button", { name: "Right panel" });
+  expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  await waitFor(() => expect(document.activeElement).toBe(toggle));
+});
+
 test("from the keyboard alone: Shift+F10 opens a tab's menu, which can open it in full view", async () => {
   await openColdStart();
   await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
@@ -237,13 +319,19 @@ test("full view gives the panel the work area; the way back restores the convers
   const panel = await sidePanel();
   await userEvent.click(within(panel).getByRole("button", { name: "Full view" }));
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
-  // The header's navigation moves into the panel's strip.
-  expect(within(panel).getByRole("button", { name: "Back" })).toBeTruthy();
-  expect(within(panel).getByRole("button", { name: "Hide sidebar" })).toBeTruthy();
+  // The panel's strip takes the whole top bar: the column's header steps aside, and the strip
+  // ends with the panel's toggle.
+  expect(screen.queryByRole("banner")).toBeNull();
+  expect(within(panel).getByRole("button", { name: "Right panel" })).toBeTruthy();
+  // Back and forward stay in the sidebar's top row while it shows, and lead the strip once not.
+  expect(within(panel).queryByRole("button", { name: "Back" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  expect(await within(panel).findByRole("button", { name: "Back" })).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("button", { name: coldStart }));
   expect(await screen.findByRole("feed", { name: "Transcript" })).toBeTruthy();
   expect(within(panel).getByRole("button", { name: "Full view" })).toBeTruthy();
+  expect(screen.getByRole("banner")).toBeTruthy();
 });
 
 test("with terminals set to open in the side panel, ⌘J shows the thread's terminal as its tab, and the panel's width is kept across a reload", async () => {

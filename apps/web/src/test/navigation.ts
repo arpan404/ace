@@ -1,18 +1,21 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-/** Open a profile view, returning from a section and opening the phone drawer when needed. */
+/** Open a place from the sidebar's rail, opening the phone's sidebar sheet first when needed. */
 export async function openProfileView(name: "Automations" | "Skills") {
-  const back = screen.queryByRole("link", { name: "Back to app" });
-  if (back) {
-    await userEvent.click(back);
-    await screen.findByRole("heading", { level: 1, name: "New thread" });
+  if (!screen.queryByRole("navigation", { name: "App" })) {
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^(Back to threads|Show sidebar)$/ }),
+    );
   }
-  if (!screen.queryByRole("button", { name: /, account/ })) {
-    await userEvent.click(await screen.findByRole("button", { name: "Back to threads" }));
-  }
-  await openProfileMenu();
-  await userEvent.click(await screen.findByRole("menuitem", { name }));
+  const rail = await screen.findByRole("navigation", { name: "App" });
+  await userEvent.click(within(rail).getByRole("link", { name }));
+}
+
+/** Go back to Threads from the sidebar's rail: the thread (or New thread) the person left. */
+export async function openThreads() {
+  const rail = await screen.findByRole("navigation", { name: "App" });
+  await userEvent.click(within(rail).getByRole("link", { name: /^Threads/ }));
 }
 
 /** Wait for the popup's entrance before trying to select an item. */

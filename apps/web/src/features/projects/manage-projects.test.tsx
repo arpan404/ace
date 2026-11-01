@@ -93,11 +93,10 @@ test("removing a project keeps its files, deletes its threads and stops listing 
   expect(remove.dataset.variant).toBe("danger");
   await userEvent.click(remove);
 
-  // With the last project gone, Add project stands in for the project filter.
+  // With the last project gone, the empty panel offers Add project.
   await within(await screen.findByRole("complementary", { name: "Threads" })).findByRole("button", {
     name: "Add project",
   });
-  expect(screen.queryByRole("button", { name: "Project filter: All projects" })).toBeNull();
   expect(listed(made)).not.toContain("docs");
 });
 

@@ -1,17 +1,29 @@
 import type { SidebarReader } from "@ace/client";
 import { arrayEqual, useSidebar, type SidebarKey } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useNow } from "@/lib/time.ts";
 import {
+  activityOf,
   archivedOrder,
   arrange,
+  homeTree,
+  isDraft,
+  isRemoved,
+  isSettled,
   projectCounts,
+  standingReader,
+  threadMatches,
+  type Arrangement,
   type HomeSort,
+  type HomeTree,
   type ProjectCount,
+  type Standing,
 } from "@ace/ui-core";
+import { useModelCatalog } from "@/lib/model-catalog.ts";
+import { useIsChat, useIsChatThread, useProjectDirectory, useProjectName } from "@/lib/projects.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
-import { useOrganizeOverlay, useOrganizerState } from "@/features/organize/index.ts";
+import { useOrganizeOverlay, useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 import { machineRow } from "@/lib/machine-threads.ts";
@@ -24,26 +36,33 @@ export function useHomeSort(): HomeSort {
 }
 
 /**
- * Home's threads: pinned first in their own order, then the work in hand in Home order, then
- * Recent (threads at rest), Settled apart. Sorted by creation or by hand, every thread below
- * Pinned is in Recent.
+ * Home's threads: pinned ones in their own order, every other open thread in Home order,
+ * Snoozed and Settled apart, and the Threads panel's tree over them (`homeTree`): Active on
+ * top, and each project's settled threads below.
  */
 export interface HomeList {
   pinned: string[];
-  active: string[];
-  recent: string[];
+  /** Open threads below Pinned, in Home order. */
+  listed: string[];
   snoozed: string[];
+  /** Settled threads at rest that are loaded, most recent activity first. */
   settled: string[];
+  /** Settled threads in all, loaded or not: what History holds. */
+  settledTotal: number;
   /** The listed threads that need you, which may rise while the list otherwise holds still. */
   needsYou: string[];
+  tree: HomeTree;
 }
+const syncing = (): Standing => ({ level: "syncing", done: false });
+const noTree: HomeTree = { active: [], projects: [], quiet: [], order: [], settled: [] };
 const empty: HomeList = {
   pinned: [],
-  active: [],
-  recent: [],
+  listed: [],
   snoozed: [],
   settled: [],
+  settledTotal: 0,
   needsYou: [],
+  tree: noTree,
 };
 const noProjects: ProjectCount[] = [];
 const noOthers: readonly ThreadListEntry[] = [];
@@ -55,7 +74,7 @@ const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
   });
 
 /** The list's entries as this window shows them, with organize actions not yet confirmed. */
-function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
+export function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
   const overlay = useOrganizeOverlay();
   const pending = usePendingActions();
   return useCallback(
@@ -70,26 +89,82 @@ function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
 /** Keys for every entry, so a selection over the whole list sees each status change. */
 // `threads` changes with any entry, so one key covers the whole list at any size.
 const everyEntry: readonly SidebarKey[] = ["ids", "threads", "window", "homeWindow", "unconfirmed"];
-function useEveryEntryKey(): readonly SidebarKey[] {
+export function useEveryEntryKey(): readonly SidebarKey[] {
   return everyEntry;
 }
 
+const treeEqual = (a: HomeTree, b: HomeTree) =>
+  arrayEqual(a.active, b.active) &&
+  arrayEqual(a.order, b.order) &&
+  arrayEqual(a.quiet, b.quiet) &&
+  arrayEqual(a.settled, b.settled) &&
+  a.projects.length === b.projects.length &&
+  a.projects.every((place, i) => {
+    const other = b.projects[i];
+    return (
+      other !== undefined &&
+      place.id === other.id &&
+      place.active === other.active &&
+      place.held === other.held &&
+      arrayEqual(place.settled, other.settled)
+    );
+  });
+
 const listEqual = (a: HomeList, b: HomeList) =>
   arrayEqual(a.pinned, b.pinned) &&
-  arrayEqual(a.active, b.active) &&
-  arrayEqual(a.recent, b.recent) &&
+  arrayEqual(a.listed, b.listed) &&
   arrayEqual(a.snoozed, b.snoozed) &&
   arrayEqual(a.settled, b.settled) &&
-  arrayEqual(a.needsYou, b.needsYou);
+  a.settledTotal === b.settledTotal &&
+  arrayEqual(a.needsYou, b.needsYou) &&
+  treeEqual(a.tree, b.tree);
+
+/** Each entry's standing on this clock (`standingReader`): a new catalog, baseline or minute starts over. */
+export function useStandingOf(now: number): (entry: ThreadListEntry) => Standing {
+  const models = useModelCatalog();
+  const { baseline } = useOrganizer().getState();
+  return useMemo(() => standingReader({ baseline, now, models }), [models, baseline, now]);
+}
 
 /**
- * Pinned threads in the person's order, then Home order (requests, working, then the rest,
- * most recent first in each; settled apart), across every project the filter lets through.
- * Only ids are selected, so a status change re-renders its own row and moves rows only when the
- * order changes. `others` are other machines' threads under their machine row ids
- * (`useMachineEntries`), ordered in the same flat list (ADR 0102).
+ * Settled threads per project the daemon still holds back: its count of a project's threads
+ * less the ones loaded that it doesn't page (every open thread is loaded). Undefined once
+ * every settled thread is loaded.
  */
-export function useHomeList(others: readonly ThreadListEntry[] = noOthers): HomeList {
+function settledCounts(
+  reader: SidebarReader,
+  entries: readonly ThreadListEntry[],
+  project: string | null,
+  isChat: (project: string) => boolean,
+): Map<string, number> | undefined {
+  const window = reader.homeWindow;
+  if (!window?.before || window !== reader.window) return undefined;
+  const live = new Map<string, number>();
+  for (const entry of entries) {
+    if (isRemoved(entry) || isDraft(entry)) continue;
+    // The daemon pages settled threads that aren't pinned; every other one it sends at once.
+    if (isSettled(entry) && entry.pinned !== true) continue;
+    live.set(entry.workspaceId, (live.get(entry.workspaceId) ?? 0) + 1);
+  }
+  const counts = new Map<string, number>();
+  for (const count of window.counts) {
+    if (project !== null && count.id !== project) continue;
+    // A chat's project is the Chats panel's, never a quiet project here.
+    if (isChat(count.id)) continue;
+    counts.set(count.id, Math.max(0, count.threads - (live.get(count.id) ?? 0)));
+  }
+  return counts;
+}
+
+/**
+ * Home order (`arrange`) across every project the filter lets through, and the Threads panel's
+ * tree over it. Chats (ADR 0099) are the Chats panel's: they stay out of the tree and History,
+ * as the Chats panel holds its own Active chats. `query` narrows it to the threads whose
+ * title, project, branch or pull request match. Only ids are selected, so a status change re-renders its own row and moves rows only
+ * when the order changes. `others` are other machines' threads under their machine row ids
+ * (`useMachineEntries`), ordered in the same list (ADR 0102).
+ */
+export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query = ""): HomeList {
   const device = useSidebarDevice();
   const ownDevice = usePrimaryMachine().id;
   const keys = useEveryEntryKey();
@@ -97,34 +172,128 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers): Home
   const sortBy = useHomeSort();
   const now = useNow();
   const read = useEntries();
+  const standingOf = useStandingOf(now);
+  const projectName = useProjectName();
+  const directory = useProjectDirectory();
+  const isChatThread = useIsChatThread();
+  const isChatProject = useIsChat();
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
       const own = read(reader);
       const all = others.length ? [...own, ...others] : own;
-      const entries = device
+      const onDevice = device
         ? all.filter((entry) => (machineRow(entry.id)?.hostId ?? ownDevice) === device)
         : all;
-      const { pinned, active, recent, snoozed, settled } = arrange(
-        entries,
-        { ...state, sortBy },
-        now,
-      );
+      const chats: ThreadListEntry[] = [];
+      const work: ThreadListEntry[] = [];
+      for (const entry of onDevice) (isChatThread(entry) ? chats : work).push(entry);
+      const chatProjects = new Set<string>(chats.map((entry) => entry.workspaceId));
+      const isChat = (id: string) => chatProjects.has(id) || isChatProject(id);
+      const searching = query.trim().length > 0;
+      const entries = searching
+        ? work.filter((entry) => threadMatches(entry, query, projectName(entry.workspaceId)))
+        : work;
+      const arrangement = arrange(entries, { ...state, sortBy }, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
-      // A saved list's requests may have been answered since: none counts until it is confirmed.
+      // The daemon's counts are this machine's own, and only while nothing narrows the list.
+      const counts =
+        searching || (device && device !== ownDevice)
+          ? undefined
+          : settledCounts(reader, own, state.project, isChat);
+      // Projects with no thread at all are quiet: this machine's own, while nothing narrows the list.
+      const known =
+        searching || (device && device !== ownDevice)
+          ? undefined
+          : directory.projects
+              .map((place) => place.id)
+              .filter((id) => state.project === null || id === state.project);
+      const treeOf = (
+        shown: Arrangement,
+        entry: (id: string) => ThreadListEntry | undefined,
+        held?: ReadonlyMap<string, number>,
+      ) =>
+        homeTree({
+          arrangement: shown,
+          entry,
+          // A saved list's statuses may be stale: it claims nothing (as its rows say Syncing).
+          standing: reader.unconfirmed ? syncing : standingOf,
+          sortBy,
+          settledCounts: held,
+          projects: known,
+        });
+      const tree = treeOf(arrangement, (id) => byId.get(id), counts);
+      let held = 0;
+      for (const count of counts?.values() ?? []) held += count;
+      const listed = [...arrangement.active, ...arrangement.recent];
       const needsYou = reader.unconfirmed
         ? []
-        : [...active, ...recent].filter((id) => byId.get(id)?.status.state === "needs_you");
-      return { pinned, active, recent, snoozed, settled, needsYou };
+        : listed.filter((id) => byId.get(id)?.status.state === "needs_you");
+      return {
+        pinned: arrangement.pinned,
+        listed,
+        snoozed: arrangement.snoozed,
+        settled: tree.settled,
+        settledTotal: Math.max(tree.settled.length, held),
+        needsYou,
+        tree,
+      };
     },
-    [state, sortBy, now, read, others, device, ownDevice],
+    [
+      state,
+      sortBy,
+      now,
+      read,
+      others,
+      device,
+      ownDevice,
+      query,
+      projectName,
+      directory,
+      standingOf,
+      isChatThread,
+      isChatProject,
+    ],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }
 
-/** The top of the Home list: the first pinned thread, else the first thread in Home order. */
+/** The top of the Home list: the first thread the panel's tree lists. */
 export function topThread(list: HomeList): string | undefined {
-  return list.pinned[0] ?? list.active[0] ?? list.recent[0];
+  return list.tree.order[0] ?? list.pinned[0];
 }
+
+/** Settled threads with when each last worked and its project, for History and search. */
+export interface SettledEntry {
+  id: string;
+  /** When it last worked. */
+  at: number;
+  project: string;
+}
+
+const itemsEqual = (a: readonly SettledEntry[], b: readonly SettledEntry[]) =>
+  a.length === b.length &&
+  a.every((item, i) => {
+    const other = b[i];
+    return item.id === other?.id && item.at === other.at && item.project === other.project;
+  });
+
+/**
+ * The settled threads `ids` names (as `useHomeList` orders them), each with its last activity
+ * and project: what History groups by week and filters by project.
+ */
+export function useSettledEntries(ids: readonly string[]): readonly SettledEntry[] {
+  const keys = useEveryEntryKey();
+  const select = useCallback(
+    (reader: SidebarReader) =>
+      ids.flatMap((id): SettledEntry[] => {
+        const entry = reader.thread(id);
+        return entry ? [{ id, at: activityOf(entry), project: entry.workspaceId }] : [];
+      }),
+    [ids],
+  );
+  return useSidebar(keys, select, itemsEqual) ?? noSettled;
+}
+const noSettled: readonly SettledEntry[] = [];
 
 const countsEqual = (a: ProjectCount[], b: ProjectCount[]) =>
   a.length === b.length && a.every((p, i) => p.id === b[i]?.id && p.threads === b[i]?.threads);

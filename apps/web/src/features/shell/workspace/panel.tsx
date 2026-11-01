@@ -1,10 +1,7 @@
 import { Activity, createElement, Suspense, useEffect, useRef, type ReactNode } from "react";
-import { Button } from "@/components/ui/button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { cn } from "@/lib/cn.ts";
-import { windowsPlatform } from "@/lib/keymap.ts";
-import { controlDivider, toolbarEdge } from "@/components/ui/rules.ts";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
+import { boundaryMarker, controlDivider, toolbarEdge } from "@/components/ui/rules.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import {
   PanelPlaceContext,
@@ -14,6 +11,7 @@ import {
   type WorkspaceDefinition,
 } from "@/lib/workspace/index.ts";
 import { findComposerInput } from "@/lib/focus-composer.ts";
+import { roomLimits, type PanelMode } from "@/lib/shell-room.ts";
 import { clampToBounds, type Bounds } from "./bounds.ts";
 import { useFocusBackOnHide } from "./panel-focus.ts";
 import { TabContent } from "./tab-content.tsx";
@@ -23,23 +21,26 @@ export { CloseConfirm } from "./close-confirm.tsx";
 import { TabStrip } from "./tab-strip.tsx";
 
 export interface PanelLayout {
-  dock?: "side" | "bottom";
-  /** Narrow window: the panel floats over the content, which dims; Escape or a click outside hides it. */
-  overlay: boolean;
   /**
-   * Phone: the panel is a sheet over the whole screen bar a dimmed strip at the top. Done,
-   * Escape or a tap on the strip closes it.
+   * Where it docks (`allocateRoom`): beside the column, under it, or taking the canvas in full
+   * view (`full`) or in the column's place on a phone (`replace`). Never over the chat.
    */
-  sheet: boolean;
+  mode: Exclude<PanelMode, "closed">;
+  /**
+   * Docked beside the column, or in full view: the panel runs the window's full height and its
+   * strip is the top bar's part above it, on the frame colour; its body starts the canvas.
+   */
+  topBar?: boolean;
   bounds: Bounds;
-  /** The width this scope remembers, or the preferred one. */
+  /** Its width beside the column (or height under it), already fitted to the room. */
   size: number;
 }
 
 /**
  * The side panel: its strip (tabs, +, the showing tab's actions, the panel's controls), its tab
- * views and its resize edge. Desktop layout changes once, without an exit reservation.
- * Floating layouts use the shared modal Sheet; hidden Activity preserves tab state.
+ * views and its resize edge. Docked beside the column or taking the canvas, the strip is the
+ * window's top bar above the panel; docked under the column it heads the panel. It always docks,
+ * never a modal or sheet; hidden Activity preserves tab state.
  */
 export function WorkspacePanel(props: {
   scope: string;
@@ -53,95 +54,103 @@ export function WorkspacePanel(props: {
   controls?: ReactNode;
   /** Under the strip: the connection notice in full view. */
   notice?: ReactNode;
-  /** As a sheet, which covers the screen: what it belongs to (the thread's title). */
-  context?: ReactNode;
   restoreFocus?(): HTMLElement | null;
 }) {
   const { workspace, actions, definition, layout } = props;
-  const expanded = workspace.expanded;
-  const bottom = layout.dock === "bottom";
+  const bottom = layout.mode === "bottom";
+  // Taking the canvas: full view, or a phone's whole canvas in the column's place.
+  const expanded = layout.mode === "full" || layout.mode === "replace";
+  const replace = layout.mode === "replace";
   const { setRightPanel } = useLayout();
-  const floating = layout.overlay && !layout.sheet;
-  // Over the content, it closes like any overlay: Escape or a tap outside it.
-  const dismissable = floating || layout.sheet;
+  // Beside the column or in the canvas it takes the sidebar's room on a crowded window; under
+  // the column it needs none.
+  const takesRoom = workspace.open && !bottom;
   useEffect(() => {
-    if (!workspace.open) return;
+    if (!takesRoom) return;
     setRightPanel(() => actions.setOpen(false));
     return () => setRightPanel(undefined);
-  }, [workspace.open, setRightPanel, actions]);
+  }, [takesRoom, setRightPanel, actions]);
   const section = useRef<HTMLElement>(null);
-  const dismiss = () => actions.setOpen(false);
   const restoreFocus = () => toggleOutside(section.current) ?? props.restoreFocus?.() ?? false;
-  // Beside the column, hiding the panel with focus in it hands focus to the composer.
-  const focusBack = useFocusBackOnHide(section, workspace.open, restoreFocus);
+  // Hiding the panel with focus in it hands focus to the composer; on a phone to the header's
+  // toggle instead, so going back to the chat never raises the keyboard.
+  const focusBack = useFocusBackOnHide(section, workspace.open, () =>
+    replace ? restoreFocus() : (findComposerInput() ?? restoreFocus()),
+  );
   const size = clampToBounds(layout.size, layout.bounds);
   const shown = shownTab(workspace);
-  // The panel's strip is the window's top row (a sheet starts below the top edge).
-  const topRow = !layout.sheet && (!bottom || expanded);
+  const topBar = !!layout.topBar;
   const shownKind = shown && definition.kind(shown.kind);
   const label = definition.label;
+  // The panel's resizable edge: where it meets the column, under the top bar when its strip is
+  // there, else the whole edge.
+  const resize = !expanded && (
+    <ResizeHandle
+      label={`Resize ${label.toLowerCase()}`}
+      edge={bottom ? "top" : "left"}
+      size={size}
+      min={layout.bounds.min}
+      max={layout.bounds.max}
+      onResize={(next) =>
+        bottom ? actions.setBottomSize(next, false) : actions.setSize(next, false)
+      }
+      onResizeEnd={(next) =>
+        bottom ? actions.setBottomSize(next, true) : actions.setSize(next, true)
+      }
+    />
+  );
   const content = (
     <section
       ref={section}
       aria-label={label}
       data-panel
       data-focus-region="panel"
-      onFocus={dismissable ? undefined : focusBack.onFocus}
-      onBlur={dismissable ? undefined : focusBack.onBlur}
-      data-edge={layout.sheet || bottom ? "bottom" : "right"}
-      // Windows: docked beside the column, its strip clears the caption buttons, not the header.
-      data-docked={windowsPlatform && !dismissable && !expanded && !bottom ? "right" : undefined}
-      style={dismissable || expanded ? undefined : bottom ? { height: size } : { width: size }}
+      onFocus={focusBack.onFocus}
+      onBlur={focusBack.onBlur}
+      data-edge={bottom ? "bottom" : "right"}
+      data-panel-mode={layout.mode}
+      style={
+        expanded
+          ? undefined
+          : bottom
+            ? { height: size }
+            : // However the window is resized, the column keeps its minimum beside the panel.
+              { width: size, maxWidth: `calc(100% - ${roomLimits.mainMin}px)` }
+      }
       className={cn(
-        "relative flex min-h-0 min-w-0 flex-col bg-panel",
-        dismissable || expanded
+        "relative flex min-h-0 min-w-0 flex-col",
+        // In the top bar the strip is on the frame colour, and only the body is on the canvas.
+        !topBar && "bg-panel",
+        expanded
           ? "h-full flex-1"
           : bottom
-            ? "fx-panel-in w-full shrink-0 border-t"
-            : "fx-panel-in shrink-0 border-l",
+            ? // Under the column, the panel carries on the canvas's left hairline.
+              "fx-panel-in w-full shrink-0 border-t [[data-sidebar=shown]_&]:border-l"
+            : "fx-panel-in shrink-0",
       )}
     >
-      {layout.sheet && (
-        <>
-          <span aria-hidden className="mx-auto mt-1.5 h-1 w-9 shrink-0 rounded-full bg-border" />
-          {props.context && (
-            <p className="shrink-0 truncate px-4 pt-1 text-xs text-muted-foreground">
-              {props.context}
-            </p>
-          )}
-        </>
-      )}
-      {!dismissable && !expanded && (
-        <ResizeHandle
-          label={`Resize ${label.toLowerCase()}`}
-          edge={bottom ? "top" : "left"}
-          size={size}
-          min={layout.bounds.min}
-          max={layout.bounds.max}
-          onResize={(next) =>
-            bottom ? actions.setBottomSize(next, false) : actions.setSize(next, false)
-          }
-          onResizeEnd={(next) =>
-            bottom ? actions.setBottomSize(next, true) : actions.setSize(next, true)
-          }
-        />
-      )}
+      {!topBar && resize}
       <div
         className={cn(
-          // Beside the column, the strip continues the header's row: the header's own surface and
-          // the same hairline under it, so one top bar runs across the transcript and the panel.
-          "flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2",
-          toolbarEdge,
-          !layout.sheet && !bottom && "bg-reading",
+          "relative flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2",
+          // Heading the panel on the canvas, the strip has a hairline under it; in the top bar
+          // the canvas's own edge is the line.
+          !topBar && toolbarEdge,
+          // In full view the strip starts the bar where the header did, clear of the macOS
+          // lights; on a phone its Back to chat sits at the edge.
+          topBar && expanded && (replace ? "pl-1.5" : "pl-3"),
           // The panel's strip is the window's top row, so it drags the window.
-          topRow && "[-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
+          topBar && "[-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
           // The top row's 10px plus, on Windows, the room the window's own min/max/close
           // buttons take (`titleBarOverlay`); elsewhere the env() values make it 10px.
-          topRow &&
+          topBar &&
             "pr-[calc(100vw_-_env(titlebar-area-x,0px)_-_env(titlebar-area-width,100vw)_+_10px)]",
-          layout.sheet && "h-12 pr-1.5",
         )}
       >
+        {/* Where the column meets the panel docked beside it. */}
+        {topBar && !expanded && (
+          <span aria-hidden data-boundary="panel" className={boundaryMarker} />
+        )}
         {props.leading}
         <TabStrip
           scope={props.scope}
@@ -158,63 +167,44 @@ export function WorkspacePanel(props: {
             </Suspense>
           )}
         </div>
-        {layout.sheet ? (
-          // A sheet has one way out, in reach of a thumb; the toggle and full view do nothing
-          // useful over a phone's whole screen.
-          <Button variant="ghost" className="h-11 min-w-11 shrink-0 px-3" onClick={dismiss}>
-            Done
-          </Button>
-        ) : (
-          props.controls && (
-            <span className="flex items-center">
-              <span aria-hidden className={controlDivider} />
-              {props.controls}
-            </span>
-          )
+        {props.controls && (
+          <span className="flex items-center">
+            <span aria-hidden className={controlDivider} />
+            {props.controls}
+          </span>
         )}
       </div>
-      {props.notice}
-      <Activity mode={workspace.open ? "visible" : "hidden"}>
-        <TabContent
-          scope={props.scope}
-          definition={definition}
-          tabs={workspace.tabs}
-          shown={shown?.key}
-          onClose={actions.close}
-        />
-      </Activity>
+      <div
+        className={cn(
+          "relative flex min-h-0 flex-1 flex-col",
+          // The canvas starts under the top bar: its top hairline, and the one where the panel
+          // meets the column (in full view, the sidebar).
+          topBar &&
+            (expanded
+              ? "border-t bg-panel [[data-sidebar=shown]_&]:border-l"
+              : "border-t border-l bg-panel"),
+        )}
+      >
+        {topBar && resize}
+        {props.notice}
+        <Activity mode={workspace.open ? "visible" : "hidden"}>
+          <TabContent
+            scope={props.scope}
+            definition={definition}
+            tabs={workspace.tabs}
+            shown={shown?.key}
+            onClose={actions.close}
+          />
+        </Activity>
+      </div>
     </section>
   );
   // What its views open (a new terminal) opens here, beside them.
-  const placed = <PanelPlaceContext value="side">{content}</PanelPlaceContext>;
-  if (dismissable) {
-    return (
-      <Sheet open={workspace.open} onOpenChange={(open) => actions.setOpen(open)}>
-        <SheetContent
-          side={layout.sheet ? "bottom" : "right"}
-          keepMounted
-          hidden={!workspace.open}
-          showCloseButton={false}
-          // Floating beside a desktop column, back to the composer; a phone's sheet goes back to
-          // its toggle, so closing it never raises the keyboard.
-          finalFocus={() => (!layout.sheet && findComposerInput()) || restoreFocus()}
-          initialFocus={() =>
-            section.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ??
-            false
-          }
-          style={layout.sheet ? undefined : { width: size }}
-          className={cn(
-            "gap-0 overflow-hidden transition-none sm:max-w-none",
-            layout.sheet && "data-[side=bottom]:h-[calc(100dvh-0.75rem)] rounded-t-xl",
-          )}
-        >
-          <SheetTitle className="sr-only">{label}</SheetTitle>
-          <Activity mode={workspace.open ? "visible" : "hidden"}>{placed}</Activity>
-        </SheetContent>
-      </Sheet>
-    );
-  }
-  return <Activity mode={workspace.open ? "visible" : "hidden"}>{placed}</Activity>;
+  return (
+    <Activity mode={workspace.open ? "visible" : "hidden"}>
+      <PanelPlaceContext value="side">{content}</PanelPlaceContext>
+    </Activity>
+  );
 }
 
 /**

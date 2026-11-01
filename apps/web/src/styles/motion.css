@@ -297,6 +297,16 @@
   animation: fx-sweep 1.4s var(--ease-out) infinite;
 }
 /* The one sweep that travels breathes in place instead under reduced motion. */
+/*
+ * A list row's live dot breathes a few times as it appears, then holds still: it says "working"
+ * without keeping the compositor busy for as long as the work lasts.
+ */
+.fx-live-dot {
+  animation: fx-breathe 1.6s ease-in-out 6 alternate;
+}
+:root[data-reduce-motion] .fx-live-dot {
+  animation: none;
+}
 :root[data-reduce-motion] .fx-indeterminate {
   width: 100%;
   animation: fx-breathe 1.6s ease-in-out infinite alternate;

@@ -59,7 +59,7 @@ test("the shortcut sheet searches its rows", async () => {
   await userEvent.keyboard("{Control>}/{/Control}");
   const sheet = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
   const search = within(sheet).getByRole("searchbox", { name: "Search shortcuts" });
-  expect(document.activeElement).toBe(search);
+  await waitFor(() => expect(document.activeElement).toBe(search));
 
   await userEvent.type(search, "Usage");
   expect(within(sheet).getByText("Go to Usage")).toBeTruthy();

@@ -74,7 +74,7 @@ test("a single device has no device filter and ignores a saved filter for a remo
   ).toBeGreaterThan(0);
 });
 
-test("the project control shows a shortened selected device name and reveals its full name on hover", async () => {
+test("the filter button shows a shortened selected device name and reveals its full name on hover", async () => {
   const name = "Build server with a long name";
   const made = harness({ machines: [{ hostId: "build", name }] });
   for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
@@ -84,12 +84,14 @@ test("the project control shows a shortened selected device name and reveals its
   const control = await screen.findByRole("button", {
     name: `Project filter: All projects, Device: ${name}`,
   });
-  expect(control.textContent).toContain("All projectsBuild server wi…");
+  // The panel's title stays ace; the device that narrows the list follows it, shortened.
+  expect(control.textContent).toBe("aceBuild server wi…");
   await userEvent.hover(control);
-  expect((await screen.findByRole("tooltip")).textContent).toBe(name);
+  expect((await screen.findByRole("tooltip")).textContent).toBe(`All projects on ${name}`);
   await userEvent.unhover(control);
   await chooseDevice("All devices");
+  // With no filter on, the button is the panel's title alone.
   expect(screen.getByRole("button", { name: "Project filter: All projects" }).textContent).toBe(
-    "All projects",
+    "ace",
   );
 });
