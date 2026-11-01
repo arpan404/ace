@@ -1,10 +1,11 @@
 import { useRouterState } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { NavButtons } from "./app-header.tsx";
 import { AppRail } from "./app-rail.tsx";
 import { panelCanvasClass } from "./canvas.ts";
 import { ForgePanel } from "./forge-panel.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
+import { useSpadeFollow } from "./use-spade-follow.ts";
 import { activeView } from "./views.ts";
 
 /**
@@ -25,6 +26,9 @@ export function AppSidebar(props: {
   usage?: ((current: boolean) => ReactNode) | undefined;
 }) {
   const { setBody, bodyClaimed, sheet } = useViewFrame();
+  // Spade's eyes follow the pointer while it is over the rail or the panel beside it.
+  const followRef = useRef<HTMLDivElement>(null);
+  useSpadeFollow(followRef);
   const onForge = useRouterState({
     select: (state) => activeView(state.location.pathname) === "forge",
   });
@@ -37,7 +41,7 @@ export function AppSidebar(props: {
         {/* The sheet has its own way to close at this row's end; the header keeps navigation. */}
         {!sheet && <NavButtons />}
       </div>
-      <div className="flex min-h-0 flex-1">
+      <div ref={followRef} data-slot="sidebar-body" className="flex min-h-0 flex-1">
         <AppRail forge={props.forge} usage={props.usage} />
         <div
           data-slot="sidebar-panel"
