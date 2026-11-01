@@ -1,3 +1,4 @@
+import { deviceUnavailableHint } from "@ace/ui-core";
 import { useSampleTime, useWallClock } from "@/lib/time.ts";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -104,11 +105,19 @@ function SelectedDevice(props: { devices: Devices }) {
         Start live view
       </Button>
     </IdleCard>
-  ) : (
+  ) : selected.bootable ? (
     <IdleCard>
       <p>{selected.name} is shut down.</p>
       <Button size="sm" variant="primary" disabled={view.pending} onClick={devices.boot}>
         Boot
+      </Button>
+    </IdleCard>
+  ) : (
+    // Offline or not authorized: Boot can't help; say what will, and read the list again.
+    <IdleCard>
+      <p>{deviceUnavailableHint(selected) ?? `${selected.name} can't be started from here.`}</p>
+      <Button size="sm" variant="secondary" disabled={view.pending} onClick={devices.refresh}>
+        Refresh
       </Button>
     </IdleCard>
   );

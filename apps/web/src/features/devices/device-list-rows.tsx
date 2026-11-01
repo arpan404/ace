@@ -76,7 +76,11 @@ export function RecentRows(props: {
           meta={[row.runtime, `used ${formatAgo(at, props.now)}`].filter(Boolean).join(" · ")}
           open={props.open.has(row.id)}
           onOpen={() => props.onOpen(row)}
-          action={{ label: "Boot", disabled: props.pending, onClick: () => props.onBoot(row) }}
+          action={
+            row.bootable
+              ? { label: "Boot", disabled: props.pending, onClick: () => props.onBoot(row) }
+              : undefined
+          }
         />
       ))}
     </ul>
@@ -146,13 +150,13 @@ export function DeviceGroups(props: {
                     open={props.open.has(row.id)}
                     onOpen={() => props.onOpen(row)}
                     action={
-                      row.running
-                        ? undefined
-                        : {
+                      row.bootable
+                        ? {
                             label: "Boot",
                             disabled: props.pending,
                             onClick: () => props.onBoot(row),
                           }
+                        : undefined
                     }
                   />
                 ))}

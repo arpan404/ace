@@ -81,6 +81,40 @@ test("Boot on a device started outside ace since the list was read shows it runn
   expect(within(pixel).queryByText(/Unable to boot/)).toBeNull();
 });
 
+test("a phone that hasn't allowed this computer offers no Boot, and its tab says how to allow it", async () => {
+  const { app, panel } = await openDevices();
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
+  act(() =>
+    app.daemon.appDevices.addDevice({
+      id: "android:R5CT1234",
+      platform: "android",
+      name: "Galaxy S24",
+      state: "unauthorized",
+      runtime: "Android 14",
+    }),
+  );
+  const all = within(panel).getByRole("region", { name: "All devices" });
+  await userEvent.click(within(all).getByText("Android phone"));
+  const androids = within(all).getByRole("list", { name: "Android phone" });
+  const galaxy = (await within(androids).findByText("Galaxy S24")).closest("li");
+  if (!galaxy) throw new Error("Missing Galaxy S24 row");
+  expect(galaxy.textContent).toContain("Not authorized");
+  expect(within(galaxy).queryByRole("button", { name: "Boot" })).toBeNull();
+  // The shut-down Pixel beside it still boots from its row.
+  const pixel = within(androids).getByText("Pixel 9").closest("li");
+  if (!pixel) throw new Error("Missing Pixel 9 row");
+  expect(within(pixel).getByRole("button", { name: "Boot" })).toBeTruthy();
+
+  const tab = await openDevice(panel, "Galaxy S24");
+  expect(
+    within(tab).getByText(
+      "Galaxy S24 hasn't allowed this computer. Accept the USB debugging prompt on it, then refresh.",
+    ),
+  ).toBeTruthy();
+  expect(within(tab).queryByRole("button", { name: "Boot" })).toBeNull();
+  expect(within(tab).getByRole("button", { name: "Refresh" })).toBeTruthy();
+});
+
 test("the search and the platform filter narrow the list, and / goes to the search", async () => {
   const { panel } = await openDevices();
   await within(panel).findByRole("searchbox", { name: "Search devices" });
