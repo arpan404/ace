@@ -90,9 +90,11 @@ test("a protected checkout keeps hooks and fsmonitor disabled outside the prepar
   }
 });
 
-test.each(["lazy-fetch suppression", "inherited transport denial"])(
-  "a partial clone with a missing blob fails locally without executing SSH through %s",
-  async (guard) => {
+// With GIT_NO_LAZY_FETCH removed, the same case is covered by
+// non-executing-partial-clone.process.test.ts.
+test(
+  "a partial clone with a missing blob fails locally without executing SSH through lazy-fetch suppression",
+  async () => {
     const repo = await repository({ "tracked.txt": "Locally missing blob\n" });
     const marker = join(dirname(repo), "ssh-executed");
     const ssh = join(dirname(repo), "hostile-ssh.cjs");
@@ -111,16 +113,7 @@ test.each(["lazy-fetch suppression", "inherited transport denial"])(
     await scalar(repo, "config", "protocol.file.allow", "always");
     await scalar(repo, "config", "core.sshCommand", `${quote(process.execPath)} ${quote(ssh)}`);
     await rm(join(repo, ".git", "objects", blob.slice(0, 2), blob.slice(2)));
-    const service = new GitService({
-      processRuntime: {
-        spawn: (command, args, options) => {
-          const env = { ...options.env };
-          // Exercise real Git's lazy-fetch fallback independently of environment support.
-          if (guard === "inherited transport denial") delete env.GIT_NO_LAZY_FETCH;
-          return spawnGitProcess(command, args, { ...options, env });
-        },
-      },
-    });
+    const service = new GitService();
     try {
       await expect(
         service.nonExecuting(() =>

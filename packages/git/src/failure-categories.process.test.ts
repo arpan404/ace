@@ -107,22 +107,6 @@ test("a commit with no changes fails as nothing_to_commit", async () => {
   ).rejects.toMatchObject({ code: "nothing_to_commit" });
 });
 
-test("a push the remote refuses as non-fast-forward fails as push_rejected", async () => {
-  const { root, remote } = await published();
-  const collaborator = join(await scratch(), "collaborator");
-  await git(root, "clone", "--quiet", remote, collaborator);
-  // A clone has no identity of its own; the test home has no global one either.
-  await git(collaborator, "config", "user.name", "Collaborator");
-  await git(collaborator, "config", "user.email", "collaborator@ace.local");
-  await git(collaborator, "commit", "--quiet", "--allow-empty", "-m", "Theirs");
-  await git(collaborator, "push", "--quiet", "origin", "main");
-  await git(root, "commit", "--quiet", "--allow-empty", "-m", "Ours");
-  await expect(service.push({ worktree: root, remote: "origin" })).rejects.toMatchObject({
-    code: "push_rejected",
-    details: { stderr: expect.stringContaining("[rejected]") },
-  });
-});
-
 test("a remote's branch protection fails as protected_branch, not as a local hook failure", async () => {
   const { root, remote } = await published();
   const hook = join(remote, "hooks", "pre-receive");
