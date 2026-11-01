@@ -9,6 +9,12 @@ export interface NowLine {
   say: string;
   sub: string;
   tone: "plain" | "needs-you" | "failed";
+  /** The visual lead, e.g. "Working" for "Working · 17m". */
+  lead: string;
+  /** The muted time after the lead, e.g. "17m". Absent when the headline stands alone. */
+  span?: string | undefined;
+  /** The accessible phrase without prefix, e.g. "working for 17 minutes". */
+  speak: string;
 }
 
 export interface NowFacts {
@@ -86,56 +92,128 @@ function prOutcome(prs: readonly LinkedPullRequest[]): string | undefined {
   return undefined;
 }
 
+/** "17 minutes", "1 hour 12 minutes": a span in words for the accessible name. */
+function formatSpanWords(from: number, to: number): string {
+  const seconds = Math.max(0, Math.round((to - from) / 1000));
+  if (seconds < 60) return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  const hourWords = `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  if (!rest) return hourWords;
+  return `${hourWords} ${rest} ${rest === 1 ? "minute" : "minutes"}`;
+}
+
+const lowerFirst = (sentence: string): string =>
+  sentence.length ? `${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}` : sentence;
+
 /**
- * The thread now, in one sentence: who needs what, how long it has worked, or how long it took
- * and what came of it. Pure: the clock is `now`.
+ * The thread now, in one short line: who needs what, how long it has worked, or how long it
+ * took and what came of it. The visual line keeps the time after a middle dot ("Working · 17m",
+ * "Done · 52m"); the accessible phrase says it in full ("working for 17 minutes"). Pure: the
+ * clock is `now`.
  */
 export function nowLine(facts: NowFacts): NowLine {
   const { status, tally, turn } = facts;
   if (facts.asker) {
     const who = facts.asker.root ? "The main agent" : facts.asker.name;
     const ask = askWords(facts.asker.request);
+    const say = `${who} ${needs(facts.asker.request)}`;
     return {
-      say: `${who} ${needs(facts.asker.request)}`,
+      say,
       sub: ask ? `Asks: ${ask}` : "",
       tone: "needs-you",
+      lead: say,
+      speak: say,
     };
   }
   if (status.state === "needs_you")
-    return { say: "Needs your answer", sub: work(tally), tone: "needs-you" };
+    return {
+      say: "Needs your answer",
+      sub: work(tally),
+      tone: "needs-you",
+      lead: "Needs your answer",
+      speak: "needs your answer",
+    };
   if (status.state === "failed")
-    return { say: "Failed", sub: firstLine(facts.error) ?? work(tally), tone: "failed" };
+    return {
+      say: "Failed",
+      sub: firstLine(facts.error) ?? work(tally),
+      tone: "failed",
+      lead: "Failed",
+      speak: "failed",
+    };
   if (status.state === "unresponsive")
-    return { say: "The provider stopped responding", sub: work(tally), tone: "failed" };
-  if (status.state === "new") return { say: "Nothing has run yet", sub: "", tone: "plain" };
+    return {
+      say: "The provider stopped responding",
+      sub: work(tally),
+      tone: "failed",
+      lead: "The provider stopped responding",
+      speak: "the provider stopped responding",
+    };
+  if (status.state === "new")
+    return {
+      say: "Nothing has run yet",
+      sub: "",
+      tone: "plain",
+      lead: "Nothing has run yet",
+      speak: "nothing has run yet",
+    };
   if (status.state === "limited")
-    return { say: "Paused at the usage limit", sub: work(tally), tone: "plain" };
+    return {
+      say: "Paused at the usage limit",
+      sub: work(tally),
+      tone: "plain",
+      lead: "Paused at the usage limit",
+      speak: "paused at the usage limit",
+    };
   if (status.state === "working" || status.state === "waiting") {
     const waiting = status.state === "waiting" ? waits[status.on] : "";
+    if (waiting)
+      return {
+        say: waiting,
+        sub: work(tally),
+        tone: "plain",
+        lead: waiting,
+        speak: lowerFirst(waiting),
+      };
     const since = turn && turn.endedAt === undefined ? turn.startedAt : undefined;
-    const say =
-      waiting ||
-      (since === undefined
-        ? "Working"
-        : `Working for ${formatSpan(since, Math.max(since, facts.now))}`);
-    return { say, sub: work(tally), tone: "plain" };
+    if (since === undefined)
+      return { say: "Working", sub: work(tally), tone: "plain", lead: "Working", speak: "working" };
+    const span = formatSpan(since, Math.max(since, facts.now));
+    return {
+      say: `Working · ${span}`,
+      sub: work(tally),
+      tone: "plain",
+      lead: "Working",
+      span,
+      speak: `working for ${formatSpanWords(since, Math.max(since, facts.now))}`,
+    };
   }
   // The thread's own status may say done while a delegated grandchild still works, or before a
   // kept copy is confirmed: done is said only once nothing anywhere is live or unconfirmed.
-  if (facts.live) return { say: "Working", sub: work(tally), tone: "plain" };
-  if (!facts.confirmed) return { say: "Syncing", sub: work(tally), tone: "plain" };
+  if (facts.live)
+    return { say: "Working", sub: work(tally), tone: "plain", lead: "Working", speak: "working" };
+  if (!facts.confirmed)
+    return { say: "Syncing", sub: work(tally), tone: "plain", lead: "Syncing", speak: "syncing" };
   // Done: how long the last turn took, then what came of it.
-  const took =
-    turn?.endedAt !== undefined ? `Done in ${formatSpan(turn.startedAt, turn.endedAt)}` : "Done";
   const outcome = [
     prOutcome(facts.prs),
     tally.done ? `${pluralCount(tally.done, "agent")} finished` : undefined,
   ].filter(Boolean);
   const said = turn?.said?.replace(/\s+/g, " ").trim();
+  const sub = outcome.length ? outcome.join(" · ") : (said ?? "");
+  if (turn?.endedAt === undefined)
+    return { say: "Done", sub, tone: "plain", lead: "Done", speak: "done" };
+  const span = formatSpan(turn.startedAt, turn.endedAt);
   return {
-    say: took,
-    sub: outcome.length ? outcome.join(" · ") : (said ?? ""),
+    say: `Done · ${span}`,
+    sub,
     tone: "plain",
+    lead: "Done",
+    span,
+    speak: `done in ${formatSpanWords(turn.startedAt, turn.endedAt)}`,
   };
 }
 

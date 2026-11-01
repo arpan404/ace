@@ -31,7 +31,7 @@ export function isBreathing(row: HTMLElement): boolean {
   return row.querySelector("[data-breathing]") !== null;
 }
 
-/** The Summary's one sentence for now: "Working for 4m", "Done in 52m", "… needs your answer". */
+/** The Summary's one short line for now: "Working · 4m", "Done · 52m", "… needs your answer". */
 export async function summaryStatus(work: HTMLElement) {
   return (await within(work).findByRole("status", { name: /^Thread status/ })).textContent ?? "";
 }

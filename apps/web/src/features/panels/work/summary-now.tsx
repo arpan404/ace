@@ -47,10 +47,10 @@ function askOf(asker: AgentForestNode, works: ReadonlyMap<string, ThreadWork>) {
 }
 
 /**
- * Now: one sentence in larger type and one grey line. It names who needs the person and what
+ * Now: one short line in text-md 500 and one grey line. It names who needs the person and what
  * they ask, with Open to that agent's thread; else how long the thread has worked and what works,
- * or how long it took and what came of it. Failure reads in red, a request in the warning colour,
- * everything else in greys.
+ * or how long it took and what came of it. The time after the middle dot reads muted. Failure
+ * reads in red, a request in the warning colour, everything else in greys.
  */
 export function SummaryNow(props: {
   threadId: string;
@@ -98,20 +98,27 @@ export function SummaryNow(props: {
           })
       : undefined;
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 px-2 pt-1">
+    <div className="flex min-w-0 flex-col gap-[2px] px-2 pt-1">
       <div className="flex min-w-0 items-center gap-2">
         <p
           role="status"
-          aria-label={`Thread status: ${line.say}`}
+          aria-label={`Thread status: ${line.speak}`}
           data-tone={tone}
           className={
             tone
-              ? "min-w-0 flex-1 truncate text-lg font-semibold tracking-tight text-(--tone-text)"
-              : "min-w-0 flex-1 truncate text-lg font-semibold tracking-tight"
+              ? "min-w-0 flex-1 truncate text-md font-medium text-(--tone-text) tabular-nums"
+              : "min-w-0 flex-1 truncate text-md font-medium tabular-nums"
           }
           title={line.say}
         >
-          {line.say}
+          {line.span ? (
+            <>
+              {line.lead}
+              <span className="font-normal text-muted-foreground"> · {line.span}</span>
+            </>
+          ) : (
+            line.say
+          )}
         </p>
         <ModelChip thread={props.thread} />
       </div>
