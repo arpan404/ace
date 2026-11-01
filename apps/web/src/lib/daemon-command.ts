@@ -23,6 +23,8 @@ const refusals: Record<string, string> = {
   thread_deleting: "It's already being stopped and deleted.",
   thread_cleanup_pending: "Its agents haven't stopped yet. ace will finish deleting it.",
   snooze_in_past: "That time has already passed.",
+  snooze_not_live: "It isn't working any more, so there's nothing to wait for.",
+  snooze_no_pr: "It has no pull request to watch.",
   queue_conflict: "Another device changed the queue. Here is the latest.",
   message_already_claimed: "The agent already took that message.",
   uncertain_delivery:

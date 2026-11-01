@@ -15,6 +15,13 @@ export {
 } from "./history-visibility.ts";
 export { isProviderRetryNotice } from "./retry-notice.ts";
 export { queueWakesSnooze, threadAttention } from "./thread-attention.ts";
+export {
+  snoozedPullRequests,
+  snoozeWakeDue,
+  snoozeWakeFor,
+  threadLive,
+  type WakeFacts,
+} from "./snooze-wake.ts";
 export { startsTurn, startedRunTurn, runTurn } from "./turn-boundary.ts";
 export { siteOrigin, toolSurface, toolSurfaces } from "./tool-surface.ts";
 export { withoutPortableHandoff } from "./portable-input.ts";
