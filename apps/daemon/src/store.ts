@@ -348,6 +348,10 @@ export class Store {
         nextId: this.nextId,
         wakeSearch: () => this.searchMaintenance.wake(),
       });
+      // Statement journals stay in memory from here on: on disk, each write transaction
+      // created, wrote and deleted temp files. Startup migrations above keep sorting large
+      // index builds on disk. A savepoint deleting 220 MB of rows holds about 28 MB.
+      this.db.exec("PRAGMA temp_store=MEMORY");
     } catch (error) {
       this.db.close();
       throw error;
