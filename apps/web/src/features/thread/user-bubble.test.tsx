@@ -140,13 +140,37 @@ test("a long message folds to its first lines and Show more / Show less toggle i
   expect(body?.hasAttribute("data-folded")).toBe(true);
 });
 
-test("a fenced block inside the message reads as code", async () => {
-  const { feed } = await openMessage({
-    text: "Why does this fail?\n```ts\nconst total = sum(items);\n```",
-  });
-  const code = await within(feed).findByText("const total = sum(items);");
-  expect(code.tagName).toBe("CODE");
-  expect(within(feed).getByText("Why does this fail?").tagName).not.toBe("CODE");
+const markdown = [
+  "Why does this fail?",
+  "",
+  "- the **cache** misses",
+  "- the retry loops",
+  "",
+  "```ts",
+  "const total = sum(items);",
+  "```",
+].join("\n");
+
+test("a message written in markdown renders as markdown, and Copy returns what was written", async () => {
+  const user = userEvent.setup();
+  const { feed } = await openMessage({ text: markdown });
+  const code = await within(feed).findByText(
+    (_, node) =>
+      node?.tagName === "CODE" && node.textContent?.trim() === "const total = sum(items);",
+  );
+  expect(code).toBeTruthy();
+  const items = within(feed).getAllByRole("listitem");
+  expect(items.map((item) => item.textContent)).toEqual(["the cache misses", "the retry loops"]);
+  expect(within(feed).getByText("cache").tagName).toBe("STRONG");
+  await user.click(within(feed).getByRole("button", { name: "Copy message" }));
+  expect(await navigator.clipboard.readText()).toBe(markdown);
+});
+
+test("a plain message keeps its line breaks as typed and renders nothing as markdown", async () => {
+  const { feed } = await openMessage({ text: "First line\nsecond line\n\n- one thought" });
+  const text = await within(feed).findByText(/^First line/);
+  expect(text.textContent).toBe("First line\nsecond line\n\n- one thought");
+  expect(within(feed).queryByRole("listitem")).toBeNull();
 });
 
 test("a message steered into the running turn says Steer above its bubble", async () => {

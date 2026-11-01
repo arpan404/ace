@@ -4,7 +4,14 @@ import { userBubble } from "./user-bubble.ts";
 import type { PendingSend } from "@ace/client";
 import { useItem, usePendingSends } from "@ace/client-react";
 import type { ContentPart } from "@ace/protocol";
-import { bubbleContent, formatClock, messageOrigin, saidAt, sentFold } from "@ace/ui-core";
+import {
+  bubbleContent,
+  formatClock,
+  looksLikeMarkdown,
+  messageOrigin,
+  saidAt,
+  sentFold,
+} from "@ace/ui-core";
 import { AnnotationsCard } from "@/features/annotations/index.ts";
 import { ArrowBendDownRightIcon, CheckIcon, ClockIcon, CopyIcon } from "@phosphor-icons/react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
@@ -150,7 +157,10 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
               icon={copied ? CheckIcon : CopyIcon}
               label={copied ? "Copied message" : "Copy message"}
               size="sm"
-              onClick={() => copy(content.current?.textContent ?? text)}
+              // Rendered markdown copies what was written, never the drawn text.
+              onClick={() =>
+                copy(looksLikeMarkdown(text) ? text : (content.current?.textContent ?? text))
+              }
             />
           )}
           {copied && (

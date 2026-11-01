@@ -165,3 +165,22 @@
   max-width: 100%;
   height: auto;
 }
+
+/*
+ * Markdown in the person's bubble (DESIGN.md): the answers' renderer at the bubble's size.
+ * markit already wraps long words anywhere, scrolls code and tables inside their block and fits
+ * images; here the bubble's typed whitespace stays out of rendered blocks, inline code wraps, and
+ * the last block sits on the bubble's padding.
+ */
+.markit-ace.ace-bubble-prose {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+}
+.ace-bubble-prose :not(pre) > code {
+  white-space: pre-wrap;
+}
+.ace-bubble-prose .mk-block:last-child,
+.ace-bubble-prose :is(p, h1, h2, h3, h4, h5, h6, ul, ol, pre, blockquote, table):last-child {
+  margin-bottom: 0;
+}
