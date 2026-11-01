@@ -30,7 +30,7 @@ const sortByNote = (sortBy: SortBy) => homeSortOptions.find((option) => option.i
 
 /**
  * How agents run on the machine picked in Settings: what new threads start with, what happens
- * while they work and at a usage limit, the roles Offshift hands work to, how the thread list
+ * while they work and at a usage limit, the roles used for delegated work, how the thread list
  * keeps itself tidy, the model behind titles and commit messages, automations and the folders
  * new projects come from. Every device that uses the machine follows these.
  */

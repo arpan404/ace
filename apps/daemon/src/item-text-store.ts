@@ -1,3 +1,4 @@
+import { decodeStoredItem } from "./stored-decode.ts";
 import { z } from "zod";
 import { appendTextSource, hasTextPreview, textPreview } from "./text-preview.ts";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
@@ -105,7 +106,7 @@ export class ItemTextStore {
         delta.itemId,
       );
       if (!stored) return;
-      const item = Item.parse(JSON.parse(String(stored.item)));
+      const item = decodeStoredItem(JSON.parse(String(stored.item)));
       if (item.type !== "message" || delta.field !== "text") return;
       const threadId = ThreadId.parse(
         this.statement("SELECT thread_id FROM items WHERE id=?").get(item.id)?.thread_id,
@@ -133,7 +134,7 @@ export class ItemTextStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       for (const row of this.statement("SELECT id, item, created_seq FROM items").iterate()) {
-        const item = Item.parse(JSON.parse(String(row.item)));
+        const item = decodeStoredItem(JSON.parse(String(row.item)));
         this.seed(item, Number(row.created_seq));
         for (const chunk of this.statement(
           "SELECT seq, field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
@@ -178,7 +179,7 @@ export class ItemTextStore {
   read(id: string): Item {
     const row = this.statement("SELECT item FROM item_previews WHERE id = ?").get(id);
     if (!row) throw new Error("Missing item preview");
-    const item = Item.parse(JSON.parse(String(row.item)));
+    const item = decodeStoredItem(JSON.parse(String(row.item)));
     let remaining = 4096;
     if (item.type === "message")
       for (const part of item.parts)

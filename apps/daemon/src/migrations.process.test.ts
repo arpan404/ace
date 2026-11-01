@@ -95,7 +95,7 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     }
     const after = new DatabaseSync(path, { readOnly: true });
     try {
-      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(24);
+      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(26);
     } finally {
       after.close();
     }
@@ -126,7 +126,10 @@ test("a thread an agent opened before startedBy existed names its starter after 
       "request-1",
       "{}",
     );
-    db.exec("UPDATE schema_version SET version=23 WHERE id=1");
+    // The remote-child liveness step came after, so its columns go too.
+    db.exec(
+      "DROP INDEX machine_children_seen; DROP INDEX machine_children_stopping; ALTER TABLE machine_children DROP COLUMN seen_at; ALTER TABLE machine_children DROP COLUMN silent_since; ALTER TABLE machine_children DROP COLUMN stop_started_at; ALTER TABLE machine_children DROP COLUMN stop_attempts; ALTER TABLE machine_children DROP COLUMN stop_last_at; ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed; UPDATE schema_version SET version=23 WHERE id=1",
+    );
     db.close();
     const upgraded = new Store(path);
     try {

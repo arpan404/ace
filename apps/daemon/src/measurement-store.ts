@@ -1,4 +1,5 @@
-import { Item, StepMeasurement, type EventPayload, type ThreadId } from "@ace/protocol";
+import { decodeStoredItem } from "./stored-decode.ts";
+import { StepMeasurement, type EventPayload, type ThreadId } from "@ace/protocol";
 import type { StatementSync, DatabaseSync } from "node:sqlite";
 import { measurementCall } from "./measurement-correlation.ts";
 
@@ -84,6 +85,6 @@ export class MeasurementStore {
   }
   item(thread: ThreadId, id: string) {
     const row = this.sql("SELECT item FROM items WHERE thread_id=? AND id=?").get(thread, id);
-    return row ? Item.parse(JSON.parse(String(row.item))) : undefined;
+    return row ? decodeStoredItem(JSON.parse(String(row.item))) : undefined;
   }
 }

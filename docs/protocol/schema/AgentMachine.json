@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/AgentMachine.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "contact": {
+      "$ref": "https://ace.local/protocol/v1/RemoteContact.json"
+    },
     "hostId": {
       "$ref": "https://ace.local/protocol/v1/HostId.json"
     },

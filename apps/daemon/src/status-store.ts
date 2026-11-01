@@ -1,8 +1,8 @@
+import { decodeStoredPayload } from "./stored-decode.ts";
 import { EntityWindow } from "./entity-window.ts";
 import { EntityRetention, retainedEntity } from "./entity-retention.ts";
 import { trimAgentMetadata } from "./metadata-retention.ts";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
-import { OffshiftRunCard } from "@ace/protocol/offshift";
 import {
   QueueState,
   Interaction,
@@ -92,7 +92,7 @@ export class StatusStore {
           id: row.id,
           threadId: row.thread_id,
           at: row.at,
-          payload: JSON.parse(String(row.payload)),
+          payload: decodeStoredPayload(JSON.parse(String(row.payload))),
         };
         const parsed = Event.safeParse(input);
         if (!parsed.success && row.type === "usage.updated") continue;
@@ -124,7 +124,7 @@ export class StatusStore {
           id: row.id,
           threadId: row.thread_id,
           at: row.at,
-          payload: JSON.parse(String(row.payload)),
+          payload: decodeStoredPayload(JSON.parse(String(row.payload))),
         });
         if (!parsed.success) continue;
         const thread = getThread(parsed.data.threadId);
@@ -142,13 +142,6 @@ export class StatusStore {
       this.statement(
         "INSERT INTO view_entities VALUES (?, 'queue', 'thread', ?) ON CONFLICT(thread_id,collection,id) DO UPDATE SET value=excluded.value",
       ).run(thread.id, JSON.stringify(queue));
-      return;
-    }
-    if (event.payload.type === "offshift.updated") {
-      // One row per thread: the latest-updated run's card, as the snapshot carries it.
-      this.statement(
-        "INSERT INTO view_entities VALUES (?, 'offshift', 'thread', ?) ON CONFLICT(thread_id,collection,id) DO UPDATE SET value=excluded.value",
-      ).run(thread.id, JSON.stringify(event.payload.card));
       return;
     }
     const address = target(event.payload);
@@ -239,7 +232,6 @@ export class StatusStore {
         const { type: _type, ...queue } = event.payload;
         view.queue = queue;
       }
-      if (event.payload.type === "offshift.updated") view.offshift = event.payload.card;
     }
     const restore = (collection: EntityCollection, id: string): void => {
       const row = this.window?.record(view.thread.id, collection, id);
@@ -361,10 +353,6 @@ export class StatusStore {
       "SELECT value FROM view_entities WHERE thread_id=? AND collection='queue'",
     ).get(thread.id);
     if (queue) view.queue = QueueState.parse(JSON.parse(String(queue.value)));
-    const offshift = this.statement(
-      "SELECT value FROM view_entities WHERE thread_id=? AND collection='offshift'",
-    ).get(thread.id);
-    if (offshift) view.offshift = OffshiftRunCard.parse(JSON.parse(String(offshift.value)));
     rebuildAgentChildren(view);
     this.seedRetention(view);
     return view;

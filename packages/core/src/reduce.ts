@@ -281,6 +281,8 @@ function fold(
       if (fact.source !== "provider") {
         if (fact.held && fact.count > 0) state.queueHeld = true;
         else delete state.queueHeld;
+        if (fact.stopped && fact.count > 0) state.queueStopped = true;
+        else delete state.queueStopped;
       }
       break;
     }

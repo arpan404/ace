@@ -95,6 +95,7 @@ export class MachineDirectory {
           };
           if (description.grants) summary.grants = description.grants;
           if (description.transfers !== undefined) summary.transfers = description.transfers;
+          if (description.accounts) summary.accounts = description.accounts;
           this.seen.set(profile.name, summary);
           this.hosts.set(profile.name, description.hostId);
           return summary;

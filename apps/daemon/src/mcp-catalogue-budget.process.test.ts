@@ -48,6 +48,7 @@ async function session() {
 
 it(`ace's whole advertised catalogue stays under ${catalogueCap} tokens`, async () => {
   const { full } = await session();
+  console.log("BUDGET catalogue", tokens(full.tools.map(descriptor).join("\n")));
   expect(tokens(full.tools.map(descriptor).join("\n"))).toBeLessThanOrEqual(catalogueCap);
 });
 
@@ -79,6 +80,7 @@ it(`a Claude session without tool search pays at most ${claudeWithoutToolSearchC
       ...agent.tools.map(descriptor),
       guides.map((guide) => `- ${guide.name}: ${guide.description}`).join("\n"),
     ].join("\n");
+    console.log("BUDGET claude-no-search", tokens(always));
     expect(tokens(always)).toBeLessThanOrEqual(claudeWithoutToolSearchCap);
   } finally {
     await agent.close();

@@ -186,9 +186,6 @@ struct ThreadMenuPanel: View {
     @ViewBuilder private var tools: some View {
         MenuRow(title: "Agent tree", icon: .treeStructure, identifier: "thread.agents") { open(.agents); dismiss() }
         MenuRow(title: "Logs", icon: .scroll, identifier: "thread.logs") { open(.logs); dismiss() }
-        if let run = thread.screen.offshift {
-            MenuRow(title: "Offshift run · \(run.word)", icon: .listChecks, identifier: "thread.offshift") { open(.offshift); dismiss() }
-        }
         Divider()
         MenuRow(title: "Reload from machine", icon: .arrowClockwise, identifier: "thread.reload") {
             model.reloadFromMachine(); dismiss()

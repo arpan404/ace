@@ -5,8 +5,10 @@ import {
   backgroundCommand,
   foldWords,
   formatSpan,
+  holdStoppable,
   isRunning,
   pluralCount,
+  remoteContactStep,
   type AgentForestNode,
   type CommandForestNode,
 } from "@ace/ui-core";
@@ -196,20 +198,24 @@ export function AgentLine(
   const asking =
     props.request !== undefined || (status.state === "blocked" && status.on === "human");
   const tone = asking ? "needs-you" : status.state === "failed" ? "failed" : undefined;
-  const current = props.request
-    ? asks
-      ? `asks: ${asks}`
-      : agentStep({ status, interaction: props.request })
-    : status.state === "failed"
-      ? // Its own words are in its view; a raw provider error doesn't belong in the tree.
-        "couldn't finish"
-      : own && node.live
-        ? agentStep({ status, item: tool })
-        : node.live
-          ? below.working || below.commands
-            ? `waiting on ${pluralCount(below.working + below.commands, below.working ? "agent" : "command")}`
-            : agentStep({ status, item: tool })
-          : (agentOutcome(identity.spawn) ?? "finished");
+  // A child on another machine that lost contact or didn't confirm its stop says so (ADR 0052).
+  const contact = node.live ? undefined : remoteContactStep(agent);
+  const current = contact
+    ? contact
+    : props.request
+      ? asks
+        ? `asks: ${asks}`
+        : agentStep({ status, interaction: props.request })
+      : status.state === "failed"
+        ? // Its own words are in its view; a raw provider error doesn't belong in the tree.
+          "couldn't finish"
+        : own && node.live
+          ? agentStep({ status, item: tool })
+          : node.live
+            ? below.working || below.commands
+              ? `waiting on ${pluralCount(below.working + below.commands, below.working ? "agent" : "command")}`
+              : agentStep({ status, item: tool })
+            : (agentOutcome(identity.spawn) ?? "finished");
   const fresh = useLiveConnection().fresh;
   // Facts not confirmed since the connection dropped or the Summary opened: what it was doing
   // when last seen, and never "finished" for a branch that may be working again.
@@ -249,7 +255,7 @@ export function AgentLine(
       actions={
         // A child on another machine stops through the work its parent holds for it.
         agent.machine ? (
-          node.hold?.stoppable ? (
+          node.hold && holdStoppable(node.hold) ? (
             <TaskStop task={node.hold} />
           ) : undefined
         ) : own && !root ? (

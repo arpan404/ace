@@ -340,7 +340,25 @@ export async function startServer(options: ServerOptions): Promise<{
             throw new Error("No binary channel");
           return;
         }
-        message = parseSocketMessage(JSON.parse(data.toString()));
+        const frameValue: unknown = JSON.parse(data.toString());
+        if (device) {
+          const requestShape = z
+            .object({ type: z.string(), requestId: z.string().optional() })
+            .safeParse(frameValue);
+          if (requestShape.success) {
+            try {
+              message = parseSocketMessage(frameValue);
+            } catch {
+              fail(
+                "unsupported",
+                "Request type is not supported by this daemon",
+                false,
+                requestShape.data.requestId ? { requestId: requestShape.data.requestId } : {},
+              );
+              return;
+            }
+          } else message = parseSocketMessage(frameValue);
+        } else message = parseSocketMessage(frameValue);
       } catch {
         fail(
           device ? "invalid_message" : "unauthorized",

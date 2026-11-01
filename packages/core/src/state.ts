@@ -106,6 +106,8 @@ export interface ThreadState {
   queueSources: { engine: number; provider: number };
   /** The engine queue holds input that failed to send; it sends only when the person retries. */
   queueHeld?: true;
+  /** The engine queue is paused by a Stop: its input waits for the person's Resume. */
+  queueStopped?: true;
   hasRun: boolean;
   status: ThreadStatus;
 }
