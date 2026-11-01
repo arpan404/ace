@@ -7,7 +7,6 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { createIdleTask } from "@/test/tasks.ts";
-import { rowText } from "@/test/row-text.ts";
 
 /** One finished turn on its own thread: "completed" ends Done, "failed" ends Failed. */
 function finished(id: string, title: string, outcome: "completed" | "failed"): Scenario {
@@ -86,82 +85,83 @@ async function setup() {
   const link = (title: string) => list.getByRole("link", named(title));
   const row = (title: string) => level(link(title));
   const word = (title: string, text: string) => says(link(title), text);
-  /** The one mark at the row's right edge (`RowIndicator`), by kind. */
-  const mark = (title: string) =>
-    link(title).querySelector<HTMLElement>("[data-indicator]")?.dataset.indicator;
+  /** The colour of a status word on a row's top line. */
+  const tone = (title: string, text: string) =>
+    word(title, text)?.closest<HTMLElement>("[data-tone]")?.dataset.tone;
   const visit = async (path: string) => act(() => history.push(path));
   // A row's status gives way to its actions under the pointer: open it, then move the pointer on.
   const open = async (title: string) => {
     await userEvent.click(link(title));
     await userEvent.unhover(link(title));
   };
-  return { app, link, row, word, mark, visit, open };
+  return { app, link, row, word, tone, visit, open };
 }
 
-test("a done thread carries the blue dot until it is opened, then rests quiet, its title alone", async () => {
-  const { link, row, word, mark, visit, open } = await setup();
+test("a done thread says Done until it is opened, then rests quiet with only its age", async () => {
+  const { link, row, word, visit, open } = await setup();
   const title = "Ship the release notes";
   await waitFor(() => expect(row(title)).toEqual({ level: "done-unread", muted: false }));
-  expect(mark(title)).toBe("unread");
+  expect(word(title, "Done")).toBeTruthy();
   expect(link(title).getAttribute("aria-label")).toContain(", unread");
   await open(title);
   await waitFor(() => expect(link(title).getAttribute("aria-current")).toBe("page"));
   await visit("/new");
   await waitFor(() => expect(row(title)).toEqual({ level: "quiet", muted: true }));
   expect(word(title, "Done")).toBeNull();
-  // Seen, it carries no mark: only its title shows.
-  expect(rowText(link(title))).toBe(title);
-  expect(mark(title)).toBeUndefined();
+  // The title still shows; a quiet relative time takes the status word's place.
+  expect(within(link(title)).getByText(title)).toBeTruthy();
+  expect(within(link(title)).getByText(/^(now|\d+[smhd])$/)).toBeTruthy();
 });
 
-test("new activity after reading brings back the blue dot", async () => {
-  const { app, row, mark, link, visit, open } = await setup();
+test("new activity after reading brings Done back", async () => {
+  const { app, row, word, link, visit, open } = await setup();
   const title = "Ship the release notes";
   await open(title);
   await visit("/new");
   await waitFor(() => expect(row(title).level).toBe("quiet"));
   act(() => app.daemon.apply("thread-done", turnFacts("turn-2", "completed")));
   await waitFor(() => expect(row(title).level).toBe("done-unread"));
-  expect(mark(title)).toBe("unread");
+  expect(word(title, "Done")).toBeTruthy();
   expect(link(title).getAttribute("aria-label")).toContain(", unread");
 });
 
-test("a thread that needs you keeps its needs-you mark after it is opened", async () => {
-  const { row, mark, link, visit, open } = await setup();
+test("a thread that needs you keeps saying so in the needs-you colour after it is opened", async () => {
+  const { row, tone, link, visit, open } = await setup();
   const title = "Approval sheet loses its state on rotate";
   expect(row(title)).toEqual({ level: "needs-you", muted: false });
   await open(title);
   await visit("/new");
   await waitFor(() => expect(link(title).getAttribute("aria-label")).not.toContain(", unread"));
   expect(row(title)).toEqual({ level: "needs-you", muted: false });
-  expect(mark(title)).toBe("needs-you");
+  expect(tone(title, "Answer")).toBe("needs-you");
 });
 
-test("a failure carries the failure dot until seen, then rests quiet, saying Failed only in its name", async () => {
-  const { link, row, word, mark, visit, open } = await setup();
+test("a failure says Failed in the failure colour until seen, then a quiet Failed", async () => {
+  const { link, row, word, tone, visit, open } = await setup();
   const title = "Migrate the billing table";
   await waitFor(() => expect(row(title)).toEqual({ level: "failed", muted: false }));
-  expect(mark(title)).toBe("failed");
+  expect(tone(title, "Failed")).toBe("failed");
   await open(title);
   await visit("/new");
   await waitFor(() => expect(row(title)).toEqual({ level: "failed-seen", muted: true }));
-  expect(word(title, "Failed")).toBeNull();
-  expect(mark(title)).toBeUndefined();
+  expect(word(title, "Failed")).toBeTruthy();
+  expect(tone(title, "Failed")).toBeUndefined();
   expect(link(title).getAttribute("aria-label")).toContain("Failed");
 });
 
-test("a working row shows the live mark, never a word, open or not", async () => {
-  const { row, word, mark, open } = await setup();
+test("a working row says Working with its live glyph, open or not", async () => {
+  const { row, word, open } = await setup();
   const title = "Rewrite the install page for the daemon";
+  const live = () =>
+    word(title, "Working")?.parentElement?.querySelector('[data-state="working"][data-live]');
   expect(row(title)).toEqual({ level: "active", muted: true });
-  expect(mark(title)).toBe("live");
-  expect(word(title, "Working")).toBeNull();
+  expect(live()).toBeTruthy();
   await open(title);
   await waitFor(() => expect(row(title)).toEqual({ level: "active", muted: false }));
-  expect(mark(title)).toBe("live");
+  expect(live()).toBeTruthy();
 });
 
-test("a request shows the needs-you dot rather than a word, on its row only, and leads Active", async () => {
+test("a waiting approval reads Approve in the needs-you colour, on its row only, and leads Active", async () => {
   const app = harness();
   for (const [id, title] of [
     ["thread-asks", "Publish the release"],
@@ -188,8 +188,12 @@ test("a request shows the needs-you dot rather than a word, on its row only, and
     ]),
   );
   const asks = () => list.getByRole("link", { name: /^Publish the release/ });
-  await waitFor(() => expect(asks().querySelector("[data-tone='needs-you']")).toBeTruthy());
-  expect(within(asks()).queryByText("Approve")).toBeNull();
+  await waitFor(() =>
+    expect(
+      within(asks()).getByText("Approve", { exact: true }).closest<HTMLElement>("[data-tone]")
+        ?.dataset.tone,
+    ).toBe("needs-you"),
+  );
   // It leads Active.
   const top = list.getAllByRole("link").find((link) => link.hasAttribute("data-row-focus"));
   expect(top).toBe(asks());
@@ -198,8 +202,8 @@ test("a request shows the needs-you dot rather than a word, on its row only, and
   expect(screen.queryByRole("button", { name: /^Inbox/ })).toBeNull();
 });
 
-test("Mark as unread on a quiet row's menu brings back its blue dot", async () => {
-  const { app, row, mark } = await setup();
+test("Mark as unread on a quiet row's menu brings Done back", async () => {
+  const { app, link, row, word } = await setup();
   const title = "Ship the release notes";
   await act(() =>
     app.client.command({
@@ -212,10 +216,11 @@ test("Mark as unread on a quiet row's menu brings back its blue dot", async () =
   await userEvent.click(screen.getByRole("button", { name: `Actions for ${title}` }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Mark (as )?unread/ }));
   await waitFor(() => expect(row(title).level).toBe("done-unread"));
-  expect(mark(title)).toBe("unread");
+  await userEvent.unhover(link(title));
+  expect(word(title, "Done")).toBeTruthy();
 });
 
-test("an unsent thread carries the needs-you mark and a stopped one rests quiet", async () => {
+test("an unsent thread says Not sent in the needs-you colour and a stopped one rests quiet", async () => {
   const app = harness();
   seedRealThreadState(app.daemon);
   await app.open("/new");
@@ -223,7 +228,10 @@ test("an unsent thread carries the needs-you mark and a stopped one rests quiet"
   const stopped = await list.findByRole("link", { name: /^Finish the background build/ });
   const unsent = await list.findByRole("link", { name: /^Check the saved message/ });
   expect(unsent.getAttribute("aria-label")).toContain("Not sent");
-  expect(unsent.querySelector<HTMLElement>("[data-indicator]")?.dataset.tone).toBe("needs-you");
+  expect(
+    within(unsent).getByText("Not sent", { exact: true }).closest<HTMLElement>("[data-tone]")
+      ?.dataset.tone,
+  ).toBe("needs-you");
   expect(within(stopped).queryByText(/Stopped|Agent stopped/)).toBeNull();
   expect(
     stopped.querySelector("[data-tone='waiting'] svg, [data-tone='waiting'] [data-state]"),

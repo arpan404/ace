@@ -47,8 +47,6 @@ export interface HomeList {
   snoozed: string[];
   /** Settled threads at rest that are loaded, most recent activity first. */
   settled: string[];
-  /** Settled threads in all, loaded or not: what History holds. */
-  settledTotal: number;
   /** The listed threads that need you, which may rise while the list otherwise holds still. */
   needsYou: string[];
   tree: HomeTree;
@@ -60,7 +58,6 @@ const empty: HomeList = {
   listed: [],
   snoozed: [],
   settled: [],
-  settledTotal: 0,
   needsYou: [],
   tree: noTree,
 };
@@ -115,7 +112,6 @@ const listEqual = (a: HomeList, b: HomeList) =>
   arrayEqual(a.listed, b.listed) &&
   arrayEqual(a.snoozed, b.snoozed) &&
   arrayEqual(a.settled, b.settled) &&
-  a.settledTotal === b.settledTotal &&
   arrayEqual(a.needsYou, b.needsYou) &&
   treeEqual(a.tree, b.tree);
 
@@ -222,8 +218,6 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
           projects: known,
         });
       const tree = treeOf(arrangement, (id) => byId.get(id), counts);
-      let held = 0;
-      for (const count of counts?.values() ?? []) held += count;
       const listed = [...arrangement.active, ...arrangement.recent];
       const needsYou = reader.unconfirmed
         ? []
@@ -233,7 +227,6 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
         listed,
         snoozed: arrangement.snoozed,
         settled: tree.settled,
-        settledTotal: Math.max(tree.settled.length, held),
         needsYou,
         tree,
       };

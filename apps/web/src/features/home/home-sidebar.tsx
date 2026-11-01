@@ -1,9 +1,11 @@
-import { ChatsIcon, ClockCounterClockwiseIcon, NotePencilIcon } from "@phosphor-icons/react";
+import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { PanelRowBody, panelRow, PanelTitleRow } from "@/components/ui/panel.tsx";
+import { cn } from "@/lib/cn.ts";
+import { panelIconButton, PanelTitleRow } from "@/components/ui/panel.tsx";
+import { Icon } from "@/components/icon.tsx";
 import { PaletteButton } from "@/features/shell/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
@@ -35,11 +37,11 @@ const StartedTitlePublisher = deferredComponent(() =>
 
 /**
  * The Threads panel, under the window's top bar (ADR 0107): its title row ("ace" and its filter
- * caret, Search), a New thread row, then the list: Active, every unsettled thread across
+ * caret, Search, New thread), then the list: Active, every unsettled thread across
  * projects (pinned ones first, then what needs the person, then what is at work, then the rest),
  * then Projects, each folding open in place with only its settled threads, quiet projects folded
- * at the foot, and History below the list. Chats are the Chats panel's. Search (⌘K) opens the
- * palette.
+ * at the foot. History opens from each project's row and from the palette. Chats are the Chats
+ * panel's. Search (⌘K) opens the palette.
  */
 export function HomeSidebar() {
   // Other machines' threads join the list, each row marked with its machine.
@@ -69,8 +71,8 @@ export function HomeSidebar() {
           <ProjectFilter />
         </span>
         <PaletteButton />
+        <NewThreadButton />
       </PanelTitleRow>
-      <NewThreadRow />
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
           <Suspense fallback={null}>
@@ -126,7 +128,6 @@ export function HomeSidebar() {
           <ThreadList rows={rows} needsYou={list.needsYou} pinned={list.pinned} />
         )}
       </nav>
-      {loaded && <HistoryFoot count={list.settledTotal} />}
     </div>
   );
 }
@@ -147,64 +148,37 @@ function AddProjectAction() {
 }
 
 /**
- * The panel's first row: New thread, as a pencil and the words. With one project it opens New
+ * New thread, the pencil at the title row's end after Search. With one project it opens New
  * thread there; with several it asks which (Shift skips the question: the current project).
  */
-function NewThreadRow() {
+function NewThreadButton() {
   const entry = useNewThreadEntry();
   const { only } = entry;
   const here = useRouterState({ select: (state) => state.location.pathname === "/new" });
   return (
-    <div className="shrink-0 px-2 pb-1">
-      <Tip label="New thread" shortcut="newThread">
-        <Link
-          to="/new"
-          {...(only ? { search: { project: only } } : {})}
-          aria-label="New thread"
-          aria-current={here ? "page" : undefined}
-          {...panelRow()}
-          onClick={(event) => {
-            if (event.shiftKey) {
-              event.preventDefault();
-              entry.here();
-            } else if (!only) {
-              event.preventDefault();
-              entry.start();
-            }
-          }}
-        >
-          <PanelRowBody icon={NotePencilIcon} title="New thread" />
-        </Link>
-      </Tip>
-    </div>
-  );
-}
-
-/** The quiet way to History at the panel's foot, with how many threads it holds. */
-function HistoryFoot(props: { count: number }) {
-  const here = useRouterState({ select: (state) => state.location.pathname === "/history" });
-  return (
-    <div className="shrink-0 px-2 pt-1 pb-2">
+    <Tip label="New thread" shortcut="newThread">
       <Link
-        to="/history"
+        to="/new"
+        {...(only ? { search: { project: only } } : {})}
+        aria-label="New thread"
         aria-current={here ? "page" : undefined}
-        {...panelRow(
-          "text-muted-foreground hover:text-foreground aria-[current=page]:text-foreground",
+        className={cn(
+          panelIconButton,
+          "aria-[current=page]:bg-active aria-[current=page]:text-foreground",
         )}
-      >
-        <PanelRowBody
-          icon={ClockCounterClockwiseIcon}
-          title="History"
-          trailing={
-            props.count > 0 && (
-              <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
-                {props.count}
-              </span>
-            )
+        onClick={(event) => {
+          if (event.shiftKey) {
+            event.preventDefault();
+            entry.here();
+          } else if (!only) {
+            event.preventDefault();
+            entry.start();
           }
-        />
+        }}
+      >
+        <Icon icon={NotePencilIcon} size={18} />
       </Link>
-    </div>
+    </Tip>
   );
 }
 

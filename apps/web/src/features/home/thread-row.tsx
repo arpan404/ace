@@ -22,6 +22,7 @@ import { threadDetails } from "./row-parts.tsx";
 import { RowIndicator } from "./row-indicator.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
+import { TaskLines, taskRowHeight } from "./task-lines.tsx";
 import { useRowActive } from "./use-row-active.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
@@ -30,11 +31,12 @@ import { useThreadCard } from "./use-thread-card.ts";
 const row = cn(panelRowLine, "relative outline-none");
 
 /**
- * What leads a row: in Active, which spans projects, its project's mark; inside its project,
- * room the width of the project's folder glyph, so its title lines up with the project's name;
- * else nothing.
+ * What leads a row: in Active, which spans projects, its project (`task`: three lines led by the
+ * project's mark and name, `project`: one line led by its mark, as a pinned row); inside its
+ * project, room the width of the project's folder glyph, so its title lines up with the
+ * project's name; else nothing.
  */
-export type RowLead = "project" | "indent" | "none";
+export type RowLead = "task" | "project" | "indent" | "none";
 
 /**
  * Another machine's thread (ADR 0102), drawn under that machine's client. It opens on that
@@ -65,10 +67,11 @@ export function useOpenHere(threadId: string, machine: string | undefined): bool
 }
 
 /**
- * A thread in the sidebar: one line, its title and at most one small mark at the right edge
- * (`RowIndicator`). The rest (status in words, branch, pull request, provider, machine) is in
- * the thread itself, the row's spoken name and its hover card. Under the pointer or keyboard
- * focus the row's actions take the mark's place.
+ * A thread in the sidebar. An Active row (`lead: "task"`) is three lines (`TaskLines`): project
+ * and status, title, then branch, pull request, machine and provider; its actions sit beside the
+ * status. Every other row is one line, its title and at most one small mark at the right edge
+ * (`RowIndicator`), the rest in its spoken name and hover card; under the pointer or keyboard
+ * focus its actions take the mark's place.
  */
 export function ThreadRow(props: {
   threadId: string;
@@ -115,7 +118,26 @@ export function ThreadRow(props: {
     entry.live?.account ??
     entry.execution?.instanceId;
   const actions = rowActive.active && !renaming;
-  const body = (
+  const task = props.lead === "task";
+  const title = renaming ? (
+    <RenameField
+      entry={entry}
+      rowId={rowId}
+      title={editing ?? refused ?? card.title}
+      onDone={() => selection.finishRename()}
+    />
+  ) : (
+    card.title
+  );
+  const body = task ? (
+    <TaskLines
+      card={card}
+      attention={attention}
+      workspaceId={entry.workspaceId}
+      actions={actions}
+      title={title}
+    />
+  ) : (
     <>
       {props.lead === "project" && <ProjectMark id={entry.workspaceId} badge={card.badge} />}
       {props.lead === "indent" && <span aria-hidden className="w-4 shrink-0" />}
@@ -132,16 +154,7 @@ export function ThreadRow(props: {
           actions ? "pr-28" : "group-has-[[data-popup-open]]/row:pr-28",
         )}
       >
-        {renaming ? (
-          <RenameField
-            entry={entry}
-            rowId={rowId}
-            title={editing ?? refused ?? card.title}
-            onDone={() => selection.finishRename()}
-          />
-        ) : (
-          card.title
-        )}
+        {title}
       </span>
       {!actions && !renaming && (
         <span className="flex shrink-0 items-center group-has-[[data-popup-open]]/row:hidden">
@@ -170,12 +183,13 @@ export function ThreadRow(props: {
             className="group/row relative"
             {...rowActive.handlers}
             data-attention={attention.level}
+            data-shape={task ? "task" : undefined}
             data-muted={attention.muted ? "" : undefined}
             // Settled rows stay out of picking and dragging, as they always have.
             {...(settled ? {} : { "data-thread-row": rowId })}
           >
             {renaming ? (
-              <div className={row}>{body}</div>
+              <div className={cn(row, task && taskRowHeight)}>{body}</div>
             ) : (
               <Link
                 {...threadOn(machine?.id, entry.id)}
@@ -184,6 +198,7 @@ export function ThreadRow(props: {
                 draggable={false}
                 className={cn(
                   row,
+                  task && taskRowHeight,
                   // A keyboard-focused row draws the focus colour all round, plainly visible in the list.
                   "group/link focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   // The open thread takes the fill every list shares for its current row (Settings,

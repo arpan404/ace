@@ -230,6 +230,22 @@ test("Search in the sidebar opens the launcher over the current screen", async (
   expect(screen.getByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
 });
 
+test("New thread is the pencil after Search in the Threads panel's title row", async () => {
+  await workbenchApp().open("/new");
+  await title("New thread");
+  const search = screen.getByRole("button", { name: "Search" });
+  const row = search.parentElement;
+  if (!row) throw new Error("No title row");
+  // In the title row beside Search, after it, as a glyph alone: no full-width row of words.
+  const start = within(row).getByRole("link", { name: "New thread" });
+  expect(search.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(start.textContent).toBe("");
+  const threads = screen.getByRole("navigation", { name: "Threads" });
+  expect(within(threads).queryByRole("link", { name: "New thread" })).toBeNull();
+  await userEvent.hover(start);
+  expect((await screen.findByRole("tooltip")).textContent).toContain("New thread");
+});
+
 test("every view's shortcut opens it from anywhere", async () => {
   // Not from New thread: with no project it is a chat, and its focused composer takes the keys.
   await harness().open("/settings");

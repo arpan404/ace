@@ -141,7 +141,8 @@ test("the Threads panel and History leave chats out", async () => {
   expect(within(threadsNav()).getByRole("link", { name: /^Dedupe thread events/ })).toBeTruthy();
   for (const title of [/^Regex for semver/, /^Three days in Lisbon/, /^How TLS/])
     expect(within(threadsNav()).queryByRole("link", { name: title })).toBeNull();
-  await userEvent.click(screen.getByRole("link", { name: /^History/ }));
+  // The panel has no History row: History is its own page (and the palette's).
+  await visit("/history");
   const main = screen.getByRole("main");
   await within(main).findByRole("heading", { level: 2, name: "History" });
   expect(within(main).queryByRole("link", { name: /^How TLS/ })).toBeNull();

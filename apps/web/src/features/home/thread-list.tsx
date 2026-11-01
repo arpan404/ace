@@ -45,6 +45,7 @@ import { UnsentRows } from "./unsent-rows.tsx";
 import { SectionRow } from "./tree-rows.tsx";
 import { SettledRow } from "./settled-row.tsx";
 import { ChatRow } from "./chat-row.tsx";
+import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { useHomeSort } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
 import {
@@ -56,8 +57,9 @@ import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 /**
- * Every row is one 36px line (`--row-height`) with 2px below it: rows are apart by spacing, not
- * rules. A section label carries the 20px gap above it.
+ * Every row is one 36px line (`--row-height`) with 2px below it, but an Active thread row
+ * (`activeEstimate`): rows are apart by spacing, not rules. A section label carries the 20px gap
+ * above it.
  */
 const estimates: Record<HomeRow["kind"], number> = {
   unsent: 0,
@@ -76,6 +78,15 @@ const estimates: Record<HomeRow["kind"], number> = {
   chat: 38,
   "day-label": 49,
 };
+
+/** An Active thread row: three lines in 80px, with 4px below it. */
+const activeEstimate = 84;
+
+/** A row's expected height, before it is measured. */
+function estimateOf(row: HomeRow | undefined): number {
+  if (row?.kind === "thread" && row.place === "active") return activeEstimate;
+  return estimates[row?.kind ?? "thread"];
+}
 
 /** The viewport's bottom padding (`pb-4`), below the list: the foot's free space leaves it out. */
 const footPadding = 16;
@@ -135,7 +146,7 @@ export function ThreadList(props: {
   const virtualizer = useVirtualizer({
     count: drawn.length,
     getScrollElement: () => viewport.current,
-    estimateSize: (index) => estimates[drawn[index]?.item.kind ?? "thread"],
+    estimateSize: (index) => estimateOf(drawn[index]?.item),
     paddingStart: 8,
     paddingEnd: 8,
     scrollPaddingStart: 8,
@@ -404,8 +415,9 @@ export function ThreadList(props: {
     });
   };
   const movingSet = useMemo(() => new Set(moving), [moving]);
+  const manyDevices = useManyDevices();
   return (
-    <>
+    <ManyDevices value={manyDevices}>
       <JumpKeys targets={jumps} />
       <div
         ref={viewport}
@@ -465,7 +477,11 @@ export function ThreadList(props: {
                   // Inset from the sidebar's edges, with a small gap between rows: space, not
                   // rules, separates them.
                   "absolute inset-x-2 top-0",
-                  "id" in row ? "pb-0.5" : row.kind !== "unsent" && "pb-px",
+                  row.kind === "thread" && row.place === "active"
+                    ? "pb-1"
+                    : "id" in row
+                      ? "pb-0.5"
+                      : row.kind !== "unsent" && "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
                   sliding && "bg-sidebar",
@@ -536,13 +552,13 @@ export function ThreadList(props: {
           <BulkBar.Component />
         </Suspense>
       )}
-    </>
+    </ManyDevices>
   );
 }
 
-/** Active's rows lead with their project's mark; a project's own rows line up with its name. */
+/** Active's rows lead with their project (three lines; a pinned row one line, by its mark); a project's own rows line up with its name. */
 function rowLead(row: HomeRow): RowLead {
-  if (row.kind === "thread") return "project";
+  if (row.kind === "thread") return row.place === "active" ? "task" : "project";
   return row.kind === "settled" ? "indent" : "none";
 }
 
