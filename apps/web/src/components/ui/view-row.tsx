@@ -76,8 +76,7 @@ function typedIndex(rows: ViewListRows, current: number, letter: string): number
 
 /** Focus row `index` of a virtual list, bringing it into view and waiting for it to mount. */
 async function focusIndex(list: HTMLElement, rows: ViewListRows, index: number): Promise<void> {
-  rows.reveal(index);
-  for (let frame = 0; frame < 4; frame++) {
+  for (let frame = 0; frame < 10; frame++) {
     const box = list.querySelector<HTMLElement>(`[data-index="${index}"]`);
     const row = box ? rowsOf(box)[0] : undefined;
     if (row) {
@@ -85,7 +84,9 @@ async function focusIndex(list: HTMLElement, rows: ViewListRows, index: number):
       row.scrollIntoView?.({ block: "nearest" });
       return;
     }
-    // Scrolling an unmounted row in mounts it on the next frame.
+    // Scrolling an unmounted row in mounts it on the next frame; rows measured on the way can
+    // move it, so scroll to it again until it is there.
+    rows.reveal(index);
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   }
 }

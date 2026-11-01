@@ -141,6 +141,8 @@ export function seedSettledThreads(daemon: FakeDaemon, count: number, workspaceI
         workspaceId: WorkspaceId.parse(workspaceId),
         title: `Settled long ago ${pad(n + 1)}`,
         provider: "claude",
+        // A thread never sent to is an unsent draft, which lists leave out.
+        hasSentMessage: true,
       },
       (n + 1) * minute,
     );
