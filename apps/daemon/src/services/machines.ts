@@ -17,6 +17,7 @@ import { Profiles } from "../cli/profiles.ts";
 import { createMachineTarget } from "../machines/target.ts";
 import { TargetRefusal } from "../machines/target-refusal.ts";
 import { TargetThreads } from "../machines/target-threads.ts";
+import { registeredAccounts } from "../agent-control/account-names.ts";
 import { TargetBrowser } from "../machines/target-browser.ts";
 import { TargetDevices } from "../machines/target-devices.ts";
 import { TargetScreen } from "../machines/target-screen.ts";
@@ -60,6 +61,8 @@ export function startMachines(context: ServiceContext): void {
     store,
     engine,
     models: () => services.models,
+    accounts: () => registeredAccounts(services.accountRegistry),
+    hostName,
     journal: () => services.agentControl?.delegations.journal,
     now,
     limit: () => services.childLimit?.current(),

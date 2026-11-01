@@ -18,6 +18,11 @@
     {
       "additionalProperties": false,
       "properties": {
+        "account": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "model": {
           "maxLength": 256,
           "minLength": 1,
