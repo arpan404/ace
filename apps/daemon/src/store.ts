@@ -10,6 +10,7 @@ import { StoreStream, type TransactionOutcome } from "./store-stream.ts";
 import { closeStore } from "./store-shutdown.ts";
 import { ThreadReadCache } from "./thread-read-cache.ts";
 import { WalMaintenance } from "./wal-maintenance.ts";
+import { spawnCheckpointWorker, type CheckpointWorkerFactory } from "./wal-worker-runtime.ts";
 import {
   bufferScheduler,
   type BufferScheduler,
@@ -85,6 +86,8 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   searchWorkerFactory?: SearchWorkerFactory;
   writeGate?: StoreWriteGateOptions;
   bufferScheduler?: BufferScheduler;
+  /** Opens the connection that checkpoints the WAL off the event loop. */
+  checkpointWorker?: CheckpointWorkerFactory;
 }
 type Listener = (events: Event[]) => void;
 /** Passes of the search writer (100 ms apart by default) between refreshes of streaming items. */
@@ -153,14 +156,6 @@ export class Store {
   ) {
     this.onError = onError;
     this.db = options.database ?? new DatabaseSync(path);
-    this.wal = new WalMaintenance({
-      path,
-      scheduler: options.bufferScheduler ?? bufferScheduler,
-      busy: () =>
-        !!this.transactionEvents || this.historyWriting || this.streaming.buffer.bytes > 0,
-      exec: (sql) => this.db.exec(sql),
-      report: (error) => this.onError(error),
-    });
     this.readCache = new ThreadReadCache({
       flush: () => this.flushLiveWrites(),
       version: () =>
@@ -220,8 +215,21 @@ export class Store {
     try {
       this.db.exec(
         // auto_vacuum only takes effect before a new file's first page or through VACUUM.
-        "PRAGMA auto_vacuum=INCREMENTAL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;",
+        "PRAGMA auto_vacuum=INCREMENTAL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=0; PRAGMA journal_size_limit=16777216;",
       );
+      // Checkpoints run on their own connection; an in-memory or rollback-journal file has none.
+      this.wal = new WalMaintenance({
+        path,
+        scheduler: options.bufferScheduler ?? bufferScheduler,
+        worker:
+          this.db.prepare("PRAGMA journal_mode").get()?.["journal_mode"] === "wal"
+            ? (options.checkpointWorker ?? spawnCheckpointWorker)
+            : undefined,
+        busy: () =>
+          !!this.transactionEvents || this.historyWriting || this.streaming.buffer.bytes > 0,
+        checkpoint: (mode) => this.checkpointWal(mode),
+        report: (error) => this.onError(error),
+      });
       migrate(this.db);
       this.sequences.initialize();
       migrateSidebarRevisions(this.db);
@@ -356,6 +364,17 @@ export class Store {
     void this.longThreads.backfill(this, this.searchAbort.signal).catch(this.onError);
   }
   private onError: (error: unknown) => void;
+  /** A checkpoint on this connection that gives up rather than wait for a lock. */
+  private checkpointWal(mode: "PASSIVE" | "TRUNCATE"): boolean {
+    if (mode === "PASSIVE")
+      return this.statement("PRAGMA wal_checkpoint(PASSIVE)").get()?.["busy"] !== 1;
+    this.db.exec("PRAGMA busy_timeout=0");
+    try {
+      return this.statement("PRAGMA wal_checkpoint(TRUNCATE)").get()?.["busy"] !== 1;
+    } finally {
+      this.db.exec("PRAGMA busy_timeout=5000");
+    }
+  }
   close(): Promise<void> {
     if (this.closing) return this.closing;
     const finished = Promise.withResolvers<void>();
@@ -364,11 +383,13 @@ export class Store {
       flush: () => this.streaming.drain(),
       stop: [
         () => this.streaming.buffer.stop(),
-        () => this.wal.close(),
+        () => this.wal.stop(),
         () => this.searchAbort.abort(),
         () => this.searchMaintenance.close(),
       ],
-      workers: () => this.searchQueries.close(),
+      workers: async () => {
+        await Promise.all([this.searchQueries.close(), this.wal.close()]);
+      },
       release: () => {
         this.statements.clear();
         this.listeners.clear();

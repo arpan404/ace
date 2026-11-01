@@ -61,6 +61,11 @@ export async function bundleDaemon(
                 ],
                 ["/search/src/worker-runtime.ts", "./query-worker.ts", "./search-query-worker.mjs"],
                 [
+                  "/daemon/src/wal-worker-runtime.ts",
+                  "./wal-checkpoint-worker.ts",
+                  "./wal-checkpoint-worker.mjs",
+                ],
+                [
                   "/daemon/src/storage/worktree-io.ts",
                   "./worktree-worker.ts",
                   "./storage-worktree-worker.mjs",
@@ -221,6 +226,7 @@ export async function bundleDaemon(
     ["apps/daemon/src/storage/worktree-worker.ts", "storage-worktree-worker.mjs"],
     ["apps/daemon/src/storage/usage-worker.ts", "storage-usage-worker.mjs"],
     ["apps/daemon/src/stall-watchdog-worker.ts", "stall-watchdog-worker.mjs"],
+    ["apps/daemon/src/wal-checkpoint-worker.ts", "wal-checkpoint-worker.mjs"],
     ["packages/adapter-cursor/src/host-entry.ts", "cursor-sdk-host.mjs"],
     ["packages/adapter-cursor/src/api-key-entry.ts", "cursor-api-key.mjs"],
     ["packages/adapter-pi/src/extension.ts", "pi-extension.mjs"],
