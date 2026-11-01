@@ -7,10 +7,8 @@ import {
   replayFixture,
   assertExpectations,
 } from "@ace/adapter-testkit";
-import { createOpenCodeAdapter as createLegacyAdapter } from "./testing/v1/index.ts";
 import { createOpenCodeAdapter } from "./index.ts";
 const versions = [
-  { path: "1.18.33", adapter: createLegacyAdapter() },
   { path: "2.0.22/muse-spark-1.3-contributor", adapter: createOpenCodeAdapter() },
 ];
 for (const version of versions) {
@@ -37,7 +35,6 @@ for (const version of versions) {
             expect(item.text).not.toMatch(
               /(?:OpenCode (?:[\w-]+(?:[/.][\w-]+)+|HTTP [A-Z]+.*)|\b(?:frame|event)$|^[0-9a-f-]{32,36}$)/i,
             );
-        if (version.path === "1.18.33") expect(result.diagnostics.length).toBeGreaterThan(0);
         expect(
           Object.values(result.final.view.items).filter(
             (i) => i.type === "notice" && i.level === "warning",
