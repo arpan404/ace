@@ -73,7 +73,7 @@ export class MirrorThread implements ThreadSource {
       this.snapshots,
     ];
     const held: unknown[] = [this.meta, this.queued, this.ids, this.links, this.interactionList];
-    held.push(this.taskList, this.card);
+    held.push(this.taskList);
     for (const map of maps) held.push(Array.from(map));
     return JSON.stringify(held).length * 2 + (this.cut.size + this.removed.size) * 64;
   }

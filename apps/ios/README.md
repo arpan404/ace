@@ -40,7 +40,7 @@ streaming thread's turn never ends (`ACE_IOS_SPIKE_STREAMED=650000` starts it as
 streamed that many deltas, about nine hours, to check that a long-running thread opens at once), so a queued follow-up waits in the daemon queue,
 outside the transcript, as it would on a real daemon; `GET /queue?thread=ID` lists it.
 `ios-subagents` holds native subagents that failed, were stopped, wait on a usage limit, or
-finished while a subagent under them asks the person, with an Offshift run held by a blocker;
+finished while a subagent under them asks the person;
 `ios-big-tree` holds 162 subagents and 45 background commands for the Agents sheet's pages, with a
 delivered run that must read Working while two subagents still work (`scripts/subagent-scenario.ts`).
 `ACE_IOS_SPIKE_HISTORY=8000` seeds the streaming thread with that many history messages

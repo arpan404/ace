@@ -370,6 +370,8 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
         put(view.usageSnapshots, usageSnapshotKey(p), structuredCopy(p));
       else put(view.usage, p.agentId, structuredCopy(p));
       break;
+    case "unknown":
+      break;
     default: {
       const exhaustive: never = p;
       return exhaustive;

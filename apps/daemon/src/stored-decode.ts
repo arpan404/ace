@@ -13,5 +13,5 @@ export function decodeStoredItem(value: unknown): Item {
   const input = tagged.parse(value);
   if (Item.options.some((option) => option.shape.type.value === input.type))
     return Item.parse(value);
-  return Item.parse({ ...input, type: "unknown", raw: value });
+  return Item.parse({ ...input, type: "unknown", raw: [], data: value });
 }

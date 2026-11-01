@@ -39,7 +39,6 @@ test("removed pages are gone: their addresses show Not found and the palette nev
   for (const path of [
     "/deck",
     "/offsets/new",
-    "/offshifts",
     "/more",
     "/more/search",
     "/pull-requests",
@@ -62,7 +61,7 @@ test("removed pages are gone: their addresses show Not found and the palette nev
     await userEvent.type(search, page);
     expect(await screen.findByRole("option", { name: new RegExp(`^${page}`) })).toBeTruthy();
   }
-  for (const removed of ["Deck", "Offshifts", "Activity"]) {
+  for (const removed of ["Deck", "Activity"]) {
     await userEvent.clear(search);
     await userEvent.type(search, removed);
     // The palette has answered once it offers to search the threads for the words.
