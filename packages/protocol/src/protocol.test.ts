@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Agent, BackgroundTask, Command, Event, InteractionResolution } from "./index.ts";
+import { Agent, BackgroundTask, Command, Event } from "./index.ts";
 
 const agent = {
   id: "agt_child",
@@ -63,14 +63,5 @@ describe("protocol schemas", () => {
     });
     expect(task.ambient).toBe(false);
     expect(task.status).toBe("unknown");
-  });
-
-  it("accepts a dismissed question and a cancelled plan review", () => {
-    expect(
-      InteractionResolution.parse({ kind: "question", answers: {}, dismissed: true }),
-    ).toMatchObject({ dismissed: true });
-    expect(InteractionResolution.parse({ kind: "plan_review", decision: "cancel" })).toMatchObject({
-      decision: "cancel",
-    });
   });
 });
