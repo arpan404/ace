@@ -2,6 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Fragment,
   useImperativeHandle,
+  type AriaRole,
   useLayoutEffect,
   useRef,
   useState,
@@ -31,9 +32,9 @@ function offsetWithin(element: HTMLElement, parent: HTMLElement): number {
   );
 }
 
-/** Brings a row into view whether or not it is mounted. */
+/** Brings a row into view whether or not it is mounted: to the top, or just enough to show it. */
 export interface VirtualRowsHandle {
-  scrollToIndex(index: number): void;
+  scrollToIndex(index: number, align?: "start" | "auto"): void;
 }
 
 export interface VirtualRowsProps<T> {
@@ -45,6 +46,13 @@ export interface VirtualRowsProps<T> {
   /** Rows mounted beyond each edge of the viewport. Small by default: each costs a render. */
   overscan?: number;
   handle?: Ref<VirtualRowsHandle>;
+  /** The rows as a list for assistive tech: its name, and each row's role (a listitem by default). */
+  list?: { label: string; rowRole?(item: T, index: number): AriaRole };
+  /**
+   * Mount every row while there are at most this many (no measuring), only those near the
+   * viewport past it. The rows stay the same elements either way, so focus survives the change.
+   */
+  virtualAbove?: number;
 }
 
 export function VirtualRows<T>(props: VirtualRowsProps<T>) {
@@ -80,9 +88,12 @@ export function VirtualRows<T>(props: VirtualRowsProps<T>) {
       found.removeEventListener("scroll", measure);
     };
   }, []);
+  const all = items.length <= (props.virtualAbove ?? -1);
   // The compiler skips this component (the virtualizer's callbacks are unstable by design).
   // oxlint-disable-next-line react-compiler/incompatible-library
   const virtualizer = useVirtualizer({
+    // Every row mounted: nothing to follow while scrolling.
+    enabled: !all,
     count: items.length,
     getScrollElement: () => parent,
     estimateSize: (index) => {
@@ -103,21 +114,36 @@ export function VirtualRows<T>(props: VirtualRowsProps<T>) {
   });
   useImperativeHandle(
     props.handle,
-    () => ({ scrollToIndex: (index) => virtualizer.scrollToIndex(index, { align: "start" }) }),
-    [virtualizer],
+    () => ({
+      scrollToIndex: (index, align = "start") => {
+        if (!all) return virtualizer.scrollToIndex(index, { align });
+        box.current
+          ?.querySelector(`:scope > [data-index="${index}"]`)
+          ?.scrollIntoView?.({ block: align === "auto" ? "nearest" : "start" });
+      },
+    }),
+    [virtualizer, all],
   );
-  const rows = virtualizer.getVirtualItems();
+  const rows = all
+    ? items.map((item, index) => ({ index, key: rowKey(item, index), start: 0, end: 0 }))
+    : virtualizer.getVirtualItems();
   const first = rows[0];
   const last = rows.at(-1);
-  const before = first ? first.start - margin : 0;
-  const after = last ? virtualizer.getTotalSize() - (last.end - margin) : 0;
+  const before = first && !all ? first.start - margin : 0;
+  const after = last && !all ? virtualizer.getTotalSize() - (last.end - margin) : 0;
+  const list = props.list;
   return (
-    <div ref={box}>
+    <div ref={box} role={list && "list"} aria-label={list?.label}>
       <div aria-hidden style={{ height: Math.max(0, before) }} />
       {rows.map((row) => {
         const item = items[row.index];
         return item === undefined ? null : (
-          <div key={row.key} data-index={row.index} ref={virtualizer.measureElement}>
+          <div
+            key={row.key}
+            data-index={row.index}
+            role={list && (list.rowRole?.(item, row.index) ?? "listitem")}
+            ref={all ? undefined : virtualizer.measureElement}
+          >
             {render(item, row.index)}
           </div>
         );
@@ -138,4 +164,26 @@ export function LongRows<T>(props: VirtualRowsProps<T> & { virtualAbove: number 
   return props.items.map((item, index) => (
     <Fragment key={props.rowKey(item, index)}>{props.render(item, index)}</Fragment>
   ));
+}
+
+/**
+ * A list of rows (a panel's, a page's) that can grow without bound: every row while it has at
+ * most `virtualAbove`, only those near the viewport past that. Each row is a listitem box marked
+ * with its `data-index`, so keyboard focus (`useViewListKeys`) finds rows the same way whether
+ * or not they are all mounted, and `handle` brings any row into view.
+ */
+export function VirtualList<T>(
+  props: Omit<VirtualRowsProps<T>, "list"> & {
+    label: string;
+    rowRole?(item: T, index: number): AriaRole;
+  },
+) {
+  const { label, rowRole, virtualAbove = 100, ...rows } = props;
+  return (
+    <VirtualRows
+      {...rows}
+      virtualAbove={virtualAbove}
+      list={{ label, ...(rowRole ? { rowRole } : {}) }}
+    />
+  );
 }

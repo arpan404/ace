@@ -4,6 +4,7 @@ import { configure, fireEvent, act, screen, waitFor, within } from "@testing-lib
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { listGroup } from "@/test/list-groups.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -200,8 +201,7 @@ test("installing lists the marketplace, shows what a plugin runs, and Back keeps
 
   expect(await screen.findByRole("heading", { level: 2, name: "Sentry" })).toBeTruthy();
   expect(await screen.findByText("From getsentry/sentry")).toBeTruthy();
-  const plugins = within(catalog()).getByRole("list", { name: "Plugins" });
-  expect(await within(plugins).findByText("Sentry")).toBeTruthy();
+  expect(await listGroup(catalog(), /^Plugins ·/).findByText("Sentry")).toBeTruthy();
   expect(within(catalog()).getByText("Triage issue")).toBeTruthy();
 });
 

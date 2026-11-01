@@ -40,17 +40,75 @@ function homeRow(rows: HTMLElement[]): HTMLElement | undefined {
 }
 
 /**
- * Keyboard for a view's list in the sidebar (Skills, More, Automations): the list is
- * one Tab stop, ↑/↓ move between rows, Home/End jump to the ends, and typing a letter moves
- * to the next row whose title starts with it. Enter is the row's own (it is a link or button).
- * Spread the result on the element that holds the rows.
+ * The rows of a list that mounts only some of them (`VirtualList`), so keys can reach the rest:
+ * how many there are, each one's title (undefined for a label that never takes focus), and how
+ * to bring one into view so it mounts.
  */
-export function useViewListKeys<T extends HTMLElement>(): {
+export interface ViewListRows {
+  count: number;
+  titleAt(index: number): string | undefined;
+  reveal(index: number): void;
+}
+
+/** The row `key` moves to from `current` among `rows`' focusable ones, if it is a moving key. */
+function nextIndex(rows: ViewListRows, current: number, key: string): number | undefined {
+  const focusable = (index: number) => rows.titleAt(index) !== undefined;
+  const walk = (from: number, step: number) => {
+    for (let index = from; index >= 0 && index < rows.count; index += step)
+      if (focusable(index)) return index;
+    return undefined;
+  };
+  if (key === "ArrowDown") return walk(current + 1, 1) ?? current;
+  if (key === "ArrowUp") return walk(current - 1, -1) ?? current;
+  if (key === "Home") return walk(0, 1);
+  if (key === "End") return walk(rows.count - 1, -1);
+  return undefined;
+}
+
+/** The next row after `current`, wrapping round, whose title starts with `letter`. */
+function typedIndex(rows: ViewListRows, current: number, letter: string): number | undefined {
+  for (let step = 1; step <= rows.count; step++) {
+    const index = (current + step) % rows.count;
+    if (rows.titleAt(index)?.trim().toLowerCase().startsWith(letter)) return index;
+  }
+  return undefined;
+}
+
+/** Focus row `index` of a virtual list, bringing it into view and waiting for it to mount. */
+async function focusIndex(list: HTMLElement, rows: ViewListRows, index: number): Promise<void> {
+  rows.reveal(index);
+  for (let frame = 0; frame < 4; frame++) {
+    const box = list.querySelector<HTMLElement>(`[data-index="${index}"]`);
+    const row = box ? rowsOf(box)[0] : undefined;
+    if (row) {
+      row.focus();
+      row.scrollIntoView?.({ block: "nearest" });
+      return;
+    }
+    // Scrolling an unmounted row in mounts it on the next frame.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+}
+
+/**
+ * Keyboard for a view's list in the sidebar (Skills, More, Automations) or on a page (Pull
+ * requests, History): the list is one Tab stop, ↑/↓ move between rows, Home/End jump to the
+ * ends, and typing a letter moves to the next row whose title starts with it. Enter is the row's
+ * own (it is a link or button). Spread the result on the element that holds the rows. A list that
+ * mounts only some rows passes them (`virtual`), so the keys reach rows not yet mounted.
+ */
+export function useViewListKeys<T extends HTMLElement>(
+  virtual?: ViewListRows,
+): {
   ref: RefCallback<T>;
   onKeyDown: KeyboardEventHandler<T>;
 } {
   const [list, setList] = useState<T | null>(null);
   const listRef = useRef<T | null>(null);
+  const virtualRef = useRef(virtual);
+  useEffect(() => {
+    virtualRef.current = virtual;
+  });
   const ref = useCallback<RefCallback<T>>((element) => {
     listRef.current = element;
     setList(element);
@@ -89,6 +147,19 @@ export function useViewListKeys<T extends HTMLElement>(): {
     const rows = rowsOf(element);
     const current = rows.indexOf(document.activeElement as HTMLElement);
     if (current === -1) return;
+    const model = virtualRef.current;
+    const at = rows[current]?.closest<HTMLElement>("[data-index]");
+    if (model && at && element.contains(at)) {
+      const index = Number(at.dataset.index);
+      const typed = event.key.length === 1 && /\S/.test(event.key);
+      const target = typed
+        ? typedIndex(model, index, event.key.toLowerCase())
+        : nextIndex(model, index, event.key);
+      // A letter is not prevented: it may also start a sequence shortcut ("g h").
+      if (!typed && target !== undefined) event.preventDefault();
+      if (target !== undefined) void focusIndex(element, model, target);
+      return;
+    }
     let next: number | undefined;
     if (event.key === "ArrowDown") next = Math.min(current + 1, rows.length - 1);
     else if (event.key === "ArrowUp") next = Math.max(current - 1, 0);

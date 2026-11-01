@@ -4,6 +4,7 @@ import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { listGroup } from "@/test/list-groups.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 afterEach(() => localStorage.clear());
@@ -91,8 +92,9 @@ async function openSkill(title: string) {
 
 test("skills group by where they live and only narrow skills show their agents", async () => {
   await open("/skills");
-  const list = within(await screen.findByRole("navigation", { name: "Skills catalog" }));
-  const personal = within(await list.findByRole("list", { name: "Personal" }));
+  const list = await screen.findByRole("navigation", { name: "Skills catalog" });
+  const personal = listGroup(list, /^Personal ·/);
+  await personal.findByRole("link", { name: /^Setup TS deep modules/ });
   // Codex and Cursor read ~/.codex/skills: two agents, so the row names them.
   const narrow = within(personal.getByRole("link", { name: /^Setup TS deep modules/ }));
   expect(narrow.getAllByRole("img").map((mark) => mark.getAttribute("aria-label"))).toEqual([
@@ -103,7 +105,7 @@ test("skills group by where they live and only narrow skills show their agents",
   expect(within(personal.getByRole("link", { name: "Research" })).queryAllByRole("img")).toEqual(
     [],
   );
-  const builtin = within(list.getByRole("list", { name: "Built into ace" }));
+  const builtin = listGroup(list, /^Built into ace ·/);
   expect(builtin.getByRole("link", { name: "Review changes" })).toBeTruthy();
 });
 
