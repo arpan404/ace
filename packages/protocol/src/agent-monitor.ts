@@ -71,13 +71,21 @@ export const WaitResult = z.object({
   threads: z.array(WatchedThread).max(maxWaitThreads),
 });
 export type WaitResult = z.infer<typeof WaitResult>;
+/**
+ * A snapshot row's state. `unknown`: ace could not read this child's facts. It is never settled,
+ * so an unreadable child can't make its parent look done.
+ */
+export const MonitoredState = z.enum([...WatchedState.options, "unknown"]);
+export type MonitoredState = z.infer<typeof MonitoredState>;
+/** How many children one snapshot lists; `counts` and `omitted` cover the rest. */
+export const maxMonitoredChildren = 64;
 /** One child in a compact tree snapshot. */
 export const MonitoredChild = z.object({
   id: ThreadId,
   /** Present when the child belongs to another child rather than the caller. */
   parent: ThreadId.optional(),
   role: z.string().max(40),
-  state: WatchedState,
+  state: MonitoredState,
   step: z.string().max(60).optional(),
   /** While queued past its parent's run slots: where it stands. */
   ...QueueFacts.partial().shape,
@@ -94,11 +102,16 @@ export const MonitoredChild = z.object({
 });
 export type MonitoredChild = z.infer<typeof MonitoredChild>;
 export const MonitorSnapshot = z.object({
-  children: z.array(MonitoredChild).max(64),
-  /** Children in each state. */
+  /** Unsettled children first, so a full list never hides one that still works or waits. */
+  children: z.array(MonitoredChild).max(maxMonitoredChildren),
+  /** Children left out because the list is full; `counts` includes them. */
+  omitted: z.number().int().positive().optional(),
+  /** Children in each state, the whole tree. */
   counts: z.object({
     working: z.number().int().nonnegative(),
+    queued: z.number().int().nonnegative(),
     needs_you: z.number().int().nonnegative(),
+    unknown: z.number().int().nonnegative(),
     done: z.number().int().nonnegative(),
     failed: z.number().int().nonnegative(),
     cancelled: z.number().int().nonnegative(),
