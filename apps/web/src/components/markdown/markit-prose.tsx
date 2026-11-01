@@ -1,6 +1,6 @@
 import { useOptionalClient, useThreadMeta } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
-import { ItemId, ThreadId, type ForgePrRef } from "@ace/protocol";
+import { ItemId, ThreadId, type ForgeIssueRef, type ForgePrRef } from "@ace/protocol";
 import {
   isMarkitWebImage,
   markitLinkTarget,
@@ -12,8 +12,24 @@ import "./markit-ace.css";
 import { checkoutLinkPath, localLinkPath, normalizedPath } from "@ace/ui-core/file-references";
 import { contentHash, isCheckoutPath, readAceLink } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { PullRequestOpener, pullRequestAt, useOpenWebAddress } from "../web-link.tsx";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
+import {
+  IssueOpener,
+  PullRequestOpener,
+  issueAt,
+  pullRequestAt,
+  useOpenWebAddress,
+} from "../web-link.tsx";
+import { applePlatform } from "@/lib/keymap.ts";
+import { asksForSystemBrowser, type LinkClick } from "@/lib/web-links.ts";
 import { fileTab, pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { prefersReducedMotion } from "@/lib/motion.ts";
@@ -45,20 +61,25 @@ interface ProseProps {
 
 interface MarkitCallbacks {
   onLink: (url: string) => void;
+  /** A web link clicked to open in the system's browser (⌘/Ctrl or middle click). */
+  onSystemLink: (url: string, click: LinkClick) => void;
   onReference: (reference: { kind: string; target: string }) => void;
   resolveImage: (url: string, alt: string, signal: AbortSignal) => Promise<Blob | null>;
 }
 
 /** What a click in prose can open, beyond the system browser. */
 interface LinkActions {
-  openWeb: (url: string) => unknown;
+  openWeb: (url: string, click?: LinkClick) => Promise<void>;
   openPullRequest?: ((pr: ForgePrRef) => void) | undefined;
+  openIssue?: ((issue: ForgeIssueRef) => void) | undefined;
   openThread: (threadId: string, machine: string | undefined) => void;
   openFile?: ((path: string) => void) | undefined;
 }
 
 /** Link and reference handling shared by every prose surface. */
-function linkCallbacks(actions: LinkActions): Pick<MarkitCallbacks, "onLink" | "onReference"> {
+function linkCallbacks(
+  actions: LinkActions,
+): Pick<MarkitCallbacks, "onLink" | "onSystemLink" | "onReference"> {
   const onLink = (url: string) => {
     const target = markitLinkTarget(url);
     if (!target) return;
@@ -71,10 +92,14 @@ function linkCallbacks(actions: LinkActions): Pick<MarkitCallbacks, "onLink" | "
     // A pull request on any forge host opens in a side panel when there is one to show it.
     const pr = pullRequestAt(target.href);
     if (pr && actions.openPullRequest) return actions.openPullRequest(pr);
-    void actions.openWeb(target.href);
+    // An issue opens ace's page for it, where the screen has one.
+    const issue = issueAt(target.href);
+    if (issue && actions.openIssue) return actions.openIssue(issue);
+    void actions.openWeb(target.href).catch(() => {});
   };
   return {
     onLink,
+    onSystemLink: (url, click) => void actions.openWeb(url, click).catch(() => {}),
     onReference: ({ kind, target }) =>
       kind === "file" ? actions.openFile?.(target) : onLink(target),
   };
@@ -171,8 +196,28 @@ function MarkitView(props: {
   }, [markdown, finalized]);
   // The controller is stable; its ref callback attaches the renderer to this element.
   const attach = useCallback((element: HTMLElement | null) => markit.ref(element), [markit]);
+  // markit hands every plain click on a link to `onLink`, without the click. A ⌘/Ctrl or middle
+  // click on a web link is taken here first (capture runs before markit's listener) and opens
+  // in the system's browser, as `WebLink` does.
+  const { onSystemLink } = props.callbacks;
+  const systemClick = useCallback(
+    (event: MouseEvent<HTMLDivElement>) => {
+      if (!(event.target instanceof Element) || !asksForSystemBrowser(event, applePlatform)) return;
+      const href = event.target.closest("a[href]")?.getAttribute("href");
+      const target = href ? markitLinkTarget(href) : undefined;
+      if (target?.kind !== "web") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onSystemLink(target.href, event);
+    },
+    [onSystemLink],
+  );
   return (
-    <div className={cn("markit-ace", blockRhythm, props.className)}>
+    <div
+      className={cn("markit-ace", blockRhythm, props.className)}
+      onClickCapture={systemClick}
+      onAuxClickCapture={systemClick}
+    >
       {!drawn && <p className="whitespace-pre-wrap">{markdown}</p>}
       <div ref={attach} />
     </div>
@@ -197,13 +242,14 @@ function useThreadNavigation(): LinkActions["openThread"] {
 function MarkitPlainProse(props: ProseProps) {
   const openWeb = useOpenWebAddress();
   const openPullRequest = useContext(PullRequestOpener);
+  const openIssue = useContext(IssueOpener);
   const openThread = useThreadNavigation();
   const callbacks = useMemo(
     () => ({
-      ...linkCallbacks({ openWeb, openPullRequest, openThread }),
+      ...linkCallbacks({ openWeb, openPullRequest, openIssue, openThread }),
       resolveImage: (url: string, _alt: string, signal: AbortSignal) => pageImage(url, signal),
     }),
-    [openWeb, openPullRequest, openThread],
+    [openWeb, openPullRequest, openIssue, openThread],
   );
   return (
     <MarkitView
@@ -259,6 +305,7 @@ function MarkitThreadProse(
   const workspace = useWorkspaceActions(threadId);
   const openWeb = useOpenWebAddress();
   const panelOpener = useContext(PullRequestOpener);
+  const openIssue = useContext(IssueOpener);
   const openThread = useThreadNavigation();
   const root = (meta?.details?.worktree ?? meta?.details?.workspace?.path)?.replace(/\/+$/, "");
   const workspaceId = meta?.workspaceId;
@@ -278,7 +325,7 @@ function MarkitThreadProse(
             )
         : undefined);
     return {
-      ...linkCallbacks({ openWeb, openPullRequest, openThread, openFile }),
+      ...linkCallbacks({ openWeb, openPullRequest, openIssue, openThread, openFile }),
       resolveImage: async (url: string, _alt: string, signal: AbortSignal) => {
         if (shouldResolveMarkitImage(url)) return pageImage(url, signal);
         if (signal.aborted || isMarkitWebImage(url)) return null;
@@ -294,6 +341,7 @@ function MarkitThreadProse(
     client,
     cwd,
     itemId,
+    openIssue,
     openThread,
     openWeb,
     panelOpener,
