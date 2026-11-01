@@ -30,7 +30,7 @@ function useBackToApp(section: boolean) {
 /**
  * The one sidebar. At the top, the ace wordmark and Search (a dialog over any screen); back,
  * forward and the sidebar's toggle sit in the header. Then the thread list (or the selected
- * section's list) as its only scrolling part, and at the foot the profile with the GitHub
+ * section's list) as its only scrolling part, and at the foot the profile with the Code review
  * button and the Settings gear (and, beside them, the app's update when there is one to act on).
  * Settings, Automations and Skills hide app navigation and the profile, with a full-width Back
  * to app at the foot in its place.
@@ -38,7 +38,7 @@ function useBackToApp(section: boolean) {
 export function AppSidebar(props: {
   /** The thread list, the body's content unless a view's list takes it (Settings' pages). */
   threads: ReactNode;
-  /** The GitHub button beside Settings that opens Inbox, Pull requests and Issues, lit while open. */
+  /** The Code review button beside Settings that opens Inbox, Pull requests and Issues, lit while open. */
   forge?: ((forgeOpen: boolean) => ReactNode) | undefined;
 }) {
   const { sheet, setBody, bodyClaimed, hideSidebar } = useViewFrame();

@@ -1,11 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { GithubMark } from "@/components/github-mark.tsx";
+import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /**
- * The one GitHub button beside Settings at the sidebar's foot. It opens the list last looked at
- * (Inbox, Pull requests or Issues), lit while one of those pages is open. A needs-you dot shows
+ * The one Code review button beside Settings at the sidebar's foot. It opens the list last looked
+ * at (Inbox, Pull requests or Issues), lit while one of those pages is open. A needs-you dot shows
  * while pull requests wait on the person; unread notifications only go in its name and tooltip,
  * so they never pull the eye.
  */
@@ -23,9 +24,9 @@ export function ForgeButton(props: {
     waiting > 0 && `${waiting} ${waiting === 1 ? "needs" : "need"} you`,
     unread > 0 && `${unread} unread`,
   ].filter(Boolean);
-  const said = parts.length ? `GitHub, ${parts.join(", ")}` : "GitHub";
+  const said = parts.length ? `Code review, ${parts.join(", ")}` : "Code review";
   return (
-    <Tip label={parts.length ? `GitHub · ${parts.join(" · ")}` : "GitHub"}>
+    <Tip label={parts.length ? `Code review · ${parts.join(" · ")}` : "Code review"}>
       <Link
         to={props.to}
         aria-current={props.active ? "page" : undefined}
@@ -35,8 +36,7 @@ export function ForgeButton(props: {
           props.active && "bg-sidebar-accent text-foreground",
         )}
       >
-        {/* The mark fills its box; the gear beside it draws 13px tall in 16, so this matches it. */}
-        <GithubMark size={13.5} />
+        <Icon icon={GitPullRequestIcon} />
         {waiting > 0 && (
           <span
             aria-hidden
