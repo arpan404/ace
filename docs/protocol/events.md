@@ -284,19 +284,30 @@ Example:
 ```json
 {
   "agent": {
-    "createdAt": 9,
+    "createdAt": 4,
     "cwd": "example",
+    "endedAt": 8,
     "fidelity": "summary",
     "id": "example",
-    "native": {
-      "instanceId": "example",
-      "provider": "opencode"
+    "lineage": {
+      "lossy": true,
+      "mode": "portable",
+      "parentAgentId": "example",
+      "parentThreadId": "example",
+      "point": {
+        "itemId": "example",
+        "type": "item"
+      }
     },
-    "origin": "root",
-    "parentId": null,
-    "spawnedBy": "example",
+    "native": {
+      "forkedFromNativeId": "example",
+      "path": "example",
+      "provider": "cursor"
+    },
+    "origin": "provider_subagent",
+    "parentId": "example",
     "status": {
-      "lastSignalAt": 8,
+      "lastSignalAt": 5,
       "state": "unresponsive"
     },
     "threadId": "example"
@@ -334,6 +345,7 @@ Example:
 | type | yes | `"agent.updated"` |  |
 | agentId | yes | [AgentId.json](schema/AgentId.json) |  |
 | childThreadId | no | [ThreadId.json](schema/ThreadId.json) |  |
+| machine | no | [AgentMachine.json](schema/AgentMachine.json) |  |
 | parentId | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AgentId.json"},{"type":"null"}]} |
 | origin | no | [AgentOrigin.json](schema/AgentOrigin.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
@@ -352,12 +364,18 @@ Example:
 ```json
 {
   "agentId": "example",
+  "background": true,
   "childThreadId": "example",
-  "cwd": "example",
-  "model": "example",
-  "name": "example",
-  "origin": "provider_subagent",
-  "role": "example",
+  "endedAt": 6,
+  "native": {
+    "acpAgentId": "example",
+    "aliases": [],
+    "forkedFromNativeId": "example",
+    "installationId": "example",
+    "provider": "opencode"
+  },
+  "parentId": null,
+  "spawnedBy": "example",
   "type": "agent.updated"
 }
 ```

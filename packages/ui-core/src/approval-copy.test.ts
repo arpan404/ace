@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { approvalCopy, commandRisk } from "./approval-copy.ts";
+import { approvalCopy } from "./approval-copy.ts";
+import { commandRisk } from "./command-risk.ts";
 
 test("a read-only page script shows its code, its page and the site-wide read-only choice", () => {
   const copy = approvalCopy({

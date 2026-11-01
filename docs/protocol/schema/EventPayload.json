@@ -184,6 +184,9 @@
         "lineage": {
           "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
         },
+        "machine": {
+          "$ref": "https://ace.local/protocol/v1/AgentMachine.json"
+        },
         "model": {
           "type": "string"
         },

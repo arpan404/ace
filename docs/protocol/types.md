@@ -1172,6 +1172,7 @@ Example:
 | id | yes | [AgentId.json](schema/AgentId.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | childThreadId | no | [ThreadId.json](schema/ThreadId.json) |  |
+| machine | no | [AgentMachine.json](schema/AgentMachine.json) |  |
 | parentId | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AgentId.json"},{"type":"null"}]} |
 | origin | yes | [AgentOrigin.json](schema/AgentOrigin.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
@@ -1191,31 +1192,21 @@ Example:
 
 ```json
 {
-  "background": true,
-  "createdAt": 0,
+  "background": false,
+  "createdAt": 7,
   "cwd": "example",
   "fidelity": "placeholder",
   "id": "example",
-  "lineage": {
-    "lossy": false,
-    "mode": "native",
-    "parentAgentId": "example",
-    "parentThreadId": "example",
-    "point": {
-      "itemId": "example",
-      "type": "item"
-    }
-  },
   "native": {
-    "instanceId": "example",
+    "aliases": [],
     "path": "example",
-    "provider": "pi"
+    "provider": "cursor"
   },
-  "origin": "provider_subagent",
+  "origin": "root",
   "parentId": null,
   "status": {
-    "activity": "retrying",
-    "state": "working"
+    "lastSignalAt": 5,
+    "state": "unresponsive"
   },
   "threadId": "example"
 }
@@ -2819,7 +2810,7 @@ Example:
 | updatedAt | yes | [Timestamp.json](schema/Timestamp.json) |  |
 | generation | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | outcome | no | union | {"default":null,"anyOf":[{"$ref":"https://ace.local/protocol/v1/DelegationOutcome.json"},{"type":"null"}]} |
-| machine | no | object | {"properties":{"machine":{"type":"string","minLength":1,"maxLength":64},"name":{"type":"string","minLength":1,"maxLength":256},"hostId":{"$ref":"https://ace.local/protocol/v1/HostId.json"}},"required":["machine","name"]} |
+| machine | no | [AgentMachine.json](schema/AgentMachine.json) |  |
 | raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
 
 Example:
@@ -3085,6 +3076,26 @@ Example:
 {
   "effort": "example",
   "serviceTier": "default"
+}
+```
+
+## AgentMachine
+
+[JSON Schema](schema/AgentMachine.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| machine | yes | string | {"minLength":1,"maxLength":64} |
+| name | yes | string | {"minLength":1,"maxLength":256} |
+| hostId | no | [HostId.json](schema/HostId.json) |  |
+
+Example:
+
+```json
+{
+  "hostId": "example",
+  "machine": "example",
+  "name": "example"
 }
 ```
 
@@ -15751,7 +15762,7 @@ Example:
 | updatedAt | yes | [Timestamp.json](schema/Timestamp.json) |  |
 | generation | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | outcome | no | union | {"default":null,"anyOf":[{"$ref":"https://ace.local/protocol/v1/DelegationOutcome.json"},{"type":"null"}]} |
-| machine | no | object | {"properties":{"machine":{"type":"string","minLength":1,"maxLength":64},"name":{"type":"string","minLength":1,"maxLength":256},"hostId":{"$ref":"https://ace.local/protocol/v1/HostId.json"}},"required":["machine","name"]} |
+| machine | no | [AgentMachine.json](schema/AgentMachine.json) |  |
 | raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
 
 Example:
