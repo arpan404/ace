@@ -90,6 +90,9 @@
             }
           ]
         },
+        "startedBy": {
+          "$ref": "https://ace.local/protocol/v1/StartedBy.json"
+        },
         "status": {
           "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
         },
