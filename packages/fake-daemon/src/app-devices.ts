@@ -114,6 +114,8 @@ export class FakeAppDevices {
   private clock: () => number;
   private enabled = true;
   private sessions = new Map<string, Session>();
+  /** Devices booted outside ace whose next boot from ace fails (`bootElsewhere`). */
+  private bootedElsewhere = new Set<string>();
   private channels = new Set<Channel>();
   private sequence = 0;
   private streams = 0;
@@ -194,6 +196,15 @@ export class FakeAppDevices {
       this.channels.delete(channel);
       channel.events.close();
     }
+  }
+
+  /**
+   * The device boots outside ace (in Xcode): it runs, but open channels aren't told, and a boot
+   * from ace fails as simctl does for a booted device until the list is read again.
+   */
+  bootElsewhere(deviceId: string): void {
+    this.known(deviceId);
+    this.bootedElsewhere.add(deviceId);
   }
 
   /** The thread whose agent or person took a device last. */
@@ -514,6 +525,15 @@ export class FakeAppDevices {
         return this.state(session, channel);
       case "boot":
         this.controlled(session, channel);
+        if (this.bootedElsewhere.delete(session.device.id)) {
+          // Booted all along: ace sees it on its next read of the list.
+          session.device = { ...session.device, state: "booted" };
+          throw new Refusal(
+            "command_failed",
+            "Unable to boot device in current state: Booted",
+            "Refresh the list.",
+          );
+        }
         session.device = { ...session.device, state: "booted" };
         this.log(session, `${session.device.name} booted`);
         this.publish(session);

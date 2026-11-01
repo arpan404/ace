@@ -99,14 +99,14 @@ function SelectedDevice(props: { devices: Devices }) {
     </IdleCard>
   ) : controls.running ? (
     <IdleCard>
-      <p>The live view is off.</p>
+      <p>{selected.name} is running. Its live view is stopped.</p>
       <Button size="sm" variant="secondary" disabled={view.pending} onClick={devices.start}>
         Start live view
       </Button>
     </IdleCard>
   ) : (
     <IdleCard>
-      <p>{selected.name} is off.</p>
+      <p>{selected.name} is shut down.</p>
       <Button size="sm" variant="primary" disabled={view.pending} onClick={devices.boot}>
         Boot
       </Button>
@@ -269,8 +269,8 @@ export function DeviceTab(props: {
   if (!view.enabled)
     return (
       <EmptyState
-        title="Devices are off on this machine"
-        description={`Turn devices on to see ${name} and let agents in this thread use it.`}
+        title="Devices are turned off on this machine"
+        description={`Turn them on to see ${name} and let agents in this thread use it. This switch covers simulators and emulators only; Mac apps have their own in Settings.`}
         action={
           <div className="flex flex-col items-center gap-3">
             <Button variant="primary" disabled={view.pending} onClick={() => devices.enable(true)}>

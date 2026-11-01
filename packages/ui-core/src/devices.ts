@@ -11,7 +11,7 @@ export interface DeviceRow {
   id: string;
   name: string;
   platform: AppDevice["platform"];
-  /** "iOS 18.4 · Running", "Android 15 · Off". */
+  /** "iOS 18.4 · Running", "Android 15 · Shut down". */
   detail: string;
   /** "iOS 18.4", "Android 15", when the platform reports it. */
   runtime: string | undefined;
@@ -26,7 +26,8 @@ export interface DeviceRow {
 
 const stateWords: Record<AppDevice["state"], string> = {
   booted: "Running",
-  shutdown: "Off",
+  // "Shut down", never "Off": off is what turning devices off for the whole machine is.
+  shutdown: "Shut down",
   offline: "Offline",
   unauthorized: "Not authorized",
 };

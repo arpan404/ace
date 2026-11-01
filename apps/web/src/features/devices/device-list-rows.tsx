@@ -83,6 +83,12 @@ export function RecentRows(props: {
   );
 }
 
+/** A folded kind's count, saying how many run so a folded list still shows they're there. */
+function groupCount(group: DeviceGroup): string {
+  const running = group.rows.filter((row) => row.running).length;
+  return running ? `${group.rows.length} · ${running} running` : `${group.rows.length}`;
+}
+
 /**
  * Every device by kind, each kind folded by default with its count. While a search runs every
  * matching kind unfolds, so the matches show.
@@ -91,7 +97,9 @@ export function DeviceGroups(props: {
   groups: readonly DeviceGroup[];
   searching: boolean;
   open: ReadonlySet<string>;
+  pending: boolean;
   onOpen(row: DeviceRow): void;
+  onBoot(row: DeviceRow): void;
 }) {
   const [unfolded, setUnfolded] = useState<ReadonlySet<DeviceKind>>(new Set());
   return (
@@ -122,7 +130,7 @@ export function DeviceGroups(props: {
                 />
                 <span className="min-w-0 flex-1 truncate">{group.label}</span>
                 <span className="text-xs text-subtle-foreground tabular-nums">
-                  {group.rows.length}
+                  {groupCount(group)}
                 </span>
               </>
             }
@@ -137,6 +145,15 @@ export function DeviceGroups(props: {
                     meta={row.detail}
                     open={props.open.has(row.id)}
                     onOpen={() => props.onOpen(row)}
+                    action={
+                      row.running
+                        ? undefined
+                        : {
+                            label: "Boot",
+                            disabled: props.pending,
+                            onClick: () => props.onBoot(row),
+                          }
+                    }
                   />
                 ))}
               </ul>

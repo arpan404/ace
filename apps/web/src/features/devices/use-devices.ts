@@ -255,7 +255,20 @@ export function useDevices(threadId: string, deviceId?: string) {
       target &&
       act(async () => {
         autoStarted.current.add(target);
-        await withControl({ op: "boot", deviceId: target });
+        try {
+          await withControl({ op: "boot", deviceId: target });
+        } catch (error) {
+          // The list may be stale (booted in Xcode since it was read): read it again, and a
+          // device that is running after all needs no boot.
+          await run({ op: "list" });
+          await run({ op: "states" });
+          const read = session?.client.getSnapshot();
+          // A device's session state is newer than the inventory, as in the list's rows.
+          const now =
+            read?.states.find((entry) => entry.device.id === target)?.device ??
+            read?.devices.find((entry) => entry.id === target);
+          if (now?.state !== "booted") throw error;
+        }
         await run({ op: "start", deviceId: target, fps: 60 });
       }),
     /** Read the inventory and every device's state again. */

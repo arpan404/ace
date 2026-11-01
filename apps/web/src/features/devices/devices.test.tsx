@@ -27,7 +27,7 @@ test("devices are available immediately and show the running simulator and every
 
   await within(panel).findByRole("searchbox", { name: "Search devices" });
 
-  // The booted iPhone is running, so it leads as a tile; the Pixel is off.
+  // The booted iPhone is running, so it leads as a tile; the Pixel is shut down.
   const running = await within(panel).findByRole("list", { name: "Running devices" });
   expect(
     within(running)
@@ -35,18 +35,50 @@ test("devices are available immediately and show the running simulator and every
       .map((tile) => tile.getAttribute("aria-label")),
   ).toEqual(["iPhone 16 Pro, iOS 18.4, Running"]);
 
-  // Every device sits under its kind, folded with a count until opened.
+  // Every device sits under its kind, folded with a count (and how many run) until opened.
   const all = within(panel).getByRole("region", { name: "All devices" });
   expect(within(all).queryByRole("list", { name: "iPhone" })).toBeNull();
+  expect(within(all).getByText("1 · 1 running")).toBeTruthy();
   await userEvent.click(within(all).getByText("iPhone"));
   await userEvent.click(within(all).getByText("Android phone"));
   expect(
     within(within(all).getByRole("list", { name: "iPhone" })).getByRole("button").textContent,
   ).toMatch(/^iPhone 16 Pro.*iOS 18\.4 · Running$/);
+  const androids = within(all).getByRole("list", { name: "Android phone" });
+  expect(within(androids).getByRole("button", { name: /^Pixel 9/ }).textContent).toMatch(
+    /^Pixel 9.*Android 15 · Shut down$/,
+  );
+  // A shut-down device boots from its row; a running one has nothing to boot.
+  expect(within(androids).getByRole("button", { name: "Boot" })).toBeTruthy();
   expect(
-    within(within(all).getByRole("list", { name: "Android phone" })).getByRole("button")
-      .textContent,
-  ).toMatch(/^Pixel 9.*Android 15 · Off$/);
+    within(within(all).getByRole("list", { name: "iPhone" })).queryByRole("button", {
+      name: "Boot",
+    }),
+  ).toBeNull();
+});
+
+test("Boot on a shut-down device's row in All devices boots it and shows its screen", async () => {
+  const { app, panel } = await openDevices();
+  const all = await within(panel).findByRole("region", { name: "All devices" });
+  await userEvent.click(within(all).getByText("Android phone"));
+  const androids = within(all).getByRole("list", { name: "Android phone" });
+  await userEvent.click(within(androids).getByRole("button", { name: "Boot" }));
+
+  const pixel = await within(panel).findByRole("region", { name: "Pixel 9" });
+  await shows(await within(pixel).findByRole("img", { name: "Pixel 9 screen" }));
+  expect(app.daemon.appDevices.boundThread("android:Pixel_9_API_35")).toBe("thread-checkout");
+});
+
+test("Boot on a device started outside ace since the list was read shows it running, not a failure", async () => {
+  const { app, panel } = await openDevices();
+  await within(panel).findByRole("searchbox", { name: "Search devices" });
+  const pixel = await openDevice(panel, "Pixel 9");
+  expect(within(pixel).getByText("Pixel 9 is shut down.")).toBeTruthy();
+  app.daemon.appDevices.bootElsewhere("android:Pixel_9_API_35");
+
+  await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
+  await shows(await within(pixel).findByRole("img", { name: "Pixel 9 screen" }));
+  expect(within(pixel).queryByText(/Unable to boot/)).toBeNull();
 });
 
 test("the search and the platform filter narrow the list, and / goes to the search", async () => {
@@ -146,7 +178,7 @@ test("the device's ⋯ menu stops the live view and shuts the device down", asyn
 
   await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Shut down" }));
-  expect(await within(iphone).findByText("iPhone 16 Pro is off.")).toBeTruthy();
+  expect(await within(iphone).findByText("iPhone 16 Pro is shut down.")).toBeTruthy();
 });
 
 test("disabling devices is machine-wide, so it asks first", async () => {
@@ -276,7 +308,7 @@ test("each device opens as its own tab beside the others, and the catalog marks 
   const pixel = await openDevice(panel, "Pixel 9");
   expect(within(panel).getByRole("tab", { name: "Pixel 9", selected: true })).toBeTruthy();
   expect(within(panel).getByRole("tab", { name: "iPhone 16 Pro" })).toBeTruthy();
-  expect(within(pixel).getByText("Pixel 9 is off.")).toBeTruthy();
+  expect(within(pixel).getByText("Pixel 9 is shut down.")).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("tab", { name: "Devices" }));
   await userEvent.clear(within(panel).getByRole("searchbox", { name: "Search devices" }));
@@ -285,7 +317,7 @@ test("each device opens as its own tab beside the others, and the catalog marks 
   await userEvent.click(within(all).getByText("Android phone"));
   for (const kind of ["iPhone", "Android phone"])
     expect(
-      within(within(all).getByRole("list", { name: kind })).getByRole("button").textContent,
+      within(within(all).getByRole("list", { name: kind })).getAllByRole("button")[0]?.textContent,
     ).toContain("Open");
 });
 
@@ -537,7 +569,7 @@ test("boot takes this panel's own lease from another connection that holds the d
         controller: "human",
       });
     });
-    await waitFor(() => expect(subtitle(pixel, /^Android 15 · Off$/)).toBeTruthy());
+    await waitFor(() => expect(subtitle(pixel, /^Android 15 · Shut down$/)).toBeTruthy());
     await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
     await waitFor(() => expect(subtitle(pixel, /^Android 15 · Live/)).toBeTruthy());
     expect(

@@ -37,6 +37,7 @@ function RemoteComputerUse(props: { name: string }) {
         <BlockedAppsRow />
       </SettingSection>
       <SettingSection label="Devices">
+        <DevicesSwitchRow />
         <EmulatorWindowRow />
       </SettingSection>
       <UseMyChromeSettings />
@@ -65,10 +66,21 @@ function LocalComputerUse() {
         <Permissions use={use} />
       </SettingSection>
       <SettingSection label="Devices">
+        <DevicesSwitchRow />
         <EmulatorWindowRow />
       </SettingSection>
       <UseMyChromeSettings />
       <ToolchainSection />
     </>
+  );
+}
+
+/** Where simulators and emulators are turned on and off, and how that differs from apps. */
+function DevicesSwitchRow() {
+  return (
+    <SettingRow
+      title="Simulators and emulators"
+      description="Turned on or off for this whole machine from a thread's Devices tab (⋯ › Disable devices…). Let agents use apps is a separate switch, for Mac apps only."
+    />
   );
 }
