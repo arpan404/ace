@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { createDevThread, startDaemon } from "@ace/daemon";
+import { AdapterRegistry, createDevThread, startDaemon } from "@ace/daemon";
 import { DeviceId, type ThreadId } from "@ace/protocol";
 import { Client } from "./index.ts";
 import { Faults, ManualScheduler, memoryStorage, ready, when } from "./test-support.ts";
@@ -26,6 +26,9 @@ async function restartable() {
         remotePort: 0,
         logLevel: "silent",
       },
+      // Restarts are what this file tests; probing installed provider CLIs adds nothing.
+      engine: { registry: new AdapterRegistry() },
+      modelInstances: [],
     });
   let daemon: Daemon | undefined = await start(0);
   const url = daemon.url;
