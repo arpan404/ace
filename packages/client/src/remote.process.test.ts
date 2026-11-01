@@ -1,16 +1,11 @@
 import { readFile } from "node:fs/promises";
-import { afterEach, expect, test } from "vitest";
+import { expect, test } from "vitest";
 import { ClientError, ticketCredential } from "./index.ts";
-import { setup, ready, when, barrier } from "./test-support.ts";
-let cleanup: (() => Promise<void>) | undefined;
-afterEach(async () => {
-  await cleanup?.();
-  cleanup = undefined;
-});
+import { sharedDaemon, ready, when, barrier } from "./test-support.ts";
+const harness = sharedDaemon();
 
 test("a device token exchanges for a fresh socket ticket on reconnect", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const device = h.daemon.store.devices.create("SDK device", ["read", "operate"], 1);
   const credential = ticketCredential(
     async () => device.token,
@@ -40,8 +35,7 @@ test("a device token exchanges for a fresh socket ticket on reconnect", async ()
 });
 
 test("new read requests enforce the paired device read scope", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const device = h.daemon.store.devices.create("Operate only", ["operate"], 1);
   const credential = ticketCredential(
     async () => device.token,
@@ -63,8 +57,7 @@ test("new read requests enforce the paired device read scope", async () => {
 });
 
 test("revoking a paired device stops the SDK rather than reconnecting forever", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const device = h.daemon.store.devices.create("Revocable", ["read"], 1);
   const credential = ticketCredential(
     async () => device.token,
