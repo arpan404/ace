@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   Command,
   CommandId,
+  HostId,
   ThreadId,
   type CommandResult,
   type Device,
@@ -57,6 +58,14 @@ const Owner = z.object({
   kind: z.enum(["delegate", "browser", "guest"]),
 });
 
+/** A delegated thread from before `delegatedFrom` was recorded on it. */
+const UnmarkedDelegate = z.object({
+  thread_id: z.string(),
+  origin_host: HostId,
+  origin_thread: ThreadId,
+  name: z.string().min(1).nullable(),
+});
+
 /**
  * Threads a paired device's agents started on this machine. Ownership is per device: one
  * device can neither read nor answer another device's threads, and every thread stays an
@@ -82,6 +91,37 @@ export class TargetThreads {
     });
     this.launches = new TargetLaunches(deps);
     this.rejections = new MessageRejections(deps.store, deps.now);
+    this.markDelegatedFrom();
+  }
+  /**
+   * Threads delegated here before ace recorded where their parent lives were listed as this
+   * machine's own threads; marking them keeps them under their parent on the other machine.
+   */
+  private markDelegatedFrom() {
+    const rows = this.deps.store.atomic((db) =>
+      db
+        .prepare(
+          `SELECT m.thread_id, m.origin_host, m.origin_thread, d.name FROM machine_threads m
+           JOIN threads t ON t.id = m.thread_id LEFT JOIN devices d ON d.id = m.device_id
+           WHERE m.kind = 'delegate' AND json_extract(t.transitions, '$.delegatedFrom') IS NULL`,
+        )
+        .all(),
+    );
+    for (const row of rows) {
+      const unmarked = UnmarkedDelegate.safeParse(row);
+      if (!unmarked.success) continue;
+      const { thread_id, origin_host, origin_thread, name } = unmarked.data;
+      this.deps.store.appendEvents(ThreadId.parse(thread_id), [
+        {
+          type: "thread.updated",
+          delegatedFrom: {
+            hostId: origin_host,
+            threadId: origin_thread,
+            ...(name ? { hostName: name.slice(0, 256) } : {}),
+          },
+        },
+      ]);
+    }
   }
   close() {
     this.unsubscribe();
@@ -154,9 +194,23 @@ export class TargetThreads {
         .prepare("INSERT OR IGNORE INTO machine_threads VALUES (?,?,?,?,?,?)")
         .run(threadId, device.id, kind, origin.hostId, origin.threadId, this.deps.now()),
     );
-    // Started by an agent elsewhere, it is still work on this machine: list it like any task.
+    // Started by an agent elsewhere, it is a task here, never an empty draft: search and links
+    // reach it. A delegated one names its parent's machine, so it stays under that parent and
+    // off this machine's own lists, as a local child stays under its parent.
     this.deps.store.appendEvents(threadId, [
       { type: "thread.client.updated", changes: { hasSentMessage: true } },
+      ...(kind === "delegate"
+        ? [
+            {
+              type: "thread.updated" as const,
+              delegatedFrom: {
+                hostId: origin.hostId,
+                hostName: origin.hostName,
+                threadId: origin.threadId,
+              },
+            },
+          ]
+        : []),
     ]);
   }
   project(name: string | undefined): WorkspaceId {

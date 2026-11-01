@@ -52,6 +52,9 @@
         "delegatedBy": {
           "$ref": "https://ace.local/protocol/v1/DelegatedBy.json"
         },
+        "delegatedFrom": {
+          "$ref": "https://ace.local/protocol/v1/DelegatedFrom.json"
+        },
         "effectiveCapabilities": {
           "$ref": "https://ace.local/protocol/v1/Capabilities.json"
         },

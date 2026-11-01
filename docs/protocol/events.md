@@ -182,6 +182,9 @@ Example:
       "subagentTranscripts": true,
       "tokenUsage": true
     },
+    "execution": {
+      "provider": "codex"
+    },
     "id": "example",
     "live": {
       "askingThreads": [],
@@ -203,16 +206,6 @@ Example:
     "status": {
       "interactions": 9,
       "state": "needs_you"
-    },
-    "switch": {
-      "at": 2,
-      "error": "example",
-      "lossy": true,
-      "recommendation": "delegate",
-      "selection": {
-        "provider": "codex"
-      },
-      "state": "applied"
     },
     "title": "example",
     "titleSource": "agent",
@@ -237,6 +230,7 @@ Example:
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
+| delegatedFrom | no | [DelegatedFrom.json](schema/DelegatedFrom.json) |  |
 | queuedLaunch | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/QueuedLaunch.json"},{"type":"null"}]} |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
@@ -251,11 +245,28 @@ Example:
 
 ```json
 {
-  "execution": {
-    "options": {},
-    "provider": "pi"
+  "effectiveCapabilities": {
+    "backgroundTaskControl": true,
+    "backgroundVisibility": "partial",
+    "childControls": "read-only",
+    "fork": false,
+    "forkPoints": [],
+    "imageInput": true,
+    "interruptCascades": false,
+    "planMode": true,
+    "resume": false,
+    "rewindFiles": true,
+    "sessionOptions": false,
+    "steer": true,
+    "steerTiming": "after_tool",
+    "subagentTranscripts": true,
+    "tokenUsage": true
   },
   "goal": null,
+  "queuedLaunch": null,
+  "status": {
+    "state": "done"
+  },
   "type": "thread.updated",
   "workspaceId": "example"
 }
