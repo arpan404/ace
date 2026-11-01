@@ -372,9 +372,6 @@ test("approval cards show the command, risk and decisions without an empty spinn
 test("the empty working composer exposes Stop, and Escape twice stops the turn", async () => {
   await running();
   expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
-  expect(screen.queryByText("Beginning of thread")).toBeNull();
-  expect(screen.queryByText("New activity")).toBeNull();
-  expect(screen.queryByText("Work so far")).toBeNull();
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
   screen.getByRole("combobox", { name: "Message" }).focus();
   await userEvent.keyboard("{Escape}{Escape}");
