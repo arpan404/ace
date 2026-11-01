@@ -37,8 +37,8 @@ Example:
         "options": {},
         "provider": "antigravity"
       },
-      "prSettled": 10,
       "readAt": 0,
+      "settleWhenDone": true,
       "settledAt": 0
     },
     "type": "thread.client.updated"
@@ -3195,157 +3195,13 @@ Example:
 
 ```json
 {
-  "seq": 1,
+  "seq": 5,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "entitiesBefore": {},
-    "interactions": {},
-    "itemOrder": [],
-    "items": {},
-    "kind": "thread",
-    "offshift": {
-      "blocker": null,
-      "byPerson": false,
-      "criteria": [],
-      "criteriaCount": 1,
-      "ended": false,
-      "endpoint": "example",
-      "id": "K-H1D",
-      "next": "example",
-      "outcome": "example",
-      "outcomeTruncated": false,
-      "pending": [],
-      "pendingCount": 1,
-      "phase": "verify",
-      "revision": "example",
-      "updatedAt": 7,
-      "version": 2
-    },
-    "queue": {
-      "lastFailure": null,
-      "paused": true,
-      "reason": null,
-      "resumeAt": 7,
-      "revision": 0
-    },
-    "runs": {},
-    "seq": 1,
-    "thread": {
-      "acpAgentId": "example",
-      "archivedAt": 9,
-      "autoSettleAt": 8,
-      "createdAt": 9,
-      "delegatedFrom": {
-        "hostId": "example",
-        "hostName": "example",
-        "threadId": "example"
-      },
-      "details": {
-        "ahead": 7,
-        "baseBranch": "example",
-        "behind": 8,
-        "branch": null,
-        "continuedOn": {
-          "at": 0,
-          "hostId": "example",
-          "name": "example",
-          "threadId": "example"
-        },
-        "head": "6940b0ad2ed68d4d040369b03bc6df47de9f652fc4f3f9a6212c814ef20338",
-        "linkedIssues": [],
-        "linkedPr": {
-          "draft": false,
-          "number": 2,
-          "state": "closed"
-        },
-        "machine": {
-          "host": "example",
-          "name": "example"
-        },
-        "mode": "local",
-        "pullRequestWorkspace": {
-          "baseBranch": "example",
-          "baseSha": "d0d09759d68c3e68e6cb9d0705d81437280a7ab2d",
-          "context": "example",
-          "contextTruncated": false,
-          "headBranch": "example",
-          "headRepository": null,
-          "headSha": "275b904f68b11187a14a9bb5f8a8edca39f97b62a635ec9e6f46962854f4",
-          "ref": {
-            "number": 10,
-            "repository": {
-              "forge": "gitlab",
-              "host": "M",
-              "name": "u_",
-              "owner": "LZ_uT5_H/ckkIr/xK7VZ/1Q3PVi/lDOYNhc"
-            }
-          }
-        },
-        "worktreeCreation": {
-          "actions": [],
-          "attempt": 2,
-          "cleanupComplete": false,
-          "commandId": "example",
-          "details": [],
-          "elapsedMs": 1,
-          "percent": 0,
-          "startedAt": 0,
-          "state": "running",
-          "step": "fetching",
-          "steps": []
-        }
-      },
-      "id": "example",
-      "listOrder": 8,
-      "live": {
-        "account": "example",
-        "asking": [],
-        "askingThreads": [],
-        "backgroundTaskCount": 2,
-        "rootRunId": "example",
-        "subagentCount": 9,
-        "waitingOn": 8
-      },
-      "permission": {
-        "custom": "example",
-        "effective": null,
-        "override": null,
-        "pending": false
-      },
-      "prSettled": 2,
-      "prSettledKey": "example",
-      "provider": "opencode",
-      "queuedLaunch": {
-        "text": "example"
-      },
-      "readAt": 4,
-      "settleWhenDone": true,
-      "settledAt": 4,
-      "status": {
-        "on": "queue",
-        "slotLimit": 4,
-        "state": "waiting"
-      },
-      "switch": {
-        "at": 1,
-        "lossy": false,
-        "selection": {
-          "options": {},
-          "provider": "antigravity"
-        },
-        "state": "failed"
-      },
-      "title": "example",
-      "unread": true,
-      "updatedAt": 3,
-      "workspaceId": "example"
-    },
-    "usage": {},
-    "usageSnapshots": {}
+    "kind": "threads",
+    "seq": 5,
+    "threads": {}
   }
 }
 ```

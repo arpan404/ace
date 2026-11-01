@@ -39,7 +39,7 @@ export { Appearance } from "@/theme/appearance.ts";
 export { ShellLayout } from "@/lib/layout.tsx";
 export { ScopeWorkspaceSchema } from "@/lib/workspace/model.ts";
 export { Choices } from "@/features/home/new-thread/choices.ts";
-export { AutomationForm } from "@/features/automations/automation-values.ts";
+export { AutomationForm } from "@ace/ui-core/automations";
 export { PluginNameInput, PluginRepository } from "@/features/skills/skills-model.ts";
 export { number, object, string, array, tuple, instanceof as instanceOf, enum as enumeration } from "zod";
 `;

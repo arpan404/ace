@@ -677,6 +677,13 @@
               "type": "null"
             }
           ]
+        },
+        "wake": {
+          "enum": [
+            "needs_you",
+            "pr"
+          ],
+          "type": "string"
         }
       },
       "required": [
