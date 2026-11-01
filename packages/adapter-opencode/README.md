@@ -36,6 +36,6 @@ HTTP admissions serialize with at most 64 waiters; execution and work queues rem
 
 `discoverOpenCodeModels(options, directory, signal)` provides an owned metadata-only lifecycle to `@ace/models`; normalization, login revision and cache ownership remain there. `OpenCodeServer` and `SessionOwnership` are public utilities for the recorder, which uses the same transport and ownership rules. Explicit `attach` accepts a pre-discovered loopback URL and transport authorization; it never calls `Service.ensure`, replaces a user's service, or gains process ownership.
 
-V1 recordings and their test-only implementation remain under `fixtures/opencode/1.18.33` and `src/testing/v1`. They are historical evidence, not v2 certification. See [VERIFICATION.md](VERIFICATION.md) for the merge gate and recording candidates.
+The old v1 implementation, its benchmarks and its 1.18.33 recordings were removed on 2026-11-01. Only `fixtures/opencode/1.18.33/tool-read.jsonl` remains, because the history import and usage tests read it. See [VERIFICATION.md](VERIFICATION.md) for the merge gate and recording candidates.
 
 The existing daemon registry already consumes this public factory. Review/verifier workers consume its version-gated capabilities; plan review stays off. The history importer already detects v2 `session_message` storage and reports it unsupported (ADR 0033); this migration does not relabel legacy SQLite transcripts as v2 imports.

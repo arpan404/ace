@@ -68,25 +68,7 @@ Frames are newline-delimited JSON, parsed with a lenient record schema that pres
 
 ## SSE
 
-```ts
-import { readSse } from "@ace/provider-kit/sse";
-
-await readSse(new URL("/global/event", base), {
-  signal,
-  headers: { authorization: localServerAuth },
-  onEvent: ({ data, event, id }) => receive(data, event, id),
-  onReconnect: ({ attempt, delayMs, error }) => reportReconnect(attempt, delayMs, error),
-  heartbeat: {
-    gapMs: 25_000,
-    isHeartbeat: ({ data }) => JSON.parse(data).payload?.type === "server.heartbeat",
-    onGap: (elapsedMs) => reportGap(elapsedMs),
-  },
-});
-```
-
-Data stays text; JSON decoding belongs to the adapter. Parsing handles UTF-8, multiline data, comments, event names, ids, BOM and CR/LF/CRLF framing. Incomplete final events are discarded. `maxLineBytes` and `maxEventBytes` each default to 16 MiB of UTF-8 bytes. Event data counts the newlines between data lines. Limits are checked before retaining another fragment or data line. Overflow cancels the response and rejects with `SseLimitError`, including when reconnect is enabled. Reconnects preserve Last-Event-ID and honor numeric `retry` fields. The exponential delay starts at 500 ms and caps at 30 seconds; both are configurable. Each reconnect is reported. Event and heartbeat hook exceptions reject the reader; they do not trigger reconnects. HTTP 204 ends the stream. Caller abort resolves the reader and closes the connection, including during backoff.
-
-Heartbeat gaps are reported once per gap interval until another matching event arrives. With no predicate, any dispatched event counts as a heartbeat. Use `reconnect: false` for one-shot readers. Auth headers are caller supplied and never logged by this module.
+The `@ace/provider-kit/sse` reader was removed on 2026-11-01 with the OpenCode v1 adapter, its only production user. `SseParser` stays in `@ace/provider-kit/streams` for the MCP stdio bridge.
 
 ## Discovery and doctor
 
@@ -111,4 +93,4 @@ The owner requires tests to run only at merge. Development verification uses sta
 ACE_LIVE_CLI=1 bun run test packages/provider-kit/src/live.process.test.ts --reporter=verbose
 ```
 
-The live suite probes versions and auth, starts only `opencode serve`, `codex app-server` and `agent acp`, and sends only initialize/initialized handshakes. It never creates sessions or sends prompts. All started processes are stopped. The OpenCode test uses a fresh local password and an ephemeral port, then waits for connected and heartbeat events.
+The live suite probes versions and auth, starts only `codex app-server`, and sends only initialize/initialized handshakes. It never creates sessions or sends prompts. All started processes are stopped. The OpenCode SSE handshake test was removed with the SSE reader on 2026-11-01.
