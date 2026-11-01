@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { executablePath, fixture } from "./test-support.ts";
+import { executablePath, sharedFixture } from "./test-support.ts";
 
 const owner = { kind: "human", connectionId: "owner" } as const;
 
 /** A person on a touch screen, with the fixture's tall page open at a phone's size. */
 async function touchPage() {
-  const f = await fixture();
+  const f = await sharedFixture();
   await f.navigate();
   await f.service.execute(
     "thread",

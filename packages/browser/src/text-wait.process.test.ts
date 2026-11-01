@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { fixture, executablePath, ref } from "./test-support.ts";
+import { sharedFixture, executablePath, ref } from "./test-support.ts";
 
 const Snapshot = z.object({
   nodes: z.array(z.object({ ref: z.string().optional(), role: z.string(), name: z.string() })),
@@ -13,7 +13,7 @@ const largeList =
 
 describe.skipIf(!executablePath)("visible text waits on real pages", () => {
   it("finds text that appears at the end of a 50,000-node page", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(largeList);
     await f.evaluate(
@@ -24,7 +24,7 @@ describe.skipIf(!executablePath)("visible text waits on real pages", () => {
     ).resolves.toMatchObject({ ok: true });
   });
   it("matches text split across inline elements but never hidden text", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(
       "document.body.innerHTML='<p hidden>Secret match</p><p>Visible <b>match</b></p><p style=\"visibility:hidden\">Ghost text</p>'",
@@ -41,7 +41,7 @@ describe.skipIf(!executablePath)("visible text waits on real pages", () => {
 
 describe.skipIf(!executablePath)("snapshots of large pages", () => {
   it("outlines a page too large to read whole, and scopes into one of its parts", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(largeList);
     await f.evaluate(
@@ -66,7 +66,7 @@ describe.skipIf(!executablePath)("snapshots of large pages", () => {
     await expect(f.evaluate("location.hash")).resolves.toBe("#a");
   });
   it("says when a snapshot was cut short and how to read the rest", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(
       "document.body.innerHTML=Array.from({length:12000},(_, i)=>'<button>Item '+i+'</button>').join('');0",
@@ -76,7 +76,7 @@ describe.skipIf(!executablePath)("snapshots of large pages", () => {
     expect(snapshot.hint).toMatch(/Pass ref/);
   });
   it("reads only the levels asked for below a scoped element", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(
       'document.body.innerHTML=\'<nav aria-label="Menu"><ul><li><a href="#x">Deep link</a></li></ul></nav><button>Outside</button>\'',

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { agentMcp } from "./agent-mcp-test-support.ts";
-import { executablePath, fixture, toolPort } from "./test-support.ts";
+import { executablePath, sharedFixture, toolPort } from "./test-support.ts";
 
 const buttonLines = (snapshot: string) =>
   snapshot.split("\n").filter((line) => /button "Item \d+"/.test(line)).length;
 
 describe.skipIf(!executablePath)("default result sizes", () => {
   it("a snapshot shows 80 lines by default, says how many more exist, and shows more on request", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(
       "for (let i = 0; i < 150; i++) { const b = document.createElement('button'); b.textContent = 'Item ' + i; document.body.append(b) } void 0",
@@ -23,7 +23,7 @@ describe.skipIf(!executablePath)("default result sizes", () => {
   });
 
   it("logs return the 25 latest entries by default, count the older ones, and return more on request", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate("for (let i = 0; i < 40; i++) console.log('marker ' + i); void 0");
     const agent = agentMcp(toolPort(f.service));

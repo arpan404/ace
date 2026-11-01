@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { executablePath, fixture } from "./test-support.ts";
+import { executablePath, sharedFixture } from "./test-support.ts";
 
 const person = { kind: "human", connectionId: "person" } as const;
 const Tab = z.object({
@@ -20,7 +20,7 @@ const tabOf = (state: unknown) =>
 
 describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () => {
   it("a device toolbar device reaches the page and the tab list; the pane's size puts it back", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const ownAgent = String(await f.evaluate("navigator.userAgent"));
     await f.service.execute(
@@ -57,7 +57,7 @@ describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () =
   }, 60_000);
 
   it("a phone's size lays the page out as a phone's, and the desktop's comes back when it leaves", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(
       "document.head.insertAdjacentHTML('beforeend', '<meta name=viewport content=\"width=device-width\">')",
@@ -90,7 +90,7 @@ describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () =
   }, 60_000);
 
   it("an agent's resize is listed as the agent's size, for the person's view to follow", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.execute({ action: "resize", width: 500, height: 700 });
     expect(tabOf(f.service.state("thread")).emulation).toMatchObject({
@@ -101,7 +101,7 @@ describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () =
   }, 60_000);
 
   it("zoom scales the page like a browser's zoom and is kept through a resize", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.service.execute("thread", { action: "resize", width: 900, height: 600 }, person);
     const scale = z.number().parse(await f.evaluate("devicePixelRatio"));
@@ -118,7 +118,7 @@ describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () =
   }, 60_000);
 
   it("print to PDF saves a PDF of the page", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const pdf = z
       .object({ path: z.string(), mimeType: z.literal("application/pdf") })
@@ -127,7 +127,7 @@ describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () =
   }, 60_000);
 
   it("a person's screenshot comes back as a PNG they can copy, and is saved", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const shot = z
       .object({ path: z.string(), data: z.string() })
@@ -138,7 +138,7 @@ describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () =
   }, 60_000);
 
   it("page source is the document as the server sent it", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate("document.body.dataset.changed = 'live-only'");
     const source = z
@@ -151,7 +151,7 @@ describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () =
   }, 60_000);
 
   it("clearing browsing data removes the site's cookies and storage", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate("document.cookie = 'kept=1; max-age=3600'; localStorage.setItem('kept', '1')");
     expect(await f.evaluate("[document.cookie, localStorage.length]")).toEqual(["kept=1", 1]);
@@ -160,7 +160,7 @@ describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () =
   }, 60_000);
 
   it("agents get none of the person's page tools", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     for (const command of [
       { action: "zoom", factor: 2 },

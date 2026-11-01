@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { executablePath, fixture, ref } from "./test-support.ts";
+import { executablePath, fixture, sharedFixture, ref } from "./test-support.ts";
 import { z } from "zod";
 
 describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
   it("navigates, edits by accessibility ref, clicks, presses, scrolls and saves a screenshot", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const snapshot = await f.execute({ action: "snapshot" });
     await f.execute({ action: "type", ref: ref(snapshot, "Name"), text: "Ada" });
@@ -23,7 +23,7 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
   }, 60_000);
 
   it("keeps refs stable across snapshots and DOM edits and rejects detached or navigated refs", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const first = await f.execute({ action: "snapshot" });
     const name = ref(first, "Name"),
@@ -42,7 +42,7 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
   }, 60_000);
 
   it("applies viewport, media and touch emulation", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.execute({ action: "resize", width: 480, height: 640 });
     expect(await f.evaluate("innerWidth")).toBe(480);
@@ -63,7 +63,7 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
   }, 60_000);
 
   it("returns console and network results inline without host paths", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(
       "fetch('/data').then(r=>r.text()).then(text=>console.log('network-complete '+text))",
