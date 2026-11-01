@@ -2,6 +2,8 @@
 
 Analysed 2026-10-02 from `fixtures/opencode/1.18.33/*.jsonl` (recorder driver `tools/recorder/src/providers/opencode.ts`, scenarios `tools/recorder/src/scenarios.ts`). No sessions were run for this analysis. Companion to [providers/opencode.md](../providers/opencode.md) (called "the research doc" below).
 
+The 1.18.33 recordings were removed on 2026-11-01 with the v1 implementation, except `tool-read.jsonl`, which the history import and usage tests still read. The analysed files are kept at [this commit](https://github.com/arpan404/ace/tree/8d98459e20c181d93abb269cc12d1df5a28ff75a/fixtures/opencode/1.18.33).
+
 Citation format: `<fixture>#<seq> t=<ms>`. `seq` is the recorder frame number. In the file it is line `seq + 2`, because line 1 is the header. Session IDs are shortened to their last 6 characters. `retry-overloaded.jsonl` has `"scenario":"tool-read"` in its header: it is a tool-read run on the overloaded default model `muse-spark-1.3-contributor` (`retry-overloaded#18`).
 
 ---

@@ -172,3 +172,7 @@ contains the scenario list and the implementation brief is
 `/tmp/ace-orch/impl-opencode-brief.md`. Recordings and confirmation of uncertain
 capabilities are release gates. This docs-only proposal does not authorize
 fixture spend, run tests or change feature code.
+
+## Update 2026-11-01: v1 removed
+
+The v1 implementation that remained as test-only evidence (`packages/adapter-opencode/src/testing/v1`), its fake CLI, session harness and benchmarks, and the 1.18.33 recordings were deleted. The live v2 adapter never imported them. `fixtures/opencode/1.18.33/tool-read.jsonl` stays because the history import and usage tests read it. Discovery, login and the model catalog still refuse an installed v1 CLI, and the daemon still upgrades stored OpenCode model ids from v1 threads.

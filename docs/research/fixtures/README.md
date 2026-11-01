@@ -1,6 +1,6 @@
 # Fixture analysis: what the recordings showed
 
-These recordings were made on 2026-10-02 with `tools/recorder` against claude 2.1.286, codex 0.159.1, opencode 1.18.33 (model `opencode-go/glm-5.3`) and cursor 2026.09.26. Fixtures are in [`fixtures/`](../../../fixtures). Each provider file below gives evidence by fixture and timestamp, plus a status algorithm for the adapter:
+These recordings were made on 2026-10-02 with `tools/recorder` against claude 2.1.286, codex 0.159.1, opencode 1.18.33 (model `opencode-go/glm-5.3`) and cursor 2026.09.26. Fixtures are in [`fixtures/`](../../../fixtures). The OpenCode 1.18.33 recordings were removed on 2026-11-01, except `tool-read.jsonl` (see [opencode.md](opencode.md)). Each provider file below gives evidence by fixture and timestamp, plus a status algorithm for the adapter:
 
 - [claude.md](claude.md)
 - [codex.md](codex.md)
