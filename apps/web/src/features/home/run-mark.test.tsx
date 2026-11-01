@@ -3,6 +3,7 @@ import type { OffshiftRunCard } from "@ace/protocol/offshift";
 import { screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { rowText } from "@/test/row-text.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -83,7 +84,7 @@ test("a settled thread whose run stopped short names the phase in its name and w
   );
   expect(indicator(link)).toEqual({ kind: "live", tone: "waiting" });
   expect(within(link).queryByText("Done")).toBeNull();
-  expect(link.textContent).toBe("Login error");
+  expect(rowText(link)).toBe("Login error");
 });
 
 test("a blocked run on a settled thread names the blocker's phase and shows the waiting ring", async () => {

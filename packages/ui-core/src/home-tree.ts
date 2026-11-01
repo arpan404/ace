@@ -2,17 +2,17 @@ import type { CatalogModel, ThreadListEntry } from "@ace/protocol";
 import type { Arrangement, HomeSort } from "./arrange.ts";
 import type { AttentionLevel } from "./row-attention.ts";
 import { threadCard } from "./thread-card.ts";
-import { activityOf } from "./thread-state.ts";
+import { activityOf, isSettled } from "./thread-state.ts";
 
 /*
- * The Threads panel as projects, with the Inbox beside them. The Inbox holds what needs the
- * person: a request, an unseen failure, finished work not yet opened. Each project lists its
- * other open threads (never one the Inbox shows), then the threads it settled within the grace
- * period the person chose; older settled threads are only in History. Projects with nothing
- * open or recent fold under Quiet projects. Every placement reads the row attention every row
- * draws (`threadCard` → `rowAttention`), so a group never disagrees with the row's own status
- * word, and a thread whose agent tree still works reads as running, never as done or settled.
- * Pure: the caller passes the clock.
+ * The Threads panel (ADR 0107): Active on top, then Projects. Active is one flat list of every
+ * unsettled thread across projects and machines: pinned ones first in their own order, then what
+ * needs the person (a request, an unseen failure), then what is at work (its agent tree, waits
+ * and background commands included), then the rest. Each project below holds only its settled
+ * threads, newest first; projects with no thread at all are quiet. Every placement reads the row
+ * attention every row draws (`threadCard` → `rowAttention`), so a group never disagrees with the
+ * row's own status word, and a thread whose agent tree still works or asks is Active, never in a
+ * project's settled threads. Pure: the caller passes the clock.
  */
 
 /** How a listed thread stands, from its row attention. */
@@ -57,13 +57,9 @@ export function standingReader(input: StandingInput): (entry: ThreadListEntry) =
   };
 }
 
-/** Needs the person: a request, an unseen failure, finished work they haven't opened. */
-export function inInbox(standing: Standing): boolean {
-  return (
-    standing.level === "needs-you" ||
-    standing.level === "failed" ||
-    standing.level === "done-unread"
-  );
+/** Needs the person: a request (approval, question, plan) or a failure they haven't seen. */
+export function needsPerson(standing: Standing): boolean {
+  return standing.level === "needs-you" || standing.level === "failed";
 }
 
 /** At work: working, background commands, waiting, its whole agent tree included. */
@@ -71,54 +67,32 @@ export function atWork(standing: Standing): boolean {
   return standing.level === "active";
 }
 
-/** How long a settled thread stays in its project (`threads.keepSettledFor`). */
-export type KeepSettled = "0d" | "1d" | "3d" | "7d";
-
-/** The choices every client offers for `threads.keepSettledFor`. */
-export const keepSettledChoices: readonly { value: KeepSettled; label: string }[] = [
-  { value: "1d", label: "1 day" },
-  { value: "3d", label: "3 days" },
-  { value: "7d", label: "7 days" },
-  { value: "0d", label: "Move to History right away" },
-];
-
-const dayMs = 24 * 60 * 60 * 1000;
-
-/** The grace period in milliseconds; 0 sends a settled thread straight to History. */
-export function keepSettledMs(keep: KeepSettled): number {
-  return Number.parseInt(keep, 10) * dayMs;
-}
-
-/** When a thread settled: the daemon's mark, else its last activity. */
-export function settledAtOf(entry: ThreadListEntry): number {
-  return entry.settledAt ?? activityOf(entry);
-}
-
-/** Whether a settled thread is still within its grace period on this clock. */
-export function inGrace(entry: ThreadListEntry, now: number, graceMs: number): boolean {
-  return graceMs > 0 && now - settledAtOf(entry) < graceMs;
+/** A settled thread at rest: its tree neither works nor asks, so it belongs in its project. */
+export function atRest(standing: Standing): boolean {
+  return !atWork(standing) && standing.level !== "needs-you";
 }
 
 export interface TreeProject {
   id: string;
-  /** Its open threads the Inbox doesn't show, in the order the tree draws them. */
-  threads: string[];
-  /** How many of its threads are running. */
-  running: number;
-  /** How many of its threads are in the Inbox. */
-  inbox: number;
-  /** Its threads settled within the grace period, most recent activity first. */
-  recent: string[];
+  /** Its settled threads at rest that are loaded, newest first. */
+  settled: string[];
+  /** How many of its threads are in Active. */
+  active: number;
+  /** How many more settled threads the daemon holds back for it: History has them. */
+  held: number;
 }
 
 export interface HomeTree {
-  /** What needs the person, newest first. */
-  inbox: string[];
-  /** Projects with open, waiting or recently settled threads, most recent activity first. */
+  /**
+   * Every unsettled thread across projects: pinned first, then (sorted by live activity) what
+   * needs the person, then what is at work, then the rest, each group in Home order.
+   */
+  active: string[];
+  /** Projects with any thread, most recent activity first. */
   projects: TreeProject[];
-  /** Projects with none of those, most recent activity first. */
+  /** Projects with no thread at all, by name order as given. */
   quiet: string[];
-  /** Every open thread: the Inbox, then each project's. */
+  /** Every thread the tree lists, top to bottom: Active, then each project's settled ones. */
   order: string[];
   /** Settled threads at rest that are loaded, most recent activity first: History's own. */
   settled: string[];
@@ -128,101 +102,108 @@ export interface TreeInput {
   arrangement: Arrangement;
   entry(id: string): ThreadListEntry | undefined;
   standing(entry: ThreadListEntry): Standing;
-  sortBy: HomeSort;
-  now: number;
-  /** How long a settled thread stays in its project (`keepSettledMs`). */
-  graceMs: number;
   /**
-   * The daemon's count of settled threads per project, while it still holds some back. A
-   * project known only from it (nothing loaded) is quiet.
+   * How Home sorts (`threads.sortBy`). By live activity, Active groups what needs the person,
+   * then what is at work, then the rest; Newest first and Manual keep their own order.
+   */
+  sortBy?: HomeSort | undefined;
+  /**
+   * The daemon's count of settled threads per project it still holds back. A project known
+   * only from it (nothing loaded) is listed, its threads in History.
    */
   settledCounts?: ReadonlyMap<string, number> | undefined;
-}
-
-interface Building {
-  threads: string[];
-  running: string[];
-  inbox: number;
-  recent: string[];
-  activity: number;
+  /** Every project the person has: those with no thread at all are quiet. */
+  projects?: readonly string[] | undefined;
 }
 
 /**
- * The tree from Home order (`arrange`): pinned threads lead each project; sorted by live
- * activity, running threads come next and the rest by recency, while Newest first and Manual
- * keep their own order below the pinned ones. A settled thread whose tree still works or asks
- * is not at rest: it shows as open work (or in the Inbox) until it rests again.
+ * The tree from Home order (`arrange`). A settled thread whose tree still works or asks is not
+ * at rest: it is Active until it rests again.
  */
 export function homeTree(input: TreeInput): HomeTree {
   const { arrangement, entry, standing } = input;
-  const projects = new Map<string, Building>();
-  const project = (id: string): Building => {
-    let known = projects.get(id);
+  const activity = new Map<string, number>();
+  const counts = new Map<string, { active: number; settled: string[] }>();
+  const project = (id: string) => {
+    let known = counts.get(id);
     if (!known) {
-      known = { threads: [], running: [], inbox: 0, recent: [], activity: 0 };
-      projects.set(id, known);
+      known = { active: 0, settled: [] };
+      counts.set(id, known);
     }
     return known;
   };
-  const inbox: { id: string; at: number }[] = [];
+  const touch = (shown: ThreadListEntry) =>
+    activity.set(
+      shown.workspaceId,
+      Math.max(activity.get(shown.workspaceId) ?? 0, activityOf(shown)),
+    );
+  const groups: [string[], string[], string[], string[]] = [[], [], [], []];
+  const pinned = new Set(arrangement.pinned);
+  const byActivity = (input.sortBy ?? "activity") === "activity";
   const settled: string[] = [];
-  const placeOpen = (id: string, shown: ThreadListEntry, stands: Standing) => {
-    const at = activityOf(shown);
-    const home = project(shown.workspaceId);
-    home.activity = Math.max(home.activity, at);
-    if (inInbox(stands)) {
-      inbox.push({ id, at });
-      home.inbox += 1;
-      return;
-    }
-    if (atWork(stands)) home.running.push(id);
-    home.threads.push(id);
+  const placeActive = (id: string, shown: ThreadListEntry, stands: Standing) => {
+    touch(shown);
+    project(shown.workspaceId).active += 1;
+    const group = pinned.has(id)
+      ? 0
+      : !byActivity
+        ? 3
+        : needsPerson(stands)
+          ? 1
+          : atWork(stands)
+            ? 2
+            : 3;
+    groups[group].push(id);
   };
   for (const id of [...arrangement.pinned, ...arrangement.active, ...arrangement.recent]) {
     const shown = entry(id);
-    if (shown) placeOpen(id, shown, standing(shown));
+    if (!shown) continue;
+    const stands = standing(shown);
+    // A pinned thread the person settled rests in its project, unless its tree still works.
+    if (pinned.has(id) && isSettled(shown) && atRest(stands)) {
+      touch(shown);
+      settled.push(id);
+      project(shown.workspaceId).settled.push(id);
+      continue;
+    }
+    placeActive(id, shown, stands);
   }
   for (const id of arrangement.settled) {
     const shown = entry(id);
     if (!shown) continue;
     const stands = standing(shown);
-    // Settled yet its tree still works or asks: never dimmed, never in History.
-    if (atWork(stands) || stands.level === "needs-you") {
-      placeOpen(id, shown, stands);
+    // Settled yet its tree still works or asks: Active, never in its project, never in History.
+    if (!atRest(stands)) {
+      placeActive(id, shown, stands);
       continue;
     }
+    touch(shown);
     settled.push(id);
-    const home = project(shown.workspaceId);
-    home.activity = Math.max(home.activity, activityOf(shown));
-    if (inGrace(shown, input.now, input.graceMs)) home.recent.push(id);
+    project(shown.workspaceId).settled.push(id);
   }
-  for (const [id, count] of input.settledCounts ?? []) if (count > 0) project(id);
-  const pinned = new Set(arrangement.pinned);
-  const tree: TreeProject[] = [...projects].map(([id, place]) => {
-    const lifted = new Set(input.sortBy === "activity" ? place.running : []);
-    const rank = (thread: string) => (pinned.has(thread) ? 0 : lifted.has(thread) ? 1 : 2);
-    // Sorting is stable: each rank keeps Home order.
-    return {
+  const held = input.settledCounts ?? new Map<string, number>();
+  for (const [id, count] of held) if (count > 0) project(id);
+  const at = (id: string) => {
+    const shown = entry(id);
+    return shown ? activityOf(shown) : 0;
+  };
+  const newest = (ids: string[]) => ids.toSorted((a, b) => at(b) - at(a) || a.localeCompare(b));
+  const projects: TreeProject[] = [...counts]
+    .map(([id, place]) => ({
       id,
-      threads: place.threads.toSorted((a, b) => rank(a) - rank(b)),
-      running: place.running.length,
-      inbox: place.inbox,
-      recent: place.recent,
-    };
-  });
-  const activity = (id: string) => projects.get(id)?.activity ?? 0;
-  const byActivity = (a: TreeProject, b: TreeProject) =>
-    activity(b.id) - activity(a.id) || a.id.localeCompare(b.id);
-  const busy = (place: TreeProject) =>
-    place.threads.length > 0 || place.inbox > 0 || place.recent.length > 0;
-  const sorted = tree.toSorted(byActivity);
-  const listed = sorted.filter(busy);
-  const ids = inbox.toSorted((a, b) => b.at - a.at || a.id.localeCompare(b.id)).map((x) => x.id);
+      settled: newest(place.settled),
+      active: place.active,
+      held: held.get(id) ?? 0,
+    }))
+    .toSorted(
+      (a, b) => (activity.get(b.id) ?? 0) - (activity.get(a.id) ?? 0) || a.id.localeCompare(b.id),
+    );
+  const active = groups.flat();
   return {
-    inbox: ids,
-    projects: listed,
-    quiet: sorted.filter((place) => !busy(place)).map((place) => place.id),
-    order: [...ids, ...listed.flatMap((place) => place.threads)],
-    settled,
+    active,
+    projects,
+    quiet: (input.projects ?? []).filter((id) => !counts.has(id)),
+    order: [...active, ...projects.flatMap((place) => place.settled)],
+    settled: newest(settled),
   };
 }

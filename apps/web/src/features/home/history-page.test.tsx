@@ -14,11 +14,12 @@ const bump = /^Bump Codex app-server to 0\.48/;
  * The workbench, seen from a device whose clock reads `days` after the daemon settled the Codex
  * bump (its merged PR settled it as the scenario ended).
  */
-function settledDaysAgo(days: number, keep?: "1d" | "3d") {
+function settledDaysAgo(days: number, keep?: "1d") {
   let base = 0;
   const app = harness({ uiClock: () => base + days * day });
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   base = settledAt(app);
+  // A setting the panel no longer reads (ADR 0107), as a settings file may still hold it.
   if (keep) app.daemon.services.settings.seed({ "threads.keepSettledFor": keep });
   return app;
 }
@@ -36,22 +37,25 @@ async function openPanel(app: ReturnType<typeof harness>, path = "/new") {
   });
 }
 
-test("a thread settled 2 days ago stays dimmed in its project with 3 days, not with 1 day", async () => {
-  await openPanel(settledDaysAgo(2));
+test("a thread settled long ago stays dimmed in its project, whatever the old grace setting says", async () => {
+  await openPanel(settledDaysAgo(30, "1d"));
   const row = await within(threads()).findByRole("link", { name: bump });
   expect(row.getAttribute("aria-label")).toMatch(/^Bump Codex app-server to 0\.48\. Settled/);
   expect(row.textContent).toBe("Bump Codex app-server to 0.48");
-});
-
-test("with 1 day, a thread settled 2 days ago is only in History", async () => {
-  await openPanel(settledDaysAgo(2, "1d"));
-  await waitFor(() => expect(within(threads()).queryByRole("link", { name: bump })).toBeNull());
-  // The foot counts it among History's threads.
+  // The foot counts it among History's threads too.
   expect(screen.getByRole("link", { name: /^History/ }).textContent).toBe("History1");
 });
 
+test("Settings no longer offers a grace period for settled threads", async () => {
+  const app = settledDaysAgo(2);
+  await app.open("/settings/agents");
+  // The thread list's settings are there; the grace period is not.
+  expect(await screen.findByText("Sort threads")).toBeTruthy();
+  expect(screen.queryByText("Keep settled threads in their project")).toBeNull();
+});
+
 test("History lists settled threads by week and filters by project", async () => {
-  const app = settledDaysAgo(2, "1d");
+  const app = settledDaysAgo(2);
   await openPanel(app, "/history");
   const main = screen.getByRole("main");
   expect(await within(main).findByRole("heading", { level: 2, name: "History" })).toBeTruthy();
@@ -73,7 +77,7 @@ test("History lists settled threads by week and filters by project", async () =>
 });
 
 test("a project's History opens prefiltered to that project", async () => {
-  await openPanel(settledDaysAgo(2, "1d"));
+  await openPanel(settledDaysAgo(2));
   await userEvent.click(screen.getByRole("button", { name: "History of relay" }));
   const main = screen.getByRole("main");
   await within(main).findByRole("heading", { level: 2, name: "History" });

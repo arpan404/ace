@@ -9,17 +9,17 @@ test("Home opens on the top thread, then comes back to the thread last opened", 
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  // The Inbox's newest item opens: a thread that needs you.
+  // Active's top thread opens: a thread that needs you.
   const threads = await screen.findByRole("navigation", { name: "Threads" });
   const title = (await screen.findAllByRole("heading", { level: 1 })).find(
     (heading) => heading.textContent !== "Home",
   );
   expect(title?.textContent).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
-  const inbox = await screen.findByRole("dialog", { name: "Inbox" });
-  const [top] = within(inbox).getAllByRole("link");
+  const top = within(threads)
+    .getAllByRole("link")
+    .find((link) => link.hasAttribute("data-row-focus"));
   expect(top?.getAttribute("aria-label")?.startsWith(`${title?.textContent}.`)).toBe(true);
-  await userEvent.keyboard("{Escape}");
+  expect(top?.getAttribute("aria-label")).toMatch(/Waiting for your/);
 
   await userEvent.click(within(threads).getByRole("link", { name: /Backpressure/ }));
   await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" });

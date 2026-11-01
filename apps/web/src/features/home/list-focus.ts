@@ -20,7 +20,7 @@ export function stepIntoActions(event: {
   if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return false;
   if (!(event.target instanceof HTMLElement)) return false;
   const rowBox = event.target.closest<HTMLElement>("[data-index]");
-  // A thread row's link, or a heading's own button (a project's, the Inbox's).
+  // A thread row's link, or a heading's own button (a project's, a disclosure's).
   const link = rowBox?.querySelector<HTMLElement>("[data-row-focus], [data-section-toggle]");
   if (!rowBox || !link) return false;
   const stops = [
@@ -79,7 +79,7 @@ export async function focusListRow(options: {
 }
 
 /** Rows that only label or explain: arrows pass over them. */
-const passive = new Set<HomeRow["kind"]>(["pinned-label", "empty"]);
+const passive = new Set<HomeRow["kind"]>(["active-label", "empty"]);
 
 /** Whether a row can hold focus: not leaving, and not a label or an empty list's words. */
 function focusable(row: { item: HomeRow; phase: string } | undefined): boolean {

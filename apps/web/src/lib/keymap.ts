@@ -48,7 +48,6 @@ export const keymap = {
     label: "New thread in the current project",
   },
   addProject: { keys: "shift+mod+o", label: "Add project" },
-  inbox: { keys: "mod+i", label: "Open the Inbox" },
   nextThread: { keys: "alt+mod+arrowdown", label: "Next thread" },
   previousThread: { keys: "alt+mod+arrowup", label: "Previous thread" },
   nextNeedsYou: { keys: "alt+mod+j", label: "Next thread that needs you" },

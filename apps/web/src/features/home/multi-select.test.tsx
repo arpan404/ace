@@ -60,24 +60,26 @@ async function pick(title: RegExp, keys: "{Meta>}" | "{Shift>}") {
 test("⌘-click picks rows without opening them, Shift-click takes the rows between", async () => {
   const app = await openHome();
   const opened = window.location.pathname;
-  await pick(/^Dedupe thread events/, "{Meta>}");
+  await pick(/^Rewrite the install page/, "{Meta>}");
   await pick(/^Invoice PDF/, "{Shift>}");
   expect(window.location.pathname).toBe(opened);
-  // In the tree's order: ace's thread, relay's, then billing-api's.
+  // In Active's order: the install page, then the fan-out, then the invoice fallback.
   expect(await screen.findByText("3 selected")).toBeTruthy();
   expect(card(/^Backpressure.*, selected/)).toBeTruthy();
   expect(
-    within(threads()).queryByRole("link", { name: /^Rewrite the install page.*, selected/ }),
+    within(threads()).queryByRole("link", { name: /^Dedupe thread events.*, selected/ }),
   ).toBeNull();
 
   // Pin pins them all, keeping the order they were listed in.
   await userEvent.click(within(bar()).getByRole("button", { name: "Pin 3 threads" }));
   await waitFor(() =>
     expect(
-      ["thread-dedupe", "thread-fan-out", "thread-pdf-locale"].map((id) => listed(app, id)?.pinned),
+      ["thread-install-page", "thread-fan-out", "thread-pdf-locale"].map(
+        (id) => listed(app, id)?.pinned,
+      ),
     ).toEqual([true, true, true]),
   );
-  expect(listed(app, "thread-install-page")?.pinned).toBeUndefined();
+  expect(listed(app, "thread-dedupe")?.pinned).toBeUndefined();
   expect(screen.queryByRole("toolbar", { name: "Selected threads" })).toBeNull();
 });
 

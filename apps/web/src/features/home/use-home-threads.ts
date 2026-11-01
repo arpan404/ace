@@ -11,7 +11,6 @@ import {
   isDraft,
   isRemoved,
   isSettled,
-  keepSettledMs,
   projectCounts,
   standingReader,
   threadMatches,
@@ -22,7 +21,7 @@ import {
   type Standing,
 } from "@ace/ui-core";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
-import { useIsChat, useIsChatThread, useProjectName } from "@/lib/projects.ts";
+import { useIsChat, useIsChatThread, useProjectDirectory, useProjectName } from "@/lib/projects.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useOrganizeOverlay, useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
@@ -36,16 +35,10 @@ export function useHomeSort(): HomeSort {
   return sortBy ?? "activity";
 }
 
-/** How long a settled thread stays in its project (Settings › Agents › Thread list), in ms. */
-export function useSettledGrace(): number {
-  const [keep] = useDaemonSetting("threads.keepSettledFor");
-  return keepSettledMs(keep ?? "3d");
-}
-
 /**
  * Home's threads: pinned ones in their own order, every other open thread in Home order,
- * Snoozed and Settled apart, and the Threads panel's tree over them (`homeTree`): the Inbox
- * and each project's threads.
+ * Snoozed and Settled apart, and the Threads panel's tree over them (`homeTree`): Active on
+ * top, and each project's settled threads below.
  */
 export interface HomeList {
   pinned: string[];
@@ -56,21 +49,18 @@ export interface HomeList {
   settled: string[];
   /** Settled threads in all, loaded or not: what History holds. */
   settledTotal: number;
-  /** What needs the person, newest first, whatever the search narrows the rest to. */
-  inbox: string[];
   /** The listed threads that need you, which may rise while the list otherwise holds still. */
   needsYou: string[];
   tree: HomeTree;
 }
 const syncing = (): Standing => ({ level: "syncing", done: false });
-const noTree: HomeTree = { inbox: [], projects: [], quiet: [], order: [], settled: [] };
+const noTree: HomeTree = { active: [], projects: [], quiet: [], order: [], settled: [] };
 const empty: HomeList = {
   pinned: [],
   listed: [],
   snoozed: [],
   settled: [],
   settledTotal: 0,
-  inbox: [],
   needsYou: [],
   tree: noTree,
 };
@@ -104,7 +94,7 @@ export function useEveryEntryKey(): readonly SidebarKey[] {
 }
 
 const treeEqual = (a: HomeTree, b: HomeTree) =>
-  arrayEqual(a.inbox, b.inbox) &&
+  arrayEqual(a.active, b.active) &&
   arrayEqual(a.order, b.order) &&
   arrayEqual(a.quiet, b.quiet) &&
   arrayEqual(a.settled, b.settled) &&
@@ -114,10 +104,9 @@ const treeEqual = (a: HomeTree, b: HomeTree) =>
     return (
       other !== undefined &&
       place.id === other.id &&
-      place.running === other.running &&
-      place.inbox === other.inbox &&
-      arrayEqual(place.threads, other.threads) &&
-      arrayEqual(place.recent, other.recent)
+      place.active === other.active &&
+      place.held === other.held &&
+      arrayEqual(place.settled, other.settled)
     );
   });
 
@@ -127,7 +116,6 @@ const listEqual = (a: HomeList, b: HomeList) =>
   arrayEqual(a.snoozed, b.snoozed) &&
   arrayEqual(a.settled, b.settled) &&
   a.settledTotal === b.settledTotal &&
-  arrayEqual(a.inbox, b.inbox) &&
   arrayEqual(a.needsYou, b.needsYou) &&
   treeEqual(a.tree, b.tree);
 
@@ -168,26 +156,11 @@ function settledCounts(
   return counts;
 }
 
-/** Two Inbox lists as one, newest activity first. */
-function mergeInbox(
-  a: readonly string[],
-  b: readonly string[],
-  entry: (id: string) => ThreadListEntry | undefined,
-): string[] {
-  if (!b.length) return [...a];
-  if (!a.length) return [...b];
-  const at = (id: string) => {
-    const shown = entry(id);
-    return shown ? activityOf(shown) : 0;
-  };
-  return [...a, ...b].toSorted((x, y) => at(y) - at(x) || x.localeCompare(y));
-}
-
 /**
  * Home order (`arrange`) across every project the filter lets through, and the Threads panel's
  * tree over it. Chats (ADR 0099) are the Chats panel's: they stay out of the tree and History,
- * but the Inbox still holds a chat that needs the person or finished unread. `query` narrows it to the threads whose title, project, branch or pull request
- * match. Only ids are selected, so a status change re-renders its own row and moves rows only
+ * as the Chats panel holds its own Active chats. `query` narrows it to the threads whose
+ * title, project, branch or pull request match. Only ids are selected, so a status change re-renders its own row and moves rows only
  * when the order changes. `others` are other machines' threads under their machine row ids
  * (`useMachineEntries`), ordered in the same list (ADR 0102).
  */
@@ -200,8 +173,8 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
   const now = useNow();
   const read = useEntries();
   const standingOf = useStandingOf(now);
-  const graceMs = useSettledGrace();
   const projectName = useProjectName();
+  const directory = useProjectDirectory();
   const isChatThread = useIsChatThread();
   const isChatProject = useIsChat();
   const select = useCallback(
@@ -227,6 +200,13 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
         searching || (device && device !== ownDevice)
           ? undefined
           : settledCounts(reader, own, state.project, isChat);
+      // Projects with no thread at all are quiet: this machine's own, while nothing narrows the list.
+      const known =
+        searching || (device && device !== ownDevice)
+          ? undefined
+          : directory.projects
+              .map((place) => place.id)
+              .filter((id) => state.project === null || id === state.project);
       const treeOf = (
         shown: Arrangement,
         entry: (id: string) => ThreadListEntry | undefined,
@@ -238,26 +218,10 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
           // A saved list's statuses may be stale: it claims nothing (as its rows say Syncing).
           standing: reader.unconfirmed ? syncing : standingOf,
           sortBy,
-          now,
-          graceMs,
           settledCounts: held,
+          projects: known,
         });
       const tree = treeOf(arrangement, (id) => byId.get(id), counts);
-      // A search narrows the panel's rows, never the Inbox: it is read from every thread, and
-      // from every chat whatever the project filter.
-      const everyId =
-        searching || chats.length
-          ? new Map<string, ThreadListEntry>(onDevice.map((entry) => [entry.id, entry]))
-          : undefined;
-      const fromEvery = (shown: readonly ThreadListEntry[], project: string | null) =>
-        everyId && shown.length
-          ? treeOf(arrange(shown, { ...state, project, sortBy }, now), (id) => everyId.get(id))
-              .inbox
-          : [];
-      const workInbox = searching ? fromEvery(work, state.project) : tree.inbox;
-      const inbox = everyId
-        ? mergeInbox(workInbox, fromEvery(chats, null), (id) => everyId.get(id))
-        : tree.inbox;
       let held = 0;
       for (const count of counts?.values() ?? []) held += count;
       const listed = [...arrangement.active, ...arrangement.recent];
@@ -270,7 +234,6 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
         snoozed: arrangement.snoozed,
         settled: tree.settled,
         settledTotal: Math.max(tree.settled.length, held),
-        inbox,
         needsYou,
         tree,
       };
@@ -279,13 +242,13 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
       state,
       sortBy,
       now,
-      graceMs,
       read,
       others,
       device,
       ownDevice,
       query,
       projectName,
+      directory,
       standingOf,
       isChatThread,
       isChatProject,

@@ -2,7 +2,7 @@ import { homeRowThread, type HomeRow } from "@ace/ui-core";
 import { parseChord } from "@/lib/keymap.ts";
 
 /** Rows a number opens: the threads as drawn, never a heading, the Unsent block or a leaving row. */
-const numbered = new Set<HomeRow["kind"]>(["thread", "recently-settled", "snoozed"]);
+const numbered = new Set<HomeRow["kind"]>(["thread", "settled", "snoozed"]);
 
 /**
  * The threads ⌘1 to ⌘9 open, in the order the list draws them: the first nine thread rows

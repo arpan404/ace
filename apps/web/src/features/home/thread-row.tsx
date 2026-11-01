@@ -1,5 +1,5 @@
 import { currentAttention } from "@ace/ui-core";
-import { ChatCircleIcon, DotsSixVerticalIcon } from "@phosphor-icons/react";
+import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
 import type { MachineIcon } from "@ace/protocol";
 import type { ComponentType, ReactElement } from "react";
@@ -12,6 +12,8 @@ import {
   useRenameTitle,
 } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
+import { ProjectMark } from "@/components/project-mark.tsx";
+import { panelRowLine } from "@/components/ui/panel.tsx";
 import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
@@ -23,16 +25,16 @@ import { useStartedTitle } from "./started-titles.ts";
 import { useRowActive } from "./use-row-active.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
-// One line of `--row-height`, apart by space, not rules: the list sits inset from the sidebar's
-// edges, and hover and the open thread fill a soft rounded box.
-const row =
-  "relative flex h-(--row-height) w-full items-center gap-2.5 rounded-md px-2.5 text-left text-md outline-none transition-colors duration-(--motion-fast)";
+// The panel's one row line (`panelRowLine`), apart by space, not rules: the list sits inset from
+// the sidebar's edges, and hover and the open thread fill a soft rounded box.
+const row = cn(panelRowLine, "relative outline-none");
 
 /**
- * What leads a row: a pinned thread's chat glyph; inside its project, room the width of the
- * project's folder glyph, so its title lines up with the project's name; else nothing.
+ * What leads a row: in Active, which spans projects, its project's mark; inside its project,
+ * room the width of the project's folder glyph, so its title lines up with the project's name;
+ * else nothing.
  */
-export type RowLead = "pinned" | "indent" | "none";
+export type RowLead = "project" | "indent" | "none";
 
 /**
  * Another machine's thread (ADR 0102), drawn under that machine's client. It opens on that
@@ -115,9 +117,7 @@ export function ThreadRow(props: {
   const actions = rowActive.active && !renaming;
   const body = (
     <>
-      {props.lead === "pinned" && (
-        <ChatCircleIcon aria-hidden size={16} className="shrink-0 text-muted-foreground" />
-      )}
+      {props.lead === "project" && <ProjectMark id={entry.workspaceId} badge={card.badge} />}
       {props.lead === "indent" && <span aria-hidden className="w-4 shrink-0" />}
       <span
         className={cn(

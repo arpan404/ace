@@ -1,3 +1,5 @@
+import { cn } from "@/lib/cn.ts";
+import { panelRowLine } from "@/components/ui/panel.tsx";
 import { Link } from "@tanstack/react-router";
 import { defaultMachineIcon } from "@/components/ui/machine-label.tsx";
 import { machineStatus } from "@/lib/machine-status.ts";
@@ -6,7 +8,7 @@ import { MachineScope } from "@/lib/machine-scope.tsx";
 import { machineRow, useMachineThread } from "@/lib/machine-threads.ts";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { ChatRowActions } from "./chat-row-actions.tsx";
-import { RecentlySettledRow } from "./settled-row.tsx";
+import { SettledRow } from "./settled-row.tsx";
 import { ThreadRow, type RowLead } from "./thread-row.tsx";
 
 /**
@@ -18,10 +20,10 @@ export function MachineRow(props: {
   id: string;
   leaving: boolean;
   /**
-   * A task row, a recently settled row in its project, or a chat in the Chats panel (a chat's
-   * hover actions; `settled` dims it).
+   * A task row, a settled row in its project, or a chat in the Chats panel (a chat's hover
+   * actions; `settled` dims it).
    */
-  shape: "task" | "recently-settled" | "chat";
+  shape: "task" | "settled" | "chat";
   lead: RowLead;
   settled?: boolean | undefined;
 }) {
@@ -38,8 +40,8 @@ export function MachineRow(props: {
       machine={machine}
       unavailable={<AwayRow machine={machine} threadKey={ref.key} threadId={ref.threadId} />}
     >
-      {props.shape === "recently-settled" ? (
-        <RecentlySettledRow
+      {props.shape === "settled" ? (
+        <SettledRow
           threadId={ref.threadId}
           rowId={props.id}
           leaving={props.leaving}
@@ -70,7 +72,10 @@ function AwayRow(props: { machine: Machine; threadKey: string; threadId: string 
       data-row-focus=""
       draggable={false}
       aria-label={`${entry.title}. ${props.machine.name}, ${status}`}
-      className="flex h-(--row-height) w-full items-center gap-2.5 rounded-md px-2.5 text-left text-md outline-none focus-ring-inset hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      className={cn(
+        panelRowLine,
+        "outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+      )}
     >
       <span aria-hidden className="w-4 shrink-0" />
       <span className="min-w-0 flex-1 truncate text-muted-foreground">{entry.title}</span>

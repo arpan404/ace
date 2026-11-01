@@ -18,26 +18,17 @@ configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
-/**
- * Open one scenario's thread, played to its end, with the sidebar's list beside it. Its row is
- * the list's, or, for a thread that asks the person, the Inbox's: that is where it waits.
- */
-async function open(scenario: Scenario, place: "list" | "inbox" = "list") {
+/** Open one scenario's thread, played to its end, with its row in the sidebar's list beside it. */
+async function open(scenario: Scenario) {
   const app = harness();
   app.play(scenario).runUntilBlocked();
   await app.open(`/t/${scenario.thread.id}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const header = screen.getByRole("banner");
-  if (place === "inbox")
-    await userEvent.click(await screen.findByRole("button", { name: /^Inbox, / }));
-  const holder =
-    place === "inbox"
-      ? await screen.findByRole("dialog", { name: "Inbox" })
-      : await screen.findByRole("navigation", { name: "Threads" });
+  const holder = await screen.findByRole("navigation", { name: "Threads" });
   const row = await within(holder).findByRole("link", {
     name: new RegExp(`^${scenario.thread.title}`),
   });
-  if (place === "inbox") await userEvent.keyboard("{Escape}");
   return { app, feed, header, row };
 }
 /** The one mark at a row's right edge (`RowIndicator`): its kind and tone. */
@@ -105,7 +96,7 @@ test("a thread waiting on its subagents shows the waiting ring in its row, its s
 });
 
 test("a thread that asked a question keeps the waiting state in the thread, row and details icon", async () => {
-  const { feed, header, row } = await open(askingQuestion(), "inbox");
+  const { feed, header, row } = await open(askingQuestion());
   expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
   // The question's own line in the transcript is the waiting state.
   expect(await within(feed).findByRole("button", { name: /is asking · / })).toBeTruthy();
@@ -128,7 +119,7 @@ test.each([
 ])(
   "a %s thread waiting for an answer never reads Working in its live head, row or details icon",
   async (_provider, scenario) => {
-    const { feed, header, row } = await open(scenario(), "inbox");
+    const { feed, header, row } = await open(scenario());
     expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
     // The question's own "is asking" line says the turn waits; no second waiting line.
     expect(await within(feed).findByRole("button", { name: /is asking · / })).toBeTruthy();

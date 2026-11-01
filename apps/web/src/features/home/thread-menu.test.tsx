@@ -73,18 +73,16 @@ test("Mark unread and Pin are kept by the daemon, so the list shows them after a
   expect(within(menu).getByRole("menuitem", { name: /^Unpin/ })).toBeTruthy();
 });
 
-test("a finished thread marked unread waits in the Inbox, and opening it there marks it read", async () => {
+test("a finished thread marked unread reads unread in its row, and opening it marks it read", async () => {
   await openHome();
   const menu = await rightClick(/Invoice PDF/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Mark unread" }));
-  // Unread finished work leaves its project for the Inbox.
-  await waitFor(() => expect(card(/Invoice PDF/)).toBeNull());
-  await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
-  const inbox = await screen.findByRole("dialog", { name: "Inbox" });
-  await userEvent.click(within(inbox).getByRole("link", { name: /^Invoice PDF.*, unread/ }));
-  // Read, it rests in its project again.
-  await waitFor(() => expect(card(/^Invoice PDF/)).toBeTruthy());
-  expect(card(/, unread/)).toBeNull();
+  await waitFor(() => expect(card(/^Invoice PDF.*, unread/)).toBeTruthy());
+  const unread = card(/^Invoice PDF.*, unread/);
+  if (!unread) throw new Error("Missing the unread row");
+  await userEvent.click(unread);
+  await waitFor(() => expect(card(/^Invoice PDF.*, unread/)).toBeNull());
+  expect(card(/^Invoice PDF/)).toBeTruthy();
 });
 
 /** The daemon still serves the thread; a deleted one is gone from every read. */

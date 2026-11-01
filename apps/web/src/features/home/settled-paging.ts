@@ -1,6 +1,6 @@
 import type { SidebarReader } from "@ace/client";
 import { useClient, useSidebar, useSidebarStore } from "@ace/client-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 
 /** Where Home's own window's next page of settled threads starts, while it holds older ones. */
@@ -28,7 +28,7 @@ export interface SettledPaging {
 /**
  * Older settled threads from the daemon, a page at a time (`more`), while it still holds some
  * back. The daemon pages every project's settled threads together, newest first, so each
- * project's recently settled threads and History both read from these pages. A failed page offers a retry; a page that
+ * project's settled threads and History both read from these pages. A failed page offers a retry; a page that
  * brings nothing new stops the asking, so a daemon that keeps saying older threads remain can't
  * loop; changing the project or device filter starts over. Another machine's threads all arrive
  * at once, so they never page.
@@ -67,22 +67,4 @@ export function settledFoot(paging: SettledPaging): SettledFoot {
   if (paging.loading) return "loading";
   if (paging.error) return "error";
   return paging.hasMore ? "more" : undefined;
-}
-
-/** Whether the daemon still holds back settled threads that worked within the grace period. */
-export function graceLeft(paging: SettledPaging, now: number, graceMs: number): boolean {
-  return paging.hasMore && paging.nextAt !== undefined && paging.nextAt >= now - graceMs;
-}
-
-/**
- * Load settled threads back to the grace period's boundary, a page at a time, and no further,
- * so each project shows its recently settled ones: the rest load only as History scrolls.
- */
-export function useGracePages(paging: SettledPaging, now: number, graceMs: number): void {
-  // `more` is new each render, so a page that lands (and leaves days to load) asks again.
-  const left = graceLeft(paging, now, graceMs) && !paging.loading && !paging.error;
-  const { more } = paging;
-  useEffect(() => {
-    if (left) void more();
-  }, [left, more]);
 }

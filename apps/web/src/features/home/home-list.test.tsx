@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { ThreadId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { rowText } from "@/test/row-text.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -35,7 +36,10 @@ const stops = () =>
     (stop) =>
       stop.dataset.project !== undefined
         ? `[${stop.dataset.project}]`
-        : (stop.getAttribute("aria-label")?.split(".")[0] ?? heard(stop)),
+        : (stop
+            .getAttribute("aria-label")
+            ?.split(". ")[0]
+            ?.replace(/, unread$/, "") ?? heard(stop)),
   );
 /** An element's text as assistive tech hears it: without what it hides. */
 function heard(element: HTMLElement): string {
@@ -65,22 +69,23 @@ function workbenchApp(options: Parameters<typeof harness>[0] = {}) {
   return app;
 }
 
-/** The Inbox button in the panel's title row. */
-const bell = () => screen.getByRole("button", { name: /^Inbox/ });
-/** Open the Inbox overlay and return it. */
-async function openInbox() {
-  await userEvent.click(bell());
-  return screen.findByRole("dialog", { name: "Inbox" });
-}
-const inboxTitles = (dialog: HTMLElement) =>
-  within(dialog)
-    .queryAllByRole("link")
-    .map((link) =>
-      link
-        .getAttribute("aria-label")
-        ?.split(".")[0]
-        ?.replace(/, unread$/, ""),
-    );
+/** The rows under Active, top first: everything above the Projects label. */
+const active = () => {
+  const all = stops();
+  const end = all.indexOf("Add project");
+  return all.slice(0, end < 0 ? all.length : end);
+};
+/** The rows inside a project's folder, top first, as `stops` reads them. */
+const inProject = (project: string) => {
+  const all = stops();
+  const start = all.indexOf(`[${project}]`);
+  if (start < 0) return [];
+  const rest = all.slice(start + 1);
+  const end = rest.findIndex(
+    (stop) => stop.startsWith("[") || /^Quiet projects|^Snoozed/.test(stop),
+  );
+  return rest.slice(0, end < 0 ? rest.length : end);
+};
 
 /** A thread in relay whose one turn finished. */
 const finished = (id: string, title: string): Scenario => ({
@@ -130,7 +135,7 @@ const finished = (id: string, title: string): Scenario => ({
  * An approval and a finished thread, on a daemon whose clock runs ahead of this device's first
  * launch, so the finished turn is news here: Done until it is opened.
  */
-function inboxApp() {
+function newsApp() {
   let at = Date.now() + 60_000;
   const app = harness({ clock: () => (at = Math.max(at + 1, Date.now() + 60_000)) });
   const approval = workbench().find((each) => each.thread.id === "thread-retry-budget");
@@ -139,117 +144,61 @@ function inboxApp() {
   return app;
 }
 
-test("the panel lists projects only, and what needs you waits in the Inbox, never in its project", async () => {
+test("an approval leads Active, which spans projects; projects hold only settled threads", async () => {
   await openHome(workbenchApp());
-  expect(stops()).toEqual([
-    "Add project",
-    "[ace]",
-    "Dedupe thread events after reconnect",
-    "[relay]",
-    "Backpressure on broadcast fan-out",
-    "[billing-api]",
-    "Invoice PDF locale fallback",
-    "[ace-mobile]",
-    "[docs-site]",
-    "Rewrite the install page for the daemon",
-  ]);
-  // A waiting approval shows only in the Inbox.
-  expect(order()).not.toContain("Retry budget for app-server restarts");
-  expect(order()).not.toContain("Partial refunds double-count tax");
-  // Long settled, the Codex bump is only in History.
-  expect(order()).not.toContain("Bump Codex app-server to 0.48");
-  expect(within(threads()).queryByRole("button", { name: /settled/ })).toBeNull();
-});
-
-test("the bell's count matches the Inbox, which lists an approval and finished work not yet opened", async () => {
-  await openHome(inboxApp(), "/new");
-  await waitFor(() => expect(bell().getAttribute("aria-label")).toBe("Inbox, 2 waiting"));
-  const dialog = await openInbox();
-  // Newest first.
-  expect(inboxTitles(dialog)).toEqual([
-    "Write the release notes",
+  const top = active();
+  // What needs the person comes first, whatever its project.
+  expect(top.slice(0, 3).toSorted()).toEqual([
+    "Approval sheet loses its state on rotate",
+    "Partial refunds double-count tax",
     "Retry budget for app-server restarts",
   ]);
-  expect(
-    within(dialog).getByRole("link", { name: /^Retry budget.*Waiting for your approval/ }),
-  ).toBeTruthy();
-  // Unseen, the finished thread is heard as unread.
-  expect(
-    within(dialog).getByRole("link", { name: /^Write the release notes, unread/ }),
-  ).toBeTruthy();
-  // Rows only open their thread: nothing to approve, answer, snooze or mark read from here.
-  expect(
-    within(dialog).queryAllByRole("button", { name: /approve|answer|mark|snooze|settle|actions/i }),
-  ).toEqual([]);
-  // Neither shows in its project.
-  expect(order()).toEqual([]);
+  expect(top).toContain("Backpressure on broadcast fan-out");
+  expect(top).toContain("Dedupe thread events after reconnect");
+  // Each Active row is marked with its project.
+  const refund = card(/^Partial refunds double-count tax/);
+  expect(refund.querySelector("[data-project-mark]")).not.toBeNull();
+  // Long settled, the Codex bump rests in its project, never in Active.
+  expect(top).not.toContain("Bump Codex app-server to 0.48");
+  expect(inProject("ace")).toContain("Bump Codex app-server to 0.48");
+  // A working thread is in Active and not in its project.
+  expect(inProject("relay")).not.toContain("Backpressure on broadcast fan-out");
 });
 
-test("opening finished work from the Inbox closes it and clears the thread from it", async () => {
-  await openHome(inboxApp(), "/new");
-  const dialog = await openInbox();
-  await userEvent.click(within(dialog).getByRole("link", { name: /^Write the release notes/ }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Inbox" })).toBeNull());
-  // Seen, it rests in its project, and the Inbox no longer holds it.
-  await waitFor(() => expect(order()).toContain("Write the release notes"));
-  await waitFor(() => expect(bell().getAttribute("aria-label")).toBe("Inbox, 1 waiting"));
-  expect(inboxTitles(await openInbox())).toEqual(["Retry budget for app-server restarts"]);
+test("finished work not yet opened stays in Active with the blue dot", async () => {
+  await openHome(newsApp(), "/new");
+  await waitFor(() => expect(active()).toContain("Write the release notes"));
+  const notes = card(/^Write the release notes, unread/);
+  expect(notes.querySelector('[data-tone="unread"], [data-tone="done"]')).not.toBeNull();
+  expect(inProject("relay")).not.toContain("Write the release notes");
 });
 
-test("Escape and the close button close the Inbox and give focus back to the bell; arrows move in it", async () => {
-  await openHome(workbenchApp());
-  let dialog = await openInbox();
-  const rows = within(dialog).getAllByRole("link");
-  await waitFor(() => expect(document.activeElement).toBe(rows[0]));
-  await userEvent.keyboard("{ArrowDown}");
-  expect(document.activeElement).toBe(rows[1]);
-  await userEvent.keyboard("{End}");
-  expect(document.activeElement).toBe(rows.at(-1));
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Inbox" })).toBeNull());
-  expect(document.activeElement).toBe(bell());
-
-  dialog = await openInbox();
-  await userEvent.click(within(dialog).getByRole("button", { name: "Close Inbox" }));
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Inbox" })).toBeNull());
-  expect(document.activeElement).toBe(bell());
-});
-
-test("⌘I opens the Inbox from anywhere, and an empty one says so", async () => {
-  const app = harness();
-  app.daemon.createThread({ id: "t-1", workspaceId: "ace", title: "Tidy up", provider: "codex" });
-  app.daemon.apply("t-1", [
-    facts.rootAgent("codex"),
-    facts.turn("root"),
-    facts.message("root", "sent", "user", "Tidy"),
-    facts.endTurn("root"),
-  ]);
-  await app.open("/settings/agents");
-  await screen.findByRole("heading", { name: "Agents" });
+test("there is no Inbox: no bell, and ⌘I opens nothing", async () => {
+  await openHome(newsApp(), "/new");
+  expect(screen.queryByRole("button", { name: /^Inbox/ })).toBeNull();
   await userEvent.keyboard("{Meta>}i{/Meta}");
-  const dialog = await screen.findByRole("dialog", { name: "Inbox" });
-  expect(within(dialog).getByText("You’re all caught up.")).toBeTruthy();
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-test("a folded project keeps its heading and Inbox count, hides its threads, across a reload", async () => {
+test("a folded project keeps its heading and active count, hides its threads, across a reload", async () => {
   const storage = memoryKeyValue();
   const view = await openHome(workbenchApp({ storage }));
-  const relay = within(threads()).getByRole("button", { name: /^relay/ });
-  await userEvent.click(relay);
-  expect(relay.getAttribute("aria-expanded")).toBe("false");
-  await waitFor(() => expect(order()).not.toContain("Backpressure on broadcast fan-out"));
-  // It says how many of its threads wait in the Inbox.
-  expect(head(/^relay.*, 1 in the Inbox/)).toBeTruthy();
+  const ace = within(threads()).getByRole("button", { name: /^ace, / });
+  await userEvent.click(ace);
+  expect(ace.getAttribute("aria-expanded")).toBe("false");
+  await waitFor(() => expect(inProject("ace")).toEqual([]));
+  // It says how many of its threads are in Active.
+  expect(head(/^ace, 1 active/)).toBeTruthy();
   view.unmount();
 
   await openHome(workbenchApp({ storage }));
-  expect(head(/^relay/).getAttribute("aria-expanded")).toBe("false");
-  expect(order()).not.toContain("Backpressure on broadcast fan-out");
-  await userEvent.click(head(/^relay/));
-  expect(await within(threads()).findByRole("link", { name: /^Backpressure/ })).toBeTruthy();
+  expect(head(/^ace, /).getAttribute("aria-expanded")).toBe("false");
+  expect(inProject("ace")).toEqual([]);
+  await userEvent.click(head(/^ace, /));
+  await waitFor(() => expect(inProject("ace")).toContain("Bump Codex app-server to 0.48"));
 });
 
-test("projects with nothing open fold under Quiet projects, each opening its History", async () => {
+test("settling a thread moves it from Active into its project, whose row opens its History", async () => {
   const app = workbenchApp();
   app.daemon.createThread({
     id: "thread-notes",
@@ -264,21 +213,17 @@ test("projects with nothing open fold under Quiet projects, each opening its His
     facts.endTurn("root"),
   ]);
   await openHome(app);
+  await waitFor(() => expect(active()).toContain("Write release notes"));
   await app.client.command({ type: "thread.settle", threadId: ThreadId.parse("thread-notes") });
-  const quiet = await within(threads()).findByRole("button", { name: /^Quiet projects/ });
-  expect(quiet.getAttribute("aria-expanded")).toBe("false");
-  await waitFor(() => expect(stops()).not.toContain("[notes]"));
-  await userEvent.click(quiet);
-  await userEvent.click(await within(threads()).findByRole("link", { name: "notes, History" }));
+  await waitFor(() => expect(inProject("notes")).toEqual(["Write release notes"]));
+  expect(active()).not.toContain("Write release notes");
+  await userEvent.click(screen.getByRole("button", { name: "History of notes" }));
   expect(await screen.findByRole("heading", { level: 2, name: "History" })).toBeTruthy();
   const main = screen.getByRole("main");
   expect(await within(main).findByRole("link", { name: /^Write release notes/ })).toBeTruthy();
-  expect(within(main).getByRole("button", { name: "notes" }).getAttribute("aria-pressed")).toBe(
-    "true",
-  );
 });
 
-test("a pinned thread leads its project, ahead of running work", async () => {
+test("a pinned thread leads Active, ahead of running work", async () => {
   const app = workbenchApp(soon);
   await openHome(app);
   await unsettleBump();
@@ -297,24 +242,16 @@ test("a pinned thread leads its project, ahead of running work", async () => {
 
 test("tasks expose status, linked PR, provider and branch details", async () => {
   await openHome(workbenchApp());
-  const inbox = await openInbox();
-  const refund = within(inbox).getByRole("link", { name: /^Partial refunds double-count tax/ });
-  // The branch is drawn whole, its middle the part that gives way when it doesn't fit.
-  expect(within(refund).getByTitle("fix/refund-tax").textContent).toBe("fix/refund-tax");
-  expect(refund.getAttribute("aria-label") ?? refund.textContent).toContain(
-    "Waiting for your approval",
-  );
+  const refund = card(/^Partial refunds double-count tax/);
+  expect(refund.getAttribute("aria-label")).toContain("Waiting for your approval");
   // The accessible name retains the PR, branch and project.
   expect(refund.getAttribute("aria-label")).toContain("Pull request #77");
   expect(refund.getAttribute("aria-label")).toContain("fix/refund-tax");
   expect(refund.getAttribute("aria-label")).toContain("billing-api");
-  expect(within(refund).getByText("billing-api")).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
-  expect(within(threads()).queryAllByRole("heading")).toHaveLength(0);
 
   // A row in the list is its title alone; its name keeps the worktree and subagents.
   const dedupe = card(/^Dedupe thread events after reconnect/);
-  expect(dedupe.textContent).toBe("Dedupe thread events after reconnect");
+  expect(rowText(dedupe)).toBe("Dedupe thread events after reconnect");
   expect(dedupe.getAttribute("aria-label")).toContain("fix/replay-dedupe");
   expect(dedupe.getAttribute("aria-label")).toContain("Claude Code · 2 subagents running");
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toMatch(
@@ -341,23 +278,28 @@ async function unsettleBump() {
 /** The UI's clock just past the daemon's: the workbench's settled thread settled moments ago. */
 const soon = { uiClock: () => 600_000 };
 
-test("finished work follows running work in its project", async () => {
+test("in Active, finished work follows running and waiting work", async () => {
   await openHome(workbenchApp(soon));
   await unsettleBump();
+  await waitFor(() => expect(active()).toContain("Bump Codex app-server to 0.48"));
   expect(before("Dedupe thread events after reconnect", "Bump Codex app-server to 0.48")).toBe(
     true,
   );
-  expect(before("Bump Codex app-server to 0.48", "Backpressure on broadcast fan-out")).toBe(true);
+  expect(before("Backpressure on broadcast fan-out", "Bump Codex app-server to 0.48")).toBe(true);
 });
 
 test("Up and Down (and j and k) move between rows and headings", async () => {
   await openHome(workbenchApp());
-  const ace = head(/^ace, 1 running/);
-  const dedupe = card(/^Dedupe thread events/);
+  const ace = head(/^ace, 1 active/);
+  const bump = card(/^Bump Codex/);
+  const invoice = card(/^Invoice PDF/);
   ace.focus();
   await userEvent.keyboard("{ArrowUp}");
   expect(document.activeElement).toBe(head("Add project"));
-  await userEvent.keyboard("j");
+  // Up again leaves Projects for the last row in Active.
+  await userEvent.keyboard("k");
+  expect(document.activeElement).toBe(invoice);
+  await userEvent.keyboard("jj");
   expect(document.activeElement).toBe(ace);
   // → reaches a project's own actions, ← comes back.
   await userEvent.keyboard("{ArrowRight}");
@@ -366,22 +308,22 @@ test("Up and Down (and j and k) move between rows and headings", async () => {
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "History of ace" }));
   await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
   expect(document.activeElement).toBe(ace);
+  // Down: the project's settled thread, then the next project.
   await userEvent.keyboard("j");
-  expect(document.activeElement).toBe(dedupe);
+  expect(document.activeElement).toBe(bump);
   await userEvent.keyboard("{ArrowDown}");
   expect(document.activeElement).toBe(head(/^relay/));
   await userEvent.keyboard("k");
-  expect(document.activeElement).toBe(dedupe);
+  expect(document.activeElement).toBe(bump);
 });
 
 test("a row's name says its status, provider and subagents, branch, pull request, project and machine", async () => {
   await openHome(workbenchApp());
   expect(
-    within(await openInbox()).getByRole("link", {
-      name: /^Partial refunds double-count tax\. Waiting for your approval, Claude Code, .*Pull request #77/,
-    }),
+    card(
+      /^Partial refunds double-count tax\. Waiting for your approval, Claude Code, .*Pull request #77/,
+    ),
   ).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
   expect(
     card(
       /^Dedupe thread events after reconnect\. Waiting for 2 subagents, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
@@ -442,22 +384,24 @@ test("Settle dims a finished thread in its project and Unsettle puts it back", a
   await waitFor(() => expect(settledAt()).toBeDefined());
 });
 
-test("a thread long in History comes back to its project as soon as it moves again, as running", async () => {
+test("a settled thread that moves again leaves its project for Active, as running", async () => {
   const app = workbenchApp();
   await openHome(app);
-  expect(order()).not.toContain("Bump Codex app-server to 0.48");
+  expect(active()).not.toContain("Bump Codex app-server to 0.48");
+  expect(inProject("ace")).toContain("Bump Codex app-server to 0.48");
 
   // New work on it: the agent starts another turn and the thread is working again.
   app.daemon.apply("thread-bump-codex", [
     { type: "turn.started", agent: "root", nativeTurnId: "follow-up", trigger: "user" },
   ]);
-  await waitFor(() => expect(head(/^ace, 2 running/)).toBeTruthy());
-  // Under its project, never in the Inbox, never dimmed and never as Done: its tree is working.
+  await waitFor(() => expect(active()).toContain("Bump Codex app-server to 0.48"));
+  // A running tree is never in a project's folder, never dimmed and never Done.
+  expect(inProject("ace")).not.toContain("Bump Codex app-server to 0.48");
   expect(card(/^Bump Codex app-server to 0\.48\. Working/)).toBeTruthy();
-  expect(before("Bump Codex app-server to 0.48", "Backpressure on broadcast fan-out")).toBe(true);
+  expect(head(/^ace, 2 active/)).toBeTruthy();
 });
 
-test("a snoozed request stays in the Inbox with its wake time", async () => {
+test("a snoozed request stays in Active with its wake time", async () => {
   const app = workbenchApp();
   await openHome(app);
   await app.client.command({
@@ -465,11 +409,9 @@ test("a snoozed request stays in the Inbox with its wake time", async () => {
     threadId: ThreadId.parse("thread-retry-budget"),
     until: Date.now() + 24 * 60 * 60 * 1000,
   });
-  // A thread waiting on the person is never folded away: it stays in the Inbox, marked snoozed.
-  const dialog = await openInbox();
-  await waitFor(() =>
-    expect(within(dialog).getByRole("link", { name: /^Retry budget.*Snoozed until/ })).toBeTruthy(),
-  );
+  // A thread waiting on the person is never folded away: it stays in Active, marked snoozed.
+  await waitFor(() => expect(card(/^Retry budget.*Snoozed until/)).toBeTruthy());
+  expect(active()).toContain("Retry budget for app-server restarts");
   expect(within(threads()).queryByRole("button", { name: /^Snoozed / })).toBeNull();
 });
 
@@ -479,15 +421,17 @@ test("the project filter narrows Home to one project and is remembered", async (
   await userEvent.click(screen.getByRole("button", { name: "Project filter: All projects" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "relay" }));
 
-  await waitFor(() => expect(order()).toEqual(["Backpressure on broadcast fan-out"]));
-  // The Inbox follows the filter too.
-  expect(inboxTitles(await openInbox())).toEqual(["Retry budget for app-server restarts"]);
-  await userEvent.keyboard("{Escape}");
+  await waitFor(() =>
+    expect(order()).toEqual([
+      "Retry budget for app-server restarts",
+      "Backpressure on broadcast fan-out",
+    ]),
+  );
   view.unmount();
 
   await openHome(workbenchApp({ storage }));
   expect(await screen.findByRole("button", { name: "Project filter: relay" })).toBeTruthy();
-  await waitFor(() => expect(order()).toEqual(["Backpressure on broadcast fan-out"]));
+  await waitFor(() => expect(order()).toContain("Backpressure on broadcast fan-out"));
 });
 
 test("a row's name and tooltip give its whole branch, including main", async () => {

@@ -3,6 +3,7 @@ import { act, configure, fireEvent, screen, waitFor, within } from "@testing-lib
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { rowText } from "@/test/row-text.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -108,7 +109,7 @@ test("hovering an active row shows only snooze, settle and more actions beside i
   await waitFor(() => expect(card(row)).toBeTruthy());
 
   await userEvent.hover(card(row));
-  expect(card(row).textContent).toBe(title);
+  expect(rowText(card(row))).toBe(title);
   expect(mark(row)).toBeUndefined();
   expect(controls(row)).toEqual([`Snooze ${title}`, `Settle ${title}`, `Actions for ${title}`]);
 });

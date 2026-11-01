@@ -2,6 +2,7 @@ import { useSidebarThread } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import { createContext, use } from "react";
 import { cn } from "@/lib/cn.ts";
+import { panelRowLine } from "@/components/ui/panel.tsx";
 import { ChatRowActions } from "./chat-row-actions.tsx";
 import { ThreadRow, useOpenHere } from "./thread-row.tsx";
 import type { SearchHit } from "./use-panel-search.ts";
@@ -41,7 +42,8 @@ function FoundChatRow(props: { hit: SearchHit }) {
       data-row-focus=""
       draggable={false}
       className={cn(
-        "flex h-(--row-height) w-full items-center gap-2.5 rounded-md px-2.5 text-left text-md outline-none transition-colors duration-(--motion-fast) focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+        panelRowLine,
+        "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         current ? "bg-active font-medium text-foreground" : "text-subtle-foreground hover:bg-hover",
       )}
     >

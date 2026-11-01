@@ -9,6 +9,7 @@ import {
 } from "@/features/organize/index.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { panelRowLine } from "@/components/ui/panel.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowMoreMenu } from "./row-actions.tsx";
 import { threadDetails } from "./row-parts.tsx";
@@ -17,9 +18,8 @@ import { useOpenHere, type RowMachine } from "./thread-row.tsx";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
-// The task rows' one line, box and fills: settled work is out of the way.
-const box =
-  "flex h-(--row-height) w-full items-center gap-2.5 rounded-md px-2.5 text-left text-md transition-colors duration-(--motion-fast)";
+// The panel's one row line (`panelRowLine`): settled work is out of the way.
+const box = panelRowLine;
 
 interface SettledProps {
   threadId: string;
@@ -30,12 +30,12 @@ interface SettledProps {
 }
 
 /**
- * A thread its project settled within the grace period: one line in its project, dimmed (the
+ * A settled thread in its project: one line, dimmed (the
  * title in subtle ink, full ink only while open), lined up with the project's name. Under the
  * pointer or focus, Unsettle and the row's ⋯ menu take the right end; the context menu is the
  * task row's own.
  */
-export function RecentlySettledRow(props: SettledProps) {
+export function SettledRow(props: SettledProps) {
   const { machine } = props;
   const rowId = props.rowId ?? props.threadId;
   const data = useThreadCard(props.threadId, true, props.leaving);

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { ThreadListEntry } from "@ace/protocol";
 import { arrange, type HomeSort } from "./arrange.ts";
-import { homeTree, keepSettledMs, standingReader, type KeepSettled } from "./home-tree.ts";
+import { homeTree, standingReader } from "./home-tree.ts";
 import { Organizer } from "./organizer.ts";
 import { projectFold } from "./home-rows.ts";
 import { entry } from "./test-entries.fixture.ts";
@@ -17,8 +17,8 @@ function tree(
   entries: readonly ThreadListEntry[],
   options: {
     sortBy?: HomeSort;
-    keep?: KeepSettled;
     settledCounts?: ReadonlyMap<string, number>;
+    projects?: readonly string[];
   } = {},
 ) {
   const sortBy = options.sortBy ?? "activity";
@@ -28,135 +28,129 @@ function tree(
     entry: (id) => byId.get(id),
     standing: standingReader({ baseline: 0, now }),
     sortBy,
-    now,
-    graceMs: keepSettledMs(options.keep ?? "3d"),
     settledCounts: options.settledCounts,
+    projects: options.projects,
   });
 }
 
 const projectOf = (built: ReturnType<typeof tree>, id: string) =>
   built.projects.find((place) => place.id === id);
 
-test("a thread waiting on approval is in the Inbox, not under its project", () => {
+/** Settled by the daemon a while ago, read, at rest. */
+const settledAt = (at: number) => ({ readAt: at, settledAt: at, settledReason: "manual" });
+
+test("an approval leads Active, ahead of newer working and finished threads", () => {
   const built = tree([
-    entry("asks", { state: "needs_you", interactions: 1 }, now - minute),
-    entry("rests", { state: "done" }, now - 2 * minute, { readAt: now }),
+    entry("done", { state: "done" }, now, { readAt: now }),
+    entry("works", { state: "working", agents: 1 }, now - minute),
+    entry("asks", { state: "needs_you", interactions: 1 }, now - day),
   ]);
-  expect(built.inbox).toEqual(["asks"]);
-  expect(projectOf(built, "ace")?.threads).toEqual(["rests"]);
-  expect(projectOf(built, "ace")?.inbox).toBe(1);
+  expect(built.active).toEqual(["asks", "works", "done"]);
 });
 
-test("finished work leaves the Inbox for its project once the person has opened it", () => {
-  const unseen = entry("done", { state: "done" }, now - minute);
-  expect(tree([unseen]).inbox).toEqual(["done"]);
-  const opened = entry("done", { state: "done" }, now - minute, { readAt: now });
-  const built = tree([opened]);
-  expect(built.inbox).toEqual([]);
-  expect(projectOf(built, "ace")?.threads).toEqual(["done"]);
+test("sorted newest first, Active keeps the person's sort, not live state", () => {
+  const built = tree(
+    [
+      entry("asks", { state: "needs_you", interactions: 1 }, now, { createdAt: 1 }),
+      entry("new", { state: "done" }, now - day, { readAt: now, createdAt: 3 }),
+    ],
+    { sortBy: "created" },
+  );
+  expect(built.active).toEqual(["new", "asks"]);
 });
 
-test("an unseen failure is in the Inbox; one already seen rests in its project", () => {
+test("an unseen failure needs the person and leads Active; one already seen waits with the rest", () => {
   const built = tree([
-    entry("unseen", { state: "failed" }, now - minute),
-    entry("seen", { state: "failed" }, now - minute, { readAt: now }),
+    entry("seen", { state: "failed" }, now, { readAt: now }),
+    entry("works", { state: "working", agents: 1 }, now),
+    entry("unseen", { state: "failed" }, now - day),
   ]);
-  expect(built.inbox).toEqual(["unseen"]);
-  expect(projectOf(built, "ace")?.threads).toEqual(["seen"]);
+  expect(built.active).toEqual(["unseen", "works", "seen"]);
 });
 
-test("the Inbox lists its threads newest first", () => {
+test("a working thread is in Active, not in its project", () => {
+  const built = tree([entry("works", { state: "working", agents: 1 }, now - minute)]);
+  expect(built.active).toEqual(["works"]);
+  expect(projectOf(built, "ace")).toEqual({ id: "ace", settled: [], active: 1, held: 0 });
+});
+
+test("a settled thread is in its project, not in Active", () => {
+  const built = tree([entry("rests", { state: "done" }, now - day, settledAt(now - day))]);
+  expect(built.active).toEqual([]);
+  expect(projectOf(built, "ace")?.settled).toEqual(["rests"]);
+  expect(built.settled).toEqual(["rests"]);
+});
+
+test("settling a thread moves it from Active into its project", () => {
+  const open = entry("t", { state: "done" }, now - minute, { readAt: now });
+  expect(tree([open]).active).toEqual(["t"]);
+  const settled = entry("t", { state: "done" }, now - minute, settledAt(now));
+  const after = tree([settled]);
+  expect(after.active).toEqual([]);
+  expect(projectOf(after, "ace")?.settled).toEqual(["t"]);
+});
+
+test("a settled parent whose subagent still works is Active, never in its project or History", () => {
   const built = tree([
-    entry("older", { state: "needs_you", interactions: 1 }, now - day),
-    entry("newer", { state: "done" }, now - minute, { workspaceId: "web" }),
-  ]);
-  expect(built.inbox).toEqual(["newer", "older"]);
-});
-
-test("a waiting approval never appears in its project, even when it settled first", () => {
-  const built = tree([
-    entry("asks", { state: "needs_you", interactions: 1 }, now - minute, {
-      settledAt: now - day,
-      settledReason: "manual",
-    }),
-  ]);
-  expect(built.inbox).toEqual(["asks"]);
-  expect(projectOf(built, "ace")?.threads).toEqual([]);
-  expect(projectOf(built, "ace")?.recent).toEqual([]);
-  expect(built.settled).toEqual([]);
-});
-
-test("a thread settled 2 days ago stays in its project with 3 days, and moves to History with 1", () => {
-  const settled = entry("settled", { state: "done" }, now - 3 * day, {
-    readAt: now - 3 * day,
-    settledAt: now - 2 * day,
-  });
-  const three = tree([settled], { keep: "3d" });
-  expect(projectOf(three, "ace")?.recent).toEqual(["settled"]);
-  expect(three.settled).toEqual(["settled"]);
-
-  const one = tree([settled], { keep: "1d" });
-  expect(projectOf(one, "ace")).toBeUndefined();
-  expect(one.quiet).toEqual(["ace"]);
-  expect(one.settled).toEqual(["settled"]);
-
-  // Moved to History right away: never in the project.
-  expect(projectOf(tree([settled], { keep: "0d" }), "ace")).toBeUndefined();
-});
-
-test("a parent whose subagent still works is running, leads its project and is never settled", () => {
-  const built = tree([
-    entry("newer", { state: "done" }, now - minute, { readAt: now }),
     entry("parent", { state: "done" }, now - day, {
       live: { runningSubagentCount: 1 },
-      readAt: now,
-      settledAt: now - 10 * day,
+      ...settledAt(now - 10 * day),
     }),
   ]);
-  expect(built.inbox).toEqual([]);
-  expect(projectOf(built, "ace")?.threads).toEqual(["parent", "newer"]);
-  expect(projectOf(built, "ace")?.running).toBe(1);
-  expect(projectOf(built, "ace")?.recent).toEqual([]);
-  // Not at rest, so History doesn't list it either.
+  expect(built.active).toEqual(["parent"]);
+  expect(projectOf(built, "ace")?.settled).toEqual([]);
   expect(built.settled).toEqual([]);
 });
 
-test("pinned threads lead their project; Manual keeps the person's order below them", () => {
-  const built = tree(
-    [
-      entry("b", { state: "done" }, now, { readAt: now, listOrder: 2 }),
-      entry("works", { state: "working", agents: 1 }, now, { listOrder: 1 }),
-      entry("pin", { state: "done" }, now - day, { readAt: now, pinned: true }),
-    ],
-    { sortBy: "manual" },
-  );
-  expect(projectOf(built, "ace")?.threads).toEqual(["pin", "b", "works"]);
+test("a waiting approval that settled first is Active, never in its project", () => {
+  const built = tree([
+    entry("asks", { state: "needs_you", interactions: 1 }, now - minute, settledAt(now - day)),
+  ]);
+  expect(built.active).toEqual(["asks"]);
+  expect(projectOf(built, "ace")?.settled).toEqual([]);
 });
 
-test("a project with nothing open or recently settled is quiet, as is one only the daemon knows", () => {
-  const built = tree(
-    [
-      entry("open", { state: "done" }, now, { readAt: now }),
-      entry("old", { state: "done" }, now - 9 * day, {
-        workspaceId: "docs",
-        readAt: now - 9 * day,
-        settledAt: now - 8 * day,
-      }),
-    ],
-    {
-      settledCounts: new Map([
-        ["docs", 12],
-        ["cli", 3],
-      ]),
-    },
-  );
-  expect(built.projects.map((place) => place.id)).toEqual(["ace"]);
-  expect(built.quiet).toEqual(["docs", "cli"]);
+test("finished work not yet opened stays in Active until it settles", () => {
+  const built = tree([entry("unread", { state: "done" }, now - minute)]);
+  expect(built.active).toEqual(["unread"]);
 });
 
-test("a project whose only threads wait in the Inbox stays listed", () => {
-  const built = tree([entry("asks", { state: "needs_you", interactions: 1 }, now)]);
-  expect(built.projects.map((place) => [place.id, place.inbox])).toEqual([["ace", 1]]);
+test("Active spans projects, pinned threads first in the person's order", () => {
+  const built = tree([
+    entry("asks", { state: "needs_you", interactions: 1 }, now, { workspaceId: "web" }),
+    entry("pin", { state: "done" }, now - day, { readAt: now, pinned: true }),
+  ]);
+  expect(built.active).toEqual(["pin", "asks"]);
+});
+
+test("a pinned thread the person settled rests in its project", () => {
+  const built = tree([
+    entry("pin", { state: "done" }, now - day, { pinned: true, ...settledAt(now - day) }),
+  ]);
+  expect(built.active).toEqual([]);
+  expect(projectOf(built, "ace")?.settled).toEqual(["pin"]);
+});
+
+test("a project's settled threads come newest first", () => {
+  const built = tree([
+    entry("old", { state: "done" }, now - 5 * day, settledAt(now - 5 * day)),
+    entry("new", { state: "done" }, now - day, settledAt(now - day)),
+  ]);
+  expect(projectOf(built, "ace")?.settled).toEqual(["new", "old"]);
+});
+
+test("a project known only from the daemon's count is listed, its threads in History", () => {
+  const built = tree([], { settledCounts: new Map([["docs", 12]]) });
+  expect(built.projects).toEqual([{ id: "docs", settled: [], active: 0, held: 12 }]);
+});
+
+test("only projects with no thread at all are quiet", () => {
+  const built = tree([entry("works", { state: "working", agents: 1 }, now)], {
+    settledCounts: new Map([["docs", 3]]),
+    projects: ["ace", "cli", "docs"],
+  });
+  expect(built.projects.map((place) => place.id).toSorted()).toEqual(["ace", "docs"]);
+  expect(built.quiet).toEqual(["cli"]);
 });
 
 test("projects come by most recent activity", () => {

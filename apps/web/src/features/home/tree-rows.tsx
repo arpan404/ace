@@ -1,6 +1,4 @@
 import {
-  CaretDownIcon,
-  CaretRightIcon,
   ClockCounterClockwiseIcon,
   FolderOpenIcon,
   FolderSimpleIcon,
@@ -11,6 +9,12 @@ import { chatDayLabels, projectFold, projectMore, type HomeRow } from "@ace/ui-c
 import type { ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
+import {
+  PanelDisclosure,
+  panelLabel,
+  panelLabelGap,
+  panelRowLine,
+} from "@/components/ui/panel.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useProjectName } from "@/lib/projects.ts";
@@ -18,16 +22,16 @@ import { useProjectDialogs } from "@/features/projects/index.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
 /*
- * The Threads panel's rows that aren't threads: the Pinned and Projects labels, each project's
- * row, Show more, Quiet projects and Snoozed; and the Chats panel's day labels. Every row is one `--row-height` line; a section
- * label leaves 20px above it.
+ * The Threads panel's rows that aren't threads: the Active and Projects labels, each project's
+ * row, Show more, the way to a project's older threads in History, Quiet projects and Snoozed;
+ * and the Chats panel's Active and day labels. Every row is the panel's one line
+ * (`panelRowLine`); a section label (`panelLabel`) leaves 20px above it.
  */
 
-const line =
-  "flex h-(--row-height) min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left text-md focus-ring-inset transition-colors duration-(--motion-fast)";
+const line = panelRowLine;
 const mini =
   "grid size-6 shrink-0 place-items-center rounded-sm text-subtle-foreground hover:bg-hover hover:text-foreground focus-ring";
-const label = "flex h-7 w-full items-center gap-1.5 px-2.5 text-ui text-muted-foreground";
+const label = panelLabel;
 
 /** A small action that shows on the row's hover or focus. */
 function Mini(props: { label: string; onClick(): void; children: ReactNode }) {
@@ -48,28 +52,16 @@ function Mini(props: { label: string; onClick(): void; children: ReactNode }) {
 }
 
 /**
- * A project's one mark, as a thread row's: the warning dot while threads of it wait in the
- * Inbox, else, folded, the live ring while any of its threads run. Silent: the row says it.
+ * A project's one mark: how many of its threads are in Active, quietly. What needs the person
+ * is marked on its row in Active, never again here.
  */
-function ProjectMark(props: { row: Extract<HomeRow, { kind: "project-header" }> }) {
-  const { row } = props;
-  if (row.inbox > 0)
-    return (
-      <span
-        aria-hidden
-        data-tone="needs-you"
-        className="size-2 shrink-0 rounded-full bg-(--tone)"
-      />
-    );
-  if (row.running > 0 && !row.open)
-    return (
-      <span
-        aria-hidden
-        data-tone="working"
-        className="size-2 shrink-0 rounded-full shadow-[inset_0_0_0_1.5px_var(--tone)]"
-      />
-    );
-  return null;
+function ActiveCount(props: { count: number }) {
+  if (!props.count) return null;
+  return (
+    <span aria-hidden className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+      {props.count}
+    </span>
+  );
 }
 
 function ProjectRow(props: { row: Extract<HomeRow, { kind: "project-header" }> }) {
@@ -92,11 +84,10 @@ function ProjectRow(props: { row: Extract<HomeRow, { kind: "project-header" }> }
           className="text-muted-foreground"
         />
         <span className="min-w-0 truncate">{name}</span>
-        {row.running > 0 && <span className="sr-only">, {row.running} running</span>}
-        {row.inbox > 0 && <span className="sr-only">, {row.inbox} in the Inbox</span>}
+        {row.active > 0 && <span className="sr-only">, {row.active} active</span>}
         <span className="flex-1" />
         <span className="flex group-focus-within/head:hidden group-hover/head:hidden pointer-coarse:hidden">
-          <ProjectMark row={row} />
+          <ActiveCount count={row.active} />
         </span>
       </button>
       <span className="hidden items-center gap-0.5 pr-1.5 group-focus-within/head:flex group-hover/head:flex pointer-coarse:flex">
@@ -120,7 +111,7 @@ function ProjectRow(props: { row: Extract<HomeRow, { kind: "project-header" }> }
 function ProjectsLabel(props: { first: boolean }) {
   const projects = useProjectDialogs();
   return (
-    <div className={cn(label, "group/head pr-1.5", props.first ? "mt-1" : "mt-5")}>
+    <div className={cn(label, "group/head pr-1.5", panelLabelGap(props.first))}>
       <span className="flex-1">Projects</span>
       <Tip label="Add project" shortcut="addProject">
         <button
@@ -183,26 +174,31 @@ function QuietProject(props: { row: Extract<HomeRow, { kind: "quiet-project" }> 
   );
 }
 
+/** Past a project's loaded settled threads: the rest, in History. */
+function ProjectHistory(props: { row: Extract<HomeRow, { kind: "project-history" }> }) {
+  const name = useProjectName()(props.row.project);
+  return (
+    <Link
+      to="/history"
+      search={{ project: props.row.project }}
+      data-section-toggle=""
+      aria-label={`${props.row.count} more in History of ${name}`}
+      className={cn(line, "w-full text-subtle-foreground hover:bg-hover hover:text-foreground")}
+    >
+      <span aria-hidden className="w-4 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">
+        <span className="tabular-nums">{props.row.count}</span> more in History
+      </span>
+    </Link>
+  );
+}
+
 /** A disclosure in the list: Quiet projects, Snoozed. */
 function Disclosure(props: { open: boolean; onClick(): void; children: ReactNode }) {
   return (
-    <button
-      type="button"
-      aria-expanded={props.open}
-      data-section-toggle=""
-      onClick={props.onClick}
-      className={cn(
-        line,
-        "w-full text-ui text-muted-foreground hover:bg-hover hover:text-foreground",
-      )}
-    >
-      {props.open ? (
-        <CaretDownIcon aria-hidden size={12} className="shrink-0" />
-      ) : (
-        <CaretRightIcon aria-hidden size={12} className="shrink-0" />
-      )}
+    <PanelDisclosure open={props.open} data-section-toggle="" onClick={props.onClick}>
       {props.children}
-    </button>
+    </PanelDisclosure>
   );
 }
 
@@ -212,10 +208,10 @@ export function SectionRow(props: { row: HomeRow; first: boolean }) {
   const organizer = useOrganizer();
   const { snoozedOpen } = useOrganizerState();
   switch (row.kind) {
-    case "pinned-label":
+    case "active-label":
       return (
-        <div role="heading" aria-level={3} className={cn(label, props.first ? "mt-1" : "mt-5")}>
-          Pinned
+        <div role="heading" aria-level={3} className={cn(label, panelLabelGap(props.first))}>
+          Active
         </div>
       );
     case "project-header":
@@ -224,6 +220,8 @@ export function SectionRow(props: { row: HomeRow; first: boolean }) {
       return <ProjectsLabel first={props.first} />;
     case "show-more":
       return <ShowMore row={row} />;
+    case "project-history":
+      return <ProjectHistory row={row} />;
     case "quiet-header":
       return (
         <div className="mt-1.5">
@@ -246,7 +244,7 @@ export function SectionRow(props: { row: HomeRow; first: boolean }) {
       return <p className="py-2 pr-2.5 pl-9 text-ui text-subtle-foreground">{row.text}</p>;
     case "day-label":
       return (
-        <div role="heading" aria-level={3} className={cn(label, props.first ? "mt-1" : "mt-5")}>
+        <div role="heading" aria-level={3} className={cn(label, panelLabelGap(props.first))}>
           {chatDayLabels[row.day]}
         </div>
       );

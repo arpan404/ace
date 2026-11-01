@@ -1,13 +1,14 @@
 import type { ThreadListEntry } from "@ace/protocol";
 import { isDraft, isRemoved, pinOrderOf } from "./arrange.ts";
 import type { ChatDay, HomeRow } from "./home-rows.ts";
-import { atWork, type Standing } from "./home-tree.ts";
+import { atRest, atWork, needsPerson, type Standing } from "./home-tree.ts";
 import { activityOf, isSettled } from "./thread-state.ts";
 
 /*
- * The Chats panel (ADR 0099, ADR 0107): every chat in one flat list, pinned ones first, the rest
- * grouped by the day they last moved. A settled chat stays in its day, dimmed; one whose agent
- * tree still works or asks is never dimmed. Pure: the caller passes the clock.
+ * The Chats panel (ADR 0099, ADR 0107), as the Threads panel: Active on top, every unsettled chat
+ * (pinned ones first, then what needs the person, then what is at work, then the rest by
+ * activity), then the settled chats grouped by the day they last moved, dimmed. A settled chat
+ * whose agent tree still works or asks is Active, never dimmed. Pure: the caller passes the clock.
  */
 
 /** Whether a list entry is a chat by its own details: its project is a hidden chat project. */
@@ -40,9 +41,11 @@ export function chatDayOf(at: number, now: number): ChatDay {
 }
 
 export interface ChatList {
-  /** Pinned chats in the person's own order. */
+  /** Every unsettled chat: pinned ones in the person's own order, then by how it stands. */
+  active: string[];
+  /** The pinned chats that lead Active, in the person's own order. */
   pinned: string[];
-  /** Every other chat with its last activity and day, newest first. */
+  /** Settled chats at rest with their last activity and day, newest first. */
   dated: { id: string; at: number; day: ChatDay }[];
   /** Settled chats at rest: drawn dimmed. */
   settled: string[];
@@ -59,32 +62,37 @@ export interface ChatListInput {
 }
 
 const byId = (a: ThreadListEntry, b: ThreadListEntry) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+const newest = (a: ThreadListEntry, b: ThreadListEntry) =>
+  activityOf(b) - activityOf(a) || byId(a, b);
 
 /** The chats among `entries`, as the Chats panel lists them. */
 export function chatList(input: ChatListInput): ChatList {
   const pinned: ThreadListEntry[] = [];
+  const groups: [ThreadListEntry[], ThreadListEntry[], ThreadListEntry[]] = [[], [], []];
   const rest: ThreadListEntry[] = [];
-  const settled: string[] = [];
   const needsYou: string[] = [];
   for (const entry of input.entries) {
     if (isRemoved(entry) || isDraft(entry) || !input.isChat(entry)) continue;
-    (entry.pinned === true ? pinned : rest).push(entry);
     const stands = input.standing(entry);
     if (entry.status.state === "needs_you") needsYou.push(entry.id);
-    // Settled yet its tree still works or asks: it reads as open work, never dimmed.
-    if (isSettled(entry) && !atWork(stands) && stands.level !== "needs-you") settled.push(entry.id);
+    // Settled yet its tree still works or asks: Active, never dimmed.
+    if (isSettled(entry) && atRest(stands)) rest.push(entry);
+    else if (entry.pinned === true) pinned.push(entry);
+    else groups[needsPerson(stands) ? 0 : atWork(stands) ? 1 : 2].push(entry);
   }
   pinned.sort(
     (a, b) => pinOrderOf(b) - pinOrderOf(a) || activityOf(b) - activityOf(a) || byId(a, b),
   );
-  rest.sort((a, b) => activityOf(b) - activityOf(a) || byId(a, b));
+  for (const group of groups) group.sort(newest);
+  rest.sort(newest);
   return {
+    active: [...pinned, ...groups.flat()].map((entry) => entry.id),
     pinned: pinned.map((entry) => entry.id),
     dated: rest.map((entry) => {
       const at = activityOf(entry);
       return { id: entry.id, at, day: chatDayOf(at, input.now) };
     }),
-    settled,
+    settled: rest.map((entry) => entry.id),
     needsYou,
   };
 }
@@ -98,7 +106,7 @@ export function withChatHits(
   hits: readonly { id: string; at: number }[],
   now: number,
 ): ChatList {
-  const held = new Set([...list.pinned, ...list.dated.map((item) => item.id)]);
+  const held = new Set([...list.active, ...list.dated.map((item) => item.id)]);
   const added = hits.filter((hit) => !held.has(hit.id));
   if (!added.length) return list;
   const dated = [
@@ -108,14 +116,14 @@ export function withChatHits(
   return { ...list, dated, settled: [...list.settled, ...added.map((hit) => hit.id)] };
 }
 
-/** The Chats panel's rows: Pinned, then each day group under its heading. */
+/** The Chats panel's rows: Active, then each day group of settled chats under its heading. */
 export function chatRows(list: ChatList): HomeRow[] {
   const settled = new Set(list.settled);
   const row = (id: string): HomeRow => ({ kind: "chat", id, settled: settled.has(id) });
   const rows: HomeRow[] = [];
-  if (list.pinned.length) {
-    rows.push({ kind: "pinned-label" });
-    for (const id of list.pinned) rows.push(row(id));
+  if (list.active.length) {
+    rows.push({ kind: "active-label" });
+    for (const id of list.active) rows.push(row(id));
   }
   let day: ChatDay | undefined;
   for (const item of list.dated) {
@@ -144,8 +152,7 @@ export interface PlaceSignals {
 
 /**
  * Each rail place's dot from its own threads: Chats from chats, Threads from every other thread.
- * A request asks loudest; failures and finished work not yet opened (the Inbox's other
- * holdings) show the unread dot.
+ * A request asks loudest; failures and finished work not yet opened show the unread dot.
  */
 export function placeSignals(input: Omit<ChatListInput, "now">): PlaceSignals {
   const threads: PlaceSignal = { tone: undefined, needsYou: 0 };

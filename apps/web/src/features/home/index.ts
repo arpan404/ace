@@ -7,7 +7,6 @@ export { NewThreadPage } from "./new-thread/new-thread-page.tsx";
 export { NewThreadOnMachine } from "./new-thread/new-thread-on-machine.tsx";
 export { OpenWorkWarmup } from "./new-thread/open-work-warmup.tsx";
 export { HistoryPage } from "./history-page.tsx";
-export { InboxKeys } from "./inbox-keys.tsx";
 export { useSeenWhileOpen } from "./use-seen-while-open.ts";
 /** Moving between threads by keyboard (⌥⌘↓ ↑, ⌥⌘J), and the same steps for the palette. */
 export { ThreadLeaveProvider, ThreadStepKeys, useThreadSteps } from "./thread-steps.tsx";

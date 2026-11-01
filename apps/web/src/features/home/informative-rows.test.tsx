@@ -9,6 +9,7 @@ import { screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { rowText } from "@/test/row-text.ts";
 
 function task(app: ReturnType<typeof harness>, id: string, title: string) {
   app.daemon.createThread({
@@ -33,16 +34,15 @@ const rows = async () => within(await screen.findByRole("list", { name: "Threads
 const mark = (row: HTMLElement) =>
   row.querySelector<HTMLElement>("[data-indicator]")?.dataset.indicator;
 
-/** A thread's row in the Inbox, which holds what waits on the person; never in its project. */
-async function inboxRow(title: string) {
-  const named = { name: new RegExp(`^${title}`) };
-  await screen.findByRole("button", { name: /^Inbox, \d+ waiting/ });
-  expect((await rows()).queryByRole("link", named)).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
-  return within(await screen.findByRole("dialog", { name: "Inbox" })).findByRole("link", named);
+/** The tone of a row's one mark: `needs-you` for what waits on the person. */
+const tone = (row: HTMLElement) => row.querySelector<HTMLElement>("[data-indicator]")?.dataset.tone;
+
+/** A thread's row in Active, which leads with what waits on the person. */
+async function activeRow(title: string) {
+  return (await rows()).findByRole("link", { name: new RegExp(`^${title}`) });
 }
 
-test("a plan review says Needs you in the Inbox and explains the request to screen readers", async () => {
+test("a plan review carries the needs-you mark and explains the request to screen readers", async () => {
   const app = harness();
   task(app, "plan", "Review reconnect recovery");
   app.daemon.apply("plan", [
@@ -55,18 +55,18 @@ test("a plan review says Needs you in the Inbox and explains the request to scre
     },
   ]);
   await app.open("/new");
-  const row = await inboxRow("Review reconnect recovery");
-  expect(within(row).getByText("Needs you", { exact: true })).toBeTruthy();
+  const row = await activeRow("Review reconnect recovery");
+  await waitFor(() => expect(tone(row)).toBe("needs-you"));
   expect(row.getAttribute("aria-label")).toContain("Waiting for your review");
 });
 
-test("a question says Answer in the Inbox and keeps the full explanation for screen readers", async () => {
+test("a question carries the needs-you mark and keeps the full explanation for screen readers", async () => {
   const app = harness();
   const example = askingQuestion();
   app.play(example).runUntilBlocked();
   await app.open("/new");
-  const row = await inboxRow(example.thread.title);
-  expect(within(row).getByText("Answer", { exact: true })).toBeTruthy();
+  const row = await activeRow(example.thread.title);
+  await waitFor(() => expect(tone(row)).toBe("needs-you"));
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
 });
 
@@ -84,7 +84,7 @@ test.each([
     const row = await (
       await rows()
     ).findByRole("link", { name: new RegExp(`^${example.thread.title}`) });
-    expect(row.textContent).toBe(example.thread.title);
+    expect(rowText(row)).toBe(example.thread.title);
     expect(mark(row)).toBe("live");
     expect(row.getAttribute("aria-label")).toContain(full);
     await userEvent.hover(row);
@@ -99,7 +99,7 @@ test("a row is its title alone: status, branch, pull request and provider are in
   task(app, "build", "Build replay recovery");
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
-  expect(row.textContent).toBe("Build replay recovery");
+  expect(rowText(row)).toBe("Build replay recovery");
   expect(within(row).queryByText("Working")).toBeNull();
   expect(within(row).queryByTitle("fix/replay")).toBeNull();
   expect(within(row).queryByRole("img", { name: "draft pull request #283" })).toBeNull();
@@ -147,13 +147,14 @@ test("agents running beside a human request remain counted until they finish", a
     },
   ]);
   await app.open("/new");
-  const row = await inboxRow("Build replay recovery");
-  expect(within(row).getByText("Approve")).toBeTruthy();
-  expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running");
-  expect(within(row).getByRole("img", { name: "Codex · 1 subagent running" })).toBeTruthy();
+  const row = await activeRow("Build replay recovery");
+  await waitFor(() =>
+    expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running"),
+  );
+  expect(tone(row)).toBe("needs-you");
   app.daemon.apply("build", [facts.endTurn("web")]);
   await waitFor(() => expect(row.getAttribute("aria-label")).not.toContain("subagent running"));
-  expect(within(row).getByText("Approve")).toBeTruthy();
+  expect(tone(row)).toBe("needs-you");
 });
 
 test("renaming an empty draft cannot turn it into a task", async () => {

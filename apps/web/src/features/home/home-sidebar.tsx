@@ -1,10 +1,9 @@
 import { ChatsIcon, ClockCounterClockwiseIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Suspense, useRef } from "react";
-import { Icon } from "@/components/icon.tsx";
+import { Suspense } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { cn } from "@/lib/cn.ts";
+import { PanelRowBody, panelRow, PanelTitleRow } from "@/components/ui/panel.tsx";
 import { PaletteButton } from "@/features/shell/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
@@ -23,9 +22,6 @@ import { useMachines } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { usePanelRows } from "./use-panel-rows.ts";
-import { InboxBell } from "./inbox-bell.tsx";
-import { InboxOverlay } from "./inbox-overlay.tsx";
-import { useInboxOpen, useInboxStore } from "./use-inbox-open.ts";
 import {
   useOrganizer,
   useOrganizerState,
@@ -38,12 +34,12 @@ const StartedTitlePublisher = deferredComponent(() =>
 );
 
 /**
- * The Threads panel, under the window's top bar: its title row ("ace" and its filter caret, the
- * Inbox bell, Search), a New thread row, then the list: Pinned threads, and Projects, each
- * folding open in place with its open threads and its recently settled ones, quiet projects
- * folded at the foot, and History below the list. Chats are the Chats panel's; the Inbox still
- * holds a chat that needs the person. The bell (or ⌘I) opens the Inbox over the
- * list; Search (⌘K) opens the palette.
+ * The Threads panel, under the window's top bar (ADR 0107): its title row ("ace" and its filter
+ * caret, Search), a New thread row, then the list: Active, every unsettled thread across
+ * projects (pinned ones first, then what needs the person, then what is at work, then the rest),
+ * then Projects, each folding open in place with only its settled threads, quiet projects folded
+ * at the foot, and History below the list. Chats are the Chats panel's. Search (⌘K) opens the
+ * palette.
  */
 export function HomeSidebar() {
   // Other machines' threads join the list, each row marked with its machine.
@@ -58,28 +54,22 @@ export function HomeSidebar() {
   const loaded = useSidebarLoaded();
   // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
   const skeleton = useHeld(!loaded);
-  const rows = usePanelRows({ list, device });
-  const bell = useRef<HTMLButtonElement>(null);
-  const inbox = useInboxStore();
-  const inboxOpen = useInboxOpen();
+  const rows = usePanelRows({ list });
   const { tree } = list;
+  // No thread at all: projects that hold none (Quiet projects) don't count.
   const empty =
     [list.pinned, list.listed, list.snoozed, list.settled].every((ids) => !ids.length) &&
-    !tree.quiet.length;
+    !tree.projects.length;
   const directory = useProjectDirectory();
   const keys = useResolvedKeymap();
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div
-        data-slot="panel-top"
-        className="@container/thread-filters flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2"
-      >
+      <PanelTitleRow className="@container/thread-filters">
         <span className="flex min-w-0 flex-1">
           <ProjectFilter />
         </span>
-        <InboxBell ids={list.inbox} bell={bell} />
         <PaletteButton />
-      </div>
+      </PanelTitleRow>
       <NewThreadRow />
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
@@ -137,7 +127,6 @@ export function HomeSidebar() {
         )}
       </nav>
       {loaded && <HistoryFoot count={list.settledTotal} />}
-      {inboxOpen && <InboxOverlay ids={list.inbox} bell={bell} onClose={() => inbox.set(false)} />}
     </div>
   );
 }
@@ -173,10 +162,7 @@ function NewThreadRow() {
           {...(only ? { search: { project: only } } : {})}
           aria-label="New thread"
           aria-current={here ? "page" : undefined}
-          className={cn(
-            "flex h-(--row-height) w-full items-center gap-2.5 rounded-md px-2.5 text-md text-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover",
-            here && "bg-active",
-          )}
+          {...panelRow()}
           onClick={(event) => {
             if (event.shiftKey) {
               event.preventDefault();
@@ -187,8 +173,7 @@ function NewThreadRow() {
             }
           }}
         >
-          <Icon icon={NotePencilIcon} className="text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">New thread</span>
+          <PanelRowBody icon={NotePencilIcon} title="New thread" />
         </Link>
       </Tip>
     </div>
@@ -203,18 +188,21 @@ function HistoryFoot(props: { count: number }) {
       <Link
         to="/history"
         aria-current={here ? "page" : undefined}
-        className={cn(
-          "flex h-(--row-height) w-full items-center gap-2.5 rounded-md px-2.5 text-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover hover:text-foreground",
-          here && "bg-active text-foreground",
+        {...panelRow(
+          "text-muted-foreground hover:text-foreground aria-[current=page]:text-foreground",
         )}
       >
-        <Icon icon={ClockCounterClockwiseIcon} />
-        <span className="min-w-0 flex-1 truncate">History</span>
-        {props.count > 0 && (
-          <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
-            {props.count}
-          </span>
-        )}
+        <PanelRowBody
+          icon={ClockCounterClockwiseIcon}
+          title="History"
+          trailing={
+            props.count > 0 && (
+              <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+                {props.count}
+              </span>
+            )
+          }
+        />
       </Link>
     </div>
   );

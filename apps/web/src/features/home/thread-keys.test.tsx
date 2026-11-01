@@ -59,11 +59,9 @@ test("the thread list is one Tab stop, and ↑ ↓ move between its rows", async
   expect(list.contains(document.activeElement)).toBe(false);
   await userEvent.tab({ shift: true });
   expect(document.activeElement).toBe(entered);
-  // ↓ walks the stops in order: to the next stop (the first project's heading), then its first row.
+  // ↓ walks the stops in order: Active's rows come first, so the next stop is its next row.
   await userEvent.keyboard("{ArrowDown}");
   expect(document.activeElement).toBe(stops()[stops().findIndex((stop) => stop === entered) + 1]);
-  expect(rows()).not.toContain(document.activeElement);
-  await userEvent.keyboard("{ArrowDown}");
   const moved = document.activeElement;
   expect(rows()).toContain(moved);
   // The row arrows reached is the list's Tab stop now.

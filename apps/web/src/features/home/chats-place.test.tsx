@@ -18,7 +18,7 @@ const threadsNav = () => screen.getByRole("navigation", { name: "Threads" });
 const rail = () => screen.getByRole("navigation", { name: "App" });
 /** A place in the rail, by the start of its name (a dot's words follow it). */
 const place = (name: string) => within(rail()).getByRole("link", { name: new RegExp(`^${name}`) });
-/** What a list reads top to bottom: day and Pinned labels as [label], rows by title. */
+/** What a list reads top to bottom: Active and day labels as [label], rows by title. */
 const reading = (nav: HTMLElement) =>
   [...nav.querySelectorAll<HTMLElement>("[role=heading], [data-row-focus]")].map((element) =>
     element.getAttribute("role") === "heading"
@@ -112,11 +112,15 @@ async function open(app: ReturnType<typeof harness>, path: string, panel: "Chats
   await waitFor(() => expect(nav.querySelector("[data-row-focus]")).not.toBeNull());
 }
 
-test("the Chats place lists chats by day and no project threads", async () => {
-  await open(everyDay(), "/chats", "Chats");
+test("the Chats place lists unsettled chats under Active, settled ones by day, and no project threads", async () => {
+  const app = everyDay();
+  await app.client.start();
+  for (const chat of [espresso, tls, lisbon])
+    await app.client.command({ type: "thread.settle", threadId: ThreadId.parse(chat.thread.id) });
+  await open(app, "/chats", "Chats");
   await waitFor(() =>
     expect(reading(chatsNav())).toEqual([
-      "[Today]",
+      "[Active]",
       "Regex for semver",
       "[Yesterday]",
       "Three days in Lisbon",
@@ -162,7 +166,7 @@ test("Search chats narrows by title, and Escape brings every chat back", async (
   await open(everyDay(), "/chats", "Chats");
   const search = screen.getByRole("searchbox", { name: "Search chats" });
   await userEvent.type(search, "lisb");
-  await waitFor(() => expect(reading(chatsNav())).toEqual(["[Yesterday]", "Three days in Lisbon"]));
+  await waitFor(() => expect(reading(chatsNav())).toEqual(["[Active]", "Three days in Lisbon"]));
   await userEvent.keyboard("{Escape}");
   expect(search).toHaveProperty("value", "");
   await waitFor(() => expect(reading(chatsNav())).toContain("Dialing in espresso"));
@@ -198,15 +202,24 @@ test("Search chats finds an older chat the list hasn't loaded", async () => {
   }
 });
 
-test("the Inbox holds a chat that needs the person, named as a chat", async () => {
-  await open(chatsApp([{ scenario: askingChat(), ago: minute }]), "/new", "Threads");
-  await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
-  const inbox = await screen.findByRole("dialog", { name: "Inbox" });
-  const row = await within(inbox).findByRole("link", { name: /^Clean up my downloads folder/ });
-  expect(row.textContent).toContain("Chat");
-  expect(row.textContent).not.toContain("chat-asks");
-  // The Chats place's own dot says it waits; Threads' is its own threads' only.
-  expect(place("Chats").getAttribute("aria-label")).toBe("Chats, 1 needs you");
+test("a chat that needs the person leads Chats' Active, and the title row has no Inbox", async () => {
+  await open(
+    chatsApp([
+      { scenario: regex, ago: minute },
+      { scenario: askingChat(), ago: day },
+    ]),
+    "/chats",
+    "Chats",
+  );
+  await waitFor(() =>
+    expect(reading(chatsNav()).slice(0, 3)).toEqual([
+      "[Active]",
+      "Clean up my downloads folder",
+      "Regex for semver",
+    ]),
+  );
+  expect(screen.queryByRole("button", { name: /^Inbox/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "New chat" })).toBeTruthy();
 });
 
 test("the rail highlights Chats while a chat is open and Threads while a project thread is", async () => {

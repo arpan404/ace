@@ -15,9 +15,13 @@ configure({ asyncUtilTimeout: 10000 });
  */
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
-// relay's tree rows: the workbench's running thread and a quiet one added here. Its waiting
-// approval belongs to the Inbox once the daemon confirms the list.
-const relay = ["Backpressure on broadcast fan-out", "Tidy the relay README"];
+// relay's rows, all in Active: the workbench's waiting approval and running thread, and a quiet
+// one added here.
+const relay = [
+  "Retry budget for app-server restarts",
+  "Backpressure on broadcast fan-out",
+  "Tidy the relay README",
+];
 const rowFor = (title: string) => within(threads()).getByRole("link", { name: new RegExp(title) });
 
 /** Whether the list's skeleton was ever put on the page, however briefly, while watching. */

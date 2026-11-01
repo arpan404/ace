@@ -5,8 +5,8 @@ import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 /**
- * Adding Unsent work must not move the Threads panel (issue #848): it stays on its project tree,
- * with the long-settled Codex bump left to History, while a new draft is typed and sent.
+ * Adding Unsent work must not move the Threads panel (issue #848): it stays on its tree, with the
+ * long-settled Codex bump resting in its project, while a new draft is typed and sent.
  */
 async function openWorkbench() {
   const app = harness();
@@ -17,18 +17,19 @@ async function openWorkbench() {
   return { app, nav };
 }
 
-/** The panel shows its project tree: ace open on its running thread. */
+/** The panel shows its tree: the running thread in Active, ace open on its settled one. */
 const onActive = () => {
   expect(screen.getByRole("button", { name: /^Project filter/ }).textContent).toBe("ace");
   const nav = within(screen.getByRole("navigation", { name: "Threads" }));
-  expect(nav.getByRole("button", { name: /^ace, 1 running/ }).getAttribute("aria-expanded")).toBe(
+  expect(nav.getByRole("button", { name: /^ace, 1 active/ }).getAttribute("aria-expanded")).toBe(
     "true",
   );
   expect(nav.getByRole("link", { name: /^Dedupe thread events/ })).toBeTruthy();
+  expect(nav.getByRole("link", { name: /^Bump Codex.*Settled/ })).toBeTruthy();
 };
 
-test("typing a draft keeps the panel on its tree with settled threads out of the list", async () => {
-  const { nav } = await openWorkbench();
+test("typing a draft keeps the panel on its tree", async () => {
+  await openWorkbench();
   onActive();
   await userEvent.type(
     await screen.findByRole("combobox", { name: "Message" }),
@@ -36,11 +37,10 @@ test("typing a draft keeps the panel on its tree with settled threads out of the
   );
   await screen.findByRole("link", { name: /Unsent keeps place.*Draft/ });
   onActive();
-  expect(nav.queryByRole("link", { name: /^Bump Codex/ })).toBeNull();
 });
 
-test("sending a draft keeps the panel on its tree with settled threads out of the list", async () => {
-  const { nav } = await openWorkbench();
+test("sending a draft keeps the panel on its tree", async () => {
+  await openWorkbench();
   await userEvent.type(
     await screen.findByRole("combobox", { name: "Message" }),
     "Send keeps place",
@@ -49,5 +49,4 @@ test("sending a draft keeps the panel on its tree with settled threads out of th
   await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Send keeps place" });
   onActive();
-  expect(nav.queryByRole("link", { name: /^Bump Codex/ })).toBeNull();
 });

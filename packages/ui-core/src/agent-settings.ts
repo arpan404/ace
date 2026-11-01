@@ -17,7 +17,6 @@ export const agentSettingTitles = {
   "threads.limitPolicy": "When an account hits its limit",
   "agents.maxRunningChildren": "Agents a thread runs at once",
   "threads.sortBy": "Sort threads",
-  "threads.keepSettledFor": "Keep settled threads in their project",
   "threads.autoSettleAfter": "Settle done threads",
   "threads.settleOnMerge": "Settle when the PR merges",
   "threads.settleOnClose": "Settle when the PR closes",

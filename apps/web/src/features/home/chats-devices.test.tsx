@@ -103,7 +103,7 @@ test("New chat with a device chosen starts on that device and makes its chat pro
   expect(app.daemon.projects.list().workspaces.filter((p) => p.kind === "chat")).toHaveLength(1);
 });
 
-test("another machine's chat that needs the person is in the Inbox and lights the Chats dot", async () => {
+test("another machine's chat that needs the person is in Chats' Active and lights the Chats dot", async () => {
   const asks = askingChatScenario("disk", "Why is the disk full?", "Disk?", "du -sh /var");
   const { app } = twoMachines("/new", asks);
   await app.open("/new");
@@ -115,10 +115,10 @@ test("another machine's chat that needs the person is in the Inbox and lights th
         .getAttribute("aria-label"),
     ).toBe("Chats, 1 needs you"),
   );
-  await userEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
-  const inbox = await screen.findByRole("dialog", { name: "Inbox" });
-  const row = await within(inbox).findByRole("link", { name: /^Why is the disk full\?/ });
-  expect(row.textContent).toContain("Chat · Build server");
+  await userEvent.click(within(rail()).getByRole("link", { name: /^Chats/ }));
+  const chats = await screen.findByRole("navigation", { name: "Chats" });
+  const row = await within(chats).findByRole("link", { name: /^Why is the disk full\?/ });
+  expect(row.getAttribute("aria-label")).toContain("Build server");
 });
 
 test("the top bar shows a chat bubble, not a project folder, while a chat is open", async () => {

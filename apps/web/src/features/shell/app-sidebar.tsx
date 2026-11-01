@@ -12,7 +12,7 @@ import { activeView } from "./views.ts";
  * macOS traffic lights, then back, forward and the sidebar's toggle), and under it the rail of
  * places (on the frame colour) beside the current place's panel, where the canvas begins: the
  * page surface with its rounded corner (`panelCanvasClass`), the only part that scrolls. Threads' panel is the
- * thread list, which draws its own title row with the filter, the Inbox bell and Search;
+ * thread list, which draws its own title row with the filter and Search;
  * GitHub's lists its three pages; Settings, Automations and Skills draw their own lists into it
  * (`ViewFrame`). ⌘K opens the palette anywhere.
  */

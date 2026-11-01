@@ -27,53 +27,61 @@ function rows(entries: readonly ThreadListEntry[]) {
   );
 }
 
-test("chats group by the day they last moved, newest first, and project threads stay out", () => {
+/** A chat the daemon settled at `at`, read: at rest in its day. */
+const rested = (id: string, at: number, extra: Record<string, unknown> = {}) =>
+  chat(id, at, { settledAt: at, ...extra });
+
+test("settled chats group by the day they last moved, newest first, and project threads stay out", () => {
   const drawn = rows([
-    chat("old", local(9, 2)),
-    chat("this-morning", local(10, 31, 8)),
-    chat("last-night", local(10, 30, 23)),
-    chat("tuesday", local(10, 27)),
-    entry("project-work", { state: "done" }, now - minute, { readAt: now }),
-    chat("just-now", now - minute),
+    rested("old", local(9, 2)),
+    rested("this-morning", local(10, 31, 8)),
+    rested("last-night", local(10, 30, 23)),
+    rested("tuesday", local(10, 27)),
+    entry("project-work", { state: "done" }, now - minute, { readAt: now, settledAt: now }),
+    rested("just-now", now - minute),
   ]);
   expect(drawn).toEqual([
     { kind: "day-label", day: "today" },
-    { kind: "chat", id: "just-now", settled: false },
-    { kind: "chat", id: "this-morning", settled: false },
+    { kind: "chat", id: "just-now", settled: true },
+    { kind: "chat", id: "this-morning", settled: true },
     { kind: "day-label", day: "yesterday" },
-    { kind: "chat", id: "last-night", settled: false },
+    { kind: "chat", id: "last-night", settled: true },
     { kind: "day-label", day: "week" },
-    { kind: "chat", id: "tuesday", settled: false },
+    { kind: "chat", id: "tuesday", settled: true },
     { kind: "day-label", day: "earlier" },
-    { kind: "chat", id: "old", settled: false },
+    { kind: "chat", id: "old", settled: true },
   ]);
 });
 
-test("pinned chats lead under Pinned and leave their day", () => {
+test("unsettled chats lead under Active: pinned, then what needs the person, then work, then the rest", () => {
   const drawn = rows([
-    chat("today", now - minute),
+    chat("idle", now - minute),
+    chat("works", now - 2 * minute, {}, { state: "working", agents: 1 }),
+    chat("asks", local(10, 20), {}, { state: "needs_you", interactions: 1 }),
     chat("pinned-old", local(8, 1), { pinned: true }),
+    rested("done", now - minute),
   ]);
   expect(drawn).toEqual([
-    { kind: "pinned-label" },
+    { kind: "active-label" },
     { kind: "chat", id: "pinned-old", settled: false },
+    { kind: "chat", id: "asks", settled: false },
+    { kind: "chat", id: "works", settled: false },
+    { kind: "chat", id: "idle", settled: false },
     { kind: "day-label", day: "today" },
-    { kind: "chat", id: "today", settled: false },
+    { kind: "chat", id: "done", settled: true },
   ]);
 });
 
-test("a settled chat stays in its day, dimmed, while one whose subagent still works is not", () => {
+test("a settled chat whose subagent still works is Active, never dimmed", () => {
   const drawn = rows([
-    chat("rested", now - 2 * minute, { settledAt: now - minute }),
-    chat("busy", now - 3 * minute, {
-      settledAt: now - minute,
-      live: { runningSubagentCount: 1 },
-    }),
+    rested("rested", now - 2 * minute),
+    rested("busy", now - 3 * minute, { live: { runningSubagentCount: 1 } }),
   ]);
   expect(drawn).toEqual([
+    { kind: "active-label" },
+    { kind: "chat", id: "busy", settled: false },
     { kind: "day-label", day: "today" },
     { kind: "chat", id: "rested", settled: true },
-    { kind: "chat", id: "busy", settled: false },
   ]);
 });
 
@@ -89,10 +97,7 @@ test("archived chats, empty drafts and a chat mid-move to a project are not list
     moving,
     chat("kept", now - minute),
   ]);
-  expect(drawn).toEqual([
-    { kind: "day-label", day: "today" },
-    { kind: "chat", id: "kept", settled: false },
-  ]);
+  expect(drawn).toEqual([{ kind: "active-label" }, { kind: "chat", id: "kept", settled: false }]);
 });
 
 test("an older chat a search found joins its day as settled; one already listed keeps its place", () => {
@@ -111,7 +116,7 @@ test("an older chat a search found joins its day as settled; one already listed 
     now,
   );
   expect(chatRows(found)).toEqual([
-    { kind: "day-label", day: "today" },
+    { kind: "active-label" },
     { kind: "chat", id: "today", settled: false },
     { kind: "day-label", day: "earlier" },
     { kind: "chat", id: "january", settled: true },

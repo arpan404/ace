@@ -125,8 +125,8 @@ export const SettingsValues = z.object({
    */
   "threads.sortBy": z.enum(["activity", "created", "manual"]),
   /**
-   * How long a settled thread stays in its project in the Threads panel before it shows only in
-   * History and search: 1, 3 or 7 days, or 0 to move it to History at once.
+   * No longer read: settled threads always stay in their project (ADR 0107). Kept so settings
+   * files that set it still parse.
    */
   "threads.keepSettledFor": z.enum(["0d", "1d", "3d", "7d"]),
   "remote.enabled": z.boolean(),

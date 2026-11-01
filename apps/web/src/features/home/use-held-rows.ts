@@ -56,7 +56,7 @@ const noPins: ReadonlySet<string> = new Set();
 
 /**
  * The rows to draw: `rows` itself while the list is free; while it holds, the rows in the places
- * they were drawn. A row that changes kind or place (settled, out of the Inbox into its
+ * they were drawn. A row that changes kind or place (settled, out of Active into its
  * project) still moves, as does a pinned row, ordered by the person (a drag lands at once), and
  * a row that needs you rises at once unless a drag is under way.
  */

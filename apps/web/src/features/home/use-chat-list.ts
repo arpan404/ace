@@ -34,13 +34,14 @@ interface Selected {
   any: boolean;
 }
 
-const noList: ChatList = { pinned: [], dated: [], settled: [], needsYou: [] };
+const noList: ChatList = { active: [], pinned: [], dated: [], settled: [], needsYou: [] };
 const none: Selected = { list: noList, any: false };
 const noHits: ReadonlyMap<string, SearchHit> = new Map();
 const noOthers: readonly ThreadListEntry[] = [];
 
 const selectedEqual = (a: Selected, b: Selected) =>
   a.any === b.any &&
+  arrayEqual(a.list.active, b.list.active) &&
   arrayEqual(a.list.pinned, b.list.pinned) &&
   arrayEqual(a.list.settled, b.list.settled) &&
   arrayEqual(a.list.needsYou, b.list.needsYou) &&
@@ -51,7 +52,7 @@ const selectedEqual = (a: Selected, b: Selected) =>
   });
 
 /**
- * Every chat (ADR 0099), pinned ones first, the rest by the day they last moved (`chatList`):
+ * Every chat (ADR 0099), unsettled ones on top, settled ones by the day they last moved (`chatList`):
  * this machine's, and `others`, other machines' chats under their machine row ids
  * (`useMachineEntries`, ADR 0102). `device` narrows them to one machine. `query` narrows them
  * by title, and this daemon's thread search (scoped to chats here, since it can only scope to
@@ -88,7 +89,7 @@ export function useChatList(
         : standing;
       const isChat = isChatThread;
       const all = chatList({ entries, isChat, standing: standingOf, now });
-      if (!text) return { list: all, any: all.pinned.length + all.dated.length > 0 };
+      if (!text) return { list: all, any: all.active.length + all.dated.length > 0 };
       const shown = entries.filter(
         (entry) => threadMatches(entry, text, "Chat") || found.has(entry.id),
       );
@@ -103,7 +104,7 @@ export function useChatList(
       }
       return {
         list: withChatHits(narrowed, older, now),
-        any: all.pinned.length + all.dated.length > 0,
+        any: all.active.length + all.dated.length > 0,
       };
     },
     [read, standing, isChatThread, isChatProject, now, text, found, others, device, ownDevice],

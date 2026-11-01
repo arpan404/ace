@@ -16,8 +16,6 @@ export const AutoSettle = z.enum(["1d", "2d", "1w", "never"]);
 export type AutoSettle = z.infer<typeof AutoSettle>;
 export const SortBy = SettingsValues.shape["threads.sortBy"];
 export type SortBy = z.infer<typeof SortBy>;
-export const KeepSettled = SettingsValues.shape["threads.keepSettledFor"];
-export type KeepSettled = z.infer<typeof KeepSettled>;
 export const FollowUp = z.enum(["queue", "steer"]);
 export type FollowUp = z.infer<typeof FollowUp>;
 /** Keymap id → keys in keymap notation. Only rebound shortcuts are stored. */
@@ -50,7 +48,6 @@ export const settingKeys = {
   ),
   autoSettle: setting("threads.autoSettleAfter", AutoSettle, "2d"),
   sortBy: setting("threads.sortBy", SortBy, "activity"),
-  keepSettled: setting("threads.keepSettledFor", KeepSettled, "3d"),
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),
   settleOnClose: setting("threads.settleOnClose", z.boolean(), false),
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),

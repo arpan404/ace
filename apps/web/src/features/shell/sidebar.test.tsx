@@ -1,5 +1,6 @@
 import { openProfileMenu } from "@/test/navigation.ts";
 import { longHistory, workbench, workbenchServices } from "@ace/fake-daemon";
+import { ThreadId } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -386,7 +387,7 @@ test("the panel's New thread row opens New thread in the one project there is", 
   expect(row.getAttribute("aria-current")).toBe("page");
 });
 
-test("an open project shows five threads, then Show more brings the rest and Show less folds them", async () => {
+test("an open project shows five settled threads, then Show more brings the rest and Show less folds them", async () => {
   const app = harness();
   const titles = ["One", "Two", "Three", "Four", "Five", "Six", "Seven"].map(
     (word) => `${word} task`,
@@ -398,12 +399,50 @@ test("an open project shows five threads, then Show more brings the rest and Sho
       workspaceId: "relay",
       provider: "codex",
     });
+  // A project holds only its settled threads; the unsettled ones are in Active.
+  await app.client.start();
+  for (const index of titles.keys())
+    await app.client.command({ type: "thread.settle", threadId: ThreadId.parse(`task-${index}`) });
   await app.open("/new");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
-  await nav.findAllByRole("link", { name: / task\./ });
+  await nav.findAllByRole("link", { name: / task\. Settled/ });
   expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(5);
   await userEvent.click(nav.getByRole("button", { name: "Show 2 more in relay" }));
   await waitFor(() => expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(7));
   await userEvent.click(nav.getByRole("button", { name: "Show fewer in relay" }));
   await waitFor(() => expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(5));
+});
+
+test("Skills, Automations, Settings and GitHub panels share one title row and one row", async () => {
+  const app = workbenchApp();
+  const panels = [
+    { path: "/skills", name: "Skills", action: { role: "button", name: "Add a skill" } },
+    {
+      path: "/automations",
+      name: "Automations",
+      action: { role: "searchbox", name: "Search automations" },
+    },
+    {
+      path: "/settings/general",
+      name: "Settings",
+      action: { role: "searchbox", name: "Search settings" },
+    },
+    { path: "/pulls", name: "GitHub", action: undefined },
+  ] as const;
+  for (const panel of panels) {
+    const view = await app.open(panel.path);
+    const sidebar = within(await screen.findByRole("complementary", { name: panel.name }));
+    // The title row: the place's name as the panel's heading, and its actions.
+    expect(await sidebar.findByRole("heading", { level: 2, name: panel.name })).toBeTruthy();
+    if (panel.action)
+      expect(sidebar.getByRole(panel.action.role, { name: panel.action.name })).toBeTruthy();
+    // Every row is the shared panel row.
+    const links = await waitFor(() => {
+      const found = sidebar.getAllByRole("link");
+      expect(found.length).toBeGreaterThan(0);
+      return found;
+    });
+    for (const link of links) expect(link.hasAttribute("data-panel-row")).toBe(true);
+    view.unmount();
+  }
 });

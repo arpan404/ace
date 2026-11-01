@@ -34,17 +34,17 @@ async function openHome(sortBy: "activity" | "created" | "manual") {
   return app;
 }
 
-test("sorted newest first, a project lists its threads by creation, whatever is running", async () => {
+test("sorted newest first, Active lists threads by creation, whatever is running", async () => {
   await openHome("created");
   await waitFor(() => expect(order()).toEqual(["Newest task", "Middle task", "Oldest task"]));
 });
 
-test("sorted by activity, a running thread leads its project whenever it was created", async () => {
+test("sorted by activity, a running thread leads Active whenever it was created", async () => {
   await openHome("activity");
   await waitFor(() => expect(order()).toEqual(["Oldest task", "Newest task", "Middle task"]));
 });
 
-test("sorted by hand, Space picks a thread up and arrows place it in its project, for every device", async () => {
+test("sorted by hand, Space picks a thread up and arrows place it in Active, for every device", async () => {
   const app = await openHome("manual");
   await waitFor(() => expect(order()).toEqual(["Newest task", "Middle task", "Oldest task"]));
 

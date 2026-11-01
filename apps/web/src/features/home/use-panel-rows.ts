@@ -2,25 +2,17 @@ import { treeRows, type HomeRow } from "@ace/ui-core";
 import { useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useOrganizerState } from "@/features/organize/index.ts";
-import { useNow } from "@/lib/time.ts";
-import { useGracePages, useSettledPaging } from "./settled-paging.ts";
-import { useSettledGrace, type HomeList } from "./use-home-threads.ts";
+import type { HomeList } from "./use-home-threads.ts";
 
 /**
- * The rows the Threads panel draws now: Pinned, then the project tree. Settled threads load back
- * to the grace period's boundary on their own, so each project shows the ones it settled
- * recently.
+ * The rows the Threads panel draws now: Active on top, then the project tree with each
+ * project's settled threads. Settled threads the daemon holds back stay in History, which each
+ * project's last row points to.
  */
-export function usePanelRows(input: {
-  list: HomeList;
-  device: string | undefined;
-}): readonly HomeRow[] {
+export function usePanelRows(input: { list: HomeList }): readonly HomeRow[] {
   const { list } = input;
-  const { project, collapsed, quietOpen, snoozedOpen } = useOrganizerState();
+  const { collapsed, quietOpen, snoozedOpen } = useOrganizerState();
   const current = useParams({ strict: false, select: (params) => params.threadId });
-  const now = useNow();
-  const graceMs = useSettledGrace();
-  useGracePages(useSettledPaging(project, input.device), now, graceMs);
   const { tree } = list;
   return useMemo(
     (): readonly HomeRow[] =>

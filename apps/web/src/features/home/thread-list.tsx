@@ -38,13 +38,12 @@ import {
 import { jumpTargets } from "./list-jump.ts";
 import { JumpKeys, useJumpHints } from "./list-jump-keys.tsx";
 import { useFocusAfterExit } from "./use-exit-focus.ts";
-import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { ThreadRow, type RowLead } from "./thread-row.tsx";
 import { MachineRow } from "./machine-row.tsx";
 import { machineRow } from "@/lib/machine-threads.ts";
 import { UnsentRows } from "./unsent-rows.tsx";
 import { SectionRow } from "./tree-rows.tsx";
-import { RecentlySettledRow } from "./settled-row.tsx";
+import { SettledRow } from "./settled-row.tsx";
 import { ChatRow } from "./chat-row.tsx";
 import { useHomeSort } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
@@ -63,12 +62,13 @@ import type { DragHost, KeyboardMove } from "./list-drag.ts";
 const estimates: Record<HomeRow["kind"], number> = {
   unsent: 0,
   thread: 38,
-  "recently-settled": 38,
+  settled: 38,
   empty: 37,
-  "pinned-label": 49,
+  "active-label": 49,
   "projects-label": 49,
   "project-header": 38,
   "show-more": 38,
+  "project-history": 38,
   "quiet-header": 43,
   "quiet-project": 38,
   "snoozed-header": 47,
@@ -99,7 +99,7 @@ const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) =
  * still scrolls the list; Space or Enter on the handle starts a keyboard move. Rows that arrive
  * rise in, rows that go fade where they were, and the rest slide to their new places. While the
  * person moves through the list by keyboard, rows keep their places (`useHeldRows`); a thread
- * whose place changes (it leaves the Inbox for its project) still moves.
+ * whose place changes (it settles out of Active into its project) still moves.
  */
 export function ThreadList(props: {
   rows: readonly HomeRow[];
@@ -167,9 +167,9 @@ export function ThreadList(props: {
   const jumps = useMemo(() => jumpTargets(drawn), [drawn]);
   const numbers = useMemo(() => new Map(jumps.map((id, index) => [id, index + 1])), [jumps]);
   const hints = useJumpHints();
-  // Sorted by hand, the threads below Pinned are places a drag can drop at.
+  // Sorted by hand, Active's threads below the pinned ones are places a drag can drop at.
   const manual = useHomeSort() === "manual";
-  /** The pinned threads as drawn under Pinned, top first. */
+  /** The pinned threads as drawn at the top of Active, top first. */
   const pinned = drawn.flatMap((row) =>
     row.phase !== "exit" && row.item.kind === "thread" && row.item.place === "pinned"
       ? [row.item.id]
@@ -196,7 +196,7 @@ export function ThreadList(props: {
   const shownEntry = (id: string) => threads.entry(id);
   /**
    * What a move of `ids` reads and does: measured rows, the pinned threads, commands. A move
-   * stays inside the section of the thread it carries: Pinned, or that thread's project.
+   * stays inside the part of Active the thread it carries is in: the pinned ones, or the rest.
    */
   const host = (ids: readonly string[]): DragHost | undefined => {
     const scroller = viewport.current;
@@ -204,7 +204,6 @@ export function ThreadList(props: {
     if (!scroller || !list) return undefined;
     const first = ids[0] ?? "";
     const fromPinned = latest.current.pinned.includes(first);
-    const project = shownEntry(first)?.workspaceId;
     /** A thread row of the moving thread's own section. */
     const ours = (
       row: { item: HomeRow; phase: string } | undefined,
@@ -215,9 +214,7 @@ export function ThreadList(props: {
       row !== undefined &&
       row.phase !== "exit" &&
       row.item.kind === "thread" &&
-      (fromPinned
-        ? row.item.place === "pinned"
-        : row.item.place === "project" && shownEntry(row.item.id)?.workspaceId === project);
+      (fromPinned ? row.item.place === "pinned" : row.item.place === "active");
     const pinnedHere = () =>
       latest.current.drawn.flatMap((row) =>
         ours(row) && latest.current.pinned.includes(row.item.id) ? [row.item.id] : [],
@@ -407,9 +404,8 @@ export function ThreadList(props: {
     });
   };
   const movingSet = useMemo(() => new Set(moving), [moving]);
-  const manyDevices = useManyDevices();
   return (
-    <ManyDevices value={manyDevices}>
+    <>
       <JumpKeys targets={jumps} />
       <div
         ref={viewport}
@@ -493,9 +489,7 @@ export function ThreadList(props: {
                   {thread && machineRow(thread) ? (
                     <MachineRow
                       id={thread}
-                      shape={
-                        row.kind === "recently-settled" || row.kind === "chat" ? row.kind : "task"
-                      }
+                      shape={row.kind === "settled" || row.kind === "chat" ? row.kind : "task"}
                       lead={rowLead(row)}
                       leaving={leaving}
                       settled={row.kind === "chat" && row.settled}
@@ -510,9 +504,7 @@ export function ThreadList(props: {
                           lead={rowLead(row)}
                         />
                       )}
-                      {row.kind === "recently-settled" && (
-                        <RecentlySettledRow threadId={row.id} leaving={leaving} />
-                      )}
+                      {row.kind === "settled" && <SettledRow threadId={row.id} leaving={leaving} />}
                       {row.kind === "chat" && (
                         <ChatRow id={row.id} settled={row.settled} leaving={leaving} />
                       )}
@@ -544,14 +536,14 @@ export function ThreadList(props: {
           <BulkBar.Component />
         </Suspense>
       )}
-    </ManyDevices>
+    </>
   );
 }
 
-/** A pinned row leads with its glyph; a project's own rows line up with the project's name. */
+/** Active's rows lead with their project's mark; a project's own rows line up with its name. */
 function rowLead(row: HomeRow): RowLead {
-  if (row.kind === "thread") return row.place === "pinned" ? "pinned" : "indent";
-  return row.kind === "recently-settled" ? "indent" : "none";
+  if (row.kind === "thread") return "project";
+  return row.kind === "settled" ? "indent" : "none";
 }
 
 /**
