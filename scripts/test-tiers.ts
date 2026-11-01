@@ -119,7 +119,7 @@ export function overBudget(
       allowed: allowlist[tier][timing.file],
     });
   }
-  return findings.sort((a, b) => b.ownMs - a.ownMs);
+  return findings.toSorted((a, b) => b.ownMs - a.ownMs);
 }
 
 /** Fast-tier files over budget and not on the allowlist: these fail test:fast. */

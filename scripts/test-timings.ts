@@ -39,10 +39,10 @@ for (const file of summary.files) {
   totals.set(file.project, { files: total.files + 1, ms: total.ms + file.ownMs });
 }
 console.log("\nProject totals (sum of test and hook time):");
-for (const [project, total] of [...totals].sort((a, b) => b[1].ms - a[1].ms))
+for (const [project, total] of [...totals].toSorted((a, b) => b[1].ms - a[1].ms))
   console.log(`${seconds(total.ms)}  ${String(total.files).padStart(5)} files  ${project}`);
 console.log(`\nSlowest ${top} files (tests and hooks, then import time):`);
-for (const file of [...summary.files].sort((a, b) => b.ownMs - a.ownMs).slice(0, top))
+for (const file of summary.files.toSorted((a, b) => b.ownMs - a.ownMs).slice(0, top))
   console.log(
     `${seconds(file.ownMs)} ${seconds(file.collectMs)}  ${file.project.padEnd(15)} ${file.file}`,
   );
