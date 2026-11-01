@@ -1,4 +1,4 @@
-import { useOptionalClient, useThreadMeta } from "@ace/client-react";
+import { useOptionalClient, useThreadMeta, useThreadStore } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
 import { ItemId, ThreadId, type ForgeIssueRef, type ForgePrRef } from "@ace/protocol";
 import {
@@ -28,6 +28,8 @@ import {
   pullRequestAt,
   useOpenWebAddress,
 } from "../web-link.tsx";
+import { displayName } from "../attachment-format.ts";
+import { LinkedFileOpener } from "../linked-file.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
 import { asksForSystemBrowser, type LinkClick } from "@/lib/web-links.ts";
 import { fileTab, pullRequestTab, useOptionalWorkspace } from "@/lib/workspace/index.ts";
@@ -37,6 +39,7 @@ import { updateInterval } from "./cadence.ts";
 import { blockRhythm } from "./rhythm.ts";
 import { renderMermaid } from "./mermaid-render.ts";
 import { StreamPace } from "./stream-pace.ts";
+import { watchImageCaptures } from "./image-refresh.ts";
 import { useFileLinks } from "./use-file-links.ts";
 
 /**
@@ -68,6 +71,8 @@ interface MarkitCallbacks {
   resolveImage: (url: string, alt: string, signal: AbortSignal) => Promise<Blob | null>;
   /** After markit draws: the element it drew into, and whether that text was the final one. */
   drawn?: ((element: HTMLElement, finalized: boolean) => void) | undefined;
+  /** Subscribes `refresh` to whenever images still without bytes may have them now. */
+  watchImages?: ((refresh: () => void) => () => void) | undefined;
 }
 
 /** What a click in prose can open, beyond the system browser. */
@@ -205,6 +210,8 @@ function MarkitView(props: {
   useEffect(() => {
     pace.current?.push(markdown, finalized);
   }, [markdown, finalized]);
+  const { watchImages } = props.callbacks;
+  useEffect(() => watchImages?.(() => markit.refreshImages()), [markit, watchImages]);
   // The controller is stable; its ref callback attaches the renderer to this element.
   const attach = useCallback(
     (node: HTMLElement | null) => {
@@ -323,17 +330,24 @@ function MarkitThreadProse(
   const openWeb = useOpenWebAddress();
   const panelOpener = useContext(PullRequestOpener);
   const openIssue = useContext(IssueOpener);
+  const downloadLinked = useContext(LinkedFileOpener);
   const openThread = useThreadNavigation();
   const root = (meta?.details?.worktree ?? meta?.details?.workspace?.path)?.replace(/\/+$/, "");
   const workspaceId = meta?.workspaceId;
   const fileLinks = useFileLinks({ client, threadId, root, workspace });
+  // Only an answer that shows an image follows the thread for captures.
+  const captures = useThreadStore(props.text.includes("![") ? threadId : undefined);
 
   const callbacks = useMemo(() => {
     const base = cwd ?? root;
     const actions = workspace?.actions;
     const openFile = (target: string) => {
-      const relative = checkoutLinkPath(localLinkPath(target) ?? target, root, cwd);
-      if (relative && isCheckoutPath(relative)) actions?.open(fileTab(relative));
+      const path = localLinkPath(target) ?? target;
+      const relative = checkoutLinkPath(path, root, cwd);
+      if (relative && isCheckoutPath(relative)) return actions?.open(fileTab(relative));
+      // Outside the checkout: the host serves the file because this message links it.
+      if (itemId)
+        downloadLinked?.({ threadId, itemId, reference: target, name: displayName(path) });
     };
     const openPullRequest =
       panelOpener ??
@@ -353,6 +367,9 @@ function MarkitThreadProse(
         openMention: fileLinks.open,
       }),
       drawn: fileLinks.drawn,
+      watchImages: captures
+        ? (refresh: () => void) => watchImageCaptures(captures, refresh)
+        : undefined,
       resolveImage: async (url: string, _alt: string, signal: AbortSignal) => {
         if (shouldResolveMarkitImage(url)) return pageImage(url, signal);
         if (signal.aborted || isMarkitWebImage(url)) return null;
@@ -366,7 +383,9 @@ function MarkitThreadProse(
     };
   }, [
     client,
+    captures,
     cwd,
+    downloadLinked,
     fileLinks,
     itemId,
     openIssue,
