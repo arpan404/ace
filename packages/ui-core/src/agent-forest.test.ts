@@ -296,3 +296,18 @@ test("every ancestor of a syncing branch counts as syncing, not done, however fa
   expect(a?.unconfirmed).toBe(true);
   expect(root?.tally).toEqual({ working: 0, done: 0, syncing: 3, commands: 0 });
 });
+
+test("the viewed thread's own failed subscription leaves the forest unsettled, rows or not", () => {
+  const works = new Map<string, ThreadWork>([
+    [
+      "t1",
+      { agents: [], tasks: [], interactions: [], status: { state: "done" }, facts: "not_loaded" },
+    ],
+  ]);
+  const forest = agentForest("t1", works);
+  expect(forest.roots).toEqual([]);
+  expect(forest.confirmed).toBe(false);
+  expect(agentForest("t1", new Map()).confirmed).toBe(false);
+  works.set("t1", { ...thread([agent("t1", "root", idle)]), facts: "syncing" });
+  expect(agentForest("t1", works).confirmed).toBe(false);
+});

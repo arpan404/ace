@@ -83,3 +83,8 @@ test("Now never says done while a delegated thread couldn't be loaded", () => {
   ]);
   expect(now(works).say).toBe("Syncing");
 });
+
+test("Now never says done when the viewed thread's own subscription failed, even with done kept", () => {
+  const works = new Map([["t1", work([], { facts: "not_loaded" })]]);
+  expect(now(works).say).toBe("Syncing");
+});

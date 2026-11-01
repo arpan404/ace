@@ -88,7 +88,10 @@ export interface AgentForest {
   roots: ForestNode[];
   /** Delegated threads the tree reaches within its bounds, shallowest first: what to load. */
   reach: string[];
-  /** Every thread the tree shows has facts the daemon confirmed: only then may it read done. */
+  /**
+   * The viewed thread's own facts, and every thread the tree shows, are confirmed by the daemon:
+   * only then may it read done.
+   */
   confirmed: boolean;
 }
 
@@ -323,7 +326,11 @@ export function agentForest(
     return (kids.get(null) ?? []).map(node);
   };
   const roots = build(root);
-  return { roots, reach, confirmed: !roots.some((entry) => entry.unconfirmed) };
+  // The viewed thread's own facts count on their own: a failed or missing subscription shows no
+  // rows at all, and its cached status may say done while it works again.
+  const own = works.get(root);
+  const settled = own !== undefined && (own.facts ?? "live") === "live";
+  return { roots, reach, confirmed: settled && !roots.some((entry) => entry.unconfirmed) };
 }
 
 export function forestTally(nodes: readonly ForestNode[]): ForestTally {
