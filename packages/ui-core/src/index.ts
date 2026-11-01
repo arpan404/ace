@@ -129,6 +129,7 @@ export * from "./queue-actions.ts";
 export * from "./retained-input.ts";
 export * from "./last-sent.ts";
 export * from "./queued-input.ts";
+export * from "./queued-steer.ts";
 export * from "./snooze.ts";
 export * from "./live-status.ts";
 export * from "./offshift.ts";

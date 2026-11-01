@@ -2,6 +2,8 @@ import { admitSteer, queueSteerSelection } from "./steer-selection.ts";
 import { Command, maxMessageBytes, type CommandResult, type ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
+/** Devices that act for an agent or the daemon, never for the person. */
+const agentDevices = new Set(["ace-agent", "ace-reviewer", "engine"]);
 interface Dependencies {
   repo: EngineRepository;
   clock: EngineClock;
@@ -65,6 +67,15 @@ export function handleQueue(
       );
       const edited = steer.send;
       dependencies.repo.queue.edit(entry.id, edited);
+      // The person steering a waiting message in (an agent's too) makes it their own steer.
+      if (
+        p.delivery === "steer" &&
+        edited.payload.type === "thread.send" &&
+        edited.payload.delivery === "steer"
+      ) {
+        if (agentDevices.has(command.deviceId)) dependencies.repo.steerNotes.steeredAgain(entry.id);
+        else dependencies.repo.steerNotes.personSteered(entry.id);
+      }
       dependencies.repo.reviseInput(edited, p.threadId, dependencies.clock.now());
       queueSteerSelection(dependencies.repo, p.threadId, steer, dependencies.clock.now());
       if (releasesHold) release();

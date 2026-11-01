@@ -156,7 +156,7 @@ const agentMessage = controlTool({
     delivery: z
       .enum(["queue", "steer", "restart"])
       .optional()
-      .describe("Default: steer for your children, queue for other threads."),
+      .describe("Default: steer."),
   }),
   output: controlResult(z.looseObject({ arrival: MessageArrival })),
   run: (input, control) => control.run({ op: "thread.message", ...input }),

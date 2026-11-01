@@ -297,7 +297,7 @@ Required capability: agents. Timeout: 630000 ms.
 | threadId | yes | string | {"minLength":1,"description":"A child's or owned thread's id; with full access, any thread."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"Standing on its own."} |
-| delivery | no | ["queue","steer","restart"] | {"description":"Default: steer for your children, queue for other threads."} |
+| delivery | no | ["queue","steer","restart"] | {"description":"Default: steer."} |
 
 Example:
 

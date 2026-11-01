@@ -405,11 +405,9 @@ export function createAgentControlPort(
           !service.journal.isDescendant(operation.threadId, caller.threadId)
         )
           return { ok: false, code: "forbidden" };
-        // An agent's own children get it now where their provider steers; any other thread
-        // (one it started, or one of the person's) gets it once its turn ends.
-        const delivery =
-          operation.delivery ??
-          (service.journal.isDescendant(operation.threadId, caller.threadId) ? "steer" : "queue");
+        // Every target gets it as a steer unless the agent asks otherwise: into the running turn
+        // at the next tool boundary, or as the next message when the target isn't running.
+        const delivery = operation.delivery ?? "steer";
         const result =
           delivery === "restart"
             ? service.restartMessage(

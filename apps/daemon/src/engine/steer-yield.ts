@@ -15,9 +15,12 @@ export interface SteerYield {
 /** How a waiting steer reaches the model right now, or `undefined` while it must wait. */
 export type SteerRoute = "native" | "yield" | undefined;
 
-/** The person's own steer. Delegated results and other daemon input never interrupt work. */
-export function isPersonSteer(intent: IntentHeader): boolean {
-  return intent.trigger === undefined || intent.trigger === "user";
+/**
+ * The person's own steer: one they sent, or a waiting message (an agent's too) they chose to
+ * steer in. Delegated results and other daemon input never interrupt work.
+ */
+export function isPersonSteer(intent: IntentHeader, personChose: boolean): boolean {
+  return personChose || intent.trigger === undefined || intent.trigger === "user";
 }
 
 /** The provider's native steer reaches the model only once the running tool returns. */
@@ -36,25 +39,30 @@ export function yieldInFlight(state: ThreadState, yielded: SteerYield | undefine
 }
 
 /**
- * Picks how a steerable message goes in. A foreground command holds steering only where the
- * provider's steer waits for it: a person's steer then interrupts the turn (`yield`) and goes in
- * as the next input, while anything else waits for the command to finish. While an interrupt
- * winds down, every steer waits for that turn to end.
+ * Picks how a steerable message goes in. With no foreground command running it goes in now.
+ * Where the provider's own steer waits for the running command (Claude Code, Codex, Pi,
+ * OpenCode), handing it over now lands it at the next tool boundary and stops nothing, so every
+ * steer goes in at once; a person's steer also gets the command out of the way, by moving it to
+ * the background where the session can (`backgrounds`), else by interrupting the turn (`yield`)
+ * and going in as its next input. Where the provider's steer would cut into the command, only a
+ * person's steer goes in; anything else waits for the command to end. While an interrupt winds
+ * down, every steer waits for that turn to end.
  */
 export function steerRoute(
-  intent: IntentHeader,
+  steer: { person: boolean },
   state: ThreadState,
   capabilities: Capabilities,
   yielded: SteerYield | undefined,
+  backgrounds: boolean,
 ): SteerRoute {
   if (yieldInFlight(state, yielded)) return undefined;
   if (!hasRunningForegroundCommand(state)) return "native";
-  if (!isPersonSteer(intent)) return undefined;
-  if (!steerWaitsForTools(capabilities)) return "native";
+  if (!steerWaitsForTools(capabilities)) return steer.person ? "native" : undefined;
+  if (!steer.person || backgrounds) return "native";
   const run = rootRun(state);
   if (run === undefined) return "native";
   // The provider refused the interrupt: its own steer lands once the command returns.
-  return yielded?.run === run ? undefined : "yield";
+  return yielded?.run === run ? "native" : "yield";
 }
 
 /**

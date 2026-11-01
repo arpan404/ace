@@ -38,6 +38,7 @@ import { decodeSnapshot } from "./snapshot.ts";
 import { readRawBlob } from "./raw.ts";
 import { skippableAtStartup } from "./startup-skip.ts";
 import { QueueStore } from "./queue-store.ts";
+import { SteerNotes } from "./steer-notes.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 import { indexEngineRecords } from "../engine-record-indexes.ts";
@@ -54,6 +55,7 @@ export class EngineRepository {
   private capture: StatementSync;
   private metadata: SessionMetadata;
   readonly queue: QueueStore;
+  readonly steerNotes: SteerNotes;
   readonly inputs: InputJournal;
   readonly interactions: InteractionLedger;
   readonly pending: IntentStore;
@@ -116,6 +118,8 @@ export class EngineRepository {
     this.capture = store.atomic((_db) =>
       this.store.statement("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)"),
     );
+    // Before the queue: its snapshot reads which steers fell back.
+    this.steerNotes = new SteerNotes(store);
     this.queue = new QueueStore(store);
     store.atomic((db) =>
       db.exec(

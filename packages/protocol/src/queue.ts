@@ -21,6 +21,8 @@ export const QueuedMessage = z.object({
   /** Explicit model/options changes must wait for the next settled turn. */
   requiresNextTurn: z.boolean().optional(),
   state: z.enum(["queued", "uncertain"]),
+  /** A steer that couldn't go into the running turn: it waits here as the next message. */
+  fellBack: z.literal(true).optional(),
 });
 export type QueuedMessage = z.infer<typeof QueuedMessage>;
 export const QueueState = z.object({

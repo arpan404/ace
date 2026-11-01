@@ -163,7 +163,7 @@ test("a message the person removed from the child's queue is refused on retry, w
   expect(retried).toMatchObject({ ok: false, hint: expect.stringContaining("removed") });
 });
 
-test("a message to a thread that isn't the agent's child waits for its turn by default", async () => {
+test("a message to a thread that isn't the agent's child steers its running turn by default", async () => {
   const { h, parent } = await runningChild(true);
   const workspaceId = h.store.getThread(parent.threadId)?.workspaceId;
   if (!workspaceId) throw new Error("No workspace");
@@ -177,10 +177,11 @@ test("a message to a thread that isn't the agent's child waits for its turn by d
   await h.engine.flush();
   expect(await message(h, parent, other.threadId, "Pick this up")).toMatchObject({
     ok: true,
-    data: { arrival: "queued" },
+    data: { arrival: "steering" },
   });
   await h.engine.flush();
-  expect(received(h, other.threadId)).not.toContain("Pick this up");
+  expect(received(h, other.threadId)).toContain("Pick this up");
+  expect(h.store.getThread(other.threadId)?.status.state).toBe("working");
 });
 
 test("a steer the provider refuses as the turn ends is kept for the next turn and the parent is told", async () => {
