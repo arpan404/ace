@@ -88,10 +88,38 @@ export const Toolchain = z.object({
   version: z.string().max(64).optional(),
 });
 export type Toolchain = z.infer<typeof Toolchain>;
+/**
+ * The daemon's checks run (Run checks or Run safe repairs), shared by every app: one runs at a
+ * time, and the last one's outcome stays readable until the next starts.
+ */
+const checksOperation = z.enum(["doctor", "fix"]);
+export const DiagnosticsRun = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("idle") }),
+  z.object({ state: z.literal("running"), operation: checksOperation, startedAt: z.number() }),
+  z.object({
+    state: z.literal("done"),
+    operation: checksOperation,
+    startedAt: z.number(),
+    finishedAt: z.number(),
+    report: DiagnosticReport,
+    repairs: z.array(DiagnosticRepair).max(8).optional(),
+  }),
+  z.object({
+    state: z.literal("failed"),
+    operation: checksOperation,
+    startedAt: z.number(),
+    finishedAt: z.number(),
+  }),
+]);
+export type DiagnosticsRun = z.infer<typeof DiagnosticsRun>;
 export const DiagnosticsRequest = z.object({
   type: z.literal("diagnostics.request"),
   requestId: z.string().min(1).max(128),
-  operation: z.enum(["doctor", "toolchains", "fix"]),
+  /**
+   * `doctor` and `fix` start the checks run, or join it when the same one is already running;
+   * `status` reads the run without starting one.
+   */
+  operation: z.enum(["doctor", "toolchains", "fix", "status"]),
 });
 export const DiagnosticsResult = z.object({
   type: z.literal("diagnostics.result"),
@@ -99,5 +127,7 @@ export const DiagnosticsResult = z.object({
   report: DiagnosticReport.optional(),
   repairs: z.array(DiagnosticRepair).max(8).optional(),
   toolchains: z.array(Toolchain).max(4).optional(),
+  /** The checks run, answering `status`. */
+  run: DiagnosticsRun.optional(),
   error: z.string().max(256).optional(),
 });

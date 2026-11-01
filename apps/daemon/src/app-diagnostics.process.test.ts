@@ -3,12 +3,32 @@ import { once } from "node:events";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
-import { DeviceId, SocketTicket } from "@ace/protocol";
+import {
+  DeviceId,
+  SocketTicket,
+  type DiagnosticReport,
+  type DiagnosticsHealth,
+} from "@ace/protocol";
 import { expect, it } from "vitest";
 import { startDaemon, readConfig, AdapterRegistry } from "./index.ts";
 import { Client } from "./socket-test-support.ts";
 import { createDevThread } from "./commands.ts";
 import { fixture } from "./socket-test-support.ts";
+
+const health: DiagnosticsHealth = {
+  at: 1,
+  eventLoop: { meanMs: null, p99Ms: null, maxMs: null },
+  memory: { rssBytes: 1, heapUsedBytes: 1, heapTotalBytes: 1 },
+  openHandles: 0,
+  sqlite: { pageBytes: null, walBytes: null },
+  activeSessions: null,
+  queues: {},
+  logs: { dropped: 0, failed: 0, queued: 0 },
+};
+const report: DiagnosticReport = {
+  at: 1,
+  checks: [{ id: "git", status: "ok", message: "Git available", fix: "Install Git" }],
+};
 
 it("the connected app can run checks and toolchain probes without creating a durable command", async () => {
   let at = 1;
@@ -47,17 +67,89 @@ it("the connected app can run checks and toolchain probes without creating a dur
   }
 });
 
-it("failed and overlapping app checks return retryable errors without exposing probe details", async () => {
+it("a second Run checks joins the one running, and a failure reaches both without probe details", async () => {
   const pending = Promise.withResolvers<never>();
-  const f = await fixture({ doctor: () => pending.promise });
+  let runs = 0;
+  const f = await fixture({
+    doctor: () => {
+      runs++;
+      return pending.promise;
+    },
+  });
   try {
     const client = await f.connect();
     await client.next();
     client.send({ type: "diagnostics.request", requestId: "first", operation: "doctor" });
     client.send({ type: "diagnostics.request", requestId: "second", operation: "doctor" });
-    expect(await client.next()).toMatchObject({ requestId: "second", error: "diagnostics_busy" });
+    // Requests are handled in order: once status answers, both have reached the run.
+    client.send({ type: "diagnostics.request", requestId: "status", operation: "status" });
+    expect(await client.next()).toMatchObject({ requestId: "status", run: { state: "running" } });
     pending.reject(new Error("private probe detail"));
-    expect(await client.next()).toMatchObject({ requestId: "first", error: "diagnostics_failed" });
+    const answers = [await client.next(), await client.next()];
+    expect(answers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ requestId: "first", error: "diagnostics_failed" }),
+        expect.objectContaining({ requestId: "second", error: "diagnostics_failed" }),
+      ]),
+    );
+    expect(JSON.stringify(answers)).not.toContain("private probe detail");
+    expect(runs).toBe(1);
+  } finally {
+    await f.close();
+  }
+});
+
+it("ace health still answers while the checks are running", async () => {
+  const pending = Promise.withResolvers<DiagnosticReport>();
+  const f = await fixture({
+    doctor: () => pending.promise,
+    health: async () => health,
+  });
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "diagnostics.request", requestId: "checks", operation: "doctor" });
+    client.send({ type: "diagnostics.health", requestId: "health" });
+    expect(await client.next()).toMatchObject({
+      type: "diagnostics.health.result",
+      requestId: "health",
+      ok: true,
+    });
+    pending.resolve(report);
+    expect(await client.next()).toMatchObject({ requestId: "checks", report });
+  } finally {
+    await f.close();
+  }
+});
+
+it("checks keep running after the app that started them leaves, and a new connection reads and joins them", async () => {
+  const pending = Promise.withResolvers<DiagnosticReport>();
+  let at = 100;
+  const f = await fixture({ doctor: () => pending.promise, now: () => at });
+  try {
+    const first = await f.connect();
+    await first.next();
+    first.send({ type: "diagnostics.request", requestId: "start", operation: "doctor" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await first.close();
+
+    const second = await f.connect();
+    await second.next();
+    second.send({ type: "diagnostics.request", requestId: "status", operation: "status" });
+    expect(await second.next()).toMatchObject({
+      requestId: "status",
+      run: { state: "running", operation: "doctor", startedAt: 100 },
+    });
+    second.send({ type: "diagnostics.request", requestId: "join", operation: "doctor" });
+    second.send({ type: "diagnostics.request", requestId: "joined", operation: "status" });
+    expect(await second.next()).toMatchObject({ requestId: "joined", run: { state: "running" } });
+    at = 160;
+    pending.resolve(report);
+    expect(await second.next()).toMatchObject({ requestId: "join", report });
+    second.send({ type: "diagnostics.request", requestId: "after", operation: "status" });
+    expect(await second.next()).toMatchObject({
+      run: { state: "done", startedAt: 100, finishedAt: 160, report },
+    });
   } finally {
     await f.close();
   }
