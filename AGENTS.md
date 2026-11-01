@@ -82,7 +82,7 @@ Reviews reject PRs containing such tests.
 
 Every commit made through ace carries exactly this trailer, no variants:
 
-`Co-Authored-By: ace <bot@acehq.dev>`
+`Co-Authored-By: spade <bot@acehq.dev>`
 
 ## Recording fixtures
 
