@@ -1,16 +1,26 @@
-import { ThreadId, type MachineThreadView } from "@ace/protocol";
+import { childResultPrompt } from "@ace/orchestrator";
+import { DelegationOutcome, ThreadId, type AgentId, type MachineThreadView } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { settledStates } from "../agent-control/watch-view.ts";
 import { ChildOutbox } from "./child-outbox.ts";
 import type { ChildLedger, ChildRow } from "./child-ledger.ts";
 import { digest, outcomeOf } from "./child-views.ts";
 
+/** A child's settled result, as a local child's result reaches its parent. */
+export interface SettledChild {
+  parentAgentId: AgentId;
+  outcome: DelegationOutcome;
+}
+
 export interface ChildResultsDeps {
   store: Store;
   ledger: ChildLedger;
   label(machine: string): string;
-  /** Hands a settled result or a message notice to the parent; `key` names it once. */
-  deliver(parentThreadId: ThreadId, key: string, text: string): void;
+  /**
+   * Hands a settled result or a message notice to the parent; `key` names it once. A result
+   * carries `settled`, so the parent records it the way it records a local child's result.
+   */
+  deliver(parentThreadId: ThreadId, key: string, text: string, settled?: SettledChild): void;
   /** A live wait reads this child, so its result is not woken separately. */
   waiting(id: ThreadId): boolean;
   log(message: string, fields: Record<string, unknown>): void;
@@ -71,12 +81,21 @@ export class ChildResults {
     // The same settle read again after a reopen that ran nothing: its parent already has it, so
     // it is delivered again in the ledger only, and the poll can go quiet.
     if (this.outbox.wasSent(key)) return this.deps.ledger.markResultDelivered(row.id);
+    const text = result || "No text result returned.";
+    const settled: DelegationOutcome = {
+      threadId: row.id,
+      outcome,
+      result: text.slice(0, resultLimit),
+      truncated: view.truncated === true || text.length > resultLimit,
+      before: null,
+    };
+    // The outcome itself is kept, so delivery hands the parent the same result a local child's is.
     this.outbox.queue({
       key,
       child: row.id,
       parent: row.parent_thread,
       kind: "result",
-      text: `[ace: ${row.role} on ${this.deps.label(row.machine)} ${outcome}]\n${result || "No text result returned."}${view.truncated ? "\n[Result truncated.]" : ""}`,
+      text: JSON.stringify(settled),
     });
   }
   /**
@@ -88,11 +107,16 @@ export class ChildResults {
     for (const entry of this.outbox.unsent()) {
       if (entry.kind === "result" && this.deps.waiting(ThreadId.parse(entry.child))) continue;
       try {
-        this.deps.deliver(
-          ThreadId.parse(entry.parent),
-          `${entry.kind}:${digest(entry.key)}`,
-          entry.text,
-        );
+        const parent = ThreadId.parse(entry.parent);
+        const key = `${entry.kind}:${digest(entry.key)}`;
+        const outcome = entry.kind === "result" ? parseOutcome(entry.text) : undefined;
+        const row = outcome && this.deps.ledger.row(entry.child);
+        if (outcome) {
+          const settled = row ? { parentAgentId: row.parent_agent, outcome } : undefined;
+          this.deps.deliver(parent, key, childResultPrompt([outcome]), settled);
+        }
+        // A notice, or a result queued as plain text before outcomes were kept.
+        else this.deps.deliver(parent, key, entry.text);
         this.outbox.sent(entry.key);
         if (entry.kind === "result") this.deps.ledger.markResultDelivered(entry.child);
       } catch (error) {
@@ -102,5 +126,18 @@ export class ChildResults {
         });
       }
     }
+  }
+}
+
+/** The longest result a parent is handed, as for a local child. */
+const resultLimit = 4096;
+
+function parseOutcome(text: string): DelegationOutcome | undefined {
+  if (!text.startsWith("{")) return undefined;
+  try {
+    const parsed = DelegationOutcome.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
   }
 }
