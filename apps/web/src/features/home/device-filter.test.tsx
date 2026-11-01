@@ -81,28 +81,44 @@ test("the filter button shows a shortened selected device name and reveals its f
   for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
   await made.open("/new?project=relay");
   await screen.findByRole("combobox", { name: "Message" });
+  // Row 1 is the title row again: Threads, then Search.
+  const panel = screen.getByRole("complementary", { name: "Threads" });
+  expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "Search" })).toBeTruthy();
   await chooseDevice(name);
   const control = await screen.findByRole("button", {
     name: `Project filter: All projects, Device: ${name}`,
   });
-  // The device that narrows the list is the title, truncated with an ellipsis when too long.
+  // The device that narrows the list is the row-2 filter, truncated with an ellipsis.
   expect(control.textContent).toBe(name);
   expect(control.querySelector(".truncate")).not.toBeNull();
+  // The filter and New thread share the row under the title row.
+  let row: HTMLElement | null = control.parentElement;
+  while (row && !within(row).queryByRole("link", { name: "New thread" })) row = row.parentElement;
+  expect(row).toBeTruthy();
+  const titleRow = within(panel)
+    .getByRole("button", { name: "Search" })
+    .closest('[data-slot="panel-top"]');
+  expect(row).not.toBe(titleRow);
   await userEvent.hover(control);
   expect((await screen.findByRole("tooltip")).textContent).toBe(name);
   await userEvent.unhover(control);
   await chooseDevice("All devices");
-  // With no filter on, the title reads All projects.
+  // With no filter on, the row-2 filter reads All projects.
   expect(screen.getByRole("button", { name: "Project filter: All projects" }).textContent).toBe(
     "All projects",
   );
 });
 
-test("choosing a device shows its name in the title", async () => {
+test("choosing a device shows its name in the filter", async () => {
   const made = harness({ machines: [{ hostId: "build", name: "Build server" }] });
   for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
   await made.open("/new?project=relay");
   await screen.findByRole("combobox", { name: "Message" });
+  // Row 1 is the title row again: Threads, then Search.
+  const panel = screen.getByRole("complementary", { name: "Threads" });
+  expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "Search" })).toBeTruthy();
   await chooseDevice("Build server");
   const control = await screen.findByRole("button", {
     name: "Project filter: All projects, Device: Build server",
@@ -160,6 +176,9 @@ test("choosing a device narrows the Inbox, Snoozed and Settled tabs to its threa
   await waitFor(() =>
     expect(listed()).toEqual(expect.arrayContaining(["Local inbox", "Remote inbox"])),
   );
+  // Row 1 is the title row again: Threads, then Search; the filter sits below it.
+  expect(screen.getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Search" })).toBeTruthy();
 
   await chooseDevice("Build server");
   await waitFor(() => expect(listed()).toEqual(["Remote inbox"]));

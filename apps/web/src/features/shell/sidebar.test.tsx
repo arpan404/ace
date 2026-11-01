@@ -210,15 +210,24 @@ test("the profile menu closes on Escape and gives focus back to the profile", as
   expect(document.activeElement).toBe(button(/^You, account/));
 });
 
-test("⌘K opens the launcher over the current screen, with All projects as the Threads title", async () => {
+test("Search in the sidebar opens the launcher over the current screen", async () => {
   await harness().open("/new");
   await title("New thread");
-  // The Threads title row is the filter itself: All projects, no Search icon.
-  const filter = screen.getByRole("button", { name: "Project filter: All projects" });
-  expect(filter.textContent).toBe("All projects");
+  // Row 1 is the title row again: Threads, then Search. Row 2 holds the All projects filter.
   const panel = screen.getByRole("complementary", { name: "Threads" });
-  expect(within(panel).queryByRole("button", { name: "Search" })).toBeNull();
-  await userEvent.keyboard("{Meta>}k{/Meta}");
+  expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  const filter = within(panel).getByRole("button", { name: "Project filter: All projects" });
+  expect(filter.textContent).toBe("All projects");
+  const titleRow = within(panel)
+    .getByRole("button", { name: "Search" })
+    .closest('[data-slot="panel-top"]');
+  expect(
+    within(titleRow as HTMLElement).getByRole("heading", { level: 2, name: "Threads" }),
+  ).toBeTruthy();
+  expect(
+    within(titleRow as HTMLElement).queryByRole("button", { name: /^Project filter/ }),
+  ).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Search" }));
   const dialog = await screen.findByRole("dialog", { name: "Command palette" });
   // Focus lands in its field, ready to type.
   await waitFor(() =>
@@ -231,18 +240,28 @@ test("⌘K opens the launcher over the current screen, with All projects as the 
   expect(screen.getByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
 });
 
-test("New thread is the pencil beside the filter title in the Threads panel's title row", async () => {
+test("New thread is the pencil at the end of the filter row under the Threads title row", async () => {
   await workbenchApp().open("/new");
   await title("New thread");
-  const filter = screen.getByRole("button", { name: "Project filter: All projects" });
-  expect(filter.textContent).toBe("All projects");
   const panel = screen.getByRole("complementary", { name: "Threads" });
-  // No Search icon in this row: New thread is the only icon on the right.
-  expect(within(panel).queryByRole("button", { name: "Search" })).toBeNull();
-  const row = filter.closest('[data-slot="panel-top"]');
-  if (!row) throw new Error("No title row");
-  // In the title row beside the filter title, after it, as a glyph alone.
-  const start = within(row as HTMLElement).getByRole("link", { name: "New thread" });
+  // Row 1: Threads, then Search.
+  expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  const search = within(panel).getByRole("button", { name: "Search" });
+  const titleRow = search.closest('[data-slot="panel-top"]');
+  if (!titleRow) throw new Error("No title row");
+  expect(
+    within(titleRow as HTMLElement).queryByRole("button", { name: /^Project filter/ }),
+  ).toBeNull();
+  expect(within(titleRow as HTMLElement).queryByRole("link", { name: "New thread" })).toBeNull();
+  // Row 2: the All projects filter, then New thread.
+  const filter = within(panel).getByRole("button", { name: "Project filter: All projects" });
+  expect(filter.textContent).toBe("All projects");
+  let row: HTMLElement | null = filter.parentElement;
+  while (row && !within(row).queryByRole("link", { name: "New thread" })) row = row.parentElement;
+  if (!row) throw new Error("No filter row");
+  expect(titleRow.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // In the filter row beside the filter, after it, as a glyph alone.
+  const start = within(row).getByRole("link", { name: "New thread" });
   expect(filter.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(start.textContent).toBe("");
   const threads = screen.getByRole("navigation", { name: "Threads" });

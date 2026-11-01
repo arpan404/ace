@@ -366,19 +366,20 @@ test("the sheet closes when its link to the page already open is tapped", async 
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });
 
-test("⌘K opens the launcher from the sheet, with All projects as the Threads title", async () => {
+test("Search in the sheet opens the launcher in the sheet's place", async () => {
   windowWidth(390);
   await openThread();
   // On a phone the header's way to the list is "Back to threads" (#126).
   await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
-  // The Threads title is the filter itself: All projects, with no Search icon.
+  // Row 1 is the title row again: Threads, then Search. Row 2 holds the All projects filter.
+  expect(within(sheet).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
   expect(
     within(sheet).getByRole("button", { name: "Project filter: All projects" }).textContent,
   ).toBe("All projects");
-  expect(within(sheet).queryByRole("button", { name: "Search" })).toBeNull();
-  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.click(within(sheet).getByRole("button", { name: "Search" }));
   expect(await screen.findByRole("dialog", { name: "Command palette" })).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });
 
 test("on a phone Settings lists its pages once: on the page, with the sheet left to the threads", async () => {
