@@ -156,11 +156,10 @@ test("an issue's page shows its conversation, and a comment posted joins it", as
   const box = within(page).getByRole("textbox", { name: "Comment" });
   await userEvent.type(box, "Fixed in #231.");
   await userEvent.click(within(page).getByRole("button", { name: "Comment" }));
-  // The reference reads as GitHub shows it: a link inside the comment's text.
-  const posted = await within(page).findByText(
-    (_, element) => element?.tagName === "P" && element.textContent === "Fixed in #231.",
-  );
-  expect(within(posted).getByRole("link", { name: "#231" })).toBeTruthy();
+  // The reference reads as GitHub shows it: a link inside the comment's text. (Until markit
+  // draws, the comment shows as plain text, so wait for the link itself.)
+  const reference = await within(page).findByRole("link", { name: "#231" });
+  expect(reference.closest("p")?.textContent).toBe("Fixed in #231.");
   await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe(""));
 });
 
