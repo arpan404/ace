@@ -61,7 +61,7 @@ import {
   type CommandAllocation,
 } from "./command-admission.ts";
 import { Sidebar } from "./sidebar.ts";
-import { Subscriptions, type ThreadSubscription } from "./subscriptions.ts";
+import { Subscriptions, type AcquireOptions, type ThreadSubscription } from "./subscriptions.ts";
 import { HostSnapshots } from "./read-snapshot-scope.ts";
 import { retryDelay } from "./lifecycle.ts";
 import {
@@ -532,9 +532,16 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   networkOnline(online: boolean): void {
     this.connection.networkOnline(online);
   }
-  thread(id: string): ThreadSubscription {
+  thread(id: string, options?: AcquireOptions): ThreadSubscription {
     if (this.closed) throw new ClientError("offline");
-    return this.#subscriptions.acquire(id);
+    return this.#subscriptions.acquire(id, options);
+  }
+  /** Thread subscriptions an optional lease may still take, beyond the reserve (`threadReserve`). */
+  threadRoom(): Selection<number> {
+    return {
+      getSnapshot: () => this.#subscriptions.room(),
+      subscribe: (listener) => this.#subscriptions.onRoom(listener),
+    };
   }
   /**
    * Forget what this client keeps of a thread (ADR 0105): its store, when no view holds it, and

@@ -1,5 +1,5 @@
 import type { InteractionRequest, LinkedPullRequest, ThreadStatus } from "@ace/protocol";
-import type { ForestTally } from "./agent-forest.ts";
+import { forestTally, type AgentForest, type ForestTally } from "./agent-forest.ts";
 import { pluralCount } from "./counts.ts";
 import { firstLine } from "./line-text.ts";
 import { formatSpan } from "./time.ts";
@@ -13,8 +13,12 @@ export interface NowLine {
 
 export interface NowFacts {
   status: ThreadStatus;
-  /** Every agent and command under the main agent, across delegated threads. */
+  /** Every agent and command besides the main agent, across delegated threads. */
   tally: ForestTally;
+  /** Anything in the tree, the main agent and every root included, still works or waits. */
+  live: boolean;
+  /** Every thread the tree shows has facts the daemon confirmed (`AgentForest.confirmed`). */
+  confirmed: boolean;
   turn?: { startedAt: number; endedAt?: number | undefined; said?: string | undefined } | undefined;
   /** The thread's pull requests, in review first (`summaryPullRequests`). */
   prs: readonly LinkedPullRequest[];
@@ -115,6 +119,10 @@ export function nowLine(facts: NowFacts): NowLine {
         : `Working for ${formatSpan(since, Math.max(since, facts.now))}`);
     return { say, sub: work(tally), tone: "plain" };
   }
+  // The thread's own status may say done while a delegated grandchild still works, or before a
+  // kept copy is confirmed: done is said only once nothing anywhere is live or unconfirmed.
+  if (facts.live) return { say: "Working", sub: work(tally), tone: "plain" };
+  if (!facts.confirmed) return { say: "Syncing", sub: work(tally), tone: "plain" };
   // Done: how long the last turn took, then what came of it.
   const took =
     turn?.endedAt !== undefined ? `Done in ${formatSpan(turn.startedAt, turn.endedAt)}` : "Done";
@@ -127,5 +135,24 @@ export function nowLine(facts: NowFacts): NowLine {
     say: took,
     sub: outcome.length ? outcome.join(" · ") : (said ?? ""),
     tone: "plain",
+  };
+}
+
+/** What Now counts from the tree: every row but the main agent's, and whether any is live. */
+export function forestNow(
+  forest: Pick<AgentForest, "roots" | "confirmed">,
+): Pick<NowFacts, "tally" | "live" | "confirmed"> {
+  const [main, ...rest] = forest.roots;
+  const tally = forestTally(rest);
+  if (main) {
+    const below = main.kind === "agent" ? main.tally : forestTally([main]);
+    tally.working += below.working;
+    tally.done += below.done;
+    tally.commands += below.commands;
+  }
+  return {
+    tally,
+    live: forest.roots.some((root) => root.live),
+    confirmed: forest.confirmed,
   };
 }

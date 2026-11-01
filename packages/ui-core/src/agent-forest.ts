@@ -16,6 +16,23 @@ export interface ThreadWork {
   /** Pending requests only. */
   interactions: readonly Interaction[];
   status?: ThreadStatus | undefined;
+  /**
+   * How current these facts are. `live` (the default) once the daemon confirmed them; `syncing`
+   * while a reconnect catches up or a kept copy waits for confirmation, so a thread shown done
+   * may be working again; `not_loaded` when there was no room for it or its subscription failed,
+   * so it has no entities and its delegate stands alone.
+   */
+  facts?: "live" | "syncing" | "not_loaded" | undefined;
+}
+
+/** What a branch holds below its row, at any depth. */
+export interface ForestTally {
+  /** Agents still working or waiting. */
+  working: number;
+  /** Agents whose whole branch settled. */
+  done: number;
+  /** Background commands still running. */
+  commands: number;
 }
 
 interface NodeBase {
@@ -27,6 +44,14 @@ interface NodeBase {
   live: boolean;
   /** It, or anything under it in any thread, waits on the person. */
   needsYou: boolean;
+  /** It, or anything under it, shows facts the daemon hasn't confirmed yet. */
+  unconfirmed: boolean;
+  /** Everything below this row, counted once when the forest is built. */
+  tally: ForestTally;
+  /**
+   * Waiting on the person first, then working agents, running commands, and finished agents
+   * last, each in the order they started.
+   */
   children: ForestNode[];
 }
 
@@ -37,6 +62,13 @@ export interface AgentForestNode extends NodeBase {
   childThread?: string | undefined;
   /** That thread's main agent, whose own requests and state this row speaks for. */
   childRoot?: Agent | undefined;
+  /**
+   * Its own facts may be behind: its thread is syncing, or (for a delegate) the thread it
+   * delegated to is syncing or still loading. It says neither finished nor working as current.
+   */
+  stale: boolean;
+  /** A delegate whose thread couldn't be loaded (no room, or its subscription failed). */
+  notLoaded: boolean;
 }
 
 export interface CommandForestNode extends NodeBase {
@@ -51,6 +83,8 @@ export interface AgentForest {
   roots: ForestNode[];
   /** Delegated threads the tree reaches within its bounds, shallowest first: what to load. */
   reach: string[];
+  /** Every thread the tree shows has facts the daemon confirmed: only then may it read done. */
+  confirmed: boolean;
 }
 
 /**
@@ -91,51 +125,124 @@ function reachable(
   return reach;
 }
 
+/** One thread's own shape, which changes only when that thread's facts do. */
+interface Layer {
+  running: ReadonlySet<string>;
+  needsYou: ReadonlySet<string>;
+  /** Shown agents by the shown parent they hang under (null: the thread's top), oldest first. */
+  kids: ReadonlyMap<string | null, readonly Agent[]>;
+  /** Running background commands by the shown agent that owns them. */
+  commands: ReadonlyMap<string, readonly BackgroundTask[]>;
+}
+
+/**
+ * Each thread's layer, kept by its facts object: a thread whose facts didn't change since the last
+ * join reuses its layer, so a change in one thread recomputes only that thread's own shape.
+ */
+export type ForestLayers = WeakMap<ThreadWork, Layer>;
+export const forestLayers = (): ForestLayers => new WeakMap();
+
+const byStart = (left: Agent, right: Agent) => left.createdAt - right.createdAt;
+
+function layerOf(facts: ThreadWork): Layer {
+  const work = agentTreeWork(facts.agents, facts.tasks, facts.interactions, facts.status);
+  const runs = agentRuns(facts.agents);
+  const byId = new Map<string, Agent>();
+  for (const agent of facts.agents) byId.set(agent.id, agent);
+  // An earlier run's row goes when its latest run is here; its subagents follow the latest.
+  const shown = (id: string) => {
+    const latest = runs.latest.get(id);
+    return latest === undefined || !byId.has(latest) ? id : latest;
+  };
+  const kids = new Map<string | null, Agent[]>();
+  for (const agent of facts.agents) {
+    if (shown(agent.id) !== agent.id) continue;
+    const parent = agent.parentId && byId.has(agent.parentId) ? shown(agent.parentId) : null;
+    const bucket = kids.get(parent);
+    if (bucket) bucket.push(agent);
+    else kids.set(parent, [agent]);
+  }
+  for (const [parent, bucket] of kids)
+    bucket.sort(
+      parent === null
+        ? (left, right) =>
+            Number(right.origin === "root") - Number(left.origin === "root") ||
+            byStart(left, right)
+        : byStart,
+    );
+  const commands = new Map<string, BackgroundTask[]>();
+  for (const task of facts.tasks)
+    if (runningTask(task)) {
+      const owner = byId.has(task.agentId) ? shown(task.agentId) : task.agentId;
+      const bucket = commands.get(owner);
+      if (bucket) bucket.push(task);
+      else commands.set(owner, [task]);
+    }
+  return { running: work.running, needsYou: work.needsYou, kids, commands };
+}
+
+const noTally = (): ForestTally => ({ working: 0, done: 0, commands: 0 });
+
+/** Add a row and everything below it to a tally. */
+function count(into: ForestTally, entry: ForestNode): void {
+  if (entry.kind === "command") into.commands++;
+  else if (entry.live) into.working++;
+  else into.done++;
+  into.working += entry.tally.working;
+  into.done += entry.tally.done;
+  into.commands += entry.tally.commands;
+}
+
+/** A row's children in reading order: the person's, then working, commands, then finished. */
+function ordered(entries: readonly ForestNode[]): ForestNode[] {
+  const asks: ForestNode[] = [];
+  const working: ForestNode[] = [];
+  const commands: ForestNode[] = [];
+  const finished: ForestNode[] = [];
+  for (const entry of entries)
+    if (entry.kind === "command") commands.push(entry);
+    else if (entry.needsYou) asks.push(entry);
+    else if (entry.live) working.push(entry);
+    else finished.push(entry);
+  for (const list of [working, commands, finished]) for (const entry of list) asks.push(entry);
+  return asks;
+}
+
 /**
  * Join each thread's agents into one tree. An earlier run of an agent a provider started again
  * folds into its latest run (its subagents move under it), as the thread's own tree does. Every
  * node is live while anything under it at any depth works or waits, so a branch never reads done
  * while a delegated great-grandchild still runs. A thread shows once, under the first delegate
- * that reaches it, which also ends any cycle. Linear in the agents and tasks of the joined threads.
+ * that reaches it, which also ends any cycle. Linear in the agents and tasks of the joined
+ * threads; pass the same `layers` between joins so unchanged threads aren't worked out again.
  */
 export function agentForest(
   root: string,
   works: ReadonlyMap<string, ThreadWork>,
   bounds: { depth: number; threads: number } = forestBounds,
+  layers: ForestLayers = forestLayers(),
 ): AgentForest {
   const reach = reachable(root, works, bounds);
   const allowed = new Set(reach);
   const placed = new Set<string>([root]);
+  const layer = (facts: ThreadWork) => {
+    const kept = layers.get(facts);
+    if (kept) return kept;
+    const made = layerOf(facts);
+    layers.set(facts, made);
+    return made;
+  };
   const build = (threadId: string): ForestNode[] => {
     const facts = works.get(threadId);
-    if (!facts) return [];
-    const work = agentTreeWork(facts.agents, facts.tasks, facts.interactions, facts.status);
-    const runs = agentRuns(facts.agents);
-    const byId = new Map<string, Agent>(facts.agents.map((agent) => [agent.id, agent]));
-    // An earlier run's row goes when its latest run is here; its subagents follow the latest.
-    const shown = (id: string) => {
-      const latest = runs.latest.get(id);
-      return latest === undefined || !byId.has(latest) ? id : latest;
-    };
-    const kids = new Map<string | null, Agent[]>();
-    for (const agent of facts.agents) {
-      if (shown(agent.id) !== agent.id) continue;
-      const parent = agent.parentId && byId.has(agent.parentId) ? shown(agent.parentId) : null;
-      kids.set(parent, [...(kids.get(parent) ?? []), agent]);
-    }
-    const commands = new Map<string, BackgroundTask[]>();
-    for (const task of facts.tasks)
-      if (runningTask(task)) {
-        const owner = byId.has(task.agentId) ? shown(task.agentId) : task.agentId;
-        commands.set(owner, [...(commands.get(owner) ?? []), task]);
-      }
+    if (!facts || facts.facts === "not_loaded") return [];
+    const { running, needsYou, kids, commands } = layer(facts);
+    const syncing = facts.facts === "syncing";
     const visiting = new Set<string>();
     const node = (agent: Agent): AgentForestNode => {
       visiting.add(agent.id);
-      const children: ForestNode[] = (kids.get(agent.id) ?? [])
-        .filter((child) => !visiting.has(child.id))
-        .toSorted((left, right) => left.createdAt - right.createdAt)
-        .map(node);
+      const children: ForestNode[] = [];
+      for (const child of kids.get(agent.id) ?? [])
+        if (!visiting.has(child.id)) children.push(node(child));
       for (const task of commands.get(agent.id) ?? [])
         children.push({
           kind: "command",
@@ -144,21 +251,41 @@ export function agentForest(
           task,
           live: true,
           needsYou: false,
+          unconfirmed: syncing,
+          tally: noTally(),
           children: [],
         });
       visiting.delete(agent.id);
       const child = agent.childThreadId;
       let childThread: string | undefined;
       let childRoot: AgentForestNode | undefined;
-      if (child && allowed.has(child) && !placed.has(child) && works.has(child)) {
-        placed.add(child);
-        childThread = child;
-        // The delegated thread's main agent is this row's own work: its agents hang here.
-        for (const top of build(child))
-          if (top.kind === "agent" && top.agent.origin === "root" && !childRoot) {
-            childRoot = top;
-            children.push(...top.children);
-          } else children.push(top);
+      let stale = syncing;
+      let notLoaded = false;
+      if (child && allowed.has(child) && !placed.has(child)) {
+        const delegated = works.get(child);
+        // Reached but not reported yet: still loading, so what it shows isn't current.
+        if (!delegated || delegated.facts === "syncing") stale = true;
+        if (delegated?.facts === "not_loaded") notLoaded = true;
+        else if (delegated) {
+          placed.add(child);
+          childThread = child;
+          // The delegated thread's main agent is this row's own work: its agents hang here.
+          for (const top of build(child))
+            if (top.kind === "agent" && top.agent.origin === "root" && !childRoot) {
+              childRoot = top;
+              for (const entry of top.children) children.push(entry);
+            } else children.push(top);
+        }
+      }
+      const tally = noTally();
+      let live = running.has(agent.id) || childRoot?.live === true;
+      let asks = needsYou.has(agent.id) || childRoot?.needsYou === true;
+      let unconfirmed = stale;
+      for (const entry of children) {
+        count(tally, entry);
+        live ||= entry.live;
+        asks ||= entry.needsYou;
+        unconfirmed ||= entry.unconfirmed;
       }
       return {
         kind: "agent",
@@ -167,48 +294,24 @@ export function agentForest(
         agent,
         childThread,
         childRoot: childRoot?.agent,
-        live:
-          work.running.has(agent.id) ||
-          childRoot?.live === true ||
-          children.some((entry) => entry.live),
-        needsYou:
-          work.needsYou.has(agent.id) ||
-          childRoot?.needsYou === true ||
-          children.some((entry) => entry.needsYou),
-        children,
+        live,
+        needsYou: asks,
+        unconfirmed,
+        stale,
+        notLoaded,
+        tally,
+        children: ordered(children),
       };
     };
-    const tops = (kids.get(null) ?? []).toSorted(
-      (left, right) =>
-        Number(right.origin === "root") - Number(left.origin === "root") ||
-        left.createdAt - right.createdAt,
-    );
-    return tops.map(node);
+    return (kids.get(null) ?? []).map(node);
   };
-  return { roots: build(root), reach };
-}
-
-/** What a branch holds below its row, at any depth. */
-export interface ForestTally {
-  /** Agents still working or waiting. */
-  working: number;
-  /** Agents whose whole branch settled. */
-  done: number;
-  /** Background commands still running. */
-  commands: number;
+  const roots = build(root);
+  return { roots, reach, confirmed: !roots.some((entry) => entry.unconfirmed) };
 }
 
 export function forestTally(nodes: readonly ForestNode[]): ForestTally {
-  const tally: ForestTally = { working: 0, done: 0, commands: 0 };
-  const walk = (list: readonly ForestNode[]) => {
-    for (const entry of list) {
-      if (entry.kind === "command") tally.commands++;
-      else if (entry.live) tally.working++;
-      else tally.done++;
-      walk(entry.children);
-    }
-  };
-  walk(nodes);
+  const tally = noTally();
+  for (const entry of nodes) count(tally, entry);
   return tally;
 }
 
@@ -232,6 +335,47 @@ export function forestAsker(nodes: readonly ForestNode[]): AgentForestNode | und
   );
   if (!first) return undefined;
   return forestAsker(first.children) ?? first;
+}
+
+/** A row of the tree as drawn: one node, or a run of finished siblings folded into one line. */
+export type ForestRow =
+  | { kind: "node"; node: ForestNode }
+  | { kind: "finished"; key: string; nodes: AgentForestNode[] };
+
+/**
+ * A parent's children as rows, with consecutive finished agents (settled, confirmed, nothing
+ * under them live) folded into one row once there are at least `least` of them. Children come
+ * ordered (`agentForest`), so everything live or waiting on the person stays its own row above.
+ */
+export function foldFinished(
+  parentKey: string,
+  children: readonly ForestNode[],
+  least = 2,
+): ForestRow[] {
+  const rows: ForestRow[] = [];
+  let run: AgentForestNode[] = [];
+  let runs = 0;
+  const flush = () => {
+    if (run.length >= least)
+      // Keyed by its parent, so a fold the person opened stays open as more agents finish.
+      rows.push({
+        kind: "finished",
+        key: `${parentKey}/finished${runs++ ? `:${runs}` : ""}`,
+        nodes: run,
+      });
+    else for (const node of run) rows.push({ kind: "node", node });
+    run = [];
+  };
+  for (const node of children) {
+    if (node.kind === "agent" && !node.live && !node.needsYou && !node.unconfirmed) {
+      run.push(node);
+      continue;
+    }
+    flush();
+    rows.push({ kind: "node", node });
+  }
+  flush();
+  return rows;
 }
 
 /** Every row's key, for a lookup of which rows exist. */

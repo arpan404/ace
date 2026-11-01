@@ -7,6 +7,8 @@ export class ClientError extends Error {
     | "aborted"
     | "not_dispatched"
     | "limit"
+    /** An optional thread lease found no room, or gave its room to a thread the person opened. */
+    | "no_room"
     | "busy"
     | "protocol"
     /** The daemon sent a frame this client's protocol schemas can't read: a different build. */

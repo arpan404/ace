@@ -2,7 +2,12 @@ export { ClientProvider, useClient, useNotifyBatch, useOptionalClient } from "./
 export { frameBatch, immediate } from "./batch.ts";
 export type { NotifyBatch } from "./batch.ts";
 export { useSelection, arrayEqual, shallowEqual } from "./selection.ts";
-export { useThreadStore, useSidebarStore } from "./leases.ts";
+export {
+  OptionalLeaseScope,
+  useThreadRoom,
+  useThreadStore,
+  useSidebarStore,
+} from "./leases.ts";
 export { windowSource } from "./window-source.ts";
 export { ThreadWindowProvider, useThreadWindow } from "./window-context.ts";
 export type { ThreadWindow } from "./window-source.ts";

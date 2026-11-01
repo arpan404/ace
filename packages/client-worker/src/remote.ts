@@ -141,12 +141,18 @@ interface Pending {
 }
 interface Mirrored {
   refs: number;
+  /** Of `refs`, the foreground ones: with none, the worker holds the lease as optional. */
+  foreground: number;
   lease: number;
   scope: Scope;
   mirror: MirrorThread | MirrorSidebar;
 }
 
 const noop = () => {};
+const leaseMessage = (held: Mirrored) =>
+  held.foreground
+    ? { t: "lease" as const, lease: held.lease, scope: held.scope }
+    : { t: "lease" as const, lease: held.lease, scope: held.scope, optional: true };
 
 const states = new Set<string>([
   "connecting",
@@ -174,6 +180,8 @@ export class RemoteClient implements ClientApi {
   private localSaving = new Set<string>();
   private pendingWatchers = 0;
   private mirrors = new Map<string, Mirrored>();
+  /** Spare thread subscriptions in the worker's client, as it last said (`threadRoom`). */
+  private room = 0;
   /** Released mirrors, kept for the next first render (`cachedThread`). */
   private released = new MirrorCache();
   private byLease = new Map<number, Mirrored>();
@@ -362,12 +370,16 @@ export class RemoteClient implements ClientApi {
     this.online = online;
     void this.call("networkOnline", [online]).catch(() => {});
   }
-  thread(id: string): Lease<ThreadSource> {
+  thread(id: string, options?: { optional?: boolean | undefined }): Lease<ThreadSource> {
     return this.hold(
       `thread:${id}`,
       { kind: "thread", threadId: id },
       () => new MirrorThread(this.listeners),
+      options?.optional === true,
     );
+  }
+  threadRoom(): Selection<number> {
+    return this.notifications.select(["room"], () => this.room);
   }
   cachedThread(id: string): ThreadSource | undefined {
     if (this.closed || this.workerLost) return undefined;
@@ -678,7 +690,7 @@ export class RemoteClient implements ClientApi {
     for (const [id, record] of this.intents.entries())
       if (record.watchers > 0) this.post({ t: "watchIntent", id });
     for (const held of this.mirrors.values())
-      this.post({ t: "lease", lease: held.lease, scope: held.scope });
+      this.post(leaseMessage(held));
     if (this.window) void this.call("threadsWindow", [this.window]).catch(noop);
     if (this.online === false) void this.call("networkOnline", [false]).catch(noop);
     for (const [call, pending] of this.pending) this.resend(call, pending);
@@ -713,6 +725,7 @@ export class RemoteClient implements ClientApi {
     key: string,
     scope: Scope,
     create: () => T,
+    optional = false,
   ): Lease<T> {
     if (this.closed || this.workerLost) throw new ClientError("offline");
     let held = this.mirrors.get(key);
@@ -720,13 +733,17 @@ export class RemoteClient implements ClientApi {
       // A released mirror paints until the worker's copy replaces it.
       held = {
         refs: 0,
+        foreground: optional ? 0 : 1,
         lease: ++this.sequence,
         scope,
         mirror: this.released.take(key) ?? create(),
       };
       this.mirrors.set(key, held);
       this.byLease.set(held.lease, held);
-      this.post({ t: "lease", lease: held.lease, scope });
+      this.post(leaseMessage(held));
+    } else if (!optional && held.foreground++ === 0) {
+      // A view the person opened now shares an optional lease: the worker holds it for them.
+      this.post(leaseMessage(held));
     }
     held.refs++;
     const owned = held;
@@ -736,6 +753,7 @@ export class RemoteClient implements ClientApi {
       release: () => {
         if (released) return;
         released = true;
+        if (!optional) owned.foreground = Math.max(0, owned.foreground - 1);
         if (--owned.refs) return;
         this.mirrors.delete(key);
         this.byLease.delete(owned.lease);
@@ -997,6 +1015,10 @@ export class RemoteClient implements ClientApi {
         this.notifications.emit([`intent:${message.id}`]);
         return;
       }
+      case "room":
+        this.room = message.room;
+        this.notifications.emit(["room"]);
+        return;
       case "changes":
         for (const change of message.leases) {
           const held = this.byLease.get(change.lease);
