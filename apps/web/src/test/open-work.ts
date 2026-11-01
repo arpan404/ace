@@ -62,7 +62,7 @@ export const machineRow = /, (Connected|Connecting|Offline|Pair again)$/;
 
 /**
  * Open the details card's machine menu: the checkout's Local and Worktree moves, its path,
- * terminal, project scripts and Machine settings.
+ * path and terminal. The project's scripts live in Run a script.
  */
 export async function openMachineMenu() {
   const card = await openWorkCard();
@@ -86,6 +86,13 @@ export async function currentCheckout(): Promise<"Local" | "Worktree" | undefine
     if (screen.queryByRole("menu")) throw new Error("The machine menu is still open");
   });
   return current;
+}
+
+/** Open the details card's "Run a script" list; resolves to its search field's popup. */
+export async function openRunScript() {
+  const card = await openWorkCard();
+  await userEvent.click(within(card).getByRole("button", { name: "Run a script" }));
+  return screen.findByRole("dialog", { name: "Run a script" });
 }
 
 /** Open the details card's git menu, from the caret on its sync row. */

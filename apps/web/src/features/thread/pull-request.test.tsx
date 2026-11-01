@@ -344,7 +344,7 @@ test("a thread in its own worktree moves back to the local checkout", async () =
   const app = await withPr(undefined, { mode: "worktree", worktree: "/fake/worktrees/thread-pr" });
   const card = await openWorkCard();
   await userEvent.click(within(card).getByRole("button", { name: machineRow }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Local" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Local checkout" }));
   await waitFor(async () => expect(await currentCheckout()).toBe("Local"));
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details?.mode).toBe("local");

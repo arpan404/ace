@@ -3,6 +3,7 @@ import {
   nextGitStep,
   openGitMenu,
   openMachineMenu,
+  openRunScript,
   openWorkCard,
   openWorkPanel,
   workButton,
@@ -143,13 +144,23 @@ test("a menu opened from the card closes before the card does", async () => {
   expect(screen.getByRole("dialog", { name: "Thread details" })).toBe(card);
 });
 
-test("an action from the card runs the project's script in a terminal of the bottom panel", async () => {
+test("the machine menu holds the checkout, its path and a terminal, and no scripts", async () => {
+  await openThread();
+  const menu = await openMachineMenu();
+  expect(await within(menu).findByRole("menuitem", { name: /^Copy path/ })).toBeTruthy();
+  expect(within(menu).getByRole("menuitem", { name: "Open terminal" })).toBeTruthy();
+  expect(within(menu).queryByRole("menuitem", { name: /^Run / })).toBeNull();
+  expect(within(menu).queryByRole("menuitem", { name: /dev:relay/ })).toBeNull();
+  expect(within(menu).queryByRole("menuitem", { name: /^Machine settings/ })).toBeNull();
+});
+
+test("Run a script lists each script by name with its command, and runs it in a terminal of the bottom panel", async () => {
   // Before the agent starts the relay in the background.
   const app = await openThread("replay", "delegated");
-  const actions = await openMachineMenu();
-  await userEvent.click(
-    await within(actions).findByRole("menuitem", { name: "Run bun run dev:relay" }),
-  );
+  const scripts = await openRunScript();
+  const relay = await within(scripts).findByRole("option", { name: "dev:relay" });
+  expect(relay.textContent).toBe("dev:relaybun run dev:relay");
+  await userEvent.click(relay);
   const panel = await screen.findByRole("region", { name: "Terminal panel" });
   // The tab opening on the script's terminal is the only confirmation.
   expect(await within(panel).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
@@ -166,12 +177,8 @@ test("an action from the card runs the project's script in a terminal of the bot
   // Running it again goes back to its terminal rather than starting a second one.
   await userEvent.click(within(panel).getByRole("button", { name: "Hide terminal panel" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Terminal panel" })).toBeNull());
-  const again = await openMachineMenu();
-  await userEvent.click(
-    await within(again).findByRole("menuitem", {
-      name: "Run bun run dev:relay",
-    }),
-  );
+  const again = await openRunScript();
+  await userEvent.click(await within(again).findByRole("option", { name: "dev:relay" }));
   const shown = await screen.findByRole("region", { name: "Terminal panel" });
   expect(await within(shown).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
   expect(app.daemon.terminals.list("thread-replay-cursor")).toHaveLength(1);
@@ -195,14 +202,50 @@ test("when the scripts can't be read, the card says so and reads them again", as
   app.play(replayCursor()).runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  const actions = await openMachineMenu();
-  const retry = await within(actions).findByRole("menuitem", {
-    name: /Couldn't read scripts/,
-  });
+  const scripts = await openRunScript();
+  const retry = await within(scripts).findByRole("button", { name: /Couldn't read scripts/ });
   app.daemon.restoreRequests();
   await userEvent.click(retry);
-  await openMachineMenu();
-  expect(await screen.findByRole("menuitem", { name: /^Run bun run dev:relay/ })).toBeTruthy();
+  expect(await within(scripts).findByRole("option", { name: "dev:relay" })).toBeTruthy();
+});
+
+test("searching Run a script keeps the matching scripts, and Enter runs the highlighted one", async () => {
+  const app = await openThread("replay", "delegated");
+  app.daemon.setScripts("relay", [
+    "fmt",
+    "fmt:check",
+    "test",
+    "typecheck",
+    "typecheck:full",
+    "web:dev:fake",
+  ]);
+  const scripts = await openRunScript();
+  expect(await within(scripts).findAllByRole("option")).toHaveLength(6);
+  await userEvent.keyboard("type");
+  await waitFor(() =>
+    expect(
+      within(scripts)
+        .getAllByRole("option")
+        .map((option) => option.getAttribute("aria-label")),
+    ).toEqual(["typecheck", "typecheck:full"]),
+  );
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  const panel = await screen.findByRole("region", { name: "Terminal panel" });
+  expect(
+    await within(panel).findByRole("tab", { name: "typecheck:full", selected: true }),
+  ).toBeTruthy();
+  expect(app.daemon.terminals.list("thread-replay-cursor").map((t) => t.name)).toEqual([
+    "typecheck:full",
+  ]);
+});
+
+test("Escape closes Run a script and leaves the card open", async () => {
+  await openThread();
+  const card = await openWorkCard();
+  await openRunScript();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Run a script" })).toBeNull());
+  expect(screen.getByRole("dialog", { name: "Thread details" })).toBe(card);
 });
 
 test("Open in launches the checkout in an editor, and the one picked becomes the default", async () => {
@@ -596,12 +639,13 @@ test("checkout moves wait while agents work, and say why", async () => {
   await openThread("checkout");
   const card = await openWorkCard();
   await userEvent.click(within(card).getByRole("button", { name: machineRow }));
-  expect(
-    within(await screen.findByRole("menuitem", { name: /^Worktree/ })).getByText("current"),
-  ).toBeTruthy();
-  const local = await screen.findByRole("menuitem", { name: /^Local/ });
+  expect(await screen.findByRole("menuitem", { name: "Worktree current" })).toBeTruthy();
+  const local = await screen.findByRole("menuitem", { name: "Local checkout" });
   expect(local.getAttribute("aria-disabled")).toBe("true");
-  expect(local.textContent).toContain("Wait for the agents to stop");
+  // The reason is said once, as a note the disabled choice points to, not as a row.
+  const reason = document.getElementById(local.getAttribute("aria-describedby") ?? "");
+  expect(reason?.textContent).toMatch(/^Wait for the agents to stop/);
+  expect(screen.getAllByText(/Wait for the agents to stop/)).toHaveLength(1);
   await userEvent.keyboard("{Escape}");
   await userEvent.click(within(card).getByRole("button", { name: /^Branch .*, switch branch$/ }));
   expect(

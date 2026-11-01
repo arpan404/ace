@@ -174,6 +174,7 @@ export * from "./browsing-history.ts";
 export * from "./browser-words.ts";
 export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
+export * from "./script-choices.ts";
 export * from "./checkout-errors.ts";
 export * from "./checkout-quick-open.ts";
 export * from "./checkout-transfer-words.ts";
