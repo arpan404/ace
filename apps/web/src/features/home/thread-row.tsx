@@ -2,7 +2,7 @@ import { currentAttention } from "@ace/ui-core";
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
 import type { MachineIcon } from "@ace/protocol";
-import type { ComponentType, ReactElement } from "react";
+import { use, type ComponentType, type ReactElement } from "react";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { useMachines } from "@/lib/machines.ts";
 import {
@@ -25,6 +25,7 @@ import { useStartedTitle } from "./started-titles.ts";
 import { TaskLines, taskRowHeight } from "./task-lines.tsx";
 import { useRowActive } from "./use-row-active.ts";
 import { useThreadCard } from "./use-thread-card.ts";
+import { SnoozeRequestContext } from "./snooze-request.ts";
 
 // The panel's one row line (`panelRowLine`), apart by space, not rules: the list sits inset from
 // the sidebar's edges, and hover and the open thread fill a soft rounded box.
@@ -83,7 +84,7 @@ export function ThreadRow(props: {
   lead: RowLead;
   /** The hover actions, when not a task's own (a chat's: `ChatRowActions`). */
   actions?: ComponentType<RowActionsProps> | undefined;
-  /** At rest: the title in subtle ink (full ink while open), as a settled row's. */
+  /** At rest: the title in muted ink (full ink while open), as a settled row's. */
   dimmed?: boolean | undefined;
 }) {
   const { machine } = props;
@@ -102,6 +103,7 @@ export function ThreadRow(props: {
   const rowActive = useRowActive();
   // One of its provider subagents open as the whole chat is still this thread.
   const current = useOpenHere(props.threadId, machine?.id);
+  const snoozeRequest = use(SnoozeRequestContext);
   if (!data) return null;
   const { entry } = data;
   // A thread this window started reads its provisional title until the daemon titles it.
@@ -136,6 +138,7 @@ export function ThreadRow(props: {
       workspaceId={entry.workspaceId}
       actions={actions}
       title={title}
+      dimmed={props.dimmed === true && !current}
     />
   ) : (
     <>
@@ -229,6 +232,8 @@ export function ThreadRow(props: {
                 shown={actions}
                 entry={entry}
                 flags={card.flags}
+                snoozeRequested={snoozeRequest.id === rowId}
+                onSnoozeClosed={snoozeRequest.done}
               />
             )}
           </HoverCardTrigger>,

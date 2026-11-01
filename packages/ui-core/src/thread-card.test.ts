@@ -92,11 +92,25 @@ test("a snoozed card says when it wakes; an expired snooze says nothing", () => 
     input({ entry: entry("t", { state: "done" }, now, { snoozedUntil: until }) }),
   );
   expect(card.flags.snoozed).toBe(true);
-  expect(card.wake).toBe("tomorrow 9:00 AM");
+  expect(card.wake).toBe("until tomorrow 9:00 AM");
   const woke = threadCard(
     input({ entry: entry("t", { state: "done" }, now, { snoozedUntil: now - 1 }) }),
   );
   expect(woke.wake).toBeUndefined();
+});
+
+test("a thread snoozed until it needs you says so, and stops being snoozed once it asks", () => {
+  const until = now + 30 * 86_400_000;
+  const snoozed = { snoozedUntil: until, snoozeWake: { on: "needs_you" } };
+  const working = threadCard(
+    input({ entry: entry("t", { state: "working", agents: 1 }, now, snoozed) }),
+  );
+  expect(working.wake).toBe("until it needs you");
+  const asking = threadCard(
+    input({ entry: entry("t", { state: "needs_you", interactions: 1 }, now, snoozed) }),
+  );
+  expect(asking.flags.snoozed).toBe(false);
+  expect(asking.wake).toBeUndefined();
 });
 
 test("branch, pull request, worktree and machine come from the daemon's details", () => {

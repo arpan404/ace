@@ -108,7 +108,17 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
   },
   {
     label: "Thread list",
-    ids: ["home.pin", "home.select", "home.move", "home.actions", "home.range", "home.ends"],
+    ids: [
+      "home.pin",
+      "home.select",
+      "home.settle",
+      "home.snooze",
+      "home.tabs",
+      "home.move",
+      "home.actions",
+      "home.range",
+      "home.ends",
+    ],
   },
 ];
 const listed = new Set(groups.flatMap((group) => group.ids));

@@ -23,12 +23,17 @@ export interface RowActionsProps {
   onRename(): void;
   onHover(): void;
   shown: boolean;
+  /** H asked for the snooze menu: it opens until the person closes it. */
+  snoozeRequested?: boolean | undefined;
+  onSnoozeClosed?: (() => void) | undefined;
 }
 
 export function RowActions(props: RowActionsProps) {
   const actions = useThreadActions();
   const settle = settleAction(props.entry, props.flags, actions);
   const title = props.entry.title;
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const { onSnoozeClosed } = props;
   return (
     <div
       // Centred on the row's one line, or an Active row's top line beside its status (10px
@@ -42,7 +47,13 @@ export function RowActions(props: RowActionsProps) {
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <Menu>
+      <Menu
+        open={snoozeOpen || props.snoozeRequested === true}
+        onOpenChange={(open) => {
+          setSnoozeOpen(open);
+          if (!open) onSnoozeClosed?.();
+        }}
+      >
         <MenuTrigger
           render={
             <IconButton

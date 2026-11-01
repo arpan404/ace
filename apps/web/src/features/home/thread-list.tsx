@@ -14,16 +14,8 @@ import {
   type RefObject,
 } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
-import {
-  homeFootStart,
-  homeRowKey,
-  homeRowThread,
-  listOrderOf,
-  type HomeRow,
-  type RowBox,
-} from "@ace/ui-core";
+import { homeRowKey, homeRowThread, listOrderOf, type HomeRow, type RowBox } from "@ace/ui-core";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { useElementSize } from "@/lib/element-size.ts";
 import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
@@ -42,11 +34,11 @@ import { ThreadRow, type RowLead } from "./thread-row.tsx";
 import { MachineRow } from "./machine-row.tsx";
 import { machineRow } from "@/lib/machine-threads.ts";
 import { UnsentRows } from "./unsent-rows.tsx";
-import { SectionRow } from "./tree-rows.tsx";
-import { SettledRow } from "./settled-row.tsx";
+import { SectionRow } from "./section-rows.tsx";
 import { ChatRow } from "./chat-row.tsx";
 import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { useHomeSort } from "./use-home-threads.ts";
+import { SnoozeRequestContext } from "./snooze-request.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
 import {
   useHomeSelection,
@@ -57,39 +49,30 @@ import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 /**
- * Every row is one 36px line (`--row-height`) with 2px below it, but an Active thread row
- * (`activeEstimate`): rows are apart by spacing, not rules. A section label carries the 20px gap
- * above it.
+ * A thread row in the Threads panel is three lines in 80px with 4px below it; a chat is one 36px
+ * line (`--row-height`) with 2px below it: rows are apart by spacing, not rules. A label carries
+ * the 20px gap above it.
  */
 const estimates: Record<HomeRow["kind"], number> = {
   unsent: 0,
-  thread: 38,
-  settled: 38,
+  thread: 84,
+  snoozed: 84,
+  settled: 84,
+  older: 40,
   empty: 37,
   "active-label": 49,
-  "projects-label": 49,
-  "project-header": 38,
-  "show-more": 38,
-  "project-history": 38,
-  "quiet-header": 43,
-  "quiet-project": 38,
-  "snoozed-header": 47,
-  snoozed: 38,
   chat: 38,
   "day-label": 49,
 };
 
-/** An Active thread row: three lines in 80px, with 4px below it. */
-const activeEstimate = 84;
-
 /** A row's expected height, before it is measured. */
 function estimateOf(row: HomeRow | undefined): number {
-  if (row?.kind === "thread" && row.place === "active") return activeEstimate;
   return estimates[row?.kind ?? "thread"];
 }
 
-/** The viewport's bottom padding (`pb-4`), below the list: the foot's free space leaves it out. */
-const footPadding = 16;
+/** A row the Threads panel draws as a task: three lines led by its project. */
+const isTask = (row: HomeRow) =>
+  row.kind === "thread" || row.kind === "snoozed" || row.kind === "settled";
 
 /** Keys that move focus between rows: arrows, and j/k as in other lists. */
 const steps: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, j: 1, k: -1 };
@@ -125,6 +108,8 @@ export function ThreadList(props: {
   label?: string | undefined;
   /** Told whether the last few rows are in view, so older rows can page in as it scrolls. */
   onNearEnd?: ((near: boolean) => void) | undefined;
+  /** On a focused row, E settles it and H opens its snooze menu (the Threads panel's). */
+  triage?: boolean | undefined;
 }) {
   const [moving, setMoving] = useState<readonly string[]>();
   const rows = props.rows;
@@ -136,6 +121,11 @@ export function ThreadList(props: {
   const listRef = useRef<HTMLDivElement>(null);
   const keyboardMove = useRef<KeyboardMove>(undefined);
   const [announcement, setAnnouncement] = useState("");
+  const [snoozing, setSnoozing] = useState<string>();
+  const snoozeRequest = useMemo(
+    () => ({ id: snoozing, done: () => setSnoozing(undefined) }),
+    [snoozing],
+  );
   const selection = useHomeSelection();
   const picked = useHomeSelectionState().ids;
   // Rows of every machine: each action runs on the row's own machine (ADR 0102).
@@ -156,11 +146,7 @@ export function ThreadList(props: {
     initialOffset: props.scrollTop ?? 0,
   });
   useForgetGoneRows(virtualizer, drawn.length, (index) => drawn[index]?.key ?? index);
-  // The foot sections sit at the sidebar's bottom while the rows above leave free space.
-  const footStart = homeFootStart(drawn);
-  const viewportHeight = useElementSize(viewport).height;
   const listHeight = virtualizer.getTotalSize();
-  const footGap = footStart < 0 ? 0 : Math.max(0, viewportHeight - footPadding - listHeight);
   useRevealOpenThread(drawn, virtualizer.scrollToIndex, viewport);
   const lastShown = virtualizer.getVirtualItems().at(-1)?.index ?? -1;
   const nearEnd = lastShown >= drawn.length - 4;
@@ -277,8 +263,10 @@ export function ThreadList(props: {
     });
   };
 
-  const pressed = (event: KeyboardEvent, id: "home.pin" | "home.select" | "home.move") =>
-    matchesChord(event.nativeEvent, parseChord(keys[id]));
+  const pressed = (
+    event: KeyboardEvent,
+    id: "home.pin" | "home.select" | "home.move" | "home.settle" | "home.snooze",
+  ) => matchesChord(event.nativeEvent, parseChord(keys[id]));
   /** A keyboard move takes every key first, before a row's tooltip or menu can claim Escape. */
   const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
     if (
@@ -333,6 +321,28 @@ export function ThreadList(props: {
       startKeyboardMove(id);
       return;
     }
+    if (props.triage && id && pressed(event, "home.settle")) {
+      event.preventDefault();
+      const shown = shownEntry(id);
+      // Settling leaves the list: the next row takes focus, as J would.
+      if (shown && shown.status.state !== "working" && shown.settledAt === undefined) {
+        void focusListRow({
+          viewport: viewport.current,
+          rows: drawn,
+          from: event.target,
+          index: Number(from.dataset.index),
+          step: 1,
+          mount: mountRow,
+        });
+        actions.settle(shown);
+      }
+      return;
+    }
+    if (props.triage && id && pressed(event, "home.snooze")) {
+      event.preventDefault();
+      setSnoozing(id);
+      return;
+    }
     const plain = !event.altKey && !event.metaKey && !event.ctrlKey;
     const end = event.key === "Home" ? 1 : event.key === "End" ? -1 : 0;
     if (end && plain && !event.shiftKey) {
@@ -348,6 +358,8 @@ export function ThreadList(props: {
       return;
     }
     const step = steps[event.key];
+    // 1, 2 and 3 switch the panel's tabs (`ThreadsPanelKeys`), never a jump.
+    if (props.triage && /^[123]$/.test(event.key)) return;
     // Type to jump: a letter goes to the next thread whose title starts with it. Not prevented,
     // so a letter may still start a sequence ("g h").
     if (!step && plain && event.key.length === 1 && /\S/.test(event.key)) {
@@ -418,148 +430,141 @@ export function ThreadList(props: {
   const manyDevices = useManyDevices();
   return (
     <ManyDevices value={manyDevices}>
-      <JumpKeys targets={jumps} />
-      <div
-        ref={viewport}
-        {...hold.handlers}
-        onPointerEnter={() => void loadDrag()}
-        onScroll={(event) => props.onScroll?.(event.currentTarget.scrollTop)}
-        data-virtual-viewport=""
-        style={{
-          maskImage:
-            "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",
-        }}
-        className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4"
-      >
+      <SnoozeRequestContext value={snoozeRequest}>
+        <JumpKeys targets={jumps} />
         <div
-          ref={listRef}
-          role="list"
-          aria-label={props.label ?? "Threads"}
-          // Its letters jump between rows, so the composer's type-to-focus leaves them alone.
-          data-type-ahead=""
-          onKeyDownCapture={onKeyDownCapture}
-          onKeyDown={onKeyDown}
-          onFocus={(event) => {
-            exitFocus.onFocus(event);
-            if (!event.target.matches(rowFocusSelector)) return;
-            lastFocused.current = event.target;
-            roveListFocus(event.currentTarget, event.target);
+          ref={viewport}
+          {...hold.handlers}
+          onPointerEnter={() => void loadDrag()}
+          onScroll={(event) => props.onScroll?.(event.currentTarget.scrollTop)}
+          data-virtual-viewport=""
+          style={{
+            maskImage:
+              "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",
           }}
-          onBlur={(event) => {
-            exitFocus.onBlur(event);
-            const next = event.relatedTarget;
-            if (next instanceof Node && event.currentTarget.contains(next)) return;
-            keyboardMove.current?.cancel();
-            keyboardMove.current = undefined;
-          }}
-          onClickCapture={onClickCapture}
-          onPointerDown={onPointerDown}
-          // A row is a link: the browser's own link drag would fight ours.
-          onDragStart={(event) => event.preventDefault()}
-          className={cn("relative w-full", sliding && "fx-list-moving")}
-          style={{ height: listHeight + footGap }}
+          className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4"
         >
-          {virtualizer.getVirtualItems().map((item) => {
-            const entry = drawn[item.index];
-            if (!entry) return null;
-            const row = entry.item;
-            const leaving = entry.phase === "exit";
-            const thread = homeRowThread(row);
-            return (
-              <div
-                key={item.key}
-                role={leaving || row.kind === "unsent" ? "presentation" : "listitem"}
-                aria-hidden={leaving || undefined}
-                inert={leaving}
-                ref={virtualizer.measureElement}
-                data-index={item.index}
-                className={cn(
-                  // Inset from the sidebar's edges, with a small gap between rows: space, not
-                  // rules, separates them.
-                  "absolute inset-x-2 top-0",
-                  row.kind === "thread" && row.place === "active"
-                    ? "pb-1"
-                    : "id" in row
-                      ? "pb-0.5"
-                      : row.kind !== "unsent" && "pb-px",
-                  // While rows slide past each other each is opaque, and the one moving up
-                  // passes over the others: a swap never shows two rows through each other.
-                  sliding && "bg-sidebar",
-                  sliding && entry.rising && "z-[1]",
-                )}
-                style={{
-                  transform: `translateY(${item.start + (item.index >= footStart && footStart >= 0 ? footGap : 0)}px)`,
-                  ...(thread && movingSet.has(thread) ? { opacity: 0.4 } : {}),
-                }}
-              >
-                {hints && thread && !leaving && numbers.has(thread) && (
-                  <span
-                    aria-hidden
-                    data-jump-hint=""
-                    className="pointer-events-none absolute top-1.5 -left-1.5 z-[2] grid h-4 min-w-4 place-items-center rounded-xs bg-popover px-0.5 text-2xs font-medium tabular-nums text-muted-foreground shadow-[0_0_0_1px_var(--border)]"
-                  >
-                    {numbers.get(thread)}
-                  </span>
-                )}
-                <div className={rowMotion(entry.phase)}>
-                  {thread && machineRow(thread) ? (
-                    <MachineRow
-                      id={thread}
-                      shape={row.kind === "settled" || row.kind === "chat" ? row.kind : "task"}
-                      lead={rowLead(row)}
-                      leaving={leaving}
-                      settled={row.kind === "chat" && row.settled}
-                    />
-                  ) : (
-                    <>
-                      {row.kind === "thread" && (
-                        <ThreadRow
-                          threadId={row.id}
-                          settled={false}
-                          leaving={leaving}
-                          lead={rowLead(row)}
-                        />
-                      )}
-                      {row.kind === "settled" && <SettledRow threadId={row.id} leaving={leaving} />}
-                      {row.kind === "chat" && (
-                        <ChatRow id={row.id} settled={row.settled} leaving={leaving} />
-                      )}
-                      {row.kind === "snoozed" && (
-                        <ThreadRow
-                          threadId={row.id}
-                          settled={false}
-                          leaving={leaving}
-                          lead="none"
-                        />
-                      )}
-                    </>
+          <div
+            ref={listRef}
+            role="list"
+            aria-label={props.label ?? "Threads"}
+            // Its letters jump between rows, so the composer's type-to-focus leaves them alone.
+            data-type-ahead=""
+            onKeyDownCapture={onKeyDownCapture}
+            onKeyDown={onKeyDown}
+            onFocus={(event) => {
+              exitFocus.onFocus(event);
+              if (!event.target.matches(rowFocusSelector)) return;
+              lastFocused.current = event.target;
+              roveListFocus(event.currentTarget, event.target);
+            }}
+            onBlur={(event) => {
+              exitFocus.onBlur(event);
+              const next = event.relatedTarget;
+              if (next instanceof Node && event.currentTarget.contains(next)) return;
+              keyboardMove.current?.cancel();
+              keyboardMove.current = undefined;
+            }}
+            onClickCapture={onClickCapture}
+            onPointerDown={onPointerDown}
+            // A row is a link: the browser's own link drag would fight ours.
+            onDragStart={(event) => event.preventDefault()}
+            className={cn("relative w-full", sliding && "fx-list-moving")}
+            style={{ height: listHeight }}
+          >
+            {virtualizer.getVirtualItems().map((item) => {
+              const entry = drawn[item.index];
+              if (!entry) return null;
+              const row = entry.item;
+              const leaving = entry.phase === "exit";
+              const thread = homeRowThread(row);
+              return (
+                <div
+                  key={item.key}
+                  role={leaving || row.kind === "unsent" ? "presentation" : "listitem"}
+                  aria-hidden={leaving || undefined}
+                  inert={leaving}
+                  ref={virtualizer.measureElement}
+                  data-index={item.index}
+                  className={cn(
+                    // Inset from the sidebar's edges, with a small gap between rows: space, not
+                    // rules, separates them.
+                    "absolute inset-x-2 top-0",
+                    isTask(row)
+                      ? "pb-1"
+                      : "id" in row
+                        ? "pb-0.5"
+                        : row.kind !== "unsent" && "pb-px",
+                    // While rows slide past each other each is opaque, and the one moving up
+                    // passes over the others: a swap never shows two rows through each other.
+                    sliding && "bg-sidebar",
+                    sliding && entry.rising && "z-[1]",
                   )}
-                  {row.kind === "unsent" && <UnsentRows />}
-                  {!thread && row.kind !== "unsent" && (
-                    <SectionRow row={row} first={item.index === 0} />
+                  style={{
+                    transform: `translateY(${item.start}px)`,
+                    ...(thread && movingSet.has(thread) ? { opacity: 0.4 } : {}),
+                  }}
+                >
+                  {hints && thread && !leaving && numbers.has(thread) && (
+                    <span
+                      aria-hidden
+                      data-jump-hint=""
+                      className="pointer-events-none absolute top-1.5 -left-1.5 z-[2] grid h-4 min-w-4 place-items-center rounded-xs bg-popover px-0.5 text-2xs font-medium tabular-nums text-muted-foreground shadow-[0_0_0_1px_var(--border)]"
+                    >
+                      {numbers.get(thread)}
+                    </span>
                   )}
+                  <div className={rowMotion(entry.phase)}>
+                    {thread && machineRow(thread) ? (
+                      <MachineRow
+                        id={thread}
+                        shape={row.kind === "chat" ? "chat" : "task"}
+                        lead={rowLead(row)}
+                        leaving={leaving}
+                        settled={row.kind === "settled" || (row.kind === "chat" && row.settled)}
+                      />
+                    ) : (
+                      <>
+                        {isTask(row) && "id" in row && (
+                          <ThreadRow
+                            threadId={row.id}
+                            settled={row.kind === "settled"}
+                            dimmed={row.kind === "settled"}
+                            leaving={leaving}
+                            lead="task"
+                          />
+                        )}
+                        {row.kind === "chat" && (
+                          <ChatRow id={row.id} settled={row.settled} leaving={leaving} />
+                        )}
+                      </>
+                    )}
+                    {row.kind === "unsent" && <UnsentRows />}
+                    {!thread && row.kind !== "unsent" && (
+                      <SectionRow row={row} first={item.index === 0} />
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+          <span aria-live="polite" className="sr-only">
+            {announcement}
+          </span>
         </div>
-        <span aria-live="polite" className="sr-only">
-          {announcement}
-        </span>
-      </div>
-      {picked.length > 0 && (
-        <Suspense fallback={null}>
-          <BulkBar.Component />
-        </Suspense>
-      )}
+        {picked.length > 0 && (
+          <Suspense fallback={null}>
+            <BulkBar.Component />
+          </Suspense>
+        )}
+      </SnoozeRequestContext>
     </ManyDevices>
   );
 }
 
-/** Active's rows lead with their project (three lines; a pinned row one line, by its mark); a project's own rows line up with its name. */
+/** The Threads panel's rows lead with their project, in three lines; a chat's with nothing. */
 function rowLead(row: HomeRow): RowLead {
-  if (row.kind === "thread") return row.place === "active" ? "task" : "project";
-  return row.kind === "settled" ? "indent" : "none";
+  return isTask(row) ? "task" : "none";
 }
 
 /**

@@ -21,6 +21,7 @@ export { useOrganizeOverlay, useOverlaidEntry, useRefusedTitle } from "./overlay
 export {
   undoWindowMs,
   useThreadActions,
+  type SnoozeWakeOn,
   type ThreadActions,
   type ThreadTarget,
 } from "./use-thread-actions.ts";

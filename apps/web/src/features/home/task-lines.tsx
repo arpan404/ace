@@ -1,5 +1,6 @@
 import type { RowAttention, ThreadCard } from "@ace/ui-core";
 import type { ReactNode } from "react";
+import { PushPinIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import {
   BrowsingMark,
@@ -29,6 +30,8 @@ export function TaskLines(props: {
   actions: boolean;
   /** The title, or the rename field in its place. */
   title: ReactNode;
+  /** A settled row: its title drops to the muted ink. */
+  dimmed?: boolean | undefined;
 }) {
   const { card, attention } = props;
   return (
@@ -40,14 +43,24 @@ export function TaskLines(props: {
         )}
       >
         <ProjectMark id={props.workspaceId} badge={card.badge} />
-        <span className="min-w-0 flex-1 truncate">{card.project}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-1">
+          <span className="min-w-0 truncate">{card.project}</span>
+          {card.flags.pinned && (
+            <PushPinIcon aria-hidden size={11} className="shrink-0 text-subtle-foreground" />
+          )}
+        </span>
         <span className="flex shrink-0 items-center gap-1.5">
           <BrowsingMark threadId={card.id} />
           <ComputerUseMark threadId={card.id} />
           <RowStatus card={card} attention={attention} />
         </span>
       </div>
-      <div className={cn("mt-1 min-w-0 truncate text-md leading-5", titleTone(attention))}>
+      <div
+        className={cn(
+          "mt-1 min-w-0 truncate text-md leading-5",
+          props.dimmed ? "font-medium text-muted-foreground" : titleTone(attention),
+        )}
+      >
         {props.title}
       </div>
       <div className="mt-1">

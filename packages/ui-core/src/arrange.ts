@@ -118,9 +118,10 @@ export function arrange(
     if (isDraft(entry)) continue;
     if (isRemoteChild(entry)) continue;
     if (state.project !== null && entry.workspaceId !== state.project) continue;
-    if (entry.pinned === true) pinned.push(entry);
-    // Recovery that arises after a snooze wakes the thread (daemon); one the person snoozed stays asleep.
-    else if (entry.status.state !== "needs_you" && isSnoozed(entry, now)) snoozed.push(entry);
+    // Recovery that arises after a snooze wakes the thread (daemon); one the person snoozed stays
+    // asleep. A request always shows. A pinned thread snoozes like any other.
+    if (entry.status.state !== "needs_you" && isSnoozed(entry, now)) snoozed.push(entry);
+    else if (entry.pinned === true) pinned.push(entry);
     else if (isSettled(entry)) settled.push(entry);
     else active.push({ entry, rank: rank(entry) });
   }

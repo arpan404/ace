@@ -8,7 +8,6 @@ import { MachineScope } from "@/lib/machine-scope.tsx";
 import { machineRow, useMachineThread } from "@/lib/machine-threads.ts";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { ChatRowActions } from "./chat-row-actions.tsx";
-import { SettledRow } from "./settled-row.tsx";
 import { ThreadRow, type RowLead } from "./thread-row.tsx";
 
 /**
@@ -20,10 +19,10 @@ export function MachineRow(props: {
   id: string;
   leaving: boolean;
   /**
-   * A task row, a settled row in its project, or a chat in the Chats panel (a chat's hover
-   * actions; `settled` dims it).
+   * A Threads panel row (`settled` for one in Settled) or a chat in the Chats panel (a chat's
+   * hover actions; `settled` dims it).
    */
-  shape: "task" | "settled" | "chat";
+  shape: "task" | "chat";
   lead: RowLead;
   settled?: boolean | undefined;
 }) {
@@ -40,24 +39,16 @@ export function MachineRow(props: {
       machine={machine}
       unavailable={<AwayRow machine={machine} threadKey={ref.key} threadId={ref.threadId} />}
     >
-      {props.shape === "settled" ? (
-        <SettledRow
-          threadId={ref.threadId}
-          rowId={props.id}
-          leaving={props.leaving}
-          machine={mark}
-        />
-      ) : (
-        <ThreadRow
-          threadId={ref.threadId}
-          rowId={props.id}
-          settled={false}
-          leaving={props.leaving}
-          machine={mark}
-          lead={props.lead}
-          {...(props.shape === "chat" ? { actions: ChatRowActions, dimmed: props.settled } : {})}
-        />
-      )}
+      <ThreadRow
+        threadId={ref.threadId}
+        rowId={props.id}
+        settled={props.shape === "task" && props.settled === true}
+        dimmed={props.settled}
+        leaving={props.leaving}
+        machine={mark}
+        lead={props.lead}
+        {...(props.shape === "chat" ? { actions: ChatRowActions } : {})}
+      />
     </MachineScope>
   );
 }

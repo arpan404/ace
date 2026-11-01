@@ -31,11 +31,11 @@ import { AddProjectItem, ManageProjectItems } from "@/features/projects/index.ts
 const all = "\u0000all";
 
 /**
- * The Threads panel's title: "ace" with a small caret, which opens the project and device filter
- * (it narrows the panel to one project or device, offers actions for each project and ends with
- * Add project). While a project filter is on, its name takes the title's place; a device filter
- * adds the device's mark. Every project the daemon lists is here, with or without threads,
- * beside any project only threads still mention.
+ * The Threads panel's filter, beside its title: "Everywhere" with a small caret, which opens the
+ * project and device filter (it narrows all three tabs to one project or device, offers actions
+ * for each project and ends with Add project). While a filter is on, the project's name (else
+ * the device's) takes Everywhere's place, a device adding its mark. Every project the daemon
+ * lists is here, with or without threads, beside any project only threads still mention.
  */
 export function ProjectFilter() {
   const organizer = useOrganizer();
@@ -65,21 +65,16 @@ export function ProjectFilter() {
       <Tip label={device ? `${label} on ${device.name}` : "Filter threads"}>
         <MenuTrigger
           aria-label={`Project filter: ${label}${device ? `, Device: ${device.name}` : ""}`}
-          className="group/filter inline-flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 text-lg font-semibold tracking-title text-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-hover aria-expanded:bg-active"
+          className="group/filter inline-flex h-7 min-w-0 max-w-full items-center gap-1 rounded-md px-2 text-meta font-medium text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-hover hover:text-foreground aria-expanded:bg-active aria-expanded:text-foreground"
         >
-          <span className="min-w-0 truncate">{project !== null ? label : "ace"}</span>
-          {device && (
-            <span
-              aria-hidden
-              className="inline-flex shrink-0 items-center gap-1.5 text-sm font-normal tracking-normal text-subtle-foreground"
-            >
-              <MachineMark icon={device.icon} primary={device.primary} />
-              <span data-selected-device-name className="hidden @min-[18rem]/thread-filters:inline">
-                {deviceName}
-              </span>
-            </span>
-          )}
-          <CaretDownIcon aria-hidden size={12} className="shrink-0 text-muted-foreground" />
+          {device && <MachineMark icon={device.icon} primary={device.primary} />}
+          <span
+            className="min-w-0 truncate"
+            data-selected-device-name={project === null && device ? "" : undefined}
+          >
+            {project !== null ? label : device ? deviceName : "Everywhere"}
+          </span>
+          <CaretDownIcon aria-hidden size={10} className="shrink-0" />
         </MenuTrigger>
       </Tip>
       <MenuContent align="end" className="max-h-[60vh] min-w-64 overflow-y-auto">

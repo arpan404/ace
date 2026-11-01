@@ -1,3 +1,4 @@
+import { snoozeWakeFor } from "@ace/projection";
 import type { ThreadListEntry, WorkspaceId } from "@ace/protocol";
 import { activityOf } from "./thread-state.ts";
 
@@ -24,6 +25,8 @@ export interface OrganizePatch {
   autoSettle?: boolean;
   /** A wake time, or null to wake it now. */
   snoozedUntil?: number | null;
+  /** The event that ends the snooze sooner (`thread.snooze` `wake`), or null for a time alone. */
+  snoozeWake?: "needs_you" | "pr" | null;
   archived?: boolean;
   deleted?: boolean;
   /** The project it moves to (`thread.move`). */
@@ -62,6 +65,7 @@ export function patchEntry(
     next.settledReason = "manual";
     // Settling clears a snooze, as the daemon does.
     delete next.snoozedUntil;
+    delete next.snoozeWake;
   } else if (patch.settled === false) {
     delete next.settledAt;
     delete next.settledReason;
@@ -72,8 +76,16 @@ export function patchEntry(
     next.autoSettle = false;
     delete next.autoSettleAt;
   }
-  if (patch.snoozedUntil === null) delete next.snoozedUntil;
-  else if (patch.snoozedUntil !== undefined) next.snoozedUntil = patch.snoozedUntil;
+  if (patch.snoozedUntil === null) {
+    delete next.snoozedUntil;
+    delete next.snoozeWake;
+  } else if (patch.snoozedUntil !== undefined) next.snoozedUntil = patch.snoozedUntil;
+  if (patch.snoozeWake === null) delete next.snoozeWake;
+  else if (patch.snoozeWake !== undefined) {
+    const wake = snoozeWakeFor(entry, patch.snoozeWake);
+    if (typeof wake === "string") delete next.snoozeWake;
+    else next.snoozeWake = wake;
+  }
   if (patch.archived === true) next.archivedAt = at;
   else if (patch.archived === false) delete next.archivedAt;
   if (patch.deleted) next.deletedAt = at;
@@ -115,6 +127,7 @@ export function reflects(
     (patch.settled === undefined || (entry.settledAt !== undefined) === patch.settled) &&
     (patch.autoSettle === undefined || (entry.autoSettle !== false) === patch.autoSettle) &&
     (patch.snoozedUntil === undefined || (entry.snoozedUntil ?? null) === patch.snoozedUntil) &&
+    (patch.snoozeWake === undefined || (entry.snoozeWake?.on ?? null) === patch.snoozeWake) &&
     (patch.archived === undefined || (entry.archivedAt !== undefined) === patch.archived) &&
     (patch.deleted === undefined || entry.deletedAt !== undefined) &&
     (patch.workspaceId === undefined || entry.workspaceId === patch.workspaceId)

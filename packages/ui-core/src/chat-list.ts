@@ -1,7 +1,7 @@
 import type { ThreadListEntry } from "@ace/protocol";
 import { isDraft, isRemoteChild, isRemoved, pinOrderOf } from "./arrange.ts";
 import type { ChatDay, HomeRow } from "./home-rows.ts";
-import { atRest, atWork, needsPerson, type Standing } from "./home-tree.ts";
+import { atRest, atWork, needsPerson, type Standing } from "./threads-panel.ts";
 import { activityOf, isSettled } from "./thread-state.ts";
 
 /*

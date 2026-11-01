@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { firstLaunch } from "./first-launch.ts";
 import { readJson, writeJson, type KeyValueStorage } from "./storage.ts";
+import type { ThreadsTab } from "./threads-panel.ts";
 
 /*
  * How this device shows the Home list. Settle, snooze, pin, read state, titles and deletion
  * belong to the daemon (ADR 0057) and arrive on each thread list entry; what stays here is
- * view state: the unread baseline of a first launch, the project filter, and which of the
- * Threads panel's projects and disclosures are folded or open.
+ * view state: the unread baseline of a first launch, the project and device filters, and which
+ * of the Threads panel's tabs (Inbox, Snoozed, Settled) is open.
  */
 
 /** The daemon's auto-settle window (`threads.autoSettleAfter`). */
@@ -22,11 +23,8 @@ const Stored = z.object({
   device: z.string().optional().catch(undefined),
   /** The Chats panel's own device filter, apart from Threads'; absent is every device. */
   chatDevice: z.string().optional().catch(undefined),
-  snoozedOpen: z.boolean().catch(false),
-  /** Projects the person folded (`projectFold`). */
-  collapsed: z.array(z.string().max(4200)).max(500).catch([]),
-  /** Quiet projects (only settled threads) shown at the foot of Projects. */
-  quietOpen: z.boolean().catch(false),
+  /** The Threads panel's open tab. */
+  tab: z.enum(["inbox", "snoozed", "settled"]).catch("inbox"),
 });
 type Stored = z.infer<typeof Stored>;
 
@@ -45,9 +43,7 @@ export class Organizer {
     const fresh: Stored = {
       baseline: firstLaunch(storage, now),
       project: null,
-      snoozedOpen: false,
-      collapsed: [],
-      quietOpen: false,
+      tab: "inbox",
     };
     const stored = readJson(storage, storageKey, Stored, fresh);
     this.state = stored;
@@ -69,16 +65,9 @@ export class Organizer {
   setChatDevice(chatDevice: string | undefined): void {
     this.set({ chatDevice });
   }
-  setSnoozedOpen(snoozedOpen: boolean): void {
-    this.set({ snoozedOpen });
-  }
-  /** Fold or unfold a project (`projectFold`). */
-  setFolded(key: string, folded: boolean): void {
-    const rest = this.state.collapsed.filter((each) => each !== key);
-    this.set({ collapsed: folded ? [...rest, key] : rest });
-  }
-  setQuietOpen(quietOpen: boolean): void {
-    this.set({ quietOpen });
+  /** Open one of the Threads panel's tabs. */
+  setTab(tab: ThreadsTab): void {
+    if (tab !== this.state.tab) this.set({ tab });
   }
   private set(patch: Partial<Stored>): void {
     this.state = { ...this.state, ...patch };
@@ -86,15 +75,13 @@ export class Organizer {
     this.emit();
   }
   private persist(): void {
-    const { baseline, project, device, chatDevice, snoozedOpen, collapsed, quietOpen } = this.state;
+    const { baseline, project, device, chatDevice, tab } = this.state;
     writeJson(this.storage, storageKey, {
       baseline,
       project,
       device,
       chatDevice,
-      snoozedOpen,
-      collapsed,
-      quietOpen,
+      tab,
     } satisfies Stored);
   }
   private emit(): void {

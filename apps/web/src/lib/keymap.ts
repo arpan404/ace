@@ -155,6 +155,15 @@ export const keymap = {
   // The Home thread list (features/home): plain keys on the focused row.
   "home.pin": { keys: "p", label: "Pin or unpin the focused thread", scope: "home" },
   "home.select": { keys: "x", label: "Select the focused thread", scope: "home" },
+  "home.settle": { keys: "e", label: "Settle the focused thread", scope: "home" },
+  "home.snooze": { keys: "h", label: "Snooze the focused thread", scope: "home" },
+  "home.tabs": {
+    keys: "1",
+    also: ["2", "3"],
+    label: "Inbox, Snoozed or Settled",
+    scope: "home",
+    fixed: true,
+  },
   "home.move": {
     keys: "space",
     label: "Move the focused thread (↑ ↓ to choose, Space to drop)",

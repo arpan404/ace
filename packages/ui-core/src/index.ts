@@ -77,7 +77,7 @@ export * from "./first-launch.ts";
 export * from "./chat-list.ts";
 export * from "./home-history.ts";
 export * from "./home-rows.ts";
-export * from "./home-tree.ts";
+export * from "./threads-panel.ts";
 export * from "./list-selection.ts";
 export * from "./pin-drag.ts";
 export * from "./pin-order.ts";
