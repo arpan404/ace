@@ -185,17 +185,27 @@ export function FileDiffBlock(props: {
                 {file.status}
               </span>
             )}
-            <DiffStat
-              additions={file.additions}
-              deletions={file.deletions}
-              className="ml-auto shrink-0 text-sm"
-            />
+            {file.binary ? (
+              <span className="ml-auto shrink-0 font-sans text-xs text-subtle-foreground">
+                binary
+              </span>
+            ) : (
+              <DiffStat
+                additions={file.additions}
+                deletions={file.deletions}
+                className="ml-auto shrink-0 text-sm"
+              />
+            )}
           </button>
           {props.actions}
         </div>
         {open && props.body}
         {open && props.body === undefined && !file.rows.length && (
-          <p className="px-3.5 py-2 text-xs text-subtle-foreground">No text changes to show.</p>
+          <p className="px-3.5 py-2 text-xs text-subtle-foreground">
+            {file.binary
+              ? "Binary file: there are no lines to review."
+              : "No text changes to show."}
+          </p>
         )}
         {open && props.body === undefined && renderer !== "dom" && !asText && (
           <Suspense fallback={<Spinner label="Loading the diff renderer" className="m-3.5" />}>

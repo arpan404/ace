@@ -109,7 +109,8 @@ export const ReviewedFile = memo(function ReviewedFile(props: {
           viewed={props.viewed}
           open={view.open}
           onOpen={(open) => handlers.setView(file.path, { ...view, open })}
-          onViewed={(next) => handlers.setViewed(file, next, view)}
+          // A binary file has nothing to review, so nothing to mark viewed.
+          onViewed={file.binary ? undefined : (next) => handlers.setViewed(file, next, view)}
         />
       }
       highlighted={(target) =>
@@ -119,7 +120,9 @@ export const ReviewedFile = memo(function ReviewedFile(props: {
         )
       }
       selection={writing}
-      onComment={props.commentable ? (range) => handlers.comment(file, range) : undefined}
+      onComment={
+        props.commentable && !file.binary ? (range) => handlers.comment(file, range) : undefined
+      }
       onExtend={(range) => {
         if (composition) handlers.extend(composition, file, range);
       }}
