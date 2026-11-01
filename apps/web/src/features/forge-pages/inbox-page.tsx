@@ -1,3 +1,4 @@
+import { BellIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useLocation } from "@tanstack/react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -6,13 +7,12 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { Screen } from "@/features/shell/index.ts";
-import { cn } from "@/lib/cn.ts";
 import { repositoryParam } from "@/lib/pull-request-route.ts";
 import { useClock } from "@/lib/time.ts";
 import { FiltersMenu } from "./filters-menu.tsx";
+import { ForgeList } from "./forge-list.tsx";
 import { inboxKey, useInboxPages, useInboxWrites } from "./inbox-data.ts";
 import { reasonChoices, repositoryChoices, type InboxSearch } from "./inbox-model.ts";
 import { InboxRow } from "./inbox-row.tsx";
@@ -47,7 +47,6 @@ export function InboxPage(props: {
   // The unfiltered first page the sidebar polls: shared with it, and it keeps the filters'
   // choices whole. With a filter on, the page therefore polls twice: the filtered list and this.
   const everything = useInboxPages(project, {}, 1);
-  const keys = useViewListKeys<HTMLElement>();
   const cache = useQueryClient();
   const toast = useToast();
   const openWeb = useOpenWebAddress();
@@ -190,52 +189,47 @@ export function InboxPage(props: {
           />
         )
       ) : (
-        <nav
-          aria-label="Notifications"
-          aria-busy={list.stale}
-          {...keys}
-          className={cn(
-            "pb-6",
-            list.stale && "opacity-60 transition-opacity duration-(--motion-fast)",
-          )}
-        >
-          <ul>
-            {list.rows.map((row) => {
-              const repo = repositoryParam(row.repository);
-              return (
-                <InboxRow
-                  key={row.id}
-                  row={row}
-                  to={{
-                    project,
-                    repo: repo.toLowerCase() === own?.toLowerCase() ? undefined : repo,
-                    back: `/inbox${listAddress}`,
-                  }}
-                  onOpenWeb={open}
-                  onWrite={(action) =>
-                    void (async () => {
-                      // Unsubscribing also clears the thread from the inbox, as on GitHub.
-                      const sent = await writes.write({ action, id: row.id });
-                      if (sent && action === "unsubscribe")
-                        await writes.write({ action: "done", id: row.id });
-                    })()
-                  }
-                />
-              );
-            })}
-          </ul>
-          {list.more && (
-            <div className="px-(--forge-gutter) pt-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setPaging({ key: listKey, pages: pages + 1 })}
-              >
-                Show more
-              </Button>
-            </div>
-          )}
-        </nav>
+        <ForgeList
+          label="Notifications"
+          stale={list.stale}
+          groups={[
+            {
+              id: "all",
+              label: "Notifications",
+              icon: BellIcon,
+              count: undefined,
+              headed: false,
+              rows: list.rows,
+            },
+          ]}
+          rowKey={(row) => row.id}
+          rowTitle={(row) => row.title}
+          estimate={61}
+          renderRow={(row, _group, last) => {
+            const repo = repositoryParam(row.repository);
+            return (
+              <InboxRow
+                row={row}
+                to={{
+                  project,
+                  repo: repo.toLowerCase() === own?.toLowerCase() ? undefined : repo,
+                  back: `/inbox${listAddress}`,
+                }}
+                onOpenWeb={open}
+                onWrite={(action) =>
+                  void (async () => {
+                    // Unsubscribing also clears the thread from the inbox, as on GitHub.
+                    const sent = await writes.write({ action, id: row.id });
+                    if (sent && action === "unsubscribe")
+                      await writes.write({ action: "done", id: row.id });
+                  })()
+                }
+                last={last}
+              />
+            );
+          }}
+          onMore={list.more ? () => setPaging({ key: listKey, pages: pages + 1 }) : undefined}
+        />
       )}
     </ListFrame>
   );

@@ -27,10 +27,9 @@ import { useProjectDialogs } from "@/features/projects/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { Screen } from "@/features/shell/index.ts";
-import { cn } from "@/lib/cn.ts";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
+import { ForgeList } from "./forge-list.tsx";
 import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { ListFrame } from "./list-frame.tsx";
@@ -41,7 +40,6 @@ import { useMergeRun } from "./merge-run.ts";
 import { MergeStrip } from "./merge-strip.tsx";
 import { useRowSteps } from "./row-steps.ts";
 import { projectSection, useProjectChoice, type ProjectChoice } from "./project-choice.ts";
-import { GroupHeader } from "./row-parts.tsx";
 
 const groupIcons = {
   authored: UserIcon,
@@ -208,7 +206,6 @@ export function PullRequestsPage(props: {
     query,
   }).data;
   const linked = useLinkedThreads().pulls;
-  const keys = useViewListKeys<HTMLElement>();
   const verify = useVerifyRuns(project);
   const runs = verify.data?.runs ?? noRuns;
   const steps = useRowSteps({
@@ -330,54 +327,41 @@ export function PullRequestsPage(props: {
       ) : !list.rows.length ? (
         <EmptyState title="No pull requests match" />
       ) : (
-        <nav
-          aria-label="Pull requests"
-          aria-busy={list.stale}
-          {...keys}
-          className={cn(
-            "pb-6",
-            list.stale && "opacity-60 transition-opacity duration-(--motion-fast)",
+        <ForgeList
+          label="Pull requests"
+          stale={list.stale}
+          groups={groups.map((group) => ({
+            id: group.id,
+            label: group.label,
+            icon: groupIcons[group.id as keyof typeof groupIcons] ?? UsersIcon,
+            count: count(group),
+            headed: groups.length > 1 || group.id !== "all",
+            rows: group.rows,
+          }))}
+          rowKey={(row) =>
+            `${row.ref.repository.owner}/${row.ref.repository.name}#${row.ref.number}`
+          }
+          rowTitle={(row) => row.title}
+          estimate={61}
+          renderRow={(row, group, last) => (
+            <PrRow
+              project={project}
+              back={listAddress}
+              row={row}
+              thread={linked.get(workKey(row.ref.repository, row.ref.number))}
+              local={steps.stepOf(row).local}
+              step={steps.view(row, group === "merge" ? merge : undefined)}
+              selected={group === "merge" && merge.isPicked(row)}
+              last={last}
+            />
           )}
-        >
-          {groups.map((group) => (
-            <section key={group.id} aria-label={group.label}>
-              {groups.length > 1 || group.id !== "all" ? (
-                <GroupHeader
-                  icon={groupIcons[group.id as keyof typeof groupIcons] ?? UsersIcon}
-                  label={group.label}
-                  count={count(group)}
-                />
-              ) : null}
-              <ul>
-                {group.rows.map((row) => (
-                  <PrRow
-                    key={`${row.ref.repository.owner}/${row.ref.repository.name}#${row.ref.number}`}
-                    project={project}
-                    back={listAddress}
-                    row={row}
-                    thread={linked.get(workKey(row.ref.repository, row.ref.number))}
-                    local={steps.stepOf(row).local}
-                    step={steps.view(row, group.id === "merge" ? merge : undefined)}
-                    selected={group.id === "merge" && merge.isPicked(row)}
-                  />
-                ))}
-              </ul>
-            </section>
-          ))}
-          {list.more && (
-            <div className="px-(--forge-gutter) pt-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() =>
+          onMore={
+            list.more
+              ? () =>
                   byReadiness ? ranked.loadMore() : setPaging({ key: listKey, pages: pages + 1 })
-                }
-              >
-                Show more
-              </Button>
-            </div>
-          )}
-        </nav>
+              : undefined
+          }
+        />
       )}
     </ListFrame>
   );

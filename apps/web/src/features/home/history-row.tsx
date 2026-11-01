@@ -23,12 +23,13 @@ function Row(props: {
 }) {
   const now = useNow();
   return (
-    <li className="border-b border-border">
+    <div className="border-b border-border">
       <Link
         to="/t/$threadId"
         params={{ threadId: props.threadId }}
         aria-label={props.label}
         data-history-row=""
+        data-view-row=""
         className={row}
       >
         <span className="min-w-0">
@@ -44,7 +45,7 @@ function Row(props: {
           {historyDate(props.at, now)}
         </span>
       </Link>
-    </li>
+    </div>
   );
 }
 

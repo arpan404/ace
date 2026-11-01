@@ -2,6 +2,7 @@ import { sketchPullRequests, workbench, type PrSketch } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { listGroup, listGroups } from "@/test/list-groups.ts";
 import { harness } from "@/test/harness.tsx";
 
 const minute = 60_000;
@@ -39,17 +40,17 @@ function withBusyRepository() {
 
 /** A group's heading: its name and GitHub's total for it. */
 const heading = (name: string) =>
-  within(screen.getByRole("region", { name })).getByRole("heading").textContent;
+  listGroups(screen.getByRole("navigation", { name: "Pull requests" })).find(
+    (group) => group.name === name,
+  )?.heading.textContent;
 
 async function groups() {
   const nav = await screen.findByRole("navigation", { name: "Pull requests" });
   return Object.fromEntries(
-    within(nav)
-      .getAllByRole("region")
-      .map((section) => [
-        section.getAttribute("aria-label"),
-        within(section).queryAllByRole("link").length,
-      ]),
+    listGroups(nav).map((group) => [
+      group.name,
+      group.rows.flatMap((row) => within(row).queryAllByRole("link")).length,
+    ]),
   );
 }
 
@@ -57,7 +58,10 @@ test("a ready pull request older than the first page still leads the list", asyn
   const app = withBusyRepository();
   await app.open("/pulls?project=ace");
   await waitFor(async () => expect(await groups()).toEqual({ "Ready to merge": 1, Waiting: 25 }));
-  const ready = within(await screen.findByRole("region", { name: "Ready to merge" }));
+  const ready = listGroup(
+    await screen.findByRole("navigation", { name: "Pull requests" }),
+    "Ready to merge",
+  );
   expect(ready.getByRole("link", { name: /Old but ready/ })).toBeTruthy();
   // 25 of the 30 waiting are loaded: a group counts its rows once every page is read.
   expect(heading("Waiting")).toBe("Waiting");

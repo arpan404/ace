@@ -7,25 +7,43 @@ import { rowText } from "./row-text.ts";
  * does: the rows under a heading, until the next one.
  */
 
-const named = (text: string, name: string | RegExp) =>
-  typeof name === "string" ? text === name : name.test(text);
+/** A heading's own words: its text without a count or other element beside them. */
+function ownText(heading: Element): string {
+  return [...heading.childNodes]
+    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent ?? "")
+    .join("")
+    .trim();
+}
 
-/** The rows of `list` under the heading row named `heading`, as mounted now. */
-export function rowsUnder(list: HTMLElement, heading: string | RegExp): HTMLElement[] {
+/** Each heading row of `list`, as mounted now, with its name and the rows under it. */
+export function listGroups(
+  list: HTMLElement,
+): { name: string; heading: HTMLElement; rows: HTMLElement[] }[] {
   const box = list.matches('[role="list"]')
     ? list
     : list.querySelector<HTMLElement>('[role="list"]');
-  const rows: HTMLElement[] = [];
-  let inside = false;
+  const groups: { name: string; heading: HTMLElement; rows: HTMLElement[] }[] = [];
   for (const item of box?.querySelectorAll<HTMLElement>(":scope > [data-index]") ?? []) {
-    const title = item.querySelector("h1, h2, h3, h4, [role='heading']");
-    if (title) {
-      inside = named(rowText(title).trim(), heading);
-      continue;
-    }
-    if (inside) rows.push(item);
+    const heading = item.querySelector<HTMLElement>("h1, h2, h3, h4, [role='heading']");
+    if (heading)
+      groups.push({ name: ownText(heading) || rowText(heading).trim(), heading, rows: [] });
+    else groups.at(-1)?.rows.push(item);
   }
-  return rows;
+  return groups;
+}
+
+/** A heading is named by its own words ("Waiting") or by all of them ("Personal · 3"). */
+const named = (group: { name: string; heading: HTMLElement }, name: string | RegExp) => {
+  const full = rowText(group.heading).trim();
+  return typeof name === "string"
+    ? group.name === name || full === name
+    : name.test(group.name) || name.test(full);
+};
+
+/** The rows of `list` under the heading row named `heading`, as mounted now. */
+export function rowsUnder(list: HTMLElement, heading: string | RegExp): HTMLElement[] {
+  return listGroups(list).find((group) => named(group, heading))?.rows ?? [];
 }
 
 /** Queries over the rows under one heading, as `within` gives over an element. */
@@ -48,6 +66,12 @@ export function listGroup(list: HTMLElement, heading: string | RegExp) {
       return found;
     },
     queryAllByRole: all,
+    queryByRole: (role: string, options?: ByRoleOptions): HTMLElement | null => {
+      const found = all(role, options);
+      if (found.length > 1)
+        throw new Error(`${found.length} ${role} rows under "${String(heading)}" match`);
+      return found[0] ?? null;
+    },
     findByRole: (role: string, options?: ByRoleOptions) => waitFor(() => getByRole(role, options)),
     findByText: (text: string | RegExp) =>
       waitFor(() => {

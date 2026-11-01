@@ -64,6 +64,8 @@ export function InboxRow(props: {
   to: InboxRowTarget;
   onOpenWeb(url: string): void;
   onWrite(action: "read" | "done" | "unsubscribe"): void;
+  /** The last of the list: no rule under it. */
+  last?: boolean | undefined;
 }) {
   const { row, to } = props;
   const target = inboxTarget(row);
@@ -123,7 +125,7 @@ export function InboxRow(props: {
     </>
   );
   return (
-    <li className="group/row relative border-b border-border last:border-b-0">
+    <div className={cn("group/row relative", !props.last && "border-b border-border")}>
       {target.kind === "web" ? (
         <button
           type="button"
@@ -169,6 +171,6 @@ export function InboxRow(props: {
           />
         )}
       </span>
-    </li>
+    </div>
   );
 }
