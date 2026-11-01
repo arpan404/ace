@@ -18,6 +18,9 @@ export type MappingContext = {
   foldsSummary?: (uuid: string) => boolean;
 };
 export type Mapped = { item: Item; message: boolean };
+/** A token count a transcript reports, when it is one. */
+const tokenCount = (count: unknown): number | undefined =>
+  typeof count === "number" && Number.isInteger(count) && count >= 0 ? count : undefined;
 /** File transcripts differ from live notifications. Keep unmapped records as hidden raw entries. */
 export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapped> {
   const r = object(value);
@@ -315,10 +318,8 @@ export function* mapHistory(value: unknown, ctx: MappingContext): Generator<Mapp
     const uuid = string(p.uuid);
     const summary = uuid ? ctx.compactSummary?.(uuid) : undefined;
     const meta = object(p.compactMetadata);
-    const count = (value: unknown) =>
-      typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
-    const before = count(meta.preTokens);
-    const after = count(meta.postTokens);
+    const before = tokenCount(meta.preTokens);
+    const after = tokenCount(meta.postTokens);
     yield {
       item: Item.parse({
         ...base(),
