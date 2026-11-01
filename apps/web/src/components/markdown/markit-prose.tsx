@@ -61,7 +61,14 @@ interface ProseProps {
   streaming?: boolean | undefined;
   className?: string | undefined;
   thread?: { threadId: string; cwd?: string; itemId?: string } | undefined;
+  /**
+   * Forge text (PR and issue bodies, comments): draws `@name`, `#12` and commit hashes as links
+   * (markit's GitHub flavour), and gives the address each one opens.
+   */
+  forgeReference?: ForgeReferenceAddress | undefined;
 }
+
+type ForgeReferenceAddress = (reference: { kind: string; target: string }) => string | undefined;
 
 interface MarkitCallbacks {
   onLink: (url: string) => void;
@@ -84,6 +91,7 @@ interface LinkActions {
   openFile?: ((path: string) => void) | undefined;
   /** A file an answer names (`socket.ts:3`), found in the thread's checkout. */
   openMention?: ((target: string) => void) | undefined;
+  forgeReference?: ForgeReferenceAddress | undefined;
 }
 
 /** Link and reference handling shared by every prose surface. */
@@ -110,8 +118,10 @@ function linkCallbacks(
   return {
     onLink,
     onSystemLink: (url, click) => void actions.openWeb(url, click).catch(() => {}),
-    onReference: ({ kind, target }) =>
-      kind === "file" ? actions.openMention?.(target) : onLink(target),
+    onReference: (reference) => {
+      if (reference.kind === "file") return actions.openMention?.(reference.target);
+      onLink(actions.forgeReference?.(reference) ?? reference.target);
+    },
   };
 }
 
@@ -152,6 +162,7 @@ function MarkitView(props: {
   stream: string;
   className?: string | undefined;
   callbacks: MarkitCallbacks;
+  flavor: "agent" | "github";
 }) {
   // The message reads as plain text until markit's first render replaces it, so an answer is
   // never blank: not while the worker starts, and not if it cannot run at all.
@@ -160,7 +171,7 @@ function MarkitView(props: {
   const sentFinal = useRef(false);
   const markit = useMarkit({
     workerURL: markitWorkerPath(),
-    flavor: proseFlavor,
+    flavor: props.flavor,
     code: codeChrome,
     onLink: props.callbacks.onLink,
     onReference: props.callbacks.onReference,
@@ -268,12 +279,13 @@ function MarkitPlainProse(props: ProseProps) {
   const openPullRequest = useContext(PullRequestOpener);
   const openIssue = useContext(IssueOpener);
   const openThread = useThreadNavigation();
+  const { forgeReference } = props;
   const callbacks = useMemo(
     () => ({
-      ...linkCallbacks({ openWeb, openPullRequest, openIssue, openThread }),
+      ...linkCallbacks({ openWeb, openPullRequest, openIssue, openThread, forgeReference }),
       resolveImage: (url: string, _alt: string, signal: AbortSignal) => pageImage(url, signal),
     }),
-    [openWeb, openPullRequest, openIssue, openThread],
+    [openWeb, openPullRequest, openIssue, openThread, forgeReference],
   );
   return (
     <MarkitView
@@ -282,6 +294,7 @@ function MarkitPlainProse(props: ProseProps) {
       stream={fallbackStream(props)}
       className={props.className}
       callbacks={callbacks}
+      flavor={forgeReference ? "github" : proseFlavor}
     />
   );
 }
@@ -405,6 +418,7 @@ function MarkitThreadProse(
       stream={fallbackStream(props)}
       className={props.className}
       callbacks={callbacks}
+      flavor={proseFlavor}
     />
   );
 }
