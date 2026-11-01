@@ -28,12 +28,6 @@ async function touchPage() {
 }
 
 describe.skipIf(!executablePath)("the person's touches in ace's headless Chrome", () => {
-  it("lays the page out as a touch screen after a touch-screen resize", async () => {
-    const { evaluate } = await touchPage();
-    expect(await evaluate("matchMedia('(pointer: coarse)').matches")).toBe(true);
-    expect(await evaluate("navigator.maxTouchPoints > 0")).toBe(true);
-  }, 60_000);
-
   it("a tap clicks the element under the finger", async () => {
     const { evaluate, touch, until } = await touchPage();
     const box = await evaluate(

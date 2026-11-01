@@ -65,28 +65,28 @@ describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () =
     const ownAgent = String(await f.evaluate("navigator.userAgent"));
     const read = () =>
       f.evaluate(
-        "[innerWidth, navigator.userAgent, navigator.maxTouchPoints > 0, navigator.userAgentData?.mobile === true]",
+        "[innerWidth, navigator.userAgent, navigator.maxTouchPoints > 0, navigator.userAgentData?.mobile === true, matchMedia('(pointer: coarse)').matches]",
       );
     const desktop = { kind: "human", connectionId: "desktop" } as const;
     const phone = { kind: "human", connectionId: "phone" } as const;
     await f.service.execute("thread", { action: "resize", width: 1200, height: 800 }, desktop);
-    expect(await read()).toEqual([1200, ownAgent, false, false]);
+    expect(await read()).toEqual([1200, ownAgent, false, false, false]);
 
     const size = { action: "resize", width: 390, height: 700, touch: true, devicePixelRatio: 3 };
     await f.service.execute("thread", size, phone);
-    const [width, agent, touch, mobile] = z
-      .tuple([z.number(), z.string(), z.boolean(), z.boolean()])
+    const [width, agent, touch, mobile, coarse] = z
+      .tuple([z.number(), z.string(), z.boolean(), z.boolean(), z.boolean()])
       .parse(await read());
-    expect([width, touch, mobile]).toEqual([390, true, true]);
+    expect([width, touch, mobile, coarse]).toEqual([390, true, true, true]);
     expect(agent).toMatch(/Android.*Chrome\/\d+\.0\.0\.0 Mobile Safari/);
     expect(agent).not.toContain("Headless");
 
     // Turned sideways the phone is still a phone.
     await f.service.execute("thread", { ...size, width: 700, height: 390 }, phone);
-    expect(await read()).toEqual([700, agent, true, true]);
+    expect(await read()).toEqual([700, agent, true, true, true]);
 
     f.service.disconnect("phone");
-    await expect.poll(read, { timeout: 10_000 }).toEqual([1200, ownAgent, false, false]);
+    await expect.poll(read, { timeout: 10_000 }).toEqual([1200, ownAgent, false, false, false]);
   }, 60_000);
 
   it("an agent's resize is listed as the agent's size, for the person's view to follow", async () => {

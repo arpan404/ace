@@ -45,12 +45,16 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
       timeout: 30_000,
       interval: 200,
     });
+    // A new browser took the dead one's place, and the thread is ready in it.
+    expect((await chromeProcesses(f.home)).browser).not.toBe(browser);
+    expect(f.service.state("thread")).toMatchObject({ status: "ready", closed: false });
     const failure = await agent.failure("browser_act", { action: "type", ref: name, text: "lost" });
     expect(failure.code).toBe("browser_restarted");
     expect(failure.hint).toMatch(/fresh snapshot/);
     // A fresh snapshot is the way back.
     const fresh = refNamed(agent.raw(await agent.ok("browser_snapshot")), "Name");
     await agent.ok("browser_act", { action: "type", ref: fresh, text: "after restart" });
+    expect(await f.evaluate("document.querySelector('input').value")).toBe("after restart");
   }, 60_000);
 
   it("explains a recording that was never started or is already running", async () => {

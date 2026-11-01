@@ -7,7 +7,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
 import type { CdpSend } from "./cdp-connection.ts";
 import { chromeProcesses } from "./chrome-test-process.ts";
-import { executablePath, fixture, ref } from "./test-support.ts";
+import { executablePath, fixture, ref, sharedFixture } from "./test-support.ts";
 
 const exec = promisify(execFile);
 const Attached = z.object({
@@ -146,22 +146,6 @@ describe.skipIf(!executablePath)("ace's Chrome over a pipe", () => {
     );
   }, 60_000);
 
-  it("restarts a killed browser and reopens the thread's page", async () => {
-    const f = await fixture();
-    await f.execute({ action: "navigate", url: `${f.url}/?restarted` });
-    const first = await browserPid(f.home);
-    process.kill(first, "SIGKILL");
-    await vi.waitFor(async () => expect(await f.evaluate("location.search")).toBe("?restarted"), {
-      timeout: 30_000,
-      interval: 200,
-    });
-    expect(await browserPid(f.home)).not.toBe(first);
-    expect(f.service.state("thread")).toMatchObject({ status: "ready", closed: false });
-    const snapshot = await f.execute({ action: "snapshot" });
-    await f.execute({ action: "type", ref: ref(snapshot, "Name"), text: "after restart" });
-    expect(await f.evaluate("document.querySelector('input').value")).toBe("after restart");
-  }, 60_000);
-
   it("fails a command with no reply at its deadline while later commands still run", async () => {
     const f = await fixture({ chrome: { commandTimeoutMs: 1_000 } });
     await f.navigate();
@@ -196,7 +180,7 @@ describe.skipIf(!executablePath)("ace's Chrome over a pipe", () => {
   );
 
   it("types key chords the way a keyboard does", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const name = ref(await f.execute({ action: "snapshot" }), "Name");
     await f.execute({ action: "press", ref: name, key: "Shift+a" });

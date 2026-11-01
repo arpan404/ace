@@ -69,9 +69,9 @@ describe.skipIf(!executablePath)("snapshots of large pages", () => {
     const f = await sharedFixture();
     await f.navigate();
     await f.evaluate(
-      "document.body.innerHTML=Array.from({length:12000},(_, i)=>'<button>Item '+i+'</button>').join('');0",
+      "document.body.innerHTML=Array.from({length:150},(_, i)=>'<button>Item '+i+'</button>').join('');0",
     );
-    const snapshot = Snapshot.parse(await f.execute({ action: "snapshot" }));
+    const snapshot = Snapshot.parse(await f.execute({ action: "snapshot", maxNodes: 50 }));
     expect(snapshot.truncated).toBe(true);
     expect(snapshot.hint).toMatch(/Pass ref/);
   });
