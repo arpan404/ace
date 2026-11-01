@@ -65,9 +65,11 @@ function stat(label: string) {
   return term.nextElementSibling?.textContent;
 }
 
+/** Everything is on one page; Cost and Tokens switch what Spend and Where it went count. */
 async function show(view: "Cost" | "Tokens" | "Limits") {
+  if (view === "Limits") return;
   await userEvent.click(
-    within(await screen.findByRole("group", { name: "View" })).getByRole("button", { name: view }),
+    within(await screen.findByRole("group", { name: "Show" })).getByRole("button", { name: view }),
   );
 }
 
@@ -84,7 +86,7 @@ test("limits say what is left, from the share the provider reports used", async 
   // An account with nothing left says when it is back.
   const work = await accountBlock("Claude Code", "Work");
   expect(work.textContent).toContain("0% left");
-  expect(work.textContent).toContain("Back in 3h");
+  expect(work.textContent).toContain("back in 3h");
   expect(document.body.textContent).not.toMatch(/\d+% used/);
 });
 
@@ -123,7 +125,7 @@ test("each account is listed once, with each of its windows beneath it", async (
   ]);
 });
 
-test("a window used faster than it runs says it is ahead of pace", async () => {
+test("only a window used faster than it runs says so; one on pace says nothing", async () => {
   const app = harness();
   // Four of five hours left with half used: running out early. A week barely used: room to spare.
   report(app.daemon, "codex-personal", {
@@ -133,7 +135,8 @@ test("a window used faster than it runs says it is ahead of pace", async () => {
   await app.open("/usage");
   const personal = await accountBlock("Codex", "Personal");
   expect(within(personal).getByText("Ahead of pace")).toBeTruthy();
-  expect(within(personal).getByText("Under pace")).toBeTruthy();
+  expect(within(personal).getAllByText("Ahead of pace")).toHaveLength(1);
+  expect(personal.textContent).not.toContain("On pace");
 });
 
 test("a window whose reset passed since its reading keeps its place and says how old it is", async () => {
@@ -238,7 +241,7 @@ test("Refresh asks each environment for current limits and shows what comes back
     "60",
   );
   report(app.daemon, "codex-personal", { five_hour: [10, hour] }, 3);
-  await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await userEvent.click(screen.getByRole("button", { name: "Refresh limits" }));
   await waitFor(async () =>
     expect((await meter("Codex", "Personal", "Session (5h)")).getAttribute("aria-valuenow")).toBe(
       "90",
@@ -247,47 +250,51 @@ test("Refresh asks each environment for current limits and shows what comes back
   expect((await accountBlock("Codex", "Personal")).textContent).toContain("3 banked resets");
 });
 
-test("the range and the provider filter change the totals", async () => {
+test("the range and a provider in the legend change the totals", async () => {
   const app = harness();
   app.daemon.services.usage.sources = [
     source("claude", "claude-personal", "claude-opus-4-6", 15),
     source("codex", "codex-personal", "gpt-5.3-codex", 5),
   ];
   await app.open("/usage");
-  await show("Tokens");
-  await userEvent.click(await screen.findByRole("button", { name: "7 days" }));
-  await waitFor(() => expect(stat("Processed tokens")).toBe("1.4M"));
+  await userEvent.click(await screen.findByRole("button", { name: "Today" }));
+  await waitFor(() => expect(stat("Tokens")).toBe("200K"));
 
   await userEvent.click(screen.getByRole("button", { name: "30 days" }));
-  await waitFor(() => expect(stat("Processed tokens")).toBe("6M"));
+  await waitFor(() => expect(stat("Tokens")).toBe("6M"));
 
-  await userEvent.click(screen.getByRole("button", { name: "Provider: All providers" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Codex" }));
-  await waitFor(() => expect(stat("Processed tokens")).toBe("3M"));
-  expect(screen.queryByRole("listitem", { name: "Claude Code" })).toBeNull();
+  const legend = screen.getByRole("list", { name: "By provider" });
+  await userEvent.click(within(legend).getByRole("button", { name: /^Codex/ }));
+  await waitFor(() => expect(stat("Tokens")).toBe("3M"));
+  expect(screen.getByText("Showing Codex only")).toBeTruthy();
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("list", { name: "By provider" })).queryByRole("button", {
+        name: /^Claude Code/,
+      }),
+    ).toBeNull(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+  await waitFor(() => expect(stat("Tokens")).toBe("6M"));
 });
 
-test("a model without a price reads Unpriced and folds away in money, never a $0.00 cost", async () => {
+test("a model without a price reads Unpriced in money, never a $0.00 cost", async () => {
   const app = harness();
   app.daemon.services.usage.sources = [
     source("codex", "codex-personal", "gpt-5.3-codex", 5),
     source("opencode", "opencode-api", "opencode/kimi-k2", null),
   ];
   await app.open("/usage");
-  await show("Tokens");
-  const table = await screen.findByRole("table", { name: /Tokens by model/ });
-  const kimi = within(table).getByText("Kimi K2").closest("tr");
+  const models = await screen.findByRole("group", { name: "By model" });
+  const kimi = (await within(models).findByText("Kimi K2")).closest("button");
   expect(kimi && within(kimi).getByText("Unpriced")).toBeTruthy();
-
-  await show("Cost");
-  expect(await screen.findByRole("table", { name: /Cost by model/ })).toBeTruthy();
   expect(
-    within(screen.getByRole("listitem", { name: "OpenCode" })).getByText("Unpriced"),
+    within(screen.getByRole("list", { name: "By provider" })).getByRole("button", {
+      name: /^OpenCode Unpriced/,
+    }),
   ).toBeTruthy();
-  const costs = screen.getByRole("table", { name: /Cost by model/ });
-  expect(within(costs).queryByText("Kimi K2")).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: /Show 1 unpriced model/ }));
-  expect(within(costs).getByText("Kimi K2")).toBeTruthy();
+  await show("Tokens");
+  expect(within(kimi ?? document.body).queryByText("Unpriced")).toBeNull();
   expect(document.body.textContent).not.toContain("Unavailable");
 });
 
@@ -307,19 +314,18 @@ test("the environment filter shows every connected environment, or just the one 
   expect(await screen.findByRole("article", { name: "Codex · Team · Build server" })).toBeTruthy();
   expect(await screen.findByRole("article", { name: "Codex · Personal · This Mac" })).toBeTruthy();
 
-  await userEvent.click(screen.getByRole("button", { name: "Environment: All environments" }));
+  await userEvent.click(screen.getByRole("button", { name: "Machine: All machines" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Build server" }));
   await waitFor(() =>
     expect(screen.queryByRole("article", { name: /^Codex · Personal/ })).toBeNull(),
   );
   expect((await meter("Codex", "Team", "Session (5h)")).getAttribute("aria-valuenow")).toBe("50");
 
-  await show("Tokens");
-  await userEvent.click(await screen.findByRole("button", { name: "7 days" }));
-  await waitFor(() => expect(stat("Processed tokens")).toBe("700K"));
-  await userEvent.click(screen.getByRole("button", { name: "Environment: Build server" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "All environments" }));
-  await waitFor(() => expect(stat("Processed tokens")).toBe("1.4M"));
+  await userEvent.click(await screen.findByRole("button", { name: "Today" }));
+  await waitFor(() => expect(stat("Tokens")).toBe("100K"));
+  await userEvent.click(screen.getByRole("button", { name: "Machine: Build server" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "All machines" }));
+  await waitFor(() => expect(stat("Tokens")).toBe("200K"));
 });
 
 test("an account shows the plan its provider reports beside its environment", async () => {
@@ -372,12 +378,12 @@ test("using a banked reset requires confirmation and refreshes the account's bal
   report(app.daemon, "codex-personal", { "codex:primary": [100, hour, 300] }, 2);
   await app.open("/usage");
   const account = await accountBlock("Codex", "Personal");
-  await userEvent.click(within(account).getByRole("button", { name: "Use reset" }));
+  await userEvent.click(within(account).getByRole("button", { name: "Use one" }));
   const dialog = await screen.findByRole("dialog", { name: "Use one banked reset?" });
   expect(within(account).getByText("2 banked resets")).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(within(account).getByText("2 banked resets")).toBeTruthy();
-  await userEvent.click(within(account).getByRole("button", { name: "Use reset" }));
+  await userEvent.click(within(account).getByRole("button", { name: "Use one" }));
   await userEvent.click(
     within(await screen.findByRole("dialog")).getByRole("button", { name: "Use reset" }),
   );
@@ -394,7 +400,7 @@ test("Claude's saved resets are visible with a route to its usage settings even 
   const account = await accountBlock("Claude Code", "Personal");
   expect(within(account).getByText("2 banked resets")).toBeTruthy();
   expect(
-    within(account).getByRole("link", { name: "Use reset in Claude" }).getAttribute("href"),
+    within(account).getByRole("link", { name: "Use one in Claude" }).getAttribute("href"),
   ).toBe("https://claude.ai/settings/usage");
 });
 
@@ -408,7 +414,7 @@ test("redeeming a remote account's reset spends only that environment's balance"
   const remoteBlock = await screen.findByRole("article", {
     name: "Codex · Personal · Build server",
   });
-  await userEvent.click(within(remoteBlock).getByRole("button", { name: "Use reset" }));
+  await userEvent.click(within(remoteBlock).getByRole("button", { name: "Use one" }));
   await userEvent.click(
     within(await screen.findByRole("dialog")).getByRole("button", { name: "Use reset" }),
   );
@@ -424,10 +430,10 @@ test("the total says how it grew against the same number of days before the rang
   const app = harness();
   const usage = app.daemon.services.usage;
   const answer = usage.report.bind(usage);
-  const thisWeek = now - 7 * day;
-  // Twice the tokens this week as the week before.
+  const thisMonth = now - 30 * day;
+  // Twice the tokens these 30 days as the 30 before.
   usage.report = (query, kind) => {
-    const scale = Date.parse(query.from) >= thisWeek ? 2 : 1;
+    const scale = Date.parse(query.from) >= thisMonth ? 2 : 1;
     usage.sources = [
       { ...source("codex", "codex-personal", "gpt-5.3-codex", 5), daily: 80_000 * scale },
     ];
@@ -435,30 +441,25 @@ test("the total says how it grew against the same number of days before the rang
   };
   await app.open("/usage");
   await show("Tokens");
-  await userEvent.click(await screen.findByRole("button", { name: "7 days" }));
   await waitFor(() =>
-    expect(screen.getByTestId("usage-growth").textContent).toBe("+100% vs previous 7 days"),
+    expect(screen.getByTestId("usage-total").textContent).toContain(
+      "100.0% more than the previous 30 days",
+    ),
   );
-  expect(
-    within(screen.getByRole("listitem", { name: "Codex" })).getByLabelText("+100% growth"),
-  ).toBeTruthy();
 });
 
-test("the figures name every machine they count, and one that goes offline is named, not dropped", async () => {
+test("the figures count every machine, and one that goes offline is named, not dropped", async () => {
   const app = harness({ machines: [{ hostId: "build-server", name: "Build server" }] });
   const server = app.machines.get("build-server");
   if (!server) throw new Error("no build server");
   app.daemon.services.usage.sources = [source("codex", "codex-personal", "gpt-5.3-codex", 5)];
   server.services.usage.sources = [source("codex", "codex-team", "gpt-5.3-codex", 5)];
   await app.open("/usage");
-  await waitFor(() =>
-    expect(screen.getByTestId("usage-coverage").textContent).toBe("All 2 machines"),
-  );
 
-  await show("Tokens");
-  await userEvent.click(await screen.findByRole("button", { name: "7 days" }));
-  await waitFor(() => expect(stat("Processed tokens")).toBe("1.4M"));
-  expect(screen.getByTestId("usage-coverage").textContent).toBe("All 2 machines");
+  await userEvent.click(await screen.findByRole("button", { name: "Today" }));
+  await waitFor(() => expect(stat("Tokens")).toBe("200K"));
+  // With every machine counted, the machine filter says it all; no coverage line.
+  expect(screen.queryByTestId("usage-coverage")).toBeNull();
 
   app.crashMachine("build-server");
   await waitFor(() =>
@@ -466,11 +467,104 @@ test("the figures name every machine they count, and one that goes offline is na
       "1 of 2 machines · Build server is offline",
     ),
   );
-  await waitFor(() => expect(stat("Processed tokens")).toBe("700K"));
+  await waitFor(() => expect(stat("Tokens")).toBe("100K"));
 
-  await show("Limits");
   expect(screen.getByTestId("usage-coverage").textContent).toBe(
     "1 of 2 machines · Build server is offline",
   );
   expect(screen.queryByRole("article", { name: /· Build server$/ })).toBeNull();
+});
+
+test("Now names the tightest provider and offers to make a fresher account the default", async () => {
+  const app = harness();
+  for (const account of app.daemon.services.accounts) account.quota.windows = {};
+  report(app.daemon, "claude-personal", { five_hour: [62, 121 * minute, 300] });
+  report(app.daemon, "claude-work", { five_hour: [0, 300 * minute, 300] });
+  report(app.daemon, "codex-personal", { five_hour: [10, 4 * hour, 300] });
+  await app.open("/usage");
+  await waitFor(() =>
+    expect(screen.getByTestId("usage-now").textContent).toBe(
+      "You have room on every provider. Claude Code is the tightest: 38% of the session left, out in about 2h at this pace.",
+    ),
+  );
+  const suggestion = screen.getByTestId("usage-suggestion");
+  expect(suggestion.textContent).toContain("Its Work account has a fresh session.");
+  await userEvent.click(
+    within(suggestion).getByRole("button", {
+      name: "Make Work the default for new Claude threads",
+    }),
+  );
+  await waitFor(() => expect(screen.queryByTestId("usage-suggestion")).toBeNull());
+  expect(
+    within(await accountBlock("Claude Code", "Work")).getByText("Used for new threads"),
+  ).toBeTruthy();
+});
+
+test("Now says who is out on every account and when they're back", async () => {
+  const app = harness();
+  for (const account of app.daemon.services.accounts) account.quota.windows = {};
+  report(app.daemon, "codex-personal", { five_hour: [100, 88 * minute, 300] });
+  report(app.daemon, "codex-team", { five_hour: [100, 150 * minute, 300] });
+  await app.open("/usage");
+  await waitFor(() =>
+    expect(screen.getByTestId("usage-now").textContent).toBe(
+      "Codex is out on every account; it's back in 1h 28m.",
+    ),
+  );
+});
+
+test("clicking a row in Where it went filters the whole page to it, and Clear undoes it", async () => {
+  const app = harness();
+  app.daemon.services.usage.sources = [
+    source("claude", "claude-personal", "claude-opus-4-6", 15),
+    source("codex", "codex-personal", "gpt-5.3-codex", 5),
+  ];
+  await app.open("/usage");
+  await waitFor(() => expect(stat("Tokens")).toBe("6M"));
+  const roles = await screen.findByRole("group", { name: "Main agents and subagents" });
+  const subagents = within(roles).getByRole("button", { name: /^Subagents/ });
+  await userEvent.click(subagents);
+  expect(await screen.findByText("Showing Subagents only")).toBeTruthy();
+  await waitFor(() => expect(stat("Tokens")).not.toBe("6M"));
+  // The other lists are narrowed too: every role row but the chosen one is gone.
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("group", { name: "Main agents and subagents" }))
+        .getAllByRole("button")
+        .map((row) => row.getAttribute("aria-pressed")),
+    ).toEqual(["true"]),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+  await waitFor(() => expect(stat("Tokens")).toBe("6M"));
+});
+
+test("token types with none fold into one quiet line instead of zero rows", async () => {
+  const app = harness();
+  const usage = app.daemon.services.usage;
+  usage.sources = [source("codex", "codex-personal", "gpt-5.3-codex", 5)];
+  // A period with no cache writes at all.
+  const answer = usage.report.bind(usage);
+  usage.report = (query, kind) => {
+    const result = answer(query, kind);
+    for (const row of result.rows)
+      Object.assign(row.totals, {
+        cacheWriteTokens: 0,
+        cacheWrite1hTokens: 0,
+        apiCacheWriteUsd: 0,
+      });
+    return result;
+  };
+  await app.open("/usage");
+  const table = await screen.findByRole("table", { name: "Tokens and cost by type" });
+  expect(within(table).queryByRole("rowheader", { name: /Cache writes/ })).toBeNull();
+  expect(screen.getByText("No cache writes in this period.")).toBeTruthy();
+});
+
+test("Spend and Tokens say where prices come from and when they were updated", async () => {
+  const app = harness();
+  app.daemon.services.usage.sources = [source("codex", "codex-personal", "gpt-5.3-codex", 5)];
+  await app.open("/usage");
+  const note = await screen.findAllByText(/^Prices from LiteLLM, updated \w+ \d+, \d{4}$/);
+  // Once under the Spend chart, once under the Tokens table.
+  expect(note).toHaveLength(2);
 });

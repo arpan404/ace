@@ -15,6 +15,8 @@ import {
   machineJobs,
 } from "./machine-tables.ts";
 
+import { retiredWorkflowMigration } from "./retired-workflow-migration.ts";
+
 const migrations = [
   `CREATE TABLE events (
     seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, thread_id TEXT NOT NULL,
@@ -158,6 +160,7 @@ const migrations = [
   machineJobs,
   // Threads an agent opened with thread_start name their starter, backfilled from the journal.
   conversationStartedBy,
+  retiredWorkflowMigration,
   // Remote children's proof of life and stops in progress (ADR 0052), backfilled from their rows.
   machineChildLiveness,
 ];

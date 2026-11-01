@@ -139,7 +139,7 @@ test("Threads in the rail says a thread needs the person only while they are els
   expect(place("Threads").querySelector('[data-tone="needs-you"]')).toBeNull();
 });
 
-test("the profile menu holds the account, Usage and connection actions", async () => {
+test("the profile menu holds the account and connection actions; Usage is a rail place", async () => {
   await harness().open("/new");
   await title("New thread");
   await openProfileMenu();
@@ -152,18 +152,14 @@ test("the profile menu holds the account, Usage and connection actions", async (
   await title("New thread");
 
   const account = await openProfileMenu();
-  // Settings, Automations and Skills are places in the rail, so the menu doesn't repeat them.
+  // Settings, Usage, Automations and Skills are places in the rail, so the menu doesn't repeat them.
   expect(
     within(account)
       .getAllByRole("menuitem")
       .map((item) => item.textContent),
-  ).toEqual([
-    expect.stringMatching(/^Usage/),
-    "Archived threads",
-    expect.stringMatching(/^Keyboard shortcuts/),
-    "Connection",
-  ]);
-  await userEvent.click(within(account).getByRole("menuitem", { name: "Usage" }));
+  ).toEqual(["Archived threads", expect.stringMatching(/^Keyboard shortcuts/), "Connection"]);
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(place(/^Usage/));
   await title("Usage");
   expect(list("Threads")).toBeTruthy();
   // GitHub opens Pull requests first; its panel lists its three pages.
@@ -214,10 +210,15 @@ test("the profile menu closes on Escape and gives focus back to the profile", as
   expect(document.activeElement).toBe(button(/^You, account/));
 });
 
-test("Search in the sidebar opens the launcher over the current screen", async () => {
+test("⌘K opens the launcher over the current screen, with All projects as the Threads title", async () => {
   await harness().open("/new");
   await title("New thread");
-  await userEvent.click(screen.getByRole("button", { name: "Search" }));
+  // The Threads title row is the filter itself: All projects, no Search icon.
+  const filter = screen.getByRole("button", { name: "Project filter: All projects" });
+  expect(filter.textContent).toBe("All projects");
+  const panel = screen.getByRole("complementary", { name: "Threads" });
+  expect(within(panel).queryByRole("button", { name: "Search" })).toBeNull();
+  await userEvent.keyboard("{Meta>}k{/Meta}");
   const dialog = await screen.findByRole("dialog", { name: "Command palette" });
   // Focus lands in its field, ready to type.
   await waitFor(() =>
@@ -230,15 +231,19 @@ test("Search in the sidebar opens the launcher over the current screen", async (
   expect(screen.getByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
 });
 
-test("New thread is the pencil after Search in the Threads panel's title row", async () => {
+test("New thread is the pencil beside the filter title in the Threads panel's title row", async () => {
   await workbenchApp().open("/new");
   await title("New thread");
-  const search = screen.getByRole("button", { name: "Search" });
-  const row = search.parentElement;
+  const filter = screen.getByRole("button", { name: "Project filter: All projects" });
+  expect(filter.textContent).toBe("All projects");
+  const panel = screen.getByRole("complementary", { name: "Threads" });
+  // No Search icon in this row: New thread is the only icon on the right.
+  expect(within(panel).queryByRole("button", { name: "Search" })).toBeNull();
+  const row = filter.closest('[data-slot="panel-top"]');
   if (!row) throw new Error("No title row");
-  // In the title row beside Search, after it, as a glyph alone: no full-width row of words.
-  const start = within(row).getByRole("link", { name: "New thread" });
-  expect(search.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // In the title row beside the filter title, after it, as a glyph alone.
+  const start = within(row as HTMLElement).getByRole("link", { name: "New thread" });
+  expect(filter.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(start.textContent).toBe("");
   const threads = screen.getByRole("navigation", { name: "Threads" });
   expect(within(threads).queryByRole("link", { name: "New thread" })).toBeNull();
@@ -420,7 +425,7 @@ test("settled threads leave the Inbox, and the Settled tab lists every one of th
     await app.client.command({ type: "thread.settle", threadId: ThreadId.parse(`task-${index}`) });
   await app.open("/new");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
-  await userEvent.click(await nav.findByRole("tab", { name: "Settled" }));
+  await userEvent.click(await nav.findByRole("tab", { name: /^Settled/ }));
   // All seven at once: no project folds them behind Show more.
   await waitFor(() => expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(7));
   expect(nav.queryByRole("button", { name: /^Show / })).toBeNull();

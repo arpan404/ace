@@ -349,7 +349,7 @@ always-loaded tools duplicated something Claude already has:
   and its schemas in the result were never usable directly. Claude's own search ranks the same
   names and descriptions; its guidance line now says to load ace tools "by task or exact name".
 - `guide` returned the same bodies as the skills Claude lists; Claude's guidance says to use the
-  skill wherever ace says `guide <topic>`. Offshift, which is not a skill, loads `guide` by name.
+  skill wherever ace says `guide <topic>`.
 - `wait` serves only a later collection: `delegate {waitSeconds}` waits in the same call.
 
 Each still loads by exact name in one step. Antigravity has neither a search nor skills, so its

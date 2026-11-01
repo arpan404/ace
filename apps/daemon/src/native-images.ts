@@ -1,3 +1,4 @@
+import { decodeStoredItem } from "./stored-decode.ts";
 import { isAbsolute, resolve, relative, extname, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ThreadId, Item, type Attachment } from "@ace/protocol";
@@ -161,7 +162,7 @@ export function observeNativeImages(
     const floor = Math.max(0, end - sliceRows);
     for (const row of candidates().all(end, floor)) {
       const thread = String(row.thread_id);
-      const item = Item.parse(JSON.parse(String(row.item)));
+      const item = decodeStoredItem(JSON.parse(String(row.item)));
       const key = `${thread}:${item.id}`;
       if (!nativePath(item) || active.has(key) || pending.has(key)) continue;
       if (pending.size >= 256) return Number(row.position) + 1;

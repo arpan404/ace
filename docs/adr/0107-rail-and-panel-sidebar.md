@@ -18,7 +18,7 @@ front end, which is not live yet.
 - **Rail + panel.** The sidebar is a 52px rail of places beside a panel that shows the current
   place. Top to bottom the rail holds Threads, Spade, Code review, Automations and Skills; then free
   space, the app's update when there is one, Settings and the profile avatar (its menu keeps
-  Usage, Archived threads, Keyboard shortcuts and Connection). Each place is a bare glyph in a
+  Archived threads, Keyboard shortcuts and Connection; Usage moved to the rail, see below). Each place is a bare glyph in a
   40px rounded box; the current one takes the `--active` fill. (The unified frame below moves
   the rail under the window's top bar.)
 - **Each panel owns its title row.** The panel's first row is the place's title and actions
@@ -303,6 +303,31 @@ says what to do next.
     and the needs-you counts and notifications leave out only snoozes to a time the person
     chose (`isSnoozedToTime`). The rail's Threads dot already counted snoozed threads that need
     the person and still does; a request always shows in the Inbox, whatever the snooze.
+
+## Usage in the rail
+
+2026-11-01, owner-approved design (mockups `usage-approved`, icon option B). Usage left the
+profile menu and became a place in the rail's foot, above Settings (after the app's update).
+
+- **The glyph is the state.** A tiny bar chart, one bar per account, up to four: the accounts
+  used most in the last seven days first, then the rest with a reading in the page's order, so
+  one account draws one bar and four or more fill the icon (owner, 2026-11-01, after trying a
+  bar per provider and pins). A bar is that account's WEEKLY room left, not its session: nearly
+  every account reports a week, so the icon can show four, and the week is what lasts. An
+  account with no weekly window shows its longest one (Gemini's daily quota); a window whose
+  reset passed since its last reading counts as fresh (`railUsage` / `railWindow` in ui-core).
+  The card and the page keep speaking per provider about the session, with a provider's pooled
+  headroom being its best account's (`usageHeadroom`). Bars are 3px with round ends over a quiet
+  track in the glyph's ink, amber under 20%, red at 0 with a short stub so a spent week never
+  vanishes. With nothing read, three empty tracks show quietly. Its spoken name says the state
+  ("Usage: Codex · Personal 78% of the week left, Claude Code · Personal 59%").
+- **Hover or focus opens a card** (`glass-thin`): one sentence on the tightest provider (its
+  forecast from the pace so far, its reset), then per provider the account new threads use, its
+  account count, and Session and Weekly mini bars; "Updated … ago" and "Open Usage ›". It reads
+  the app's live accounts subscription; the seven-day ranking is read again only when a limit
+  changes, never on a timer.
+- The rail marks Usage current on `/usage`. The page is one scroll: Now, Limits, Spend, Tokens
+  and Where it went, cardless, with a row in Where it went filtering the whole page.
 
 ## Consequences
 

@@ -1,6 +1,7 @@
 import {
   MachineCommandJobsResult,
   MachineDelegateResult,
+  MachineDescription,
   MachineMessageResult,
   MachineSessionResult,
   MachineStatusResult,
@@ -113,6 +114,7 @@ export class MachineCaller {
     const origin = await this.origin(caller.threadId);
     // The pairing the child is delegated through: once it is gone, the child can't be reached.
     const device = this.deps.directory.device(machine);
+    if (request.accountId) await this.takesAccounts(machine, origin, signal);
     const call = {
       op: "delegate" as const,
       requestId: request.requestId,
@@ -121,6 +123,7 @@ export class MachineCaller {
       role: request.role,
       provider: request.provider,
       ...(request.model ? { model: request.model } : {}),
+      ...(request.accountId ? { account: request.accountId } : {}),
     };
     let answer: { threadId: ThreadId; title: string; queued?: boolean | undefined } | undefined;
     // The target keys creation by requestId, so one retry after a dropped connection is safe.
@@ -150,6 +153,32 @@ export class MachineCaller {
       device,
     });
     return answer.threadId;
+  }
+  /**
+   * A machine on a build from before accounts crossed machines would run the child on its own
+   * default account, so naming one there is refused here with what to do instead.
+   */
+  private async takesAccounts(machine: string, origin: MachineCallOrigin, signal: AbortSignal) {
+    let description: MachineDescription;
+    try {
+      description = MachineDescription.parse(
+        await this.deps.directory.call(
+          machine,
+          origin,
+          { op: "describe" },
+          {
+            timeoutMs: 15_000,
+            signal,
+          },
+        ),
+      );
+    } catch (error) {
+      signal.throwIfAborted();
+      throw this.deps.directory.controlError(machine, error);
+    }
+    if (description.delegateAccounts) return;
+    const detail = `${description.name} runs an older ace that can't choose an account. Update ace there, or omit accountId to use its default account.`;
+    throw new AgentControlError("not_supported", detail, undefined, detail);
   }
   /**
    * Stops the child (ADR 0052): final and bounded. The children's ledger sends the cancel to its

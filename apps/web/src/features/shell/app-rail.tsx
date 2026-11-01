@@ -73,13 +73,15 @@ function ThreadPlace(props: {
 /**
  * The sidebar's rail, under the window's top bar: the app's places as bare glyphs, Threads (the
  * folders glyph: it lists projects), Chats (the speech bubbles) and Spade (not live yet), a short hairline, then
- * Code review, Automations and Skills; Settings, the app's update when there is one, and the profile
- * at the foot. The current place takes the active fill: Chats while a chat is open, Threads for
+ * Code review, Automations and Skills; the app's update when there is one, Usage, Settings and the
+ * profile at the foot. The current place takes the active fill: Chats while a chat is open, Threads for
  * any other thread. Off Threads or Chats, a dot on its glyph says one of its own threads waits.
  */
 export function AppRail(props: {
   /** Code review's place, which knows its own counts; current while one of its pages is open. */
   forge?: ((current: boolean) => ReactNode) | undefined;
+  /** Usage's place in the foot, its bars and card; current while the Usage page is open. */
+  usage?: ((current: boolean) => ReactNode) | undefined;
 }) {
   const current = useRailPlace();
   const signals = usePlaceSignals();
@@ -125,6 +127,7 @@ export function AppRail(props: {
         ))}
         <span className="flex-1" />
         <UpdateButton />
+        {props.usage?.(current === "usage")}
         <Tip label="Settings" shortcut="settings">
           <Link
             to="/settings"

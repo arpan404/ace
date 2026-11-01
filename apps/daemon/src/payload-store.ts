@@ -1,3 +1,4 @@
+import { decodeStoredItem, decodeStoredPayload } from "./stored-decode.ts";
 import { StreamingBlobs } from "./streaming-blobs.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -72,7 +73,9 @@ export class PayloadStore {
     try {
       for (const row of this.statement("SELECT * FROM events ORDER BY seq").iterate()) {
         const input: unknown = JSON.parse(String(row.payload));
-        const parsed = EventPayload.safeParse(input);
+        let parsed = EventPayload.safeParse(input);
+        if (!parsed.success && !LegacyShellPayload.safeParse(input).success)
+          parsed = EventPayload.safeParse(decodeStoredPayload(input));
         const threadId = ThreadId.parse(row.thread_id);
         let payload: EventPayload;
         if (parsed.success) payload = parsed.data;
@@ -185,7 +188,7 @@ export class PayloadStore {
         if (p.field === "output") throw new Error("Output needs a shell item");
         return;
       }
-      const item = Item.parse(JSON.parse(String(row.item)));
+      const item = decodeStoredItem(JSON.parse(String(row.item)));
       if (p.field === "output" && item.type === "tool_call" && item.call.detail.kind === "shell") {
         const streamId = item.call.detail.output?.streamId ?? outputStreamId(item.id);
         this.statement(

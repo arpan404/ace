@@ -2,6 +2,7 @@ import { TransferHost } from "@/features/transfers/index.ts";
 import { TransferOpenerProvider } from "@/lib/transfer-opener.ts";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { ForgeButton } from "@/components/forge-button.tsx";
+import { UsageLink } from "@/components/usage-bars.tsx";
 import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter, useRouterState } from "@tanstack/react-router";
@@ -154,9 +155,27 @@ function ForgeNav(props: { forgeOpen: boolean }) {
 }
 const forgeNav = (forgeOpen: boolean) => <ForgeNav forgeOpen={forgeOpen} />;
 
-/** The sidebar with what other slices own: the thread list and Code review's place in the rail. */
+/** Usage's place in the rail with its bars and card, loaded after the first paint. */
+const UsagePlaceLoaded = deferredComponent(() =>
+  import("@/features/usage/index.ts").then((m) => m.UsagePlace),
+);
+
+/** Usage in the rail's foot; until its code arrives, a plain link with empty bars. */
+function UsageNav(props: { current: boolean }) {
+  const plain = <UsageLink current={props.current} />;
+  return (
+    <LocalBoundary label="Usage button" fallback={plain}>
+      <Suspense fallback={plain}>
+        <UsagePlaceLoaded.Component current={props.current} />
+      </Suspense>
+    </LocalBoundary>
+  );
+}
+const usageNav = (current: boolean) => <UsageNav current={current} />;
+
+/** The sidebar with what other slices own: the thread list, Code review's and Usage's places. */
 function ShellSidebar() {
-  return <AppSidebar threads={threads} forge={forgeNav} />;
+  return <AppSidebar threads={threads} forge={forgeNav} usage={usageNav} />;
 }
 
 function ShellHotkeys() {

@@ -38,9 +38,7 @@ import {
 
 export type ExtensionOperation = Extract<
   AgentControlOperation,
-  {
-    op: "automation.manage" | "offshift" | "thread.handoff" | "preview.list" | "preview.close";
-  }
+  { op: "automation.manage" | "thread.handoff" | "preview.list" | "preview.close" }
 >;
 export type ThreadOwnerOperation = Extract<
   AgentControlOperation,
@@ -581,7 +579,6 @@ export function createAgentControlPort(
       case "thread.merge":
         return forks.merge(caller, operation);
       case "automation.manage":
-      case "offshift":
       case "thread.handoff":
       case "preview.list":
       case "preview.close":

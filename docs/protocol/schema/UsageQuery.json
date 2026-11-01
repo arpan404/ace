@@ -52,7 +52,7 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/UsageDimension.json"
       },
-      "maxItems": 7,
+      "maxItems": 10,
       "type": "array"
     },
     "limit": {

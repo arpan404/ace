@@ -78,6 +78,12 @@ const entries = [
     keywords: ["terminal", "shell", "bottom panel", "side panel", "dock", "location"],
   },
   {
+    id: "usage.railMeasure",
+    page: "/settings/general",
+    title: "Usage bars",
+    keywords: ["usage", "rail", "limits", "session", "weekly", "week", "quota"],
+  },
+  {
     id: "editor.default",
     page: "/settings/general",
     title: "Open files in",

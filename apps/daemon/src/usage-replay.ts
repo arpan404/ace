@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { UsageEvent } from "@ace/usage";
+import { turnCarryingOrigins } from "@ace/projection/turn-boundary";
+import { UsageEvent, maxSkills } from "@ace/usage";
 
 const Options = z.object({
   afterSeq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
@@ -43,8 +44,26 @@ const usageFields = [
 ];
 let usage = `json_object('type',type,'agentId',${text(field("agentId"))},'inputTokens',${field("inputTokens")},'outputTokens',${field("outputTokens")})`;
 for (const key of usageFields) usage = optional(usage, key, key);
+const present = (path: string) => `COALESCE(json_type(payload, '$.${path}'),'null')<>'null'`;
+const delegation = (base: string) =>
+  `(${["delegatedBy", "delegatedFrom", "startedBy"].map((key) => present(`${base}${key}`)).join(" OR ")})`;
+// A root ask (ADR 0062's turn rule), the same messages compactEvent's `turn.asked` keeps.
+const asks = `${field("item.type")}='message' AND ${field("item.role")}='user'
+  AND COALESCE(${field("item.synthetic")},0)=0 AND json_type(payload,'$.item.inherited') IS NULL
+  AND COALESCE(${field("item.origin.kind")},'') NOT IN (${turnCarryingOrigins.map((kind) => `'${kind}'`).join(",")})`;
+const skills = `(SELECT json_group_array(name) FROM (
+  SELECT DISTINCT json_extract(part.value,'$.name') AS name FROM json_each(payload,'$.item.parts') AS part
+  WHERE json_extract(part.value,'$.type')='mention' AND json_extract(part.value,'$.kind')='skill'
+    AND json_type(part.value,'$.name')='text' AND length(CAST(json_extract(part.value,'$.name') AS BLOB)) BETWEEN 1 AND 8192
+  LIMIT ${maxSkills}))`;
+const automation = `${field("item.origin.kind")}='automation' AND json_type(payload,'$.item.origin.role')='text'
+  AND length(CAST(${field("item.origin.role")} AS BLOB)) BETWEEN 1 AND 8192`;
+const asked = `json_set(json_object('type','turn.asked','agent',${text(field("item.agentId"))},'skills',json(${skills})),
+  CASE WHEN ${automation} THEN '$.automation' ELSE '$._unused' END, ${field("item.origin.role")})`;
 const payload = `CASE type
-  WHEN 'thread.created' THEN json_object('type',type,'workspace',COALESCE(${text(field("thread.workspaceId"))},''),'provider',${text(field("thread.provider"))})
+  WHEN 'thread.created' THEN json_object('type',type,'workspace',COALESCE(${text(field("thread.workspaceId"))},''),'provider',${text(field("thread.provider"))},'delegated',json(CASE WHEN ${delegation("thread.")} THEN 'true' ELSE 'false' END))
+  WHEN 'thread.updated' THEN json_object('type','thread.delegated')
+  WHEN 'item.created' THEN ${asked}
   WHEN 'agent.created' THEN json_object('type',type,'id',${text(field("agent.id"))},'parent',${text(field("agent.parentId"))},'model',${text(field("agent.model"))},'provider',${text(field("agent.native.provider"))})
   WHEN 'agent.updated' THEN ${agentUpdate}
   WHEN 'run.started' THEN json_object('type',type,'agent',${text(field("run.agentId"))},'run',COALESCE(${text(field("run.id"))},'omitted-run:'||seq))
@@ -52,8 +71,10 @@ const payload = `CASE type
 const eventEntry = `json_object('seq',seq,'at',at,'threadId',${text("thread_id")},'payload',json(${payload}))`;
 const deletionEntry = `json_object('seq',seq,'at',at,'threadId',${text("thread_id")},'payload',json_object('type','thread.deleted'))`;
 const types = "('thread.created','agent.created','agent.updated','run.started','usage.updated')";
+// Item and thread updates are many; only asks and delegation links cross into the projection.
+const relevant = `(type IN ${types} OR (type='thread.updated' AND ${delegation("")}) OR (type='item.created' AND ${asks}))`;
 const entries = `WITH entries AS (
-  SELECT seq, ${eventEntry} AS entry FROM events WHERE seq>? AND seq<=? AND type IN ${types}
+  SELECT seq, ${eventEntry} AS entry FROM events WHERE seq>? AND seq<=? AND ${relevant}
   UNION ALL
   SELECT seq, ${deletionEntry} FROM usage_deletions WHERE seq>? AND seq<=?
 )`;
@@ -71,8 +92,7 @@ export class UsageReplay {
     this.sizes = db.prepare(
       `${entries} SELECT seq, length(CAST(entry AS BLOB)) AS bytes FROM entries ORDER BY seq`,
     );
-    this.entry =
-      db.prepare(`SELECT ${eventEntry} AS entry FROM events WHERE seq=? AND type IN ${types}
+    this.entry = db.prepare(`SELECT ${eventEntry} AS entry FROM events WHERE seq=? AND ${relevant}
       UNION ALL SELECT ${deletionEntry} FROM usage_deletions WHERE seq=?`);
   }
   read(input: unknown, headSeq: number): { throughSeq: number; events: UsageEvent[] } {

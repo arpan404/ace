@@ -173,9 +173,6 @@
     "readAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
-    "run": {
-      "$ref": "https://ace.local/protocol/v1/OffshiftRunMark.json"
-    },
     "settleWhenDone": {
       "const": true,
       "type": "boolean"
