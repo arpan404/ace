@@ -33,6 +33,11 @@ export interface Checkout {
   /** Commits the remote branch doesn't have (0 when there is no upstream yet). */
   ahead: number;
   behind: number;
+  /**
+   * The remote-tracking branch (`origin/fix`), null when the branch was never pushed, undefined
+   * when the daemon didn't say.
+   */
+  upstream?: string | null | undefined;
   repository: ForgeRepository | undefined;
   pr: CheckoutPr | undefined;
 }
@@ -63,6 +68,7 @@ export function checkoutOf(
     deletions: details.diff?.deletions ?? 0,
     ahead: details.ahead ?? 0,
     behind: details.behind ?? 0,
+    upstream: details.upstream,
     repository: details.repository,
     pr: linkedPr(details.linkedPrs?.[0], status),
   };
@@ -130,4 +136,26 @@ export function checkoutNote(checkout: Checkout): string | undefined {
   if (ahead > 0) return `${commits(ahead)} not pushed`;
   if (behind > 0) return `${commits(behind)} to pull`;
   return undefined;
+}
+
+/**
+ * The branch against its remote in words, for the details card's sync row: "Up to date with
+ * origin", "2 to push", "3 behind origin", "2 to push · 3 behind origin", "Not pushed yet".
+ */
+export function syncWords(checkout: Checkout): string {
+  if (!checkout.branch) return "Not on a branch";
+  if (checkout.upstream === null) return "Not pushed yet";
+  // A daemon that didn't name the upstream compared against origin, where the PR's remote is.
+  const remote = checkout.upstream?.split("/")[0] || "origin";
+  const { ahead, behind } = checkout;
+  if (ahead > 0 && behind > 0) return `${ahead} to push · ${behind} behind ${remote}`;
+  if (ahead > 0) return `${ahead} to push`;
+  if (behind > 0) return `${behind} behind ${remote}`;
+  return `Up to date with ${remote}`;
+}
+
+/** The uncommitted changes as a quiet value: "No changes", "1 file", "3 files". */
+export function uncommittedWords(checkout: Pick<Checkout, "changed">): string {
+  if (checkout.changed === 0) return "No changes";
+  return `${checkout.changed} ${checkout.changed === 1 ? "file" : "files"}`;
 }

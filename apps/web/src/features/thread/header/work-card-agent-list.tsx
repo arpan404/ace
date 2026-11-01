@@ -1,8 +1,8 @@
 import type { ThreadReader } from "@ace/client";
 import { arrayEqual, useAgent, useThread } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
-import { agentName, agentWorkState, isActivelyRunning } from "@ace/ui-core";
-import { useCallback, useState, type ReactNode } from "react";
+import { agentName, agentTally, agentTallyParts, agentWorkState } from "@ace/ui-core";
+import { Fragment, useCallback, useState, type ReactNode } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useTreeWork } from "@/features/panels/index.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
@@ -17,7 +17,9 @@ const page = 5;
 
 /**
  * The Agents section: `children` (a parent row) above the parent agent's subagents, running
- * first, settled behind their own toggle. Nothing to show, no section.
+ * first, settled behind their own toggle. The toggle counts what happened to the whole group,
+ * what still runs or waits first ("2 working · 25 finished · 1 failed"): an agent with work
+ * pending under it is never counted finished. Nothing to show, no section.
  */
 export function AgentListSection(props: {
   threadId: string;
@@ -43,23 +45,17 @@ export function AgentListSection(props: {
     if (state.running || state.needsYou) running.push(agent);
     else settled.push(agent);
   }
-  const failed = settled.filter((agent) => agent.status.state === "failed").length;
   const [opened, setOpen] = useState<boolean>();
-  // A settled agent on screen keeps its row in view: Completed starts open around it.
+  // A settled agent on screen keeps its row in view: its toggle starts open around it.
   const open = opened ?? settled.some((agent) => agent.id === props.self);
   const [allRunning, setAllRunning] = useState(false);
   const [allSettled, setAllSettled] = useState(false);
   if (running.length + settled.length === 0 && !props.children) return null;
-  const active = running.filter(isActivelyRunning).length;
-  const waiting = running.length - active;
-  const counts = [active ? `${active} running` : "", waiting ? `${waiting} waiting` : ""].filter(
-    Boolean,
-  );
-  const title = counts.length ? `Agents · ${counts.join(" · ")}` : "Agents";
+  const tally = agentTallyParts(agentTally([...running, ...settled], work, { fresh: live.fresh }));
   const shownRunning = allRunning ? running : running.slice(0, page);
   const shownSettled = allSettled ? settled : settled.slice(0, page);
   return (
-    <Section label="Agents" title={title}>
+    <Section label="Agents" title="Agents">
       {props.children}
       {shownRunning.map((agent) => (
         <SiblingRow
@@ -79,8 +75,14 @@ export function AgentListSection(props: {
       {settled.length > 0 && (
         <RowButton aria-expanded={open} onClick={() => setOpen(!open)}>
           <RowLabel>
-            Completed ({settled.length})
-            {!open && failed > 0 && <span className="text-status-failed"> · {failed} failed</span>}
+            {tally.map((part, index) => (
+              <Fragment key={part.text}>
+                {index > 0 && " · "}
+                <span className={part.quiet ? "text-subtle-foreground" : undefined}>
+                  {part.text}
+                </span>
+              </Fragment>
+            ))}
           </RowLabel>
           <RowCaret className={open ? "rotate-180" : undefined} />
         </RowButton>

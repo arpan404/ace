@@ -1,6 +1,9 @@
 import {
   machineRow,
+  nextGitStep,
+  openGitMenu,
   openMachineMenu,
+  openRunScript,
   openWorkCard,
   openWorkPanel,
   workButton,
@@ -141,13 +144,23 @@ test("a menu opened from the card closes before the card does", async () => {
   expect(screen.getByRole("dialog", { name: "Thread details" })).toBe(card);
 });
 
-test("an action from the card runs the project's script in a terminal of the bottom panel", async () => {
+test("the machine menu holds the checkout, its path and a terminal, and no scripts", async () => {
+  await openThread();
+  const menu = await openMachineMenu();
+  expect(await within(menu).findByRole("menuitem", { name: /^Copy path/ })).toBeTruthy();
+  expect(within(menu).getByRole("menuitem", { name: "Open terminal" })).toBeTruthy();
+  expect(within(menu).queryByRole("menuitem", { name: /^Run / })).toBeNull();
+  expect(within(menu).queryByRole("menuitem", { name: /dev:relay/ })).toBeNull();
+  expect(within(menu).queryByRole("menuitem", { name: /^Machine settings/ })).toBeNull();
+});
+
+test("Run a script lists each script by name with its command, and runs it in a terminal of the bottom panel", async () => {
   // Before the agent starts the relay in the background.
   const app = await openThread("replay", "delegated");
-  const actions = await openMachineMenu();
-  await userEvent.click(
-    await within(actions).findByRole("menuitem", { name: "Run bun run dev:relay" }),
-  );
+  const scripts = await openRunScript();
+  const relay = await within(scripts).findByRole("option", { name: "dev:relay" });
+  expect(relay.textContent).toBe("dev:relaybun run dev:relay");
+  await userEvent.click(relay);
   const panel = await screen.findByRole("region", { name: "Terminal panel" });
   // The tab opening on the script's terminal is the only confirmation.
   expect(await within(panel).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
@@ -164,12 +177,8 @@ test("an action from the card runs the project's script in a terminal of the bot
   // Running it again goes back to its terminal rather than starting a second one.
   await userEvent.click(within(panel).getByRole("button", { name: "Hide terminal panel" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Terminal panel" })).toBeNull());
-  const again = await openMachineMenu();
-  await userEvent.click(
-    await within(again).findByRole("menuitem", {
-      name: "Run bun run dev:relay",
-    }),
-  );
+  const again = await openRunScript();
+  await userEvent.click(await within(again).findByRole("option", { name: "dev:relay" }));
   const shown = await screen.findByRole("region", { name: "Terminal panel" });
   expect(await within(shown).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
   expect(app.daemon.terminals.list("thread-replay-cursor")).toHaveLength(1);
@@ -193,14 +202,50 @@ test("when the scripts can't be read, the card says so and reads them again", as
   app.play(replayCursor()).runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
-  const actions = await openMachineMenu();
-  const retry = await within(actions).findByRole("menuitem", {
-    name: /Couldn't read scripts/,
-  });
+  const scripts = await openRunScript();
+  const retry = await within(scripts).findByRole("button", { name: /Couldn't read scripts/ });
   app.daemon.restoreRequests();
   await userEvent.click(retry);
-  await openMachineMenu();
-  expect(await screen.findByRole("menuitem", { name: /^Run bun run dev:relay/ })).toBeTruthy();
+  expect(await within(scripts).findByRole("option", { name: "dev:relay" })).toBeTruthy();
+});
+
+test("searching Run a script keeps the matching scripts, and Enter runs the highlighted one", async () => {
+  const app = await openThread("replay", "delegated");
+  app.daemon.setScripts("relay", [
+    "fmt",
+    "fmt:check",
+    "test",
+    "typecheck",
+    "typecheck:full",
+    "web:dev:fake",
+  ]);
+  const scripts = await openRunScript();
+  expect(await within(scripts).findAllByRole("option")).toHaveLength(6);
+  await userEvent.keyboard("type");
+  await waitFor(() =>
+    expect(
+      within(scripts)
+        .getAllByRole("option")
+        .map((option) => option.getAttribute("aria-label")),
+    ).toEqual(["typecheck", "typecheck:full"]),
+  );
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  const panel = await screen.findByRole("region", { name: "Terminal panel" });
+  expect(
+    await within(panel).findByRole("tab", { name: "typecheck:full", selected: true }),
+  ).toBeTruthy();
+  expect(app.daemon.terminals.list("thread-replay-cursor").map((t) => t.name)).toEqual([
+    "typecheck:full",
+  ]);
+});
+
+test("Escape closes Run a script and leaves the card open", async () => {
+  await openThread();
+  const card = await openWorkCard();
+  await openRunScript();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Run a script" })).toBeNull());
+  expect(screen.getByRole("dialog", { name: "Thread details" })).toBe(card);
 });
 
 test("Open in launches the checkout in an editor, and the one picked becomes the default", async () => {
@@ -282,10 +327,7 @@ test("the branch keeps its complete status and one commit entry point", async ()
   await userEvent.hover(within(git).getByText(branch));
   expect((await screen.findByRole("tooltip")).textContent).toBe(`${branch} → main`);
   await userEvent.unhover(within(git).getByText(branch));
-  expect(within(git).getByRole("button", { name: "Commit & push" })).toBeTruthy();
-  await userEvent.click(within(git).getByRole("button", { name: "More git actions" }));
-  await screen.findByRole("menu");
-  expect(screen.getByRole("menuitem", { name: /^Commit & push/ })).toBeTruthy();
+  expect(await nextGitStep()).toBe("Commit & push…");
 });
 
 test("a provider MCP server waiting for its own sign-in shows nowhere in the thread", async () => {
@@ -420,12 +462,9 @@ test("a checkout without a remote can't start a PR and says why", async () => {
   app.play(idleThread("thread-no-remote", sketch)).runUntilBlocked();
   await app.open("/t/thread-no-remote");
   await screen.findByRole("feed", { name: "Transcript" });
-  const card = await openWorkCard();
-  const create = await within(card).findByRole("button", { name: "Create PR" });
-  expect(create.hasAttribute("disabled")).toBe(true);
-  expect(create.getAttribute("title")).toBe(
-    "ace found no GitHub or GitLab remote for this checkout.",
-  );
+  const create = within(await openGitMenu()).getByRole("menuitem", { name: /^Create PR…/ });
+  expect(create.getAttribute("aria-disabled")).toBe("true");
+  expect(create.textContent).toContain("ace found no GitHub or GitLab remote for this checkout.");
 });
 
 test("the card says when the thread's directory isn't a git checkout, and offers no git step", async () => {
@@ -482,7 +521,6 @@ test("with an open linked PR, the card opens it in the thread's side panel and o
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openWorkCard();
   const pr = await within(card).findByRole("button", { name: /^Open pull request #188/ });
-  expect(within(card).queryByRole("button", { name: "Create PR" })).toBeNull();
   await userEvent.click(within(card).getByRole("button", { name: "More git actions" }));
   const actions = await screen.findByRole("menu");
   expect(within(actions).queryByRole("menuitem", { name: /^Create.*PR/ })).toBeNull();
@@ -535,7 +573,11 @@ test("the PR dialog's Draft option opens a draft pull request", async () => {
     expect(screen.queryByRole("dialog", { name: "Open a pull request" })).toBeNull(),
   );
   // The PR's own line says it is a draft.
-  expect(await within(await openWorkCard()).findByText(/A draft can't merge/)).toBeTruthy();
+  expect(
+    await within(await openWorkCard()).findByText(
+      "It's a draft, so it can't merge until it's marked ready on GitHub.",
+    ),
+  ).toBeTruthy();
 });
 
 const renamed = (index: number) => ({
@@ -597,12 +639,13 @@ test("checkout moves wait while agents work, and say why", async () => {
   await openThread("checkout");
   const card = await openWorkCard();
   await userEvent.click(within(card).getByRole("button", { name: machineRow }));
-  expect(
-    within(await screen.findByRole("menuitem", { name: /^Worktree/ })).getByText("current"),
-  ).toBeTruthy();
-  const local = await screen.findByRole("menuitem", { name: /^Local/ });
+  expect(await screen.findByRole("menuitem", { name: "Worktree current" })).toBeTruthy();
+  const local = await screen.findByRole("menuitem", { name: "Local checkout" });
   expect(local.getAttribute("aria-disabled")).toBe("true");
-  expect(local.textContent).toContain("Wait for the agents to stop");
+  // The reason is said once, as a note the disabled choice points to, not as a row.
+  const reason = document.getElementById(local.getAttribute("aria-describedby") ?? "");
+  expect(reason?.textContent).toMatch(/^Wait for the agents to stop/);
+  expect(screen.getAllByText(/Wait for the agents to stop/)).toHaveLength(1);
   await userEvent.keyboard("{Escape}");
   await userEvent.click(within(card).getByRole("button", { name: /^Branch .*, switch branch$/ }));
   expect(

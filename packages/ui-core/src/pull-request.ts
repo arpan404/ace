@@ -61,25 +61,93 @@ function mergeLine(status: ForgePrStatus, base: string | undefined): PrOverview[
   return { tone: "unknown", text: "GitHub is still checking for conflicts" };
 }
 
+/** What stops a PR from merging now. */
+export type MergeBlockKind =
+  | "merged"
+  | "closed"
+  | "draft"
+  | "state-unknown"
+  | "conflicts"
+  | "checking-conflicts"
+  | "checks-failing"
+  | "checks-running"
+  | "checks-unknown";
+
+export interface MergeBlock {
+  kind: MergeBlockKind;
+  /** The short reason a toast or a disabled control gives. */
+  gate: string;
+  /** The same reason as one plain sentence about the PR, for under its row. */
+  sentence: string;
+}
+
+const block = (kind: MergeBlockKind, gate: string, sentence: string): MergeBlock => ({
+  kind,
+  gate,
+  sentence,
+});
+
 /**
  * Why Merge can't run now, or undefined when it can. The work card's Merge and the PR
  * panel's Merge PR both ask this, so they never disagree about a PR. GitHub's own branch
  * protection still has the last word.
  */
-export function mergeGate(status: ForgePrStatus, base: string | undefined): string | undefined {
-  if (status.state === "merged") return "Already merged";
-  if (status.state === "closed") return "The pull request is closed";
-  if (status.state === "draft") return "A draft can't merge: mark it ready for review on GitHub";
+export function mergeBlock(
+  status: ForgePrStatus,
+  base: string | undefined,
+): MergeBlock | undefined {
+  if (status.state === "merged") return block("merged", "Already merged", "It's already merged.");
+  if (status.state === "closed")
+    return block("closed", "The pull request is closed", "It's closed, so it can't merge.");
+  if (status.state === "draft")
+    return block(
+      "draft",
+      "A draft can't merge: mark it ready for review on GitHub",
+      "It's a draft, so it can't merge until it's marked ready on GitHub.",
+    );
   if (status.state === "unknown")
-    return "GitHub didn't report this PR's state: refresh, then retry";
+    return block(
+      "state-unknown",
+      "GitHub didn't report this PR's state: refresh, then retry",
+      "GitHub didn't report its state. Refresh, then try again.",
+    );
   if (status.mergeability === "conflicting")
-    return `Resolve the conflicts with ${baseName(base)} first`;
-  if (status.mergeability === "unknown") return "GitHub is still checking for conflicts";
+    return block(
+      "conflicts",
+      `Resolve the conflicts with ${baseName(base)} first`,
+      `It conflicts with ${baseName(base)}, so it can't merge yet.`,
+    );
+  if (status.mergeability === "unknown")
+    return block(
+      "checking-conflicts",
+      "GitHub is still checking for conflicts",
+      "GitHub is still checking it for conflicts.",
+    );
   const ci = ciLine(status).tone;
-  if (ci === "failure") return "Fix the failing checks first";
-  if (ci === "pending") return "Checks are still running: wait, or turn on auto-merge";
-  if (status.ci === "unknown") return "Checks unavailable: refresh GitHub before merging";
+  if (ci === "failure")
+    return block(
+      "checks-failing",
+      "Fix the failing checks first",
+      "Its checks are failing, so it can't merge yet.",
+    );
+  if (ci === "pending")
+    return block(
+      "checks-running",
+      "Checks are still running: wait, or turn on auto-merge",
+      "Its checks are still running, so it can't merge yet.",
+    );
+  if (status.ci === "unknown")
+    return block(
+      "checks-unknown",
+      "Checks unavailable: refresh GitHub before merging",
+      "GitHub didn't report its checks. Refresh before merging.",
+    );
   return undefined;
+}
+
+/** `mergeBlock`'s short reason alone. */
+export function mergeGate(status: ForgePrStatus, base: string | undefined): string | undefined {
+  return mergeBlock(status, base)?.gate;
 }
 
 /**

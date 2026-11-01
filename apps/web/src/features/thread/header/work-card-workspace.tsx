@@ -1,15 +1,14 @@
+import { useId } from "react";
 import { useThreadMeta } from "@ace/client-react";
 import {
   CopyIcon,
   FolderIcon,
   FolderOpenIcon,
-  GearSixIcon,
   GitForkIcon,
   LaptopIcon,
-  PlusIcon,
   TerminalWindowIcon,
 } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
+import { cn } from "@/lib/cn.ts";
 import { EditorIcon } from "@/components/editor-icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import {
@@ -24,7 +23,6 @@ import {
 import { useAppIcon } from "@/lib/app-icons.ts";
 import { useEditors } from "@/lib/editors.ts";
 import { useHostOpen, useRemoteHost } from "@/lib/host-open.ts";
-import { keymap } from "@/lib/keymap.ts";
 import { useMachineIdentity } from "@/lib/machine-identity.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
 import { useMachines } from "@/lib/machines.ts";
@@ -34,13 +32,20 @@ import { useFolderActions } from "@/lib/folder-actions.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { ThreadOpenIn, useThreadEditorLaunch } from "./thread-open-in.tsx";
 import type { Move } from "./checkout-move.tsx";
-import { ProjectScriptItems } from "./work-card-actions.tsx";
 import { useCheckoutMoves } from "./work-card-branches.tsx";
-import { RowButton, RowCaret, RowLabel, Section, rowIcon } from "./work-card-parts.tsx";
-import { ScriptConfigurationItems } from "./work-card-scripts.tsx";
+import {
+  RowButton,
+  RowCaret,
+  RowLabel,
+  RowSplit,
+  Section,
+  rowIcon,
+  splitCaret,
+  splitMain,
+} from "./work-card-parts.tsx";
+import { RunScriptRow } from "./work-card-run-script.tsx";
 import { CheckoutProblem } from "./work-card-checkout-problem.tsx";
 import { WorktreeSetupRow } from "./work-card-setup.tsx";
-import { useScopedMachine } from "@/lib/machines.ts";
 
 const glyph = (Glyph: typeof CopyIcon) => <Glyph aria-hidden size={16} />;
 
@@ -61,14 +66,14 @@ export function WorkspaceGroup(props: {
       <CheckoutProblem thread={props.thread} move={props.move} />
       <WorktreeSetupRow thread={props.thread} />
       <OpenInRow thread={props.thread} />
-      {!chat && <AddScriptRow {...props} />}
+      {!chat && <RunScriptRow {...props} />}
     </Section>
   );
 }
 
 /**
- * The machine, whether it is reachable, and its checkout: local or a worktree (its glyph beside
- * the machine's). Its menu moves the checkout and reaches the folder, a terminal and the scripts.
+ * The machine, whether it is reachable, and its checkout in words after its name: "· worktree"
+ * or "· local checkout". Its menu moves the checkout, copies its path and opens a terminal.
  */
 function MachineRow(props: {
   thread: ThreadRef;
@@ -89,11 +94,12 @@ function MachineRow(props: {
   const path = meta?.details?.worktree ?? meta?.details?.workspace?.path;
   const folder = useFolderActions(path);
   const workspace = useWorkspaceActions(props.thread.id);
-  const navigate = useNavigate();
-  const scoped = useScopedMachine()?.id;
   const { checkout, switchReason, worktreeReason } = useCheckoutMoves(props.thread);
   const worktree = checkout?.mode === "worktree";
-  const Mode = worktree ? GitForkIcon : FolderIcon;
+  // A chat's folder is just its folder: no checkout kind to name.
+  const reasonId = useId();
+  const blocked = worktree ? switchReason : worktreeReason;
+  const kind = props.chat || !checkout ? undefined : worktree ? "worktree" : "local checkout";
   return (
     <Menu>
       <MenuTrigger
@@ -102,11 +108,11 @@ function MachineRow(props: {
             aria-label={`${identity.name}, ${status.label}`}
             title={`${worktree ? "Worktree" : "Local checkout"} · ${path ?? ""}`}
           >
-            <span className="flex shrink-0 items-center gap-1">
-              <LaptopIcon aria-hidden size={16} className={rowIcon} />
-              <Mode aria-hidden size={16} className={rowIcon} />
-            </span>
-            <RowLabel>{identity.name}</RowLabel>
+            <LaptopIcon aria-hidden size={16} className={rowIcon} />
+            <RowLabel>
+              {identity.name}
+              {kind && <span className="text-subtle-foreground"> · {kind}</span>}
+            </RowLabel>
             <Dot
               tone={status.tone === "done" ? "done" : status.tone === "failed" ? "failed" : "idle"}
             />
@@ -126,23 +132,32 @@ function MachineRow(props: {
             <MenuItem
               icon={glyph(FolderIcon)}
               disabled={!worktree || !!switchReason}
-              reason={worktree ? switchReason : undefined}
+              aria-describedby={worktree && switchReason ? reasonId : undefined}
               onClick={() => props.move({ change: { mode: "local" } })}
             >
-              Local
-              {!worktree && <span className="ml-auto text-xs text-subtle-foreground">current</span>}
+              Local checkout
+              {!worktree && <Current />}
             </MenuItem>
             <MenuItem
               icon={glyph(GitForkIcon)}
               disabled={worktree || !!worktreeReason}
-              reason={worktree ? undefined : worktreeReason}
+              aria-describedby={!worktree && worktreeReason ? reasonId : undefined}
               // No branch: the main checkout's branch can't be checked out twice, so the daemon
               // makes the worktree a branch of its own from the current HEAD.
               onClick={() => props.move({ change: { mode: "worktree" } })}
             >
               Worktree
-              {worktree && <span className="ml-auto text-xs text-subtle-foreground">current</span>}
+              {worktree && <Current />}
             </MenuItem>
+            {/* Why the other checkout can't be chosen now: said once, as a note, not a row. */}
+            {blocked && (
+              <p
+                id={reasonId}
+                className="px-2 pt-0.5 pb-1.5 pl-[34px] text-xs text-subtle-foreground"
+              >
+                {blocked}
+              </p>
+            )}
             <MenuSeparator />
           </>
         )}
@@ -151,7 +166,6 @@ function MachineRow(props: {
         </MenuItem>
         <MenuItem
           icon={glyph(TerminalWindowIcon)}
-          keys={keymap.terminal.keys}
           onClick={() => {
             workspace.open({ kind: "terminal" });
             props.onClose();
@@ -159,24 +173,18 @@ function MachineRow(props: {
         >
           Open terminal
         </MenuItem>
-        <ProjectScriptItems thread={props.thread} onClose={props.onClose} />
-        <MenuSeparator />
-        <MenuItem
-          icon={glyph(GearSixIcon)}
-          onClick={() => {
-            props.onClose();
-            // Another machine's thread opens that machine's own page in Fleet.
-            void navigate(
-              scoped
-                ? { to: "/settings/remote/$machine", params: { machine: scoped } }
-                : { to: "/settings/remote" },
-            );
-          }}
-        >
-          Machine settings…
-        </MenuItem>
       </MenuContent>
     </Menu>
+  );
+}
+
+/** The checkout in use, a quiet word after its choice: "Worktree current". */
+function Current() {
+  return (
+    <>
+      {" "}
+      <span className="ml-auto pl-3 text-xs text-subtle-foreground">current</span>
+    </>
   );
 }
 
@@ -207,7 +215,7 @@ function OpenInRow(props: { thread: ThreadRef }) {
       ? `Open in ${editor.name}`
       : "Open in editor";
   return (
-    <div className="flex h-8 items-center rounded-md transition-colors duration-(--motion-fast) hover:bg-accent">
+    <RowSplit>
       <button
         type="button"
         title={path}
@@ -218,7 +226,7 @@ function OpenInRow(props: { thread: ThreadRef }) {
           else if (remote && editor) void host.open({ threadId: props.thread.id }, editor.id);
           else if (editor) launch.mutate(editor.id);
         }}
-        className="focus-ring-inset flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-l-md px-2.5 text-left text-ui text-foreground disabled:text-muted-foreground"
+        className={cn(splitMain, "disabled:text-muted-foreground")}
       >
         {local ? (
           finderIcon ? (
@@ -233,15 +241,10 @@ function OpenInRow(props: { thread: ThreadRef }) {
         )}
         <RowLabel>{label}</RowLabel>
       </button>
-      <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
       <Menu>
         <MenuTrigger
           render={
-            <button
-              type="button"
-              aria-label="Other ways to open"
-              className="focus-ring-inset grid size-8 shrink-0 place-items-center rounded-r-md text-muted-foreground hover:text-foreground"
-            >
+            <button type="button" aria-label="Other ways to open" className={splitCaret}>
               <RowCaret />
             </button>
           }
@@ -264,29 +267,6 @@ function OpenInRow(props: { thread: ThreadRef }) {
           </MenuItem>
         </MenuContent>
       </Menu>
-    </div>
-  );
-}
-
-/** The project's script files to edit, or a new one, from one quiet row. */
-function AddScriptRow(props: { thread: ThreadRef; onClose(): void; onAddScript(): void }) {
-  return (
-    <Menu>
-      <MenuTrigger
-        render={
-          <RowButton>
-            <PlusIcon aria-hidden size={16} className={rowIcon} />
-            <RowLabel>Add project script</RowLabel>
-          </RowButton>
-        }
-      />
-      <MenuContent align="end">
-        <ScriptConfigurationItems
-          thread={props.thread}
-          onClose={props.onClose}
-          onAddScript={props.onAddScript}
-        />
-      </MenuContent>
-    </Menu>
+    </RowSplit>
   );
 }
