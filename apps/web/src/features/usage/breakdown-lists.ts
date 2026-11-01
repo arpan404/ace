@@ -72,14 +72,23 @@ export function breakdownNamer(input: {
     for (const row of read.usage.models)
       if (row.dimensions.model && row.dimensions.provider)
         modelProvider.set(row.dimensions.model, row.dimensions.provider);
+  // The same model through several providers reads the same; the provider tells them apart.
+  const modelLabel = (key: string) => input.modelName(modelProvider.get(key) ?? "", key);
+  const labelCount = new Map<string, number>();
+  for (const key of modelProvider.keys())
+    labelCount.set(modelLabel(key), (labelCount.get(modelLabel(key)) ?? 0) + 1);
   return (kind, key) => {
     switch (kind) {
       case "workspace":
         return input.project(key);
       case "account":
         return accounts.get(key) ?? "Account";
-      case "model":
-        return input.modelName(modelProvider.get(key) ?? "", key);
+      case "model": {
+        const label = modelLabel(key);
+        return (labelCount.get(label) ?? 0) > 1
+          ? `${label} · ${providerName(modelProvider.get(key) ?? "")}`
+          : label;
+      }
       case "automation":
         return input.automation(key) ?? "Automation";
       case "role":

@@ -18,7 +18,7 @@ front end, which is not live yet.
 - **Rail + panel.** The sidebar is a 52px rail of places beside a panel that shows the current
   place. Top to bottom the rail holds Threads, Spade, GitHub, Automations and Skills; then free
   space, the app's update when there is one, Settings and the profile avatar (its menu keeps
-  Usage, Archived threads, Keyboard shortcuts and Connection). Each place is a bare glyph in a
+  Archived threads, Keyboard shortcuts and Connection; Usage moved to the rail, see below). Each place is a bare glyph in a
   40px rounded box; the current one takes the `--active` fill. (The unified frame below moves
   the rail under the window's top bar.)
 - **Each panel owns its title row.** The panel's first row is the place's title and actions
@@ -303,6 +303,26 @@ says what to do next.
     and the needs-you counts and notifications leave out only snoozes to a time the person
     chose (`isSnoozedToTime`). The rail's Threads dot already counted snoozed threads that need
     the person and still does; a request always shows in the Inbox, whatever the snooze.
+
+## Usage in the rail
+
+2026-11-01, owner-approved design (mockups `usage-approved`, icon option B). Usage left the
+profile menu and became a place in the rail's foot, above Settings (after the app's update).
+
+- **The glyph is the state.** A tiny bar chart, one bar per provider used in the last seven days
+  (at most four, most used first), each as tall as that provider's pooled session left: the
+  best account's session left, capped by that account's weekly window, because ace can start a
+  new thread on whichever account has room (`usageHeadroom` / `railUsage` in ui-core). Bars are
+  foreground ink, amber under 20%, red at 0 with a short stub so a spent provider never
+  vanishes. With nothing read, the empty tracks show quietly. Its spoken name says the state
+  ("Usage: Claude Code 38% of session left, Codex 62%").
+- **Hover or focus opens a card** (`glass-thin`): one sentence on the tightest provider (its
+  forecast from the pace so far, its reset), then per provider the account new threads use, its
+  account count, and Session and Weekly mini bars; "Updated … ago" and "Open Usage ›". It reads
+  the app's live accounts subscription; the seven-day ranking is read again only when a limit
+  changes, never on a timer.
+- The rail marks Usage current on `/usage`. The page is one scroll: Now, Limits, Spend, Tokens
+  and Where it went, cardless, with a row in Where it went filtering the whole page.
 
 ## Consequences
 
