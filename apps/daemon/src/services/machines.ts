@@ -270,20 +270,24 @@ export function startMachines(context: ServiceContext): void {
       const id = `machine-result:${key}`;
       const text = `[ace-origin:delegation.${settled ? "settled" : "message_notice"}:${id}]\n${body}`;
       // A result is recorded as a local child's is: one receipt row in the parent's transcript,
-      // with the injected text kept for the provider only.
-      if (settled) recordSettled(parentThreadId, id, settled, text);
-      const result = delegations.command(id, {
-        type: "thread.send",
-        threadId: parentThreadId,
-        input: [{ type: "text", text }],
-        delivery: "queue",
-        trigger: "subagent_result",
-        origin: {
-          kind: "subagent_result",
-          ...(settled ? { threadIds: [settled.outcome.threadId] } : {}),
-        },
+      // with the injected text kept for the provider only. The receipt, the send and its
+      // acceptance commit together: a parent that refuses the send (stopped, say) keeps no
+      // receipt and no cached refusal, so the next poll tries it again.
+      store.atomic(() => {
+        if (settled) recordSettled(parentThreadId, id, settled, text);
+        const result = delegations.command(id, {
+          type: "thread.send",
+          threadId: parentThreadId,
+          input: [{ type: "text", text }],
+          delivery: "queue",
+          trigger: "subagent_result",
+          origin: {
+            kind: "subagent_result",
+            ...(settled ? { threadIds: [settled.outcome.threadId] } : {}),
+          },
+        });
+        if (!result.ok) throw new Error(result.error ?? "Result delivery refused");
       });
-      if (!result.ok) throw new Error(result.error ?? "Result delivery refused");
     },
     waiting: (id) => services.agentControl?.delegations.monitor.watching(id) ?? false,
     isDescendant: (child, ancestor) =>

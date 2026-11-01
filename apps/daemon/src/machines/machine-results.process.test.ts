@@ -1,7 +1,17 @@
+import { randomUUID } from "node:crypto";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { ThreadId, type AgentControlOperation, type Item } from "@ace/protocol";
+import {
+  Command,
+  ThreadId,
+  type AgentControlOperation,
+  type CommandPayload,
+  type Item,
+} from "@ace/protocol";
+import { commandContext } from "../commands.ts";
 import { pairedMachines } from "./machine-test-support.ts";
+
+type Pair = Awaited<ReturnType<typeof pairedMachines>>;
 
 const Delegated = z.object({ threadId: ThreadId });
 const delegation = {
@@ -15,43 +25,94 @@ const delegation = {
 } satisfies AgentControlOperation;
 
 const result = "**Two** pull requests are ready to merge: `#12` and `#14`.";
+/** The result as the parent's agent receives it, inside ace's JSON line. */
+const received = JSON.stringify(result).slice(1, -1);
 
-function parentItems(pair: Awaited<ReturnType<typeof pairedMachines>>): Item[] {
+function parentItems(pair: Pair): Item[] {
   const store = pair.source.daemon.store;
   return store.readItemPage(pair.source.caller.threadId, store.headSeq() + 1, 50, 256 * 1024).items;
 }
+const receipts = (pair: Pair) =>
+  parentItems(pair).filter((item) => item.type === "delegation.settled");
+const parentInputs = (pair: Pair) => pair.source.h.inputs.get(pair.source.caller.threadId) ?? [];
 
-it("a finished child on a paired machine reaches its parent as a delegated-child receipt, like a local child", async () => {
-  const pair = await pairedMachines({ access: "operate" });
+/** The person acts on the parent thread here, as the app does. */
+function person(pair: Pair, payload: CommandPayload) {
+  const engine = pair.source.daemon.engine;
+  if (!engine) throw new Error("Engine unavailable");
+  const command = Command.parse({ id: `person-${randomUUID()}`, deviceId: "person", payload });
+  const store = pair.source.daemon.store;
+  return store.recordCommand(command.id, command.deviceId, () =>
+    engine.handler.handle(command, commandContext(store)),
+  );
+}
+
+async function delegated(pair: Pair) {
   await pair.source.call({ op: "machines" });
-  const { threadId } = Delegated.parse((await pair.source.call(delegation)).data);
+  return Delegated.parse((await pair.source.call(delegation)).data).threadId;
+}
+
+it("a finished child on a paired machine reaches its parent as one delegated-child receipt, however often the provider echoes it", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const parent = pair.source.caller.threadId;
+  const threadId = await delegated(pair);
 
   // Nobody waits on it: the result is handed to the parent once the child finishes there.
   await pair.finishTask(threadId, delegation.task, result);
 
   // The parent's agent is still told, with the child's result in what it receives.
-  await vi.waitFor(
-    () =>
-      expect((pair.source.h.inputs.get(pair.source.caller.threadId) ?? []).join("\n")).toContain(
-        JSON.stringify(result).slice(1, -1),
-      ),
-    { timeout: 15_000 },
-  );
+  await vi.waitFor(() => expect(parentInputs(pair).join("\n")).toContain(received), {
+    timeout: 15_000,
+  });
+  const sent = pair.source.h.inputMessages.get(parent)?.at(-1);
+  const text = parentInputs(pair).at(-1);
+  if (!sent || !text) throw new Error("The result never reached the parent's provider");
+  expect(text).toContain("[ace-origin:delegation.settled:");
 
-  // The transcript shows it the way a local child's result shows: one receipt for the child,
-  // next to the child's row that names its machine.
-  await vi.waitFor(
-    () =>
-      expect(parentItems(pair)).toContainEqual(
-        expect.objectContaining({
-          type: "delegation.settled",
-          origin: "ace",
-          delivery: "ace-input",
-          results: [expect.objectContaining({ threadId, outcome: "completed" })],
-        }),
-      ),
-    { timeout: 15_000 },
-  );
+  // The provider echoes the injected input back as a user message, with its own extra data.
+  const echo = (type: "item.upsert" | "item.reconciled", item: string) => ({
+    type,
+    agent: "root",
+    item,
+    draft: {
+      type: "message" as const,
+      nativeId: sent.nativeId,
+      role: "user" as const,
+      parts: [{ type: "text" as const, text }],
+      raw: [{ type: "userMessage", data: { extra: "provider-only detail" } }],
+      complete: true,
+    },
+  });
+  pair.source.h.contexts
+    .get(parent)
+    ?.onFrame(pair.source.h.frames.frame(echo("item.upsert", "provider-echo")));
+  await pair.source.daemon.engine?.flush();
+
+  // After a restart the provider replays its history, the echo with it.
+  await pair.restartSource();
+  expect(
+    person(pair, {
+      type: "thread.send",
+      threadId: parent,
+      input: [{ type: "text", text: "Continue" }],
+    }).ok,
+  ).toBe(true);
+  await vi.waitFor(() => expect(parentInputs(pair)).toContain("Continue"), { timeout: 15_000 });
+  pair.source.h.contexts
+    .get(parent)
+    ?.onFrame(pair.source.h.frames.frame(echo("item.reconciled", "replayed-echo")));
+  await pair.source.daemon.engine?.flush();
+
+  // The transcript shows it the way a local child's result shows: exactly one receipt for the
+  // child, holding the provider's extra data, next to the child's row that names its machine.
+  const shown = receipts(pair);
+  expect(shown).toHaveLength(1);
+  expect(shown[0]).toMatchObject({
+    origin: "ace",
+    delivery: "ace-input",
+    results: [{ threadId, outcome: "completed", result }],
+    raw: [{ type: "userMessage", data: { extra: "provider-only detail" } }],
+  });
   const items = parentItems(pair);
   expect(items).toContainEqual(
     expect.objectContaining({
@@ -62,6 +123,54 @@ it("a finished child on a paired machine reaches its parent as a delegated-child
   );
   // What was injected for the provider is never a message of its own in the transcript.
   const messages = items.filter((item) => item.type === "message" && item.role === "user");
-  expect(JSON.stringify(messages)).not.toContain("pull requests are ready");
+  expect(JSON.stringify(messages)).not.toContain(received);
   expect(JSON.stringify(items)).not.toContain("[ace: ");
-});
+}, 60_000);
+
+it("a stopped parent shows no receipt for a remote result it hasn't taken, and gets it once it runs again", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const parent = pair.source.caller.threadId;
+  const threadId = await delegated(pair);
+  await vi.waitFor(() => expect(pair.target.h.contexts.get(threadId)).toBeDefined(), {
+    timeout: 15_000,
+  });
+
+  // The person stops the parent and its tree: the child on the other machine is cancelled
+  // there, and its result comes back while the parent is still stopped.
+  expect(person(pair, { type: "thread.interrupt", threadId: parent, cascade: true }).ok).toBe(true);
+  await pair.source.daemon.engine?.flush();
+  await pair.emit(threadId, { type: "turn.ended", agent: "root", outcome: "interrupted" });
+  await vi.waitFor(
+    () =>
+      expect(parentItems(pair)).toContainEqual(
+        expect.objectContaining({
+          type: "delegation.started",
+          childThreadId: threadId,
+          phase: "settled",
+        }),
+      ),
+    { timeout: 15_000 },
+  );
+  // Polls go by and each delivery is refused: nothing claims the stopped parent was told.
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  expect(receipts(pair)).toEqual([]);
+  expect(parentInputs(pair).join("\n")).not.toContain(threadId);
+
+  // The person sends it on again: the result reaches it then, once, with its one receipt.
+  expect(
+    person(pair, {
+      type: "thread.send",
+      threadId: parent,
+      input: [{ type: "text", text: "Go on" }],
+    }).ok,
+  ).toBe(true);
+  await vi.waitFor(() => expect(receipts(pair)).toHaveLength(1), { timeout: 15_000 });
+  expect(receipts(pair)[0]).toMatchObject({
+    delivery: "ace-input",
+    results: [expect.objectContaining({ threadId })],
+  });
+  await vi.waitFor(
+    () => expect(parentInputs(pair).filter((text) => text.includes(threadId))).toHaveLength(1),
+    { timeout: 15_000 },
+  );
+}, 60_000);
