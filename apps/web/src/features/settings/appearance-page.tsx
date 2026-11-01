@@ -20,12 +20,7 @@ import {
 } from "@/theme/appearance.ts";
 import { themes } from "@ace/themes";
 import { useTheme } from "@/theme/theme-provider.tsx";
-import {
-  snapTranslucency,
-  translucencyClearMax,
-  translucencyMax,
-  translucencyStep,
-} from "@/theme/translucency.ts";
+import { snapTranslucency, translucencyMax, translucencyStep } from "@/theme/translucency.ts";
 import { settingRow, type SettingId } from "./settings-index.ts";
 
 const motionOptions: { value: ReduceMotion; label: string }[] = [
@@ -55,14 +50,12 @@ function PickerGroup(props: { id: SettingId; children: ReactNode }) {
   );
 }
 
-/** "Solid" at 0, a percentage to the AA-safe end, "Extra" past it. */
-const translucencyText = (value: number) =>
-  value === 0 ? "Solid" : value > translucencyMax ? `${value}% extra` : `${value}%`;
+/** "Solid" at 0, a percentage up to the most translucent glass. */
+const translucencyText = (value: number) => (value === 0 ? "Solid" : `${value}%`);
 
 /**
- * Translucency, from Solid to the theme's most translucent AA-safe glass and past it. Floating
- * layers follow it live while it's dragged. Past 100% the glass holds at its most translucent
- * readable level, so text stays legible. Where layers are always
+ * Translucency, from Solid to the theme's most translucent AA-safe glass. Floating layers follow
+ * it live while it's dragged. Where layers are always
  * solid (a theme without glass, or the OS reducing transparency) it shows Solid, disabled,
  * and says why; the stored value is kept for later.
  */
@@ -80,7 +73,7 @@ function TranslucencyRow(props: {
       <Slider
         label="Translucency"
         min={0}
-        max={translucencyClearMax}
+        max={translucencyMax}
         step={translucencyStep}
         value={value}
         disabled={props.forcedSolid !== undefined}
