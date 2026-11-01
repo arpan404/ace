@@ -184,6 +184,8 @@ export const DelegatedFrom = z.object({
   /** The machine's name when it was delegated, for showing the parent as remote. */
   hostName: z.string().min(1).max(256).optional(),
   threadId: ThreadId,
+  /** The parent thread's title when it delegated, for naming it here. Lenient: bad is absent. */
+  threadTitle: z.string().min(1).max(256).optional().catch(undefined),
   /** The parent thread's provider, for naming the agent that sent it work. Lenient: unknown is absent. */
   provider: ProviderKind.optional().catch(undefined),
 });

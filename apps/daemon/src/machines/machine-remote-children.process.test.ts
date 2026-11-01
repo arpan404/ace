@@ -28,12 +28,13 @@ it("a thread delegated from a paired machine names its parent there and is not c
   const countsBefore = hostList(pair).window.counts;
   const { threadId } = Delegated.parse((await pair.source.call(delegation)).data);
 
-  // The host's clients can tell it apart from its own threads: it names the parent, its agent's
-  // provider and its machine.
+  // The host's clients can tell it apart from its own threads: it names the parent, its title,
+  // its agent's provider and its machine.
   expect(listed(pair, threadId)?.delegatedFrom).toEqual({
     hostId: loadHostId(join(pair.source.h.home, "daemon")),
     hostName: expect.any(String),
     threadId: pair.source.caller.threadId,
+    threadTitle: pair.source.daemon.store.getThread(pair.source.caller.threadId)?.title,
     provider: pair.source.daemon.store.getThread(pair.source.caller.threadId)?.provider,
   });
   // It is still a task there, so a link or search opens it, but no project counts it.

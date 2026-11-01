@@ -5,7 +5,7 @@ import type { SystemInput } from "./system-input.ts";
 /*
  * A message another thread's agent sent this one: a delegated task, a `thread_start` brief, a
  * follow-up through `agent_message`, or work from an agent on a paired machine. It shows as a sent
- * message with one line above it naming who sent it, linked to their thread when that is known.
+ * message with one line above it naming the thread that sent it, linked to it when known.
  * Decoded leniently: what the origin doesn't say falls back to the thread's own facts, and what
  * neither says leaves "Sent from another thread" with no link. Pure.
  */
@@ -18,6 +18,8 @@ export interface SentBy {
   threadId?: string | undefined;
   /** The machine the sender is on, when that is another machine than this thread's. */
   host?: { id: string; name?: string | undefined } | undefined;
+  /** The sending thread's title as last recorded here; a client prefers its current title. */
+  title?: string | undefined;
 }
 
 /** The thread facts that name a sender when a message's own origin doesn't. */
@@ -29,6 +31,7 @@ export interface SentByThread {
         hostId: string;
         hostName?: string | undefined;
         threadId: string;
+        threadTitle?: string | undefined;
         provider?: ProviderKind | undefined;
       }
     | undefined;
@@ -66,19 +69,20 @@ export function sentBy(input: SystemInput, thread?: SentByThread | undefined): S
       provider: provider ?? known(remote.provider),
       threadId: remote.threadId,
       host: { id: remote.hostId, name: remote.hostName },
+      title: remote.threadTitle,
     };
   const local = thread?.delegatedBy ?? thread?.startedBy;
   return local ? { provider, threadId: local } : { provider };
 }
 
 /**
- * The one line above the message: "Sent by Claude Code from another thread", "… from another
- * chat" when the sender is a chat, "… from another thread on Arpan's MacBook Pro" when it is on
- * another machine, and "Sent from another thread" when ace doesn't know whose agent it was.
+ * The one line above the message: "Sent by <the sending thread's title>", with " · <machine>"
+ * when it is on another machine. `title` is the thread's current title where the client knows
+ * it; without any title the line reads "Sent from another thread".
  */
-export function sentByLine(sent: SentBy, options?: { chat?: boolean | undefined }): string {
-  const who = sent.provider ? `Sent by ${providerNames[sent.provider]}` : "Sent";
-  const where = options?.chat ? "another chat" : "another thread";
-  const host = sent.host?.name ? ` on ${sent.host.name}` : sent.host ? " on another machine" : "";
-  return `${who} from ${where}${host}`;
+export function sentByLine(sent: SentBy, title?: string | undefined): string {
+  const name = (title ?? sent.title)?.trim();
+  const who = name ? `Sent by ${name}` : "Sent from another thread";
+  const host = sent.host ? (sent.host.name ?? "another machine") : undefined;
+  return host ? `${who} · ${host}` : who;
 }

@@ -84,9 +84,14 @@ test("a delegate's task and a later follow-up are sent by the parent's agent, an
   expect(within(feed).getByText("Cover refunds with tests.")).toBeTruthy();
   expect(within(feed).queryByText(/Role: payments/)).toBeNull();
   expect(within(feed).getByText("Also cover partial refunds.")).toBeTruthy();
-  const lines = within(feed).getAllByRole("link", {
-    name: "Sent by Claude Code from another thread",
+  expect(within(feed).getAllByRole("link", { name: "Sent by Checkout rewrite" })).toHaveLength(2);
+  // Renamed later, the parent is named by its new title.
+  await app.client.command({
+    type: "thread.rename",
+    threadId: "thread-parent",
+    title: "Checkout v2",
   });
+  const lines = await within(feed).findAllByRole("link", { name: "Sent by Checkout v2" });
   expect(lines).toHaveLength(2);
   await userEvent.click(lines[1]!);
   expect(
@@ -103,6 +108,7 @@ test("a child an agent on a paired machine delegated names that machine, and lin
         hostId: "host-laptop",
         hostName: "Arpan's MacBook Pro",
         threadId: "thread-remote-parent",
+        threadTitle: "Redesign Sidebar for Easier Navigation",
         provider: "claude",
       },
     },
@@ -111,7 +117,7 @@ test("a child an agent on a paired machine delegated names that machine, and lin
   await app.open("/t/thread-child");
   const feed = await transcript();
   const line = within(feed).getByText(
-    "Sent by Claude Code from another thread on Arpan's MacBook Pro",
+    "Sent by Redesign Sidebar for Easier Navigation · Arpan's MacBook Pro",
   );
   expect(line.closest("a")).toBeNull();
   expect(within(feed).getByText("Run the iOS suite.")).toBeTruthy();
@@ -135,5 +141,5 @@ test("the person's own messages carry no sender line", async () => {
   const feed = await transcript();
   expect(within(feed).getByText("Please also check the webhook.")).toBeTruthy();
   expect(within(feed).getByText("And the receipts.")).toBeTruthy();
-  expect(within(feed).queryByText(/^Sent( by .+)? from another/)).toBeNull();
+  expect(within(feed).queryByText(/^Sent (by|from) /)).toBeNull();
 });

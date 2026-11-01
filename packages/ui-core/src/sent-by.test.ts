@@ -17,30 +17,37 @@ const message = (text: string, origin?: Record<string, unknown>): Item =>
   });
 const counts: EventCounts = { repeated: false, echoed: false, refusals: 1, failures: 1 };
 const view = (item: Item, thread?: SentByThread) => eventView(item, counts, "codex", thread);
-const sent = (shown: EventView) => {
+/** What the line reads with the sender's current title, as a client that lists it knows it. */
+const sent = (shown: EventView, title?: string) => {
   if (shown.kind !== "sent") throw new Error(`Expected a sent message, got ${shown.kind}`);
-  return { line: sentByLine(shown.sent), threadId: shown.sent.threadId, text: shown.text };
+  return {
+    line: sentByLine(shown.sent, title),
+    provider: shown.sent.provider,
+    threadId: shown.sent.threadId,
+    text: shown.text,
+  };
 };
 
-test("a brief thread_start sent shows as sent by its agent, linked to the starter", () => {
+test("a brief thread_start sent names the starting thread by its current title and links to it", () => {
   const brief = message("Fix the flaky upload test.", {
     kind: "parent_agent",
     parentThreadId: "starter",
     from: { provider: "claude" },
   });
-  expect(sent(view(brief, { startedBy: "starter" }))).toEqual({
-    line: "Sent by Claude Code from another thread",
+  expect(sent(view(brief, { startedBy: "starter" }), "Redesign Sidebar")).toEqual({
+    line: "Sent by Redesign Sidebar",
+    provider: "claude",
     threadId: "starter",
     text: "Fix the flaky upload test.",
   });
+  // Renamed later, it reads the new title; before its title is known, it says where it came from.
+  expect(sent(view(brief), "Sidebar v2").line).toBe("Sent by Sidebar v2");
+  expect(sent(view(brief)).line).toBe("Sent from another thread");
 });
 
 test("a thread_start brief stored before its sender was stamped borrows the thread's starter", () => {
   const brief = message("Fix the flaky upload test.", { kind: "parent_agent", commandId: "c-1" });
-  expect(sent(view(brief, { startedBy: "starter" }))).toMatchObject({
-    line: "Sent from another thread",
-    threadId: "starter",
-  });
+  expect(sent(view(brief, { startedBy: "starter" }))).toMatchObject({ threadId: "starter" });
 });
 
 test("a delegated task shows its words without ace's role frame, and a steer names its sender", () => {
@@ -56,36 +63,44 @@ test("a delegated task shows its words without ace's role frame, and a steer nam
     from: { provider: "codex" },
   });
   const thread = { delegatedBy: "parent" };
-  expect(sent(view(task, thread))).toEqual({
-    line: "Sent by Codex from another thread",
+  expect(sent(view(task, thread), "Greeter work")).toEqual({
+    line: "Sent by Greeter work",
+    provider: "codex",
     threadId: "parent",
     text: "Write a greet() helper.",
   });
-  expect(sent(view(steer, thread))).toMatchObject({
-    line: "Sent by Codex from another thread",
+  expect(sent(view(steer, thread), "Greeter work")).toMatchObject({
+    line: "Sent by Greeter work",
     threadId: "parent",
     text: "Also cover the empty name.",
   });
 });
 
-test("a child delegated from a paired machine names that machine and its parent there", () => {
-  const thread: SentByThread = {
-    delegatedFrom: {
-      hostId: "host-mac",
-      hostName: "Arpan's MacBook Pro",
-      threadId: "remote-parent",
-      provider: "claude",
-    },
+test("a child delegated from a paired machine names its parent there and, quietly, that machine", () => {
+  const delegatedFrom = {
+    hostId: "host-mac",
+    hostName: "Arpan's MacBook Pro",
+    threadId: "remote-parent",
+    threadTitle: "Redesign Sidebar for Easier Navigation",
+    provider: "claude" as const,
   };
-  const launch = view(message("Run the iOS tests.", { kind: "spawn", role: "ios" }), thread);
-  const steer = view(message("Now on iOS 26.", { kind: "parent_agent", commandId: "c" }), thread);
+  const launch = view(message("Run the iOS tests.", { kind: "spawn", role: "ios" }), {
+    delegatedFrom,
+  });
+  const steer = view(message("Now on iOS 26.", { kind: "parent_agent", commandId: "c" }), {
+    delegatedFrom,
+  });
   for (const shown of [launch, steer]) {
-    expect(shown).toMatchObject({
-      kind: "sent",
-      sent: { threadId: "remote-parent", host: { id: "host-mac" } },
+    expect(sent(shown)).toMatchObject({
+      line: "Sent by Redesign Sidebar for Easier Navigation · Arpan's MacBook Pro",
+      provider: "claude",
+      threadId: "remote-parent",
     });
-    expect(sent(shown).line).toBe("Sent by Claude Code from another thread on Arpan's MacBook Pro");
   }
+  const untitled = view(message("Run the iOS tests.", { kind: "spawn" }), {
+    delegatedFrom: { ...delegatedFrom, threadTitle: undefined },
+  });
+  expect(sent(untitled).line).toBe("Sent from another thread · Arpan's MacBook Pro");
 });
 
 test("an agent message with no origin is sent from another thread, linked nowhere", () => {
@@ -95,15 +110,10 @@ test("an agent message with no origin is sent from another thread, linked nowher
   });
   expect(sent(view(native, { delegatedBy: "parent" }))).toEqual({
     line: "Sent from another thread",
+    provider: undefined,
     threadId: undefined,
     text: "FYI: my Swift now compiles.",
   });
-});
-
-test("a sender that is a chat reads as another chat", () => {
-  expect(sentByLine({ provider: "codex", threadId: "t" }, { chat: true })).toBe(
-    "Sent by Codex from another chat",
-  );
 });
 
 test("the person's own words, handoffs and automations are not sent by another thread", () => {

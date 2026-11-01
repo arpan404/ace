@@ -37,9 +37,7 @@ test("an agent-started thread is in the thread list, opens with a usable compose
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   expect(await within(feed).findByText(welcome)).toBeTruthy();
   // Its opening message is sent by the agent that started it.
-  expect(
-    within(feed).getByRole("link", { name: "Sent by OpenCode from another thread" }),
-  ).toBeTruthy();
+  expect(within(feed).getByRole("link", { name: "Sent by AI in education essay" })).toBeTruthy();
   const message = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(message, "Draft the release notes{Enter}");
   expect(await within(feed).findByText("Draft the release notes")).toBeTruthy();
@@ -70,9 +68,7 @@ test("a thread an agent started opens with its brief as a sent message whose lin
   await userEvent.click(more);
   expect(brief.closest("[data-folded]")).toBeNull();
   expect(within(feed).getByRole("button", { name: "Show less" })).toBeTruthy();
-  await userEvent.click(
-    within(feed).getByRole("link", { name: "Sent by OpenCode from another thread" }),
-  );
+  await userEvent.click(within(feed).getByRole("link", { name: "Sent by AI in education essay" }));
   expect(
     await within(await screen.findByRole("feed", { name: "Transcript" })).findByText(
       "Write a short paragraph on AI in education.",
