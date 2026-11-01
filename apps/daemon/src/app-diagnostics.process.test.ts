@@ -157,10 +157,6 @@ it("checks keep running after the app that started them leaves, and a new connec
 
 it("support export works before adding a project, redacts secrets, and includes conversations only when chosen locally", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-app-diagnostics-"));
-  const report = {
-    at: 1,
-    checks: [{ id: "git", status: "ok" as const, message: "Git available", fix: "Install Git" }],
-  };
   const daemon = await startDaemon({
     config: readConfig({ ACE_HOME: root, ACE_PORT: "0" }),
     engine: { registry: new AdapterRegistry() },

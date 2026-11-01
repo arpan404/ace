@@ -46,12 +46,12 @@ export function useChecksRun() {
   const run = status.data?.run ?? idle;
   const running = run.state === "running" ? run : undefined;
   const operation = running?.operation;
-  const startedAt = running?.startedAt;
+  // Each run is joined once: a new one (another start time) is joined again.
+  const runKey = running ? `${running.operation}:${running.startedAt}` : undefined;
   // While checks run, this page waits on them: the run it started, or one it came back to.
   useEffect(() => {
-    if (!operation || !ready) return;
+    if (!operation || !runKey || !ready) return;
     let live = true;
-    setError(undefined);
     void client
       .request(
         { type: "diagnostics.request", operation },
@@ -60,6 +60,7 @@ export function useChecksRun() {
       )
       .then(async (result) => {
         if (!live) return;
+        setError(undefined);
         if (result.error === "diagnostics_busy") {
           setError("Other checks are running on this computer. Try again when they finish.");
           return;
@@ -80,7 +81,7 @@ export function useChecksRun() {
     return () => {
       live = false;
     };
-  }, [operation, startedAt, ready, client, queries]);
+  }, [operation, runKey, ready, client, queries]);
   return {
     run,
     /** When the running checks started, by this window's clock. */
