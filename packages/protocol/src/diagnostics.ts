@@ -93,10 +93,13 @@ export type Toolchain = z.infer<typeof Toolchain>;
  * time, and the last one's outcome stays readable until the next starts.
  */
 const checksOperation = z.enum(["doctor", "fix"]);
+/** One checks run, for joining exactly that run (`join`) and never starting another. */
+const runId = z.string().min(1).max(128);
 export const DiagnosticsRun = z.discriminatedUnion("state", [
   z.object({ state: z.literal("idle") }),
   z.object({
     state: z.literal("running"),
+    id: runId,
     operation: checksOperation,
     startedAt: z.number(),
     /** How long it had run when this was read: clocks on two machines may disagree. */
@@ -104,6 +107,7 @@ export const DiagnosticsRun = z.discriminatedUnion("state", [
   }),
   z.object({
     state: z.literal("done"),
+    id: runId,
     operation: checksOperation,
     startedAt: z.number(),
     finishedAt: z.number(),
@@ -112,6 +116,7 @@ export const DiagnosticsRun = z.discriminatedUnion("state", [
   }),
   z.object({
     state: z.literal("failed"),
+    id: runId,
     operation: checksOperation,
     startedAt: z.number(),
     finishedAt: z.number(),
@@ -123,9 +128,12 @@ export const DiagnosticsRequest = z.object({
   requestId: z.string().min(1).max(128),
   /**
    * `doctor` and `fix` start the checks run, or join it when the same one is already running;
-   * `status` reads the run without starting one.
+   * `status` reads the run without starting one; `join` waits for the run `runId` names and
+   * answers its outcome, or `diagnostics_run_gone` when that run is no longer the current or
+   * last one. `join` never starts work and needs only read access, even for repairs.
    */
-  operation: z.enum(["doctor", "toolchains", "fix", "status"]),
+  operation: z.enum(["doctor", "toolchains", "fix", "status", "join"]),
+  runId: runId.optional(),
 });
 export const DiagnosticsResult = z.object({
   type: z.literal("diagnostics.result"),

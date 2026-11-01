@@ -471,7 +471,7 @@ export class FakeServicesWire {
             return;
           }
           if (message.type === "diagnostics.request") {
-            const reply = this.checks.answer(message.operation);
+            const reply = this.checks.answer(message.operation, message.runId);
             void Promise.resolve(reply).then((result) =>
               emit({ type: "diagnostics.result", requestId: message.requestId, ...result }),
             );

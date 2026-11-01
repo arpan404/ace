@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createCliControlSession } from "./cli-control.ts";
 import { createStorageSession } from "./storage.ts";
 import { createRepositoriesSession } from "./repositories.ts";
@@ -134,7 +135,8 @@ export function createSocketRegistry() {
   const doctorRuns = new WeakMap<ServerOptions, DoctorRuns>();
   const doctorRunsFor = (options: ServerOptions) => {
     let runs = doctorRuns.get(options);
-    if (!runs) doctorRuns.set(options, (runs = new DoctorRuns(options.now ?? Date.now)));
+    if (!runs)
+      doctorRuns.set(options, (runs = new DoctorRuns(options.now ?? Date.now, () => randomUUID())));
     return runs;
   };
   return (context: SocketContext) => [

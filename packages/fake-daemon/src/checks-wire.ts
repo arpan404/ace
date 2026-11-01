@@ -12,16 +12,22 @@ type Answer = Outcome | { toolchains: Toolchain[] } | { run: DiagnosticsRun } | 
 
 /**
  * The fake daemon's checks (`diagnostics.request`): one run at a time for every connection, a
- * second request for it joins it, and `status` reads it, as the daemon does. `hold` keeps the
+ * second request for it joins it, `status` reads it and `join` waits for one run by its id, as
+ * the daemon does. `hold` keeps the
  * next run going until the test lets it finish.
  */
 export class FakeChecks {
   readonly #now: () => number;
   readonly #providers: () => readonly ProviderStatus[];
   #run: Exclude<DiagnosticsRun, { state: "running" }> = { state: "idle" };
-  #running: { operation: Operation; startedAt: number } | undefined;
-  #pending: { operation: Operation; outcome: Promise<Outcome> } | undefined;
+  #pending:
+    | { id: string; operation: Operation; startedAt: number; outcome: Promise<Outcome> }
+    | undefined;
+  #last: { id: string; outcome: Outcome | Promise<Outcome> } | undefined;
   #held: Promise<void> | undefined;
+  #sequence = 0;
+  /** How many checks runs started, for a test that must see none start again. */
+  starts = 0;
 
   constructor(now: () => number, providers: () => readonly ProviderStatus[]) {
     this.#now = now;
@@ -35,36 +41,47 @@ export class FakeChecks {
     return () => gate.resolve();
   }
 
-  answer(operation: Operation | "toolchains" | "status"): Answer | Promise<Answer> {
+  answer(
+    operation: Operation | "toolchains" | "status" | "join",
+    runId?: string,
+  ): Answer | Promise<Answer> {
     if (operation === "status") return { run: this.#status() };
     if (operation === "toolchains") return { toolchains };
+    if (operation === "join") {
+      if (this.#pending && this.#pending.id === runId) return this.#pending.outcome;
+      return this.#last && this.#last.id === runId
+        ? this.#last.outcome
+        : { error: "diagnostics_run_gone" };
+    }
     if (this.#pending)
       return this.#pending.operation === operation
         ? this.#pending.outcome
         : { error: "diagnostics_busy" };
+    this.starts++;
+    const id = `checks-${++this.#sequence}`;
     const startedAt = this.#now();
     const held = this.#held;
     this.#held = undefined;
     const finish = (): Outcome => {
       const result = operation === "fix" ? this.#repaired() : { report: this.#report() };
-      this.#run = { state: "done", operation, startedAt, finishedAt: this.#now(), ...result };
+      this.#run = { state: "done", id, operation, startedAt, finishedAt: this.#now(), ...result };
       this.#pending = undefined;
-      this.#running = undefined;
+      this.#last = { id, outcome: result };
       return result;
     };
     // A run that isn't held answers at once, as the fake's other reads do.
     if (!held) return finish();
-    this.#running = { operation, startedAt };
     const outcome = held.then(finish);
-    this.#pending = { operation, outcome };
+    this.#pending = { id, operation, startedAt, outcome };
     return outcome;
   }
 
   #status(): DiagnosticsRun {
-    if (!this.#running) return this.#run;
-    const { operation, startedAt } = this.#running;
+    if (!this.#pending) return this.#run;
+    const { id, operation, startedAt } = this.#pending;
     return {
       state: "running",
+      id,
       operation,
       startedAt,
       elapsedMs: Math.max(0, this.#now() - startedAt),

@@ -358,7 +358,7 @@ export class FakeDaemon implements Host {
     return this.servicesWire.computerUsing;
   }
   /** Run checks and safe repairs (`diagnostics.request`), for holding a run in progress. */
-  get checks(): Pick<import("./checks-wire.ts").FakeChecks, "hold"> {
+  get checks(): Pick<import("./checks-wire.ts").FakeChecks, "hold" | "starts"> {
     return this.servicesWire.checks;
   }
   /**

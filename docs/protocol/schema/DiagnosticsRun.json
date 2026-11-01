@@ -20,6 +20,11 @@
           "minimum": 0,
           "type": "number"
         },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
         "operation": {
           "enum": [
             "doctor",
@@ -37,6 +42,7 @@
       },
       "required": [
         "state",
+        "id",
         "operation",
         "startedAt",
         "elapsedMs"
@@ -47,6 +53,11 @@
       "properties": {
         "finishedAt": {
           "type": "number"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
         },
         "operation": {
           "enum": [
@@ -75,6 +86,7 @@
       },
       "required": [
         "state",
+        "id",
         "operation",
         "startedAt",
         "finishedAt",
@@ -86,6 +98,11 @@
       "properties": {
         "finishedAt": {
           "type": "number"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
         },
         "operation": {
           "enum": [
@@ -104,6 +121,7 @@
       },
       "required": [
         "state",
+        "id",
         "operation",
         "startedAt",
         "finishedAt"

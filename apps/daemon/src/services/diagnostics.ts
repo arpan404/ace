@@ -42,6 +42,10 @@ export function createDiagnosticsSession(
       send({ type: "diagnostics.result", requestId, error });
       return;
     }
+    answer(requestId, outcome, scope);
+  };
+  /** Answer with a run's outcome once it ends, while this socket may still read it. */
+  const answer = (requestId: string, outcome: Promise<DoctorOutcome>, scope: "read" | "admin") =>
     void outcome.then(
       (result) => {
         if (!closed && authorize(scope))
@@ -56,6 +60,22 @@ export function createDiagnosticsSession(
         if (!closed) send({ type: "diagnostics.result", requestId, error: "diagnostics_failed" });
       },
     );
+  /**
+   * Wait for one run without ever starting work. Reading is enough, even for repairs: a device
+   * that can see a run going can see how it ends.
+   */
+  const join = (requestId: string, runId: string | undefined) => {
+    const outcome = runId === undefined || !authorize("read") ? undefined : runs.join(runId);
+    if (!outcome) {
+      const error = !authorize("read")
+        ? "forbidden"
+        : runId === undefined
+          ? "invalid_request"
+          : "diagnostics_run_gone";
+      send({ type: "diagnostics.result", requestId, error });
+      return;
+    }
+    answer(requestId, outcome, "read");
   };
   const toolchains = (requestId: string) => {
     const error = !authorize("read")
@@ -116,7 +136,8 @@ export function createDiagnosticsSession(
               ? { type: "diagnostics.result", requestId: message.requestId, run: runs.status() }
               : { type: "diagnostics.result", requestId: message.requestId, error: "forbidden" },
           );
-        } else if (message.operation === "toolchains") toolchains(message.requestId);
+        } else if (message.operation === "join") join(message.requestId, message.runId);
+        else if (message.operation === "toolchains") toolchains(message.requestId);
         else checks(message.requestId, message.operation);
         return true;
       }

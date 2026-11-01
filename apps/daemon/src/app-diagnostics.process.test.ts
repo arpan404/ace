@@ -8,6 +8,7 @@ import {
   SocketTicket,
   type DiagnosticReport,
   type DiagnosticsHealth,
+  type ServerMessage,
 } from "@ace/protocol";
 import { expect, it } from "vitest";
 import { startDaemon, readConfig, AdapterRegistry } from "./index.ts";
@@ -122,6 +123,13 @@ it("ace health still answers while the checks are running", async () => {
   }
 });
 
+/** The id of the run a status answer reports. */
+function runIdOf(message: ServerMessage): string {
+  if (message.type !== "diagnostics.result" || !message.run || message.run.state === "idle")
+    throw new Error("No run in the status answer");
+  return message.run.id;
+}
+
 it("checks keep running after the app that started them leaves, and a new connection reads and joins them", async () => {
   const pending = Promise.withResolvers<DiagnosticReport>();
   let at = 100;
@@ -136,11 +144,13 @@ it("checks keep running after the app that started them leaves, and a new connec
     const second = await f.connect();
     await second.next();
     second.send({ type: "diagnostics.request", requestId: "status", operation: "status" });
-    expect(await second.next()).toMatchObject({
+    const status = await second.next();
+    expect(status).toMatchObject({
       requestId: "status",
       run: { state: "running", operation: "doctor", startedAt: 100 },
     });
-    second.send({ type: "diagnostics.request", requestId: "join", operation: "doctor" });
+    const runId = runIdOf(status);
+    second.send({ type: "diagnostics.request", requestId: "join", operation: "join", runId });
     second.send({ type: "diagnostics.request", requestId: "joined", operation: "status" });
     expect(await second.next()).toMatchObject({ requestId: "joined", run: { state: "running" } });
     at = 160;
@@ -148,8 +158,103 @@ it("checks keep running after the app that started them leaves, and a new connec
     expect(await second.next()).toMatchObject({ requestId: "join", report });
     second.send({ type: "diagnostics.request", requestId: "after", operation: "status" });
     expect(await second.next()).toMatchObject({
-      run: { state: "done", startedAt: 100, finishedAt: 160, report },
+      run: { state: "done", id: runId, startedAt: 100, finishedAt: 160, report },
     });
+  } finally {
+    await f.close();
+  }
+});
+
+it("joining repairs that ended between the status read and the join answers their outcome and never repairs again", async () => {
+  const pending = Promise.withResolvers<{ report: DiagnosticReport; repairs: [] }>();
+  let repairs = 0;
+  const f = await fixture({
+    doctorFix: () => {
+      repairs++;
+      return pending.promise;
+    },
+  });
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "diagnostics.request", requestId: "fix", operation: "fix" });
+    client.send({ type: "diagnostics.request", requestId: "status", operation: "status" });
+    const runId = runIdOf(await client.next());
+    // The repairs end before the join arrives.
+    pending.resolve({ report, repairs: [] });
+    expect(await client.next()).toMatchObject({ requestId: "fix", report });
+    client.send({ type: "diagnostics.request", requestId: "join", operation: "join", runId });
+    expect(await client.next()).toMatchObject({ requestId: "join", report, repairs: [] });
+    expect(repairs).toBe(1);
+  } finally {
+    await f.close();
+  }
+});
+
+it("joining a run that is gone (an older one, or one from before a restart) says so and starts nothing", async () => {
+  let runs = 0;
+  const f = await fixture({
+    doctor: async () => {
+      runs++;
+      return report;
+    },
+  });
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "diagnostics.request", requestId: "join", operation: "join", runId: "x" });
+    expect(await client.next()).toMatchObject({
+      requestId: "join",
+      error: "diagnostics_run_gone",
+    });
+    expect(runs).toBe(0);
+  } finally {
+    await f.close();
+  }
+});
+
+it("a device that may only read sees repairs another device started through to their outcome, but can't start them", async () => {
+  const pending = Promise.withResolvers<{ report: DiagnosticReport; repairs: [] }>();
+  const f = await fixture({ doctorFix: () => pending.promise });
+  try {
+    const admin = await f.connect();
+    await admin.next();
+    admin.send({ type: "diagnostics.request", requestId: "fix", operation: "fix" });
+    admin.send({ type: "diagnostics.request", requestId: "status", operation: "status" });
+    await admin.next();
+
+    const paired = f.store.devices.create("Reader", ["read"], 1);
+    const ticket = SocketTicket.parse(
+      await (
+        await fetch(f.server.url.replace("ws:", "http:") + "/v1/tickets", {
+          method: "POST",
+          headers: { authorization: `Bearer ${paired.token}` },
+        })
+      ).json(),
+    );
+    const reader = await f.open();
+    reader.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: DeviceId.parse(paired.device.id),
+      ticket: ticket.ticket,
+    });
+    await reader.next();
+    reader.send({ type: "diagnostics.request", requestId: "start", operation: "fix" });
+    expect(await reader.next()).toMatchObject({ requestId: "start", error: "forbidden" });
+    reader.send({ type: "diagnostics.request", requestId: "status", operation: "status" });
+    const status = await reader.next();
+    expect(status).toMatchObject({ run: { state: "running", operation: "fix" } });
+    reader.send({
+      type: "diagnostics.request",
+      requestId: "join",
+      operation: "join",
+      runId: runIdOf(status),
+    });
+    reader.send({ type: "diagnostics.request", requestId: "joined", operation: "status" });
+    await reader.next();
+    pending.resolve({ report, repairs: [] });
+    expect(await reader.next()).toMatchObject({ requestId: "join", report, repairs: [] });
   } finally {
     await f.close();
   }

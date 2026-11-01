@@ -12154,7 +12154,8 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"diagnostics.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | ["doctor","toolchains","fix","status"] |  |
+| operation | yes | ["doctor","toolchains","fix","status","join"] |  |
+| runId | no | string | {"minLength":1,"maxLength":128} |
 
 Example:
 
@@ -12212,6 +12213,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | state | yes | `"running"` |  |
+| id | yes | string | {"minLength":1,"maxLength":128} |
 | operation | yes | ["doctor","fix"] |  |
 | startedAt | yes | number |  |
 | elapsedMs | yes | number | {"minimum":0} |
@@ -12221,6 +12223,7 @@ Example:
 ```json
 {
   "elapsedMs": 5,
+  "id": "example",
   "operation": "fix",
   "startedAt": 5,
   "state": "running"
@@ -12232,6 +12235,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | state | yes | `"done"` |  |
+| id | yes | string | {"minLength":1,"maxLength":128} |
 | operation | yes | ["doctor","fix"] |  |
 | startedAt | yes | number |  |
 | finishedAt | yes | number |  |
@@ -12243,6 +12247,7 @@ Example:
 ```json
 {
   "finishedAt": 0,
+  "id": "example",
   "operation": "doctor",
   "report": {
     "at": 2,
@@ -12258,6 +12263,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | state | yes | `"failed"` |  |
+| id | yes | string | {"minLength":1,"maxLength":128} |
 | operation | yes | ["doctor","fix"] |  |
 | startedAt | yes | number |  |
 | finishedAt | yes | number |  |
@@ -12267,6 +12273,7 @@ Example:
 ```json
 {
   "finishedAt": 5,
+  "id": "example",
   "operation": "doctor",
   "startedAt": 9,
   "state": "failed"
