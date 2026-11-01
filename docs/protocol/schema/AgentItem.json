@@ -622,6 +622,7 @@
           "type": "string"
         },
         "raw": {
+          "default": [],
           "items": {
             "$ref": "https://ace.local/protocol/v1/RawPayload.json"
           },
