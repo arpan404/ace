@@ -15,6 +15,8 @@ test("an off group says why: not running, not offered here, or the server's own 
     reason: "ace does not offer this tool group to this provider session.",
   });
   expect(defaults).toContainEqual({ name: "agents", enabled: true });
+  // Default reasons never point at a setting that does not exist.
+  for (const group of defaults) expect(group.reason ?? "").not.toMatch(/configure|Ask the person/);
   const external = mcpStatusGroups(registered, [], undefined, {
     unregistered: "Not offered to external MCP clients.",
     withheld: "This enrollment is read-only.",

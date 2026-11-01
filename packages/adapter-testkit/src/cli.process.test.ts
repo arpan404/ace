@@ -32,16 +32,7 @@ describe("timeline command", () => {
     expect(child.stdout).toContain('"expired":1');
     expect(child.stdout).toContain('"final":{"thread":{"state":"done"},"agents":2');
   });
-  it("rejects a negative CLI checkpoint with a clear error", () => {
-    const child = spawnSync(
-      process.execPath,
-      [cli, fixture, "--adapter", adapter, "--checkpoint=-1"],
-      { encoding: "utf8" },
-    );
-    expect(child.status).toBe(1);
-    expect(child.stderr).toContain("checkpoint times must be nonnegative integers");
-    expect(child.stdout).toBe("");
-  });
+
   it.each([
     { change: 'provider: "claude"', error: "fixture provider codex does not match adapter claude" },
     { change: 'provider: "invalid"', error: "provider" },

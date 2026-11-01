@@ -3,7 +3,8 @@ import { DeviceId, ThreadId, type ProviderKind } from "@ace/protocol";
 import { expect, test, vi } from "vitest";
 import { FakeDaemon, fakeTransport } from "./index.ts";
 
-test.each<ProviderKind>(["claude", "codex", "opencode", "cursor", "pi", "acp"])(
+// The fake's thread.delete path never reads the provider; one is enough.
+test.each<ProviderKind>(["codex"])(
   "%s deletion stays absent after fake client reconnect and receipt retry",
   async (provider) => {
     const daemon = new FakeDaemon({ clock: () => 1000 });

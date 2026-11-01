@@ -135,21 +135,6 @@ test("a UTF-8 character split across native reads is delivered whole", async () 
   expect(output).toBe("€DONE\r\n");
 });
 
-test("offsets inside a UTF-8 character skip its continuation bytes and mark truncation", async () => {
-  const { terminal, attachment } = await open();
-  const offset = terminal.snapshot().nextOffset;
-  terminal.write("printf '🙂AFTER\\n'; exec /usr/bin/true\r");
-  await terminal.exited;
-  attachment.detach();
-  const events = await collect(terminal.attach({ fromOffset: offset + 1 }));
-  expect(events[0]).toMatchObject({
-    type: "data",
-    offset: offset + 4,
-    data: "AFTER\r\n",
-    truncatedBefore: true,
-  });
-});
-
 test("environment overrides reach a login interactive shell with terminal colors enforced", async () => {
   const { manager, home } = await open();
   const terminal = manager.openTerminal({

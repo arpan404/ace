@@ -23,10 +23,10 @@ const calls = (h: Awaited<ReturnType<typeof scripted>>, tool: string) =>
       item.call.detail.tool === bareToolName(tool),
   );
 
+// The fake app-server answers ace tool calls the same way in every mode; two rows cover a
+// writing and a read-only mode.
 test.each([
-  [":danger-full-access", "browser_open"],
   [":workspace", "browser_open"],
-  [":workspace", "thread_read"],
   [":read-only", "context"],
 ])("Codex in %s calls %s five times without asking the person", async (mode, tool) => {
   const h = await scripted(mode);
