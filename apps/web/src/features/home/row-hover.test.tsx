@@ -86,12 +86,11 @@ test("Settle and Unsettle on a settled row's hover actions move it between Settl
 });
 
 /**
- * The status word on an Active row's top line, and the controls its box offers beside the row's
+ * The status icon on an Active row's top line, and the controls its box offers beside the row's
  * link. `statusVisible` reads the status cluster's hidden state from the DOM, not its classes:
  * hovered or keyboard-focused, the actions take the status's place and the status hides.
  */
-const status = (title: RegExp, word: string) =>
-  within(card(title)).queryByText(word, { exact: true }) !== null;
+const hasStatus = (title: RegExp) => card(title).querySelector('[data-icon="waiting"]') !== null;
 const statusVisible = (title: RegExp) => {
   const wrap = card(title).querySelector("[data-row-status]");
   if (!(wrap instanceof HTMLElement)) throw new Error("no status");
@@ -129,19 +128,19 @@ test("a waiting row hides its status for its actions under the pointer or focus"
   await openHome();
   const row = /^Dedupe thread events after reconnect/;
   const title = "Dedupe thread events after reconnect";
-  expect(status(row, "Waiting")).toBe(true);
+  expect(hasStatus(row)).toBe(true);
   expect(statusVisible(row)).toBe(true);
 
   await userEvent.hover(card(row));
-  // The word stays in the row for its layout and name, but hides from sight.
-  expect(status(row, "Waiting")).toBe(true);
+  // The icon stays in the row for its layout and name, but hides from sight.
+  expect(hasStatus(row)).toBe(true);
   expect(statusVisible(row)).toBe(false);
-  expect(rowText(card(row))).not.toContain("Waiting");
+  expect(card(row).getAttribute("aria-label")).toContain("Waiting for 2 subagents");
   expect(rowText(card(row))).toContain(title);
   expect(controls(row)).toContain(`Snooze ${title}`);
   await userEvent.unhover(card(row));
   expect(statusVisible(row)).toBe(true);
-  expect(rowText(card(row))).toContain("Waiting");
+  expect(hasStatus(row)).toBe(true);
 
   card(row).focus();
   await waitFor(() => expect(document.activeElement).toBe(card(row)));
@@ -162,9 +161,9 @@ test("a clicked row keeps its status, under the pointer and after it moves off",
   const row = /^Dedupe thread events after reconnect/;
   await userEvent.click(card(row));
   expect(document.activeElement).toBe(card(row));
-  expect(status(row, "Waiting")).toBe(true);
+  expect(hasStatus(row)).toBe(true);
   await userEvent.unhover(card(row));
-  expect(status(row, "Waiting")).toBe(true);
+  expect(hasStatus(row)).toBe(true);
 });
 
 test("a clicked row keeps its status when the window gives focus back to it", async () => {
@@ -178,7 +177,7 @@ test("a clicked row keeps its status when the window gives focus back to it", as
   away.mockRestore();
   await act(async () => card(row).focus());
   expect(document.activeElement).toBe(card(row));
-  expect(status(row, "Waiting")).toBe(true);
+  expect(hasStatus(row)).toBe(true);
 });
 
 test("a row keeps its status once its ⋯ menu closes under the pointer", async () => {
@@ -190,7 +189,7 @@ test("a row keeps its status once its ⋯ menu closes under the pointer", async 
   await userEvent.hover(await screen.findByRole("menuitem", { name: /^Rename/ }));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menuitem", { name: /^Rename/ })).toBeNull());
-  expect(status(row, "Waiting")).toBe(true);
+  expect(hasStatus(row)).toBe(true);
 });
 
 test("work still running offers Snooze on hover but no Settle", async () => {

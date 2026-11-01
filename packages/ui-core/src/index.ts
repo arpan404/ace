@@ -287,6 +287,12 @@ export {
 } from "./row-attention.ts";
 export { rowIndicator, type RowIndicator } from "./row-indicator.ts";
 export {
+  rowStatusLook,
+  type RowStatusIconKind,
+  type RowStatusLook,
+  type RowStatusTone,
+} from "./row-status-display.ts";
+export {
   sanitizeUserText,
   stripAceOriginMarker,
   hasAceOriginMarker,

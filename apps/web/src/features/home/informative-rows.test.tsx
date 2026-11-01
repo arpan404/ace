@@ -54,29 +54,28 @@ test("a plan review says Review in the needs-you colour and explains the request
   ]);
   await app.open("/new");
   const row = await activeRow("Review reconnect recovery");
-  await waitFor(() => expect(within(row).getByText(/^(Review|Needs you)$/)).toBeTruthy());
-  const word = within(row).getByText(/^(Review|Needs you)$/).textContent ?? "";
-  expect(toneOf(row, word)).toBe("needs-you");
+  await waitFor(() => expect(within(row).getByText("Review", { exact: true })).toBeTruthy());
+  expect(toneOf(row, "Review")).toBe("needs-you");
   expect(row.getAttribute("aria-label")).toContain("Waiting for your review");
 });
 
-test("a question says Answer in the needs-you colour and keeps the full explanation for screen readers", async () => {
+test("a question says Question in the needs-you colour and keeps the full explanation for screen readers", async () => {
   const app = harness();
   const example = askingQuestion();
   app.play(example).runUntilBlocked();
   await app.open("/new");
   const row = await activeRow(example.thread.title);
-  await waitFor(() => expect(toneOf(row, "Answer")).toBe("needs-you"));
+  await waitFor(() => expect(toneOf(row, "Question")).toBe("needs-you"));
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
 });
 
 test.each([
-  [waitingOnSubagents, "Waiting", "Waiting for 2 subagents"],
-  [watchingRelay, "Background · 1", "Running in background bun run dev:relay"],
-  [runningTests, "Working", "Working · running tests"],
+  [waitingOnSubagents, "waiting", "Waiting for 2 subagents"],
+  [watchingRelay, "background", "Running in background bun run dev:relay"],
+  [runningTests, "working", "Working · running tests"],
 ])(
-  "a live Active row says its status in words on its top line, the full wording in its name and hover card: %s",
-  async (scenario, short, full) => {
+  "a live Active row shows its time with a still icon, the full wording in its name and hover card: %s",
+  async (scenario, icon, full) => {
     const app = harness();
     const example = scenario();
     app.play(example).runUntilBlocked();
@@ -85,12 +84,16 @@ test.each([
       await rows()
     ).findByRole("link", { name: new RegExp(`^${example.thread.title}`) });
     expect(rowText(row)).toContain(example.thread.title);
-    expect(within(row).getByText(short, { exact: true })).toBeTruthy();
+    expect(row.querySelector(`[data-icon="${icon}"]`)).toBeTruthy();
+    expect(row.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
+    // The short status word is gone; the time takes its place beside the icon.
+    for (const gone of ["Waiting", "Background · 1", "Working"])
+      expect(within(row).queryByText(gone, { exact: true })).toBeNull();
     expect(row.getAttribute("aria-label")).toContain(full);
     await userEvent.hover(row);
     const card = await screen.findByLabelText(/^Details for /);
     expect(card.textContent).toContain(example.thread.title);
-    expect(card.textContent).toContain(short);
+    expect(card.querySelector(`[data-icon="${icon}"]`)).toBeTruthy();
   },
 );
 
@@ -101,7 +104,8 @@ test("an Active row shows its project and status, then its title, then its branc
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   const [top, title, context] = [...row.querySelectorAll(":scope > div > div")];
   if (!top || !title || !context) throw new Error("Not three lines");
-  expect(rowText(top)).toMatch(/^ace.*Working/);
+  expect(rowText(top)).toMatch(/^ace/);
+  expect(row.querySelector('[data-icon="working"]')).toBeTruthy();
   expect(rowText(title)).toBe("Build replay recovery");
   expect(within(context as HTMLElement).getByTitle("fix/replay")).toBeTruthy();
   expect(
@@ -119,7 +123,7 @@ test("an Active row shows its project and status, then its title, then its branc
   expect(within(tip).getByRole("img", { name: "24 lines added, 6 lines removed" })).toBeTruthy();
 });
 
-test("new activity under a working tree reads unread, yet the row still says Working, never Done", async () => {
+test("new activity under a working tree reads unread, yet the row still works, never Done", async () => {
   const app = harness();
   task(app, "build", "Build replay recovery");
   app.daemon.markReadThrough("build", "ask", "test-device");
@@ -131,11 +135,12 @@ test("new activity under a working tree reads unread, yet the row still says Wor
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(row.getAttribute("aria-label")).toContain(", unread");
   expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running");
-  expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
+  expect(row.querySelector('[data-icon="working"]')).toBeTruthy();
+  expect(within(row).queryByText("Working", { exact: true })).toBeNull();
   // The subagent finishes but the root still works: still never Done.
   app.daemon.apply("build", [facts.endTurn("web")]);
   await waitFor(() => expect(row.getAttribute("aria-label")).not.toContain("subagent running"));
-  expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
+  expect(row.querySelector('[data-icon="working"]')).toBeTruthy();
   expect(within(row).queryByText("Done", { exact: true })).toBeNull();
 });
 
@@ -158,11 +163,11 @@ test("agents running beside a human request remain counted until they finish", a
   await waitFor(() =>
     expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running"),
   );
-  // A waiting approval reads Approve, in the needs-you (warning) colour.
-  expect(toneOf(row, "Approve")).toBe("needs-you");
+  // A waiting approval reads Approval, in the needs-you (warning) colour.
+  expect(toneOf(row, "Approval")).toBe("needs-you");
   app.daemon.apply("build", [facts.endTurn("web")]);
   await waitFor(() => expect(row.getAttribute("aria-label")).not.toContain("subagent running"));
-  expect(toneOf(row, "Approve")).toBe("needs-you");
+  expect(toneOf(row, "Approval")).toBe("needs-you");
 });
 
 test("renaming an empty draft cannot turn it into a task", async () => {

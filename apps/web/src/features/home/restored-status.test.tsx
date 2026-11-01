@@ -99,7 +99,9 @@ test("a restored thread that was done never shows as done before the daemon conf
     for (const deliver of gate.queue.splice(0)) deliver();
   });
   await waitFor(() => expect(row()?.getAttribute("data-attention")).toBe("active"));
-  expect(within(link).getByText("Working")).toBeTruthy();
+  expect(link.querySelector('[data-icon="working"]')).toBeTruthy();
+  expect(link.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
+  expect(link.getAttribute("aria-label")).toContain("Working");
   await within(feed).findByText(/^Working/);
   expect(within(feed).queryByText("Syncing…")).toBeNull();
 });
