@@ -1,3 +1,4 @@
+import { createWriteStream } from "node:fs";
 import { z } from "zod";
 import { WebSocket } from "ws";
 
@@ -5,6 +6,10 @@ const Reply = z.object({
   id: z.number(),
   result: z.unknown().optional(),
   error: z.object({ message: z.string() }).optional(),
+});
+const Chunk = z.object({
+  method: z.literal("HeapProfiler.addHeapSnapshotChunk"),
+  params: z.object({ chunk: z.string() }),
 });
 const Evaluated = z.object({
   result: z.object({ value: z.unknown().optional() }),
@@ -46,11 +51,15 @@ export class Inspector {
   private next = 0;
   private readonly pending = new Map<number, (reply: z.infer<typeof Reply>) => void>();
   private readonly socket: WebSocket;
+  private onChunk: ((chunk: string) => void) | undefined;
   private constructor(socket: WebSocket) {
     this.socket = socket;
     socket.on("message", (data) => {
-      const reply = Reply.safeParse(JSON.parse(String(data)));
-      if (!reply.success) return; // Notifications carry no id.
+      const message: unknown = JSON.parse(String(data));
+      const chunk = Chunk.safeParse(message);
+      if (chunk.success) return this.onChunk?.(chunk.data.params.chunk);
+      const reply = Reply.safeParse(message);
+      if (!reply.success) return; // Other notifications carry no id.
       this.pending.get(reply.data.id)?.(reply.data);
       this.pending.delete(reply.data.id);
     });
@@ -101,6 +110,35 @@ export class Inspector {
       times.push(ms);
     }
     return Math.min(...times);
+  }
+  /** Writes a main-isolate heap snapshot (after the forced GC V8 does first) to `path`. */
+  async snapshot(path: string): Promise<void> {
+    const file = createWriteStream(path);
+    this.onChunk = (chunk) => file.write(chunk);
+    try {
+      await this.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
+    } finally {
+      this.onChunk = undefined;
+      await new Promise<void>((resolve, reject) =>
+        file.end((error?: Error | null) => (error ? reject(error) : resolve())),
+      );
+    }
+  }
+  /** Starts the main-isolate CPU sampler. */
+  async profileStart(intervalUs: number): Promise<void> {
+    await this.send("Profiler.enable");
+    await this.send("Profiler.setSamplingInterval", { interval: intervalUs });
+    await this.send("Profiler.start");
+  }
+  /** Stops the sampler and returns the `.cpuprofile` JSON. */
+  async profileStop(): Promise<unknown> {
+    const result = z.object({ profile: z.unknown() }).parse(await this.send("Profiler.stop"));
+    await this.send("Profiler.disable");
+    return result.profile;
+  }
+  /** Evaluates an expression in the daemon's main isolate and returns its JSON value. */
+  value(expression: string): Promise<unknown> {
+    return this.evaluate(expression);
   }
   close() {
     this.socket.close();

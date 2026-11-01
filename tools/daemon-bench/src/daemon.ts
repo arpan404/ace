@@ -24,6 +24,12 @@ export interface DaemonSettings {
   speed: number;
   /** Pause before each synthetic long-text delta. */
   deltaMs: number;
+  /** Node binary for the daemon; defaults to this process's (profiles use the release runtime). */
+  node?: string;
+  /** Extra Node flags, such as `--cpu-prof`. */
+  execArgv?: readonly string[];
+  /** Extra environment, applied over the clean one. */
+  env?: NodeJS.ProcessEnv;
 }
 export interface RunningDaemon {
   pid: number;
@@ -77,11 +83,17 @@ export async function startDaemon(settings: DaemonSettings): Promise<RunningDaem
   const endpoint = join(settings.root.aceHome, "daemon-endpoint");
   await rm(endpoint, { force: true });
   const child = spawn(
-    process.execPath,
-    ["--inspect=127.0.0.1:0", "--no-warnings", settings.entry, "serve"],
+    settings.node ?? process.execPath,
+    [
+      "--inspect=127.0.0.1:0",
+      "--no-warnings",
+      ...(settings.execArgv ?? []),
+      settings.entry,
+      "serve",
+    ],
     {
       cwd: dirname(settings.entry),
-      env: daemonEnv(settings),
+      env: { ...daemonEnv(settings), ...settings.env },
       stdio: ["ignore", "ignore", "pipe"],
     },
   );

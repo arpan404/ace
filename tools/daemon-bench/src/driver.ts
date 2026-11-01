@@ -14,7 +14,7 @@ function memoryStorage(): Storage {
     },
   };
 }
-function until<T>(selection: Selection<T>, accept: (value: T) => boolean, what: string) {
+export function until<T>(selection: Selection<T>, accept: (value: T) => boolean, what: string) {
   return new Promise<T>((resolve, reject) => {
     const subscriptions: (() => void)[] = [];
     const finish = () => {
@@ -92,8 +92,12 @@ export class Driver {
     return count;
   }
   /** Starts a thread with its first turn and resolves once that turn has finished. */
-  async createTurn(workspaceId: WorkspaceId, provider: Thread["provider"], text: string) {
-    const threadId = ThreadId.parse(`bench-${randomUUID()}`);
+  async createTurn(
+    workspaceId: WorkspaceId,
+    provider: Thread["provider"],
+    text: string,
+    threadId = ThreadId.parse(`bench-${randomUUID()}`),
+  ) {
     await this.command({
       type: "thread.create",
       workspaceId,

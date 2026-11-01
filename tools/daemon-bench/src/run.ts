@@ -1,13 +1,13 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { promisify } from "node:util";
-import { footprint, startDaemon, type BenchRoot, type RunningDaemon } from "./daemon.ts";
+import { footprint, startDaemon, type RunningDaemon } from "./daemon.ts";
 import { Driver } from "./driver.ts";
-import { installFakeCli, recordings } from "./fake-cli/install.ts";
+import { recordings } from "./fake-cli/install.ts";
 import { Inspector } from "./inspector.ts";
+import { makeBenchRoot } from "./root.ts";
 import { BenchResult, type Phase } from "./result.ts";
 import { seedThreads } from "./seed.ts";
 import {
@@ -54,28 +54,6 @@ async function bundle(directory: string): Promise<string> {
   return join(output, "ace.mjs");
 }
 
-/** Projects are git repositories; git is the one real tool beside the fake CLI on PATH. */
-async function project(root: BenchRoot) {
-  const run = promisify(execFile);
-  const { stdout } = await run("/bin/sh", ["-c", "command -v git"]);
-  await symlink(stdout.trim(), join(root.bin, "git"));
-  const env = { PATH: root.bin, HOME: root.home, GIT_CONFIG_NOSYSTEM: "1" };
-  await writeFile(join(root.project, "README.md"), "# Benchmark project\n");
-  const git = (...args: string[]) => run("git", args, { cwd: root.project, env });
-  await git("init", "--quiet", "--initial-branch=main");
-  await git("add", ".");
-  await git(
-    "-c",
-    "user.name=bench",
-    "-c",
-    "user.email=bench@example.invalid",
-    "commit",
-    "--quiet",
-    "-m",
-    "Start",
-  );
-}
-
 async function memory(inspector: Inspector, daemon: RunningDaemon) {
   const { heapUsed, rss } = await inspector.collected();
   const physical = await footprint(daemon.pid);
@@ -106,23 +84,11 @@ async function phase(
   };
 }
 
-// The daemon refuses projects in system folders, and macOS temp lives under /var.
-const base = process.platform === "darwin" ? "/tmp" : tmpdir();
-const directory = await mkdtemp(join(base, "ace-daemon-bench-"));
-const root: BenchRoot = {
-  home: join(directory, "home"),
-  aceHome: join(directory, "home/.ace-bench"),
-  bin: join(directory, "bin"),
-  project: join(directory, "home/project"),
-  tmp: join(directory, "tmp"),
-};
+const { directory, root } = await makeBenchRoot();
 let daemon: RunningDaemon | undefined;
 let driver: Driver | undefined;
 let inspector: Inspector | undefined;
 try {
-  for (const path of [root.aceHome, root.project, root.tmp]) await mkdir(path, { recursive: true });
-  await installFakeCli(root.bin, "claude");
-  await project(root);
   const settings = {
     entry: await bundle(directory),
     root,
