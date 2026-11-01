@@ -37,6 +37,7 @@ it("native provider keeps the engine's MCP lease through live configuration and 
   const session = await adapter.openSession({
     threadId: f.thread.id,
     cwd: f.home,
+    model: "start-model",
     signal: new AbortController().signal,
     aceMcp: connection,
     env: {
@@ -49,9 +50,14 @@ it("native provider keeps the engine's MCP lease through live configuration and 
   cleanups.push(() => session.close("shutdown"));
   expect(f.browser.state(f.thread.id)?.url).toBe("http://localhost:3000/inherited");
   if (!session.configure) throw new Error("Live configuration missing");
+  // ace's tool guidance is fixed at connection startup, so a model switch asks the engine to
+  // reopen the thread instead of changing it in place.
+  expect(
+    await session.configure({ provider: "codex", model: "switched-model", options: {} }),
+  ).toBe("reopen");
   await session.configure({
     provider: "codex",
-    model: "switched-model",
+    model: "start-model",
     options: { effort: "high", serviceTier: "fast" },
   });
   await session.send([{ type: "text", text: "synthetic input" }], "queue", "configured");
@@ -74,7 +80,7 @@ it("native provider keeps the engine's MCP lease through live configuration and 
       const parsed = settings.safeParse(frame.data);
       return parsed.success ? [parsed.data.params] : [];
     }),
-  ).toContainEqual({ model: "switched-model", effort: "high", serviceTier: "fast" });
+  ).toEqual([{ model: "start-model", effort: "high", serviceTier: "fast" }]);
   await session.close("shutdown");
   expect(
     (await invoke(connection, "browser_open", { url: "http://localhost:3000/late" })).status,
