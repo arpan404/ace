@@ -83,7 +83,7 @@ export async function prepareBuiltinSkills(provider: "claude" | "codex", root: s
  * Guides that load only when an agent asks for them (`guide` with their topic). They live
  * outside `skills/`, so no provider receives them as a native skill.
  */
-const guideOnly = ["offshift"] as const;
+const guideOnly: readonly string[] = [];
 
 /**
  * The shipped skills as guides for providers without native skills: name, the frontmatter's
