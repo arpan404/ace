@@ -9,13 +9,21 @@ export const startedConversationIds = {
 } as const;
 
 const title = "Separate Codex chat";
-const opening = "Hello - starting a separate chat on Codex.";
+const opening = [
+  "Hello - starting a separate chat on Codex.",
+  "",
+  "Context from the essay thread:",
+  "- The person wrote a short paragraph on AI in education.",
+  "- They want to keep exploring it on its own, away from that thread.",
+  "",
+  "Ask what they want to explore next, and keep answers short.",
+].join("\n");
 
 /**
  * An OpenCode thread whose agent started a separate top-level Codex conversation through ace's
  * `thread_start` tool, as OpenCode reports the call (its result only in the raw snapshot),
- * and the conversation it started: the tool's opening message from the parent agent, then the
- * new agent's reply. Play `startedConversation()` whole.
+ * and the conversation it started: the tool's opening brief, sent by the OpenCode agent, then
+ * the new agent's reply. Play `startedConversation()` whole.
  */
 export function startedConversation(): Scenario[] {
   const args = {
@@ -112,6 +120,7 @@ export function startedConversation(): Scenario[] {
       execution: { provider: "codex", model: "gpt-5.5", instanceId: "codex-personal", options: {} },
       // The daemon records an agent-started conversation as sent: it is a task, not a draft.
       hasSentMessage: true,
+      startedBy: startedConversationIds.source,
     },
     steps: [
       {
@@ -132,6 +141,7 @@ export function startedConversation(): Scenario[] {
               origin: {
                 kind: "parent_agent",
                 parentThreadId: ThreadId.parse(startedConversationIds.source),
+                from: { provider: "opencode" },
               },
             },
           },
