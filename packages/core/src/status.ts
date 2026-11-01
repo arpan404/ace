@@ -338,7 +338,10 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
       (status.state === "starting" &&
         (state.hasRun ||
           record.agent.id !== lookup(state.agents, state.rootKey ?? "")?.agent.id)) ||
-      status.state === "working"
+      status.state === "working" ||
+      // A wait whose awaited children have all finished is about to return inside the agent's
+      // own turn. A wait on live children reads through them (working, limited, waiting).
+      (status.state === "blocked" && status.on === "subagents" && status.refs.length === 0)
     );
   });
   if (working.length > 0) return { state: "working", agents: working.length };
