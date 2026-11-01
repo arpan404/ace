@@ -1,4 +1,4 @@
-import { LightningIcon, SparkleIcon } from "@phosphor-icons/react";
+import { StackIcon, TimerIcon } from "@phosphor-icons/react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
 
@@ -22,7 +22,7 @@ export const railViews: readonly RailView[] = [
   {
     id: "automations",
     label: "Automations",
-    icon: LightningIcon,
+    icon: TimerIcon,
     to: "/automations",
     matches: ["/automations"],
     shortcut: "goAutomations",
@@ -30,7 +30,7 @@ export const railViews: readonly RailView[] = [
   {
     id: "skills",
     label: "Skills",
-    icon: SparkleIcon,
+    icon: StackIcon,
     to: "/skills",
     matches: ["/skills"],
     shortcut: "goSkills",
