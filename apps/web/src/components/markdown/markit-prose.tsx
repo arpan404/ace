@@ -21,6 +21,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   IssueOpener,
   PullRequestOpener,
@@ -167,6 +168,7 @@ function MarkitView(props: {
   // The message reads as plain text until markit's first render replaces it, so an answer is
   // never blank: not while the worker starts, and not if it cannot run at all.
   const [drawn, setDrawn] = useState(false);
+  const drawnRef = useRef(false);
   const element = useRef<HTMLElement | null>(null);
   const sentFinal = useRef(false);
   const markit = useMarkit({
@@ -179,7 +181,10 @@ function MarkitView(props: {
     renderDiagram: (language: string, source: string) =>
       language === "mermaid" ? renderMermaid(source, pageScheme()) : null,
     onRender: () => {
-      setDrawn(true);
+      // markit drew in an animation frame, before paint; the placeholder goes in the same
+      // turn, or one frame would show the text twice.
+      if (!drawnRef.current) flushSync(() => setDrawn(true));
+      drawnRef.current = true;
       if (element.current) props.callbacks.drawn?.(element.current, sentFinal.current);
     },
   });
