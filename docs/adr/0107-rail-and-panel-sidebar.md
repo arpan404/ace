@@ -93,8 +93,21 @@ than a sidebar and a column each with its own header.
   panel, with one hairline between the panel and the main column (owner, 2026-11-01: the
   sidebar reads as part of the workspace, not part of the chrome). With the sidebar hidden or
   in a sheet, the canvas runs to the window's edge and keeps only its top hairline. The side
-  panel's strip sits on the canvas; its toggle stays in the top bar, and the strip keeps full
-  view and the dock choice.
+  panel's strip is part of the top bar (see below); the strip keeps full view and the dock
+  choice.
+- **Side panel strip in the top bar** (owner, 2026-11-01, after the unified frame first put the
+  strip in a second row on the canvas). While the side panel is docked open beside the column,
+  the panel runs the window's full height and its strip is the top bar's part above it: the bar
+  splits at the panel's edge, the column's part keeping the title, ⋯ and Work/Summary, the
+  panel's part holding its tabs, +, the tab list, full view and then the panel's toggle at the
+  far right. The split follows the panel's edge as it is resized, and the panel's content starts
+  right under the bar. The strip stays inside the panel's region, so the panel's tabs are found
+  in its landmark, and F6 and Tab reach the main header, then the strip, then the panel's
+  content. Its empty space drags the window; on Windows it, not the header, clears the caption
+  buttons (the column holding the header is marked `data-beside-panel`). In
+  full view the strip takes the whole bar, led by back, forward and the sidebar toggle while
+  the sidebar is hidden. Floating over a narrow window, docked at the bottom or in a phone's
+  sheet, the strip heads the panel as before and the toggle stays at the header's right.
 - **Rail.** Bare 20px glyphs in 40px boxes; a short hairline divides Threads and Spade from
   GitHub, Automations and Skills. A dot on a place is in the warning colour while something there
   needs the person, blue while it holds news not yet seen (GitHub's unread notifications).
