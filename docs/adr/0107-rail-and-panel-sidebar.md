@@ -39,6 +39,9 @@ front end, which is not live yet.
 
 ## Threads panel: Projects, with the Inbox over them
 
+_Superseded on 2026-11-01 by "Threads panel: Active on top" below: the Inbox overlay, ⌘I and the
+settled grace period are gone._
+
 Same day, after rejecting a list grouped by time (Needs you, Running, Today, Yesterday…) with
 Active and Settled tabs, the owner chose a panel grouped by project. This reverses the earlier
 rule that the thread list is never grouped by project. A first build drew the Inbox as a section
@@ -73,6 +76,41 @@ the app the owner replaced that with the design below (round six of the mockups,
   the grace period's boundary on its own; History loads older pages as it scrolls. Each project's
   count of held-back settled threads comes from the daemon's per-project totals less the open
   threads it has already sent, so a project known only from them still shows as quiet.
+
+## Threads panel: Active on top
+
+2026-11-01, the owner's choice after trying the Inbox overlay (and turning down a "Working"
+overlay in its place). Nothing floats over the list any more; the panel says what is in hand at
+its top.
+
+- **Active** is one flat section at the top: every unsettled thread across projects and
+  machines, each row with its project's mark. Pinned threads lead it, then what needs the person
+  (requests and unseen failures), then what is at work (the thread or its agent tree works or
+  waits, or a background command runs), then the rest by last activity (the default sort,
+  Live activity; Newest first and Manual keep their own order). Finished work not yet opened keeps its blue dot on its row here. Membership
+  is the daemon's settle facts read through the row attention (`homeTree` in ui-core), so a
+  thread whose tree still works or asks is Active even if it was settled, and never sits in a
+  project or History.
+- **Projects hold only settled threads**, newest first, five then Show more; the ones the daemon
+  holds back are one row away, "N more in History". A project's mark is a quiet count of its
+  Active threads, never a second needs-you dot. Projects with no thread at all are quiet.
+- **No Inbox, no ⌘I, no grace period.** The bell, the overlay and its shortcut are gone (⌘I is
+  unbound). With settled threads always in their project, "Keep settled threads in their
+  project" left Settings; `threads.keepSettledFor` stays in the settings schema, unread, so
+  settings files that set it still parse.
+- **Chats reads the same way:** Active chats on top (pinned, needs you, at work, the rest), then
+  settled chats by day. Its title row lost the bell; New chat is its one action.
+- The rail's Threads and Chats dots keep their rules.
+
+## One set of panel pieces
+
+Same day. Every place's panel (Threads, Chats, Skills, Automations, Settings, GitHub) is built
+from `components/ui/panel.tsx`: the title row with 32px actions, the search field, section labels
+and the one-line panel row with its hover and current fills. Skills and Automations moved onto
+them (Automations' rows became one line; its search is always shown, like Chats'), and Settings
+followed. GitHub's list pages lost their Inbox / Pull requests / Issues switch: the panel is the
+way between them, and it marks the list a pull request or issue page belongs to (Inbox when the
+page was opened from it).
 
 ## Unified frame
 
@@ -165,8 +203,8 @@ about work in projects.
 - **Dots per place.** Each place's dot comes from its own threads, by the same row attention
   every row reads: the warning colour while one needs the person (its name and tooltip say how
   many), blue for a failure or finished work not yet opened.
-- **Chats panel.** Its title row is "Chats", the Inbox bell (the same overlay as Threads') and
-  New chat, which opens New thread with no project straight away (the existing chat-creation
+- **Chats panel.** Its title row is "Chats" and New chat (the Inbox bell left it on
+  2026-11-01), which opens New thread with no project straight away (the existing chat-creation
   flow; nothing asks which project). Under it, "Search chats". Then one flat list: Pinned, then
   Today, Yesterday, Previous 7 days and Earlier by last activity on this device's calendar
   (`chatList` in ui-core, with the clock passed in). Rows are the Threads list's own: one line,
@@ -190,11 +228,10 @@ about work in projects.
   and the paging, and an empty device reads "No chats on <device>" with "Show all devices".
   New chat starts on the chosen device, else this machine, and makes the chat project there;
   New thread's "on <device>" line moves it before sending. Other machines' chats that need the
-  person reach the Inbox ("Chat · <device>") and the Chats dot. While a chat is open the top
+  person reach the Chats dot. While a chat is open the top
   bar shows a chat bubble before its title instead of the project's folder.
-- **Threads leaves chats out** of its projects, its quiet projects, its History and its search
-  hits. **The Inbox keeps them**: a chat that needs the person or finished unread shows there,
-  with "Chat" in place of a project's name. Move to project moves a chat into Threads.
+- **Threads leaves chats out** of Active, its projects, its quiet projects, its History and its
+  search hits. Move to project moves a chat into Threads.
 
 ## Consequences
 
