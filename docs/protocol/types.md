@@ -3040,7 +3040,7 @@ Example:
 | tokensBefore | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
 | tokensAfter | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
 | summary | no | string |  |
-| raw | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
+| raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
 
 Example:
 
@@ -15958,7 +15958,7 @@ Example:
 | tokensBefore | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
 | tokensAfter | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
 | summary | no | string |  |
-| raw | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
+| raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
 
 Example:
 

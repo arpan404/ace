@@ -198,7 +198,7 @@ export const AgentItem = z.discriminatedUnion("type", [
      */
     summary: z.string().optional(),
     /** The provider's own compaction frames, kept as they came. */
-    raw: z.array(RawPayload).optional(),
+    raw: z.array(RawPayload).default([]),
   }),
 ]);
 export type AgentItem = z.infer<typeof AgentItem>;

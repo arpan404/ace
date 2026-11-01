@@ -36,7 +36,7 @@ test("compaction reads as compacting while it runs, then one compacted row holdi
     summary: summaryText,
   });
   // The provider's frames stay with the row, the summary's own included.
-  expect(compactions[0]?.type === "compaction" && compactions[0].raw?.length).toBe(2);
+  expect(compactions[0]?.type === "compaction" && compactions[0].raw.length).toBe(2);
   expect(userMessages(h)).toEqual([]);
 });
 
