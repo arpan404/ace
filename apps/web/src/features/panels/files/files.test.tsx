@@ -29,7 +29,8 @@ async function quickOpen(text: string) {
 async function reveal(tree: HTMLElement, folders: readonly string[]) {
   for (const folder of folders) {
     const row = tree.querySelector(`[data-path="${folder}"]`);
-    if (row?.getAttribute("aria-expanded") === "false") await userEvent.click(row as HTMLElement);
+    if (row?.getAttribute("aria-expanded") === "false")
+      await userEvent.click(row as HTMLElement);
   }
 }
 
