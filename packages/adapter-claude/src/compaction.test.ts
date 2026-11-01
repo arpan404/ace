@@ -1,4 +1,7 @@
+import { apply, createThreadState } from "@ace/core";
+import { AgentItem, ThreadId } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { createTranslator } from "./index.ts";
 import { harness } from "./translator.test-helper.ts";
 
 const summaryText =
@@ -141,4 +144,64 @@ test("a stream that ends mid-compaction leaves no agent working", () => {
   h.send({ type: "process.exited", deliberate: false, message: "gone" }, "lifecycle", "note");
   expect(status(h)).toBeDefined();
   expect(status(h)?.state).not.toBe("working");
+});
+
+test("an older summary delivered again leaves a newer compaction waiting for its own", () => {
+  const h = harness();
+  h.init();
+  const second = "Summary of the second compaction";
+  h.send({ ...boundaryFrame, uuid: "b1" });
+  h.send(summaryFrame({ uuid: "s1" }));
+  h.send({ ...boundaryFrame, uuid: "b2", compact_metadata: { trigger: "auto", pre_tokens: 700 } });
+  h.send(summaryFrame({ uuid: "s1" }));
+  h.send({
+    ...summaryFrame({ uuid: "s2" }),
+    message: { role: "user", content: [{ type: "text", text: second }] },
+  });
+  expect(compactions(h).map((item) => item.type === "compaction" && item.summary)).toEqual([
+    summaryText,
+    second,
+  ]);
+  expect(userMessages(h)).toEqual([]);
+});
+
+test("a boundary and summary delivered again after a restart land on the same compaction", () => {
+  const state = createThreadState({
+    threadId: ThreadId.parse("restart"),
+    config: { provider: "claude", silenceMs: 60_000 },
+  });
+  let next = 0;
+  const ids = { next: (kind: string) => `${kind}_${++next}` };
+  let seq = 0;
+  /**
+   * One provider process: a translator of its own, started as the session starts it (with a
+   * process id of its own), folding into the thread's one state.
+   */
+  const process = (processId: string) => {
+    const translator = createTranslator({ rootKey: "root" });
+    const send = (data: unknown, channel = "sdk", dir: "recv" | "note" = "recv") => {
+      const now = ++seq;
+      for (const fact of translator.translate({ seq, t: now, dir, channel, data }, now))
+        apply(state, fact, { now, ids });
+    };
+    send(
+      { type: "process.started", session_id: "s", process_id: processId, cwd: "/repo" },
+      "lifecycle",
+      "note",
+    );
+    return send;
+  };
+  const rows = () =>
+    Object.values(state.items)
+      .map((item) => AgentItem.parse(item))
+      .filter((item) => item.type === "compaction");
+  for (const processId of ["first-process", "second-process"]) {
+    const send = process(processId);
+    send({ type: "system", subtype: "init", session_id: "s", cwd: "/repo" });
+    send(boundaryFrame);
+    send(summaryFrame());
+  }
+  expect(rows()).toHaveLength(1);
+  expect(rows()[0]).toMatchObject({ summary: summaryText, tokensBefore: 900 });
+  expect(Object.values(state.items).filter((item) => item.type === "message")).toEqual([]);
 });

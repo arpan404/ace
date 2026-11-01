@@ -1,3 +1,4 @@
+import type { Key } from "@ace/core";
 import type { ClaudeState } from "./state.ts";
 import { list, object, raw, string, type Data } from "./native.ts";
 
@@ -8,15 +9,23 @@ import { list, object, raw, string, type Data } from "./native.ts";
  * `isSynthetic` (the transcript file marks it `isCompactSummary`, which newer CLIs may forward).
  * That summary is provider-internal text: it folds into the compaction's own item, never a
  * message of its own. Both frames are keyed by their uuid, so a redelivered one lands on the
- * same item instead of adding a second compaction or a message.
+ * same item instead of adding a second compaction or a message, in this process or the next.
  */
 
 const optionalCount = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 
+/**
+ * A compaction's item key. From the uuid Claude gave the frame it is the same in every process,
+ * so a frame redelivered after a restart lands on the same item; without one, this process's.
+ */
+function compactionKey(state: ClaudeState, uuid: string, seq: number): Key {
+  return uuid ? `claude:compact:${uuid}` : state.key("compact", String(seq));
+}
+
 /** `system/compact_boundary`: the compaction's item, with the token counts Claude reports. */
 export function compactBoundary(state: ClaudeState, data: Data, seq: number): void {
-  const item = state.key("compact", string(data["uuid"]) || String(seq));
+  const item = compactionKey(state, string(data["uuid"]), seq);
   // Delivered again: the item already holds it (and maybe its summary).
   if (state.compactions.has(item)) return;
   const meta = object(data["compact_metadata"]);
@@ -61,16 +70,16 @@ export function compactSummary(state: ClaudeState, data: Data, seq: number): boo
     return false;
   }
   const uuid = string(data["uuid"]);
-  const folded = uuid ? state.compactSummaries.get(uuid) : undefined;
+  // A summary folded before and delivered again: its compaction already holds it, and a newer
+  // compaction still waiting for its own summary keeps waiting.
+  if (uuid && state.compactSummaries.has(uuid)) return true;
   const pending = state.compaction;
   const eligible =
-    folded !== undefined ||
-    data["isCompactSummary"] === true ||
-    (pending !== undefined && data["isSynthetic"] === true);
+    data["isCompactSummary"] === true || (pending !== undefined && data["isSynthetic"] === true);
   const summary = eligible ? onlyText(data) : undefined;
   state.compaction = undefined;
   if (summary === undefined) return false;
-  const item = folded ?? pending ?? state.key("compact", uuid || String(seq));
+  const item = pending ?? compactionKey(state, uuid, seq);
   if (uuid) state.compactSummaries.set(uuid, item);
   const boundary = state.compactions.get(item);
   state.emit({
