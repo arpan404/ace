@@ -260,7 +260,8 @@ export class FakeScreen {
   }
   /** Every open screen channel drops, as a lost connection drops them. */
   dropChannels(): void {
-    for (const drop of [...this.drops]) drop();
+    // Each drop removes itself from the set, so walk a copy.
+    for (const drop of Array.from(this.drops)) drop();
   }
   enable(enabled: boolean): void {
     const changed = this.enabled !== enabled;

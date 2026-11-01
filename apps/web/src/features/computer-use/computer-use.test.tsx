@@ -21,6 +21,7 @@ async function openSettings() {
 }
 
 const page = () => screen.findByRole("heading", { name: "Computer use", level: 2 });
+const appsSwitch = () => screen.getByRole("switch", { name: "Let agents use apps" });
 
 test("turning computer use on and off is what the daemon records", async () => {
   const { app } = await openSettings();
@@ -308,9 +309,8 @@ test("once the daemon says apps are off, a dropped channel doesn't bring back th
   const { app } = await openSettings();
   await app.open("/settings/computer-use");
   await page();
-  const toggle = () => screen.getByRole("switch", { name: "Let agents use apps" });
   await userEvent.click(await screen.findByRole("switch", { name: "Let agents use apps" }));
-  await waitFor(() => expect(toggle().getAttribute("aria-checked")).toBe("true"));
+  await waitFor(() => expect(appsSwitch().getAttribute("aria-checked")).toBe("true"));
 
   // Away from Computer use, apps are switched off on the machine.
   await userEvent.click(screen.getByRole("link", { name: "General" }));
@@ -320,7 +320,7 @@ test("once the daemon says apps are off, a dropped channel doesn't bring back th
   app.daemon.screen.enable(false);
   await userEvent.click(screen.getByRole("link", { name: "Computer use" }));
   await page();
-  await waitFor(() => expect(toggle().getAttribute("aria-checked")).toBe("false"));
+  await waitFor(() => expect(appsSwitch().getAttribute("aria-checked")).toBe("false"));
 
   // Every state the switch shows from the moment the channel drops.
   const seen: (string | null)[] = [];
@@ -333,5 +333,5 @@ test("once the daemon says apps are off, a dropped channel doesn't bring back th
   await new Promise((resolve) => setTimeout(resolve, 300));
   observer.disconnect();
   expect(seen).not.toContain("true");
-  expect(toggle().getAttribute("aria-checked")).toBe("false");
+  expect(appsSwitch().getAttribute("aria-checked")).toBe("false");
 });
