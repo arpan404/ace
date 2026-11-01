@@ -92,5 +92,5 @@ The checkpoints come from the fixture analyses (e.g. Claude subagent-background:
 ## Consequences
 
 - Adapters can be built and fully tested in parallel against fixtures without running any agent session.
-- Sessions stay thin and similar across providers. All four share provider-kit for processes, JSON-RPC and SSE.
+- Sessions stay thin and similar across providers. All four share provider-kit for processes, JSON-RPC and SSE. (Update 2026-11-01: provider-kit's SSE reader was removed with the OpenCode v1 adapter. The v2 adapter reads events through OpenCode's official client.)
 - The engine owns ordering, persistence and timing. Core stays pure, and adapters stay unaware of storage.
