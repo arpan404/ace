@@ -42,9 +42,8 @@ function headerWidth(width: number) {
   });
 }
 
-/** The header's side panel toggle. */
-const panelToggle = () =>
-  within(screen.getByRole("banner")).getByRole("button", { name: "Right panel" });
+/** The side panel's toggle: at the header's right, or ending the docked panel's strip. */
+const panelToggle = () => screen.getByRole("button", { name: "Right panel" });
 
 const sidebar = () => screen.queryByRole("complementary", { name: "Threads" });
 

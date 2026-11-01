@@ -99,7 +99,7 @@ function focusSidebarToggle() {
  * the thread list. With the sidebar shown they sit in its top row instead, so the title starts
  * where the column does.
  */
-function HeaderNav() {
+export function HeaderNav() {
   const frame = useViewFrame();
   // A phone leaves history to the system.
   const phone = usePhone();
@@ -133,7 +133,9 @@ function HeaderNav() {
 /**
  * The main column's part of the window's one top bar, on the frame colour above the canvas: the
  * title (after its project glyph) starting where the column starts, then on the right the
- * actions, the ⋯ menu, the screen's tools (a thread's Work/Summary) and the side panel's toggle.
+ * actions, the ⋯ menu, the screen's tools (a thread's Work/Summary) and the side panel's toggle
+ * (beside a docked side panel the header stops at its edge, and the panel's strip, the bar's part
+ * above the panel, ends with the toggle).
  * Back, forward and the sidebar toggle lead it only while the sidebar isn't beside the column.
  * 44px, a drag region in Electron, no rule under it: the canvas's own edge is the line. Every
  * control is a 30px box on one centre line. On a phone it keeps the sidebar toggle, the title

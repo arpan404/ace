@@ -16,6 +16,8 @@ import {
   useWorkspaceStore,
   type WorkspaceDefinition,
 } from "@/lib/workspace/index.ts";
+import { cn } from "@/lib/cn.ts";
+import { HeaderNav } from "../app-header.tsx";
 import { canvasClass } from "../canvas.ts";
 import { bottomBounds, panelFloats, panelBounds } from "./bounds.ts";
 import { PanelControls } from "./panel-controls.tsx";
@@ -119,15 +121,19 @@ function Overlays(props: { scope: string; definition: WorkspaceDefinition }) {
 /**
  * A screen with a side panel, and a bottom panel (terminals) under the main column:
  *
- *   ┌ header (the top bar's main part) ─────────────────┐
- *   ╭ canvas ────────────────────────┬ side panel strip ┐
- *   │ main column                    │ side panel       │
- *   ├ bottom panel ──────────────────┤                  │
- *   └────────────────────────────────┴──────────────────┘
+ *   ┌ header (the column's part of the top bar) ┬ side panel strip ┐
+ *   ╭ canvas ───────────────────────────────────┼──────────────────┤
+ *   │ main column                               │ side panel       │
+ *   ├ bottom panel ─────────────────────────────┤                  │
+ *   └───────────────────────────────────────────┴──────────────────┘
  *
- * The header spans the column and the panel, so the panel's toggle always sits at its right.
- * In full view the panel fills the canvas and the main column steps aside (still mounted, so the
- * transcript keeps its place); the strip then carries a way back to the conversation.
+ * While the side panel is docked open beside the column it runs the window's full height, and
+ * its strip is the top bar's part above it, ending with the panel's toggle: the bar splits at
+ * the panel's edge and follows it as the panel is resized. Closed, floating, docked at the
+ * bottom or on a phone, the column's header spans the width with the toggle at its right. In
+ * full view the panel takes the window and its strip the whole bar, while the main column steps
+ * aside (still mounted, so the transcript keeps its place); the strip then carries a way back
+ * to the conversation.
  */
 export function Workspace(props: {
   scope: string;
@@ -180,7 +186,10 @@ export function Workspace(props: {
   const [bottomShown, setBottomShown] = useState(false);
   if (workspace.bottom?.open && !bottomShown) setBottomShown(true);
   const expanded = workspace.expanded && workspace.open;
-  const controls = (placement: "header" | "panel") => (
+  // The panel's strip is the top bar's part above it: docked open beside the column, or in
+  // full view. Floating, docked at the bottom or as a phone's sheet, it heads the panel.
+  const topBar = workspace.open && !sheet && (expanded || (!bottom && !overlay));
+  const controls = (placement: "header" | "panel" | "top bar") => (
     <PanelControls
       workspace={workspace}
       actions={actions}
@@ -195,16 +204,20 @@ export function Workspace(props: {
     />
   );
   const leading = expanded && (
-    <Tip label="Back to the conversation" shortcut="fullView">
-      <button
-        type="button"
-        onClick={() => withViewTransition(() => actions.setExpanded(false))}
-        className="focus-ring ml-1 flex h-7 max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground [-webkit-app-region:no-drag]"
-      >
-        <ChatCircleTextIcon aria-hidden size={14} className="shrink-0" />
-        <span className="min-w-0 truncate">{props.title}</span>
-      </button>
-    </Tip>
+    <>
+      {/* The column's header has stepped aside: its way back and forward comes along. */}
+      <HeaderNav />
+      <Tip label="Back to the conversation" shortcut="fullView">
+        <button
+          type="button"
+          onClick={() => withViewTransition(() => actions.setExpanded(false))}
+          className="focus-ring ml-1 flex h-7 max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground [-webkit-app-region:no-drag]"
+        >
+          <ChatCircleTextIcon aria-hidden size={14} className="shrink-0" />
+          <span className="min-w-0 truncate">{props.title}</span>
+        </button>
+      </Tip>
+    </>
   );
   return (
     <WorkspaceWebLinks scope={scope} definition={definition}>
@@ -223,38 +236,44 @@ export function Workspace(props: {
             </Suspense>
           </LocalBoundary>
         )}
-        {props.header(controls("header"))}
-        <div className={bottom && !expanded ? `${canvasClass} flex-col` : canvasClass}>
+        <div className={cn("relative flex min-h-0 flex-1", bottom && !expanded && "flex-col")}>
           {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}
           <div
             hidden={expanded}
-            className="@container/work-body relative flex min-h-0 min-w-0 flex-1 flex-col"
+            // Beside a docked panel the header stops at the panel's edge, short of the window's.
+            data-beside-panel={topBar || undefined}
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
           >
-            {props.notice}
-            {props.contextPanel ? (
-              <div className="flex min-h-0 flex-1 flex-col @min-[832px]/work-body:flex-row">
-                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-                  {props.children}
-                </div>
-                <Activity mode={workspace.open ? "hidden" : "visible"}>
-                  {props.contextPanel}
-                </Activity>
+            {props.header(topBar ? undefined : controls("header"))}
+            <div className={`${canvasClass} flex-col`}>
+              <div className="@container/work-body relative flex min-h-0 min-w-0 flex-1 flex-col">
+                {props.notice}
+                {props.contextPanel ? (
+                  <div className="flex min-h-0 flex-1 flex-col @min-[832px]/work-body:flex-row">
+                    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+                      {props.children}
+                    </div>
+                    <Activity mode={workspace.open ? "hidden" : "visible"}>
+                      {props.contextPanel}
+                    </Activity>
+                  </div>
+                ) : (
+                  props.children
+                )}
+                {/* Under the conversation only: the side panel keeps the window's full height. */}
+                {bottomFits && bottomShown && (
+                  <Suspense fallback={null}>
+                    <WhenKindsReady definition={definition}>
+                      <BottomPanel.Component
+                        scope={scope}
+                        definition={definition}
+                        bounds={bottomBounds(size.height)}
+                      />
+                    </WhenKindsReady>
+                  </Suspense>
+                )}
               </div>
-            ) : (
-              props.children
-            )}
-            {/* Under the conversation only: the side panel keeps the window's full height. */}
-            {bottomFits && bottomShown && (
-              <Suspense fallback={null}>
-                <WhenKindsReady definition={definition}>
-                  <BottomPanel.Component
-                    scope={scope}
-                    definition={definition}
-                    bounds={bottomBounds(size.height)}
-                  />
-                </WhenKindsReady>
-              </Suspense>
-            )}
+            </div>
           </div>
           {shown && (
             <Suspense fallback={null}>
@@ -267,6 +286,7 @@ export function Workspace(props: {
                   layout={{
                     overlay: overlay && !expanded,
                     sheet,
+                    topBar,
                     dock: bottom ? "bottom" : "side",
                     bounds: bottom
                       ? { min: 180, max: Math.max(180, size.height * 0.75) }
@@ -274,7 +294,7 @@ export function Workspace(props: {
                     size: bottom ? (workspace.bottomSize ?? 360) : (workspace.size ?? preferred),
                   }}
                   leading={leading}
-                  controls={controls("panel")}
+                  controls={controls(topBar ? "top bar" : "panel")}
                   notice={expanded ? props.notice : undefined}
                   context={props.title}
                   restoreFocus={() =>

@@ -30,6 +30,11 @@ export interface PanelLayout {
    * Escape or a tap on the strip closes it.
    */
   sheet: boolean;
+  /**
+   * Docked beside the column, or in full view: the panel runs the window's full height and its
+   * strip is the top bar's part above it, on the frame colour; its body starts the canvas.
+   */
+  topBar?: boolean;
   bounds: Bounds;
   /** The width this scope remembers, or the preferred one. */
   size: number;
@@ -37,7 +42,8 @@ export interface PanelLayout {
 
 /**
  * The side panel: its strip (tabs, +, the showing tab's actions, the panel's controls), its tab
- * views and its resize edge. Desktop layout changes once, without an exit reservation.
+ * views and its resize edge. Docked beside the column or in full view, the strip is the window's
+ * top bar above the panel; elsewhere it heads the panel on the canvas or in its sheet. Desktop layout changes once, without an exit reservation.
  * Floating layouts use the shared modal Sheet; hidden Activity preserves tab state.
  */
 export function WorkspacePanel(props: {
@@ -75,11 +81,29 @@ export function WorkspacePanel(props: {
   const focusBack = useFocusBackOnHide(section, workspace.open, restoreFocus);
   const size = clampToBounds(layout.size, layout.bounds);
   const shown = shownTab(workspace);
-  // Floating over a desktop column, the panel's strip is the window's top row; beside the
-  // column (or in full view) it sits on the canvas, under the top bar.
-  const topRow = floating;
+  const topBar = !!layout.topBar;
+  // Floating over a desktop column, or as the top bar's part above a docked panel, the strip is
+  // the window's top row.
+  const topRow = floating || topBar;
   const shownKind = shown && definition.kind(shown.kind);
   const label = definition.label;
+  // The panel's resizable edge: where it meets the column, under the top bar when its strip is
+  // there, else the whole edge.
+  const resize = !dismissable && !expanded && (
+    <ResizeHandle
+      label={`Resize ${label.toLowerCase()}`}
+      edge={bottom ? "top" : "left"}
+      size={size}
+      min={layout.bounds.min}
+      max={layout.bounds.max}
+      onResize={(next) =>
+        bottom ? actions.setBottomSize(next, false) : actions.setSize(next, false)
+      }
+      onResizeEnd={(next) =>
+        bottom ? actions.setBottomSize(next, true) : actions.setSize(next, true)
+      }
+    />
+  );
   const content = (
     <section
       ref={section}
@@ -91,12 +115,17 @@ export function WorkspacePanel(props: {
       data-edge={layout.sheet || bottom ? "bottom" : "right"}
       style={dismissable || expanded ? undefined : bottom ? { height: size } : { width: size }}
       className={cn(
-        "relative flex min-h-0 min-w-0 flex-col bg-panel",
+        "relative flex min-h-0 min-w-0 flex-col",
+        // In the top bar the strip is on the frame colour, and only the body is on the canvas.
+        !topBar && "bg-panel",
         dismissable || expanded
           ? "h-full flex-1"
           : bottom
-            ? "fx-panel-in w-full shrink-0 border-t"
-            : "fx-panel-in shrink-0 border-l",
+            ? // Under the column, the panel carries on the canvas's left hairline.
+              "fx-panel-in w-full shrink-0 border-t [[data-sidebar=shown]_&]:border-l"
+            : topBar
+              ? "fx-panel-in shrink-0"
+              : "fx-panel-in shrink-0 border-l",
       )}
     >
       {layout.sheet && (
@@ -109,27 +138,16 @@ export function WorkspacePanel(props: {
           )}
         </>
       )}
-      {!dismissable && !expanded && (
-        <ResizeHandle
-          label={`Resize ${label.toLowerCase()}`}
-          edge={bottom ? "top" : "left"}
-          size={size}
-          min={layout.bounds.min}
-          max={layout.bounds.max}
-          onResize={(next) =>
-            bottom ? actions.setBottomSize(next, false) : actions.setSize(next, false)
-          }
-          onResizeEnd={(next) =>
-            bottom ? actions.setBottomSize(next, true) : actions.setSize(next, true)
-          }
-        />
-      )}
+      {!topBar && resize}
       <div
         className={cn(
-          // Beside the column, the strip sits on the canvas with a hairline under it.
           "flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2",
-          toolbarEdge,
-          !layout.sheet && !bottom && "bg-reading",
+          // Heading the panel on the canvas, the strip has a hairline under it; in the top bar
+          // the canvas's own edge is the line.
+          !topBar && toolbarEdge,
+          !layout.sheet && !bottom && !topBar && "bg-reading",
+          // In full view the strip starts the bar where the header did, clear of the macOS lights.
+          topBar && expanded && "pl-3",
           // The panel's strip is the window's top row, so it drags the window.
           topRow && "[-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
           // The top row's 10px plus, on Windows, the room the window's own min/max/close
@@ -170,16 +188,29 @@ export function WorkspacePanel(props: {
           )
         )}
       </div>
-      {props.notice}
-      <Activity mode={workspace.open ? "visible" : "hidden"}>
-        <TabContent
-          scope={props.scope}
-          definition={definition}
-          tabs={workspace.tabs}
-          shown={shown?.key}
-          onClose={actions.close}
-        />
-      </Activity>
+      <div
+        className={cn(
+          "relative flex min-h-0 flex-1 flex-col",
+          // The canvas starts under the top bar: its top hairline, and the one where the panel
+          // meets the column (in full view, the sidebar).
+          topBar &&
+            (expanded
+              ? "border-t bg-panel [[data-sidebar=shown]_&]:border-l"
+              : "border-t border-l bg-panel"),
+        )}
+      >
+        {topBar && resize}
+        {props.notice}
+        <Activity mode={workspace.open ? "visible" : "hidden"}>
+          <TabContent
+            scope={props.scope}
+            definition={definition}
+            tabs={workspace.tabs}
+            shown={shown?.key}
+            onClose={actions.close}
+          />
+        </Activity>
+      </div>
     </section>
   );
   // What its views open (a new terminal) opens here, beside them.
