@@ -13,16 +13,16 @@
       "sha256": "1a6e394b0e799d668de5d071a64cbf8bc268cba8221ebf42fd5c326cd76b80bf"
     },
     "events.md": {
-      "bytes": 21117,
-      "sha256": "cf6d67c7133e615dde2d467e27b30111ce65584082332448fd35faa05c5a9a65"
+      "bytes": 21307,
+      "sha256": "b9c8cbfd6b14d57065e70813ad0a3f590cedc6781c20e624afc1dbfcb806aecc"
     },
     "forge.md": {
       "bytes": 131807,
       "sha256": "d371a0f68d1e034fbadfd7ddcafde7857b95194b1f54d811c9593609242e9eba"
     },
     "mcp.md": {
-      "bytes": 69880,
-      "sha256": "39b9d0deb00e043feed32165016ff3248f3b6046b42357d59606269d9d78b0c5"
+      "bytes": 58955,
+      "sha256": "490bbb2e340ac3e9f967376c007f87a26fadad1a33f99465a46323752fc23b11"
     },
     "models.md": {
       "bytes": 16093,
@@ -33,12 +33,12 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 106207,
-      "sha256": "b7e616462397f8d0fb775d3ef826c26f975a5403a7df7abb8678014cecdaa479"
+      "bytes": 104820,
+      "sha256": "8d606dc4399281963740e243e66b864588b8ef7593e18ed456f42f42601e9ee2"
     },
     "requests.md": {
-      "bytes": 107431,
-      "sha256": "08d8ead95bd39a76b477554222baf0078c38b481febda76cfc5811afdb7af0a3"
+      "bytes": 106745,
+      "sha256": "d266361bce542b326a9a4d2e2d1f55607051355f4fd22b04d4d2b689a3b0011c"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -221,8 +221,8 @@
       "sha256": "bb9ea4bc995d3ed836bb771d5c45c802f0bb40f4023a86f975711f7c1377d6f7"
     },
     "schema/AgentControlOperation.json": {
-      "bytes": 27613,
-      "sha256": "171cddad6feb76d39e9a7e23cb71ac10748175e4fa88fe25958cd96ff939fcfb"
+      "bytes": 27164,
+      "sha256": "8e7507cf7320b49087eb52a3accb0c9c2b8df358724b02de6fd2574739f01edd"
     },
     "schema/AgentControlResult.json": {
       "bytes": 542,
@@ -833,8 +833,8 @@
       "sha256": "213740b5214753b95aa6b308056df25518570519a4989a1dfcc2ba77de50e14a"
     },
     "schema/ClientMessage.json": {
-      "bytes": 59805,
-      "sha256": "64e6e15e8192b0a1060b45a423c847bfd16a7f2f4222bae4eadd76c2bd760e51"
+      "bytes": 59719,
+      "sha256": "a09956dc4c417a0ab36637a90520472a7d67939dddd8753296655accede03adf"
     },
     "schema/Command.json": {
       "bytes": 477,
@@ -1161,8 +1161,8 @@
       "sha256": "21567123f34d6cb1202d462e74a6ae138d0b8128e08a231d80d06b2071ccac8a"
     },
     "schema/EventPayload.json": {
-      "bytes": 12101,
-      "sha256": "4023d16cb1511b8cb7c19744bded0d45cc0262aace1f0d0a4d2f15f6e4c9b1af"
+      "bytes": 12251,
+      "sha256": "97e89aedcafa77f77109877acb175ed04ff6254a58b260bfe121d6e78a3d355a"
     },
     "schema/EventSequence.json": {
       "bytes": 193,
@@ -1993,8 +1993,8 @@
       "sha256": "5103449866d61ab00c55871c7c70676b0723bef5ea43500c013d155c337a0556"
     },
     "schema/Item.json": {
-      "bytes": 17866,
-      "sha256": "78efcd957bee8bc6525ab3b87bde93aab3cd1ecadf050bcb345d2af374326719"
+      "bytes": 18914,
+      "sha256": "197a021ea9aaa0540257b6b2c10e81aa240e660a989164c5edf7f0f71430d3b0"
     },
     "schema/ItemId.json": {
       "bytes": 156,
@@ -2429,8 +2429,8 @@
       "sha256": "14fa8caa29caf4b27886b8e5e19150cd938587a2778b617752b395a47f000363"
     },
     "schema/Notification.json": {
-      "bytes": 2497,
-      "sha256": "cdb838515950b9f610e0fa666a0ecdb1ee82f8da83619e45f0b3084b8d9c35d4"
+      "bytes": 2099,
+      "sha256": "4346303a666103a98e9f93394f53088ee69fd8e91d89eb576c4cb8b3840065f9"
     },
     "schema/NotificationAck.json": {
       "bytes": 378,
@@ -2503,150 +2503,6 @@
     "schema/NotificationUnregisterResult.json": {
       "bytes": 419,
       "sha256": "58a0986ecd6cb50c3145afa26b9018a2174eae94dde26801bafb64c13e261f4d"
-    },
-    "schema/OffshiftActor.json": {
-      "bytes": 300,
-      "sha256": "e0ba65c743a02cbc0c25bb84635ab4eebc7ae43b1e52647e6b4e6f7b6193f63e"
-    },
-    "schema/OffshiftAuthor.json": {
-      "bytes": 669,
-      "sha256": "0208939b22f676843c366656411433b8fde3fee00705d4f5afbb91bd1faf623b"
-    },
-    "schema/OffshiftCardAuthor.json": {
-      "bytes": 1015,
-      "sha256": "b65fb1fd464489e6c2fd051f4269d0edc6d5c5cdb67bc153d27554568e1f8225"
-    },
-    "schema/OffshiftCardCriterion.json": {
-      "bytes": 1503,
-      "sha256": "a7ab9d35507959a45bd19019e607cbd7db0a783cc0badef42bf0657aac03b3c4"
-    },
-    "schema/OffshiftClientRequest.json": {
-      "bytes": 603,
-      "sha256": "3a8b7cde56455107fbeca11e4bc99a095048720eb2a13696e01870cd7d3fd8ba"
-    },
-    "schema/OffshiftClientResult.json": {
-      "bytes": 779,
-      "sha256": "d3665b1f86ec1afbd21418298e6aea65c84bd531478da29863d9cb632d22c0d3"
-    },
-    "schema/OffshiftCriteria.json": {
-      "bytes": 322,
-      "sha256": "faea693f80d3d1466f2ff8b5a5cc7014116ce7872d9cd1a3ec3150e0a76afad8"
-    },
-    "schema/OffshiftCriterion.json": {
-      "bytes": 744,
-      "sha256": "4d73216521b3250ef6b84100ac8d87f687802634ce936613ee27e830f7d3bc85"
-    },
-    "schema/OffshiftEnded.json": {
-      "bytes": 475,
-      "sha256": "834e475279051497b379896e8daf74b7e1378d588434121cb7ba9a669f83d606"
-    },
-    "schema/OffshiftEvidence.json": {
-      "bytes": 1393,
-      "sha256": "9c9de960e1a78203319265bdb78be9e1d73bf092fd0998a943a1021dae898d8a"
-    },
-    "schema/OffshiftEvidenceBatch.json": {
-      "bytes": 276,
-      "sha256": "8735d12b9add0ada48b6d371bdefaaacad8079ccee4f7d85f1d040b058f33da5"
-    },
-    "schema/OffshiftEvidenceInput.json": {
-      "bytes": 1090,
-      "sha256": "fe0e1199a5fcc932ada459051a2cd242d7a7ee0a279e1f943089ea250d47116a"
-    },
-    "schema/OffshiftEvidenceKind.json": {
-      "bytes": 236,
-      "sha256": "48ceea11523e510541490e45da148b83c94c4865fcb5589146cf95303b997686"
-    },
-    "schema/OffshiftEvidenceState.json": {
-      "bytes": 244,
-      "sha256": "eee72ed924bf30f8fb0493acb68758e95cf440946c5aab2616d92fc797fe657d"
-    },
-    "schema/OffshiftPending.json": {
-      "bytes": 523,
-      "sha256": "ca8f365662f14b2ca340e383808bfba153a4523067c504fbb701afaaf9447b18"
-    },
-    "schema/OffshiftPerson.json": {
-      "bytes": 674,
-      "sha256": "dd6e0e89f0295a8aaa69e283963e34513bf020401d1009ed61c59d5bf3002f64"
-    },
-    "schema/OffshiftPersonChange.json": {
-      "bytes": 614,
-      "sha256": "ff23e81f0c343185253ae3a0ea2d69c2c0e3a1c2954e2f86452bde0c49a1ae7a"
-    },
-    "schema/OffshiftPersonOperation.json": {
-      "bytes": 6567,
-      "sha256": "d3ffc2f99dd3f9a2439652fdc8be093ddb9acd2c45b8264f45ac4111489fe304"
-    },
-    "schema/OffshiftPhase.json": {
-      "bytes": 234,
-      "sha256": "c6970c4eefaa9b18a2da76bd6ebf9e4563ba5558d425375afae90968d70553a3"
-    },
-    "schema/OffshiftPlaybook.json": {
-      "bytes": 596,
-      "sha256": "9049bcaead0bd8988bc4f3c6efe63b024685c24530675e16f33a79da0f061554"
-    },
-    "schema/OffshiftPlaybookId.json": {
-      "bytes": 261,
-      "sha256": "5893b30975fecbd1813db0b8b7407003e43cb69bc61f890bafffd552ed8ce049"
-    },
-    "schema/OffshiftPlaybookStep.json": {
-      "bytes": 753,
-      "sha256": "0250b0c780b05036d9f3fd0d0bfb48b96cbbb3b987e4e7a291d79089a29c8c11"
-    },
-    "schema/OffshiftPlaybooks.json": {
-      "bytes": 374,
-      "sha256": "ee80a4e167adb97de69ac43aeef99d531ce6a9aeeda236197d599e679378e695"
-    },
-    "schema/OffshiftRequest.json": {
-      "bytes": 7730,
-      "sha256": "3aca3adaa1a1b80046c859e144b6b4c73868b7e54fff10bd6c1c75518a4089d7"
-    },
-    "schema/OffshiftResult.json": {
-      "bytes": 457,
-      "sha256": "c27d1219642978dde64fcde236c0f01002d7eba5f93f66f64fbba5ac3a72c7fb"
-    },
-    "schema/OffshiftRevision.json": {
-      "bytes": 186,
-      "sha256": "26097c71339359dd271900b8313c6c1e8b974d17b158ed2b6781bc0b8fc994d5"
-    },
-    "schema/OffshiftRun.json": {
-      "bytes": 2646,
-      "sha256": "244dc577098ed10f168cdeb28a438590f1f4fb0a7db8adc44cb47baa4961b5fa"
-    },
-    "schema/OffshiftRunCard.json": {
-      "bytes": 2793,
-      "sha256": "a29cec43d0c5310f3fa65d505132fb1f325b074ed2a524289a824309390c2c75"
-    },
-    "schema/OffshiftRunMark.json": {
-      "bytes": 654,
-      "sha256": "15c3f03d0b7a9de72a9637dffaae5793637fd7d26489835228cf6ae9cc394e66"
-    },
-    "schema/OffshiftRunSummary.json": {
-      "bytes": 595,
-      "sha256": "2624be4f26860d1cd0f2b184a3c713d2a5eb86c94c7c355ce5b2648712d8202f"
-    },
-    "schema/OffshiftStep.json": {
-      "bytes": 754,
-      "sha256": "ffc3180023b554c92c7138a90e2d131f8cad38e37854ebd6ef41f875260d9575"
-    },
-    "schema/OffshiftStepInput.json": {
-      "bytes": 564,
-      "sha256": "bb5984d8715fae5d29b8049abad54989347d823df628406bbaa3e0a770ec8e00"
-    },
-    "schema/OffshiftStepState.json": {
-      "bytes": 204,
-      "sha256": "3c2f1c45f67f63fe90899cbbacc2ca1a4d4deeb48f060fcef24081521a7f2a37"
-    },
-    "schema/OffshiftStepsInput.json": {
-      "bytes": 319,
-      "sha256": "ebe451410ef7531e2def8ebb440464a8db4656c49c6d8b3a0b10bb2e35e044f6"
-    },
-    "schema/OffshiftUpdated.json": {
-      "bytes": 380,
-      "sha256": "2053c615cf482b19dbdf92e7abfbfcd0df968075955f91112e09aa4fd5f283e6"
-    },
-    "schema/OffshiftView.json": {
-      "bytes": 1082,
-      "sha256": "20a4dff6253cc2cd03e5bece0c8997f5ca86f00b481185f9acc5193eccbdfbff"
     },
     "schema/OmittedItem.json": {
       "bytes": 883,
@@ -3669,8 +3525,8 @@
       "sha256": "d5b02c009727983f4ab932750138af7815e790cd8dadcdffd5bc601ace4868b4"
     },
     "schema/ServerMessage.json": {
-      "bytes": 40448,
-      "sha256": "e4d907096bba50e0a24dd7d07d1c6c6707c24782b91fe27d8814dac0f200d419"
+      "bytes": 40363,
+      "sha256": "8665e59dfa6c7303eba7447fd5980362bc5b49bc4aaddd4fbe98dd08fec9a8ba"
     },
     "schema/SettingsChanged.json": {
       "bytes": 532,
@@ -3993,8 +3849,8 @@
       "sha256": "3ab486dbaf847ec5290ef397cba17a427409fef4b9bde35b6a2360c80df90148"
     },
     "schema/Thread.json": {
-      "bytes": 6075,
-      "sha256": "2d4618a3cbb5705fb4b7e6bc9a21c8b33bef9477b839255339200b017b9a77d2"
+      "bytes": 5988,
+      "sha256": "fbbe014ba2c67408a5bc6689e8d6fca8d5fa1dee609926dcd2a79b390791defd"
     },
     "schema/ThreadCatchUpRequest.json": {
       "bytes": 762,
@@ -4041,8 +3897,8 @@
       "sha256": "7572788c16d634d71fa18c68c1ec8608f39c07bd3bcab8e2e9261b35f95f08b6"
     },
     "schema/ThreadListEntry.json": {
-      "bytes": 5997,
-      "sha256": "9cacb37af87c7dbef270533138c8a7400e0081f60c1adac0fa7e8d2f7c64fb5b"
+      "bytes": 5910,
+      "sha256": "6520eb2f4ef44d8cc4750824a50c9ce84ff4685befc787c3cfe1d89cc295304a"
     },
     "schema/ThreadListInput.json": {
       "bytes": 584,
@@ -4117,8 +3973,8 @@
       "sha256": "a9b4df0bab39b18c6902bdf143ccfe49e3bc24e4baa1cce70b56522837be350f"
     },
     "schema/ThreadView.json": {
-      "bytes": 4906,
-      "sha256": "f78d54349efec9eda72d1f12b75f7286a4b57aab50d86e539c0d6b898e7b65fc"
+      "bytes": 4814,
+      "sha256": "175dcf29f738e7bbb6f4392933fbabf7c1d36f8d4773f80140b49e535accac53"
     },
     "schema/Timestamp.json": {
       "bytes": 189,
@@ -4668,14 +4524,6 @@
       "bytes": 416,
       "sha256": "80052ed0fa925aba35ad1c1ff0842366a1068fcfe97701e8d6f97a64d318620e"
     },
-    "schema/offshift.input.json": {
-      "bytes": 2819,
-      "sha256": "523ac2d8c56bfb4422898ae7a6a08fecfeb471eaaea715842ed199cc94493e34"
-    },
-    "schema/offshift.output.json": {
-      "bytes": 27407,
-      "sha256": "051dddb3b029ca8b1c0641ca7fd8ef86e3d72bbe737a190df1dda3c62b872b96"
-    },
     "schema/projects_find.input.json": {
       "bytes": 457,
       "sha256": "2010388e3542eea81189ebe0c045705b1e7e381111281feb3f38121f9ef5609a"
@@ -4765,8 +4613,8 @@
       "sha256": "efb537d45a843f9defcb09f07ce4642208ffabe2de01a5a37703e855f43528d1"
     },
     "schema/tools_find.input.json": {
-      "bytes": 716,
-      "sha256": "952bb235eae73315b9b643cab2c72206d0a5af889a7fc1aa555185274341c46d"
+      "bytes": 696,
+      "sha256": "822c065d05ab53478399c0a1ca5f85d56ecbb948433d4e9f2f5b7977645724cb"
     },
     "schema/tools_find.output.json": {
       "bytes": 1230,
@@ -4789,10 +4637,10 @@
       "sha256": "571045442f6b19fd7ecf97ce180c84085c282b10849598f40e85882a4be2f437"
     },
     "types.md": {
-      "bytes": 987717,
-      "sha256": "69d3504bdac300b6741fec6b4970960adb337a3bb15ce7c3221000c205183728"
+      "bytes": 952405,
+      "sha256": "68c310f87c82213f4d2b33f9d70d2b8d3dcefa539d239a60ba6be96eb0a7583c"
     }
   },
-  "input": "8979fbfbec50414f34d97fec76cc562694a1ba31facda60cdbda665dd827f046",
+  "input": "75928039877075ce01a68bf0a43d8ce8960cd2421813544360fa6c3c366f2b1f",
   "version": 1
 }

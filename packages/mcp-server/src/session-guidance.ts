@@ -28,10 +28,9 @@ export interface SessionGuidance {
   serverInstructions?: boolean | undefined;
 }
 /** Where the provider natively lists ace's shipped skills; the rest read them via `guide`. */
-const skills = "ace's guides except offshift are also installed as skills.";
+const skills = "ace's guides are also installed as skills.";
 /** Claude loads `guide` on demand only: its skills are the same text (`registry.ts`). */
-const claudeSkills =
-  "ace's guides except offshift are installed as skills; use them for guide <topic>.";
+const claudeSkills = "ace's guides are installed as skills; use them for guide <topic>.";
 /** How each provider lists ace tools unless the session says otherwise (`injection.ts`). */
 const usualListing: Record<ProviderKind, ToolListing> = {
   codex: "all",

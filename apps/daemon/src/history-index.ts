@@ -1,3 +1,4 @@
+import { decodeStoredItem } from "./stored-decode.ts";
 import { HistorySearchReplay } from "./history-search-replay.ts";
 import type { SearchReplayItem } from "@ace/search";
 import { z } from "zod";
@@ -145,7 +146,7 @@ export class HistoryIndex {
     const row = this.statement(
       "SELECT item FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
     ).get(id, through);
-    return row ? Item.parse(JSON.parse(String(row.item))) : undefined;
+    return row ? decodeStoredItem(JSON.parse(String(row.item))) : undefined;
   }
   /** A replay revision refers to durable text streams, never a full canonical message body. */
   searchItem(
@@ -221,7 +222,7 @@ export class HistoryIndex {
       // A message ending in an attachment acquires a new append target on its first delta.
       if (p.field !== "output" && !this.latest(stream.id, event.seq)) {
         const preview = this.statement("SELECT item FROM item_previews WHERE id=?").get(p.itemId);
-        this.revision(event, Item.parse(JSON.parse(String(preview?.item))));
+        this.revision(event, decodeStoredItem(JSON.parse(String(preview?.item))));
       }
       this.statement("INSERT INTO history_stream_versions VALUES (?,?,?,?,?,?)").run(
         stream.id,
@@ -286,7 +287,10 @@ export class HistoryIndex {
         itemId,
       );
     if (!row) throw new Error("Item completion boundary is unavailable");
-    return { throughSeq: count.parse(row.seq), item: Item.parse(JSON.parse(String(row.item))) };
+    return {
+      throughSeq: count.parse(row.seq),
+      item: decodeStoredItem(JSON.parse(String(row.item))),
+    };
   }
   stream(threadId: ThreadId, streamId: string, through: number) {
     const version = this.latest(streamId, through);

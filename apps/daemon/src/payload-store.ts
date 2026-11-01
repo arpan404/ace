@@ -1,3 +1,4 @@
+import { decodeStoredItem } from "./stored-decode.ts";
 import { StreamingBlobs } from "./streaming-blobs.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -185,7 +186,7 @@ export class PayloadStore {
         if (p.field === "output") throw new Error("Output needs a shell item");
         return;
       }
-      const item = Item.parse(JSON.parse(String(row.item)));
+      const item = decodeStoredItem(JSON.parse(String(row.item)));
       if (p.field === "output" && item.type === "tool_call" && item.call.detail.kind === "shell") {
         const streamId = item.call.detail.output?.streamId ?? outputStreamId(item.id);
         this.statement(

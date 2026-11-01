@@ -196,6 +196,7 @@ export type AgentItem = z.infer<typeof AgentItem>;
 /** Thread entries also include browser artifacts created before an agent starts. */
 export const Item = z.discriminatedUnion("type", [
   ...AgentItem.options,
+  ItemBase.extend({ type: z.literal("unknown"), raw: z.unknown() }),
   ItemBase.extend({
     type: z.literal("artifact"),
     filename: z.string().max(256).optional(),

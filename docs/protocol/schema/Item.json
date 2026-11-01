@@ -643,6 +643,49 @@
         "agentId": {
           "$ref": "https://ace.local/protocol/v1/AgentId.json"
         },
+        "complete": {
+          "default": true,
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "inherited": {
+          "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
+        },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "raw": {},
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "type": {
+          "const": "unknown",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "agentId",
+        "createdAt",
+        "type",
+        "raw"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
         "artifactId": {
           "maxLength": 256,
           "minLength": 1,
