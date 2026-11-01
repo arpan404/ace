@@ -265,6 +265,8 @@ export class DelegationService {
         input: [{ type: "text", text }],
         delivery,
         trigger: "parent_agent",
+        // The transcript names the agent that sent it and links back to its thread.
+        origin: { kind: "parent_agent", ...this.sender(caller.threadId) },
       },
     });
     this.senders.record(command.id, threadId, caller.threadId, this.deps.clock.now());
@@ -288,6 +290,11 @@ export class DelegationService {
     return result;
   }
   private requesting: string | undefined;
+  /** Who sent a message from another thread here: that thread, and its agent's provider. */
+  private sender(threadId: ThreadId) {
+    const provider = this.deps.store.getThread(threadId)?.provider;
+    return { parentThreadId: threadId, ...(provider ? { from: { provider } } : {}) };
+  }
   /** A kept-back message the child has now taken is no longer news for the parent. */
   private clearDeliveredNotice(child: ThreadId) {
     const edge = this.journal.get(child);
@@ -504,6 +511,10 @@ export class DelegationService {
       );
       this.journal.release(reservation);
       this.journal.enroll(child.id, reservation.record.rootId);
+      // The thread names the thread whose agent started it, beside its first message's origin.
+      this.deps.store.appendEvents(child.id, [
+        { type: "thread.updated", startedBy: caller.threadId },
+      ]);
       return child;
     });
   }
@@ -918,7 +929,7 @@ export class DelegationService {
         trigger: "spawn",
         origin: {
           kind,
-          parentThreadId: current.parentId,
+          ...this.sender(current.parentId),
           role: current.request.role,
         },
       });

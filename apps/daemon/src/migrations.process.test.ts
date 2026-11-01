@@ -95,12 +95,46 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     }
     const after = new DatabaseSync(path, { readOnly: true });
     try {
-      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(23);
+      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(24);
     } finally {
       after.close();
     }
     // Upgrading never copies the whole database first: that copy blocked startup.
     expect(readdirSync(home).filter((name) => name.includes(".backup"))).toEqual([]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a thread an agent opened before startedBy existed names its starter after the upgrade", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-upgrade-started-by-"));
+  const path = join(home, "events.sqlite");
+  try {
+    const store = new Store(path);
+    const workspace = store.createWorkspace(home, "Existing project");
+    const starter = createDevThread(store, workspace);
+    const started = createDevThread(store, workspace);
+    const person = createDevThread(store, workspace);
+    store.close();
+    // Schema 23 recorded thread_start's caller only in the conversation journal.
+    const db = new DatabaseSync(path);
+    db.prepare("INSERT INTO agent_conversations VALUES (?,?,?,?,?,?)").run(
+      started.id,
+      starter.id,
+      "root",
+      starter.id,
+      "request-1",
+      "{}",
+    );
+    db.exec("UPDATE schema_version SET version=23 WHERE id=1");
+    db.close();
+    const upgraded = new Store(path);
+    try {
+      expect(upgraded.getThread(started.id)?.startedBy).toBe(starter.id);
+      expect(upgraded.getThread(person.id)?.startedBy).toBeUndefined();
+    } finally {
+      upgraded.close();
+    }
   } finally {
     await rm(home, { recursive: true, force: true });
   }

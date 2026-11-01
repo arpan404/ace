@@ -65,8 +65,13 @@ export const MessageOrigin = z.object({
   commandId: CommandId.optional(),
   interactionId: InteractionId.optional(),
   threadIds: z.array(ThreadId).optional(),
+  /** `spawn`, `parent_agent`: the thread whose agent sent this message, on this machine. */
   parentThreadId: ThreadId.optional(),
   role: z.string().optional(),
+  /**
+   * A switch or handoff: the model it came from. `spawn`, `parent_agent`: the sending agent's
+   * provider (and model), so the transcript can name who sent it.
+   */
   from: z.object({ provider: ProviderKind, model: z.string().optional() }).optional(),
   to: z.object({ provider: ProviderKind, model: z.string().optional() }).optional(),
   /** A context handoff: every model whose work the new agent received, oldest first. */

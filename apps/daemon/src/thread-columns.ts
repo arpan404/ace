@@ -38,6 +38,7 @@ const columns = {
         lineage: thread.lineage,
         delegatedBy: thread.delegatedBy,
         delegatedFrom: thread.delegatedFrom,
+        startedBy: thread.startedBy,
         queuedLaunch: thread.queuedLaunch,
         execution: thread.execution,
         switch: thread.switch,

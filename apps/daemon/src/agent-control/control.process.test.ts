@@ -26,6 +26,8 @@ test("cross-provider child preserves its selection and returns the whole thread 
         origin: expect.objectContaining({
           kind: "spawn",
           parentThreadId: parent.threadId,
+          // The child's transcript names the agent that sent it the task.
+          from: { provider: h.store.getThread(parent.threadId)?.provider },
           role: "test-task-implementation",
         }),
       }),

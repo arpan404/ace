@@ -30,6 +30,7 @@ import { ErrorRow } from "./error-row.tsx";
 import { NotSentNotice } from "./not-sent-notice.tsx";
 import { RefusalRow } from "./refusal-row.tsx";
 import { SystemRow } from "./system-row.tsx";
+import { SentByLine } from "./sent-by-line.tsx";
 import { TaskCard } from "./task-card.tsx";
 import { MergedForkNotice } from "../transitions/merged-fork-notice.tsx";
 import { UserMessage } from "./user-message.tsx";
@@ -96,14 +97,15 @@ function useEventCounts(threadId: string, itemId: string): EventCounts | undefin
 /**
  * Anything in the transcript that is neither the person's words nor the agent's answer or
  * work, drawn as `eventView` decides (shared with the native apps): ace's own inputs as quiet
- * rows and cards, errors as one readable row, notices as one quiet line. Never a chat bubble.
+ * rows and cards, errors as one readable row, notices as one quiet line. A message another
+ * thread's agent sent is the one input drawn as a sent bubble, under a line naming its sender.
  */
 export function EventBlock(props: { threadId: string; itemId: string }) {
   const stored = useItem(props.threadId, props.itemId);
   const thread = useThreadMeta(props.threadId);
   const counts = useEventCounts(props.threadId, props.itemId);
   if (!stored || !counts) return null;
-  const view = eventView(stored, counts, thread?.provider);
+  const view = eventView(stored, counts, thread?.provider, thread);
   switch (view.kind) {
     case "none":
       return null;
@@ -130,6 +132,14 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
       );
     case "task":
       return <TaskCard prompt={view.prompt} />;
+    case "sent":
+      return (
+        <UserMessage
+          threadId={props.threadId}
+          itemId={props.itemId}
+          sent={{ line: <SentByLine sent={view.sent} />, text: view.text }}
+        />
+      );
     case "system":
       return (
         <SystemRow

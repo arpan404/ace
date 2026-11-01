@@ -20,6 +20,7 @@ import { multiDayDemo } from "./multi-day-demo.ts";
 import { longHistory } from "./long-history.ts";
 import { replayCursor } from "./replay-cursor.ts";
 import { startedConversation } from "./started-conversation.ts";
+import { markdownMessage } from "./markdown-message.ts";
 import { explainer, postedImage, visualization } from "./visualization.ts";
 
 /** One thread of the development world and how it is played. */
@@ -73,6 +74,8 @@ export function devWorld(): WorldThread[] {
     ...queuedDelegation().map((scenario) => ({ scenario, agoMs: 0 })),
     // An OpenCode thread whose agent started a separate Codex conversation (thread_start).
     ...startedConversation().map((scenario) => ({ scenario, agoMs: minute })),
+    // The person's bug report written in markdown: it renders in their bubble.
+    { scenario: markdownMessage(), agoMs: 2 * minute },
     // Agents using ace's own tools: computer use, the browser and a simulator.
     ...aceTools().map((scenario) => ({ scenario, agoMs: 20 * minute })),
     { scenario: aceToolsComputerBackground(), agoMs: 20 * minute },
