@@ -101,16 +101,20 @@ function openSession(endpoint: DaemonEndpoint, known: ScreenSnapshot = offline):
   let permissions: ScreenPermissions | undefined = known.permissions;
   let permissionsProblem: ScreenSnapshot["permissionsProblem"];
   let unavailable = known.unavailable;
+  // The latest the daemon said, starting from what the last channel knew: a channel that drops
+  // forgets it, and must not bring back an older answer.
+  let enabled = known.enabled;
   let snapshot: ScreenSnapshot = { ...offline, enabled: known.enabled, permissions, unavailable };
   const publish = () => {
     const next = client.getSnapshot();
+    if (next.enabled !== undefined) enabled = next.enabled;
     for (const state of next.states)
       if (state.controller === "agent" && state.holder) holders.set(state.sessionId, state.holder);
     snapshot = {
       connected: next.connected,
       // Closed once an opened channel drops (it then carries why); one still connecting isn't.
       closed: !opening && !next.connected && next.error !== undefined,
-      enabled: next.enabled ?? known.enabled,
+      enabled: next.enabled ?? enabled,
       permissions,
       permissionsProblem,
       unavailable,

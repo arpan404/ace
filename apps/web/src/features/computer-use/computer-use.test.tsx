@@ -1,5 +1,5 @@
 import { flakyCheckout } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { deviceBrowser } from "@/test/device-browser.ts";
@@ -302,4 +302,36 @@ test("coming back to Computer use shows apps as still on while the screen channe
   await waitFor(() => expect(seen.at(-1)).toBe("true"));
   observer.disconnect();
   expect(seen).not.toContain("false");
+});
+
+test("once the daemon says apps are off, a dropped channel doesn't bring back the remembered on", async () => {
+  const { app } = await openSettings();
+  await app.open("/settings/computer-use");
+  await page();
+  const toggle = () => screen.getByRole("switch", { name: "Let agents use apps" });
+  await userEvent.click(await screen.findByRole("switch", { name: "Let agents use apps" }));
+  await waitFor(() => expect(toggle().getAttribute("aria-checked")).toBe("true"));
+
+  // Away from Computer use, apps are switched off on the machine.
+  await userEvent.click(screen.getByRole("link", { name: "General" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("switch", { name: "Let agents use apps" })).toBeNull(),
+  );
+  app.daemon.screen.enable(false);
+  await userEvent.click(screen.getByRole("link", { name: "Computer use" }));
+  await page();
+  await waitFor(() => expect(toggle().getAttribute("aria-checked")).toBe("false"));
+
+  // Every state the switch shows from the moment the channel drops.
+  const seen: (string | null)[] = [];
+  const observer = new MutationObserver(() => {
+    const shown = screen.queryByRole("switch", { name: "Let agents use apps" });
+    if (shown) seen.push(shown.getAttribute("aria-checked"));
+  });
+  observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+  act(() => app.daemon.screen.dropChannels());
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  observer.disconnect();
+  expect(seen).not.toContain("true");
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
 });
