@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { BrowserAnnotationCapture } from "@ace/protocol";
 import {
-  annotationFixture,
+  sharedAnnotationFixture,
   executablePath,
   isMarkerColour,
   markerCentre,
@@ -11,7 +11,7 @@ import {
 const test = it.skipIf(!executablePath);
 
 test("a click pins a numbered annotation with a unique selector and never reaches the page", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = await f.annotating();
   expect(f.service.state("thread").annotation).toEqual({ owner: "person" });
   const annotation = await f.pin(person, "p.lead", "Make this one line");
@@ -35,7 +35,7 @@ test("a click pins a numbered annotation with a unique selector and never reache
 }, 60_000);
 
 test("a page with a strict CSP and required Trusted Types still mounts the overlay", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = f.connect("person");
   await person.subscribe();
   await person.execute({ action: "navigate", url: `${f.origin}/csp` });
@@ -52,7 +52,7 @@ test("a page with a strict CSP and required Trusted Types still mounts the overl
 }, 60_000);
 
 test("wheel input still scrolls an inner container and the marker follows its element", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = await f.annotating();
   const scroller = await person.box("#scroller");
   await person.scroll(scroller.x + 100, scroller.y + 100, 520);
@@ -79,7 +79,7 @@ test("wheel input still scrolls an inner container and the marker follows its el
 }, 60_000);
 
 test("a page capture keeps the markers but leaves out the bar", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = await f.annotating();
   await f.pin(person, "p.lead", "Bigger");
   const page = BrowserAnnotationCapture.parse(
@@ -103,7 +103,7 @@ test("a page capture keeps the markers but leaves out the bar", async () => {
 }, 60_000);
 
 test("an element crop is the element with an 8 px margin, its long edge at most 1024 px", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = await f.annotating();
   const lead = await f.pin(person, "p.lead", "Lead copy");
   const box = await person.box("p.lead");
@@ -134,7 +134,7 @@ test("an element crop is the element with an 8 px margin, its long edge at most 
 }, 60_000);
 
 test("reopening a marker edits its comment, and Escape closes it without a change", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = await f.annotating();
   const annotation = await f.pin(person, "p.lead", "First thought");
   const before = person.events().length;
@@ -165,7 +165,7 @@ test("reopening a marker edits its comment, and Escape closes it without a chang
 }, 60_000);
 
 test("a click on an embedded frame pins the frame and never reaches the framed page", async () => {
-  const f = await annotationFixture();
+  const f = await sharedAnnotationFixture();
   const person = f.connect("person");
   await person.subscribe();
   await person.execute({ action: "navigate", url: `${f.origin}/framed` });
@@ -189,7 +189,7 @@ test("a click on an embedded frame pins the frame and never reaches the framed p
 it.runIf(process.platform === "win32" && executablePath)(
   "Windows: an element crop is the element with an 8 px margin, and a tall one inside a scroller is the part the scroller shows",
   async () => {
-    const f = await annotationFixture();
+    const f = await sharedAnnotationFixture();
     const person = await f.annotating();
     const ratio = Number(await person.evaluate("devicePixelRatio"));
     // An element's crop is the element with an 8 px margin.

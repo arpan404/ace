@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { Actor } from "./session.ts";
-import { executablePath, fixture } from "./test-support.ts";
+import { executablePath, sharedFixture } from "./test-support.ts";
 
 const Opened = z.object({ tabId: z.string() });
 const Tabs = z.object({
@@ -13,7 +13,7 @@ const person: Actor = { kind: "human", connectionId: "person" };
 
 describe.skipIf(!executablePath)("agent tabs when an agent's turn ends", () => {
   it("a temporary tab closes at the end of the agent's turn while its kept tab stays", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     const first = f.service.state("thread").activeTabId;
     if (!first) throw new Error("No first tab");
     // The person picks the first tab, so the agent's tabs open behind it.
@@ -61,7 +61,7 @@ describe.skipIf(!executablePath)("agent tabs when an agent's turn ends", () => {
   }, 60_000);
 
   it("a finished agent's tab no longer pushes the next agent into an extra tab", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     // The first agent works in the shown tab, which makes it that agent's current tab.
     await f.service.execute("thread", { action: "snapshot" }, agent("first"));

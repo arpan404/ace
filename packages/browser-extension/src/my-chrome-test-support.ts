@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect } from "vitest";
+import { afterAll, expect } from "vitest";
 import { WebSocketServer } from "ws";
 import { z } from "zod";
 import { UserChromeHub, type UserChromeLink } from "@ace/browser";
@@ -140,6 +140,21 @@ export async function connectedBrowser(
     "the extension popup to load",
   );
   return { hub, chrome, asPerson, root };
+}
+
+/**
+ * One connected browser for every test in the file: started by the first test that asks, closed
+ * after the last. Only for tests that leave nothing behind in the person's browser that another
+ * test could see (each opens its own service, site and tabs).
+ */
+export function sharedConnectedBrowser(chromePath: string) {
+  const cleanups: Cleanups = [];
+  let started: ReturnType<typeof connectedBrowser> | undefined;
+  afterAll(async () => {
+    started = undefined;
+    for (const cleanup of cleanups.splice(0).toReversed()) await cleanup().catch(() => {});
+  }, 60_000);
+  return () => (started ??= connectedBrowser(chromePath, cleanups));
 }
 
 /**

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { afterEach } from "vitest";
+import { afterAll, afterEach } from "vitest";
 import { BrowserService, detectChromium, type BrowserServiceOptions } from "./index.ts";
 export { toolPort } from "./tool-port-test-support.ts";
 
@@ -95,8 +95,8 @@ const pages: Record<string, string> = {
     "",
   )}<section aria-label="Footer area"><button>Footer action</button></section></main></body></html>`,
 };
-export async function fixture(options: Partial<BrowserServiceOptions> = {}) {
-  const home = await mkdtemp(join(tmpdir(), "ace-browser-"));
+/** The fixture site on its own port: a fresh origin, so no test sees another's storage. */
+async function startSite() {
   const server = createServer((request, response) => {
     if (request.url === "/redirect") {
       response.writeHead(302, { location: "https://example.invalid/" });
@@ -136,27 +136,26 @@ export async function fixture(options: Partial<BrowserServiceOptions> = {}) {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing server address");
-  const url = `http://127.0.0.1:${address.port}`;
-  const service = new BrowserService({
-    dataDir: home,
-    ...(executablePath ? { executablePath } : {}),
-    ...options,
-  });
-  cleanups.push(async () => {
-    try {
-      await service.close();
-    } finally {
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    close: async () => {
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
-      // Windows: a just-written profile file can stay open a moment after ace's Chrome has gone
-      // (an antivirus scan of a new file), so removal retries there.
-      if (process.platform === "win32")
-        await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-      await rm(home, { recursive: true, force: true });
-    }
-  });
+    },
+  };
+}
+
+async function removeHome(home: string): Promise<void> {
+  // Windows: a just-written profile file can stay open a moment after ace's Chrome has gone
+  // (an antivirus scan of a new file), so removal retries there.
+  if (process.platform === "win32")
+    await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  await rm(home, { recursive: true, force: true });
+}
+
+async function openThread(service: BrowserService, home: string, url: string) {
   await service.open({ threadId: "thread", workspaceId: "workspace" });
   return {
     service,
@@ -166,4 +165,64 @@ export async function fixture(options: Partial<BrowserServiceOptions> = {}) {
     evaluate: (expression: string) => service.execute("thread", { action: "evaluate", expression }),
     navigate: () => service.execute("thread", { action: "navigate", url }),
   };
+}
+
+/** A browser service of its own, with `options`, and its thread browser open on a fixture site. */
+export async function fixture(options: Partial<BrowserServiceOptions> = {}) {
+  const home = await mkdtemp(join(tmpdir(), "ace-browser-"));
+  const site = await startSite();
+  const service = new BrowserService({
+    dataDir: home,
+    ...(executablePath ? { executablePath } : {}),
+    ...options,
+  });
+  cleanups.push(async () => {
+    try {
+      await service.close();
+    } finally {
+      await site.close();
+      await removeHome(home);
+    }
+  });
+  return openThread(service, home, site.url);
+}
+
+let shared: { service: BrowserService; home: string } | undefined;
+afterAll(async () => {
+  const last = shared;
+  shared = undefined;
+  if (!last) return;
+  try {
+    await last.service.close();
+  } finally {
+    await removeHome(last.home);
+  }
+}, 60_000);
+
+/**
+ * Like `fixture()` with default options, but every test in the file shares one service and its
+ * Chrome. Each test gets a fresh thread browser on a fixture site of its own, closed after it.
+ * Only for tests that never close the service, kill its Chrome or read its data directory.
+ */
+export async function sharedFixture() {
+  if (!shared) {
+    const home = await mkdtemp(join(tmpdir(), "ace-browser-"));
+    shared = {
+      home,
+      service: new BrowserService({
+        dataDir: home,
+        ...(executablePath ? { executablePath } : {}),
+      }),
+    };
+  }
+  const { service, home } = shared;
+  const site = await startSite();
+  cleanups.push(async () => {
+    try {
+      await service.closeThread("thread");
+    } finally {
+      await site.close();
+    }
+  });
+  return openThread(service, home, site.url);
 }

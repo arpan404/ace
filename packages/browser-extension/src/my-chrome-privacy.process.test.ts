@@ -4,10 +4,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { z } from "zod";
 import { BrowserService, UserChromeBackend, detectChromium } from "@ace/browser";
-import { connectedBrowser } from "./my-chrome-test-support.ts";
+import { sharedConnectedBrowser } from "./my-chrome-test-support.ts";
 
 const executable = process.env.ACE_CHROMIUM_PATH ?? (await detectChromium());
 const cleanups: (() => Promise<void>)[] = [];
+const sharedBrowser = sharedConnectedBrowser(executable ?? "");
+/** Each test's service gets its own data directory in the shared browser's root. */
+let services = 0;
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup().catch(() => {});
 }, 60_000);
@@ -32,10 +35,10 @@ async function signedInSite() {
 }
 
 async function myChrome(storageReads: boolean) {
-  const browser = await connectedBrowser(executable ?? "", cleanups);
+  const browser = await sharedBrowser();
   const site = await signedInSite();
   const service = new BrowserService({
-    dataDir: join(browser.root, "service"),
+    dataDir: join(browser.root, `service-${++services}`),
     headlessBackend: new UserChromeBackend(browser.hub, process.platform),
     backendPreference: () => "headless",
     userChromeStorageReads: () => storageReads,

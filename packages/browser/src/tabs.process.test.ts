@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { Actor } from "./session.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
-import { executablePath, fixture, ref } from "./test-support.ts";
+import { executablePath, fixture, sharedFixture, ref } from "./test-support.ts";
 
 const Opened = z.object({ tabId: z.string() });
 const Tabs = z.object({
@@ -23,7 +23,7 @@ const person: Actor = { kind: "human", connectionId: "person" };
 
 describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
   it("two agents work their own tabs at the same time without disturbing each other", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     const run = (agentId: string, command: unknown) =>
       f.service.execute("thread", command, agent(agentId));
     const a = Opened.parse(
@@ -53,7 +53,7 @@ describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
   }, 60_000);
 
   it("a slow command on one tab does not hold up another tab", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     const a = f.service.state("thread").activeTabId;
     const b = Opened.parse(
       await f.execute({ action: "tabs", operation: "open", url: f.url }),
@@ -73,7 +73,7 @@ describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
   }, 60_000);
 
   it("a screenshot of another tab leaves the person's view where it is", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const viewed = f.service.state("thread").activeTabId;
     if (!viewed) throw new Error("No viewed tab");
@@ -97,7 +97,7 @@ describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
   }, 60_000);
 
   it("the person busy in one tab never slows an agent in another, which is marked in use", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const busy = f.service.state("thread").activeTabId;
     const free = Opened.parse(
@@ -126,7 +126,7 @@ describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
   }, 60_000);
 
   it("a private tab refuses agents while they keep working in another tab", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     await f.navigate();
     const hidden = f.service.state("thread").activeTabId;
     const open = Opened.parse(
@@ -162,7 +162,7 @@ describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
   }, 60_000);
 
   it("an agent can open eight tabs and no more, while another agent still can", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     const open = (agentId: string) =>
       f.service.execute("thread", { action: "tabs", operation: "open" }, agent(agentId));
     for (let count = 0; count < 8; count++) await open("busy");
@@ -183,7 +183,7 @@ describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
   }, 60_000);
 
   it("closing an agent's tab leaves the others, and closing the last tab closes the browser", async () => {
-    const f = await fixture();
+    const f = await sharedFixture();
     const first = f.service.state("thread").activeTabId;
     const second = Opened.parse(await f.execute({ action: "tabs", operation: "open" })).tabId;
     await f.execute({ action: "tabs", operation: "close", tabId: second });
