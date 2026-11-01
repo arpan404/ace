@@ -93,6 +93,9 @@ export function inboxBand(standing: Standing, pinned: boolean): InboxBand {
   return standing.level === "done-unread" ? "unseen" : "idle";
 }
 
+const newest = (a: { id: string; at: number }, b: { id: string; at: number }) =>
+  b.at - a.at || a.id.localeCompare(b.id);
+
 const bandOrder: readonly InboxBand[] = ["pinned", "needs-you", "running", "unseen", "idle"];
 
 export interface ThreadsPanel {
@@ -154,8 +157,6 @@ export function threadsPanel(input: PanelInput): ThreadsPanel {
     if (!atRest(stands)) place(id, shown, stands);
     else settled.push({ id, at: activityOf(shown) });
   }
-  const newest = (a: { id: string; at: number }, b: { id: string; at: number }) =>
-    b.at - a.at || a.id.localeCompare(b.id);
   const inbox: string[] = [];
   for (const band of bandOrder) {
     const rows = bands.get(band) ?? [];

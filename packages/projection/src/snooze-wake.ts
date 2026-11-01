@@ -27,13 +27,16 @@ const prKey = (pr: LinkedPullRequest) =>
 export function snoozedPullRequests(details: Thread["details"]): SnoozedPullRequest[] {
   return (details?.linkedPrs ?? [])
     .filter((pr) => !pr.unverified && !pr.deleted)
-    .map((pr) => ({
-      pr: prKey(pr),
-      state: pr.state,
-      updatedAt: pr.updatedAt,
-      ...(pr.head === undefined ? {} : { head: pr.head }),
-      ...(pr.checks === undefined ? {} : { checks: pr.checks }),
-    }));
+    .map((pr) => {
+      const snoozed: SnoozedPullRequest = {
+        pr: prKey(pr),
+        state: pr.state,
+        updatedAt: pr.updatedAt,
+      };
+      if (pr.head !== undefined) snoozed.head = pr.head;
+      if (pr.checks !== undefined) snoozed.checks = pr.checks;
+      return snoozed;
+    });
 }
 
 /** One pull request moved on since the snooze: a review, comment, push, state or checks finishing. */
