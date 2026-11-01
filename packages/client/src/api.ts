@@ -111,7 +111,13 @@ export interface ClientApi {
   close(): Promise<void>;
   networkOnline(online: boolean): void;
   reconnectNow(): void;
-  thread(id: string): Lease<ThreadSource>;
+  /**
+   * Hold a thread. `optional` holds take only spare room (`threadRoom`) and give it up for a
+   * thread held in the foreground; refused or given up, the store's error reads `no_room`.
+   */
+  thread(id: string, options?: { optional?: boolean | undefined }): Lease<ThreadSource>;
+  /** Thread subscriptions an optional hold may still take; changes as holds come and go. */
+  threadRoom?(): Selection<number>;
   threads(): Lease<SidebarSource>;
   /**
    * The store `thread(id)` would lease, if one is cached, without taking a lease: a view paints

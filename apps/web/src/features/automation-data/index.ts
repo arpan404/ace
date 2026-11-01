@@ -43,4 +43,4 @@ export {
   type TriggerHealth,
   type ScheduleState,
 } from "@ace/ui-core/automations";
-export { useProjectAutomations, WorkAutomations } from "./work-automations.tsx";
+export { useProjectAutomations, WorkAutomationsLine } from "./work-automations.tsx";

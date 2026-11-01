@@ -44,7 +44,11 @@ test("operational plans show their progress in the composer strip and their full
   expect(await screen.findByRole("tab", { name: "Summary" })).toBeTruthy();
   const work = await screen.findByRole("tabpanel", { name: "Summary" });
   const list = await within(work).findByRole("list", { name: "Tasks" });
-  expect(await within(work).findByRole("tree", { name: "Agent tree" })).toBeTruthy();
+  expect(within(work).getByRole("region", { name: "Plan" }).textContent).toMatch(/^Plan1 of 3/);
+  expect(within(work).getByRole("progressbar", { name: "Plan progress" })).toHaveProperty(
+    "ariaValueNow",
+    "1",
+  );
   expect(screen.getAllByRole("tab", { name: "Summary" })).toHaveLength(1);
   expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();
   expect(
@@ -56,7 +60,7 @@ test("operational plans show their progress in the composer strip and their full
     within(list)
       .getAllByRole("listitem")
       .map((row) => row.textContent),
-  ).toEqual(["1.Find the resetDone", "2.Fix itIn progress", "3.TestTo do"]);
+  ).toEqual(["Find the reset, done", "Fix it, in progress", "Test, to do"]);
   expect(within(list).getAllByRole("listitem")[1]?.getAttribute("aria-current")).toBe("step");
 });
 

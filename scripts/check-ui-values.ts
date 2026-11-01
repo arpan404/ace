@@ -24,8 +24,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 const strict = process.argv.includes("--strict");
 // Nothing loops forever (styles/motion.css): live state is a still mark. Only the startup mark's
-// breath and an indeterminate progress bar repeat, each only while what it stands for lasts.
-const loopingKeyframes = new Set(["fx-breathe", "fx-sweep"]);
+// breath, an indeterminate progress bar and a live agent's mark in the Summary tree repeat, each
+// only while what it stands for lasts.
+const loopingKeyframes = new Set(["fx-breathe", "fx-sweep", "fx-alive"]);
 for (const path of execFileSync("git", ["ls-files", "--", "apps/web/src/styles/*.css"], {
   encoding: "utf8",
 })

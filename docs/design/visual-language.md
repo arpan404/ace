@@ -282,17 +282,22 @@ agent working and nothing streaming, looping indicators took idle CPU from 6% to
 stepped motion left 20%. Live marks dim while the daemon is unreachable (reconnecting, offline or
 failed), never while it connects or starts; a glyph whose facts are stale dims the same way.
 
-Two animations may repeat, each brief and tied to something the person is waiting on:
+Three animations may repeat, each tied to something the person is waiting on:
 
 - `.fx-breathe`, the startup mark's breath, only while ace starts.
 - `.fx-indeterminate`, a progress bar that can't tell how far along it is, only during that
   transfer: a frozen indeterminate bar would read as stuck. Under reduced motion it breathes in
   place instead of sweeping.
+- `.fx-alive`, a live agent's provider mark in the Summary's agent tree, only while that agent or
+  anything under it works or waits and only while the Summary is open (ADR 0108). It is the tree's
+  one status mark, standing in for the status glyphs there; it holds still under reduced motion
+  and while facts are stale. The owner chose it over a still mark on 2026-11-01, after comparing
+  the two side by side.
 
 Finite motion stays: entrances and exits, and a live step's words sweep three times when the step
 starts (`.step-shimmer`) and then hold still. `bun run check:ui` refuses any other `infinite`
 animation; `apps/web/motion-css.test.ts` builds the stylesheet to check every animation it names
-has keyframes and none but those two loops; `tools/web-perf/src/live-motion.process.test.ts`
+has keyframes and none but those three loops; `tools/web-perf/src/live-motion.process.test.ts`
 checks the production build with an agent working runs no endless animation.
 
 **Reduce motion** is System, On or Off. `<html>` gets `data-reduce-motion` when the setting is

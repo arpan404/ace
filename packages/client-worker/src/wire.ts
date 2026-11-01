@@ -48,7 +48,11 @@ export const CommandAdmissionId = z.string().check(z.minLength(1), z.maxLength(1
 export const TabMessage = z.discriminatedUnion("t", [
   /** Attach to the client for this daemon target, creating it if no other tab has. */
   z.object({ t: z.literal("connect"), config: z.unknown() }),
-  z.object({ t: z.literal("lease"), lease: id, scope: Scope }),
+  /**
+   * Hold a scope. `optional` takes only spare room; the same lease sent again without it moves
+   * it to the foreground (a view the person opened now shares it).
+   */
+  z.object({ t: z.literal("lease"), lease: id, scope: Scope, optional: z.optional(z.boolean()) }),
   z.object({ t: z.literal("release"), lease: id }),
   z.object({ t: z.literal("call"), call: id, method: CallMethod, args: z.array(z.unknown()) }),
   /** Legacy admission probes are retained for decoding, but never establish freshness. */
@@ -131,6 +135,8 @@ export const WorkerMessage = z.discriminatedUnion("t", [
   /** A binary stream message (a browser frame's bytes) the worker's client already decoded. */
   z.object({ t: z.literal("stream"), message: z.unknown() }),
   z.object({ t: z.literal("changes"), leases: z.array(LeaseChanges) }),
+  /** Thread subscriptions an optional lease may still take (`threadRoom`). */
+  z.object({ t: z.literal("room"), room: z.number().check(z.int(), z.nonnegative()) }),
   /** A fact for the page's diagnostics log (the worker's connection dropping, recovering). */
   z.object({
     t: z.literal("diagnostic"),

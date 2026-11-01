@@ -137,7 +137,7 @@ test("on a phone the header's panel toggle shows Summary in the chat's place, an
   await userEvent.click(panelToggle());
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   const work = await within(panel).findByRole("tabpanel", { name: "Summary" });
-  expect(await within(work).findByRole("region", { name: "Background" })).toBeTruthy();
+  expect(await within(work).findByRole("status", { name: /^Thread status/ })).toBeTruthy();
   // In the column's place, not over it: the transcript and its header have stepped aside, and
   // nothing is a dialog or dims the chat.
   expect(panel.getAttribute("data-panel-mode")).toBe("replace");

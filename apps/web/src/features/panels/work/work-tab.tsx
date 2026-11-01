@@ -1,9 +1,9 @@
 import { useCallback, useMemo } from "react";
 import type { ThreadReader } from "@ace/client";
-import { useAgentTree, useThread, useThreadMeta, type AgentTreeNode } from "@ace/client-react";
-import type { Interaction } from "@ace/protocol";
+import { OptionalLeaseScope, useThread, useThreadMeta } from "@ace/client-react";
 import {
   changesByAgent,
+  forestTally,
   isActivelyRunning,
   latestChecks,
   offshiftSummary,
@@ -11,7 +11,7 @@ import {
   summaryPullRequests,
   turnAgentFiles,
 } from "@ace/ui-core";
-import { useProjectAutomations, WorkAutomations } from "@/features/automation-data/index.ts";
+import { useProjectAutomations, WorkAutomationsLine } from "@/features/automation-data/index.ts";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useLatestTurn } from "@/lib/latest-turn.ts";
 import { useServerQueue } from "@/lib/server-queue.ts";
@@ -21,46 +21,34 @@ import {
   useWorkspaceActions,
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
-import { BackgroundList } from "../agents/background-list.tsx";
-import { summaryAgents } from "../agents/summary-agents.ts";
-import type { AgentRowFacts } from "../agents/tree-state.ts";
-import { TreeWorkContext } from "../agents/tree-work-context.ts";
-import { useTreeWork } from "../agents/use-tree-work.ts";
-import { WorkTree } from "../agents/work-tree.tsx";
-import { AgentChanges } from "./agent-changes.tsx";
-import { CatchUp, useShownCatchUp } from "./catch-up.tsx";
-import { Checks } from "./checks.tsx";
+import { SinceYouLooked, useShownCatchUp } from "./catch-up.tsx";
 import { OffshiftRun } from "./offshift-run.tsx";
-import { PullRequests } from "./pull-requests.tsx";
-import { FoldedSection, Section } from "./summary-section.tsx";
-import { summarySections } from "./summary-sections.ts";
-import { StatsStrip, StatusLine } from "./summary-status.tsx";
-import { ThisTurn } from "./this-turn.tsx";
-import { WorkPlans } from "./work-plans.tsx";
+import { SummaryNow } from "./summary-now.tsx";
+import { SummaryPlan } from "./summary-plan.tsx";
+import { Results } from "./summary-results.tsx";
+import { Section } from "./summary-section.tsx";
+import { SummaryTree } from "./summary-tree.tsx";
+import { useAgentForest } from "./use-agent-forest.tsx";
 
 const queueOf = (reader: ThreadReader) => reader.queue;
 const offshiftOf = (reader: ThreadReader) => reader.offshift;
-const noNodes: readonly AgentTreeNode[] = [];
 
 /**
- * The thread at a glance, only what is there, top to bottom: its state in one line and its work
- * in figures, what still works, its pull requests, the agents that are
- * done (folded), the latest turn's outcome, its plan, changes by agent, checks, and what happened
- * while the person was away. A request that needs the person reads in the status line and on its
- * agent's row; answering it happens on its card in the composer. Each agent is one row in its
- * latest state: a run a daemon restart stopped and the agent then resumed past is its history,
- * never a failure. Everything reads bounded facts: the live entities and the turn index's
- * digests, never the thread's history.
+ * The thread at a glance, top to bottom: Now (one sentence and one grey line), an active
+ * Offshift run, what happened since the person last looked, every agent of the thread and of the
+ * threads it delegated, what came out of the work, the plan, and the project's automations in
+ * one line. A section with nothing in it is left out. Everything reads bounded facts: the live
+ * entities of each thread and the turn index's digests, never a thread's history.
  */
 export default function WorkTab(props: TabViewProps) {
   const thread = useThreadMeta(props.scope);
   const actions = useWorkspaceActions(props.scope);
-  const facts = useTreeWork(props.scope);
-  const tree = useAgentTree(props.scope) ?? noNodes;
+  const { forest, works, loaders } = useAgentForest(props.scope);
+  const own = works.get(props.scope);
   const page = useServerQueue(props.scope).page;
   const hold = useThread(props.scope, ["queue"], queueOf) ?? page;
   const card = useThread(props.scope, ["offshift"], offshiftOf);
-  const plans = useShownPlans(props.scope).length;
+  const plans = useShownPlans(props.scope);
   const turn = useLatestTurn(props.scope);
   const catchUp = useShownCatchUp(props.scope);
   const automations = useProjectAutomations(
@@ -69,60 +57,37 @@ export default function WorkTab(props: TabViewProps) {
   );
   const status = thread?.status;
   const live = thread?.live;
+  const agents = own?.agents;
+  const interactions = own?.interactions;
   // The run is shown against the whole tree, so it never reads Done while anything still runs.
   const run = useMemo(() => {
     if (!card || !status) return undefined;
-    const request = facts.interactions[0]?.request.kind;
+    const request = interactions?.[0]?.request.kind;
     return offshiftSummary(card, {
       status,
       live,
-      runningAgents: facts.agents.filter(isActivelyRunning).length,
+      runningAgents: (agents ?? []).filter(isActivelyRunning).length,
       request: request === undefined ? undefined : request === "approval" ? "approval" : "question",
     });
-  }, [card, status, live, facts.agents, facts.interactions]);
-  const layout = useMemo(
-    () =>
-      summaryAgents(
-        tree,
-        facts.agents,
-        (id) => facts.work.running.has(id) || facts.work.needsYou.has(id),
-      ),
-    [tree, facts.agents, facts.work],
-  );
+  }, [card, status, live, agents, interactions]);
   const linked = thread?.details?.linkedPrs;
   const prs = useMemo(() => summaryPullRequests(linked ?? []), [linked]);
   const checks = useMemo(() => (turn ? latestChecks(turn.digest.commands) : []), [turn]);
   const worktree = thread?.details?.worktree ?? thread?.details?.workspace?.path ?? "";
-  const shares = useMemo(() => {
-    if (!turn) return [];
-    const cwd = new Map<string, string>(facts.agents.map((agent) => [agent.id, agent.cwd]));
-    return turnAgentFiles(turn, (id) => cwd.get(id), worktree);
-  }, [turn, facts.agents, worktree]);
-  const changes = useMemo(() => changesByAgent(shares), [shares]);
-  const rowFacts = useMemo<AgentRowFacts>(() => {
-    const requests = new Map<string, Interaction>();
-    for (const interaction of facts.interactions)
-      if (!requests.has(interaction.agentId)) requests.set(interaction.agentId, interaction);
-    const files = new Map(shares.map((share) => [share.agentId, share.files.map((f) => f.path)]));
-    return {
-      requests,
-      files,
-      earlier: layout.runs.earlier,
-      prs,
-    };
-  }, [facts.interactions, shares, layout.runs, prs]);
-  const counts = useMemo(() => {
-    const agents = facts.agents.filter(
-      (agent) => agent.origin !== "root" && !layout.runs.latest.has(agent.id),
-    );
-    return {
-      running: facts.agents.filter(isActivelyRunning).length,
-      agents: agents.length,
-      live: agents.filter(
-        (agent) => facts.work.running.has(agent.id) || facts.work.needsYou.has(agent.id),
-      ).length,
-    };
-  }, [facts.agents, facts.work, layout.runs]);
+  const changes = useMemo(() => {
+    if (!turn) return changesByAgent([]);
+    const cwd = new Map<string, string>((agents ?? []).map((agent) => [agent.id, agent.cwd]));
+    return changesByAgent(turnAgentFiles(turn, (id) => cwd.get(id), worktree));
+  }, [turn, agents, worktree]);
+  const names = useMemo(
+    () =>
+      new Map(
+        (turn?.subagents ?? []).flatMap((share) =>
+          share.name ? [[share.agentId, share.name] as const] : [],
+        ),
+      ),
+    [turn],
+  );
   const saved = props.tab.ui?.scrollTop ?? 0;
   const scroll = useCallback(
     (node: HTMLDivElement | null) => {
@@ -138,117 +103,61 @@ export default function WorkTab(props: TabViewProps) {
       // Rows shaped like the tab's, while the thread's facts arrive.
       <ListSkeleton label="summary" shape="row" rows={4} className="px-1.5 py-1.5" />
     );
-  const tasks = facts.tasks
-    .filter((task) => (task.status === "running" || task.status === "unknown") && !task.internal)
-    .map((task) => task.id);
   const queued = queuedInputLine({
     retained: page?.total ?? 0,
     queue: hold,
     status: thread.status,
-    agentFailed: facts.agents.some(
+    agentFailed: (agents ?? []).some(
       (agent) => agent.parentId === null && agent.status.state === "failed",
     ),
   });
-  const background = tasks.length > 0 || queued !== undefined;
-  const shown = summarySections({
-    offshift: run !== undefined && !run.done,
-    turn: turn !== undefined,
-    plans,
-    working: layout.working.length,
-    background,
-    prs: prs.length,
-    done: layout.done.length,
-    changingAgents: changes.worktrees.reduce((sum, group) => sum + group.agents.length, 0),
-    checks: checks.length,
-    catchUp: catchUp.catchUp !== undefined,
-    automations: automations.failed || !!automations.entries?.length,
-  });
-  const names = new Map(
-    (turn?.subagents ?? []).flatMap((share) =>
-      share.name ? [[share.agentId, share.name] as const] : [],
-    ),
-  );
+  const total = forestTally(forest.roots);
+  // A main agent alone says nothing Now hasn't: the tree shows once there is a tree.
+  const tree = forest.roots.some((root) => root.children.length > 0) || forest.roots.length > 1;
   return (
     <div
       ref={scroll}
       data-summary
       data-work-scroll
-      className="@container/summary flex h-full min-h-0 flex-col gap-3 overflow-x-hidden overflow-y-auto overscroll-contain px-1.5 py-1.5"
+      className="@container/summary flex h-full min-h-0 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain px-1.5 pt-2 pb-3"
     >
-      <div className="flex min-w-0 flex-col gap-1.5">
-        <StatusLine thread={thread} running={counts.running} turn={turn} />
-        <StatsStrip prs={prs} agents={counts.agents} live={counts.live} />
-      </div>
-      {shown.offshift && run && (
-        <Section name="Offshift" labelled={shown.labelled}>
+      {loaders}
+      {/* Rows of delegated threads read them through optional leases, as the loaders do. */}
+      <OptionalLeaseScope>
+        <SummaryNow
+          threadId={props.scope}
+          thread={thread}
+          forest={forest}
+          works={works}
+          turn={turn}
+          prs={prs}
+          queued={queued && `${queued.label} · ${queued.when}`}
+        />
+      </OptionalLeaseScope>
+      {run && !run.done && (
+        <Section name="Offshift">
           <OffshiftRun run={run} />
         </Section>
       )}
-      <TreeWorkContext value={facts.work}>
-        {shown.working && (
-          <Section
-            name={counts.running ? "Working" : "Waiting"}
-            labelled={shown.labelled}
-            count={counts.live || undefined}
-          >
-            {layout.working.length > 0 && (
-              <WorkTree threadId={props.scope} nodes={layout.working} facts={rowFacts} />
-            )}
-            {background && (
-              // Background commands are rows of the same kind, listed after the agents.
-              <section aria-label="Background" className="min-w-0">
-                <BackgroundList threadId={props.scope} taskIds={tasks} queued={queued} />
-              </section>
-            )}
-          </Section>
-        )}
-        {shown.prs && (
-          <Section name="Pull requests" labelled={shown.labelled} count={prs.length}>
-            <PullRequests threadId={props.scope} workspaceId={thread.workspaceId} prs={prs} />
-          </Section>
-        )}
-        {shown.done && (
-          <FoldedSection
-            name="Done"
-            count={layout.done.length}
-            fold="done:agents"
-            threadId={props.scope}
-          >
-            <WorkTree
-              threadId={props.scope}
-              nodes={layout.done}
-              label="Done agents"
-              facts={rowFacts}
-            />
-          </FoldedSection>
-        )}
-      </TreeWorkContext>
-      {shown.turn && turn && (
-        <Section name="This turn" labelled={shown.labelled}>
-          <ThisTurn threadId={props.scope} turn={turn} prs={prs} />
+      {catchUp.catchUp && <SinceYouLooked catchUp={catchUp.catchUp} onDismiss={catchUp.dismiss} />}
+      {tree && (
+        <Section name="Agents" count={String(total.working + total.done + total.syncing)}>
+          <OptionalLeaseScope>
+            <SummaryTree threadId={props.scope} roots={forest.roots} works={works} />
+          </OptionalLeaseScope>
         </Section>
       )}
-      {shown.plans && (
-        <Section name="Tasks" labelled={shown.labelled}>
-          <WorkPlans threadId={props.scope} />
-        </Section>
-      )}
-      {shown.changes && (
-        <Section name="Changes by agent" labelled={shown.labelled}>
-          <AgentChanges threadId={props.scope} changes={changes} names={names} />
-        </Section>
-      )}
-      {shown.checks && (
-        <Section name="Checks" labelled={shown.labelled}>
-          <Checks threadId={props.scope} checks={checks} />
-        </Section>
-      )}
-      {shown.catchUp && catchUp.catchUp && (
-        <Section name="Since you last looked" labelled={shown.labelled}>
-          <CatchUp catchUp={catchUp.catchUp} onDismiss={catchUp.dismiss} />
-        </Section>
-      )}
-      <WorkAutomations automations={automations} onClose={() => {}} />
+      <Results
+        threadId={props.scope}
+        workspaceId={thread.workspaceId}
+        prs={prs}
+        turn={turn}
+        changes={changes}
+        names={names}
+        checks={checks}
+      />
+      <SummaryPlan plans={plans} />
+      <WorkAutomationsLine automations={automations} />
     </div>
   );
 }

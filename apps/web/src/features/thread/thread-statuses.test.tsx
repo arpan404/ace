@@ -152,9 +152,9 @@ test("the side panel lists only the background commands still running", async ()
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(
-    await within(panel).findByRole("listitem", { name: "bun run dev:relay: running" }),
+    await within(panel).findByRole("treeitem", { name: "$ bun run dev:relay: running" }),
   ).toBeTruthy();
-  expect(within(panel).queryByRole("listitem", { name: /^bun run build/ })).toBeNull();
+  expect(within(panel).queryByRole("treeitem", { name: /^\$ bun run build/ })).toBeNull();
   // The two commands read as one group; the finished build stays reachable inside it, and its
   // row opens its output.
   const group = within(feed).getByRole("group", { name: "2 background tasks · 1 running" });
@@ -168,7 +168,6 @@ test("with nothing running in the background, the side panel shows no background
   await open(oneTurnWork());
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByRole("region", { name: "This turn" });
-  expect(within(panel).queryByRole("region", { name: "Background" })).toBeNull();
-  expect(within(panel).queryByRole("listitem", { name: /OpenCode background work/ })).toBeNull();
+  await within(panel).findByRole("status", { name: /^Thread status: Done/ });
+  expect(within(panel).queryByRole("treeitem", { name: /^\$ / })).toBeNull();
 });

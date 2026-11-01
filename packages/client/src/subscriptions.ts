@@ -16,6 +16,10 @@ interface Cached {
   resumedAt: number | undefined;
   rejected: boolean;
   refs: number;
+  /** Of `refs`, the optional ones: an entry held only by them gives way to a thread opened. */
+  optionalRefs: number;
+  /** Given up for a foreground thread: its holders' releases no longer count. */
+  preempted: boolean;
   subscriptionId: string | undefined;
   /** Its read snapshot on disk, when the client keeps them. */
   binding: SnapshotBinding | undefined;
@@ -26,8 +30,14 @@ export interface ThreadSubscription {
   store: ThreadStore;
   release(): void;
 }
+/** How a caller holds a thread: `optional` only takes spare room and yields it when needed. */
+export interface AcquireOptions {
+  optional?: boolean | undefined;
+}
 export class Subscriptions {
   #cache = new Map<string, Cached>();
+  #roomListeners = new Set<() => void>();
+  #room: number;
   #inactiveBytes = 0;
   #checkpoints = new Set<Promise<void>>();
   /** Bindings of threads already let go whose last checkpoint may still be waiting, by thread. */
@@ -51,15 +61,32 @@ export class Subscriptions {
     this.#send = send;
     this.#id = id;
     this.#ready = ready;
+    this.#room = this.#freeRoom();
   }
-  acquire(threadId: string): ThreadSubscription {
+  /**
+   * Hold a thread. A foreground hold (default) takes a slot whenever one can be had, giving a
+   * thread held only by optional holders up if it must. An optional hold takes a new slot only
+   * while more than `threadReserve` stay free; refused, its store's error reads `no_room`.
+   */
+  acquire(threadId: string, options: AcquireOptions = {}): ThreadSubscription {
     ThreadId.parse(threadId);
+    const optional = options.optional === true;
     let entry = this.#cache.get(threadId);
+    if (optional && !entry?.refs && this.#room <= 0) {
+      // Refused, the way a store says it: its error reads `no_room` and nothing is held.
+      const refused = new ThreadStore(this.#limits);
+      refused.fail(new ClientError("no_room", "No room for an optional thread subscription"));
+      return { store: refused, release: () => {} };
+    }
     if (!entry) {
       if (this.#cache.size >= this.#limits.threads) {
         const evict = [...this.#cache].find(([, value]) => !value.refs);
-        if (!evict) throw new ClientError("limit");
-        this.#evict(evict[0], evict[1]);
+        const yielding = evict
+          ? undefined
+          : [...this.#cache].find(([, value]) => value.refs === value.optionalRefs);
+        if (evict) this.#evict(evict[0], evict[1]);
+        else if (yielding) this.#preempt(yielding[0], yielding[1]);
+        else throw new ClientError("limit");
       }
       entry = {
         store: new ThreadStore(this.#limits),
@@ -69,6 +96,8 @@ export class Subscriptions {
         resumedAt: undefined,
         rejected: false,
         refs: 0,
+        optionalRefs: 0,
+        preempted: false,
         subscriptionId: undefined,
         binding: undefined,
         inactiveBytes: 0,
@@ -77,19 +106,22 @@ export class Subscriptions {
     }
     this.#cache.delete(threadId);
     this.#cache.set(threadId, entry);
+    if (optional) entry.optionalRefs++;
     if (entry.refs++ === 0) {
       this.#inactiveBytes -= entry.inactiveBytes;
       entry.inactiveBytes = 0;
       entry.rejected = false;
       if (this.#ready()) this.#pump();
+      this.#roomChanged();
     }
     const owned = entry;
     let released = false;
     return {
       store: entry.store,
       release: () => {
-        if (released) return;
+        if (released || owned.preempted) return;
         released = true;
+        if (optional) owned.optionalRefs--;
         if (--owned.refs === 0) {
           if (owned.subscriptionId) {
             this.#send({ type: "unsubscribe", subscriptionId: owned.subscriptionId });
@@ -106,9 +138,47 @@ export class Subscriptions {
           this.#cache.set(threadId, owned);
           this.#retain(owned);
           this.#pump();
+          this.#roomChanged();
         }
       },
     };
+  }
+  /** Slots an optional hold may still take: free ones beyond the reserve. */
+  room(): number {
+    return this.#room;
+  }
+  /** Called whenever `room()` changes, so a refused optional holder knows when to try again. */
+  onRoom(listener: () => void): () => void {
+    this.#roomListeners.add(listener);
+    return () => void this.#roomListeners.delete(listener);
+  }
+  #freeRoom(): number {
+    let held = 0;
+    for (const entry of this.#cache.values()) if (entry.refs) held++;
+    return Math.max(0, this.#limits.threads - this.#limits.threadReserve - held);
+  }
+  #roomChanged(): void {
+    const room = this.#freeRoom();
+    if (room === this.#room) return;
+    this.#room = room;
+    for (const listener of this.#roomListeners) listener();
+  }
+  /**
+   * Give up a thread only optional holders keep, for a thread the person opened: its holders read
+   * `no_room` as the store's error and may hold it again once there is room.
+   */
+  #preempt(threadId: string, entry: Cached): void {
+    entry.preempted = true;
+    if (entry.subscriptionId) {
+      this.#send({ type: "unsubscribe", subscriptionId: entry.subscriptionId });
+      this.#wires.delete(entry.subscriptionId);
+      this.#starting.delete(entry.subscriptionId);
+    }
+    entry.subscriptionId = undefined;
+    this.#cache.delete(threadId);
+    this.#checkpoint(entry);
+    entry.store.setSyncing(false);
+    entry.store.fail(new ClientError("no_room", "Gave its room to a thread you opened"));
   }
   /** The store of a thread some caller holds, without taking a lease. */
   held(threadId: string): ThreadStore | undefined {

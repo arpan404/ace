@@ -27,6 +27,8 @@ export * from "./accounts.ts";
 export * from "./antigravity-sign-in.ts";
 export * from "./account-threads.ts";
 export * from "./agents.ts";
+export * from "./agent-forest.ts";
+export * from "./summary-now.ts";
 export * from "./lost-child.ts";
 export * from "./agent-runs.ts";
 export * from "./agent-prs.ts";

@@ -2,7 +2,7 @@ import { WarningIcon } from "@phosphor-icons/react";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { capsule } from "../agents/task-capsule.tsx";
+import { plainRow } from "@/components/ui/rules.ts";
 
 /**
  * One changed file in the Summary: its path, its `+N −M` and, when another agent changed it in
@@ -29,7 +29,7 @@ export function FileRow(props: {
         }
         className={cn(
           "focus-ring-inset flex h-7 w-full min-w-0 items-center gap-2 pr-2 pl-2 text-left font-mono text-xs",
-          capsule,
+          plainRow,
         )}
       >
         {props.shared && (

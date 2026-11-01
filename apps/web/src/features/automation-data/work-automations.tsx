@@ -1,28 +1,9 @@
-import { useConnectionState } from "@ace/client-react";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  CalendarDotsIcon,
-  PencilSimpleIcon,
-  PlayIcon,
-  SlidersHorizontalIcon,
-} from "@phosphor-icons/react";
-import { useRef, useState } from "react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { plainRow } from "@/components/ui/rules.ts";
-import { cn } from "@/lib/cn.ts";
-import { Switch } from "@/components/ui/switch.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
+import { nextRunText, localTimeZone } from "@ace/ui-core/automations";
+import { pluralCount } from "@ace/ui-core";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useNow } from "@/lib/time.ts";
-import { useLayout } from "@/lib/layout.tsx";
-import type { AutomationEntry } from "./automations-source.ts";
-import { NextRun } from "./automation-next-run.tsx";
-import { describeWhen, localTimeZone } from "@/features/automation-schedule/index.ts";
-import { useAutomationActions, useAutomations } from "./use-automations.ts";
-import { useDaemonConnection } from "@/boot/connection.tsx";
-import { clearRunIntent, ensureRunIntent, normalizeDaemonKey } from "./run-intents.ts";
-import { staleWriteMessage } from "./revision-conflicts.ts";
+import { useAutomations } from "./use-automations.ts";
 
 /**
  * The project's schedules, read with the same query as Automations: `entries` once read,
@@ -39,180 +20,48 @@ export function useProjectAutomations(workspaceId: string, workspacePath: string
 }
 
 /**
- * Project schedules use the same query, writes and next-run wording as Automations. A project
- * with none shows nothing at all; the section's settings icon opens Automations.
+ * The project's schedules in one quiet line at the foot of the Summary ("2 automations in this
+ * project · next tonight 2:00"), opening Automations. A project with none shows nothing.
  */
-export function WorkAutomations(props: {
+export function WorkAutomationsLine(props: {
   automations: ReturnType<typeof useProjectAutomations>;
-  onClose(): void;
 }) {
   const navigate = useNavigate();
-  const { entries, failed, retry } = props.automations;
-  if (!failed && !entries?.length) return null;
-  return (
-    <section aria-label="Automations">
-      <div className="flex h-7 items-center justify-between pr-1 pl-2">
-        <h3 className="text-xs text-muted-foreground">Automations</h3>
-        <IconButton
-          icon={SlidersHorizontalIcon}
-          label="Automation settings"
-          size="sm"
-          onClick={() => {
-            props.onClose();
-            void navigate({ to: "/automations" });
-          }}
-        />
-      </div>
-      {failed ? (
-        <button
-          type="button"
-          className="focus-ring-inset flex h-8 w-full items-center rounded-md px-2 text-left text-ui text-status-failed"
-          onClick={retry}
-        >
-          Couldn't read automations. Try again
-        </button>
-      ) : (
-        entries?.map((entry) => (
-          <AutomationLine key={entry.automation.id} entry={entry} onClose={props.onClose} />
-        ))
-      )}
-    </section>
-  );
-}
-
-function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
-  const { storage } = useLayout();
-  const { automation, nextRunAt, revision } = props.entry;
-  const actions = useAutomationActions();
-  const navigate = useNavigate();
-  const toast = useToast();
   const now = useNow();
   const [running] = useDaemonSetting("automations.enabled");
-  const ready = useConnectionState() === "ready";
-  const { url } = useDaemonConnection();
-  const daemonKey = normalizeDaemonKey(url);
-  const [busy, setBusy] = useState(false);
-  const busyRef = useRef(false);
-  const guard = () => {
-    if (busyRef.current || !ready) return false;
-    busyRef.current = true;
-    setBusy(true);
-    return true;
-  };
-  const release = () => {
-    busyRef.current = false;
-    setBusy(false);
-  };
-  /** The row shows the change; only a failure needs saying. */
-  const perform = async (write: () => Promise<unknown>) => {
-    if (!guard()) return;
-    try {
-      await write();
-    } catch (error) {
-      toast.error({
-        title:
-          error instanceof Error
-            ? staleWriteMessage(error)
-            : "Couldn't update this automation. Try again",
-      });
-    } finally {
-      release();
-    }
-  };
-  const run = async () => {
-    if (!guard()) return;
-    const intent = ensureRunIntent(
-      storage,
-      daemonKey,
-      automation.id,
-      () => Date.now(),
-      () => crypto.randomUUID(),
+  const { entries, failed, retry } = props.automations;
+  if (failed)
+    return (
+      <button
+        type="button"
+        onClick={retry}
+        data-tone="failed"
+        className="focus-ring-inset mx-2 rounded-sm text-left text-xs text-(--tone-text)"
+      >
+        Couldn't read automations. Try again
+      </button>
     );
-    if (!intent) {
-      release();
-      toast.error({ title: "Couldn't save the run request. Try again." });
-      return;
-    }
-    try {
-      await actions.runNow(automation.id, { requestId: intent.requestId });
-      clearRunIntent(storage, daemonKey, automation.id);
-    } catch (error) {
-      toast.error({
-        title: error instanceof Error ? error.message : "Couldn't start the run. Try again.",
-      });
-    } finally {
-      release();
-    }
-  };
-  const runBlocked = !ready
-    ? "Reconnect to run this automation"
-    : !automation.enabled
-      ? "Resume this automation to run it"
-      : running === false
-        ? "Automations are off on this machine"
-        : undefined;
-  const cadence = describeWhen(automation.trigger, localTimeZone());
-  // One plain row like Summary's agents: the title over its schedule and when it next runs, its
-  // toggle, and Edit and Run on hover or focus (always on touch, with no hover).
+  if (!entries?.length) return null;
+  const next = entries
+    .filter((entry) => entry.automation.enabled && entry.nextRunAt !== undefined)
+    .toSorted((left, right) => (left.nextRunAt ?? 0) - (right.nextRunAt ?? 0))[0];
+  const when = next
+    ? nextRunText(next.automation, next.nextRunAt, now, localTimeZone(), running)
+    : undefined;
+  const line = [
+    `${pluralCount(entries.length, "automation")} in this project`,
+    when && `next ${when.charAt(0).toLowerCase()}${when.slice(1)}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <div
-      className={cn(
-        "group/automation flex min-h-11 min-w-0 items-center gap-1 pr-1.5 pl-2",
-        plainRow,
-      )}
+    <button
+      type="button"
+      aria-label={`${line}. Open automations`}
+      onClick={() => void navigate({ to: "/automations" })}
+      className="focus-ring-inset mx-2 truncate rounded-sm text-left text-xs text-subtle-foreground hover:text-foreground"
     >
-      <CalendarDotsIcon aria-hidden size={16} className="shrink-0 text-muted-foreground" />
-      <Tip label={cadence}>
-        <button
-          type="button"
-          className="focus-ring-inset flex min-w-0 flex-1 flex-col items-start rounded-sm px-1.5 py-1 text-left text-ui"
-          aria-label={`Open automation ${automation.title}`}
-          onClick={() => {
-            props.onClose();
-            void navigate({
-              to: "/automations/$automationId",
-              params: { automationId: automation.id },
-            });
-          }}
-        >
-          <span className="max-w-full min-w-0 truncate font-medium">{automation.title}</span>
-          <span className="max-w-full min-w-0 truncate text-xs text-muted-foreground">
-            {cadence} ·{" "}
-            <NextRun automation={automation} nextRunAt={nextRunAt} now={now} running={running} />
-          </span>
-        </button>
-      </Tip>
-      <span className="hidden shrink-0 items-center group-focus-within/automation:flex group-hover/automation:flex pointer-coarse:flex">
-        <IconButton
-          icon={PencilSimpleIcon}
-          label={`Edit ${automation.title}`}
-          size="sm"
-          onClick={() => {
-            props.onClose();
-            // The automation edits in place, on its own page.
-            void navigate({
-              to: "/automations/$automationId",
-              params: { automationId: automation.id },
-            });
-          }}
-        />
-        <IconButton
-          icon={PlayIcon}
-          label={runBlocked ?? `Run ${automation.title} now`}
-          size="sm"
-          disabled={busy || !!runBlocked}
-          onClick={() => void run()}
-        />
-      </span>
-      <Switch
-        aria-label={`Enable ${automation.title}`}
-        checked={automation.enabled}
-        disabled={busy || !ready}
-        className="ml-1"
-        onCheckedChange={(enabled) =>
-          void perform(() => actions.setEnabled(automation.id, enabled, revision))
-        }
-      />
-    </div>
+      {line}
+    </button>
   );
 }

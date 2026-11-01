@@ -2,7 +2,7 @@ import { AgentStatus } from "./agent-status.ts";
 export { AgentActivity, BlockedReason, AgentError, AgentStatus } from "./agent-status.ts";
 import { ThreadLineage } from "./thread-transitions.ts";
 import { z } from "zod";
-import { AgentId, ItemId, ThreadId, Timestamp } from "./ids.ts";
+import { AgentId, HostId, ItemId, ThreadId, Timestamp } from "./ids.ts";
 import { NativeRef } from "./provider.ts";
 
 /**
@@ -24,11 +24,25 @@ export const AgentOrigin = z.enum([
 ]);
 export type AgentOrigin = z.infer<typeof AgentOrigin>;
 
+/** The paired machine a delegated child runs on, when that is not this one (ADR 0078). */
+export const AgentMachine = z.object({
+  machine: z.string().min(1).max(64),
+  name: z.string().min(1).max(256),
+  /** That machine's host id when known, so a window paired with it opens the child there. */
+  hostId: HostId.optional(),
+});
+export type AgentMachine = z.infer<typeof AgentMachine>;
+
 export const Agent = z.object({
   id: AgentId,
   threadId: ThreadId,
   /** Independent ace child thread; this agent is its summary in the parent tree. */
   childThreadId: ThreadId.optional(),
+  /**
+   * Set when that child thread runs on another paired machine: it lives there, so this agent is
+   * all this machine knows of it, with its status as that machine last reported (ADR 0108).
+   */
+  machine: AgentMachine.optional(),
   parentId: AgentId.nullable(),
   origin: AgentOrigin,
   lineage: ThreadLineage.optional(),

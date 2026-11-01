@@ -117,19 +117,15 @@ test("the Summary never lists a failed send as queued or says it sends when the 
   // The thread still waits on the retained message; the failed item alone stands for it.
   await waitFor(() => expect(work.textContent).not.toMatch(/queued message/i));
   expect(work.textContent).not.toMatch(/when the agent is free/);
-  expect(within(work).queryByRole("region", { name: "Background" })).toBeNull();
 });
 
 test("the Summary counts only what waits behind a failed send, waiting for it", async () => {
   await failedStart({ behind: "also check the logs" });
   const work = await openWorkPanel();
-  const background = await within(work).findByRole("region", { name: "Background" });
   expect(
-    within(background).getByRole("listitem", {
-      name: "1 queued message: waits for the message that wasn't sent",
-    }),
+    await within(work).findByText("1 queued message · waits for the message that wasn't sent"),
   ).toBeTruthy();
-  expect(background.textContent).not.toMatch(/when the agent is free/);
+  expect(work.textContent).not.toMatch(/when the agent is free/);
 });
 
 test("Try again sends the kept message: it joins the transcript and the agent starts", async () => {
