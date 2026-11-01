@@ -1,4 +1,5 @@
 import { threadAttention } from "./thread-attention.ts";
+import { snoozeWakeDue, snoozeWakeFor } from "./snooze-wake.ts";
 import {
   type Command,
   type Thread,
@@ -66,7 +67,13 @@ export function organizationDecision(
       if (thread.status.state === "working") return "thread_not_done";
       return {
         type: "thread.client.updated",
-        changes: { settledAt: at, settledReason: "manual", snoozedUntil: null, autoSettleAt: null },
+        changes: {
+          settledAt: at,
+          settledReason: "manual",
+          snoozedUntil: null,
+          snoozeWake: null,
+          autoSettleAt: null,
+        },
       };
     case "thread.unsettle":
       if (p.undo)
@@ -94,9 +101,17 @@ export function organizationDecision(
           ? { autoSettle: null, prSettled: null, prSettledKey: null }
           : { autoSettle: false, autoSettleAt: null, settleWhenDone: null },
       };
-    case "thread.snooze":
-      if (p.until !== null && p.until <= at) return "snooze_in_past";
-      return { type: "thread.client.updated", changes: { snoozedUntil: p.until } };
+    case "thread.snooze": {
+      if (p.until === null)
+        return { type: "thread.client.updated", changes: { snoozedUntil: null, snoozeWake: null } };
+      if (p.until <= at) return "snooze_in_past";
+      const wake = p.wake === undefined ? null : snoozeWakeFor(thread, p.wake);
+      if (typeof wake === "string") return wake;
+      return {
+        type: "thread.client.updated",
+        changes: { snoozedUntil: p.until, snoozeWake: wake },
+      };
+    }
     case "thread.delete":
       if (!["new", "done", "failed"].includes(thread.status.state)) return "thread_busy";
       return { type: "thread.client.updated", changes: { deletedAt: at, autoSettleAt: null } };
@@ -114,8 +129,7 @@ export function settleDecision(
   policy: SettlePolicy,
   at: number,
 ): ThreadClientUpdated["changes"] {
-  const expired =
-    thread.snoozedUntil !== undefined && thread.snoozedUntil <= at ? { snoozedUntil: null } : {};
+  const expired = snoozeEnds(thread, at) ? { snoozedUntil: null, snoozeWake: null } : {};
   const request = settleRequest(thread);
   if (request === "settle")
     return {
@@ -127,6 +141,15 @@ export function settleDecision(
     };
   const changes = automaticSettle(thread, policy, at, expired);
   return request === "drop" ? { ...changes, settleWhenDone: null } : changes;
+}
+
+/**
+ * A snooze ends at its time, or on the event it waits for (`snoozeWakeDue`). A wake left behind
+ * without its snooze goes too.
+ */
+function snoozeEnds(thread: Thread, at: number): boolean {
+  if (thread.snoozedUntil === undefined) return thread.snoozeWake !== undefined;
+  return thread.snoozedUntil <= at || snoozeWakeDue(thread);
 }
 
 /**

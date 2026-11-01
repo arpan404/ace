@@ -200,9 +200,7 @@ test("deleting the open thread from the sidebar opens New thread", async () => {
 });
 
 test("deleting another thread and a refused active delete preserve the open thread", async () => {
-  // The UI's clock just past the daemon's: the workbench's Codex bump settled moments ago, so it
-  // rests dimmed in ace rather than only in History.
-  const app = await openHome({ uiClock: () => 600_000 });
+  const app = await openHome();
   await userEvent.click(
     card(/Invoice PDF/) ??
       (() => {
@@ -210,12 +208,15 @@ test("deleting another thread and a refused active delete preserve the open thre
       })(),
   );
   await screen.findByRole("heading", { level: 1, name: "Invoice PDF locale fallback" });
-  await within(threads()).findByRole("link", { name: /^Bump Codex.*Settled/ });
+  // The workbench's Codex bump rests in Settled: unsettle it back into the Inbox.
+  await userEvent.click(within(threads()).getByRole("tab", { name: /^Settled/ }));
+  await within(threads()).findByRole("link", { name: /^Bump Codex/ });
   await userEvent.click(
     await screen.findByRole("button", { name: "Actions for Bump Codex app-server to 0.48" }),
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Unsettle" }));
-  await waitFor(() => expect(card(/^Bump Codex.*Settled/)).toBeNull());
+  await waitFor(() => expect(card(/^Bump Codex/)).toBeNull());
+  await userEvent.click(within(threads()).getByRole("tab", { name: /^Inbox/ }));
   await waitFor(() => expect(card(/^Bump Codex/)).toBeTruthy());
   await choose(/Bump Codex/, "Delete thread");
   await waitFor(() => expect(listed(app, "thread-bump-codex")).toBeUndefined());

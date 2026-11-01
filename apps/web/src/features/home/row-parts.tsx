@@ -49,7 +49,7 @@ export function threadDetails(card: ThreadCard): string[] {
     `Project ${card.project}`,
     card.flags.pinned && "Pinned",
     card.machine && `Running on ${card.machine}`,
-    card.wake && `Snoozed until ${card.wake}`,
+    card.wake && `Snoozed ${card.wake}`,
   ].filter((part): part is string => typeof part === "string" && part.length > 0);
 }
 
@@ -151,12 +151,15 @@ export function PullRequest(props: { card: ThreadCard }) {
  * - what asks the person to act or look: a glyph and a word in the status colour;
  * - live work, waiting or background, open or not: its glyph (none for waiting), word and
  *   elapsed time, muted unless open;
- * - a failure already seen: a quiet word; a thread at rest: only its age.
+ * - a failure already seen: a quiet word; a thread at rest: only its age;
+ * - a snoozed thread: what it waits for, unless it needs the person.
  */
 export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) {
   const { card } = props;
   const { level, word, tone, muted } = props.attention;
-  if (word === undefined) return card.wake ? <RowWake wake={card.wake} /> : <RowTime card={card} />;
+  // A snoozed row says what it waits for where its status sits, unless it needs the person.
+  if (card.wake && level !== "needs-you" && level !== "failed") return <RowWake wake={card.wake} />;
+  if (word === undefined) return <RowTime card={card} />;
   // An unconfirmed copy says only that it is syncing: no glyph, no colour, no time.
   if (level === "failed-seen" || level === "syncing")
     return <span className="shrink-0 text-meta text-muted-foreground">{word}</span>;
@@ -203,8 +206,7 @@ function ActiveElapsed(props: { card: ThreadCard }) {
   return <span className="tabular-nums">{props.card.age}</span>;
 }
 
-/** Only visible, fresh working rows subscribe to the shared second clock. */
-/** A snoozed row says when it wakes where others say their age. */
+/** A snoozed row says what it waits for ("until it needs you") where others say their status. */
 function RowWake(props: { wake: string }) {
   return (
     <span className="inline-flex shrink-0 items-center gap-1 text-meta whitespace-nowrap text-muted-foreground">

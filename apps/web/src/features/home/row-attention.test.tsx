@@ -161,7 +161,7 @@ test("a working row says Working with its live glyph, open or not", async () => 
   expect(live()).toBeTruthy();
 });
 
-test("a waiting approval reads Approve in the needs-you colour, on its row only, and leads Active", async () => {
+test("a waiting approval reads Approve in the needs-you colour, on its row only, and leads the Inbox", async () => {
   const app = harness();
   for (const [id, title] of [
     ["thread-asks", "Publish the release"],
@@ -171,7 +171,6 @@ test("a waiting approval reads Approve in the needs-you colour, on its row only,
   await app.open("/new");
   const list = within(await screen.findByRole("navigation", { name: "Threads" }));
   await list.findByRole("link", { name: /^Publish the release/ });
-  const project = () => list.getByRole("button", { name: /^ace/ });
   act(() =>
     app.daemon.apply("thread-asks", [
       {
@@ -194,11 +193,11 @@ test("a waiting approval reads Approve in the needs-you colour, on its row only,
         ?.dataset.tone,
     ).toBe("needs-you"),
   );
-  // It leads Active.
+  // It leads the Inbox.
   const top = list.getAllByRole("link").find((link) => link.hasAttribute("data-row-focus"));
   expect(top).toBe(asks());
-  // The project never repeats the dot, and there is no Inbox bell.
-  expect(project().querySelector("[data-tone='needs-you']")).toBeNull();
+  // The tabs never repeat the dot, and there is no notification bell.
+  expect(list.getByRole("tablist").querySelector("[data-tone='needs-you']")).toBeNull();
   expect(screen.queryByRole("button", { name: /^Inbox/ })).toBeNull();
 });
 

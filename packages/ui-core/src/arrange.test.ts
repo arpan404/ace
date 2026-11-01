@@ -9,9 +9,7 @@ const now = 10 * 24 * hour;
 const state = (patch: Partial<OrganizerState> = {}): OrganizerState => ({
   baseline: 0,
   project: null,
-  snoozedOpen: false,
-  collapsed: [],
-  quietOpen: false,
+  tab: "inbox",
   ...patch,
 });
 

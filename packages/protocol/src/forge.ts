@@ -40,6 +40,10 @@ export const LinkedPullRequest = z.object({
   state: z.enum(["open", "draft", "merged", "closed"]),
   title: z.string().max(65_536).optional(),
   updatedAt: z.number().int().nonnegative(),
+  /** The head commit the forge last reported. */
+  head: z.string().max(64).optional(),
+  /** The head commit's checks, rolled up: still running, all passed, or any failed. */
+  checks: z.enum(["pending", "passed", "failed"]).optional(),
   unverified: z.boolean().optional(),
   deleted: z.boolean().optional(),
 });

@@ -1,13 +1,13 @@
 import type { CatalogModel } from "@ace/protocol";
 import type { SidebarReader } from "@ace/client";
-import { isRemoteChild } from "@ace/ui-core";
+import { isRemoteChild, isSnoozedToTime } from "@ace/ui-core";
 import { useSidebar } from "@ace/client-react";
 import { useCallback } from "react";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useNow } from "@/lib/time.ts";
 import { recoveryAttention, useFailedSendThreads } from "./recovery-attention.ts";
 
-/** Waiting on this person (not a paired machine's child) and not snoozed by them. */
+/** Waiting on this person (not a paired machine's child) and not snoozed by them to a time. */
 function waiting(
   reader: SidebarReader,
   id: string,
@@ -22,7 +22,8 @@ function waiting(
     (thread.status.state === "needs_you" || !!recoveryAttention(thread, models, failed)) &&
     thread.archivedAt === undefined &&
     thread.deletedAt === undefined &&
-    !((thread.snoozedUntil ?? 0) > now)
+    // A snooze to a time the person chose keeps it out; one waiting on an event never does.
+    !isSnoozedToTime(thread, now)
   );
 }
 

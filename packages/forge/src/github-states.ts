@@ -10,7 +10,39 @@ const pr = z.object({
   state: z.enum(["OPEN", "MERGED", "CLOSED"]),
   isDraft: z.boolean(),
   updatedAt: z.iso.datetime(),
+  // Read leniently: a missing or unexpected head or rollup never fails the batch.
+  headRefOid: z
+    .string()
+    .regex(/^[a-f0-9]{40,64}$/)
+    .optional()
+    .catch(undefined),
+  commits: z
+    .object({
+      nodes: z.array(
+        z.object({
+          commit: z.object({
+            statusCheckRollup: z.object({ state: z.string() }).nullable().optional(),
+          }),
+        }),
+      ),
+    })
+    .optional()
+    .catch(undefined),
 });
+
+const checksField = (value: z.infer<typeof pr>) => {
+  const checks = checksOf(value);
+  return checks ? { checks } : {};
+};
+
+/** The head commit's checks rolled up: still running, all passed, or any failed. */
+function checksOf(value: z.infer<typeof pr>): LinkedPullRequest["checks"] {
+  const state = value.commits?.nodes[0]?.commit.statusCheckRollup?.state;
+  if (state === "PENDING" || state === "EXPECTED") return "pending";
+  if (state === "SUCCESS") return "passed";
+  if (state === "FAILURE" || state === "ERROR") return "failed";
+  return undefined;
+}
 /** Aliases request only the linked numbers, across open and terminal states. */
 export async function githubStates(
   api: GhApi,
@@ -19,7 +51,7 @@ export async function githubStates(
   signal: AbortSignal,
 ): Promise<Map<number, LinkedPullRequest | null>> {
   z.array(z.number().int().positive()).max(100).parse(numbers);
-  const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${numbers.map((number) => `pr${number}:pullRequest(number:${number}){number title url state isDraft updatedAt}`).join(" ")}}}`;
+  const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${numbers.map((number) => `pr${number}:pullRequest(number:${number}){number title url state isDraft updatedAt headRefOid commits(last:1){nodes{commit{statusCheckRollup{state}}}}}`).join(" ")}}}`;
   const response = await api.request("graphql", signal, {
     query,
     variables: { owner: repo.owner, name: repo.name },
@@ -61,6 +93,8 @@ export async function githubStates(
                   ? "merged"
                   : "closed",
             updatedAt: Date.parse(value.updatedAt),
+            ...(value.headRefOid ? { head: value.headRefOid } : {}),
+            ...checksField(value),
           }
         : null,
     );

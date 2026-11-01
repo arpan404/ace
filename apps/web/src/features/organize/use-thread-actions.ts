@@ -25,12 +25,17 @@ export interface ThreadTarget {
   title: string;
   workspaceId: string;
   snoozedUntil?: number | null | undefined;
+  /** What its current snooze waits for, so Undo puts it back as it was. */
+  snoozeWake?: { on: SnoozeWakeOn } | undefined;
   pinned?: boolean | undefined;
   /** Its place among pinned threads, so Undo puts an unpinned thread back where it was. */
   pinOrder?: number | undefined;
   /** False when the thread never settles by itself. */
   autoSettle?: false | undefined;
 }
+
+/** The event a snooze waits for, besides its time: a request or finish, or a PR change. */
+export type SnoozeWakeOn = "needs_you" | "pr";
 
 /** A pinned thread's new place, from a drag or a keyboard move (`placePinned`). */
 export interface PinPlacement {
@@ -39,12 +44,17 @@ export interface PinPlacement {
 }
 
 export interface ThreadActions {
+  /** Settle, with a toast offering Undo, which takes back only the settle. */
   settle(entry: ThreadTarget): void;
   /** Unsettle, which also keeps it from settling by itself again. */
   unsettle(entry: ThreadTarget): void;
   /** Let the thread settle by itself again, or keep it until settled by hand. */
   setAutoSettle(entry: ThreadTarget, enabled: boolean): void;
-  snooze(entry: ThreadTarget, until: number): void;
+  /**
+   * Snooze until `until`, or sooner on `wake`'s event (then `until` is only a backstop), with a
+   * toast offering Undo. `label` says how ("until it needs you", "until tomorrow 9:00 AM").
+   */
+  snooze(entry: ThreadTarget, until: number, wake?: SnoozeWakeOn, label?: string): void;
   wake(entry: ThreadTarget): void;
   /** Pin (leading the group) or unpin. */
   setPinned(entry: ThreadTarget, pinned: boolean): void;
@@ -182,6 +192,14 @@ const settle = (entry: ThreadTarget): Action => ({
   failed: "settle the thread",
 });
 
+/** Taking a settle back: only the settle goes (`thread.unsettle` with `undo`). */
+const undoSettle = (entry: ThreadTarget): Action => ({
+  patch: { undoSettle: true },
+  payload: { type: "thread.unsettle", threadId: id(entry), undo: true },
+  verb: "Undo settle",
+  failed: "take the settle back",
+});
+
 const unsettle = (entry: ThreadTarget): Action => ({
   patch: { settled: false, autoSettle: false },
   payload: { type: "thread.unsettle", threadId: id(entry) },
@@ -196,9 +214,9 @@ const autoSettle = (entry: ThreadTarget, enabled: boolean): Action => ({
   failed: enabled ? "turn on auto-settle" : "turn off auto-settle",
 });
 
-const snooze = (entry: ThreadTarget, until: number | null): Action => ({
-  patch: { snoozedUntil: until },
-  payload: { type: "thread.snooze", threadId: id(entry), until },
+const snooze = (entry: ThreadTarget, until: number | null, wake?: SnoozeWakeOn): Action => ({
+  patch: { snoozedUntil: until, snoozeWake: wake ?? null },
+  payload: { type: "thread.snooze", threadId: id(entry), until, ...(wake ? { wake } : {}) },
   verb: until === null ? "Wake" : "Snooze",
   failed: until === null ? "wake the thread" : "snooze the thread",
 });
@@ -380,10 +398,24 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
     });
   };
   return {
-    settle: (entry) => void act(entry, settle(entry)),
+    settle: (entry) =>
+      void reversibleAll(
+        [{ entry, action: settle(entry), undo: undoSettle(entry) }],
+        `Settled · ${entry.title}`,
+      ),
     unsettle: (entry) => void act(entry, unsettle(entry)),
     setAutoSettle: (entry, enabled) => void act(entry, autoSettle(entry, enabled)),
-    snooze: (entry, until) => void act(entry, snooze(entry, until)),
+    snooze: (entry, until, wake, label) => {
+      // Undo puts back the snooze it had, if one was still ahead, else wakes it.
+      const before =
+        entry.snoozedUntil != null && entry.snoozedUntil > Date.now()
+          ? snooze(entry, entry.snoozedUntil, entry.snoozeWake?.on)
+          : snooze(entry, null);
+      void reversibleAll(
+        [{ entry, action: snooze(entry, until, wake), undo: before }],
+        `Snoozed${label ? ` ${label}` : ""} · ${entry.title}`,
+      );
+    },
     wake: (entry) => void act(entry, snooze(entry, null)),
     setPinned: (entry, pinned) => void act(entry, pinned ? pin(entry) : unpin(entry)),
     placePinned: (placements) => {

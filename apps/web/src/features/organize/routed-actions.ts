@@ -1,4 +1,9 @@
-import type { PinPlacement, ThreadActions, ThreadTarget } from "./use-thread-actions.ts";
+import type {
+  PinPlacement,
+  SnoozeWakeOn,
+  ThreadActions,
+  ThreadTarget,
+} from "./use-thread-actions.ts";
 
 /** Where one list row's action goes: its machine's actions, and the thread's id there. */
 export interface RowRoute {
@@ -58,7 +63,9 @@ export function routedThreadActions(route: (rowId: string) => RowRoute | undefin
     settle: one((actions, entry) => actions.settle(entry)),
     unsettle: one((actions, entry) => actions.unsettle(entry)),
     setAutoSettle: one((actions, entry, enabled: boolean) => actions.setAutoSettle(entry, enabled)),
-    snooze: one((actions, entry, until: number) => actions.snooze(entry, until)),
+    snooze: one((actions, entry, until: number, wake?: SnoozeWakeOn, label?: string) =>
+      actions.snooze(entry, until, wake, label),
+    ),
     wake: one((actions, entry) => actions.wake(entry)),
     setPinned: one((actions, entry, pinned: boolean) => actions.setPinned(entry, pinned)),
     placePinned: (items) => {

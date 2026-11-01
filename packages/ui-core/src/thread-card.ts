@@ -8,7 +8,7 @@ import type {
 } from "@ace/protocol";
 import { activityOf, isSnoozed, isUnread } from "./thread-state.ts";
 import { providerDisplayName, providerLabel } from "./providers.ts";
-import { describeWake } from "./snooze.ts";
+import { snoozeLabel } from "./snooze.ts";
 import { projectBadge, type ProjectBadge } from "./project-badge.ts";
 import {
   runningSubagents,
@@ -144,7 +144,7 @@ export interface ThreadCard {
   prs: CardDetails["prs"];
   /** Say "unread" to assistive tech; a thread that needs you already says so. */
   announceUnread: boolean;
-  /** "tomorrow 9:00 AM" while snoozed. */
+  /** "until tomorrow 9:00 AM", "until it needs you" while snoozed (`snoozeLabel`). */
   wake: string | undefined;
   machine: string | undefined;
   machineIcon: MachineIcon | undefined;
@@ -398,10 +398,7 @@ function currentCard(input: ThreadCardInput): ThreadCard {
     prState: details?.prState,
     prs: details?.prs,
     announceUnread: unread && !needsYou,
-    wake:
-      snoozed && entry.snoozedUntil !== undefined
-        ? describeWake(entry.snoozedUntil, now, input.locale)
-        : undefined,
+    wake: snoozed ? snoozeLabel(entry, now, input.locale) : undefined,
     machine: details?.machine,
     machineIcon: details?.machineIcon,
     branch: details?.branch

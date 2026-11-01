@@ -48,8 +48,8 @@ export function nextNeedingYou(
 }
 
 /**
- * Moving between threads in the sidebar's order (pinned, then each Active group in turn;
- * snoozed and settled stay folded away): the next, the previous, and the next that needs you.
+ * Moving between threads in the Inbox's order (pinned, then band by band; Snoozed and Settled
+ * are their own tabs): the next, the previous, and the next that needs you.
  * Other machines' threads are in that order as Home lists them, and open on their machine
  * (ADR 0102).
  */
@@ -68,7 +68,7 @@ export function useThreadSteps() {
   });
   const current = threadId && machine ? machineListId(machine, threadId) : threadId;
   const navigate = useNavigate();
-  const order = list.tree.order;
+  const order = list.panel.inbox;
   const needsYou = useMemo(() => new Set(list.needsYou), [list.needsYou]);
   const go = (id: string | undefined) => {
     if (!id) return;

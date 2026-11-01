@@ -45,12 +45,13 @@ test("⌥⌘J moves to the next thread that needs you", async () => {
 test("the thread list is one Tab stop, and ↑ ↓ move between its rows", async () => {
   await openApp();
   const list = screen.getByRole("list", { name: "Threads" });
-  /** Every stop the arrows reach: headings, places and rows. */
+  /** Every stop the arrows reach: Unsent links and rows. */
   const stops = () => [
     ...list.querySelectorAll<HTMLElement>("[data-row-focus], [data-section-toggle]"),
   ];
-  screen.getByRole("link", { name: "New thread" }).focus();
-  // New thread is the last control above the list, so one Tab lands on the list's first stop.
+  // The open tab (Inbox) is the last stop above the list, so one Tab lands on the list's first
+  // stop.
+  screen.getByRole("tab", { selected: true }).focus();
   await userEvent.tab();
   const entered = document.activeElement;
   expect(stops()).toContain(entered);
@@ -59,7 +60,7 @@ test("the thread list is one Tab stop, and ↑ ↓ move between its rows", async
   expect(list.contains(document.activeElement)).toBe(false);
   await userEvent.tab({ shift: true });
   expect(document.activeElement).toBe(entered);
-  // ↓ walks the stops in order: Active's rows come first, so the next stop is its next row.
+  // ↓ walks the stops in order: the next stop is the Inbox's next row.
   await userEvent.keyboard("{ArrowDown}");
   expect(document.activeElement).toBe(stops()[stops().findIndex((stop) => stop === entered) + 1]);
   const moved = document.activeElement;
