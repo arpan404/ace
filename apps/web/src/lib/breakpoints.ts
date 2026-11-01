@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { useMediaQuery } from "./media.ts";
 
 /*
@@ -6,7 +7,10 @@ import { useMediaQuery } from "./media.ts";
  * (container queries or a measured width), never these.
  */
 
-/** Below 640px: sheet panels, one header overflow, history left to the system. */
+/**
+ * Below 640px: the side panel takes the column's place, one header overflow, history left to
+ * the system. Kept in step with `roomLimits.phone` (`shell-room.ts`).
+ */
 export const phoneQuery = "(max-width: 39.99rem)";
 /**
  * Above 896px the sidebar sits beside the content; at and below it (a tablet's 768, say) it is
@@ -15,17 +19,24 @@ export const phoneQuery = "(max-width: 39.99rem)";
  */
 export const sidebarInlineQuery =
   "(min-width: 56.0625rem) and (not ((pointer: coarse) and (max-height: 32rem)))";
-/** At 896px and below the panels float over the content instead of squeezing the column. */
-export const overlayPanelsQuery = "(max-width: 56rem)";
-/**
- * Below 1100px an open right panel steps the sidebar aside until it closes, which is what lets
- * the side panel beside the column there (above `overlayPanelsQuery`).
- */
-export const crowdedQuery = "(max-width: 68.75rem)";
-
 /** A phone-sized window, or any touch-first screen: where the composer may fold into a pill. */
 export const handheldQuery = `${phoneQuery}, (pointer: coarse) and (max-width: 47.99rem)`;
 
 export const usePhone = () => useMediaQuery(phoneQuery, false);
 export const useHandheld = () => useMediaQuery(handheldQuery, false);
 export const useSidebarInline = () => useMediaQuery(sidebarInlineQuery, true);
+
+const wideWindow = 1440;
+const subscribeResize = (changed: () => void) => {
+  globalThis.addEventListener?.("resize", changed);
+  return () => globalThis.removeEventListener?.("resize", changed);
+};
+/**
+ * The window's width, for sharing it between the sidebar, the column and the side panel
+ * (`shell-room.ts`). Where there is no matchMedia (tests that set no window size) it answers as
+ * a wide desktop window, as the media hooks above do.
+ */
+const readWindowWidth = () =>
+  typeof globalThis.matchMedia === "function" ? globalThis.innerWidth : wideWindow;
+export const useWindowWidth = () =>
+  useSyncExternalStore(subscribeResize, readWindowWidth, () => wideWindow);

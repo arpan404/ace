@@ -5,8 +5,8 @@ import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { railWidth, sidebarWidths, useLayout } from "@/lib/layout.tsx";
 import { ResizeHandle, clampSize } from "@/components/ui/resize-handle.tsx";
-import { crowdedQuery, overlayPanelsQuery, useSidebarInline } from "@/lib/breakpoints.ts";
-import { useMediaQuery } from "@/lib/media.ts";
+import { useSidebarInline, useWindowWidth } from "@/lib/breakpoints.ts";
+import { allocateRoom } from "@/lib/shell-room.ts";
 import { Sidebar, SidebarProvider } from "@/components/ui/sidebar.tsx";
 import { RegionKeys } from "./region-keys.tsx";
 
@@ -49,10 +49,11 @@ const SidebarSheet = lazy(() =>
 /**
  * The one sidebar, the rail and its panel (the panel 288px by default, dragged between 220 and 480;
  * double-click its edge resets it), and
- * the selected view beside it. ⌘\ hides and shows the sidebar. At 896px and below it is a sheet opened from the header. Below 1100px it steps aside while
- * the screen's right panel is open, so the panel can dock beside the column, and comes back when
- * it closes; where panels float anyway (896px and below) it stays put. It stays mounted for the
- * app's life; Home and Settings draw their list into its body.
+ * the selected view beside it. ⌘\ hides and shows the sidebar. At 896px and below it is a sheet
+ * opened from the header. While the screen's side panel is open beside the column (or in full
+ * view) it steps aside on a crowded window (`allocateRoom`), so the panel docks beside the
+ * column, and comes back when the panel closes. It stays mounted for the app's life; Home and
+ * Settings draw their list into its body.
  */
 export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode }) {
   const { layout, setSidebarOpen, setSidebarWidth, hideRightPanel, rightPanelShown } = useLayout();
@@ -60,8 +61,7 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
   const [dragWidth, setDragWidth] = useState<number>();
   const width = clampSize(dragWidth ?? layout.sidebarWidth, sidebarWidths.min, sidebarWidths.max);
   const wide = useSidebarInline();
-  const crowded = useMediaQuery(crowdedQuery, false);
-  const overlay = useMediaQuery(overlayPanelsQuery, false);
+  const windowWidth = useWindowWidth();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [body, setBody] = useState<HTMLElement | null>(null);
   const [claims, setClaims] = useState(0);
@@ -78,8 +78,15 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
     setSheetOpen(false);
   }
   // Yielding is not remembered: the person's own choice (sidebarOpen) is what comes back.
-  const yielded = crowded && !overlay && rightPanelShown;
   const setup = pathname === "/setup";
+  // From the settled width, so dragging the sidebar's edge never flips it aside mid-drag.
+  const settled = clampSize(layout.sidebarWidth, sidebarWidths.min, sidebarWidths.max);
+  const yielded =
+    allocateRoom({
+      window: windowWidth,
+      sidebar: { open: layout.sidebarOpen, inline: wide && !setup, width: settled + railWidth },
+      panel: { open: rightPanelShown, dock: "side", expanded: false, size: 0 },
+    }).sidebar === "yielded";
   const inline = !setup && layout.sidebarOpen && !yielded;
   const shown = wide ? inline : sheetOpen;
   const value = useMemo<FrameValue>(

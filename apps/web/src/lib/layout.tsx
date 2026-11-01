@@ -91,8 +91,9 @@ interface LayoutValue {
   /** Open the search dialog over the current screen, optionally with words already in it. */
   openSearch(query?: string): void;
   closeSearch(): void;
-  /** A screen is showing its side panel now (not just remembered open), so a crowded window
-   * can give it the sidebar's room. Set by the panel itself. */
+  /** A screen is showing its side panel beside the column or in full view now (not just
+   * remembered open), so a crowded window can give it the sidebar's room. Set by the panel
+   * itself; docked under the column it needs no such room. */
   rightPanelShown: boolean;
   /** Put the showing side panel away (asking for the sidebar back on a crowded window). */
   hideRightPanel(): void;

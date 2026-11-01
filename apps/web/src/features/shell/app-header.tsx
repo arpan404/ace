@@ -6,6 +6,7 @@ import {
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
+import { boundaryMarker } from "@/components/ui/rules.ts";
 import { Suspense, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { SidebarTrigger } from "@/components/ui/sidebar.tsx";
@@ -149,6 +150,7 @@ export function AppHeader(
   },
 ) {
   const phone = usePhone();
+  const frame = useViewFrame();
   // The title comes first. Beside an open side panel the header is a container: below 720px
   // the actions drop their labels (they keep their accessible names and shortcut tooltips);
   // only below 420px, or on a phone, do they fold, together with the title menu, into one ⋯.
@@ -166,6 +168,10 @@ export function AppHeader(
       data-slot="app-header"
       className="@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]"
     >
+      {/* Where the sidebar meets the column, while both are on screen. */}
+      {frame.sidebarShown && !frame.sheet && (
+        <span aria-hidden data-boundary="sidebar" className={boundaryMarker} />
+      )}
       <HeaderNav />
       <div className="ml-1 flex min-w-0 flex-1 items-center gap-2">
         {props.mark && !phone && (

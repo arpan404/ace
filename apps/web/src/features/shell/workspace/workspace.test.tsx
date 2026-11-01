@@ -247,6 +247,29 @@ test("resizing the docked panel moves the top bar's split with its edge", async 
   expect(within(panel).getByRole("button", { name: "Right panel" })).toBeTruthy();
 });
 
+/** The top bar's short rules where two of the app's parts meet. */
+const boundaries = () =>
+  [...document.querySelectorAll<HTMLElement>("[data-boundary]")].map(
+    (marker) => marker.dataset.boundary,
+  );
+
+test("the top bar marks where the sidebar, the column and a docked panel meet, and only while both sides are there", async () => {
+  await openColdStart();
+  expect(boundaries()).toEqual(["sidebar"]);
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await sidePanel();
+  expect(boundaries()).toEqual(["sidebar", "panel"]);
+  // The panel's marker heads its strip, at the panel's edge.
+  expect(panel.querySelector("[data-boundary]")?.getAttribute("data-boundary")).toBe("panel");
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  expect(boundaries()).toEqual(["sidebar"]);
+
+  await userEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  await waitFor(() => expect(boundaries()).toEqual([]));
+});
+
 test("closing the docked panel from its strip takes the strip away and leaves focus on the header's toggle", async () => {
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));

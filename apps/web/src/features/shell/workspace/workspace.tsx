@@ -1,12 +1,18 @@
-import { ChatCircleTextIcon, SquareSplitHorizontalIcon } from "@phosphor-icons/react";
+import {
+  CaretLeftIcon,
+  ChatCircleTextIcon,
+  SquareSplitHorizontalIcon,
+} from "@phosphor-icons/react";
 import { Activity, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { crowdedQuery, handheldQuery, overlayPanelsQuery, usePhone } from "@/lib/breakpoints.ts";
-import { useMediaQuery } from "@/lib/media.ts";
+import { useHandheld, useWindowWidth } from "@/lib/breakpoints.ts";
+import { clampSize } from "@/components/ui/resize-handle.tsx";
+import { railWidth, sidebarWidths, useLayout } from "@/lib/layout.tsx";
+import { allocateRoom } from "@/lib/shell-room.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { withViewTransition } from "@/lib/motion.ts";
 import {
@@ -18,11 +24,13 @@ import {
 } from "@/lib/workspace/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { HeaderNav } from "../app-header.tsx";
+import { useViewFrame } from "../sidebar-frame.tsx";
 import { canvasClass } from "../canvas.ts";
-import { bottomBounds, panelFloats, panelBounds } from "./bounds.ts";
+import { bottomBounds } from "./bounds.ts";
 import { PanelControls } from "./panel-controls.tsx";
 import { useElementSize } from "@/lib/element-size.ts";
 import { WorkspaceHotkeys } from "./workspace-hotkeys.tsx";
+import { focusPanelSoon } from "./panel-focus.ts";
 import { WorkspaceWebLinks } from "./web-link-opener.tsx";
 
 // The panel (strip, tabs, menus, views) loads the first time it shows, warmed while idle after
@@ -127,13 +135,18 @@ function Overlays(props: { scope: string; definition: WorkspaceDefinition }) {
  *   ├ bottom panel ─────────────────────────────┤                  │
  *   └───────────────────────────────────────────┴──────────────────┘
  *
+ * The panel always docks; nothing floats over the chat. How the width is shared is
+ * `allocateRoom`'s: beside the column at every desktop width (the sidebar steps aside first,
+ * then the panel narrows, the column keeping its minimum), under it when docked at the bottom,
+ * and in the column's place on a phone-sized window.
+ *
  * While the side panel is docked open beside the column it runs the window's full height, and
  * its strip is the top bar's part above it, ending with the panel's toggle: the bar splits at
- * the panel's edge and follows it as the panel is resized. Closed, floating, docked at the
- * bottom or on a phone, the column's header spans the width with the toggle at its right. In
- * full view the panel takes the window and its strip the whole bar, while the main column steps
- * aside (still mounted, so the transcript keeps its place); the strip then carries a way back
- * to the conversation.
+ * the panel's edge and follows it as the panel is resized. Closed or docked at the bottom, the
+ * column's header spans the width with the toggle at its right. In full view, and on a phone,
+ * the panel takes the canvas and its strip the whole bar, while the main column steps aside
+ * (still mounted, so the transcript keeps its place); the strip then leads with a way back to
+ * the conversation.
  */
 export function Workspace(props: {
   scope: string;
@@ -151,19 +164,34 @@ export function Workspace(props: {
   const workspace = useScopeWorkspace(scope);
   const actions = useWorkspaceActions(scope);
   const preferred = usePreferredSize();
-  const viewportOverlay = useMediaQuery(overlayPanelsQuery, false);
-  const crowded = useMediaQuery(crowdedQuery, false);
-  const sheet = usePhone();
-  // The bottom panel needs the room the side panel needs beside the column, and a fine pointer:
-  // where the side panel floats, or on a touch screen, terminals open in the side panel.
-  const handheld = useMediaQuery(handheldQuery, false);
-  const bottomFits = !!definition.bottom && !viewportOverlay && !handheld;
+  const { layout } = useLayout();
+  const frame = useViewFrame();
+  // The bottom panel wants a fine pointer and a column with room under it: on a phone or a touch
+  // screen, terminals open in the side panel.
+  const handheld = useHandheld();
+  const bottomFits = !!definition.bottom && !handheld;
   const outer = useRef<HTMLDivElement>(null);
   const size = useElementSize(outer);
-  // At crowded desktop widths the sidebar yields to tools. Account for that before its
-  // measurement changes so opening/closing never reparents tab views into a modal portal.
-  const bottom = workspace.dock === "bottom" && !sheet;
-  const overlay = !bottom && panelFloats(size.width, viewportOverlay, crowded);
+  // Where the panel goes and how wide it is, as if open: shown or hidden, it keeps its place.
+  // The sidebar frame steps the sidebar aside by the same rule, so the two agree.
+  const room = allocateRoom({
+    window: useWindowWidth(),
+    sidebar: {
+      open: layout.sidebarOpen,
+      inline: frame.hasSidebar && !frame.sheet,
+      width: clampSize(layout.sidebarWidth, sidebarWidths.min, sidebarWidths.max) + railWidth,
+    },
+    panel: {
+      open: true,
+      dock: workspace.dock === "bottom" ? "bottom" : "side",
+      expanded: workspace.expanded,
+      size: workspace.size ?? preferred,
+    },
+  });
+  // Asked as if open, so never "closed".
+  const place = room.mode === "closed" ? "beside" : room.mode;
+  const bottom = place === "bottom";
+  const phone = place === "replace";
   // Warm the kinds and the panel's code once the screen has painted.
   useEffect(
     () => whenIdle(() => void Promise.all([definition.load(), loadPanel()]).catch(() => {})),
@@ -185,10 +213,19 @@ export function Workspace(props: {
   if (workspace.open && !shown) setShown(true);
   const [bottomShown, setBottomShown] = useState(false);
   if (workspace.bottom?.open && !bottomShown) setBottomShown(true);
-  const expanded = workspace.expanded && workspace.open;
-  // The panel's strip is the top bar's part above it: docked open beside the column, or in
-  // full view. Floating, docked at the bottom or as a phone's sheet, it heads the panel.
-  const topBar = workspace.open && !sheet && (expanded || (!bottom && !overlay));
+  // In full view or on a phone the panel takes the canvas, the column stepping aside.
+  const expanded = workspace.open && (place === "full" || phone);
+  // The panel's strip is the top bar's part above it: beside the column or in the canvas. Docked
+  // at the bottom it heads the panel.
+  const topBar = workspace.open && !bottom;
+  // On a phone the column's header (and its toggle) steps aside: focus follows into the panel.
+  const replacing = workspace.open && phone;
+  const wasReplacing = useRef(replacing);
+  useEffect(() => {
+    const was = wasReplacing.current;
+    wasReplacing.current = replacing;
+    if (replacing && !was) return focusPanelSoon(outer.current);
+  }, [replacing]);
   const controls = (placement: "header" | "panel" | "top bar") => (
     <PanelControls
       workspace={workspace}
@@ -203,21 +240,34 @@ export function Workspace(props: {
       }))}
     />
   );
-  const leading = expanded && (
-    <>
-      {/* The column's header has stepped aside: its way back and forward comes along. */}
-      <HeaderNav />
-      <Tip label="Back to the conversation" shortcut="fullView">
-        <button
-          type="button"
-          onClick={() => withViewTransition(() => actions.setExpanded(false))}
-          className="focus-ring ml-1 flex h-7 max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground [-webkit-app-region:no-drag]"
-        >
-          <ChatCircleTextIcon aria-hidden size={14} className="shrink-0" />
-          <span className="min-w-0 truncate">{props.title}</span>
-        </button>
-      </Tip>
-    </>
+  const leading = phone ? (
+    // A phone's way back to the chat leads the strip, in reach of a thumb.
+    <button
+      type="button"
+      aria-label="Back to chat"
+      onClick={() => actions.setOpen(false)}
+      className="focus-ring flex h-9 shrink-0 items-center gap-0.5 rounded-sm pr-2 pl-1 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+    >
+      <CaretLeftIcon aria-hidden size={16} className="shrink-0" />
+      Chat
+    </button>
+  ) : (
+    expanded && (
+      <>
+        {/* The column's header has stepped aside: its way back and forward comes along. */}
+        <HeaderNav />
+        <Tip label="Back to the conversation" shortcut="fullView">
+          <button
+            type="button"
+            onClick={() => withViewTransition(() => actions.setExpanded(false))}
+            className="focus-ring ml-1 flex h-7 max-w-[220px] min-w-0 shrink-0 items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground [-webkit-app-region:no-drag]"
+          >
+            <ChatCircleTextIcon aria-hidden size={14} className="shrink-0" />
+            <span className="min-w-0 truncate">{props.title}</span>
+          </button>
+        </Tip>
+      </>
+    )
   );
   return (
     <WorkspaceWebLinks scope={scope} definition={definition}>
@@ -284,19 +334,18 @@ export function Workspace(props: {
                   workspace={workspace}
                   actions={actions}
                   layout={{
-                    overlay: overlay && !expanded,
-                    sheet,
+                    mode: place,
                     topBar,
-                    dock: bottom ? "bottom" : "side",
                     bounds: bottom
                       ? { min: 180, max: Math.max(180, size.height * 0.75) }
-                      : panelBounds(size.width, overlay),
-                    size: bottom ? (workspace.bottomSize ?? 360) : (workspace.size ?? preferred),
+                      : room.bounds,
+                    size: bottom ? (workspace.bottomSize ?? 360) : room.panel,
                   }}
                   leading={leading}
-                  controls={controls(topBar ? "top bar" : "panel")}
+                  // On a phone Back to chat is the way out; full view and the toggle mean nothing
+                  // when the panel already has the whole canvas.
+                  controls={phone ? undefined : controls(topBar ? "top bar" : "panel")}
                   notice={expanded ? props.notice : undefined}
-                  context={props.title}
                   restoreFocus={() =>
                     outer.current?.querySelector<HTMLElement>(
                       'header button[aria-label="More actions"]',
