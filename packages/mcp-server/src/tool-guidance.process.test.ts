@@ -121,7 +121,6 @@ test.each([
       { versionNegotiation: { mode: mode === "legacy" ? "legacy" : { pin: "2026-07-28" } } },
     );
     onTestFinished(() => client.close());
-    const stream = Promise.withResolvers<void>();
     await client.connect(
       new StreamableHTTPClientTransport(new URL(server.url), {
         requestInit: {
@@ -131,12 +130,6 @@ test.each([
             ...(nativeInstructions ? { "X-Ace-Instructions": "native" } : {}),
           },
         },
-        fetch: async (input, init) => {
-          const response = await fetch(input, init);
-          if ((init?.method ?? (input instanceof Request ? input.method : "GET")) === "GET")
-            stream.resolve();
-          return response;
-        },
       }),
     );
     const notifications: (() => void)[] = [];
@@ -144,7 +137,6 @@ test.each([
       notifications.shift()?.();
     });
     if (mode === "modern") await client.listen({ toolsListChanged: true });
-    else await stream.promise;
     if (nativeInstructions) expect(client.getInstructions()).toBeUndefined();
     else expect(client.getInstructions()).toContain("browser_open");
     const listed = async () => (await client.listTools()).tools;
@@ -153,8 +145,11 @@ test.each([
       const changed = Promise.withResolvers<void>();
       notifications.push(changed.resolve);
       mutate();
+      // A legacy GET stream's headers only arrive with its first event, so the client can't
+      // tell when the stream is attached; announce until the change reaches the client.
       server.toolsChanged();
-      await changed.promise;
+      const again = setInterval(() => server.toolsChanged(), 50);
+      await changed.promise.finally(() => clearInterval(again));
       return (await listed()).map((tool) => tool.name);
     };
     expect(
