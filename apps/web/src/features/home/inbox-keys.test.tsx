@@ -1,4 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
+import { ThreadId } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -106,4 +107,20 @@ test("1, 2 and 3 switch between Inbox, Snoozed and Settled", async () => {
   await userEvent.keyboard("1");
   await waitFor(() => expect(opened()).toBe(true));
   expect(await within(threads()).findByRole("link", { name: /^Tidy the README/ })).toBeTruthy();
+});
+
+test("clicking the Snoozed icon tab shows the snoozed list", async () => {
+  const app = await openHome();
+  const title = "Tidy the README";
+  await app.client.command({
+    type: "thread.snooze",
+    threadId: ThreadId.parse("thread-readme"),
+    until: Date.now() + 3_600_000,
+  });
+  const snoozed = within(threads()).getByRole("tab", { name: /^Snoozed/ });
+  await userEvent.click(snoozed);
+  await waitFor(() => expect(snoozed.getAttribute("aria-selected")).toBe("true"));
+  expect(
+    await within(threads()).findByRole("link", { name: new RegExp(`^${title}`) }),
+  ).toBeTruthy();
 });
