@@ -549,10 +549,22 @@ export class EngineRepository {
   engineQueueFact(id: ThreadId): Extract<Fact, { type: "queue.changed" }> | undefined {
     const count = this.queuedCount(id);
     const held = count > 0 && this.queue.heldOnFailedSend(id);
+    const stopped = count > 0 && !held && this.queue.stoppedByPerson(id);
     const state = this.state(id);
-    if (state && state.queueSources.engine === count && (state.queueHeld ?? false) === held)
+    if (
+      state &&
+      state.queueSources.engine === count &&
+      (state.queueHeld ?? false) === held &&
+      (state.queueStopped ?? false) === stopped
+    )
       return undefined;
-    return { type: "queue.changed", source: "engine", count, ...(held ? { held } : {}) };
+    return {
+      type: "queue.changed",
+      source: "engine",
+      count,
+      ...(held ? { held } : {}),
+      ...(stopped ? { stopped } : {}),
+    };
   }
   queuedCount(id: ThreadId): number {
     // Recovery prompts live in Thread.queue; only retained work blocks execution completion.

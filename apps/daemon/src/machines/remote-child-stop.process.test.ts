@@ -39,7 +39,7 @@ function children(f: Awaited<ReturnType<typeof setup>>, rijan: Rijan) {
     schedule: (ms, run) => f.clock.setTimer(run, ms),
     pollMs: 1_000,
     status: async (_machine, _parent, wanted) => {
-      if (rijan.silent) throw new MachineFailure("offline", "not reachable");
+      if (rijan.silent) throw new MachineFailure("offline");
       return wanted.flatMap((id) => {
         const view = rijan.views.get(id);
         return view ? [view] : [];

@@ -339,9 +339,14 @@ export class TargetThreads {
       deviceId: device.id,
       payload: { type: "thread.interrupt", threadId, cascade: true },
     });
-    const result = this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      engine.internalHandler.handle(command, commandContext(this.deps.store)),
-    );
+    // The parent's cancel is final, as for a child delegated here locally (ADR 0052): what it
+    // queued (a first message that was never sent, say) is retired, not held for a person here
+    // to resume, so the child settles and its parent stops waiting on it.
+    const result = this.deps.store.recordCommand(command.id, command.deviceId, () => {
+      engine.discardRecovery(threadId);
+      engine.cancelDelegatedInputs(threadId);
+      return engine.internalHandler.handle(command, commandContext(this.deps.store));
+    });
     return { ok: result.ok };
   }
   /**
