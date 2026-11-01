@@ -133,7 +133,8 @@ test("a thread that needs you keeps saying so in the needs-you colour after it i
   await visit("/new");
   await waitFor(() => expect(link(title).getAttribute("aria-label")).not.toContain(", unread"));
   expect(row(title)).toEqual({ level: "needs-you", muted: false });
-  expect(tone(title, "Answer")).toBe("needs-you");
+  expect(tone(title, "Question")).toBe("needs-you");
+  expect(link(title).getAttribute("aria-label")).toContain("Waiting for your answer");
 });
 
 test("a failure says Failed in the failure colour until seen, then a quiet Failed", async () => {
@@ -149,19 +150,22 @@ test("a failure says Failed in the failure colour until seen, then a quiet Faile
   expect(link(title).getAttribute("aria-label")).toContain("Failed");
 });
 
-test("a working row says Working with its live glyph, open or not", async () => {
-  const { row, word, open } = await setup();
+test("a working row shows its time with the working icon and no animated element, open or not", async () => {
+  const { row, link, open } = await setup();
   const title = "Rewrite the install page for the daemon";
-  const live = () =>
-    word(title, "Working")?.parentElement?.querySelector('[data-state="working"][data-live]');
+  const icon = () => link(title).querySelector('[data-icon="working"]');
+  const animated = () => link(title).querySelector("[data-live], .fx-live-dot, [data-state]");
   expect(row(title)).toEqual({ level: "active", muted: true });
-  expect(live()).toBeTruthy();
+  expect(icon()).toBeTruthy();
+  expect(animated()).toBeNull();
+  expect(link(title).getAttribute("aria-label")).toContain("Working");
   await open(title);
   await waitFor(() => expect(row(title)).toEqual({ level: "active", muted: false }));
-  expect(live()).toBeTruthy();
+  expect(icon()).toBeTruthy();
+  expect(animated()).toBeNull();
 });
 
-test("a waiting approval reads Approve in the needs-you colour, on its row only, and leads the Inbox", async () => {
+test("a waiting approval reads Approval in the needs-you colour, on its row only, and leads the Inbox", async () => {
   const app = harness();
   for (const [id, title] of [
     ["thread-asks", "Publish the release"],
@@ -189,10 +193,12 @@ test("a waiting approval reads Approve in the needs-you colour, on its row only,
   const asks = () => list.getByRole("link", { name: /^Publish the release/ });
   await waitFor(() =>
     expect(
-      within(asks()).getByText("Approve", { exact: true }).closest<HTMLElement>("[data-tone]")
+      within(asks()).getByText("Approval", { exact: true }).closest<HTMLElement>("[data-tone]")
         ?.dataset.tone,
     ).toBe("needs-you"),
   );
+  expect(asks().querySelector('[data-icon="approve"]')).toBeTruthy();
+  expect(asks().getAttribute("aria-label")).toContain("Waiting for your approval");
   // It leads the Inbox.
   const top = list.getAllByRole("link").find((link) => link.hasAttribute("data-row-focus"));
   expect(top).toBe(asks());
@@ -232,7 +238,7 @@ test("an unsent thread says Not sent in the needs-you colour and a stopped one r
       ?.dataset.tone,
   ).toBe("needs-you");
   expect(within(stopped).queryByText(/Stopped|Agent stopped/)).toBeNull();
-  expect(
-    stopped.querySelector("[data-tone='waiting'] svg, [data-tone='waiting'] [data-state]"),
-  ).toBeNull();
+  // Queue paused is waiting, muted and still: its hourglass, no animation.
+  expect(stopped.querySelector('[data-icon="waiting"]')).toBeTruthy();
+  expect(stopped.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
 });

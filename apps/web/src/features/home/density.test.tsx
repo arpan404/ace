@@ -41,7 +41,9 @@ test("the Inbox spans projects, and the arrows walk its rows both ways", async (
   const [first, second, third] = links;
   if (!first || !second || !third) throw new Error("Missing rows");
   // A row leads with its project's mark and name and its status, then its title.
-  expect(rowText(first)).toMatch(/^ace.*Working.*Last task/);
+  expect(rowText(first)).toMatch(/^ace.*Last task/);
+  expect(first.querySelector('[data-icon="working"]')).toBeTruthy();
+  expect(first.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
   expect(first.querySelector("[data-project-mark]")).not.toBeNull();
   first.focus();
   await userEvent.keyboard("{ArrowDown}");
@@ -54,7 +56,7 @@ test("the Inbox spans projects, and the arrows walk its rows both ways", async (
   await userEvent.keyboard("k{ArrowUp}");
   expect(document.activeElement).toBe(first);
   // Keyboard focus brings up the row's actions beside its status, which stays.
-  expect(within(first).getByText("Working", { exact: true })).toBeTruthy();
+  expect(first.querySelector('[data-icon="working"]')).toBeTruthy();
   expect(screen.getByRole("button", { name: "Snooze Last task" })).toBeTruthy();
 });
 
@@ -66,7 +68,7 @@ test("the project filter narrows the Inbox to one project", async () => {
   await app.open("/new?project=ace");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
   const task = await nav.findByRole("link", { name: /^Last task/ });
-  expect(within(task).getByText("Working", { exact: true })).toBeTruthy();
+  expect(task.querySelector('[data-icon="working"]')).toBeTruthy();
   expect(screen.getByRole("button", { name: "Project filter: ace" })).toBeTruthy();
   expect(nav.queryByRole("link", { name: /^Other project/ })).toBeNull();
   expect(await tab(nav, "Inbox, 2")).toBeTruthy();
@@ -81,8 +83,9 @@ test("failed and working tasks say so on their rows, a failure in the failure co
   const failed = await nav.findByRole("link", { name: /^First task/ });
   expect(failed.getAttribute("aria-label")).toContain("Failed");
   expect(within(failed).getByText("Failed", { exact: true })).toBeTruthy();
+  expect(failed.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
   const working = nav.getByRole("link", { name: /^Last task/ });
-  expect(within(working).getByText("Working", { exact: true })).toBeTruthy();
+  expect(working.querySelector('[data-icon="working"]')).toBeTruthy();
   expect(working.getAttribute("aria-label")).toContain("Working");
 });
 
@@ -122,7 +125,7 @@ test("a pinned thread leads the Inbox as a full task row, and arrows move on fro
   );
   // No heading over the pins: the Inbox is one list, and a pinned row is a task row like any.
   expect(nav.queryByRole("heading", { name: "Active" })).toBeNull();
-  expect(rowText(pinned)).toMatch(/^ace.*Working.*First task/);
+  expect(rowText(pinned)).toMatch(/^ace.*First task/);
   // The next stop down: the Inbox's next row.
   const navigation = screen.getByRole("navigation", { name: "Threads" });
   const stops = [
@@ -205,9 +208,9 @@ test("snoozed tasks leave the Inbox for Snoozed, and a snoozed task that asks fo
   ]);
   const snoozed = await tab(nav, "Snoozed, 1");
   expect(nav.queryByRole("link", { name: /^First task/ })).toBeNull();
-  // The request leaves Snoozed for the Inbox, saying Approve in the needs-you colour.
+  // The request leaves Snoozed for the Inbox, saying Approval in the needs-you colour.
   const last = await nav.findByRole("link", { name: /^Last task/ });
-  expect(toneOf(last, "Approve")).toBe("needs-you");
+  expect(toneOf(last, "Approval")).toBe("needs-you");
   await userEvent.click(snoozed);
   expect(await nav.findByRole("link", { name: /^First task/ })).toBeTruthy();
   expect(nav.queryByRole("link", { name: /^Last task/ })).toBeNull();

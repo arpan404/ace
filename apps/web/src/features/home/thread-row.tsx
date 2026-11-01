@@ -161,7 +161,7 @@ export function ThreadRow(props: {
       </span>
       {!actions && !renaming && (
         <span className="flex shrink-0 items-center group-has-[[data-popup-open]]/row:hidden">
-          <RowIndicator attention={attention} />
+          <RowIndicator attention={attention} card={card} />
         </span>
       )}
     </>

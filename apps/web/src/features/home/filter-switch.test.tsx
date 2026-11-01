@@ -74,7 +74,7 @@ test("switching the project filter paints that project's rows at once, syncing u
   for (const title of relay) {
     const row = await waitFor(() => rowFor(title));
     expect(row.getAttribute("aria-label")).toContain("Syncing");
-    expect(row.querySelector("[data-indicator]")).toBeNull();
+    expect(row.querySelector("[data-icon]")).toBeNull();
   }
   // Only relay's rows paint, though the daemon hasn't answered yet.
   for (const link of within(threads()).getAllByRole("link"))
