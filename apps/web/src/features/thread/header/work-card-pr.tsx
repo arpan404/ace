@@ -71,8 +71,9 @@ export function PrLine(props: {
         >
           #{pr.number}
         </button>
-        <RowSub aria-hidden className="flex-1 text-subtle-foreground">
-          · {checking ? "checking…" : summary}
+        {/* The state alone ("· open"); checks speak through the reason under the row. */}
+        <RowSub aria-hidden title={summary} className="-ml-1 flex-1 text-subtle-foreground">
+          · {checking ? "checking…" : git.prProblem ? summary : pr.state}
         </RowSub>
         {live && conflicts && (
           <RowAction
