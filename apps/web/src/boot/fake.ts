@@ -20,6 +20,8 @@ import {
   turnStatuses,
   workbenchServices,
   seedForgeBrowse,
+  seedLongLists,
+  withLongAutomations,
 } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
@@ -105,14 +107,20 @@ export function bootFake(): {
   // The panels' terminals, browser and dev server, in the daemon's own services.
   if (!empty) seedPanels(daemon);
   // Automations, plugins and linked pull requests, served over the wire like a daemon's.
+  // `?fakeLists=2000`: that many pull requests, issues, notifications, automations, skills and
+  // settled threads (as many as the wire carries), for measuring the long lists.
+  const longLists = Number(new URLSearchParams(globalThis.location?.search ?? "").get("fakeLists"));
   if (!empty) {
-    daemon.seedServices(
-      workbenchServices(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
+    const services = workbenchServices(
+      Date.now(),
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
     );
+    daemon.seedServices(longLists > 0 ? withLongAutomations(services, longLists) : services);
     // The PR panel's three looks (ready, failing with changes requested, merged) and the
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());
     seedFakeSkills(daemon, Date.now());
+    if (longLists > 0) seedLongLists(daemon, Date.now(), longLists);
     // From the console, `acePushPullRequest(31)` pushes to a sample PR's branch: a new head
     // with its lines moved, for trying what survives a push.
     (globalThis as { acePushPullRequest?: (number: number) => boolean }).acePushPullRequest = (
