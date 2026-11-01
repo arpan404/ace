@@ -123,6 +123,8 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       tools,
       providers: providers.slice(0, 16),
       transfers: allows(device, "operate") && allows(device, "projects"),
+      delegateAccounts: true,
+      ...(grants.agents !== "off" ? { accounts: deps.threads.accounts() } : {}),
     };
     return description;
   }
