@@ -199,7 +199,7 @@ test("the details card carries checkout details and refreshes them after a commi
   expect(
     await within(card).findByRole("button", { name: "Branch fix/replay-cursor, switch branch" }),
   ).toBeTruthy();
-  expect(within(card).queryByText(/not pushed/)).toBeNull();
+  expect(within(card).queryByText(/to push/)).toBeNull();
 
   // The commit form leaves pushing optional.
   await gitAction("Commit & push…");
@@ -207,7 +207,7 @@ test("the details card carries checkout details and refreshes them after a commi
   await userEvent.click(within(dialog).getByRole("checkbox", { name: "Push after committing" }));
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit/ }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Commit to / })).toBeNull());
-  expect(await within(await openWorkCard()).findByText("1 commit not pushed")).toBeTruthy();
+  expect(await within(await openWorkCard()).findByText("1 to push")).toBeTruthy();
 
   // The card leaves the draft usable while it stays open.
   const input = screen.getByRole("combobox", { name: "Message" });

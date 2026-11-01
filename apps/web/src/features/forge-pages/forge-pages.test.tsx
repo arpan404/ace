@@ -240,7 +240,7 @@ test("a draft survives leaving the New issue page and coming back, and is gone o
 
 /** GitHub's panel and the link it marks as the current page. */
 const panelCurrent = () =>
-  within(screen.getByRole("complementary", { name: "GitHub" }))
+  within(screen.getByRole("complementary", { name: "Code review" }))
     .getAllByRole("link")
     .filter((link) => link.getAttribute("aria-current") === "page")
     .map((link) => link.textContent);
@@ -254,7 +254,7 @@ test("list pages carry no Inbox / Pull requests / Issues switch; GitHub's panel 
   // The page keeps its own filters.
   expect(screen.getByRole("toolbar", { name: "Pull request filters" })).toBeTruthy();
   await waitFor(() => expect(panelCurrent()).toEqual(["Pull requests"]));
-  const panel = within(screen.getByRole("complementary", { name: "GitHub" }));
+  const panel = within(screen.getByRole("complementary", { name: "Code review" }));
   await userEvent.click(panel.getByRole("link", { name: "Issues" }));
   await screen.findByRole("navigation", { name: "Issues" });
   expect(screen.queryByRole("tablist")).toBeNull();

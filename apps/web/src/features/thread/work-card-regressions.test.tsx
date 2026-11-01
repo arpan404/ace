@@ -1,4 +1,4 @@
-import { agentRow, isBreathing, openMachineMenu, openWorkPanel } from "@/test/open-work.ts";
+import { agentRow, isBreathing, openRunScript, openWorkPanel } from "@/test/open-work.ts";
 import { facts, replayCursor, workCardScenario } from "@ace/fake-daemon";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -33,8 +33,8 @@ test("a script reuses an agent shell whose command arrives after the task", asyn
     },
   ]);
   await app.open(`/t/${threadId}`);
-  const menu = await openMachineMenu();
-  const script = await within(menu).findByRole("menuitem", { name: "Run bun run dev:relay" });
+  const menu = await openRunScript();
+  const script = await within(menu).findByRole("option", { name: "dev:relay" });
   act(() =>
     app.daemon.apply(threadId, [
       facts.tool("root", "late-shell", {

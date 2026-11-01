@@ -139,6 +139,8 @@ export const ThreadDetails = z.object({
     .optional(),
   ahead: z.number().int().nonnegative().optional(),
   behind: z.number().int().nonnegative().optional(),
+  /** The branch's remote-tracking branch (`origin/fix`); null when it has none, not pushed yet. */
+  upstream: z.string().max(1024).nullable().optional(),
   baseBranch: z.string().max(1024).optional(),
   /** The base the worktree was made from, with whether a remote base was fetched first. */
   base: WorktreeBaseRecord.optional(),

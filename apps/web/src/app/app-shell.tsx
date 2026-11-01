@@ -136,17 +136,17 @@ export function AppShell() {
 /** The thread list in the sidebar's body, composed independently of shell controls. */
 const threads = <ThreadsSidebar />;
 
-/** GitHub's place in the rail with its counts, loaded after the first paint. */
+/** Code review's place in the rail with its counts, loaded after the first paint. */
 const ForgeButtonWithCounts = deferredComponent(() =>
   import("@/features/forge-pages/index.ts").then((m) => m.ForgeNavButton),
 );
 
-/** GitHub in the rail, the current place while Inbox, Pull requests or Issues is open. */
+/** Code review in the rail, the current place while Inbox, Pull requests or Issues is open. */
 function ForgeNav(props: { forgeOpen: boolean }) {
   // Until its code (and the lists it reads) arrives, the button shows without counts.
   const plain = <ForgeButton to="/pulls" active={props.forgeOpen} />;
   return (
-    <LocalBoundary label="GitHub button" fallback={plain}>
+    <LocalBoundary label="Code review button" fallback={plain}>
       <Suspense fallback={plain}>
         <ForgeButtonWithCounts.Component active={props.forgeOpen} />
       </Suspense>
@@ -173,7 +173,7 @@ function UsageNav(props: { current: boolean }) {
 }
 const usageNav = (current: boolean) => <UsageNav current={current} />;
 
-/** The sidebar with what other slices own: the thread list, GitHub's and Usage's places. */
+/** The sidebar with what other slices own: the thread list, Code review's and Usage's places. */
 function ShellSidebar() {
   return <AppSidebar threads={threads} forge={forgeNav} usage={usageNav} />;
 }

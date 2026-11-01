@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn.ts";
 
 /*
  * The pieces every place's panel is built from (Threads, Chats, Skills, Automations, Settings,
- * GitHub): one title row, one search field, one section label and one row. A panel never styles
+ * Code review): one title row, one search field, one section label and one row. A panel never styles
  * these itself, so the places stay alike.
  */
 

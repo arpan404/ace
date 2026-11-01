@@ -5,7 +5,7 @@ Status: accepted. Date: 2026-10-31. Owner decision of 2026-10-31, after three ro
 ## Context
 
 The web and desktop sidebar was one column: the ace wordmark and Search at the top, the thread
-list, and a foot row with the profile, the GitHub button and the Settings gear. Automations and
+list, and a foot row with the profile, the Code review button and the Settings gear. Automations and
 Skills sat in the profile menu. Opening Settings, Automations or Skills switched the sidebar into
 a second mode: app navigation and the profile were hidden and a "Back to app" row took the foot.
 
@@ -16,13 +16,13 @@ front end, which is not live yet.
 ## Decision
 
 - **Rail + panel.** The sidebar is a 52px rail of places beside a panel that shows the current
-  place. Top to bottom the rail holds Threads, Spade, GitHub, Automations and Skills; then free
+  place. Top to bottom the rail holds Threads, Spade, Code review, Automations and Skills; then free
   space, the app's update when there is one, Settings and the profile avatar (its menu keeps
   Archived threads, Keyboard shortcuts and Connection; Usage moved to the rail, see below). Each place is a bare glyph in a
   40px rounded box; the current one takes the `--active` fill. (The unified frame below moves
   the rail under the window's top bar.)
 - **Each panel owns its title row.** The panel's first row is the place's title and actions
-  (under the window's top bar since the unified frame below). Threads shows the thread list; GitHub lists Inbox, Pull requests and
+  (under the window's top bar since the unified frame below). Threads shows the thread list; Code review lists Inbox, Pull requests and
   Issues (the pages stay full main-column pages); Settings, Automations and Skills draw their
   own lists through `ViewFrame` as before.
 - **No more Back to app.** The rail is always there, in every place, so the second sidebar mode
@@ -107,11 +107,11 @@ its top.
 
 ## One set of panel pieces
 
-Same day. Every place's panel (Threads, Chats, Skills, Automations, Settings, GitHub) is built
+Same day. Every place's panel (Threads, Chats, Skills, Automations, Settings, Code review) is built
 from `components/ui/panel.tsx`: the title row with 32px actions, the search field, section labels
 and the one-line panel row with its hover and current fills. Skills and Automations moved onto
 them (Automations' rows became one line; its search is always shown, like Chats'), and Settings
-followed. GitHub's list pages lost their Inbox / Pull requests / Issues switch: the panel is the
+followed. Code review's list pages lost their Inbox / Pull requests / Issues switch: the panel is the
 way between them, and it marks the list a pull request or issue page belongs to (Inbox when the
 page was opened from it).
 
@@ -189,8 +189,8 @@ than a sidebar and a column each with its own header.
   full view or on a phone), follows its edge as it resizes, is `aria-hidden` and takes no
   pointer, leaving the bar draggable.
 - **Rail.** Bare 20px glyphs in 40px boxes; a short hairline divides Threads and Spade from
-  GitHub, Automations and Skills. A dot on a place is in the warning colour while something there
-  needs the person, blue while it holds news not yet seen (GitHub's unread notifications).
+  Code review, Automations and Skills. A dot on a place is in the warning colour while something there
+  needs the person, blue while it holds news not yet seen (Code review's unread notifications).
 - **Threads panel.** Its title row is "ace" with a caret that opens the project and device
   filter, the Inbox bell (a small dot: warning colour while anything needs the person, else
   blue) and Search, which opens the palette; the panel's inline search is gone, and searching

@@ -221,6 +221,7 @@ export async function moveCheckout(
     head: info.head,
     ahead: info.ahead,
     behind: info.behind,
+    upstream: info.upstream,
     machine: context.machine,
     ...(selection.branch ? { baseBranch: selection.branch } : {}),
   };

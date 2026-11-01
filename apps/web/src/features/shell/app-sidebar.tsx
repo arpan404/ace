@@ -13,13 +13,13 @@ import { activeView } from "./views.ts";
  * places (on the frame colour) beside the current place's panel, where the canvas begins: the
  * page surface with its rounded corner (`panelCanvasClass`), the only part that scrolls. Threads' panel is the
  * thread list, which draws its own title row with the filter and Search;
- * GitHub's lists its three pages; Settings, Automations and Skills draw their own lists into it
+ * Code review's lists its three pages; Settings, Automations and Skills draw their own lists into it
  * (`ViewFrame`). ⌘K opens the palette anywhere.
  */
 export function AppSidebar(props: {
   /** The thread list, the panel's content unless a view's list takes it (Settings' pages). */
   threads: ReactNode;
-  /** GitHub's place in the rail (Inbox, Pull requests and Issues), current while one is open. */
+  /** Code review's place in the rail (Inbox, Pull requests and Issues), current while one is open. */
   forge?: ((current: boolean) => ReactNode) | undefined;
   /** Usage's place in the rail's foot. */
   usage?: ((current: boolean) => ReactNode) | undefined;

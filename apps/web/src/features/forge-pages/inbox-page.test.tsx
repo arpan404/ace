@@ -116,7 +116,7 @@ const writesOf = (app: ReturnType<typeof withInbox>) =>
 const unreadCount = async () =>
   Number(
     /(\d+) unread/.exec(
-      (await screen.findByRole("link", { name: /^GitHub/ })).getAttribute("aria-label") ?? "",
+      (await screen.findByRole("link", { name: /^Code review/ })).getAttribute("aria-label") ?? "",
     )?.[1] ?? 0,
   );
 

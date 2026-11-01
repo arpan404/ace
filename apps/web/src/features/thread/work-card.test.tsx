@@ -9,6 +9,7 @@ import {
   currentCheckout,
   gitAction,
   machineRow,
+  nextGitStep,
   openWorkCard,
   openWorkPanel,
   workButton,
@@ -54,10 +55,10 @@ test("the details card holds the workspace and branch only; what runs lives in S
   expect(within(tree).getByRole("treeitem", { name: "$ bun run dev: running" })).toBeTruthy();
 });
 
-test("the git action offers Commit & push while the checkout has uncommitted changes", async () => {
-  const { card } = await open("changes");
-  const git = within(card).getByRole("region", { name: "Branch" });
-  await userEvent.click(await within(git).findByRole("button", { name: "Commit & push" }));
+test("the git menu marks Commit & push next while the checkout has uncommitted changes", async () => {
+  await open("changes");
+  expect(await nextGitStep()).toBe("Commit & push…");
+  await gitAction("Commit & push…");
   const dialog = await screen.findByRole("dialog", { name: "Commit to fix/restart-retry" });
   expect(
     within(dialog)
@@ -66,10 +67,8 @@ test("the git action offers Commit & push while the checkout has uncommitted cha
   ).toBe("true");
 });
 
-test("the Changes header offers the details card's git action and opens the same commit form", async () => {
-  const { card } = await open("changes");
-  const git = within(card).getByRole("region", { name: "Branch" });
-  expect(await within(git).findByRole("button", { name: "Commit & push" })).toBeTruthy();
+test("the Changes header offers the next git step and opens the same commit form", async () => {
+  await open("changes");
   await userEvent.keyboard("{Escape}");
   await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
@@ -89,25 +88,42 @@ test("the Changes header offers the details card's git action and opens the same
   expect(await screen.findByRole("menuitem", { name: "Commit…" })).toBeTruthy();
 });
 
-test("with only unpushed commits the git action is Push, and once pushed it moves on to Create PR", async () => {
-  const { app, threadId, card } = await open("worktree", { ahead: 2 });
+test("with only unpushed commits the sync row counts them and Push is next, and once pushed Create PR is", async () => {
+  const { app, threadId, card } = await open("worktree", { ahead: 2, upstream: "origin/fix" });
   const git = within(card).getByRole("region", { name: "Branch" });
-  expect(await within(git).findByText("2 commits not pushed")).toBeTruthy();
-  expect(within(git).queryByRole("button", { name: "Commit & push" })).toBeNull();
-  await userEvent.click(within(git).getByRole("button", { name: "Push" }));
+  expect(await within(git).findByRole("button", { name: "2 to push, git actions" })).toBeTruthy();
+  expect(await nextGitStep()).toBe("Push");
+  await gitAction("Push");
   const confirm = await screen.findByRole("dialog", { name: "Push fix/restart-retry?" });
   expect(ahead(app, threadId)).toBe(2);
   await userEvent.click(within(confirm).getByRole("button", { name: "Push" }));
   await waitFor(() => expect(ahead(app, threadId)).toBe(0));
   const after = within(await openWorkCard()).getByRole("region", { name: "Branch" });
-  expect(await within(after).findByRole("button", { name: "Create PR" })).toBeTruthy();
-  expect(within(after).queryByText("2 commits not pushed")).toBeNull();
+  expect(await within(after).findByText("Up to date with origin")).toBeTruthy();
+  expect(within(after).queryByText("2 to push")).toBeNull();
+  expect(await nextGitStep()).toBe("Create PR…");
 });
 
-test("a clean checkout's git action opens the pull request form", async () => {
+test.each([
+  { details: { upstream: null }, words: "Not pushed yet" },
+  { details: { upstream: "origin/fix", behind: 3 }, words: "3 behind origin" },
+  {
+    details: { upstream: "origin/fix", ahead: 1, behind: 2 },
+    words: "1 to push · 2 behind origin",
+  },
+  { details: { upstream: "origin/fix" }, words: "Up to date with origin" },
+])("the sync row reads $words in normal ink", async ({ details, words }) => {
+  const { card } = await open("worktree", details);
+  const row = within(card).getByRole("button", { name: `${words}, git actions` });
+  expect(row.textContent).toBe(words);
+  expect(row.hasAttribute("disabled")).toBe(false);
+});
+
+test("a clean worktree says so after the machine's name, and its git menu opens the pull request form", async () => {
   const { card } = await open("worktree");
   expect(await currentCheckout()).toBe("Worktree");
-  await userEvent.click(await within(card).findByRole("button", { name: "Create PR" }));
+  expect(within(card).getByRole("button", { name: machineRow }).textContent).toMatch(/· worktree$/);
+  await gitAction("Create PR…");
   expect(await screen.findByRole("dialog", { name: "Open a pull request" })).toBeTruthy();
 });
 
@@ -122,13 +138,16 @@ test("commit without pushing stays available behind More git actions", async () 
   ).toBe("false");
 });
 
-test("the card's uncommitted count names its scope and opens Changes on that same scope", async () => {
+test("the sync row's uncommitted value counts the files and opens Changes on that same scope", async () => {
   const { card } = await open("changes");
-  const row = await within(card).findByRole("button", {
+  const branch = within(card).getByRole("region", { name: "Branch" });
+  const files = await within(branch).findByRole("button", {
     name: "Uncommitted changes, 2 files: 34 added, 1 removed",
   });
-  expect(row.textContent).toContain("Uncommitted");
-  await userEvent.click(row);
+  expect(files.textContent).toBe("2 files");
+  // Folded into the sync row: no row of its own.
+  expect(within(branch).queryByText("Uncommitted")).toBeNull();
+  await userEvent.click(files);
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(await within(panel).findByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
   expect(await within(panel).findByRole("button", { name: "Scope: Uncommitted" })).toBeTruthy();
@@ -154,7 +173,16 @@ test("a merged PR reads merged without Merge, and the git action starts a new PR
     await within(card).findByRole("button", { name: /^Open pull request #188.*merged/ }),
   ).toBeTruthy();
   expect(within(card).queryByRole("button", { name: /^Merge pull request/ })).toBeNull();
-  expect(within(card).getByRole("button", { name: "Create PR" })).toBeTruthy();
+  expect(await nextGitStep()).toBe("Create PR…");
+});
+
+test("a clean checkout's uncommitted value reads No changes and still opens Changes", async () => {
+  const { card } = await open("worktree");
+  const none = await within(card).findByRole("button", { name: "Uncommitted changes, none" });
+  expect(none.textContent).toBe("No changes");
+  await userEvent.click(none);
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  expect(await within(panel).findByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
 });
 
 test("Merge on a PR the forge can't read says so without the server's raw error", async () => {
@@ -236,10 +264,9 @@ test("the main agent's card lists the subagents it started, and a row opens that
   const view = await app.open("/t/work-card-changes");
   let card = await openWorkCard();
   let agents = within(card).getByRole("region", { name: "Agents" });
-  expect(within(agents).getByRole("heading", { name: "Agents · 1 running" })).toBeTruthy();
   expect(within(agents).getByRole("button", { name: /^Open Write retry tests,/ })).toBeTruthy();
   expect(within(agents).queryByRole("button", { name: /^Open Read restart history,/ })).toBeNull();
-  await userEvent.click(within(agents).getByRole("button", { name: /^Completed \(1\)/ }));
+  await userEvent.click(within(agents).getByRole("button", { name: "1 working · 1 finished" }));
   expect(within(agents).getByRole("button", { name: /^Open Read restart history,/ })).toBeTruthy();
   await userEvent.click(within(agents).getByRole("button", { name: /^Open Write retry tests,/ }));
   await screen.findByRole("heading", { level: 1, name: "Write retry tests" });
@@ -250,7 +277,7 @@ test("the main agent's card lists the subagents it started, and a row opens that
   expect(within(card).queryByRole("region", { name: "Agents" })).toBeNull();
 });
 
-test("running subagents show while completed ones fold under their own toggle, with failures counted", async () => {
+test("running subagents show while settled ones fold under a line counting what happened to each", async () => {
   const { card } = await openAgents("agents-mix", "Agents mix", [
     ...spawn("alpha", "Alpha"),
     ...spawn("beta", "Beta", "done"),
@@ -260,13 +287,15 @@ test("running subagents show while completed ones fold under their own toggle, w
   expect(within(agents).getByRole("button", { name: /^Open Alpha,/ })).toBeTruthy();
   expect(within(agents).queryByRole("button", { name: /^Open Beta,/ })).toBeNull();
   expect(within(agents).queryByRole("button", { name: /^Open Gamma,/ })).toBeNull();
-  const completed = within(agents).getByRole("button", { name: /Completed \(2\).*1 failed/ });
+  const completed = within(agents).getByRole("button", {
+    name: "1 working · 1 finished · 1 failed",
+  });
   expect(completed.getAttribute("aria-expanded")).toBe("false");
   await userEvent.click(completed);
   expect(completed.getAttribute("aria-expanded")).toBe("true");
   expect(within(agents).getByRole("button", { name: /^Open Beta,/ })).toBeTruthy();
   expect(within(agents).getByRole("button", { name: /^Open Gamma,/ })).toBeTruthy();
-  await userEvent.click(within(agents).getByRole("button", { name: /^Completed \(2\)$/ }));
+  await userEvent.click(completed);
   expect(within(agents).queryByRole("button", { name: /^Open Beta,/ })).toBeNull();
   expect(within(agents).queryByRole("button", { name: /^Open Gamma,/ })).toBeNull();
 });
@@ -291,45 +320,18 @@ test("a long group shows five rows and Show N more reveals the rest", async () =
   expect(within(agents).queryByRole("button", { name: "Show 2 more" })).toBeNull();
 });
 
-test("the Agents heading counts running subagents, and reads Agents when none run", async () => {
-  const app = harness();
-  app.daemon.createThread({
-    id: "agents-two",
-    workspaceId: "relay",
-    provider: "codex",
-    title: "Two running",
-  });
-  app.daemon.apply("agents-two", [
-    facts.rootAgent("codex"),
-    facts.turn("root"),
+test("the agents line puts working agents first, and counts them finished only once they all settle", async () => {
+  const { app } = await openAgents("agents-two", "Some running", [
     ...spawn("a1", "A1"),
-    ...spawn("a2", "A2"),
+    ...spawn("a2", "A2", "done"),
+    ...spawn("a3", "A3", "done"),
   ]);
-  app.daemon.createThread({
-    id: "agents-settled",
-    workspaceId: "relay",
-    provider: "codex",
-    title: "All settled",
-  });
-  app.daemon.apply("agents-settled", [
-    facts.rootAgent("codex"),
-    facts.turn("root"),
-    ...spawn("b1", "B1", "done"),
-    ...spawn("b2", "B2", "done"),
-  ]);
-  const view = await app.open("/t/agents-two");
-  await screen.findByRole("heading", { level: 1, name: "Two running" });
-  let card = await openWorkCard();
-  let agents = within(card).getByRole("region", { name: "Agents" });
-  expect(within(agents).getByRole("heading", { name: "Agents · 2 running" })).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull());
-  view.unmount();
-  await app.open("/t/agents-settled");
-  await screen.findByRole("heading", { level: 1, name: "All settled" });
-  card = await openWorkCard();
-  agents = within(card).getByRole("region", { name: "Agents" });
+  let agents = within(await openWorkCard()).getByRole("region", { name: "Agents" });
+  expect(within(agents).getByRole("button", { name: "1 working · 2 finished" })).toBeTruthy();
   expect(within(agents).getByRole("heading", { name: "Agents" })).toBeTruthy();
+  app.daemon.apply("agents-two", [facts.endTurn("a1")]);
+  agents = within(await openWorkCard()).getByRole("region", { name: "Agents" });
+  expect(await within(agents).findByRole("button", { name: "3 finished" })).toBeTruthy();
 });
 
 test("a subagent whose own turn ended stays with the running ones while its subagent still runs", async () => {
@@ -344,9 +346,10 @@ test("a subagent whose own turn ended stays with the running ones while its suba
     facts.turn("helper", "spawn"),
     facts.toolDone("lead", "spawn-helper"),
     facts.endTurn("lead"),
+    ...spawn("scout", "Scout", "done"),
   ]);
   const agents = within(card).getByRole("region", { name: "Agents" });
-  expect(within(agents).getByRole("heading", { name: "Agents · 1 waiting" })).toBeTruthy();
-  expect(within(agents).getByRole("button", { name: /^Open Lead,/ })).toBeTruthy();
-  expect(within(agents).queryByRole("button", { name: /^Completed/ })).toBeNull();
+  expect(within(agents).getByRole("button", { name: /^Open Lead, Waiting on/ })).toBeTruthy();
+  // Lead's own turn ended, but Helper still runs under it: waiting, never finished.
+  expect(within(agents).getByRole("button", { name: "1 waiting · 1 finished" })).toBeTruthy();
 });

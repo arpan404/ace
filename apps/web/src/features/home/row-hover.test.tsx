@@ -87,10 +87,16 @@ test("Settle and Unsettle on a settled row's hover actions move it between Settl
 
 /**
  * The status word on an Active row's top line, and the controls its box offers beside the row's
- * link.
+ * link. `statusVisible` reads the status cluster's hidden state from the DOM, not its classes:
+ * hovered or keyboard-focused, the actions take the status's place and the status hides.
  */
 const status = (title: RegExp, word: string) =>
   within(card(title)).queryByText(word, { exact: true }) !== null;
+const statusVisible = (title: RegExp) => {
+  const wrap = card(title).querySelector("[data-row-status]");
+  if (!(wrap instanceof HTMLElement)) throw new Error("no status");
+  return wrap.getAttribute("aria-hidden") !== "true";
+};
 const controls = (title: RegExp) =>
   within(card(title).parentElement ?? document.body)
     .getAllByRole("button")
@@ -103,28 +109,45 @@ test("hovering an Inbox row shows only snooze, settle and more actions, and keep
   await unsettleBump(title);
   const row = new RegExp(`^${title}`);
   await waitFor(() => expect(card(row)).toBeTruthy());
+  // At rest the status shows where the actions will go.
+  expect(statusVisible(row)).toBe(true);
 
   await userEvent.hover(card(row));
   expect(rowText(card(row))).toContain(title);
   expect(rowText(card(row))).toMatch(/^ace/);
   expect(controls(row)).toEqual([`Snooze ${title}`, `Settle ${title}`, `Actions for ${title}`]);
+  // Hovered, the actions take the status's place: the status hides but stays in the row.
+  expect(statusVisible(row)).toBe(false);
+  const wrap = card(row).querySelector("[data-row-status]");
+  expect(wrap?.textContent?.length).toBeGreaterThan(0);
+
+  await userEvent.unhover(card(row));
+  expect(statusVisible(row)).toBe(true);
 });
 
-test("a waiting row keeps its status beside its actions under the pointer or focus", async () => {
+test("a waiting row hides its status for its actions under the pointer or focus", async () => {
   await openHome();
   const row = /^Dedupe thread events after reconnect/;
   const title = "Dedupe thread events after reconnect";
   expect(status(row, "Waiting")).toBe(true);
+  expect(statusVisible(row)).toBe(true);
 
   await userEvent.hover(card(row));
+  // The word stays in the row for its layout and name, but hides from sight.
   expect(status(row, "Waiting")).toBe(true);
+  expect(statusVisible(row)).toBe(false);
+  expect(rowText(card(row))).not.toContain("Waiting");
+  expect(rowText(card(row))).toContain(title);
   expect(controls(row)).toContain(`Snooze ${title}`);
   await userEvent.unhover(card(row));
-  expect(status(row, "Waiting")).toBe(true);
+  expect(statusVisible(row)).toBe(true);
+  expect(rowText(card(row))).toContain("Waiting");
 
   card(row).focus();
   await waitFor(() => expect(document.activeElement).toBe(card(row)));
-  expect(status(row, "Waiting")).toBe(true);
+  expect(statusVisible(row)).toBe(false);
+  card(row).blur();
+  await waitFor(() => expect(statusVisible(row)).toBe(true));
 });
 
 /** Open on the Dedupe thread, so clicking its row keeps focus on the row. */

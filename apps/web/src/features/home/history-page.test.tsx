@@ -42,7 +42,7 @@ test("a thread settled long ago stays in the Settled tab, whatever the old grace
   const nav = within(threads());
   // The Inbox holds the running thread, never the long-settled bump.
   expect(nav.queryByRole("link", { name: bump })).toBeNull();
-  await userEvent.click(nav.getByRole("tab", { name: "Settled" }));
+  await userEvent.click(nav.getByRole("tab", { name: /^Settled/ }));
   expect(await nav.findByRole("link", { name: bump })).toBeTruthy();
   expect(nav.queryByRole("link", { name: /^Dedupe thread events/ })).toBeNull();
 });

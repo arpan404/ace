@@ -14,7 +14,7 @@ import { railViews } from "./views.ts";
 
 /**
  * Where a place goes: the page (a thread, or New thread with its search) the person last had
- * open there, so coming back from Settings or GitHub lands where they left; `start` before they
+ * open there, so coming back from Settings or Code review lands where they left; `start` before they
  * have been there.
  */
 function useLastPlace(here: boolean, start: string): Place {
@@ -73,12 +73,12 @@ function ThreadPlace(props: {
 /**
  * The sidebar's rail, under the window's top bar: the app's places as bare glyphs, Threads (the
  * folders glyph: it lists projects), Chats (the speech bubbles) and Spade (not live yet), a short hairline, then
- * GitHub, Automations and Skills; the app's update when there is one, Usage, Settings and the
+ * Code review, Automations and Skills; the app's update when there is one, Usage, Settings and the
  * profile at the foot. The current place takes the active fill: Chats while a chat is open, Threads for
  * any other thread. Off Threads or Chats, a dot on its glyph says one of its own threads waits.
  */
 export function AppRail(props: {
-  /** GitHub's place, which knows its own counts; current while one of its pages is open. */
+  /** Code review's place, which knows its own counts; current while one of its pages is open. */
   forge?: ((current: boolean) => ReactNode) | undefined;
   /** Usage's place in the foot, its bars and card; current while the Usage page is open. */
   usage?: ((current: boolean) => ReactNode) | undefined;

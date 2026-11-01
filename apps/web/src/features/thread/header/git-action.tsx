@@ -164,8 +164,19 @@ function PrMenuItems(props: { git: GitFlow; draft: boolean }) {
   );
 }
 
-function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
+/** The menu's hint on the step `nextGitStep` picks: "next". */
+function NextHint(props: { on: boolean }) {
+  return props.on ? (
+    <span aria-hidden className="ml-auto pl-3 text-xs text-subtle-foreground">
+      next
+    </span>
+  ) : null;
+}
+
+/** Every git step for the checkout, the next one marked: the git action's menu and the card's. */
+export function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
   const { git, checkout } = props;
+  const next = nextGitStep(checkout).kind;
   const pr = checkout.pr;
   const live = pr?.state === "open" || pr?.state === "draft";
   const nothing = checkout.changed === 0 ? "No changes to commit" : undefined;
@@ -185,6 +196,7 @@ function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
         onClick={() => git.open("commit-push")}
       >
         Commit &amp; push…
+        <NextHint on={next === "commit"} />
       </MenuItem>
       <MenuItem
         icon={glyph(UploadSimpleIcon)}
@@ -193,6 +205,7 @@ function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
         onClick={git.push}
       >
         Push
+        <NextHint on={next === "push"} />
       </MenuItem>
       <MenuSeparator />
       {!live && (
@@ -204,6 +217,7 @@ function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
             onClick={() => git.open("pr")}
           >
             Create PR…
+            <NextHint on={next === "create-pr" && !git.draftBlocked} />
           </MenuItem>
           <MenuItem
             icon={glyph(GitPullRequestIcon)}

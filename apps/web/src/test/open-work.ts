@@ -62,7 +62,7 @@ export const machineRow = /, (Connected|Connecting|Offline|Pair again)$/;
 
 /**
  * Open the details card's machine menu: the checkout's Local and Worktree moves, its path,
- * terminal, project scripts and Machine settings.
+ * path and terminal. The project's scripts live in Run a script.
  */
 export async function openMachineMenu() {
   const card = await openWorkCard();
@@ -72,7 +72,7 @@ export async function openMachineMenu() {
 
 /**
  * The checkout the machine menu marks current, "Local" or "Worktree" (the card shows it only as
- * the machine row's glyph). The menu closes again and the card stays open.
+ * the machine row's words after its name). The menu closes again and the card stays open.
  */
 export async function currentCheckout(): Promise<"Local" | "Worktree" | undefined> {
   const menu = await openMachineMenu();
@@ -88,11 +88,37 @@ export async function currentCheckout(): Promise<"Local" | "Worktree" | undefine
   return current;
 }
 
-/** Open the details card's "More git actions" menu and pick `name` from it. */
-export async function gitAction(name: string | RegExp) {
+/** Open the details card's "Run a script" list; resolves to its search field's popup. */
+export async function openRunScript() {
+  const card = await openWorkCard();
+  await userEvent.click(within(card).getByRole("button", { name: "Run a script" }));
+  return screen.findByRole("dialog", { name: "Run a script" });
+}
+
+/** Open the details card's git menu, from the caret on its sync row. */
+export async function openGitMenu() {
   const card = await openWorkCard();
   await userEvent.click(await within(card).findByRole("button", { name: "More git actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name }));
+  return screen.findByRole("menu");
+}
+
+/** Open the details card's "More git actions" menu and pick `name` from it. */
+export async function gitAction(name: string | RegExp) {
+  await userEvent.click(await within(await openGitMenu()).findByRole("menuitem", { name }));
+}
+
+/** The git menu's item marked as the next step ("next"), by its name. */
+export async function nextGitStep() {
+  const menu = await openGitMenu();
+  const next = within(menu)
+    .getAllByRole("menuitem")
+    .find((item) => within(item).queryByText("next"));
+  const name = next?.textContent?.replace(/next$/, "");
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => {
+    if (screen.queryByRole("menu")) throw new Error("The git menu is still open");
+  });
+  return name;
 }
 
 /** Open every folded "N done" line of the agent tree, so the finished agents' rows show. */

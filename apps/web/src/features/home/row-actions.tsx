@@ -11,8 +11,8 @@ import { RowItems, useRowDialogs } from "./row-menu-items.tsx";
 import { useRowMenuShortcuts } from "./use-row-menu-shortcuts.ts";
 
 /**
- * The row's hover and focus actions, in its indicator's place at its right edge (an Active row's:
- * beside its status on the top line): Snooze (a clock that
+ * The row's hover and focus actions, in the status's place at its right edge (an Active row's:
+ * in place of its status on the top line): Snooze (a clock that
  * opens the snooze times), Settle or Unsettle where the thread allows it, and the ⋯ menu of
  * everything else. `shown` while the row is under the pointer or keyboard focus; an open menu
  * keeps them up. The same registry owns row and header menu entries.

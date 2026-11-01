@@ -53,7 +53,7 @@ test("the rail's places stay on screen across Automations and Skills, with no Ba
     // The rail stays: every place, Settings and the profile, the current one marked.
     expect(place(name).getAttribute("aria-current")).toBe("page");
     expect(place(/^Threads/).getAttribute("aria-current")).toBeNull();
-    for (const other of [/^GitHub/, "Settings"]) expect(place(other)).toBeTruthy();
+    for (const other of [/^Code review/, "Settings"]) expect(place(other)).toBeTruthy();
     expect(within(appNav()).getByRole("button", { name: /^You, account/ })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Back to app" })).toBeNull();
     await userEvent.click(place(/^Threads/));
@@ -68,7 +68,7 @@ test("Settings keeps the rail and lists only its own pages in the panel", async 
   await userEvent.click(place("Settings"));
   await title("Settings");
   expect(place("Settings").getAttribute("aria-current")).toBe("page");
-  for (const name of [/^Threads/, /^GitHub/, "Automations", "Skills"])
+  for (const name of [/^Threads/, /^Code review/, "Automations", "Skills"])
     expect(place(name)).toBeTruthy();
   expect(within(appNav()).getByRole("button", { name: /^You, account/ })).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Back to app" })).toBeNull();
@@ -121,7 +121,7 @@ test("Spade shows in the rail as coming soon, and is nothing to press", async ()
   await userEvent.tab();
   expect(document.activeElement).toBe(place(/^Chats/));
   await userEvent.tab();
-  expect(document.activeElement).toBe(place(/^GitHub/));
+  expect(document.activeElement).toBe(place(/^Code review/));
 });
 
 test("Threads in the rail says a thread needs the person only while they are elsewhere", async () => {
@@ -163,9 +163,9 @@ test("the profile menu holds the account and connection actions; Usage is a rail
   await title("Usage");
   expect(list("Threads")).toBeTruthy();
   // GitHub opens Pull requests first; its panel lists its three pages.
-  await userEvent.click(place(/^GitHub/));
+  await userEvent.click(place(/^Code review/));
   await title("Pull requests");
-  const github = screen.getByRole("complementary", { name: "GitHub" });
+  const github = screen.getByRole("complementary", { name: "Code review" });
   expect(
     within(github)
       .getAllByRole("link")
@@ -176,7 +176,7 @@ test("the profile menu holds the account and connection actions; Usage is a rail
   ).toBe("page");
   await userEvent.click(within(github).getByRole("link", { name: "Issues" }));
   await title("Issues");
-  expect(place(/^GitHub/).getAttribute("aria-current")).toBe("page");
+  expect(place(/^Code review/).getAttribute("aria-current")).toBe("page");
 });
 
 test("⌘K opens Automations and Skills as their own places, each with its list", async () => {
@@ -438,7 +438,7 @@ test("Skills, Automations, Settings and GitHub panels share one title row and on
       name: "Settings",
       action: { role: "searchbox", name: "Search settings" },
     },
-    { path: "/pulls", name: "GitHub", action: undefined },
+    { path: "/pulls", name: "Code review", action: undefined },
   ] as const;
   for (const panel of panels) {
     const view = await app.open(panel.path);
