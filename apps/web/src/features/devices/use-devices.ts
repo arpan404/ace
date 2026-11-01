@@ -264,10 +264,10 @@ export function useDevices(threadId: string, deviceId?: string) {
           await run({ op: "states" });
           const read = session?.client.getSnapshot();
           // A device's session state is newer than the inventory, as in the list's rows.
-          const now =
+          const found =
             read?.states.find((entry) => entry.device.id === target)?.device ??
             read?.devices.find((entry) => entry.id === target);
-          if (now?.state !== "booted") throw error;
+          if (found?.state !== "booted") throw error;
         }
         await run({ op: "start", deviceId: target, fps: 60 });
       }),
