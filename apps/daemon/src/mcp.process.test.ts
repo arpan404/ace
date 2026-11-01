@@ -380,14 +380,18 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
       .parse(await response.json());
     return result.result.tools.map((tool) => tool.name);
   }
-  const disabled = await catalog();
-  expect(disabled.filter((name) => /^(screen_|sim_)/.test(name))).toEqual([]);
+  const devices = daemon.devices;
+  if (!devices) throw new Error("Missing catalog devices service");
+  // Devices are on by default (ADR 0064); screen control waits until the person enables it.
+  const initial = await catalog();
+  expect(initial.filter((name) => name.startsWith("screen_"))).toEqual([]);
+  expect(initial).toEqual(expect.arrayContaining(["sim_list", "sim_ui"]));
+  await devices.request({ op: "enable", enabled: false }, { kind: "human", owner: "catalog" });
+  expect((await catalog()).filter((name) => /^(screen_|sim_)/.test(name))).toEqual([]);
   await screen.enable(true);
   expect((await catalog()).filter((name) => name.startsWith("screen_"))).toEqual(
     expect.arrayContaining(["screen_open_app", "screen_ui_tree", "screen_input"]),
   );
-  const devices = daemon.devices;
-  if (!devices) throw new Error("Missing catalog devices service");
   await devices.request({ op: "enable", enabled: true }, { kind: "human", owner: "catalog" });
   const names = await catalog();
   expect(new Set(names).size).toBe(names.length);
