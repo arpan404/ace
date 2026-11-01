@@ -309,16 +309,18 @@ says what to do next.
 2026-11-01, owner-approved design (mockups `usage-approved`, icon option B). Usage left the
 profile menu and became a place in the rail's foot, above Settings (after the app's update).
 
-- **The glyph is the state.** A tiny bar chart, one bar per account whose session can be read:
-  one account draws one bar, more accounts draw more, up to four, the accounts used most in the
-  last seven days first (owner, 2026-11-01, after first choosing one bar per provider). A bar is
-  that account's usable session left: its session window capped by its weekly one
-  (`railUsage` in ui-core). The card and the page still speak per provider, with a provider's
-  pooled headroom being its best account's (`usageHeadroom`), because ace can start a new
-  thread on whichever account has room. Bars are 3px with round ends over a quiet track in the
-  glyph's ink, amber under 20%, red at 0 with a short stub so a spent account never vanishes.
-  With nothing read, three empty tracks show quietly. Its spoken name says the state ("Usage:
-  Claude Code · Personal 38% of session left, Codex 62%").
+- **The glyph is the state.** A tiny bar chart, one bar per account, up to four: the accounts
+  used most in the last seven days first, then the rest with a reading in the page's order, so
+  one account draws one bar and four or more fill the icon (owner, 2026-11-01, after trying a
+  bar per provider and pins). A bar is that account's WEEKLY room left, not its session: nearly
+  every account reports a week, so the icon can show four, and the week is what lasts. An
+  account with no weekly window shows its longest one (Gemini's daily quota); a window whose
+  reset passed since its last reading counts as fresh (`railUsage` / `railWindow` in ui-core).
+  The card and the page keep speaking per provider about the session, with a provider's pooled
+  headroom being its best account's (`usageHeadroom`). Bars are 3px with round ends over a quiet
+  track in the glyph's ink, amber under 20%, red at 0 with a short stub so a spent week never
+  vanishes. With nothing read, three empty tracks show quietly. Its spoken name says the state
+  ("Usage: Codex · Personal 78% of the week left, Claude Code · Personal 59%").
 - **Hover or focus opens a card** (`glass-thin`): one sentence on the tightest provider (its
   forecast from the pace so far, its reset), then per provider the account new threads use, its
   account count, and Session and Weekly mini bars; "Updated … ago" and "Open Usage ›". It reads

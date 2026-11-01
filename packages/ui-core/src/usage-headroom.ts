@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { AccountLimits, AccountWindow, ProviderLimits, UsageLimits } from "./usage-limits.ts";
 import { formatCountdown } from "./time.ts";
 import { joinNames } from "./join-names.ts";
@@ -9,8 +10,8 @@ import { joinNames } from "./join-names.ts";
  * Pooled session headroom: ace can start a new thread on whichever of a provider's accounts has
  * room, so a provider's headroom is its BEST account's usable session left. An account's usable
  * session left is its session window's share left, capped by its weekly window's (a fresh session
- * on an account whose week is spent can't take work). Accounts whose sign-in lapsed and windows
- * past their reset (their figure is unknown until the next reading) don't count. The best account
+ * on an account whose week is spent can't take work). Accounts whose sign-in lapsed don't count; a
+ * session past its reset since its last reading counts as fresh. The best account
  * is used rather than a capacity-weighted mix because plans don't report capacity in one unit,
  * and one account with room is enough to start work.
  */
@@ -74,11 +75,17 @@ function binding(account: AccountLimits): AccountWindow[] {
   );
 }
 
-/** Usable session left on one account; null when its session can't be read. */
+/**
+ * Usable session left on one account; null when its session can't be read. A session whose reset
+ * passed since its last reading is fresh: any use since would have been reported.
+ */
 export function usableSessionLeft(account: AccountLimits): number | null {
   const session = sessionWindow(account);
-  if (!session || session.stale || account.signIn) return null;
-  return Math.min(...binding(account).map((window) => window.leftPercent));
+  if (!session || account.signIn) return null;
+  return Math.min(
+    session.stale ? 100 : session.leftPercent,
+    ...binding(account).map((window) => window.leftPercent),
+  );
 }
 
 /** When an account that is out takes work again: once every spent window has reset. */
@@ -125,14 +132,16 @@ export function usageHeadroom(limits: UsageLimits): PooledHeadroom[] {
   return limits.providers.map(pooledHeadroom);
 }
 
-/** One bar of the rail's Usage icon: one account. */
+/** One bar of the rail's Usage icon: one account's week. */
 export interface HeadroomBar {
   key: string;
   /** "Claude Code · Work"; the provider alone when it has one account. */
   label: string;
-  /** The account's usable session left, 0–100. */
+  /** The account's weekly room left, 0–100. */
   left: number;
   tone: HeadroomTone;
+  /** What `left` measures, for the spoken name: "week", "day", or the window's own name. */
+  span: string;
 }
 
 /** The rail icon: one bar per account, at most four; none with nothing read. */
@@ -145,45 +154,92 @@ export interface RailUsage {
 const railBars = 4;
 
 /**
- * The rail's bars: one per account whose session can be read, so one account draws one bar and
- * more accounts draw more, up to four. The accounts used most in the last seven days come first
- * (`used`: tokens by account id); without usage figures (undefined, or nothing used this week),
- * the page's order. Each bar is that account's usable session left: its session capped by its
- * week. Accounts whose sign-in lapsed or whose session can't be read are left out.
+ * The window a rail bar shows: the account's weekly one, else its longest (Gemini's daily quota,
+ * Cursor's monthly one). Weekly rather than session, because nearly every account reports a week,
+ * so the icon can show four accounts, and the week is what lasts.
+ */
+export function railWindow(account: AccountLimits): AccountWindow | undefined {
+  return weeklyWindow(account) ?? account.windows.at(-1);
+}
+
+/** What the rail's bars measure, a device setting: each account's week (the default) or session. */
+export const RailMeasure = z.enum(["week", "session"]);
+export type RailMeasure = z.infer<typeof RailMeasure>;
+
+/** The account's usable session left, as a bar; null when its session can't be read. */
+function sessionRoom(account: AccountLimits): { left: number; span: string } | null {
+  const left = usableSessionLeft(account);
+  return left === null ? null : { left, span: "session" };
+}
+
+/** The account's room in its rail window; null when it can't be read. Past its reset: fresh. */
+function railLeft(account: AccountLimits): { left: number; span: string } | null {
+  const window = railWindow(account);
+  if (!window || account.signIn) return null;
+  const span =
+    window.label === "Weekly"
+      ? "week"
+      : window.label === "Daily"
+        ? "day"
+        : window.label.toLowerCase();
+  return { left: window.stale ? 100 : window.leftPercent, span };
+}
+
+/**
+ * The rail's bars: one per account with a reading, so one account draws one bar and more accounts
+ * draw more, up to four. The accounts used most in the last seven days come first (`used`: tokens
+ * by account id); accounts not used this week fill the rest, in the page's order. Each bar is that
+ * account's weekly room left (`railWindow`), or with `measure` "session", its usable session left
+ * (its session capped by its week). Accounts whose sign-in lapsed are left out.
  */
 export function railUsage(
   limits: UsageLimits,
   used: ReadonlyMap<string, number> | undefined,
+  measure: RailMeasure = "week",
 ): RailUsage {
   const readable = limits.providers.flatMap((group) =>
     group.accounts.flatMap((entry) => {
-      const left = usableSessionLeft(entry);
-      if (left === null) return [];
+      const room = measure === "session" ? sessionRoom(entry) : railLeft(entry);
+      if (room === null) return [];
       const label =
         group.accounts.length > 1
           ? `${group.providerLabel} · ${entry.account.label}`
           : group.providerLabel;
-      return [{ key: entry.key, id: entry.account.id, label, left, tone: headroomTone(left) }];
+      return [
+        {
+          key: entry.key,
+          id: entry.account.id,
+          label,
+          left: room.left,
+          span: room.span,
+          tone: headroomTone(room.left),
+        },
+      ];
     }),
   );
-  const ranked =
-    used && used.size > 0
-      ? readable
-          .filter((bar) => (used.get(bar.id) ?? 0) > 0)
-          .toSorted((a, b) => (used.get(b.id) ?? 0) - (used.get(a.id) ?? 0))
-      : readable;
-  // Nothing used this week by any readable account: show them in the page's order.
-  const shown = (ranked.length ? ranked : readable)
+  // Most used this week first; the rest keep the page's order and fill the icon up to four.
+  const tokens = (bar: { id: string }) => used?.get(bar.id) ?? 0;
+  const shown = readable
+    .map((bar, index) => ({ bar, index }))
+    .toSorted((a, b) => tokens(b.bar) - tokens(a.bar) || a.index - b.index)
     .slice(0, railBars)
-    .map(({ id: _id, ...bar }) => bar);
+    .map(({ bar: { id: _id, ...bar } }) => bar);
   return { bars: shown, label: railLabel(shown) };
 }
 
+/** "Usage: Claude Code · Personal 59% of the week left, Codex 78%, Gemini CLI 29% of the day". */
 function railLabel(bars: readonly HeadroomBar[]): string {
   if (!bars.length) return "Usage: no limits read yet";
-  const parts = bars.map((bar, index) => {
-    if (bar.left <= 0) return `${bar.label} out`;
-    return index === 0 ? `${bar.label} ${bar.left}% of session left` : `${bar.label} ${bar.left}%`;
+  // The first figure says what it measures; later ones over the same span are just figures.
+  let said: string | undefined;
+  const parts = bars.map((bar) => {
+    if (bar.left <= 0) return `${bar.label} out for the ${bar.span}`;
+    if (said === bar.span) return `${bar.label} ${bar.left}%`;
+    const first = said === undefined;
+    said ??= bar.span;
+    return first
+      ? `${bar.label} ${bar.left}% of the ${bar.span} left`
+      : `${bar.label} ${bar.left}% of the ${bar.span}`;
   });
   return `Usage: ${parts.join(", ")}`;
 }

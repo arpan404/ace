@@ -107,40 +107,47 @@ const codexPersonal: Seed = {
   label: "Personal",
   isDefault: true,
   session: [90, 60],
+  weekly: 22,
 };
 const bars = (rail: { bars: { label: string; left: number; tone: string }[] }) =>
   rail.bars.map((bar) => [bar.label, bar.left, bar.tone]);
 
-test("one account draws one bar, named by its provider", () => {
-  expect(bars(railUsage(limits(claudePersonal), undefined))).toEqual([["Claude Code", 38, "ok"]]);
+test("one account draws one bar of its week, named by its provider", () => {
+  expect(bars(railUsage(limits(claudePersonal), undefined))).toEqual([["Claude Code", 59, "ok"]]);
 });
 
-test("the icon grows a bar per account, most used first, up to four", () => {
+test("the icon shows each account's week, most used first, filled to four", () => {
   const list = limits(
     claudePersonal,
     claudeWork,
     codexPersonal,
-    { ...codexPersonal, id: "codex-team", label: "Team", isDefault: false, session: [100, 88] },
-    { ...codexPersonal, id: "codex-ci", label: "CI", isDefault: false, session: [10, 88] },
+    { ...codexPersonal, id: "codex-team", label: "Team", isDefault: false, weekly: 100 },
+    { ...codexPersonal, id: "codex-ci", label: "CI", isDefault: false, weekly: 85 },
   );
   const used = new Map([
-    ["codex-personal", 900],
+    ["codex-ci", 900],
     ["claude-work", 500],
-    ["codex-team", 400],
-    ["claude-personal", 300],
-    ["codex-ci", 100],
   ]);
-  // Each bar is that account's own room: its session capped by its week.
+  // Used this week first; the rest fill in the page's order. Each bar is the week left.
   expect(bars(railUsage(list, used))).toEqual([
-    ["Codex · Personal", 10, "low"],
+    ["Codex · CI", 15, "low"],
     ["Claude Code · Work", 43, "ok"],
-    ["Codex · Team", 0, "out"],
-    ["Claude Code · Personal", 38, "ok"],
+    ["Claude Code · Personal", 59, "ok"],
+    ["Codex · Personal", 78, "ok"],
   ]);
-  // An account not used this week drops out of the icon.
-  expect(bars(railUsage(list, new Map([["claude-work", 5]])))).toEqual([
-    ["Claude Code · Work", 43, "ok"],
+});
+
+test("an account with no weekly window shows its longest one, and a spent week reads out", () => {
+  const sessionOnly: Seed = { ...claudeWork, weekly: undefined, session: [70, 120] };
+  const spent = { ...codexPersonal, weekly: 100 };
+  const rail = railUsage(limits(sessionOnly, spent), undefined);
+  expect(bars(rail)).toEqual([
+    ["Claude Code", 30, "ok"],
+    ["Codex", 0, "out"],
   ]);
+  expect(rail.label).toBe(
+    "Usage: Claude Code 30% of the session (5h) left, Codex out for the week",
+  );
 });
 
 test("the rail icon has no bars and says so with no usage data", () => {
@@ -149,11 +156,20 @@ test("the rail icon has no bars and says so with no usage data", () => {
   expect(empty.label).toBe("Usage: no limits read yet");
 });
 
-test("the rail icon's name says each account's room in words", () => {
-  const list = limits(claudePersonal, { ...codexPersonal, session: [100, 88] });
+test("the rail icon's name says each account's week in words", () => {
+  const list = limits(claudePersonal, claudeWork, codexPersonal);
   expect(railUsage(list, undefined).label).toBe(
-    "Usage: Claude Code 38% of session left, Codex out",
+    "Usage: Claude Code · Personal 59% of the week left, Claude Code · Work 43%, Codex 78%",
   );
+});
+
+test("a session past its reset since its last reading counts as fresh", () => {
+  const reset = account({ ...claudeWork, session: [80, 300] });
+  const [stale] = usageHeadroom(
+    usageLimits([{ account: reset, environment: "This Mac" }], now + 301 * minute),
+  );
+  // Fresh, but capped by its week (57% used).
+  expect(stale?.sessionLeft).toBe(43);
 });
 
 test("with room everywhere, Now names the tightest provider and when it runs out at this pace", () => {
@@ -221,4 +237,18 @@ test("another account with clearly more room is suggested as the default", () =>
     undefined,
   );
   expect(usageSuggestion(headroom(claudePersonal))).toBeUndefined();
+});
+
+test("set to session, the bars show each account's usable session instead of its week", () => {
+  const list = limits(claudePersonal, claudeWork, codexPersonal);
+  const rail = railUsage(list, undefined, "session");
+  // Sessions, each capped by its week: Work's fresh session is held to its 43% week.
+  expect(bars(rail)).toEqual([
+    ["Claude Code · Personal", 38, "ok"],
+    ["Claude Code · Work", 43, "ok"],
+    ["Codex", 10, "low"],
+  ]);
+  expect(rail.label).toBe(
+    "Usage: Claude Code · Personal 38% of the session left, Claude Code · Work 43%, Codex 10%",
+  );
 });
