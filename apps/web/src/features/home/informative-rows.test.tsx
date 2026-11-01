@@ -9,6 +9,7 @@ import { screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { rowText } from "@/test/row-text.ts";
 
 function task(app: ReturnType<typeof harness>, id: string, title: string) {
   app.daemon.createThread({
@@ -29,8 +30,19 @@ function task(app: ReturnType<typeof harness>, id: string, title: string) {
   ]);
 }
 const rows = async () => within(await screen.findByRole("list", { name: "Threads" }));
+/** The one mark at a row's right edge (`RowIndicator`), by kind. */
+const mark = (row: HTMLElement) =>
+  row.querySelector<HTMLElement>("[data-indicator]")?.dataset.indicator;
 
-test("a plan review says Needs you and explains the request on hover", async () => {
+/** The tone of a row's one mark: `needs-you` for what waits on the person. */
+const tone = (row: HTMLElement) => row.querySelector<HTMLElement>("[data-indicator]")?.dataset.tone;
+
+/** A thread's row in Active, which leads with what waits on the person. */
+async function activeRow(title: string) {
+  return (await rows()).findByRole("link", { name: new RegExp(`^${title}`) });
+}
+
+test("a plan review carries the needs-you mark and explains the request to screen readers", async () => {
   const app = harness();
   task(app, "plan", "Review reconnect recovery");
   app.daemon.apply("plan", [
@@ -43,22 +55,27 @@ test("a plan review says Needs you and explains the request on hover", async () 
     },
   ]);
   await app.open("/new");
-  const row = await (await rows()).findByRole("link", { name: /^Review reconnect recovery/ });
-  expect(within(row).getByText("Needs you", { exact: true })).toBeTruthy();
+  const row = await activeRow("Review reconnect recovery");
+  await waitFor(() => expect(tone(row)).toBe("needs-you"));
   expect(row.getAttribute("aria-label")).toContain("Waiting for your review");
-  await userEvent.hover(row);
-  expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(
-    "Review reconnect recovery",
-  );
+});
+
+test("a question carries the needs-you mark and keeps the full explanation for screen readers", async () => {
+  const app = harness();
+  const example = askingQuestion();
+  app.play(example).runUntilBlocked();
+  await app.open("/new");
+  const row = await activeRow(example.thread.title);
+  await waitFor(() => expect(tone(row)).toBe("needs-you"));
+  expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
 });
 
 test.each([
-  [askingQuestion, "Answer", "Waiting for your answer"],
   [waitingOnSubagents, "Waiting", "Waiting for 2 subagents"],
   [watchingRelay, "Background · 1", "Running in background bun run dev:relay"],
   [runningTests, "Working", "Working · running tests"],
 ])(
-  "short row statuses keep the full explanation for hover and screen readers: %s",
+  "a live row shows its title and the live mark, its status in words in its name and hover card: %s",
   async (scenario, short, full) => {
     const app = harness();
     const example = scenario();
@@ -67,29 +84,28 @@ test.each([
     const row = await (
       await rows()
     ).findByRole("link", { name: new RegExp(`^${example.thread.title}`) });
-    expect(within(row).getByText(short, { exact: true })).toBeTruthy();
+    expect(rowText(row)).toBe(example.thread.title);
+    expect(mark(row)).toBe("live");
     expect(row.getAttribute("aria-label")).toContain(full);
     await userEvent.hover(row);
-    expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(
-      example.thread.title,
-    );
+    const card = await screen.findByLabelText(/^Details for /);
+    expect(card.textContent).toContain(example.thread.title);
+    expect(card.textContent).toContain(short);
   },
 );
 
-test("task context shows branch, environment and provider while hover keeps the full status and diff details", async () => {
+test("a row is its title alone: status, branch, pull request and provider are in its name and hover card", async () => {
   const app = harness();
   task(app, "build", "Build replay recovery");
   await app.open("/new");
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
-  expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
-  expect(within(row).queryByText("Working · Codex")).toBeNull();
-  expect(within(row).getByTitle("fix/replay").textContent).toBe("fix/replay");
-  expect(row.getAttribute("aria-label")).toContain("Working");
-  expect(within(row).getByRole("img", { name: "draft pull request #283" })).toBeTruthy();
-  expect(within(row).queryByText("+24")).toBeNull();
-  expect(within(row).queryByText("−6")).toBeNull();
-  expect(row.getAttribute("aria-label")).toContain("Codex");
-  expect(within(row).getByRole("img", { name: "Codex" })).toBeTruthy();
+  expect(rowText(row)).toBe("Build replay recovery");
+  expect(within(row).queryByText("Working")).toBeNull();
+  expect(within(row).queryByTitle("fix/replay")).toBeNull();
+  expect(within(row).queryByRole("img", { name: "draft pull request #283" })).toBeNull();
+  expect(within(row).queryByRole("img", { name: "Codex" })).toBeNull();
+  for (const said of ["Working", "Codex", "fix/replay", "Pull request #283"])
+    expect(row.getAttribute("aria-label")).toContain(said);
   await userEvent.hover(row);
   const tip = await screen.findByLabelText(/^Details for /);
   expect(tip.textContent).toContain("Build replay recovery");
@@ -97,7 +113,7 @@ test("task context shows branch, environment and provider while hover keeps the 
   expect(within(tip).getByRole("img", { name: "24 lines added, 6 lines removed" })).toBeTruthy();
 });
 
-test("this device's read cursor shows new activity even while a task works", async () => {
+test("new activity under a working tree reads unread, yet the row shows the live mark, never the finished dot", async () => {
   const app = harness();
   task(app, "build", "Build replay recovery");
   app.daemon.markReadThrough("build", "ask", "test-device");
@@ -109,7 +125,11 @@ test("this device's read cursor shows new activity even while a task works", asy
   const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
   expect(row.getAttribute("aria-label")).toContain(", unread");
   expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running");
-  expect(within(row).getByRole("img", { name: "Codex · 1 subagent running" })).toBeTruthy();
+  expect(mark(row)).toBe("live");
+  // The subagent finishes but the root still works: still never the finished dot.
+  app.daemon.apply("build", [facts.endTurn("web")]);
+  await waitFor(() => expect(row.getAttribute("aria-label")).not.toContain("subagent running"));
+  expect(mark(row)).toBe("live");
 });
 
 test("agents running beside a human request remain counted until they finish", async () => {
@@ -127,13 +147,14 @@ test("agents running beside a human request remain counted until they finish", a
     },
   ]);
   await app.open("/new");
-  const row = await (await rows()).findByRole("link", { name: /^Build replay recovery/ });
-  expect(within(row).getByText("Approve")).toBeTruthy();
-  expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running");
-  expect(within(row).getByRole("img", { name: "Codex · 1 subagent running" })).toBeTruthy();
+  const row = await activeRow("Build replay recovery");
+  await waitFor(() =>
+    expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running"),
+  );
+  expect(tone(row)).toBe("needs-you");
   app.daemon.apply("build", [facts.endTurn("web")]);
   await waitFor(() => expect(row.getAttribute("aria-label")).not.toContain("subagent running"));
-  expect(within(row).getByText("Approve")).toBeTruthy();
+  expect(tone(row)).toBe("needs-you");
 });
 
 test("renaming an empty draft cannot turn it into a task", async () => {
@@ -157,7 +178,7 @@ test("renaming an empty draft cannot turn it into a task", async () => {
 });
 
 test.each([false, true])(
-  "a row shows its device icon, never its name, while two devices are connected (remote=%s)",
+  "a row names its device only in its name and hover card, while two devices are connected (remote=%s)",
   async (remote) => {
     const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
     app.daemon.services.settings.seed({
@@ -192,10 +213,8 @@ test.each([false, true])(
     ).findByRole("link", { name: new RegExp(`^${scenario.thread.title}`) });
     const name = remote ? "Build server" : "Workshop Mac";
     if (!row.parentElement) throw new Error("No row container");
-    // Two devices are connected: the row shows the machine's icon, never its name.
-    expect(
-      within(row).getByRole("img", { name: `${remote ? "server" : "desktop"} machine icon` }),
-    ).toBeTruthy();
+    // Two devices are connected: still the row draws neither the machine's icon nor its name.
+    expect(within(row).queryByRole("img", { name: /machine icon$/ })).toBeNull();
     expect(within(row).queryByText(name, { exact: true })).toBeNull();
     expect(row.textContent).not.toContain("Stale server");
     expect(row.getAttribute("aria-label")).toContain(`Running on ${name}`);

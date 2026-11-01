@@ -43,7 +43,7 @@ async function rename(link: HTMLElement) {
   return screen.findByRole("textbox", { name: "Thread title" });
 }
 
-test("a refused send shows Not sent in both the sidebar and its spoken name", async () => {
+test("a refused send says Not sent in its row's name and shows the needs-you dot", async () => {
   const made = app();
   made.daemon.refuseCommands("model_unavailable", "thread.send");
   await made.open("/t/thread-dedupe");
@@ -53,9 +53,14 @@ test("a refused send shows Not sent in both the sidebar and its spoken name", as
   );
   await screen.findByRole("button", { name: "Retry" });
   await waitFor(() => expect(row(/^Dedupe.*Not sent/)).toBeTruthy());
-  expect(within(row(/^Dedupe/)).getByText("Not sent")).toBeTruthy();
+  const dot = () =>
+    row(/^Dedupe/)
+      .querySelector("[data-indicator]")
+      ?.getAttribute("data-indicator");
+  expect(dot()).toBe("needs-you");
+  expect(within(row(/^Dedupe/)).queryByText("Not sent")).toBeNull();
   await userEvent.click(screen.getByRole("link", { name: "New thread" }));
-  expect(within(row(/^Dedupe/)).getByText("Not sent")).toBeTruthy();
+  await waitFor(() => expect(row(/^Dedupe.*Not sent/)).toBeTruthy());
 });
 
 test("the palette finds other projects and their threads while the sidebar is filtered", async () => {
@@ -175,7 +180,7 @@ test("a filtered empty state names the project rather than its opaque id", async
   expect(screen.queryByText(`Nothing in ${project.id}`)).toBeNull();
 });
 
-test("a task keeps project and provider context visible without duplicating Done", async () => {
+test("a task keeps project and provider context in its name and hover card, never a Done", async () => {
   const made = harness();
   createIdleTask(made.daemon, {
     id: "bare",
@@ -189,25 +194,26 @@ test("a task keeps project and provider context visible without duplicating Done
     { name: /^Bare thread/ },
   );
   expect(bare.getAttribute("aria-label")).toContain("Codex");
-  expect(within(bare).getByText("relay")).toBeTruthy();
+  // Its project heads the group it sits in; the row itself doesn't repeat it.
+  expect(within(nav()).getByRole("button", { name: /^relay/ })).toBeTruthy();
+  expect(bare.getAttribute("aria-label")).toContain("Project relay");
   // Seen before this device's first launch, so it rests quietly: no Done at all, never two.
   expect(within(bare).queryAllByText("Done", { exact: true })).toHaveLength(0);
-  expect(within(bare).getByRole("img", { name: "Codex" })).toBeTruthy();
+  expect(within(bare).queryByRole("img", { name: "Codex" })).toBeNull();
   await userEvent.hover(bare);
   expect(
     within(await screen.findByLabelText(/^Details for Bare thread/)).getByText("Codex"),
   ).toBeTruthy();
-  expect(within(nav()).getByRole("img", { name: "Codex" })).toBeTruthy();
 });
 
 test("composition Enter leaves rename open and Escape preserves the existing multi-selection", async () => {
   await app().open("/new");
   const first = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
     "link",
-    { name: /^Approval sheet/ },
+    { name: /^Invoice PDF/ },
   );
   fireEvent.click(first, { metaKey: true });
-  const title = await rename(row(/^Approval sheet/));
+  const title = await rename(row(/^Invoice PDF/));
   await userEvent.clear(title);
   await userEvent.type(title, "候補");
   fireEvent.keyDown(title, { key: "Enter", keyCode: 229, isComposing: false });
@@ -215,13 +221,14 @@ test("composition Enter leaves rename open and Escape preserves the existing mul
   fireEvent.keyDown(title, { key: "Escape" });
   expect(screen.queryByRole("textbox", { name: "Thread title" })).toBeNull();
   expect(screen.getByRole("toolbar", { name: "Selected threads" })).toBeTruthy();
-  row(/^Approval sheet/).focus();
+  row(/^Invoice PDF/).focus();
   await userEvent.keyboard("{Escape}");
   expect(screen.queryByRole("toolbar", { name: "Selected threads" })).toBeNull();
 });
 
 test("a rename survives changing from a task row to a settled row", async () => {
-  const made = app();
+  // The UI's clock just past the daemon's, so the thread settled below rests dimmed in relay.
+  const made = app({ uiClock: () => 600_000 });
   createIdleTask(made.daemon, {
     id: "rename-row",
     title: "Rename across settlement",
@@ -232,28 +239,39 @@ test("a rename survives changing from a task row to a settled row", async () => 
   await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole("link", {
     name: /^Rename across/,
   });
-  await userEvent.click(screen.getByRole("button", { name: /^Settled / }));
   const title = await rename(row(/^Rename across/));
   await userEvent.clear(title);
   await userEvent.type(title, "Retained rename");
   await act(() =>
     made.client.command({ type: "thread.settle", threadId: ThreadId.parse("rename-row") }),
   );
-  const retained = await screen.findByRole<HTMLInputElement>("textbox", { name: "Thread title" });
-  expect(retained.value).toBe("Retained rename");
-  await userEvent.type(retained, "{Enter}");
-  expect(await within(nav()).findByRole("link", { name: /^Retained rename/ })).toBeTruthy();
+  // Settled, the thread turns into its project's dimmed settled row, keeping what was typed.
+  expect(screen.getByRole("textbox", { name: "Thread title" })).toHaveProperty(
+    "value",
+    "Retained rename",
+  );
+  await userEvent.type(screen.getByRole("textbox", { name: "Thread title" }), "{Enter}");
+  expect(
+    await within(nav()).findByRole("link", { name: /^Retained rename\. Settled/ }),
+  ).toBeTruthy();
 });
 
 test("Shift-click selects a range in the narrow sheet without closing it", async () => {
   narrow();
-  await app().open("/t/thread-dedupe");
+  const made = app();
+  for (const [id, title] of [
+    ["thread-readme", "Tidy the README"],
+    ["thread-docs-index", "Sketch the docs index"],
+  ] as const)
+    createIdleTask(made.daemon, { id, workspaceId: "notes", title, provider: "codex" });
+  await made.open("/t/thread-dedupe");
   await userEvent.click(await screen.findByRole("button", { name: "Back to threads" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   const rows = within(sheet);
-  const first = await rows.findByRole("link", { name: /^Approval sheet/ });
+  // The notes project holds just these two, so the range from one to the other is both.
+  const first = await rows.findByRole("link", { name: /^Tidy the README/ });
   fireEvent.click(first, { metaKey: true });
-  fireEvent.click(rows.getByRole("link", { name: /^Retry budget/ }), { shiftKey: true });
+  fireEvent.click(rows.getByRole("link", { name: /^Sketch the docs index/ }), { shiftKey: true });
   expect(screen.getByRole("dialog", { name: "Sidebar" })).toBe(sheet);
   expect(rows.getByText("2 selected")).toBeTruthy();
 });

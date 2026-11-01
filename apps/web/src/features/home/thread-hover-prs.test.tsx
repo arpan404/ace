@@ -1,7 +1,7 @@
 import { facts } from "@ace/fake-daemon";
 import type { LinkedPullRequest } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -61,10 +61,8 @@ async function homeWithLinkedPrs() {
     facts.message("root", "ask", "user", "Ship it"),
   ]);
   await app.open("/new");
-  const row = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
-    "link",
-    { name: /^Linked pull requests/ },
-  );
+  const place = await screen.findByRole("navigation", { name: "Threads" });
+  const row = await within(place).findByRole("link", { name: /^Linked pull requests/ });
   return { history, row };
 }
 
@@ -84,21 +82,4 @@ test("a pull request in a thread's hover card opens ace's page for that one, not
   await waitFor(() => expect(history.location.pathname).toBe("/pulls/ace/42"));
   expect(new URLSearchParams(history.location.search).get("repo")).toBe("github.com/ace/daemon");
   expect(open).not.toHaveBeenCalled();
-});
-
-test("a middle click on a row's pull request opens it on GitHub and stays on the page", async () => {
-  const { history, row } = await homeWithLinkedPrs();
-  const badge = within(row).getByRole("button", { name: /pull request #42/ });
-  const open = vi.spyOn(window, "open").mockReturnValue(null);
-  fireEvent(badge, new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }));
-  await waitFor(() => expect(open).toHaveBeenCalled());
-  expect(open.mock.calls[0]?.[0]).toBe("https://github.com/ace/web/pull/42");
-  expect(history.location.pathname).toBe("/new");
-});
-
-test("clicking a row's pull request opens ace's page for it", async () => {
-  const { history, row } = await homeWithLinkedPrs();
-  await userEvent.click(within(row).getByRole("button", { name: /pull request #42/ }));
-  await waitFor(() => expect(history.location.pathname).toBe("/pulls/ace/42"));
-  expect(new URLSearchParams(history.location.search).get("repo")).toBe("github.com/ace/web");
 });

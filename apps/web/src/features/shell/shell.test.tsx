@@ -1,17 +1,14 @@
 import { openProfileView } from "@/test/navigation.ts";
-import { failingSubagent, longHistory } from "@ace/fake-daemon";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { facts, failingSubagent, longHistory } from "@ace/fake-daemon";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 const title = (name: string) => screen.findByRole("heading", { level: 1, name });
-/** Whether the header draws the hairline it shows once the content leaves the top. */
-const hairline = () => screen.getByRole("banner").className.includes("var(--border)");
 const threadList = () => screen.queryByRole("complementary", { name: "Threads" });
-/** A button in the header, where back, forward and the sidebar toggle sit. */
-const inHeader = (name: string) =>
-  within(screen.getByRole("banner")).getByRole<HTMLButtonElement>("button", { name });
+/** A button at the left of the window's top bar, where back, forward and the sidebar toggle sit. */
+const inTopBar = (name: string) => screen.getByRole<HTMLButtonElement>("button", { name });
 
 test("every view and settings page opens in the shell under its own title", async () => {
   const pages: [string, string][] = [
@@ -77,22 +74,26 @@ test("removed pages are gone: their addresses show Not found and the palette nev
 test("back and forward in the header follow profile view history", async () => {
   await harness().open("/");
   await title("Home");
-  expect(inHeader("Back").disabled).toBe(true);
-  expect(inHeader("Forward").disabled).toBe(true);
+  expect(inTopBar("Back").disabled).toBe(true);
+  expect(inTopBar("Forward").disabled).toBe(true);
 
   await openProfileView("Automations");
   await title("Automations");
-  expect(screen.getByRole("link", { name: "Back to app" })).toBeTruthy();
-  expect(inHeader("Back").disabled).toBe(false);
+  expect(
+    within(screen.getByRole("navigation", { name: "App" }))
+      .getByRole("link", { name: "Automations" })
+      .getAttribute("aria-current"),
+  ).toBe("page");
+  expect(inTopBar("Back").disabled).toBe(false);
 
-  await userEvent.click(inHeader("Back"));
+  await userEvent.click(inTopBar("Back"));
   await title("Home");
-  expect(inHeader("Back").disabled).toBe(true);
-  expect(inHeader("Forward").disabled).toBe(false);
+  expect(inTopBar("Back").disabled).toBe(true);
+  expect(inTopBar("Forward").disabled).toBe(false);
 
   await userEvent.keyboard("{Meta>}]{/Meta}");
   await title("Automations");
-  expect(inHeader("Forward").disabled).toBe(true);
+  expect(inTopBar("Forward").disabled).toBe(true);
 });
 
 test("⌘\\ hides the sidebar and the header offers to bring it back", async () => {
@@ -135,20 +136,22 @@ test("⌘K finds a thread by title and opens it", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull());
 });
 
-test("the header draws its hairline while the content is scrolled and drops it back at the top", async () => {
-  await harness().open("/settings");
-  await title("Settings");
-  const scroller = document.getElementById("main")?.firstElementChild;
-  if (!(scroller instanceof HTMLElement)) throw new Error("Expected a scroller in the content");
-  expect(hairline()).toBe(false);
-  scroller.scrollTop = 40;
-  fireEvent.scroll(scroller);
-  await waitFor(() => expect(hairline()).toBe(true));
-  // A following scroll (a streaming transcript keeps scrolling) keeps it drawn.
-  scroller.scrollTop = 80;
-  fireEvent.scroll(scroller);
-  expect(hairline()).toBe(true);
-  scroller.scrollTop = 0;
-  fireEvent.scroll(scroller);
-  await waitFor(() => expect(hairline()).toBe(false));
+test("the top bar shows the open thread's title after its project's folder, where the column starts", async () => {
+  const app = harness();
+  app.daemon.createThread({
+    id: "thread-top-bar",
+    workspaceId: "relay",
+    provider: "claude",
+    title: "Replay cursor resets on every resume",
+  });
+  app.daemon.apply("thread-top-bar", [facts.rootAgent("claude")]);
+  await app.open("/t/thread-top-bar");
+  await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
+  const bar = screen.getByRole("banner");
+  expect(within(bar).getByRole("heading", { level: 1 })).toBeTruthy();
+  expect(within(bar).getByRole("img", { name: /^Project / })).toBeTruthy();
+  // While the sidebar shows, navigation leads the sidebar's top row, so nothing comes before
+  // the title in the column's part of the bar.
+  expect(within(bar).queryByRole("button", { name: "Back" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
 });

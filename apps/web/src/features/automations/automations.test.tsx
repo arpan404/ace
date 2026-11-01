@@ -1,4 +1,4 @@
-import { openProfileView } from "@/test/navigation.ts";
+import { openProfileView, openThreads } from "@/test/navigation.ts";
 import { fakeClient } from "@/test/fake-client.ts";
 import { chooseModel } from "@/test/model-control.ts";
 import type { Client } from "@ace/client";
@@ -116,7 +116,6 @@ test("the list groups upcoming automations, then paused ones, each with when it 
 
 test("searching the list keeps only the automations whose names match", async () => {
   const { sidebar } = await open("/automations/auto-dependency-audit");
-  await userEvent.click(screen.getByRole("button", { name: "Search automations" }));
   await userEvent.type(screen.getByRole("searchbox", { name: "Search automations" }), "flaky");
   await waitFor(() => expect(sidebar.queryByRole("link", { name: /Nightly/ })).toBeNull());
   expect(sidebar.getByRole("link", { name: /Flaky test triage/ })).toBeTruthy();
@@ -204,7 +203,7 @@ test("while automations are off it can't be run, and turning them on lets it run
   await userEvent.click(main().getByRole("link", { name: "Turn on Run automations" }));
   await userEvent.click(await screen.findByRole("switch", { name: "Run automations" }));
   await waitFor(() => expect(app.daemon.services.settings.get("automations.enabled")).toBe(true));
-  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
+  await openThreads();
   await openProfileView("Automations");
   const aside = await screen.findByRole("complementary", { name: "Automations" });
   await userEvent.click(

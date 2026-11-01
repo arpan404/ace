@@ -59,6 +59,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
     label: "Go to",
     ids: [
       "goHome",
+      "goChats",
       "goAutomations",
       "goSkills",
       "goUsage",

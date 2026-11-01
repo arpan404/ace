@@ -1,4 +1,3 @@
-import { cn } from "@/lib/cn.ts";
 import {
   useCallback,
   useEffect,
@@ -6,45 +5,10 @@ import {
   useState,
   type KeyboardEvent,
   type KeyboardEventHandler,
-  type ReactNode,
   type RefCallback,
 } from "react";
-import { Icon, type IconGlyph } from "@/components/icon.tsx";
 
-/** One-line list entry, with a plain icon and optional status. */
-export const compactViewRowClass = cn(
-  "group flex min-h-(--row-height) w-full items-center gap-2.5 rounded-md px-2.5 text-ui transition-colors duration-(--motion-fast)",
-  "hover:bg-sidebar-accent focus-ring-inset",
-  "data-[status=active]:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent",
-);
-
-export function CompactViewRowBody(props: {
-  icon: IconGlyph;
-  title: ReactNode;
-  status?: ReactNode;
-}) {
-  return (
-    <>
-      <Icon icon={props.icon} size={14} className="shrink-0 text-muted-foreground" />
-      <span data-view-row-title="" className="min-w-0 flex-1 truncate">
-        {props.title}
-      </span>
-      {props.status}
-    </>
-  );
-}
-
-/** Group label inside a view's list in the sidebar ("Needs you", "Plugins"). */
-export function ViewRowSection(props: { label: string; children: ReactNode }) {
-  return (
-    <section aria-label={props.label} className="mt-3 first:mt-1">
-      <h3 className="px-[11px] pb-1.5 text-sm font-medium text-muted-foreground">{props.label}</h3>
-      <ul className="flex flex-col gap-px">{props.children}</ul>
-    </section>
-  );
-}
-
-/** The rows of a view list: links and buttons around a `CompactViewRowBody`, or marked `data-view-row`. */
+/** The rows of a view list: links and buttons around a `PanelRowBody`, or marked `data-view-row`. */
 function rowsOf(list: HTMLElement): HTMLElement[] {
   const rows = new Set<HTMLElement>();
   for (const element of list.querySelectorAll<HTMLElement>(

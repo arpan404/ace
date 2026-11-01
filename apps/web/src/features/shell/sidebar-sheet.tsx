@@ -4,8 +4,9 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 
 /**
- * The sidebar on a narrow window: a sheet over the content, opened from the header. It covers
- * the header's toggle, so it carries its own at the end of the top row.
+ * The sidebar on a narrow window, rail and panel together: a sheet over the content, opened from
+ * the header. It covers the header's toggle, so it carries its own at the end of the panel's top
+ * row.
  */
 export function SidebarSheet(props: {
   open: boolean;
@@ -17,7 +18,7 @@ export function SidebarSheet(props: {
       <SheetContent
         side="left"
         showCloseButton={false}
-        className="no-scrollbar w-[min(320px,88vw)] gap-0 bg-sidebar p-0"
+        className="no-scrollbar w-[min(372px,92vw)] gap-0 bg-sidebar p-0"
         // Following any link in it is a choice of where to go, even the page already open.
         onClickCapture={(event) => {
           const link = (event.target as Element).closest("a[href]");

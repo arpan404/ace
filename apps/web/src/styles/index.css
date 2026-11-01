@@ -233,6 +233,11 @@
     --tone: var(--status-unresponsive);
     --tone-text: var(--status-unresponsive-text);
   }
+  /* Finished work not yet seen: a filled dot in the blue (live work draws a ring, never a disc). */
+  [data-tone="unread"] {
+    --tone: var(--status-working);
+    --tone-text: var(--status-working-text);
+  }
   [data-tone="idle"] {
     --tone: var(--subtle-foreground);
     --tone-text: var(--subtle-foreground);

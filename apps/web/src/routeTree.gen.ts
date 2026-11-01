@@ -18,6 +18,8 @@ import { Route as SkillsRouteImport } from "./routes/skills"
 import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
+import { Route as HomeChatsRouteImport } from "./routes/_home.chats"
+import { Route as HomeHistoryRouteImport } from "./routes/_home.history"
 import { Route as HomeInboxRouteImport } from "./routes/_home.inbox"
 import { Route as HomeIssuesRouteImport } from "./routes/_home.issues"
 import { Route as HomeNewRouteImport } from "./routes/_home.new"
@@ -96,6 +98,16 @@ const HomeIndexRoute = HomeIndexRouteImport.update({
 const HomeArchivedRoute = HomeArchivedRouteImport.update({
   id: "/archived",
   path: "/archived",
+  getParentRoute: () => HomeRoute,
+} as any)
+const HomeChatsRoute = HomeChatsRouteImport.update({
+  id: "/chats",
+  path: "/chats",
+  getParentRoute: () => HomeRoute,
+} as any)
+const HomeHistoryRoute = HomeHistoryRouteImport.update({
+  id: "/history",
+  path: "/history",
   getParentRoute: () => HomeRoute,
 } as any)
 const HomeInboxRoute = HomeInboxRouteImport.update({
@@ -287,6 +299,8 @@ export interface FileRoutesByFullPath {
   "/skills": typeof SkillsRouteWithChildren
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
+  "/chats": typeof HomeChatsRoute
+  "/history": typeof HomeHistoryRoute
   "/inbox": typeof HomeInboxRoute
   "/issues": typeof HomeIssuesRoute
   "/new": typeof HomeNewRoute
@@ -328,6 +342,8 @@ export interface FileRoutesByTo {
   "/setup": typeof SetupRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
+  "/chats": typeof HomeChatsRoute
+  "/history": typeof HomeHistoryRoute
   "/inbox": typeof HomeInboxRoute
   "/issues": typeof HomeIssuesRoute
   "/new": typeof HomeNewRoute
@@ -375,6 +391,8 @@ export interface FileRoutesById {
   "/skills": typeof SkillsRouteWithChildren
   "/usage": typeof UsageRoute
   "/_home/archived": typeof HomeArchivedRoute
+  "/_home/chats": typeof HomeChatsRoute
+  "/_home/history": typeof HomeHistoryRoute
   "/_home/inbox": typeof HomeInboxRoute
   "/_home/issues": typeof HomeIssuesRoute
   "/_home/new": typeof HomeNewRoute
@@ -423,6 +441,8 @@ export interface FileRouteTypes {
     | "/skills"
     | "/usage"
     | "/archived"
+    | "/chats"
+    | "/history"
     | "/inbox"
     | "/issues"
     | "/new"
@@ -464,6 +484,8 @@ export interface FileRouteTypes {
     | "/setup"
     | "/usage"
     | "/archived"
+    | "/chats"
+    | "/history"
     | "/inbox"
     | "/issues"
     | "/new"
@@ -510,6 +532,8 @@ export interface FileRouteTypes {
     | "/skills"
     | "/usage"
     | "/_home/archived"
+    | "/_home/chats"
+    | "/_home/history"
     | "/_home/inbox"
     | "/_home/issues"
     | "/_home/new"
@@ -621,6 +645,20 @@ declare module "@tanstack/react-router" {
       path: "/archived"
       fullPath: "/archived"
       preLoaderRoute: typeof HomeArchivedRouteImport
+      parentRoute: typeof HomeRoute
+    }
+    "/_home/chats": {
+      id: "/_home/chats"
+      path: "/chats"
+      fullPath: "/chats"
+      preLoaderRoute: typeof HomeChatsRouteImport
+      parentRoute: typeof HomeRoute
+    }
+    "/_home/history": {
+      id: "/_home/history"
+      path: "/history"
+      fullPath: "/history"
+      preLoaderRoute: typeof HomeHistoryRouteImport
       parentRoute: typeof HomeRoute
     }
     "/_home/inbox": {
@@ -873,6 +911,8 @@ declare module "@tanstack/react-router" {
 
 interface HomeRouteChildren {
   HomeArchivedRoute: typeof HomeArchivedRoute
+  HomeChatsRoute: typeof HomeChatsRoute
+  HomeHistoryRoute: typeof HomeHistoryRoute
   HomeInboxRoute: typeof HomeInboxRoute
   HomeIssuesRoute: typeof HomeIssuesRoute
   HomeNewRoute: typeof HomeNewRoute
@@ -889,6 +929,8 @@ interface HomeRouteChildren {
 
 const HomeRouteChildren: HomeRouteChildren = {
   HomeArchivedRoute: HomeArchivedRoute,
+  HomeChatsRoute: HomeChatsRoute,
+  HomeHistoryRoute: HomeHistoryRoute,
   HomeInboxRoute: HomeInboxRoute,
   HomeIssuesRoute: HomeIssuesRoute,
   HomeNewRoute: HomeNewRoute,

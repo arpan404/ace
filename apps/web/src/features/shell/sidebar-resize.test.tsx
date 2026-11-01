@@ -4,6 +4,7 @@ import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 const handle = () => screen.getByRole("separator", { name: "Resize sidebar" });
+/** The panel's width beside the rail, which the handle reports. */
 const width = () => Number(handle().getAttribute("aria-valuenow"));
 
 /**
@@ -18,15 +19,15 @@ async function openSettings(storage = memoryKeyValue()) {
 
 test("dragging the sidebar's edge widens it, and the width is kept across a reload", async () => {
   const { view, storage } = await openSettings();
-  expect(width()).toBe(336);
-  fireEvent.pointerDown(handle(), { button: 0, pointerId: 1, clientX: 336 });
-  fireEvent.pointerMove(handle(), { pointerId: 1, clientX: 400 });
-  expect(width()).toBe(400);
-  fireEvent.pointerUp(handle(), { pointerId: 1, clientX: 400 });
+  expect(width()).toBe(288);
+  fireEvent.pointerDown(handle(), { button: 0, pointerId: 1, clientX: 340 });
+  fireEvent.pointerMove(handle(), { pointerId: 1, clientX: 404 });
+  expect(width()).toBe(352);
+  fireEvent.pointerUp(handle(), { pointerId: 1, clientX: 404 });
   view.unmount();
 
   await openSettings(storage);
-  expect(width()).toBe(400);
+  expect(width()).toBe(352);
 });
 
 test("the sidebar's width stays within its bounds and a double-click puts it back", async () => {
@@ -39,14 +40,14 @@ test("the sidebar's width stays within its bounds and a double-click puts it bac
   await userEvent.keyboard("{Home}");
   expect(width()).toBe(220);
   await userEvent.dblClick(handle());
-  expect(width()).toBe(336);
+  expect(width()).toBe(288);
 });
 
 test("arrow keys on the sidebar's edge grow it to the right and shrink it to the left", async () => {
   await openSettings();
   handle().focus();
   await userEvent.keyboard("{ArrowRight}");
-  expect(width()).toBe(352);
+  expect(width()).toBe(304);
   await userEvent.keyboard("{Shift>}{ArrowLeft}{/Shift}");
-  expect(width()).toBe(288);
+  expect(width()).toBe(240);
 });

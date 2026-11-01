@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useSidebarInline } from "@/lib/breakpoints.ts";
+import { PanelTitle, PanelTitleRow } from "@/components/ui/panel.tsx";
 import { Screen } from "./screen.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
@@ -58,9 +59,7 @@ export function ViewFrame(props: {
           </aside>,
           body,
         )}
-      <div className="relative flex min-w-0 flex-1 bg-reading">
-        <div className="relative flex min-w-0 flex-1 flex-col">{props.children}</div>
-      </div>
+      <div className="relative flex min-w-0 flex-1 flex-col">{props.children}</div>
     </ViewListContext.Provider>
   );
 }
@@ -92,27 +91,33 @@ export function ViewListPage(props: { title: string; fallback: ReactNode }) {
   );
 }
 
-/** The heading of a view's list in the sidebar, with an optional filter or actions. */
-export function SidebarHeader(props: { title?: string | undefined; actions?: ReactNode }) {
+/**
+ * The panel's title row, under the window's top bar: the place's title and its actions (32px
+ * icon buttons), level with the rail's first place.
+ */
+export function PanelHeader(props: { title: string; actions?: ReactNode }) {
   return (
-    <div className="group/heading flex h-9 shrink-0 items-center gap-1.5 pt-1 pr-2.5 pl-4">
-      {props.title ? (
-        <h2 className="min-w-0 flex-1 truncate text-xs font-medium text-subtle-foreground">
-          {props.title}
-        </h2>
-      ) : (
-        <span className="flex-1" />
-      )}
+    <PanelTitleRow>
+      <PanelTitle>{props.title}</PanelTitle>
       {props.actions}
+    </PanelTitleRow>
+  );
+}
+
+/** A view list's actions with no title: the list drawn as a page, under the page's own. */
+function ListActions(props: { children: ReactNode }) {
+  return (
+    <div className="flex h-9 shrink-0 items-center justify-end gap-1.5 pt-1 pr-2.5 pl-4">
+      {props.children}
     </div>
   );
 }
 
-/** An optional heading plus a scrolling body: the common layout of a view's list. */
+/** The panel's header (the place's title) plus a scrolling body: the common layout of a view's list. */
 export function ViewSidebar(props: {
   title?: string;
   actions?: ReactNode;
-  /** Fixed rows under the heading (tabs, search). */
+  /** Fixed rows under the heading: the panel's search (`PanelSearch`), New automation. */
   toolbar?: ReactNode;
   children: ReactNode;
 }) {
@@ -120,7 +125,11 @@ export function ViewSidebar(props: {
   const title = useContext(InPageContext) ? undefined : props.title;
   return (
     <>
-      {(title || props.actions) && <SidebarHeader title={title} actions={props.actions} />}
+      {title ? (
+        <PanelHeader title={title} actions={props.actions} />
+      ) : (
+        props.actions && <ListActions>{props.actions}</ListActions>
+      )}
       {props.toolbar}
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-4">{props.children}</div>
     </>

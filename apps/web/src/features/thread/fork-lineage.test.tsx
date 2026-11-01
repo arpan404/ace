@@ -132,7 +132,8 @@ test("a fork's header names its project like any thread, never the thread it cam
     level: 1,
     name: "Document the router (fork)",
   });
-  const project = banner().getByText("docs-site");
+  // Its project's folder glyph, named for assistive tech and in its tooltip.
+  const project = banner().getByRole("img", { name: "Project docs-site" });
   expect(precedes(project, forkTitle)).toBe(true);
   expect(banner().queryByRole("link", { name: "Document the router" })).toBeNull();
 });

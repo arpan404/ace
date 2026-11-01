@@ -1,5 +1,4 @@
 import { useLayoutEffect, useRef, type FocusEvent, type RefObject } from "react";
-import { findComposerInput } from "@/lib/focus-composer.ts";
 
 const focusable =
   'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -25,8 +24,7 @@ function panelStop(panel: HTMLElement): HTMLElement | null {
  * After a shortcut opened the side panel or showed one of its tools, move focus into it (the
  * showing tab) once it is on screen, so the keyboard carries on there. Looks on each frame for
  * a moment; a key or a click meanwhile, a dialog opening (a tool's own palette) or focus already
- * inside the panel (a terminal taking it) leaves focus where it is. The floating panel is a
- * sheet, which moves focus itself. Returns a cancel.
+ * inside the panel (a terminal taking it) leaves focus where it is. Returns a cancel.
  */
 export function focusPanelSoon(root: HTMLElement | null, frames = 30): () => void {
   if (!root) return () => {};
@@ -59,25 +57,24 @@ export function focusPanelSoon(root: HTMLElement | null, frames = 30): () => voi
 }
 
 /**
- * Hiding the side panel while focus is in it hands focus back to the composer (else to
- * `fallback`, the panel's toggle), never to the page's body. Returns the focus handlers for the
- * panel's root.
+ * Hiding the side panel while focus is in it hands focus to `target` (the composer, or the
+ * panel's toggle), never to the page's body. Returns the focus handlers for the panel's root.
  */
 export function useFocusBackOnHide(
   panel: RefObject<HTMLElement | null>,
   open: boolean,
-  fallback: () => HTMLElement | null | false | undefined,
+  target: () => HTMLElement | null | false | undefined,
 ) {
   // Focus went into the panel and has not moved on to anything outside it since. Leaving for
   // nowhere (a control hiding under it) still counts as inside.
   const inside = useRef(false);
   const wasOpen = useRef(open);
-  const latest = useRef(fallback);
+  const latest = useRef(target);
   // The panel's element as last rendered: hidden in an Activity, its ref is detached by the
   // time the hide is seen, though the element (and the focus in it) is still in the document.
   const seen = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
-    latest.current = fallback;
+    latest.current = target;
     if (panel.current) seen.current = panel.current;
   });
   useLayoutEffect(() => {
@@ -90,8 +87,7 @@ export function useFocusBackOnHide(
     const active = doc.activeElement;
     // The person moved focus elsewhere on purpose (a menu, a dialog): leave it there.
     if (active && active !== doc.body && !element?.contains(active)) return;
-    const target = findComposerInput(doc) ?? (latest.current() || undefined);
-    target?.focus({ preventScroll: true });
+    (latest.current() || undefined)?.focus({ preventScroll: true });
   }, [open, panel]);
   return {
     onFocus: () => {

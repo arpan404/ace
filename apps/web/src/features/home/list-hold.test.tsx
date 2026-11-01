@@ -77,14 +77,14 @@ test("rows reorder at once while the pointer rests on the list", async () => {
   expect(row(/^Oldest thread\. Working/)).toBeTruthy();
 });
 
-test("a thread that needs you rises at once under a resting pointer", async () => {
+test("a thread that needs you rises to the top of Active at once under a resting pointer", async () => {
   const app = await openHome();
   await userEvent.hover(list());
   app.daemon.apply("thread-middle", asks);
   await waitFor(() => expect(order()).toEqual(["Middle", "Newest", "Oldest"]));
 });
 
-test("while the keyboard is in the list only a thread that needs you moves", async () => {
+test("while the keyboard is in the list rows hold, and only a thread that needs you leaves", async () => {
   const app = await openHome();
   // Tab into the list from New thread, the stop just before it: the keyboard is on its one Tab stop.
   screen.getByRole("link", { name: "New thread" }).focus();
@@ -94,6 +94,7 @@ test("while the keyboard is in the list only a thread that needs you moves", asy
   app.daemon.apply("thread-oldest", working);
   app.daemon.apply("thread-middle", asks);
   await waitFor(() => expect(order()).toEqual(["Middle", "Newest", "Oldest"]));
+  // Working now, the oldest thread holds its place under the keyboard.
   expect(row(/^Oldest thread\. Working/)).toBeTruthy();
 
   // Keyboard focus leaving the list lets the rest move.

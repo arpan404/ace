@@ -1,36 +1,30 @@
 import { workbench } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
 const title = "Bump Codex app-server to 0.48";
 const named = new RegExp(`^${title}`);
+const settledName = new RegExp(`^${title}\\. Settled`);
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 
-/** Home with the workbench's merged Codex bump settled and the Settled section open. */
+/**
+ * Home with the workbench's merged Codex bump settled moments ago: the UI's clock reads just
+ * past the daemon's, so the thread is still within its grace period and stays in its project.
+ */
 async function openSettled() {
-  const storage = memoryKeyValue();
-  storage.setItem(
-    "ace.home.organizer",
-    JSON.stringify({ baseline: 0, project: null, settledOpen: true }),
-  );
   const history = createMemoryHistory({ initialEntries: ["/"] });
-  const app = harness({ storage, history });
+  const app = harness({ history, uiClock: () => 600_000 });
   await app.client.start();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  await app.client.command({
-    type: "thread.settle",
-    threadId: ThreadId.parse("thread-bump-codex"),
-  });
   await app.open("/");
   const link = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
     "link",
-    { name: named },
+    { name: settledName },
   );
   const row = link.parentElement;
   if (!row) throw new Error("No row container");
@@ -42,15 +36,15 @@ function settledAt(app: ReturnType<typeof harness>) {
   return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
 }
 
-test("a settled thread is one line of project badge, title and age, without branch or provider", async () => {
-  const { link, row } = await openSettled();
-  // The badge's initials and the title lead; its PR or diff and its age follow on the right.
-  expect(link.textContent).toMatch(new RegExp(`^[A-Za-z]{1,2}${title}`));
-  expect(link.textContent).toMatch(/\d+[smhdw]$|\b[A-Z][a-z]{2}$/);
-  expect(row.textContent).not.toContain("chore/codex-048");
+test("in its project a recently settled thread is one dimmed line, its title alone, with no mark", async () => {
+  const { link } = await openSettled();
+  expect(link.textContent).toBe(title);
+  expect(link.querySelector("[data-indicator]")).toBeNull();
   expect(within(link).queryByRole("img", { name: /Codex/ })).toBeNull();
-  // Assistive tech still hears the context the line leaves out.
-  expect(link.getAttribute("aria-label")).toContain("Codex");
+  // Assistive tech hears Settled first, then the context the line leaves out.
+  expect(link.getAttribute("aria-label")).toMatch(settledName);
+  for (const said of ["Codex", "chore/codex-048", "Pull request #212"])
+    expect(link.getAttribute("aria-label")).toContain(said);
 });
 
 test("→ moves from a settled row to Unsettle, which brings the thread back to the list", async () => {
@@ -61,7 +55,8 @@ test("→ moves from a settled row to Unsettle, which brings the thread back to 
   const unsettle = screen.getByRole("button", { name: `Unsettle ${title}` });
   expect(document.activeElement).toBe(unsettle);
   await userEvent.keyboard("{Enter}");
-  await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
+  // Back among its project's open threads, as a full task row offering Settle.
+  await waitFor(() => expect(screen.getByRole("button", { name: `Settle ${title}` })).toBeTruthy());
   expect(settledAt(app)).toBeUndefined();
   expect(within(threads()).getByRole("link", { name: named })).toBeTruthy();
 });

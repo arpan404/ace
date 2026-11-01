@@ -50,7 +50,7 @@ test("forking from an answer opens the fork ready for a message, and the message
   await screen.findByRole("heading", { level: 1, name: "Document the router (fork)" });
   expect(screen.queryByRole("dialog")).toBeNull();
   const banner = within(screen.getByRole("banner"));
-  expect(banner.getByText("docs-site")).toBeTruthy();
+  expect(banner.getByRole("img", { name: "Project docs-site" })).toBeTruthy();
   expect(banner.queryByRole("link", { name: "Document the router" })).toBeNull();
   expect(within(forkedFrom()).getByRole("link", { name: "Document the router" })).toBeTruthy();
   // Nothing exists until the first message is sent.

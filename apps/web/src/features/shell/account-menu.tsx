@@ -5,6 +5,7 @@ import { initials } from "@ace/ui-core";
 
 import { useProfileName } from "@/lib/profile.ts";
 import { Icon } from "@/components/icon.tsx";
+import { railPlaceClass } from "@/components/rail-place.ts";
 import { connectionDot, connectionLabels } from "./connection-labels.ts";
 import { SidebarMenu } from "./sidebar-menu.tsx";
 
@@ -12,11 +13,11 @@ const AccountMenuContent = deferredComponent(() =>
   import("./account-menu-content.tsx").then((module) => module.AccountMenuContent),
 );
 /**
- * The profile at the foot of the sidebar, its full width: the person's initials on a neutral disc
- * (a silhouette until they give a name in Settings › General) and their name. Connection trouble
- * is a quiet dot beside the name (the screen says it in words once); a healthy connection adds none. The connection is
- * part of the button's name rather than a live region, so a flapping connection isn't read out
- * each time. Its menu is the only way to Usage.
+ * The profile at the foot of the rail: the person's initials on a neutral disc (a silhouette
+ * until they give a name in Settings › General). Connection trouble is a quiet dot on the disc
+ * (the screen says it in words once); a healthy connection adds none. The connection is part of
+ * the button's name rather than a live region, so a flapping connection isn't read out each
+ * time. Its menu is the only way to Usage.
  */
 export function AccountMenu() {
   const state = useConnectionState();
@@ -29,13 +30,10 @@ export function AccountMenu() {
       : `${shown}, account, ace ${connectionLabels[state].toLowerCase()}`;
   return (
     <SidebarMenu
+      tip={shown}
       trigger={
-        <button
-          type="button"
-          aria-label={label}
-          className="flex h-10 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 text-left transition-colors duration-(--motion-fast) focus-ring hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent pointer-coarse:h-11"
-        >
-          <span className="relative grid size-7 shrink-0 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]">
+        <button type="button" aria-label={label} className={railPlaceClass}>
+          <span className="relative grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]">
             {letters ? (
               <span
                 aria-hidden
@@ -46,13 +44,13 @@ export function AccountMenu() {
             ) : (
               <Icon icon={UserIcon} size={14} />
             )}
+            {state !== "ready" && (
+              <span
+                aria-hidden
+                className={`absolute -top-px -right-px size-2 rounded-full ring-2 ring-sidebar ${connectionDot[state]}`}
+              />
+            )}
           </span>
-          <span aria-hidden className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-ui font-medium text-foreground">{shown}</span>
-          </span>
-          {state !== "ready" && (
-            <span aria-hidden className={`size-2 shrink-0 rounded-full ${connectionDot[state]}`} />
-          )}
         </button>
       }
     >

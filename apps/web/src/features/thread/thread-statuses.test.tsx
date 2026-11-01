@@ -18,21 +18,24 @@ configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
-/** Open one scenario's thread, played to its end, with the sidebar's list beside it. */
+/** Open one scenario's thread, played to its end, with its row in the sidebar's list beside it. */
 async function open(scenario: Scenario) {
   const app = harness();
   app.play(scenario).runUntilBlocked();
   await app.open(`/t/${scenario.thread.id}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const header = screen.getByRole("banner");
-  const row = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
-    "link",
-    {
-      name: new RegExp(`^${scenario.thread.title}`),
-    },
-  );
+  const holder = await screen.findByRole("navigation", { name: "Threads" });
+  const row = await within(holder).findByRole("link", {
+    name: new RegExp(`^${scenario.thread.title}`),
+  });
   return { app, feed, header, row };
 }
+/** The one mark at a row's right edge (`RowIndicator`): its kind and tone. */
+const mark = (row: HTMLElement) => {
+  const found = row.querySelector<HTMLElement>("[data-indicator]");
+  return found && { kind: found.dataset.indicator, tone: found.dataset.tone };
+};
 
 test("a background command appears once in the transcript while its row keeps the status", async () => {
   const { header, row, feed } = await open(watchingRelay());
@@ -52,10 +55,10 @@ test("a thread whose turn ended with a background command reads Background, its 
   ).toBeNull();
   const waiting = await strip(/^Running bun run dev:relay/);
   expect(within(waiting).getByRole("button", { name: "Stop the background command" })).toBeTruthy();
-  expect(within(row).getByText("Background · 1", { exact: true })).toBeTruthy();
-  expect(within(row).queryByText("Working", { exact: true })).toBeNull();
-  expect(within(row).queryByText("Done", { exact: true })).toBeNull();
+  // The row carries the quiet background ring; its name says what runs, never Working or Done.
+  expect(mark(row)).toEqual({ kind: "live", tone: "background" });
   const spoken = row.getAttribute("aria-label") ?? "";
+  expect(spoken).toContain("Running in background");
   expect(spoken).not.toMatch(/\. Working|\. Done/);
   expect(await within(header).findByRole("button", { name: /^Thread details$/ })).toBeTruthy();
 });
@@ -68,7 +71,7 @@ test("a thread waiting on subagents keeps their count in the composer strip", as
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
-test("a thread waiting on its subagents reads Waiting in its row, its strip timed with the only Stop", async () => {
+test("a thread waiting on its subagents shows the waiting ring in its row, its strip timed with the only Stop", async () => {
   const { feed, row } = await open(waitingOnSubagents());
   // The main agent does nothing itself: no "Working for" line; the strip waits, timed.
   const waiting = await strip(/^Waiting for 2 subagents/);
@@ -78,8 +81,7 @@ test("a thread waiting on its subagents reads Waiting in its row, its strip time
   expect(screen.getAllByRole("button", { name: "Stop the agent" })).toEqual([
     within(waiting).getByRole("button", { name: "Stop the agent" }),
   ]);
-  expect(within(row).getByText("Waiting", { exact: true })).toBeTruthy();
-  expect(within(row).queryByText("Working", { exact: true })).toBeNull();
+  expect(mark(row)).toEqual({ kind: "live", tone: "waiting" });
   // What the row says aloud and what its hover card shows read the same word.
   const spoken = row.getAttribute("aria-label") ?? "";
   expect(spoken).toContain(". Waiting for 2 subagents");

@@ -3,6 +3,7 @@ import { seedFakeSkills } from "./fake-skills.ts";
 import {
   FakeDaemon,
   ScenarioPlayer,
+  buildServerChats,
   crossDevice,
   delegatedQuestion,
   devWorld,
@@ -182,6 +183,9 @@ export function bootFake(): {
         hasSentMessage: true,
         details: { workspace: added.workspace },
       });
+    // Chats there too, so the Chats panel shows another machine's chats and its device filter.
+    for (const chat of buildServerChats())
+      new ScenarioPlayer(server, chat.scenario, { agoMs: chat.agoMs }).runUntilBlocked();
   }
   seedBuildServerUsage(server, Date.now());
   // This Mac and the build server are linked both ways, as Settings › Fleet's Link leaves them,

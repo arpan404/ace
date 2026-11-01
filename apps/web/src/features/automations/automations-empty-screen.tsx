@@ -1,4 +1,4 @@
-import { ClockIcon } from "@phosphor-icons/react";
+import { TimerIcon } from "@phosphor-icons/react";
 import { Link, Navigate } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -31,7 +31,7 @@ export function AutomationsEmptyScreen() {
     return (
       <Screen title="Automations">
         <EmptyState
-          icon={ClockIcon}
+          icon={TimerIcon}
           title="Automations unavailable"
           description={describeDaemonError(daemonErrorCode(list.error))}
           action={
@@ -47,7 +47,7 @@ export function AutomationsEmptyScreen() {
   return (
     <Screen title="Automations">
       <EmptyState
-        icon={ClockIcon}
+        icon={TimerIcon}
         heading
         title="No automations yet"
         description="Run a prompt on a schedule, when a pull request changes, or when files change."

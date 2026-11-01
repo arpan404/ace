@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+
 import {
   settleAction,
   useHomeSelection,
@@ -7,31 +8,34 @@ import {
   useThreadActions,
 } from "@/features/organize/index.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { GitMergeIcon, GitPullRequestIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
+import { panelRowLine } from "@/components/ui/panel.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowMoreMenu } from "./row-actions.tsx";
-import { ProjectMark, threadDetails } from "./row-parts.tsx";
+import { threadDetails } from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useOpenHere, type RowMachine } from "./thread-row.tsx";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
-// The task rows' box and fills, one line tall: settled work is out of the way.
-const row =
-  "flex h-8 w-full items-center gap-2 rounded-md px-3 text-left text-ui transition-colors duration-(--motion-fast)";
+// The panel's one row line (`panelRowLine`): settled work is out of the way.
+const box = panelRowLine;
 
-/**
- * A settled thread at rest: its project badge and title on one line. Under the pointer or focus,
- * Unsettle and the row's ⋯ menu take the right end; the context menu is the task row's own.
- * Another machine's settled thread (`machine`) acts on that machine, under its list `rowId`.
- */
-export function SettledRow(props: {
+interface SettledProps {
   threadId: string;
   leaving?: boolean | undefined;
+  /** Another machine's settled thread acts on that machine, under its list `rowId`. */
   machine?: RowMachine | undefined;
   rowId?: string | undefined;
-}) {
+}
+
+/**
+ * A settled thread in its project: one line, dimmed (the
+ * title in subtle ink, full ink only while open), lined up with the project's name. Under the
+ * pointer or focus, Unsettle and the row's ⋯ menu take the right end; the context menu is the
+ * task row's own.
+ */
+export function SettledRow(props: SettledProps) {
   const { machine } = props;
   const rowId = props.rowId ?? props.threadId;
   const data = useThreadCard(props.threadId, true, props.leaving);
@@ -48,94 +52,70 @@ export function SettledRow(props: {
     : data.card;
   const rename = () => selection.rename(rowId, card.title);
   const unsettle = settleAction(entry, card.flags, actions);
+  const title = renaming ? (
+    <RenameField
+      entry={entry}
+      rowId={rowId}
+      title={editing ?? refused ?? card.title}
+      onDone={() => selection.finishRename()}
+    />
+  ) : (
+    card.title
+  );
   const body = (
     <>
-      {/* Settled work recedes as a whole: a grey badge and a grey title, full colour only while open. */}
-      <ProjectMark id={entry.workspaceId} badge={card.badge} quiet={!current} />
+      <span aria-hidden className="w-4 shrink-0" />
       <span
         className={cn(
-          "min-w-0 flex-1 truncate leading-5",
-          current ? "text-foreground" : "text-subtle-foreground/75",
+          "min-w-0 flex-1 truncate",
+          current ? "font-medium text-foreground" : "text-subtle-foreground",
         )}
       >
-        {renaming ? (
-          <RenameField
-            entry={entry}
-            rowId={rowId}
-            title={editing ?? refused ?? card.title}
-            onDone={() => selection.finishRename()}
-          />
-        ) : (
-          card.title
-        )}
+        {title}
       </span>
-      {!renaming && (
-        // What the work left behind, then its age: the PR when there is one, else the lines
-        // changed. Faint like the rest of the row; the row's actions take this place on hover.
-        <span className="flex shrink-0 items-center gap-2.5 text-meta text-faint-foreground tabular-nums group-hover/row:invisible group-focus-within/row:invisible">
-          {card.pr !== undefined ? (
-            <span className="inline-flex items-center gap-1">
-              {card.prState === "merged" ? (
-                <GitMergeIcon aria-hidden size={12} />
-              ) : (
-                <GitPullRequestIcon aria-hidden size={12} />
-              )}
-              {card.pr}
-            </span>
-          ) : card.diff && card.diff.added + card.diff.removed > 0 ? (
-            <span>
-              +{card.diff.added} −{card.diff.removed}
-            </span>
-          ) : null}
-          <span>{card.age}</span>
-        </span>
-      )}
     </>
-  );
-  const drawn = (
-    <div className="group/row relative">
-      {renaming ? (
-        <div className={row}>{body}</div>
-      ) : (
-        <Link
-          {...threadOn(machine?.id, entry.id)}
-          aria-label={`${card.title}. ${threadDetails(card).join(", ")}`}
-          data-row-focus=""
-          draggable={false}
-          className={cn(
-            row,
-            "outline-none focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset group-hover/row:pr-16 group-focus-within/row:pr-16",
-            current ? "bg-active" : "hover:bg-hover",
-          )}
-        >
-          {body}
-        </Link>
-      )}
-      {!renaming && (
-        <div
-          className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within/row:flex group-hover/row:flex has-[[data-popup-open]]:flex"
-          role="presentation"
-          onClick={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          {unsettle && (
-            <IconButton
-              icon={unsettle.icon}
-              size="sm"
-              label={`${unsettle.label} ${card.title}`}
-              tip={unsettle.label}
-              tabIndex={-1}
-              onClick={unsettle.run}
-            />
-          )}
-          <RowMoreMenu entry={entry} flags={card.flags} onRename={rename} />
-        </div>
-      )}
-    </div>
   );
   return (
     <ThreadMenu entry={entry} rowId={rowId} state={card.flags} onRename={rename}>
-      {drawn}
+      <div className="group/row relative">
+        {renaming ? (
+          <div className={box}>{body}</div>
+        ) : (
+          <Link
+            {...threadOn(machine?.id, entry.id)}
+            aria-label={`${card.title}. ${["Settled", ...threadDetails(card)].join(", ")}`}
+            data-row-focus=""
+            draggable={false}
+            className={cn(
+              box,
+              "outline-none focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset group-hover/row:pr-16 group-focus-within/row:pr-16",
+              current ? "bg-active" : "hover:bg-hover",
+            )}
+          >
+            {body}
+          </Link>
+        )}
+        {!renaming && (
+          <div
+            className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within/row:flex group-hover/row:flex has-[[data-popup-open]]:flex"
+            role="presentation"
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            {unsettle && (
+              <IconButton
+                icon={unsettle.icon}
+                size="sm"
+                label={`${unsettle.label} ${card.title}`}
+                tip={unsettle.label}
+                tabIndex={-1}
+                onClick={unsettle.run}
+              />
+            )}
+            <RowMoreMenu entry={entry} flags={card.flags} onRename={rename} />
+          </div>
+        )}
+      </div>
     </ThreadMenu>
   );
 }

@@ -124,6 +124,11 @@ export const SettingsValues = z.object({
    * threads first, then most recent), newest created first, or by hand (`thread.place`).
    */
   "threads.sortBy": z.enum(["activity", "created", "manual"]),
+  /**
+   * No longer read: settled threads always stay in their project (ADR 0107). Kept so settings
+   * files that set it still parse.
+   */
+  "threads.keepSettledFor": z.enum(["0d", "1d", "3d", "7d"]),
   "remote.enabled": z.boolean(),
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
   /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */

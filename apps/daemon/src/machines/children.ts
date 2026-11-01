@@ -18,7 +18,7 @@ import type { RemoteChildren } from "../agent-control/monitor.ts";
 import { clip, settledStates } from "../agent-control/watch-view.ts";
 import type { RequestMirror } from "./mirror.ts";
 import { ChildMessages, type Answer, type ChildMessagesDeps } from "./child-messages.ts";
-import { ChildResults } from "./child-results.ts";
+import { ChildResults, type ChildResultsDeps } from "./child-results.ts";
 import { queuedStatus, queuedStep } from "../agent-control/child-status.ts";
 import {
   RECHECK_PER_MACHINE,
@@ -54,8 +54,7 @@ export interface ChildrenDeps {
   label(machine: string): string;
   /** The machine's host id when known, so the parent's row can name where the child lives. */
   host?(machine: string): HostId | undefined;
-  /** Hands a settled result or a message notice to the parent; `key` names it once. */
-  deliver(parentThreadId: ThreadId, key: string, text: string): void;
+  deliver: ChildResultsDeps["deliver"];
   /** A live wait reads this child, so its result is not woken separately. */
   waiting(id: ThreadId): boolean;
   isDescendant(child: ThreadId, ancestor: ThreadId): boolean;

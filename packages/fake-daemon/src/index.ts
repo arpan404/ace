@@ -40,6 +40,7 @@ export {
   smoothnessMeasurements,
 } from "./scenarios/smoothness.ts";
 export { homeList } from "./scenarios/home-list.ts";
+export { askingChatScenario, buildServerChats, chatScenario, chats } from "./scenarios/chats.ts";
 export {
   aceCall,
   aceTools,
