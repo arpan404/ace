@@ -16,5 +16,6 @@ if (defaultWarning) {
     defaultWarning.call(process, warning);
   });
 }
-export { DatabaseSync, StatementSync, backup } from "node:sqlite";
+export { DatabaseSync, StatementSync } from "node:sqlite";
+export { backup } from "./sqlite-backup.ts";
 export type { SQLInputValue, SQLOutputValue } from "node:sqlite";

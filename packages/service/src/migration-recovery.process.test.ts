@@ -85,3 +85,39 @@ test("an explicitly empty original inventory can remove databases introduced by 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a rollback snapshot finishes as one consistent copy while another connection keeps writing", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-snapshot-writer-"));
+  const writer = new DatabaseSync(join(root, "events.sqlite"));
+  let writes: ReturnType<typeof setInterval> | undefined;
+  try {
+    writer.exec("PRAGMA journal_mode=WAL; CREATE TABLE content(value BLOB)");
+    const insert = writer.prepare("INSERT INTO content VALUES(randomblob(4000))");
+    writer.exec("BEGIN");
+    // About 24 MB: dozens of backup steps, each one a chance for a write to restart the copy.
+    for (let row = 0; row < 6_000; row++) insert.run();
+    writer.exec("COMMIT");
+    writes = setInterval(() => insert.run(), 1);
+    const snapshot = join(root, "snapshot");
+    const finished = snapshotDatabases(root, snapshot).then(() => "finished" as const);
+    const stalled = new Promise<"stalled">((resolve) =>
+      setTimeout(resolve, 30_000, "stalled").unref(),
+    );
+    expect(await Promise.race([finished, stalled])).toBe("finished");
+    clearInterval(writes);
+    const copy = new DatabaseSync(join(snapshot, "events.sqlite"), { readOnly: true });
+    try {
+      expect(copy.prepare("PRAGMA integrity_check").get()?.integrity_check).toBe("ok");
+      const copied = Number(copy.prepare("SELECT count(*) AS rows FROM content").get()?.rows);
+      const live = Number(writer.prepare("SELECT count(*) AS rows FROM content").get()?.rows);
+      expect(copied).toBeGreaterThanOrEqual(6_000);
+      expect(copied).toBeLessThan(live);
+    } finally {
+      copy.close();
+    }
+  } finally {
+    clearInterval(writes);
+    writer.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
