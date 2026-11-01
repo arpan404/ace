@@ -13,12 +13,12 @@ export interface View {
   shortcut?: KeymapId;
 }
 
-/** A view the rail lists with its own glyph (Threads, Chats and GitHub draw theirs themselves). */
+/** A view the rail lists with its own glyph (Threads, Chats and Code review draw theirs themselves). */
 export interface RailView extends View {
   icon: IconGlyph;
 }
 
-/** The rail's places under GitHub, top to bottom. */
+/** The rail's places under Code review, top to bottom. */
 export const railViews: readonly RailView[] = [
   {
     id: "automations",
@@ -38,7 +38,7 @@ export const railViews: readonly RailView[] = [
   },
 ];
 
-/** GitHub in the rail: Inbox, Pull requests and Issues, opened on Pull requests. */
+/** Code review in the rail: Inbox, Pull requests and Issues, opened on Pull requests. */
 const forgeView: View = {
   id: "forge",
   label: "Pull requests",

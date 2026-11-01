@@ -13,7 +13,7 @@ const places = [
 type Place = (typeof places)[number]["to"];
 
 /**
- * The list a GitHub page belongs to: its own path's, or, for a pull request or issue opened from
+ * The list a Code review page belongs to: its own path's, or, for a pull request or issue opened from
  * the Inbox (`back` names the list it came from), the Inbox.
  */
 function forgePlaceOf(pathname: string, back: unknown): Place | undefined {
@@ -22,7 +22,7 @@ function forgePlaceOf(pathname: string, back: unknown): Place | undefined {
 }
 
 /**
- * GitHub's panel: its three pages, Inbox, Pull requests and Issues, as panel rows, the one the
+ * Code review's panel: its three pages, Inbox, Pull requests and Issues, as panel rows, the one the
  * page belongs to selected (a pull request's or issue's page included). The pages fill the main
  * column and carry no switch of their own: this panel is the way between them.
  */
@@ -35,8 +35,8 @@ export function ForgePanel() {
   });
   const keys = useViewListKeys<HTMLUListElement>();
   return (
-    <aside aria-label="GitHub" className="flex min-h-0 flex-1 flex-col">
-      <PanelHeader title="GitHub" />
+    <aside aria-label="Code review" className="flex min-h-0 flex-1 flex-col">
+      <PanelHeader title="Code review" />
       <ul {...keys} className="flex flex-col gap-px px-2 pb-4">
         {places.map((place) => (
           <li key={place.to}>

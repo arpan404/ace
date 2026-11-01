@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { GithubMark } from "@/components/github-mark.tsx";
+import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { railDotClass, railPlaceClass } from "./rail-place.ts";
 
 /**
- * GitHub in the sidebar's rail. It opens the list last looked at (Inbox, Pull requests or
+ * Code review in the sidebar's rail. It opens the list last looked at (Inbox, Pull requests or
  * Issues), the current place while one of those pages is open. Its dot is in the warning colour
  * while pull requests wait on the person, else blue while notifications are unread.
  */
@@ -22,10 +23,10 @@ export function ForgeButton(props: {
     waiting > 0 && `${waiting} ${waiting === 1 ? "needs" : "need"} you`,
     unread > 0 && `${unread} unread`,
   ].filter(Boolean);
-  const said = parts.length ? `GitHub, ${parts.join(", ")}` : "GitHub";
+  const said = parts.length ? `Code review, ${parts.join(", ")}` : "Code review";
   return (
     <Tip
-      label={parts.length ? `GitHub · ${parts.join(" · ")}` : "GitHub"}
+      label={parts.length ? `Code review · ${parts.join(" · ")}` : "Code review"}
       shortcut="goPullRequests"
     >
       <Link
@@ -34,8 +35,7 @@ export function ForgeButton(props: {
         aria-label={said}
         className={railPlaceClass}
       >
-        {/* The mark fills its box; the rail's 20px glyphs draw about 17 tall, so this matches. */}
-        <GithubMark size={17} />
+        <Icon icon={GitPullRequestIcon} size={20} active={props.active} />
         {(waiting > 0 || unread > 0) && (
           <span
             aria-hidden
