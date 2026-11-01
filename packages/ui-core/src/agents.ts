@@ -8,6 +8,7 @@ import type {
 } from "@ace/protocol";
 import { isActionableInteraction } from "@ace/core/human";
 import { agentStatusLabel, type Tone } from "./status.ts";
+import { remoteContactStep } from "./remote-contact.ts";
 import { providerNames } from "./providers.ts";
 import { firstLine } from "./line-text.ts";
 
@@ -170,6 +171,12 @@ export function agentWorkState(
   const running = work.running.has(agent.id);
   const needsYou = work.needsYou.has(agent.id);
   const waiting = running && !isRunning(agent);
+  // A remote child this machine can't vouch for says so in words, whatever its last status.
+  const contact = !running && !needsYou ? remoteContactStep(agent) : undefined;
+  if (contact) {
+    const words = contact.charAt(0).toUpperCase() + contact.slice(1);
+    return { running, needsYou, label: words, tone: "idle", activity: words };
+  }
   const label =
     !evidence.fresh && running
       ? "Last seen"

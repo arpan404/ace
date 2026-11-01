@@ -342,3 +342,23 @@ it("a wait on a child whose machine goes silent returns once it loses contact, i
     threads: [expect.objectContaining({ threadId: id, contact: "lost" })],
   });
 });
+
+it("a child that lost contact can still be stopped: it ends stopped for good, and a late report doesn't revive it", async () => {
+  const { f, parent, rijan, ledger, at } = await parentWithChildren(1);
+  const [id] = ids;
+  if (!id) throw new Error("no child");
+  rijan.silent = true;
+  await at(f.clock.now() + REMOTE_CHILD_LEASE_MS + 1_000);
+  expect(ledger.watched(id)?.view.contact).toBe("lost");
+
+  expect(ledger.stop(id)).toBe(true);
+  await at(f.clock.now() + 1);
+  await at(f.clock.now() + stopBound(REMOTE_STOP));
+  expect(ledger.watched(id)?.view).toMatchObject({ state: "cancelled", contact: "unconfirmed" });
+  expect(parentView(f, parent).holds.map((hold) => hold.status)).toEqual(["stopped"]);
+
+  rijan.silent = false;
+  await at(f.clock.now() + 10_000);
+  expect(ledger.child(id)?.settled).toBe(true);
+  expect(live).not.toContain(parentView(f, parent).status.state);
+});
