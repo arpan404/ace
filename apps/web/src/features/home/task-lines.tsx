@@ -19,8 +19,9 @@ export const taskRowHeight = "h-[80px] py-2.5 px-3 items-start";
 
 /**
  * An Active row's three lines: the project and the status (or its age), the title, then the
- * branch, pull request, machine and provider. The status stays while the row's actions show:
- * they sit beside it, and the project name stops short of both.
+ * branch, pull request, machine and provider. Under the pointer or keyboard focus the row's
+ * actions take the status's place: the status hides where it sits, and the project name stops
+ * short of the actions.
  */
 export function TaskLines(props: {
   card: ThreadCard;
@@ -52,7 +53,16 @@ export function TaskLines(props: {
         <span className="flex shrink-0 items-center gap-1.5">
           <BrowsingMark threadId={card.id} />
           <ComputerUseMark threadId={card.id} />
-          <RowStatus card={card} attention={attention} />
+          <span
+            data-row-status=""
+            aria-hidden={props.actions ? true : undefined}
+            className={cn(
+              "flex shrink-0 items-center",
+              props.actions ? "invisible" : "group-has-[[data-popup-open]]/row:invisible",
+            )}
+          >
+            <RowStatus card={card} attention={attention} />
+          </span>
         </span>
       </div>
       <div
