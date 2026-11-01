@@ -1,5 +1,7 @@
 import {
   machineRow,
+  nextGitStep,
+  openGitMenu,
   openMachineMenu,
   openWorkCard,
   openWorkPanel,
@@ -282,10 +284,7 @@ test("the branch keeps its complete status and one commit entry point", async ()
   await userEvent.hover(within(git).getByText(branch));
   expect((await screen.findByRole("tooltip")).textContent).toBe(`${branch} → main`);
   await userEvent.unhover(within(git).getByText(branch));
-  expect(within(git).getByRole("button", { name: "Commit & push" })).toBeTruthy();
-  await userEvent.click(within(git).getByRole("button", { name: "More git actions" }));
-  await screen.findByRole("menu");
-  expect(screen.getByRole("menuitem", { name: /^Commit & push/ })).toBeTruthy();
+  expect(await nextGitStep()).toBe("Commit & push…");
 });
 
 test("a provider MCP server waiting for its own sign-in shows nowhere in the thread", async () => {
@@ -420,12 +419,9 @@ test("a checkout without a remote can't start a PR and says why", async () => {
   app.play(idleThread("thread-no-remote", sketch)).runUntilBlocked();
   await app.open("/t/thread-no-remote");
   await screen.findByRole("feed", { name: "Transcript" });
-  const card = await openWorkCard();
-  const create = await within(card).findByRole("button", { name: "Create PR" });
-  expect(create.hasAttribute("disabled")).toBe(true);
-  expect(create.getAttribute("title")).toBe(
-    "ace found no GitHub or GitLab remote for this checkout.",
-  );
+  const create = within(await openGitMenu()).getByRole("menuitem", { name: /^Create PR…/ });
+  expect(create.getAttribute("aria-disabled")).toBe("true");
+  expect(create.textContent).toContain("ace found no GitHub or GitLab remote for this checkout.");
 });
 
 test("the card says when the thread's directory isn't a git checkout, and offers no git step", async () => {
@@ -482,7 +478,6 @@ test("with an open linked PR, the card opens it in the thread's side panel and o
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openWorkCard();
   const pr = await within(card).findByRole("button", { name: /^Open pull request #188/ });
-  expect(within(card).queryByRole("button", { name: "Create PR" })).toBeNull();
   await userEvent.click(within(card).getByRole("button", { name: "More git actions" }));
   const actions = await screen.findByRole("menu");
   expect(within(actions).queryByRole("menuitem", { name: /^Create.*PR/ })).toBeNull();
@@ -535,7 +530,11 @@ test("the PR dialog's Draft option opens a draft pull request", async () => {
     expect(screen.queryByRole("dialog", { name: "Open a pull request" })).toBeNull(),
   );
   // The PR's own line says it is a draft.
-  expect(await within(await openWorkCard()).findByText(/A draft can't merge/)).toBeTruthy();
+  expect(
+    await within(await openWorkCard()).findByText(
+      "It's a draft, so it can't merge until it's marked ready on GitHub.",
+    ),
+  ).toBeTruthy();
 });
 
 const renamed = (index: number) => ({

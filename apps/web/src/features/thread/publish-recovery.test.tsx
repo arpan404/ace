@@ -151,8 +151,7 @@ test("a push the remote rejects after a rebase offers a force push leased to the
     { ...checkout, diff: { files: 0, additions: 0, deletions: 0 } },
     (fake) => fake.daemon.workspace.git.setRemoteDiverged("thread-git", "b".repeat(40)),
   );
-  const card = await openWorkCard();
-  await userEvent.click(within(card).getByRole("button", { name: "Push" }));
+  await gitAction("Push");
   const confirm = await screen.findByRole("dialog", { name: /^Push fix\/replay-cursor/ });
   await userEvent.click(within(confirm).getByRole("button", { name: "Push" }));
   expect((await within(confirm).findByRole("alert")).textContent).toMatch(
