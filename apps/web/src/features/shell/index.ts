@@ -8,7 +8,8 @@ export { Page, PageTitle, Screen, type ScreenWorkspace } from "./screen.tsx";
 export { SidebarFrame } from "./sidebar-frame.tsx";
 export { useThreadIdsWhere } from "./use-threads.ts";
 export { PanelHeader, ViewFrame, ViewListPage, ViewSidebar } from "./view-frame.tsx";
-export { views, type View } from "./views.ts";
+export { views, type View, type RailPlace } from "./views.ts";
+export { useRailPlace } from "./use-rail-place.ts";
 
 export { ShortcutHost } from "./shortcut-host.tsx";
 export { UpdateRestartDialog } from "./update-restart-dialog.tsx";

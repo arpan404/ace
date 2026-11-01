@@ -10,6 +10,9 @@ import type { HomeTree, TreeProject } from "./home-tree.ts";
 /** Where a thread row shows: the Pinned section, or its project. */
 export type RowPlace = "pinned" | "project";
 
+/** The Chats panel's day groups, by last activity (`chatDayOf`). */
+export type ChatDay = "today" | "yesterday" | "week" | "earlier";
+
 export type HomeRow =
   | { kind: "unsent" }
   | { kind: "thread"; id: string; place: RowPlace }
@@ -30,7 +33,11 @@ export type HomeRow =
   | { kind: "quiet-header"; count: number; open: boolean }
   | { kind: "quiet-project"; project: string }
   | { kind: "snoozed-header"; count: number }
-  | { kind: "snoozed"; id: string };
+  | { kind: "snoozed"; id: string }
+  /** A chat in the Chats panel (`chatRows`); a settled one is dimmed. */
+  | { kind: "chat"; id: string; settled: boolean }
+  /** The Chats panel's day heading: Today, Yesterday, Previous 7 days, Earlier. */
+  | { kind: "day-label"; day: ChatDay };
 
 /** A project's fold key (`Organizer.collapsed`). */
 export const projectFold = (id: string) => `project:${id}`;
@@ -159,6 +166,8 @@ export function homeRowKey(row: HomeRow): string {
       return `section:more:${row.project}`;
     case "empty":
       return `section:empty:${row.key}`;
+    case "day-label":
+      return `section:day:${row.day}`;
     default:
       return `section:${row.kind}`;
   }

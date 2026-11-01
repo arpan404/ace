@@ -13,6 +13,7 @@ import { failingSubagent } from "./failing-subagent.ts";
 import { summaryFleet } from "./summary-fleet.ts";
 import { childActions } from "./child-actions.ts";
 import { flakyCheckout } from "./flaky-checkout.ts";
+import { chats } from "./chats.ts";
 import { homeList } from "./home-list.ts";
 import { multiDayDemo } from "./multi-day-demo.ts";
 import { longHistory } from "./long-history.ts";
@@ -45,6 +46,8 @@ export function devWorld(): WorldThread[] {
     { scenario: longHistory(120), agoMs: 2 * 24 * 60 * minute },
     { scenario: multiDayDemo(), agoMs: 0 },
     ...homeList().map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),
+    // Chats with no project across the days: the Chats panel's groups.
+    ...chats().map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),
     // Reopening restores the pending approval; it must not manufacture a new toast each time.
     {
       scenario: flakyCheckout(),

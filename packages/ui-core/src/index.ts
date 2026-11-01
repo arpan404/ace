@@ -67,6 +67,7 @@ export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./file-tree.ts";
 export * from "./first-launch.ts";
+export * from "./chat-list.ts";
 export * from "./home-history.ts";
 export * from "./home-rows.ts";
 export * from "./home-tree.ts";

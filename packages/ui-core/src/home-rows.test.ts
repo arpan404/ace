@@ -36,7 +36,7 @@ const words = (rows: readonly HomeRow[]) =>
       case "recently-settled":
         return `${row.id} (settled)`;
       default:
-        return row.id;
+        return "id" in row ? row.id : row.day;
     }
   });
 

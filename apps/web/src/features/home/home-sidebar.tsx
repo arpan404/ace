@@ -1,9 +1,4 @@
-import {
-  BellIcon,
-  ChatsIcon,
-  ClockCounterClockwiseIcon,
-  NotePencilIcon,
-} from "@phosphor-icons/react";
+import { ChatsIcon, ClockCounterClockwiseIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Suspense, useRef } from "react";
@@ -28,6 +23,7 @@ import { useMachines } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { usePanelRows } from "./use-panel-rows.ts";
+import { InboxBell } from "./inbox-bell.tsx";
 import { InboxOverlay } from "./inbox-overlay.tsx";
 import { useInboxOpen, useInboxStore } from "./use-inbox-open.ts";
 import {
@@ -41,14 +37,12 @@ const StartedTitlePublisher = deferredComponent(() =>
   import("./started-rows.tsx").then((module) => module.StartedTitlePublisher),
 );
 
-const iconButton =
-  "relative grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit touch-hit-lg hover:bg-hover hover:text-foreground";
-
 /**
  * The Threads panel, under the window's top bar: its title row ("ace" and its filter caret, the
  * Inbox bell, Search), a New thread row, then the list: Pinned threads, and Projects, each
  * folding open in place with its open threads and its recently settled ones, quiet projects
- * folded at the foot, and History below the list. The bell (or ⌘I) opens the Inbox over the
+ * folded at the foot, and History below the list. Chats are the Chats panel's; the Inbox still
+ * holds a chat that needs the person. The bell (or ⌘I) opens the Inbox over the
  * list; Search (⌘K) opens the palette.
  */
 export function HomeSidebar() {
@@ -74,10 +68,6 @@ export function HomeSidebar() {
     !tree.quiet.length;
   const directory = useProjectDirectory();
   const keys = useResolvedKeymap();
-  const waiting = list.inbox.length;
-  // The bell's dot asks loudest for what it holds: the warning colour while anything needs the
-  // person, the blue while it holds only results not yet seen.
-  const needsYou = list.inbox.some((id) => list.needsYou.includes(id));
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <div
@@ -87,27 +77,7 @@ export function HomeSidebar() {
         <span className="flex min-w-0 flex-1">
           <ProjectFilter />
         </span>
-        <Tip label="Inbox" shortcut="inbox">
-          <button
-            ref={bell}
-            type="button"
-            aria-label={waiting ? `Inbox, ${waiting} waiting` : "Inbox"}
-            aria-expanded={inboxOpen}
-            aria-haspopup="dialog"
-            onClick={inbox.toggle}
-            className={cn(iconButton, inboxOpen && "bg-active text-foreground")}
-          >
-            <Icon icon={BellIcon} size={18} />
-            {waiting > 0 && (
-              <span
-                aria-hidden
-                data-inbox-dot=""
-                data-tone={needsYou ? "needs-you" : "unread"}
-                className="absolute top-1.5 right-1.5 size-2 rounded-full bg-(--tone) ring-2 ring-sidebar"
-              />
-            )}
-          </button>
-        </Tip>
+        <InboxBell ids={list.inbox} bell={bell} />
         <PaletteButton />
       </div>
       <NewThreadRow />

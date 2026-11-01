@@ -6,6 +6,7 @@ import { threadOn } from "@/lib/machine-routes.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { machineRow } from "@/lib/machine-threads.ts";
 import { useMachines } from "@/lib/machines.ts";
+import { useIsChatThread } from "@/lib/projects.ts";
 import { ProjectMark, RowContext, RowStatus, threadDetails, titleTone } from "./row-parts.tsx";
 import { useOpenHere, type RowMachine } from "./thread-row.tsx";
 import { useThreadCard } from "./use-thread-card.ts";
@@ -37,11 +38,14 @@ function InboxLink(props: { threadId: string; machine?: RowMachine | undefined; 
   const { machine } = props;
   const data = useThreadCard(props.threadId, false);
   const current = useOpenHere(props.threadId, machine?.id);
+  const isChat = useIsChatThread();
   if (!data) return null;
   const { entry } = data;
-  const card = machine
+  const placed = machine
     ? { ...data.card, machine: machine.name, machineIcon: machine.icon }
     : data.card;
+  // A chat has no project to name (ADR 0099): it says Chat in the project's place.
+  const card = isChat(entry) ? { ...placed, project: "Chat" } : placed;
   const attention = currentAttention(card.attention, current);
   return (
     <Link

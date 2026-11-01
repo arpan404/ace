@@ -147,6 +147,7 @@ export const keymap = {
     fixed: true,
   },
   goHome: { keys: "g h", label: "Go to Home" },
+  goChats: { keys: "g c", label: "Go to Chats" },
   goAutomations: { keys: "alt+mod+a", also: ["g u"], label: "Go to Automations" },
   goSkills: { keys: "alt+mod+s", also: ["g s"], label: "Go to Skills" },
   goUsage: { keys: "alt+mod+u", also: ["g o"], label: "Go to Usage" },

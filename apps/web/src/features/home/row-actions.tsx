@@ -16,13 +16,15 @@ import { useRowMenuShortcuts } from "./use-row-menu-shortcuts.ts";
  * everything else. `shown` while the row is under the pointer or keyboard focus; an open menu
  * keeps them up. The same registry owns row and header menu entries.
  */
-export function RowActions(props: {
+export interface RowActionsProps {
   entry: ThreadListEntry;
   flags: ThreadRowFlags;
   onRename(): void;
   onHover(): void;
   shown: boolean;
-}) {
+}
+
+export function RowActions(props: RowActionsProps) {
   const actions = useThreadActions();
   const settle = settleAction(props.entry, props.flags, actions);
   const title = props.entry.title;

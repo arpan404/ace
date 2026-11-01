@@ -45,6 +45,7 @@ import { machineRow } from "@/lib/machine-threads.ts";
 import { UnsentRows } from "./unsent-rows.tsx";
 import { SectionRow } from "./tree-rows.tsx";
 import { RecentlySettledRow } from "./settled-row.tsx";
+import { ChatRow } from "./chat-row.tsx";
 import { useHomeSort } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
 import {
@@ -72,6 +73,8 @@ const estimates: Record<HomeRow["kind"], number> = {
   "quiet-project": 38,
   "snoozed-header": 47,
   snoozed: 38,
+  chat: 38,
+  "day-label": 49,
 };
 
 /** The viewport's bottom padding (`pb-4`), below the list: the foot's free space leaves it out. */
@@ -86,7 +89,8 @@ const loadDrag = () => import("./list-drag.ts");
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
 
 /**
- * The Threads panel's list, virtualized: Pinned, then the project tree, as `rows` says.
+ * The Threads panel's list, virtualized: Pinned, then the project tree, as `rows` says; the
+ * Chats panel draws its pinned chats and day groups through it too.
  * Only visible rows mount. Up and Down (or j and k) move between rows and headings; Tab still
  * walks each row's actions. On a row, P pins or unpins it, X picks it (⌘- and Shift-click too)
  * and Space picks it up to move by keyboard; pinned rows drag into their own order under Pinned
@@ -106,6 +110,10 @@ export function ThreadList(props: {
   /** Where the list starts scrolled to, and where it tells its scroll as it moves. */
   scrollTop?: number | undefined;
   onScroll?: ((top: number) => void) | undefined;
+  /** The list's name for assistive tech: Threads, or Chats. */
+  label?: string | undefined;
+  /** Told whether the last few rows are in view, so older rows can page in as it scrolls. */
+  onNearEnd?: ((near: boolean) => void) | undefined;
 }) {
   const [moving, setMoving] = useState<readonly string[]>();
   const rows = props.rows;
@@ -143,6 +151,10 @@ export function ThreadList(props: {
   const listHeight = virtualizer.getTotalSize();
   const footGap = footStart < 0 ? 0 : Math.max(0, viewportHeight - footPadding - listHeight);
   useRevealOpenThread(drawn, virtualizer.scrollToIndex, viewport);
+  const lastShown = virtualizer.getVirtualItems().at(-1)?.index ?? -1;
+  const nearEnd = lastShown >= drawn.length - 4;
+  const { onNearEnd } = props;
+  useEffect(() => onNearEnd?.(nearEnd), [nearEnd, onNearEnd]);
   /** Thread ids top to bottom, as drawn: what a Shift-click range runs over. */
   const order = useMemo(
     () => drawn.flatMap((row) => (row.phase === "exit" ? [] : (homeRowThread(row.item) ?? []))),
@@ -414,7 +426,7 @@ export function ThreadList(props: {
         <div
           ref={listRef}
           role="list"
-          aria-label="Threads"
+          aria-label={props.label ?? "Threads"}
           // Its letters jump between rows, so the composer's type-to-focus leaves them alone.
           data-type-ahead=""
           onKeyDownCapture={onKeyDownCapture}
@@ -497,6 +509,9 @@ export function ThreadList(props: {
                       )}
                       {row.kind === "recently-settled" && (
                         <RecentlySettledRow threadId={row.id} leaving={leaving} />
+                      )}
+                      {row.kind === "chat" && (
+                        <ChatRow id={row.id} settled={row.settled} leaving={leaving} />
                       )}
                       {row.kind === "snoozed" && (
                         <ThreadRow

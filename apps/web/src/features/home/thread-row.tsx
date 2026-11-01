@@ -2,7 +2,7 @@ import { currentAttention } from "@ace/ui-core";
 import { ChatCircleIcon, DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
 import type { MachineIcon } from "@ace/protocol";
-import type { ReactElement } from "react";
+import type { ComponentType, ReactElement } from "react";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { useMachines } from "@/lib/machines.ts";
 import {
@@ -15,7 +15,7 @@ import { cn } from "@/lib/cn.ts";
 import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
-import { RowActions } from "./row-actions.tsx";
+import { RowActions, type RowActionsProps } from "./row-actions.tsx";
 import { threadDetails } from "./row-parts.tsx";
 import { RowIndicator } from "./row-indicator.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
@@ -76,8 +76,13 @@ export function ThreadRow(props: {
   /** The list's id for the row, when it isn't the thread's own (another machine's thread). */
   rowId?: string | undefined;
   lead: RowLead;
+  /** The hover actions, when not a task's own (a chat's: `ChatRowActions`). */
+  actions?: ComponentType<RowActionsProps> | undefined;
+  /** At rest: the title in subtle ink (full ink while open), as a settled row's. */
+  dimmed?: boolean | undefined;
 }) {
   const { machine } = props;
+  const Actions = props.actions ?? RowActions;
   const { settled } = props;
   const rowId = props.rowId ?? props.threadId;
   const data = useThreadCard(props.threadId, settled, props.leaving);
@@ -117,7 +122,11 @@ export function ThreadRow(props: {
       <span
         className={cn(
           "min-w-0 flex-1 truncate",
-          current ? "font-medium text-foreground" : "text-foreground",
+          current
+            ? "font-medium text-foreground"
+            : props.dimmed
+              ? "text-subtle-foreground"
+              : "text-foreground",
           // Under the pointer or keyboard focus the row's actions take the mark's place: the
           // title stops short of them. An action's menu keeps them up after the pointer leaves.
           actions ? "pr-28" : "group-has-[[data-popup-open]]/row:pr-28",
@@ -199,7 +208,7 @@ export function ThreadRow(props: {
               </button>
             )}
             {!renaming && (
-              <RowActions
+              <Actions
                 onRename={rename}
                 onHover={() => hover.change(false)}
                 shown={actions}

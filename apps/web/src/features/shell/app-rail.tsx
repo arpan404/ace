@@ -1,24 +1,26 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ChatsCircleIcon, GearSixIcon } from "@phosphor-icons/react";
+import { ChatsCircleIcon, CodeIcon, GearSixIcon } from "@phosphor-icons/react";
+import type { PlaceSignal } from "@ace/ui-core";
 import { useState, type ReactNode } from "react";
-import { Icon } from "@/components/icon.tsx";
+import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { railDotClass, railPlaceClass } from "@/components/rail-place.ts";
 import { SpadeMark } from "@/components/spade-mark.tsx";
 import { Tip, TooltipSide } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
 import { UpdateButton } from "./update-button.tsx";
-import { useNeedsYouCount } from "./use-needs-you-count.ts";
-import { activeView, railViews } from "./views.ts";
+import { usePlaceSignals } from "./use-place-signals.ts";
+import { useRailPlace } from "./use-rail-place.ts";
+import { railViews } from "./views.ts";
 
 /**
- * Where Threads goes: the thread (or New thread, with its search) the person last had open, so
- * coming back from Settings or GitHub lands where they left; New thread before they have been
- * on one.
+ * Where a place goes: the page (a thread, or New thread with its search) the person last had
+ * open there, so coming back from Settings or GitHub lands where they left; `start` before they
+ * have been there.
  */
-function useLastThreadsPlace(onThreads: boolean) {
+function useLastPlace(here: boolean, start: string) {
   const location = useRouterState({ select: (state) => state.location });
-  const [last, setLast] = useState({ href: "/new", to: "/new", search: {} });
-  if (onThreads && location.href !== last.href)
+  const [last, setLast] = useState({ href: start, to: start, search: {} });
+  if (here && location.href !== last.href)
     setLast({ href: location.href, to: location.pathname, search: location.search });
   return last;
 }
@@ -26,20 +28,50 @@ function useLastThreadsPlace(onThreads: boolean) {
 const needWord = (count: number) => `${count} ${count === 1 ? "needs" : "need"} you`;
 
 /**
- * The sidebar's rail, under the window's top bar: the app's places as bare glyphs, Threads and
- * Spade (not live yet), a short hairline, then GitHub, Automations and Skills; Settings, the
- * app's update when there is one, and the profile at the foot. The current place takes the
- * active fill. Off Threads, a dot on its glyph says a thread waits on the person.
+ * Threads or Chats in the rail: its glyph (filled while current) and, while it isn't current, a
+ * dot when one of its own threads waits on the person (or has news not yet seen).
+ */
+function ThreadPlace(props: {
+  label: string;
+  icon: IconGlyph;
+  shortcut: "goHome" | "goChats";
+  current: boolean;
+  start: string;
+  signal: PlaceSignal;
+}) {
+  const last = useLastPlace(props.current, props.start);
+  const { signal } = props;
+  const tone = props.current ? undefined : signal.tone;
+  const asks = tone === "needs-you" ? ` · ${needWord(signal.needsYou)}` : "";
+  return (
+    <Tip label={`${props.label}${asks}`} shortcut={props.shortcut}>
+      <Link
+        to={last.to}
+        search={last.search}
+        aria-label={`${props.label}${asks.replace(" ·", ",")}`}
+        aria-current={props.current ? "page" : undefined}
+        className={railPlaceClass}
+      >
+        <Icon icon={props.icon} size={20} active={props.current} />
+        {tone && <span aria-hidden data-tone={tone} className={railDotClass} />}
+      </Link>
+    </Tip>
+  );
+}
+
+/**
+ * The sidebar's rail, under the window's top bar: the app's places as bare glyphs, Threads (the
+ * code glyph), Chats (the speech bubbles) and Spade (not live yet), a short hairline, then
+ * GitHub, Automations and Skills; Settings, the app's update when there is one, and the profile
+ * at the foot. The current place takes the active fill: Chats while a chat is open, Threads for
+ * any other thread. Off Threads or Chats, a dot on its glyph says one of its own threads waits.
  */
 export function AppRail(props: {
   /** GitHub's place, which knows its own counts; current while one of its pages is open. */
   forge?: ((current: boolean) => ReactNode) | undefined;
 }) {
-  const current = useRouterState({ select: (state) => activeView(state.location.pathname) });
-  const onThreads = current === "home";
-  const threads = useLastThreadsPlace(onThreads);
-  const waiting = useNeedsYouCount();
-  const signal = !onThreads && waiting > 0;
+  const current = useRailPlace();
+  const signals = usePlaceSignals();
   return (
     <nav
       aria-label="App"
@@ -47,18 +79,22 @@ export function AppRail(props: {
       className="flex w-(--rail-width) shrink-0 flex-col items-center gap-1 pt-0.5 pb-2.5"
     >
       <TooltipSide value="right">
-        <Tip label={signal ? `Threads · ${needWord(waiting)}` : "Threads"} shortcut="goHome">
-          <Link
-            to={threads.to}
-            search={threads.search}
-            aria-label={signal ? `Threads, ${needWord(waiting)}` : "Threads"}
-            aria-current={onThreads ? "page" : undefined}
-            className={railPlaceClass}
-          >
-            <Icon icon={ChatsCircleIcon} size={20} active={onThreads} />
-            {signal && <span aria-hidden data-tone="needs-you" className={railDotClass} />}
-          </Link>
-        </Tip>
+        <ThreadPlace
+          label="Threads"
+          icon={CodeIcon}
+          shortcut="goHome"
+          current={current === "home"}
+          start="/new"
+          signal={signals.threads}
+        />
+        <ThreadPlace
+          label="Chats"
+          icon={ChatsCircleIcon}
+          shortcut="goChats"
+          current={current === "chats"}
+          start="/chats"
+          signal={signals.chats}
+        />
         <SpadeSoon />
         <span aria-hidden className="my-1.5 h-px w-5 shrink-0 bg-border" />
         {props.forge?.(current === "forge")}

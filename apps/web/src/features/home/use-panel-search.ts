@@ -6,6 +6,7 @@ import { useCallback, useMemo } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
+import { useIsChat, useIsChatThread } from "@/lib/projects.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { useSidebarDevice } from "./device-filter-state.ts";
 import type { HomeList, SettledEntry } from "./use-home-threads.ts";
@@ -22,7 +23,7 @@ const noIds: readonly string[] = [];
  * matched by their titles locally; this finds the settled ones it hasn't paged in, and loaded
  * ones whose messages match.
  */
-function useThreadHits(query: string): ReadonlyMap<string, SearchHit> {
+export function useThreadHits(query: string): ReadonlyMap<string, SearchHit> {
   const text = useDebouncedValue(query.trim(), searchSettleMs);
   const found = useDaemonQuery({
     queryKey: ["panel-threads", text],
@@ -58,7 +59,7 @@ export interface SettledSearch {
  * project, branch or pull request match (`list.settled`, already narrowed by `useHomeList`),
  * and the daemon's hits for settled threads within the project and device filters that the
  * list hasn't paged in or whose messages match. A hit for a thread the list shows elsewhere
- * (pinned, active, snoozed) stays there.
+ * (pinned, active, snoozed) stays there. Chats are the Chats panel's, never History's.
  */
 export function useSettledSearch(
   query: string,
@@ -74,6 +75,8 @@ export function useSettledSearch(
     [list.pinned, list.listed, list.snoozed, list.settled],
   );
   const offDevice = device !== undefined && device !== own;
+  const isChat = useIsChat();
+  const isChatThread = useIsChatThread();
   // Only hits whose thread is settled (or not loaded at all: the daemon pages settled threads).
   const select = useCallback(
     (reader: SidebarReader) => {
@@ -82,13 +85,15 @@ export function useSettledSearch(
       for (const [id, hit] of all) {
         if (shown.has(id)) continue;
         if (project !== null && hit.workspaceId !== project) continue;
+        if (isChat(hit.workspaceId)) continue;
         const entry = reader.thread(id);
         if (entry && (isRemoved(entry) || entry.pinned === true || !isSettled(entry))) continue;
+        if (entry && isChatThread(entry)) continue;
         ids.push(id);
       }
       return ids;
     },
-    [all, shown, project, offDevice],
+    [all, shown, project, offDevice, isChat, isChatThread],
   );
   const extra = useSidebar(["ids", "threads"], select, arrayEqual) ?? noIds;
   return useMemo(() => {

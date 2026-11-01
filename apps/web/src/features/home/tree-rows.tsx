@@ -7,7 +7,7 @@ import {
   NotePencilIcon,
   PlusIcon,
 } from "@phosphor-icons/react";
-import { projectFold, projectMore, type HomeRow } from "@ace/ui-core";
+import { chatDayLabels, projectFold, projectMore, type HomeRow } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
@@ -19,7 +19,7 @@ import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
 /*
  * The Threads panel's rows that aren't threads: the Pinned and Projects labels, each project's
- * row, Show more, Quiet projects and Snoozed. Every row is one `--row-height` line; a section
+ * row, Show more, Quiet projects and Snoozed; and the Chats panel's day labels. Every row is one `--row-height` line; a section
  * label leaves 20px above it.
  */
 
@@ -244,6 +244,12 @@ export function SectionRow(props: { row: HomeRow; first: boolean }) {
       );
     case "empty":
       return <p className="py-2 pr-2.5 pl-9 text-ui text-subtle-foreground">{row.text}</p>;
+    case "day-label":
+      return (
+        <div role="heading" aria-level={3} className={cn(label, props.first ? "mt-1" : "mt-5")}>
+          {chatDayLabels[row.day]}
+        </div>
+      );
     default:
       return null;
   }

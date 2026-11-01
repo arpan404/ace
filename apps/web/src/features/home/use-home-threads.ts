@@ -22,7 +22,7 @@ import {
   type Standing,
 } from "@ace/ui-core";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
-import { useProjectName } from "@/lib/projects.ts";
+import { useIsChat, useIsChatThread, useProjectName } from "@/lib/projects.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useOrganizeOverlay, useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
@@ -84,7 +84,7 @@ const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
   });
 
 /** The list's entries as this window shows them, with organize actions not yet confirmed. */
-function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
+export function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
   const overlay = useOrganizeOverlay();
   const pending = usePendingActions();
   return useCallback(
@@ -99,7 +99,7 @@ function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
 /** Keys for every entry, so a selection over the whole list sees each status change. */
 // `threads` changes with any entry, so one key covers the whole list at any size.
 const everyEntry: readonly SidebarKey[] = ["ids", "threads", "window", "homeWindow", "unconfirmed"];
-function useEveryEntryKey(): readonly SidebarKey[] {
+export function useEveryEntryKey(): readonly SidebarKey[] {
   return everyEntry;
 }
 
@@ -132,7 +132,7 @@ const listEqual = (a: HomeList, b: HomeList) =>
   treeEqual(a.tree, b.tree);
 
 /** Each entry's standing on this clock (`standingReader`): a new catalog, baseline or minute starts over. */
-function useStandingOf(now: number): (entry: ThreadListEntry) => Standing {
+export function useStandingOf(now: number): (entry: ThreadListEntry) => Standing {
   const models = useModelCatalog();
   const { baseline } = useOrganizer().getState();
   return useMemo(() => standingReader({ baseline, now, models }), [models, baseline, now]);
@@ -147,6 +147,7 @@ function settledCounts(
   reader: SidebarReader,
   entries: readonly ThreadListEntry[],
   project: string | null,
+  isChat: (project: string) => boolean,
 ): Map<string, number> | undefined {
   const window = reader.homeWindow;
   if (!window?.before || window !== reader.window) return undefined;
@@ -160,14 +161,32 @@ function settledCounts(
   const counts = new Map<string, number>();
   for (const count of window.counts) {
     if (project !== null && count.id !== project) continue;
+    // A chat's project is the Chats panel's, never a quiet project here.
+    if (isChat(count.id)) continue;
     counts.set(count.id, Math.max(0, count.threads - (live.get(count.id) ?? 0)));
   }
   return counts;
 }
 
+/** Two Inbox lists as one, newest activity first. */
+function mergeInbox(
+  a: readonly string[],
+  b: readonly string[],
+  entry: (id: string) => ThreadListEntry | undefined,
+): string[] {
+  if (!b.length) return [...a];
+  if (!a.length) return [...b];
+  const at = (id: string) => {
+    const shown = entry(id);
+    return shown ? activityOf(shown) : 0;
+  };
+  return [...a, ...b].toSorted((x, y) => at(y) - at(x) || x.localeCompare(y));
+}
+
 /**
  * Home order (`arrange`) across every project the filter lets through, and the Threads panel's
- * tree over it. `query` narrows it to the threads whose title, project, branch or pull request
+ * tree over it. Chats (ADR 0099) are the Chats panel's: they stay out of the tree and History,
+ * but the Inbox still holds a chat that needs the person or finished unread. `query` narrows it to the threads whose title, project, branch or pull request
  * match. Only ids are selected, so a status change re-renders its own row and moves rows only
  * when the order changes. `others` are other machines' threads under their machine row ids
  * (`useMachineEntries`), ordered in the same list (ADR 0102).
@@ -183,6 +202,8 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
   const standingOf = useStandingOf(now);
   const graceMs = useSettledGrace();
   const projectName = useProjectName();
+  const isChatThread = useIsChatThread();
+  const isChatProject = useIsChat();
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
       const own = read(reader);
@@ -190,17 +211,22 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
       const onDevice = device
         ? all.filter((entry) => (machineRow(entry.id)?.hostId ?? ownDevice) === device)
         : all;
+      const chats: ThreadListEntry[] = [];
+      const work: ThreadListEntry[] = [];
+      for (const entry of onDevice) (isChatThread(entry) ? chats : work).push(entry);
+      const chatProjects = new Set<string>(chats.map((entry) => entry.workspaceId));
+      const isChat = (id: string) => chatProjects.has(id) || isChatProject(id);
       const searching = query.trim().length > 0;
       const entries = searching
-        ? onDevice.filter((entry) => threadMatches(entry, query, projectName(entry.workspaceId)))
-        : onDevice;
+        ? work.filter((entry) => threadMatches(entry, query, projectName(entry.workspaceId)))
+        : work;
       const arrangement = arrange(entries, { ...state, sortBy }, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
       // The daemon's counts are this machine's own, and only while nothing narrows the list.
       const counts =
         searching || (device && device !== ownDevice)
           ? undefined
-          : settledCounts(reader, own, state.project);
+          : settledCounts(reader, own, state.project, isChat);
       const treeOf = (
         shown: Arrangement,
         entry: (id: string) => ThreadListEntry | undefined,
@@ -217,12 +243,20 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
           settledCounts: held,
         });
       const tree = treeOf(arrangement, (id) => byId.get(id), counts);
-      // A search narrows the panel's rows, never the Inbox: it is read from every thread.
-      const everyId = searching
-        ? new Map<string, ThreadListEntry>(onDevice.map((entry) => [entry.id, entry]))
-        : undefined;
+      // A search narrows the panel's rows, never the Inbox: it is read from every thread, and
+      // from every chat whatever the project filter.
+      const everyId =
+        searching || chats.length
+          ? new Map<string, ThreadListEntry>(onDevice.map((entry) => [entry.id, entry]))
+          : undefined;
+      const fromEvery = (shown: readonly ThreadListEntry[], project: string | null) =>
+        everyId && shown.length
+          ? treeOf(arrange(shown, { ...state, project, sortBy }, now), (id) => everyId.get(id))
+              .inbox
+          : [];
+      const workInbox = searching ? fromEvery(work, state.project) : tree.inbox;
       const inbox = everyId
-        ? treeOf(arrange(onDevice, { ...state, sortBy }, now), (id) => everyId.get(id)).inbox
+        ? mergeInbox(workInbox, fromEvery(chats, null), (id) => everyId.get(id))
         : tree.inbox;
       let held = 0;
       for (const count of counts?.values() ?? []) held += count;
@@ -241,7 +275,21 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
         tree,
       };
     },
-    [state, sortBy, now, graceMs, read, others, device, ownDevice, query, projectName, standingOf],
+    [
+      state,
+      sortBy,
+      now,
+      graceMs,
+      read,
+      others,
+      device,
+      ownDevice,
+      query,
+      projectName,
+      standingOf,
+      isChatThread,
+      isChatProject,
+    ],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }
