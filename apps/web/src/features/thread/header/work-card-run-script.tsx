@@ -129,8 +129,9 @@ function ScriptSearch(props: { thread: ThreadRef; onRan(): void }) {
                   }}
                   className="h-8"
                 >
-                  <span className="min-w-0 flex-1 truncate">{script.name}</span>
-                  <span className="ml-3 max-w-[55%] shrink-0 truncate font-mono text-xs text-subtle-foreground">
+                  {/* The name comes first and stays whole where it can; the command gives way. */}
+                  <span className="max-w-[75%] shrink-0 truncate">{script.name}</span>
+                  <span className="ml-3 min-w-0 flex-1 truncate text-right font-mono text-xs text-subtle-foreground">
                     {script.command}
                   </span>
                 </CommandItem>
