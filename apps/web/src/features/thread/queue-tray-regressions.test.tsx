@@ -248,3 +248,22 @@ test("a pending keyboard reorder preserves focus deliberately moved to the compo
   expect(document.activeElement).toBe(composer);
   expect(composer.textContent).toBe("Keep typing");
 });
+
+test("the tray says a waiting steer goes in at the next step, and that a refused one fell back", async () => {
+  const app = harness();
+  app.play(replayCursor()).runThrough("finding");
+  app.daemon.apply(threadId, [facts.toolDone("root", "spawn-test")]);
+  app.daemon.waitingSteer(threadId, "agent-steer", "Use the cached build", "steer");
+  app.daemon.waitingSteer(threadId, "refused-steer", "Try the other path", "fell_back");
+  await app.open(`/t/${threadId}`);
+  await waitFor(() => expect(rows()).toHaveLength(2));
+  const [waiting, refused] = rows();
+  if (!waiting || !refused) throw new Error("Missing rows");
+  // A steer already on its way offers no Steer: it reads as steering, not as an untouched queue.
+  expect(within(waiting).getByText("Steering at the next step")).toBeTruthy();
+  expect(within(waiting).queryByRole("button", { name: "Steer" })).toBeNull();
+  expect(waiting.getAttribute("aria-label")).toBe("Queued message. Steering at the next step");
+  // A steer that couldn't go in says so, and the person can steer it again.
+  expect(within(refused).getByText("Couldn't steer · sends after this turn")).toBeTruthy();
+  expect(within(refused).getByRole("button", { name: "Steer" })).toBeTruthy();
+});

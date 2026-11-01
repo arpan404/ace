@@ -4,7 +4,7 @@ import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
 import { MachineIcon } from "@ace/protocol";
 import { regeneratedTitle } from "./title-regenerate.ts";
-import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
+import { markUncertainInput, restoreInput, repeatInput, waitingSteer } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations, refusedAtAdmission } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
@@ -380,6 +380,12 @@ export class FakeDaemon implements Host {
   uncertainQueuedMessage(threadId: string, messageId: string): void {
     const host = this.thread(threadId);
     markUncertainInput(host, messageId);
+    this.afterChange(host, this.options.clock());
+  }
+  /** A steer the daemon holds until the provider can take it, or one that fell back. */
+  waitingSteer(threadId: string, messageId: string, text: string, kind: "steer" | "fell_back") {
+    const host = this.thread(threadId);
+    waitingSteer(host, messageId, text, kind);
     this.afterChange(host, this.options.clock());
   }
   /** A legacy daemon lost admission proof after filling the follow-up queue. */

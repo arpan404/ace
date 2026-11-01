@@ -153,10 +153,7 @@ const agentMessage = controlTool({
     threadId: messagedThread,
     requestId: fields.requestId,
     text: MessageText.describe("Standing on its own."),
-    delivery: z
-      .enum(["queue", "steer", "restart"])
-      .optional()
-      .describe("Default: steer."),
+    delivery: z.enum(["queue", "steer", "restart"]).optional().describe("Default: steer."),
   }),
   output: controlResult(z.looseObject({ arrival: MessageArrival })),
   run: (input, control) => control.run({ op: "thread.message", ...input }),

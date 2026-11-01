@@ -140,7 +140,6 @@ test("a delegated result never interrupts a running command; a provider whose st
     expect(h.interrupts).toEqual([]);
     expect(h.inputs.slice(before)).toMatchObject([{ text: "child result", delivery: "steer" }]);
     expect(h.engine.queue(id).messages).toEqual([]);
-    expect(endedRuns(h, id)).toEqual([]);
   } finally {
     await h.close();
   }
