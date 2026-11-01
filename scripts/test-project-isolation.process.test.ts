@@ -103,6 +103,7 @@ test("all projects and concurrent runs own distinct homes and remove them after 
       "client-react",
       "history-scale",
       "process",
+      "slow-process",
       "unit",
       "web",
     ]);

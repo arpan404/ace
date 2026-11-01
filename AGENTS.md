@@ -46,6 +46,8 @@ Test behaviour, not structure. Every test must fail if the behaviour it names br
 - Name tests after the behaviour they guard ("thread stays waiting while a background shell is still running"), not after functions.
 - Prefer real edges: temp SQLite, real child processes, real local HTTP/WebSocket servers. Mock only what you can't control (time, randomness, provider CLIs), and only at the boundary.
 - For each test ask: if the logic it covers broke, would it fail? If not, fix it or delete it.
+- Time budgets, per file (tests and hooks): 5s in the fast tier, 30s for process tests. `test:fast` fails on a file over budget unless `scripts/test-budgets.json` lists it with a reason.
+- A new `*.process.test.ts` file needs a reason: a real edge (process, socket, git, browser) that a unit test of the pure logic can't cover. Test tables of inputs at the unit level and keep one process test for the wiring.
 
 Don't write tests that:
 
@@ -66,7 +68,12 @@ Reviews reject PRs containing such tests.
 - `bun run lint` (oxlint)
 - `bun run typecheck` is the bounded incremental local check; it reuses declaration/check caches.
 - `bun run typecheck:full` checks every original source program, root test tooling, and the client runtime guard from scratch. CI runs it separately as the required safety net for declaration inference.
-- `bun run test` (Vitest). Never run `bun test`; that is Bun's own runner.
+- `bun run test` (Vitest) is the full run. Never run `bun test`; that is Bun's own runner. Tiers:
+  - `bun run test:fast`: unit and jsdom tests, on every change.
+  - `bun run test:changed`: only tests importing files changed since `origin/main` (fast tier; `--with-process` or `--with-slow` widens it).
+  - `bun run test:process`: real-process tests, before merging to main.
+  - `bun run test:slow`: release, perf, real-smoke, browser and scale suites, before a release.
+  - `bun run test:timings`: slowest files from the last full run (`test-timings/`, git-ignored).
 - `bun run check:size` fails if any source file exceeds 1,500 lines.
 - `bun run check:deps` checks module boundaries in the web app and client packages (dependency-cruiser).
 - `bun run check` runs the checks listed in the root script. It must pass before a task is complete.
