@@ -1,4 +1,5 @@
 import { nativeReference } from "./native-reference.ts";
+import { inlineRawBytes } from "./compact-summary.ts";
 import { lstat } from "node:fs/promises";
 import { Agent, AgentId, Item, ItemId, Thread, type RawPayload } from "@ace/protocol/entities";
 import { fingerprint, object, string } from "@ace/native-session";
@@ -101,7 +102,7 @@ export async function* importHistory(
         const prefix = `${init.threadId}:${s.id}:${seq++}`;
         let raw: RawPayload;
         const r = "value" in record ? object(record.value) : {};
-        if (record.bytes > 60 * 1024 || "opaque" in record) {
+        if (record.bytes > inlineRawBytes || "opaque" in record) {
           const id = `${prefix}:raw`;
           yield { type: "blob.start", id, bytes: record.bytes };
           for await (const bytes of record.chunks()) yield { type: "blob.chunk", id, bytes };
@@ -150,6 +151,8 @@ export async function* importHistory(
             idPrefix: prefix,
             at: init.at,
             raw,
+            compactSummary: plan.compactSummary,
+            foldsSummary: plan.foldsSummary,
             resultCall: (id) => {
               const item = plan.callItem(id);
               return item ? ItemId.parse(item) : undefined;

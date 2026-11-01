@@ -192,6 +192,13 @@ export const AgentItem = z.discriminatedUnion("type", [
     type: z.literal("compaction"),
     tokensBefore: z.number().int().optional(),
     tokensAfter: z.number().int().optional(),
+    /**
+     * The summary the provider wrote for the model to continue from. Provider-internal text:
+     * shown only inside the compaction's own row, never as a message.
+     */
+    summary: z.string().optional(),
+    /** The provider's own compaction frames, kept as they came. */
+    raw: z.array(RawPayload).default([]),
   }),
 ]);
 export type AgentItem = z.infer<typeof AgentItem>;
