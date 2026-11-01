@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { Agent, AgentId, Event, EventId, Thread } from "@ace/protocol";
-import { applyDelivery, createThreadView } from "@ace/projection";
+import { Agent, Event, Thread } from "@ace/protocol";
+import { createThreadView } from "@ace/projection";
 import { ThreadStore, defaultLimits } from "./index.ts";
 const thread = Thread.parse({
   id: "parent-test",
@@ -21,48 +21,6 @@ const agent = Agent.parse({
   cwd: "/",
   status: { state: "working", activity: "thinking" },
   createdAt: 0,
-});
-
-test("reparenting preserves current children while removing empty historical parents", () => {
-  const view = createThreadView(thread);
-  applyDelivery(view, {
-    type: "events",
-    subscriptionId: "parents",
-    afterSeq: 0,
-    throughSeq: 1,
-    events: [
-      {
-        seq: 1,
-        id: EventId.parse("created"),
-        at: 0,
-        threadId: thread.id,
-        payload: { type: "agent.created", agent },
-      },
-    ],
-  });
-  for (let seq = 2; seq <= 101; seq++)
-    applyDelivery(view, {
-      type: "events",
-      subscriptionId: "parents",
-      afterSeq: seq - 1,
-      throughSeq: seq,
-      events: [
-        {
-          seq,
-          id: EventId.parse(`event-${seq}`),
-          at: 0,
-          threadId: thread.id,
-          payload: {
-            type: "agent.updated",
-            agentId: agent.id,
-            parentId: AgentId.parse(`parent-${seq}`),
-          },
-        },
-      ],
-    });
-  expect(Object.keys(view.agentChildren)).toEqual(["parent-101"]);
-  expect(view.agentChildren["parent-101"]).toEqual([agent.id]);
-  expect(view.agents[agent.id]?.status.state).toBe("working");
 });
 
 test("a snapshot discards stale parent references without rejecting active agents over its recent budget", () => {

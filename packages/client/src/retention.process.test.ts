@@ -69,22 +69,24 @@ test("a paused output consumer does not retain chunks it already consumed", asyn
   }
 });
 
+/** A page of 64 messages for jumped window `n`. */
+const page = (n: number) =>
+  Array.from({ length: 64 }, (_, index) =>
+    Item.parse({
+      type: "message",
+      id: `item-${n}-${index}`,
+      agentId: "root",
+      createdAt: index,
+      complete: true,
+      role: "assistant",
+      parts: [{ type: "text", text: `window ${n} item ${index} ${"x".repeat(1024)}` }],
+    }),
+  );
+
 test("the live thread does not keep jumped windows alive after the reader drops them", async () => {
   // A jumped window observed for its life by a cache keyed by the window (as a thread's ledger
   // and turn tree do), never unsubscribed, and then dropped. The live store outlives it.
   const live = new ThreadStore(defaultLimits);
-  const page = (n: number) =>
-    Array.from({ length: 64 }, (_, index) =>
-      Item.parse({
-        type: "message",
-        id: `item-${n}-${index}`,
-        agentId: "root",
-        createdAt: index,
-        complete: true,
-        role: "assistant",
-        parts: [{ type: "text", text: `window ${n} item ${index} ${"x".repeat(1024)}` }],
-      }),
-    );
   const changes = { dropped: 0, held: 0, stopped: 0 };
   const cache = new WeakMap<ThreadSource, { changes: number }>();
   const observeForLife = (source: ThreadSource, count: "dropped" | "held") => {

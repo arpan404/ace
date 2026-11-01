@@ -241,32 +241,30 @@ test("reopening a WebSocket adapter ignores late events from the previous socket
   expect(results).toEqual(["first open", "second open", "second close"]);
 });
 
-test.each(["??==", "YQ", "YQ=Z", "YR=="])(
-  "invalid base64 %s rejects only its correlated output read",
-  async (bytes) => {
-    const h = await setup();
-    cleanup = h.cleanup;
-    const { client, faults } = h.make();
-    await ready(client);
-    faults.incoming = (event, frame, deliver) => {
-      if (event.type === "error" && event.requestId)
-        deliver(
-          JSON.stringify({
-            type: "output.data",
-            requestId: event.requestId,
-            streamId: "missing",
-            offset: 0,
-            nextOffset: 1,
-            eof: true,
-            bytes,
-          }),
-        );
-      else deliver(frame);
-    };
-    await expect(
-      client.outputRead({ streamId: "missing", offset: 0, limit: 4 }),
-    ).rejects.toMatchObject({ code: "protocol" });
-    expect(client.state).toBe("ready");
-    await barrier(client, h.thread.id);
-  },
-);
+// Which texts count as invalid base64 is covered by base64.test.ts; one case proves the wiring.
+test.each(["YQ=Z"])("invalid base64 %s rejects only its correlated output read", async (bytes) => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client, faults } = h.make();
+  await ready(client);
+  faults.incoming = (event, frame, deliver) => {
+    if (event.type === "error" && event.requestId)
+      deliver(
+        JSON.stringify({
+          type: "output.data",
+          requestId: event.requestId,
+          streamId: "missing",
+          offset: 0,
+          nextOffset: 1,
+          eof: true,
+          bytes,
+        }),
+      );
+    else deliver(frame);
+  };
+  await expect(
+    client.outputRead({ streamId: "missing", offset: 0, limit: 4 }),
+  ).rejects.toMatchObject({ code: "protocol" });
+  expect(client.state).toBe("ready");
+  await barrier(client, h.thread.id);
+});
