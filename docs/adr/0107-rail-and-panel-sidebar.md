@@ -122,7 +122,8 @@ started with no project, in a hidden chat project) get their own place, so the T
 about work in projects.
 
 - **Rail.** Chats sits right under Threads, above Spade, with the speech-bubble glyph
-  (chats-circle, filled while current); Threads takes the code glyph (`</>`). Chats has its own
+  (chats-circle, filled while current); Threads takes the folders glyph
+  (Phosphor Folders, filled while current), since that place is the projects list. Chats has its own
   route, `/chats` (it opens the top chat, or says "No chats yet"); a chat opens at its usual
   `/t/<id>`. The rail decides between the two from the open thread: Chats while a chat or New
   chat (`/new?project=chat`) is open, Threads for any other thread. It reads the thread id from

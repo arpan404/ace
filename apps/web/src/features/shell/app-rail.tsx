@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ChatsCircleIcon, CodeIcon, GearSixIcon } from "@phosphor-icons/react";
+import { ChatsCircleIcon, FoldersIcon, GearSixIcon } from "@phosphor-icons/react";
 import type { PlaceSignal } from "@ace/ui-core";
 import { useState, type ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
@@ -72,7 +72,7 @@ function ThreadPlace(props: {
 
 /**
  * The sidebar's rail, under the window's top bar: the app's places as bare glyphs, Threads (the
- * code glyph), Chats (the speech bubbles) and Spade (not live yet), a short hairline, then
+ * folders glyph: it lists projects), Chats (the speech bubbles) and Spade (not live yet), a short hairline, then
  * GitHub, Automations and Skills; Settings, the app's update when there is one, and the profile
  * at the foot. The current place takes the active fill: Chats while a chat is open, Threads for
  * any other thread. Off Threads or Chats, a dot on its glyph says one of its own threads waits.
@@ -94,7 +94,7 @@ export function AppRail(props: {
       <TooltipSide value="right">
         <ThreadPlace
           label="Threads"
-          icon={CodeIcon}
+          icon={FoldersIcon}
           shortcut="goHome"
           current={current === "home"}
           last={threads}
