@@ -1,6 +1,6 @@
 // oxlint-disable react/no-array-index-key -- a message's segments are ordered runs of one string.
 import type { ContentPart } from "@ace/protocol";
-import { useEffect, useId, useRef, useState, type Ref } from "react";
+import { useEffect, useId, useState, type Ref } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -29,23 +29,22 @@ const foldStyle = (fold: BubbleFold, markdown: boolean) => ({
  * length decides.
  */
 function useTallerThanFold(fold: BubbleFold, measure: boolean) {
-  const node = useRef<HTMLDivElement>(null);
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
   const [taller, setTaller] = useState<boolean | undefined>(undefined);
   useEffect(() => {
-    const element = node.current;
-    if (!measure || !element || typeof ResizeObserver === "undefined") return;
+    if (!measure || !node || typeof ResizeObserver === "undefined") return;
     const check = () => {
-      const size = Number.parseFloat(getComputedStyle(element).fontSize) || 16;
-      const height = element.scrollHeight;
+      const size = Number.parseFloat(getComputedStyle(node).fontSize) || 16;
+      const height = node.scrollHeight;
       if (height > 0) setTaller(height > fold.shown * lineEm * size + 1);
     };
     const observer = new ResizeObserver(check);
-    observer.observe(element);
-    for (const child of element.children) observer.observe(child);
+    observer.observe(node);
+    for (const child of node.children) observer.observe(child);
     check();
     return () => observer.disconnect();
-  }, [fold, measure]);
-  return { node, taller };
+  }, [fold, measure, node]);
+  return [setNode, taller] as const;
 }
 
 /**
@@ -75,8 +74,8 @@ export function BubbleText({
   const shape = fold ?? personFold;
   const mentions = parts?.some((part) => part.type === "mention");
   const markdown = !mentions && looksLikeMarkdown(text);
-  const measured = useTallerThanFold(shape, markdown);
-  const long = measured.taller ?? isLongMessage(text, shape);
+  const [measureNode, taller] = useTallerThanFold(shape, markdown);
+  const long = taller ?? isLongMessage(text, shape);
   const folded = long && !open;
   return (
     <>
@@ -87,7 +86,7 @@ export function BubbleText({
         style={folded ? foldStyle(shape, markdown) : undefined}
         className={cn("min-w-0", folded && "overflow-hidden")}
       >
-        <div ref={measured.node} className="min-w-0">
+        <div ref={measureNode} className="min-w-0">
           {markdown ? (
             <Prose text={withHardBreaks(text)} className="ace-bubble-prose" />
           ) : mentions && parts ? (

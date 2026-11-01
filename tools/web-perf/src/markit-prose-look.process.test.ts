@@ -187,11 +187,9 @@ test("markdown in a narrow bubble wraps long words and URLs and scrolls code and
       if (!box) throw new Error("No bubble");
       const edge = box.getBoundingClientRect().right;
       // Elements inside a scroller may run past it; the scroller itself must fit.
-      const scrolls = (element: Element) =>
-        ["auto", "scroll"].includes(getComputedStyle(element).overflowX);
       const insideScroller = (element: Element) => {
         for (let up = element.parentElement; up && up !== box; up = up.parentElement)
-          if (scrolls(up)) return true;
+          if (["auto", "scroll"].includes(getComputedStyle(up).overflowX)) return true;
         return false;
       };
       const wider = [...box.querySelectorAll("*")]

@@ -1,6 +1,6 @@
 import { facts } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
-import type { MessageOrigin, Thread } from "@ace/protocol";
+import { HostId, ThreadId, type MessageOrigin, type Thread } from "@ace/protocol";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -67,7 +67,10 @@ async function transcript() {
   return feed;
 }
 
-const fromParent = { parentThreadId: "thread-parent", from: { provider: "claude" } } as const;
+const fromParent = {
+  parentThreadId: ThreadId.parse("thread-parent"),
+  from: { provider: "claude" as const },
+};
 
 test("a delegate's task and a later follow-up are sent by the parent's agent, and open the parent", async () => {
   const app = seed({ parentThreadId: "thread-parent" }, [
@@ -88,7 +91,7 @@ test("a delegate's task and a later follow-up are sent by the parent's agent, an
   // Renamed later, the parent is named by its new title.
   await app.client.command({
     type: "thread.rename",
-    threadId: "thread-parent",
+    threadId: ThreadId.parse("thread-parent"),
     title: "Checkout v2",
   });
   const lines = await within(feed).findAllByRole("link", { name: "Sent by Checkout v2" });
@@ -105,9 +108,9 @@ test("a child an agent on a paired machine delegated names that machine, and lin
   const app = seed(
     {
       delegatedFrom: {
-        hostId: "host-laptop",
+        hostId: HostId.parse("host-laptop"),
         hostName: "Arpan's MacBook Pro",
-        threadId: "thread-remote-parent",
+        threadId: ThreadId.parse("thread-remote-parent"),
         threadTitle: "Redesign Sidebar for Easier Navigation",
         provider: "claude",
       },
