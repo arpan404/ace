@@ -52,9 +52,9 @@ it("native provider keeps the engine's MCP lease through live configuration and 
   if (!session.configure) throw new Error("Live configuration missing");
   // ace's tool guidance is fixed at connection startup, so a model switch asks the engine to
   // reopen the thread instead of changing it in place.
-  expect(
-    await session.configure({ provider: "codex", model: "switched-model", options: {} }),
-  ).toBe("reopen");
+  expect(await session.configure({ provider: "codex", model: "switched-model", options: {} })).toBe(
+    "reopen",
+  );
   await session.configure({
     provider: "codex",
     model: "start-model",
