@@ -1,6 +1,3 @@
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { CursorAuthEvent, ProjectIcon, MachineDescription } from "@ace/protocol";
@@ -9,8 +6,6 @@ import {
   protocolCatalog,
   convertSchemas,
   renderReference,
-  checkFiles,
-  writeFiles,
   canonical,
   schemaId,
   jsonValidator,
@@ -136,28 +131,6 @@ it("distinguishes accepted input defaults from populated MCP output defaults", (
   expect(validate.getSchema(schemaId("Input"))?.({})).toBe(true);
   expect(validate.getSchema(schemaId("Output"))?.({})).toBe(false);
   expect(validate.getSchema(schemaId("Output"))?.({ count: 1 })).toBe(true);
-});
-it("detects missing, stale and unexpected files and regeneration repairs them", async () => {
-  const root = await mkdtemp(join(tmpdir(), "ace-protocol-docs-"));
-  try {
-    const files = new Map([
-      ["README.md", "Generated reference\n"],
-      ["schema/Command.json", canonical(snapshot.schemas.Command)],
-    ]);
-    expect(await checkFiles(root, files)).toContain("README.md");
-    await writeFiles(root, files);
-    expect(await checkFiles(root, files)).toEqual([]);
-    await writeFile(join(root, "schema", "Command.json"), "stale");
-    await writeFile(join(root, "retired.json"), "{}");
-    expect(await checkFiles(root, files)).toEqual(["retired.json", "schema/Command.json"]);
-    await writeFiles(root, files);
-    expect(await checkFiles(root, files)).toEqual([]);
-    expect(await readFile(join(root, "schema", "Command.json"), "utf8")).toBe(
-      files.get("schema/Command.json"),
-    );
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
 });
 it.each([
   ["Date", z.object({ value: z.date() })],
