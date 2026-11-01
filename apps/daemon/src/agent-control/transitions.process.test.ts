@@ -91,7 +91,10 @@ test("switching a delegated thread keeps its parent, history edge and follow-up 
   expect(h.errors).toEqual([]);
 });
 
-test("a queued switch waits for live delegated children while result wakes can run beside them", async () => {
+// ADR 0051 (amendment 2026-10-27): delegated threads don't belong to the parent's provider
+// process, so a switch applies between the parent's turns while they keep working, and their
+// result wakes reach the parent on the new selection.
+test("a switch applies between the parent's turns while delegated children keep working", async () => {
   const h = setup();
   const parent = await h.parent();
   const first = h.delegate(parent, "first");
@@ -105,21 +108,21 @@ test("a queued switch waits for live delegated children while result wakes can r
     }).ok,
   ).toBe(true);
   await h.engine.flush();
-  expect(h.store.getThread(parent.threadId)?.switch?.state).toBe("queued");
+  expect(h.store.getThread(parent.threadId)?.switch?.state).toBe("applied");
+  expect(h.caller(parent.threadId).agentId).toBe(parent.agentId);
+  expect(h.store.getThread(first.childId)?.status.state).toBe("working");
+  expect(h.store.getThread(second.childId)?.status.state).toBe("working");
+  expect(h.store.getThread(parent.threadId)?.status.state).not.toBe("done");
   await h.complete(first.childId, "first result");
   h.clock.advance(1050);
   await h.engine.flush();
   expect(wakes(h.events, parent.threadId)).toHaveLength(1);
-  expect(h.store.getThread(parent.threadId)?.switch?.state).toBe("queued");
+  expect(h.contexts.get(parent.threadId)?.model).toBe("next-model");
   expect(h.store.getThread(second.childId)?.status.state).toBe("working");
   await h.complete(second.childId, "second result");
-  await h.engine.flush();
-  expect(h.store.getThread(parent.threadId)?.switch?.state).toBe("applied");
-  expect(h.caller(parent.threadId).agentId).toBe(parent.agentId);
   h.clock.advance(1100);
   await h.engine.flush();
   expect(wakes(h.events, parent.threadId)).toHaveLength(2);
-  expect(h.contexts.get(parent.threadId)?.model).toBe("next-model");
   expect(h.inputs.get(parent.threadId)?.join("\n")).toContain("second result");
   expect(h.errors).toEqual([]);
 });

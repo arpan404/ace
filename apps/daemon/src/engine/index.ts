@@ -937,7 +937,10 @@ export class Engine {
     this.recovery.discardKeepingStop(id);
   }
   cancelDelegatedInputs(id: ThreadId): void {
-    cancelDelegatedInputs(this.repo, id, this.clock.now());
+    for (const released of cancelDelegatedInputs(this.repo, id, this.clock.now())) {
+      this.releaseDormant(released);
+      queueMicrotask(() => this.wake(released));
+    }
   }
   captureContinuation(id: ThreadId): void {
     this.recovery.capture(id);
