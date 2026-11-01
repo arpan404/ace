@@ -16,7 +16,6 @@
     "./ipc": "./src/ipc.ts",
     "./jsonrpc": "./src/jsonrpc.ts",
     "./acp-sign-in": "./src/acp-sign-in.ts",
-    "./sse": "./src/sse.ts",
     "./elision": "./src/elision.ts",
     "./binary-elision": "./src/binary-elision.ts",
     "./data-url": "./src/data-url.ts",
