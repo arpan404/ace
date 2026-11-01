@@ -318,18 +318,20 @@ test("arrow keys move the slider and the floating layers follow live, and it's k
   });
 });
 
-test("past 100% the slider reads Extra, thins the tint further, and notes softer text", async () => {
+test("the slider caps at 100%: End reads 100% and stores 100", async () => {
   const storage = memoryKeyValue();
   await harness({ storage, matchMedia: system({}) }).open("/settings/appearance");
   await settled();
   const safe = root.style.getPropertyValue("--glass-tint");
   slider().focus();
+  await userEvent.keyboard("{Home}");
+  expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
   await userEvent.keyboard("{End}");
-  expect(slider().getAttribute("aria-valuetext")).toBe("150% extra");
-  expect(screen.getByText("150% extra")).toBeTruthy();
-  expect(root.style.getPropertyValue("--glass-tint")).not.toBe(safe);
-  expect(await screen.findByText(/Past 100% glass thins below AA contrast/)).toBeTruthy();
-  expect(JSON.parse(storage.getItem("ace.appearance") ?? "{}").translucency).toBe(150);
+  expect(slider().getAttribute("aria-valuetext")).toBe("100%");
+  expect(screen.getByText("100%")).toBeTruthy();
+  // The control can't go above 100%: the glass stays at the readable end.
+  expect(root.style.getPropertyValue("--glass-tint")).toBe(safe);
+  expect(JSON.parse(storage.getItem("ace.appearance") ?? "{}").translucency).toBe(100);
 });
 
 test("the OS reducing transparency forces Solid, and the slider shows it", async () => {

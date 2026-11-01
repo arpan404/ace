@@ -11,13 +11,7 @@ import {
 } from "@ace/themes";
 import { themeDeclarations } from "./css.ts";
 import { edgeMap, fitStep, glassEngine, glassGeometry, mapSize } from "./glass.ts";
-import {
-  defaultTranslucency,
-  extraClearTintFloor,
-  translucencyClearMax,
-  translucencyMax,
-  translucencyStep,
-} from "./translucency.ts";
+import { defaultTranslucency, translucencyMax, translucencyStep } from "./translucency.ts";
 
 const userAgents = {
   chrome:
@@ -203,12 +197,11 @@ test("the slider runs from a solid tint with no blur to the theme's AA-safe glas
       const most = at(translucencyMax);
       expect(most).toEqual(at(defaultTranslucency));
       expect(most.alpha, `${id} ${scheme}`).toBe(themes[id][scheme].glassTint);
-      // Each step toward it is thinner, blurrier and more saturated, never the other way —
-      // and past the AA-safe end only the tint keeps thinning, toward its floor.
+      // Each step toward it is thinner, blurrier and more saturated, never the other way.
       let previous = solid;
       for (
         let translucency = translucencyStep;
-        translucency <= translucencyClearMax;
+        translucency <= translucencyMax;
         translucency += translucencyStep
       ) {
         const next = at(translucency);
@@ -222,7 +215,7 @@ test("the slider runs from a solid tint with no blur to the theme's AA-safe glas
     }
 });
 
-test("past the AA-safe end glass keeps thinning toward a floor, and the filter stays full", () => {
+test("values above 100% render as 100%: the slider caps at the readable glass", () => {
   for (const id of themeIds)
     for (const scheme of ["light", "dark"] as const) {
       if (!themes[id][scheme].material.glass) continue;
@@ -233,12 +226,13 @@ test("past the AA-safe end glass keeps thinning toward a floor, and the filter s
           blur: Number.parseFloat(tokens["--glass-blur"] ?? ""),
         };
       };
-      const safe = at(translucencyMax);
-      const clear = at(translucencyClearMax);
-      // Thinner, but still a surface; the blur is already at full strength.
-      expect(clear.alpha, `${id} ${scheme}`).toBeLessThan(safe.alpha);
-      expect(clear.alpha, `${id} ${scheme}`).toBeGreaterThanOrEqual(extraClearTintFloor);
-      expect(clear.blur, `${id} ${scheme}`).toBe(safe.blur);
+      const most = at(translucencyMax);
+      // The most translucent end is the floor the theme was solved for.
+      expect(most.alpha, `${id} ${scheme}`).toBe(themes[id][scheme].glassTint);
+      // Past the cap (a saved 150%, or anything higher) renders exactly as 100%.
+      for (const past of [101, 125, 150, 250]) {
+        expect(at(past), `${id} ${scheme} at ${past}`).toEqual(most);
+      }
     }
 });
 
@@ -266,10 +260,10 @@ test("the middle of the slider is genuinely in between: well over half the glass
     }
 });
 
-test("the command palette panel stays near-solid at every translucency, even extra-clear", () => {
+test("the command palette panel stays near-solid at every translucency", () => {
   for (const id of themeIds)
     for (const scheme of ["light", "dark"] as const)
-      for (let translucency = 0; translucency <= translucencyClearMax; translucency += 10) {
+      for (let translucency = 0; translucency <= translucencyMax; translucency += 10) {
         const tokens = themeDeclarations(id, scheme, themeAccent, translucency);
         const modal = tint(tokens["--glass-tint-modal"]);
         const label = `${id} ${scheme} ${translucency}`;

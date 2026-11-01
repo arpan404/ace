@@ -11,7 +11,7 @@ import {
   type Scheme,
   type ThemeId,
 } from "@ace/themes";
-import { defaultTranslucency, snapTranslucency, translucencyClearMax } from "./translucency.ts";
+import { defaultTranslucency, snapTranslucency, translucencyMax } from "./translucency.ts";
 
 export const Mode = z.enum(["light", "dark", "system"]);
 export type Mode = z.infer<typeof Mode>;
@@ -33,10 +33,9 @@ export const Appearance = z.object({
   accent: z.catch(z.enum(accentIds), "theme"),
   customAccent: z.catch(z.string().check(z.regex(/^#[0-9a-f]{6}$/i)), defaultCustomAccent),
   /**
-   * 0 is solid; `translucencyMax` is the theme's most translucent AA-safe glass, and
-   * `translucencyClearMax` is extra-clear glass past it (softer text, not guaranteed AA).
+   * 0 is solid; `translucencyMax` (100%) is the theme's most translucent AA-safe glass.
    */
-  translucency: z.catch(z.int().check(z.gte(0), z.lte(translucencyClearMax)), defaultTranslucency),
+  translucency: z.catch(z.int().check(z.gte(0), z.lte(translucencyMax)), defaultTranslucency),
   reduceMotion: z.catch(ReduceMotion, "system"),
   density: z.catch(Density, "comfortable"),
   transcriptSize: z.catch(TranscriptSize, "default"),
@@ -69,7 +68,9 @@ export function loadAppearance(storage: KeyValueStorage | undefined): Appearance
   // Surfaces: Solid becomes Solid on the slider; Translucent is the default glass already.
   const earlier = readJson(storage, storageKey, EarlierSurfaces, {});
   const wasSolid = earlier.translucency === undefined && earlier.surface === "solid";
-  return wasSolid ? { ...saved, translucency: 0 } : saved;
+  const appearance = wasSolid ? { ...saved, translucency: 0 } : saved;
+  // Values saved past 100% (from when the slider ran higher) read as 100%.
+  return { ...appearance, translucency: snapTranslucency(appearance.translucency) };
 }
 export function saveAppearance(storage: KeyValueStorage | undefined, value: Appearance): void {
   writeJson(storage, storageKey, value);
