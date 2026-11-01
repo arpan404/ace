@@ -70,7 +70,9 @@ export async function executeIntent(
       registry.get(repo.requireState(actor.id).config.provider, repo.backend(actor.id))
         .capabilities;
     const session = actor.session;
-    if (!session) throw new Error("Provider session exited before send");
+    // Closed after it opened (a Stop's close, an idle close) and before anything was sent: the
+    // input is untouched, so it waits for the next session instead of failing as unsent.
+    if (!session) throw new DeliveryDeferred("Provider session exited before send");
     const state = repo.requireState(actor.id);
     const generation = actor.generation;
     // A fork's first message carries its context the way a send does, with files its source holds.
