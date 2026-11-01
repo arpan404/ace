@@ -10,7 +10,13 @@ import {
   type StorageRequest,
   type StorageUsage,
 } from "@ace/protocol";
-import { itemCount, storageLabels, storageReasons } from "@ace/ui-core/host-care";
+import {
+  type FailedBackupsView,
+  failedBackupsView,
+  itemCount,
+  storageLabels,
+  storageReasons,
+} from "@ace/ui-core/host-care";
 import { formatBytes } from "@ace/ui-core/byte-size";
 import { z } from "zod";
 import { host } from "./host.ts";
@@ -54,7 +60,7 @@ export interface StorageUsageView {
   /** "Measurement incomplete. Refresh to try again." when the host stopped early. */
   partial: string | null;
   /** One line for every failed worktree backup, then up to three paths. */
-  backups: { line: string; paths: string[] } | null;
+  backups: FailedBackupsView | null;
 }
 export interface StorageSettingsView {
   /** The host data window in days, and the variable pinning it, if any. */
@@ -93,7 +99,6 @@ export interface StoragePlanView {
 }
 
 export function usageView(usage: StorageUsage): StorageUsageView {
-  const failed = usage.backups.filter((backup) => backup.state === "failed");
   return {
     rows: usage.categories.map((category) => ({
       kind: category.kind,
@@ -106,17 +111,7 @@ export function usageView(usage: StorageUsage): StorageUsageView {
       detail: `${formatBytes(usage.reclaimableDatabaseBytes)} can be reclaimed by compacting.`,
     },
     partial: usage.complete ? null : "Measurement incomplete. Refresh to try again.",
-    backups: failed.length
-      ? {
-          line:
-            failed.length === 1
-              ? "Backup failed for 1 worktree. It was kept."
-              : `Backup failed for ${failed.length} worktrees. They were kept.`,
-          paths: failed
-            .slice(0, 3)
-            .map((backup) => `${backup.path}${backup.error ? ` · ${backup.error}` : ""}`),
-        }
-      : null,
+    backups: failedBackupsView(usage.backups),
   };
 }
 

@@ -357,6 +357,10 @@ export class FakeDaemon implements Host {
   get computerUsing(): FakeComputerUsing {
     return this.servicesWire.computerUsing;
   }
+  /** Run checks and safe repairs (`diagnostics.request`), for holding a run in progress. */
+  get checks(): Pick<import("./checks-wire.ts").FakeChecks, "hold" | "starts"> {
+    return this.servicesWire.checks;
+  }
   /**
    * Seed what a long-running daemon's services hold: decks, automations and their runs,
    * installed plugins and the forge's pull requests. Threads a seed links to must exist.

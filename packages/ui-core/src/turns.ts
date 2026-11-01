@@ -58,6 +58,8 @@ export interface FileDiff {
   rows: DiffRow[];
   additions: number;
   deletions: number;
+  /** Git reported a binary file: it has no lines to show, review or comment on. */
+  binary?: boolean | undefined;
 }
 
 /** The changes one path received, in order, keyed for caching its diff. */

@@ -1,4 +1,5 @@
 import { FakeStorageWire } from "./storage-wire.ts";
+import { FakeChecks } from "./checks-wire.ts";
 import { FakeAdmission } from "./admission-wire.ts";
 import { FakeAppUpdate } from "./app-update-wire.ts";
 import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
@@ -93,6 +94,7 @@ export class FakeServicesWire {
   readonly notificationFeed = new FakeNotificationFeed();
   readonly browser = new FakeBrowser();
   readonly computerUsing = new FakeComputerUsing();
+  readonly checks: FakeChecks;
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
   readonly files: FakeFilesWire;
@@ -101,7 +103,6 @@ export class FakeServicesWire {
   private connectionSequence = 0;
   private host: FakeServiceContext;
   private settings: FakeSettings;
-  private providerStatuses: () => readonly import("@ace/protocol").ProviderStatus[];
   constructor(
     context: FakeServiceContext,
     settings: FakeSettings,
@@ -109,7 +110,7 @@ export class FakeServicesWire {
   ) {
     this.storage = new FakeStorageWire(context, settings);
     this.host = context;
-    this.providerStatuses = providerStatuses;
+    this.checks = new FakeChecks(() => context.now(), providerStatuses);
     this.history = new FakeHistory(context);
     this.files = new FakeFilesWire(context, (id) => this.workspace.projects.get(id) !== undefined);
     this.settings = settings;
@@ -470,91 +471,10 @@ export class FakeServicesWire {
             return;
           }
           if (message.type === "diagnostics.request") {
-            emit({
-              type: "diagnostics.result",
-              requestId: message.requestId,
-              ...(message.operation === "fix"
-                ? {
-                    repairs: [],
-                    report: {
-                      at: this.host.now(),
-                      checks: [
-                        { id: "node", status: "ok", message: "Node v24.1.0", fix: "Update ace." },
-                        {
-                          id: "provider.cursor",
-                          status: "warn",
-                          message: "Cursor CLI not installed",
-                          fix: "Install Cursor CLI.",
-                        },
-                      ],
-                    },
-                  }
-                : message.operation === "doctor"
-                  ? {
-                      report: {
-                        at: this.host.now(),
-                        checks: [
-                          {
-                            id: "node",
-                            status: "ok",
-                            message: "Node v24.0.0",
-                            fix: "Update ace.",
-                          },
-                          {
-                            id: "git",
-                            status: "ok",
-                            message: "git version 2.50.0",
-                            fix: "Install Git.",
-                          },
-                          ...this.providerStatuses().map((row) => ({
-                            id: `provider.${row.provider}`,
-                            status:
-                              row.installed && row.auth === "logged_in"
-                                ? ("ok" as const)
-                                : ("warn" as const),
-                            message: row.installed ? "Check provider readiness." : "Not installed.",
-                            fix: "Open Settings > Providers.",
-                          })),
-                          {
-                            id: "sqlite",
-                            status: "ok",
-                            message: "SQLite integrity: ok",
-                            fix: "Restore a backup.",
-                          },
-                        ],
-                      },
-                    }
-                  : {
-                      toolchains: [
-                        {
-                          id: "git",
-                          available: true,
-                          detail: "git version 2.50.0",
-                          hint: "Install Git.",
-                        },
-                        {
-                          id: "xcode",
-                          available: true,
-                          detail: "Xcode at /Applications/Xcode.app/Contents/Developer",
-                          hint: "Install Xcode from the App Store and open it once to set up the iOS Simulator.",
-                          version: "26.0",
-                        },
-                        {
-                          id: "serve-sim",
-                          available: true,
-                          detail: "serve-sim 0.1.49-beta.139.1",
-                          hint: "Download device tools in Devices: ace keeps its own serve-sim 0.1.49-beta.139.1.",
-                          version: "0.1.49-beta.139.1",
-                        },
-                        {
-                          id: "android",
-                          available: false,
-                          detail: "Android SDK not found",
-                          hint: "Install Android Studio, then set ANDROID_HOME to its SDK directory.",
-                        },
-                      ],
-                    }),
-            });
+            const reply = this.checks.answer(message.operation, message.runId);
+            void Promise.resolve(reply).then((result) =>
+              emit({ type: "diagnostics.result", requestId: message.requestId, ...result }),
+            );
             return;
           }
           if (message.type === "diagnostics.health") {

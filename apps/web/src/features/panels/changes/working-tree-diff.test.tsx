@@ -87,3 +87,50 @@ test("uncommitted lines take review comments and files can be marked viewed", as
   expect(within(retry).getByRole("button", { name: "Viewed" })).toBeTruthy();
   expect(within(retry).getByRole("button", { name: "Actions for src/retry.ts" })).toBeTruthy();
 });
+
+test("a binary file reads as binary with nothing to review, and the truncation notice names the cut file", async () => {
+  // Three long lines put the patch past the daemon's 256 KiB budget.
+  const big = Array.from({ length: 3 }, () => `+${"x".repeat(100_000)}`);
+  const app = harness();
+  app.play(replayCursor()).runThrough("asked");
+  // The daemon lists binary files first, then the text patch it caps at 256 KiB.
+  app.daemon.workspace.setGitDiff(
+    thread,
+    [
+      "diff --git a/gradle/wrapper/gradle-wrapper.jar b/gradle/wrapper/gradle-wrapper.jar",
+      "index 1111111..2222222 100644",
+      "Binary files a/gradle/wrapper/gradle-wrapper.jar and b/gradle/wrapper/gradle-wrapper.jar differ",
+      patch.trimEnd(),
+      "diff --git a/vendor/huge.txt b/vendor/huge.txt",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/vendor/huge.txt",
+      `@@ -0,0 +1,${big.length} @@`,
+      ...big,
+      "",
+    ].join("\n"),
+  );
+  await app.open(`/t/${thread}`);
+  await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
+  await screen.findByRole("button", { name: "Right panel" }, { timeout: 10000 });
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
+  const diff = await within(panel).findByLabelText("Uncommitted diff");
+
+  const jar = await within(diff).findByRole("region", {
+    name: "gradle/wrapper/gradle-wrapper.jar",
+  });
+  expect(within(jar).getByText("binary")).toBeTruthy();
+  expect(within(jar).getByText("Binary file: there are no lines to review.")).toBeTruthy();
+  expect(within(jar).queryByRole("button", { name: "Viewed" })).toBeNull();
+  // Text files still take a Viewed mark.
+  const retry = within(diff).getByRole("region", { name: "src/retry.ts" });
+  expect(within(retry).getByRole("button", { name: "Viewed" })).toBeTruthy();
+
+  expect(
+    await within(panel).findByText(
+      "This diff is truncated at 256 KiB. vendor/huge.txt may be cut short.",
+    ),
+  ).toBeTruthy();
+});

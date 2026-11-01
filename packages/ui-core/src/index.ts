@@ -60,7 +60,12 @@ export * from "./counts.ts";
 export * from "./devices.ts";
 export * from "./diff.ts";
 export { diffBytes } from "./diff-weight.ts";
-export { gitPatchFiles, patchSections, type PatchSection } from "./git-patch.ts";
+export {
+  gitPatchFiles,
+  patchSections,
+  truncatedPatchNotice,
+  type PatchSection,
+} from "./git-patch.ts";
 export { PatchFileReader } from "./git-patch-reader.ts";
 export * from "./line-marks.ts";
 export * from "./motion.ts";
@@ -200,6 +205,7 @@ export * from "./handoff-marker.ts";
 export * from "./system-input.ts";
 export * from "./approvals.ts";
 export * from "./approval-copy.ts";
+export * from "./command-risk.ts";
 export * from "./follow-up.ts";
 export * from "./stop-fence.ts";
 export * from "./fork-point.ts";

@@ -340,3 +340,31 @@ test("an incomplete measurement keeps measured values and clears its warning aft
   expect(await screen.findByText("3.0 MB")).toBeTruthy();
   expect(screen.queryByText("Measurement incomplete. Refresh to try again.")).toBeNull();
 });
+
+test("a failed worktree backup says why in words and what to do, never its raw code", async () => {
+  const queries = createQueryClient();
+  queries.setQueryData(storageUsageKey, {
+    categories: [],
+    databaseBytes: 2_000_000,
+    reclaimableDatabaseBytes: 0,
+    measuredAt: 60_000,
+    complete: true,
+    backups: [
+      { path: "/w/huge", state: "failed", updatedAt: 1, error: "output_too_large" },
+      { path: "/w/odd", state: "failed", updatedAt: 1, error: "backup_failed" },
+      { path: "/w/fine", state: "complete", updatedAt: 1 },
+    ],
+  });
+  const app = harness({ queryClient: queries, uiClock: () => 120_000 });
+  await app.open("/settings/storage");
+  const line = await screen.findByText(/^Backup failed for 2 worktrees\. They were kept\./);
+  const note = line.closest("[role=alert]");
+  if (!(note instanceof HTMLElement)) throw new Error("The failed backups aren't announced");
+  const box = within(note);
+  expect(
+    box.getByText("It has too many files to back up automatically: commit and push it yourself."),
+  ).toBeTruthy();
+  expect(box.getByText("The backup didn't finish: commit and push it yourself.")).toBeTruthy();
+  expect(box.queryByText("/w/fine")).toBeNull();
+  expect(document.body.textContent).not.toMatch(/output_too_large|backup_failed/);
+});

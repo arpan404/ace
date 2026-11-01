@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { fakeClient } from "@/test/fake-client.ts";
 import { harness } from "@/test/harness.tsx";
 import { openDevices } from "@/test/device-browser.ts";
 afterEach(() => vi.restoreAllMocks());
@@ -87,4 +88,71 @@ test("a failed check offers a retry and a failed export keeps the dialog open", 
   expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: "Export" }).disabled).toBe(
     false,
   );
+});
+test("Run checks keeps going after leaving the page, and coming back shows it running, then its report", async () => {
+  const app = harness();
+  const finish = app.daemon.checks.hold();
+  await app.open("/settings/advanced");
+  await userEvent.click(await screen.findByRole("button", { name: "Run checks" }));
+  expect(await screen.findByText(/^Checking for \d+s\. You can leave this page/)).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("link", { name: "General" }));
+  await waitFor(() => expect(screen.queryByText(/^Checking for/)).toBeNull());
+  await userEvent.click(screen.getByRole("link", { name: "Advanced" }));
+
+  const button = await screen.findByRole<HTMLButtonElement>("button", { name: "Checking…" });
+  expect(button.disabled).toBe(true);
+  expect(screen.getByText(/^Checking for \d+s\./)).toBeTruthy();
+  finish();
+  const results = await screen.findByRole("list", { name: "Check results" });
+  expect(within(results).getByText("SQLite integrity: ok")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Run checks" })).toBeTruthy();
+  // Coming back joined the run; it never started the checks a second time.
+  expect(app.daemon.checks.starts).toBe(1);
+});
+
+test("on a daemon that can't report its checks run, Run checks still shows what it found", async () => {
+  const app = harness({
+    client(daemon) {
+      const client = fakeClient(daemon);
+      const request = client.request.bind(client);
+      vi.spyOn(client, "request").mockImplementation(async (input, options) => {
+        if (input.type === "diagnostics.request" && input.operation === "status")
+          throw new Error("Unknown operation");
+        return request(input, options);
+      });
+      return client;
+    },
+  });
+  await app.open("/settings/advanced");
+  await userEvent.click(await screen.findByRole("button", { name: "Run checks" }));
+  const results = await screen.findByRole("list", { name: "Check results" });
+  expect(within(results).getByText("SQLite integrity: ok")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Run checks" })).toBeTruthy();
+});
+
+test("checks that ended while the page was away show their report on return and don't run again", async () => {
+  const app = harness();
+  const finish = app.daemon.checks.hold();
+  await app.open("/settings/advanced");
+  const run = await screen.findByRole<HTMLButtonElement>("button", { name: "Run checks" });
+  await waitFor(() => expect(run.disabled).toBe(false));
+  // Another app on this computer started the checks; this page reads them as running.
+  void app.client
+    .request({ type: "diagnostics.request", operation: "doctor" }, { timeoutMs: 60_000 })
+    .catch(() => {});
+  await userEvent.click(await screen.findByRole("link", { name: "General" }));
+  await userEvent.click(await screen.findByRole("link", { name: "Advanced" }));
+  await screen.findByText(/^Checking for/);
+
+  await userEvent.click(screen.getByRole("link", { name: "General" }));
+  await waitFor(() => expect(screen.queryByText(/^Checking for/)).toBeNull());
+  finish();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  // The page still remembers them as running: coming back must join them, not start them.
+  await userEvent.click(screen.getByRole("link", { name: "Advanced" }));
+
+  const results = await screen.findByRole("list", { name: "Check results" });
+  expect(within(results).getByText("SQLite integrity: ok")).toBeTruthy();
+  expect(app.daemon.checks.starts).toBe(1);
 });

@@ -1,3 +1,4 @@
+import { deviceUnavailableHint } from "@ace/ui-core";
 import { useSampleTime, useWallClock } from "@/lib/time.ts";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -99,16 +100,24 @@ function SelectedDevice(props: { devices: Devices }) {
     </IdleCard>
   ) : controls.running ? (
     <IdleCard>
-      <p>The live view is off.</p>
+      <p>{selected.name} is running. Its live view is stopped.</p>
       <Button size="sm" variant="secondary" disabled={view.pending} onClick={devices.start}>
         Start live view
       </Button>
     </IdleCard>
-  ) : (
+  ) : selected.bootable ? (
     <IdleCard>
-      <p>{selected.name} is off.</p>
+      <p>{selected.name} is shut down.</p>
       <Button size="sm" variant="primary" disabled={view.pending} onClick={devices.boot}>
         Boot
+      </Button>
+    </IdleCard>
+  ) : (
+    // Offline or not authorized: Boot can't help; say what will, and read the list again.
+    <IdleCard>
+      <p>{deviceUnavailableHint(selected) ?? `${selected.name} can't be started from here.`}</p>
+      <Button size="sm" variant="secondary" disabled={view.pending} onClick={devices.refresh}>
+        Refresh
       </Button>
     </IdleCard>
   );
@@ -269,8 +278,8 @@ export function DeviceTab(props: {
   if (!view.enabled)
     return (
       <EmptyState
-        title="Devices are off on this machine"
-        description={`Turn devices on to see ${name} and let agents in this thread use it.`}
+        title="Devices are turned off on this machine"
+        description={`Turn them on to see ${name} and let agents in this thread use it. This switch covers simulators and emulators only; Mac apps have their own in Settings.`}
         action={
           <div className="flex flex-col items-center gap-3">
             <Button variant="primary" disabled={view.pending} onClick={() => devices.enable(true)}>
