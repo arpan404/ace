@@ -23,6 +23,9 @@ function classify(path: string, content: string | Buffer): string {
   }
 }
 
+const config = (user: string) =>
+  `apiVersion: v1\nkind: Config\nusers:\n- name: fixture\n  user:\n${user}\n`;
+
 type Sample = { label: string; path: string; text: string | Buffer };
 
 describe("credential assignments", () => {
@@ -196,8 +199,6 @@ describe("credential assignments", () => {
 });
 
 describe("YAML credentials", () => {
-  const config = (user: string) =>
-    `apiVersion: v1\nkind: Config\nusers:\n- name: fixture\n  user:\n${user}\n`;
   const blocked: Sample[] = [
     {
       label: "quoted Docker registry auth",
