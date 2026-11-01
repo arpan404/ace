@@ -62,6 +62,49 @@ export function abandonedView(row: ChildRow, name: string, now: number): Machine
   };
 }
 
+/** The words for a child stopped here whose machine never confirmed it (ADR 0052). */
+export const unconfirmedLine = (name: string) =>
+  `Stopped · ${name} didn't confirm; its work there may still be running`;
+/** The words for a child whose machine stopped reporting it past its lease. */
+export const silentLine = (name: string) =>
+  `Lost contact: ${name} hasn't reported it; it resumes if ${name} reports again`;
+
+/**
+ * The settled view of a child stopped here after every cancel went unconfirmed: cancelled, and
+ * saying its machine never confirmed it, so the parent knows its work may still be running.
+ */
+export function unconfirmedView(row: ChildRow, name: string, now: number): MachineThreadView {
+  const saved = savedView(row);
+  return {
+    threadId: row.id,
+    state: "cancelled",
+    title: saved?.title || clip(row.role, 120),
+    elapsedSeconds: elapsedSeconds(row.created_at, now),
+    status: { state: "done" },
+    requests: [],
+    result: `Stopped here. ${name} never confirmed it stopped, so its work there may still be running; check on ${name}.`,
+    truncated: false,
+    contact: "unconfirmed",
+  };
+}
+
+/**
+ * A child its machine stopped reporting, as a wait reads it: no longer live (read as failed, so
+ * it releases a wait), saying it lost contact and may resume.
+ */
+function silentChild(row: ChildRow, name: string, now: number): WatchedThread {
+  const saved = savedView(row);
+  return {
+    threadId: row.id,
+    state: "failed",
+    title: saved?.title || clip(row.role, 120),
+    elapsedSeconds: elapsedSeconds(row.created_at, now),
+    step: clip(silentLine(name), 120),
+    machine: name,
+    contact: "lost",
+  };
+}
+
 /**
  * A lost child as a wait reads it: needing the person, with the parent's approval about it as
  * its request, never settled.
@@ -94,6 +137,7 @@ export function watchedChild(
   now: number,
 ): { view: WatchedThread; outcome?: DelegationOutcome } {
   if (row.settled !== 1 && row.lost_at !== null) return { view: lostChild(row, name, now) };
+  if (row.settled !== 1 && row.silent_since !== null) return { view: silentChild(row, name, now) };
   const {
     status: _status,
     requests: _requests,
@@ -153,5 +197,6 @@ export function monitoredChild(
     ...(view.last ? { last: clip(view.last, 100) } : {}),
     ...(notice ? { notice: notice.text } : {}),
     machine: clip(name, 64),
+    ...(view.contact ? { contact: view.contact } : {}),
   };
 }

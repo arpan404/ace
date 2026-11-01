@@ -9,10 +9,13 @@ import { skillUsageTable } from "./skill-usage.ts";
 import {
   machineChildGenerations,
   machineChildLaunches,
+  machineChildLiveness,
   machineChildReach,
   machineGrants,
   machineJobs,
 } from "./machine-tables.ts";
+
+import { retiredWorkflowMigration } from "./retired-workflow-migration.ts";
 
 const migrations = [
   `CREATE TABLE events (
@@ -157,6 +160,9 @@ const migrations = [
   machineJobs,
   // Threads an agent opened with thread_start name their starter, backfilled from the journal.
   conversationStartedBy,
+  retiredWorkflowMigration,
+  // Remote children's proof of life and stops in progress (ADR 0052), backfilled from their rows.
+  machineChildLiveness,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the

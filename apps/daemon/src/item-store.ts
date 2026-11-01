@@ -1,3 +1,4 @@
+import { decodeStoredItem } from "./stored-decode.ts";
 import { ItemTextStore } from "./item-text-store.ts";
 import { recordSkillUsage } from "./skill-usage.ts";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
@@ -57,7 +58,7 @@ export class ItemStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       for (const row of this.statement("SELECT id, item FROM items").iterate()) {
-        const item = Item.parse(JSON.parse(String(row.item)));
+        const item = decodeStoredItem(JSON.parse(String(row.item)));
         let { prefix, lastUnit } = textMetadata(item);
         let size = Buffer.byteLength(JSON.stringify(item));
         for (const chunk of this.statement(
@@ -134,7 +135,7 @@ export class ItemStore {
     ).run(size, lastUnit, delta.itemId);
   }
   private materialize(id: string, body: unknown): Item {
-    const item = Item.parse(JSON.parse(String(body)));
+    const item = decodeStoredItem(JSON.parse(String(body)));
     let field: unknown;
     const appends: string[] = [];
     // Stream rows instead of retaining their objects. Accepted fields share one append target.

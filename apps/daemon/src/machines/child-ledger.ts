@@ -29,6 +29,16 @@ export const ChildRow = z.object({
   /** The approval its parent shows the person while it is lost: key and interaction id. */
   lost_key: z.string().nullable(),
   lost_ask: z.string().nullable(),
+  /** When its machine last reported it: the proof its lease runs from (ADR 0052). */
+  seen_at: z.number().nullable(),
+  /** Its lease lapsed: lost contact since then, no longer holding its parent. */
+  silent_since: z.number().nullable(),
+  /** A Stop in progress: when it began, cancels sent and when the last went. */
+  stop_started_at: z.number().nullable(),
+  stop_attempts: z.number(),
+  stop_last_at: z.number().nullable(),
+  /** Stopped here after every cancel went unconfirmed; a late report never revives it. */
+  stopped_unconfirmed: z.number(),
 });
 export type ChildRow = z.infer<typeof ChildRow>;
 
@@ -184,7 +194,7 @@ export class ChildLedger {
     this.store.atomic((db) =>
       db
         .prepare(
-          "INSERT INTO machine_children (id,request_key,parent_thread,parent_agent,machine,role,provider,model,created_at,view,device_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO machine_children (id,request_key,parent_thread,parent_agent,machine,role,provider,model,created_at,view,device_id,seen_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         )
         .run(
           child.id,
@@ -198,6 +208,7 @@ export class ChildLedger {
           child.createdAt,
           child.view ? JSON.stringify(child.view) : null,
           child.device ?? null,
+          child.createdAt,
         ),
     );
     this.track(child.machine);
@@ -349,6 +360,93 @@ export class ChildLedger {
   /** The lost child the parent's approval `ask` is about. */
   byLostAsk(ask: string): ChildRow | undefined {
     return this.all("SELECT * FROM machine_children WHERE lost_ask=?", ask)[0];
+  }
+  /** Its machine reported it at `at`: its lease runs from then, and it is in contact again. */
+  seen(id: ThreadId, at: number): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE machine_children SET seen_at=MAX(COALESCE(seen_at,0),?), silent_since=NULL WHERE id=?",
+        )
+        .run(at, id),
+    );
+  }
+  /**
+   * Unsettled children whose last report is older than `before` and that are not already lost
+   * contact, being stopped or lost their pairing: the lease check, by index, however many.
+   */
+  lapsed(before: number, limit: number): ChildRow[] {
+    return this.all(
+      "SELECT * FROM machine_children WHERE settled=0 AND seen_at<? AND silent_since IS NULL AND stop_started_at IS NULL AND lost_at IS NULL ORDER BY seen_at LIMIT ?",
+      before,
+      limit,
+    );
+  }
+  /** Its lease lapsed at `since`: lost contact until it reports again. */
+  markSilent(id: ThreadId, since: number): void {
+    this.store.atomic((db) =>
+      db
+        .prepare("UPDATE machine_children SET silent_since=? WHERE id=? AND silent_since IS NULL")
+        .run(since, id),
+    );
+  }
+  /** A Stop began at `at`; false when it was already stopping or settled. */
+  startStop(id: ThreadId, at: number): boolean {
+    return this.store.atomic(
+      (db) =>
+        Number(
+          db
+            .prepare(
+              "UPDATE machine_children SET stop_started_at=?, stop_attempts=0, stop_last_at=NULL WHERE id=? AND settled=0 AND stop_started_at IS NULL",
+            )
+            .run(at, id).changes,
+        ) > 0,
+    );
+  }
+  /** One more cancel went out at `at`. */
+  stopAttempted(id: ThreadId, at: number): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE machine_children SET stop_attempts=stop_attempts+1, stop_last_at=? WHERE id=?",
+        )
+        .run(at, id),
+    );
+  }
+  /** Unsettled children being stopped, by index. */
+  stopping(): ChildRow[] {
+    return this.all(
+      "SELECT * FROM machine_children WHERE settled=0 AND stop_started_at IS NOT NULL ORDER BY stop_started_at",
+    );
+  }
+  /**
+   * Every cancel went out unconfirmed: settled here with `view`, for good. Its unanswered
+   * messages are dropped (none will be taken), and the re-check window opens so a late report
+   * can record how it really ended.
+   */
+  markStoppedUnconfirmed(id: ThreadId, view: string, now: number): void {
+    this.store.atomic((db) => {
+      db.prepare("DELETE FROM machine_child_messages WHERE child_id=?").run(id);
+      db.prepare(
+        "UPDATE machine_children SET view=?, settled=1, settled_at=?, stopped_unconfirmed=1, silent_since=NULL WHERE id=?",
+      ).run(view, now, id);
+    });
+  }
+  /** Its machine later reported how a child stopped here really ended: kept, still settled. */
+  recordLateEnd(id: ThreadId, view: string): void {
+    this.store.atomic((db) =>
+      db.prepare("UPDATE machine_children SET view=? WHERE id=? AND settled=1").run(view, id),
+    );
+  }
+  /** New work for it: any stop before no longer applies. */
+  clearStop(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE machine_children SET stop_started_at=NULL, stop_attempts=0, stop_last_at=NULL, stopped_unconfirmed=0, silent_since=NULL WHERE id=?",
+        )
+        .run(id),
+    );
   }
   /**
    * The person stopped tracking a lost child: settled with `view`, its unanswered messages

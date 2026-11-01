@@ -10,8 +10,6 @@ export * from "./mobile-transcript.ts";
 export { handoffMarker, type HandoffMarker, type HandoffEnd } from "./handoff-marker.ts";
 export * from "./mobile-agents.ts";
 export * from "./mobile-subagent.ts";
-export * from "./mobile-offshift.ts";
-export * from "./offshift-controls.ts";
 export * from "./mobile-changes.ts";
 export * from "./mobile-diff-pages.ts";
 export * from "./diff-scope.ts";

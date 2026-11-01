@@ -102,34 +102,7 @@ import XCTest
         screenshot("logs-subagent")
     }
 
-    func testOffshiftRunShowsBlockerStepsAndCriteria() {
-        let app = launch()
-        open("ios-subagents", in: app)
-        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
-        app.buttons["thread.menu"].tap()
-        app.threadMenuItem("thread.offshift").tap()
-        let state = app.descendants(matching: .any)["offshift.state"]
-        XCTAssertTrue(state.waitForExistence(timeout: 15))
-        // A subagent in the tree asks the person, which speaks before the run's blocker.
-        XCTAssertTrue(state.label.hasPrefix("Answer"), state.label)
-        XCTAssertTrue(app.descendants(matching: .any)["offshift.blocker"].exists)
-        screenshot("offshift-blocked")
-        app.swipeUp(velocity: .slow)
-        screenshot("offshift-criteria")
-    }
 
-    func testDeliveredRunReadsWorkingWhileItsTreeWorks() {
-        let app = launch()
-        open("ios-big-tree", in: app)
-        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
-        app.buttons["thread.menu"].tap()
-        app.threadMenuItem("thread.offshift").tap()
-        let state = app.descendants(matching: .any)["offshift.state"]
-        XCTAssertTrue(state.waitForExistence(timeout: 15))
-        XCTAssertTrue(state.label.contains("Working"), state.label)
-        XCTAssertFalse(state.label.contains("Done"), state.label)
-        screenshot("offshift-delivered-working")
-    }
 
     private func agentRow(_ name: String, in app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'agents.row.' AND label CONTAINS %@", name)).firstMatch

@@ -197,6 +197,11 @@ export type AgentItem = z.infer<typeof AgentItem>;
 export const Item = z.discriminatedUnion("type", [
   ...AgentItem.options,
   ItemBase.extend({
+    type: z.literal("unknown"),
+    raw: z.array(RawPayload).default([]),
+    data: z.unknown(),
+  }),
+  ItemBase.extend({
     type: z.literal("artifact"),
     filename: z.string().max(256).optional(),
     flags: z.array(z.enum(["executable", "archive"])).optional(),

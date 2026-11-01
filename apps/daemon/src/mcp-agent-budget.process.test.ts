@@ -169,6 +169,7 @@ it("each provider's per-request ace context stays within its budget", async () =
     ].join("\n");
     // Every client starts small: deferred names, or the core list with tools_find and tools_call.
     // Each cap is the measured cost rounded up to the next 50, so a regression fails here.
+    console.log("BUDGET provider", provider, tokens(always));
     expect.soft(tokens(always), provider).toBeLessThanOrEqual(budgets[provider]);
   }
 });
@@ -201,8 +202,7 @@ it("only the entry points and tools_find load upfront, whatever the client", asy
   // 30 for image_show (#991), projects_find (#994) and thread_fork (#1001), each a capability
   // with no existing tool to fold into. A deferring client pays only for their names, which
   // the per-request budget above counts; a core or static client never lists them upfront.
-  // Raised to 31 for offshift (#899), a durable run record no thread tool can hold. Raised to 33
-  // for transfer (ADR 0101), moving work to another machine, which no delegate or thread tool
+  // Raised for transfer (ADR 0101), moving work to another machine, which no delegate or thread tool
   // can do; the base it landed on already listed 32.
   const own = full.tools.filter(
     (tool) => !/^(?:browser|screen|sim)_/.test(bareToolName(tool.name)),
@@ -230,18 +230,6 @@ it("a core-mode session gains a family's tools by reading its guide or using its
   });
   await core.refreshTools();
   expect(core.has("agents_status")).toBe(true);
-  await core.close();
-});
-
-it("a core-mode session lists offshift only once an agent reads the offshift guide", async () => {
-  const { core } = await session();
-  expect(core.has("offshift")).toBe(false);
-  await core.call("guide", { topic: "ace-threads" });
-  await core.refreshTools();
-  expect(core.has("offshift")).toBe(false);
-  await core.call("guide", { topic: "offshift" });
-  await core.refreshTools();
-  expect(core.has("offshift")).toBe(true);
   await core.close();
 });
 
@@ -304,6 +292,7 @@ it.runIf(process.platform === "win32")(
         listedNames(provider, agents),
         text.includes("installed as skills") ? skills : "",
       ].join("\n");
+      console.log("BUDGET provider", provider, tokens(always));
       expect.soft(tokens(always), provider).toBeLessThanOrEqual(budgets[provider]);
     }
   },

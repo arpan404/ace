@@ -20,6 +20,8 @@ import type { AdapterRegistry } from "./registry.ts";
 import { z } from "zod";
 import { unavailableNativeHistory } from "./resume-open-error.ts";
 import { settleSessionBoundTasks } from "./session-bound-tasks.ts";
+import { bounded } from "../liveness/bounded.ts";
+import { INTERRUPT_GRACE_MS, KILL_GRACE_MS, TERMINATE_GRACE_MS } from "../liveness/stop.ts";
 
 const TurnPermissionSupport = z.object({ event: z.literal("permission-turn-policy-supported") });
 const AppliedPermission = z.object({
@@ -553,6 +555,70 @@ export class Sessions {
     if (!selection.model)
       throw new Error("No available default model; refresh the provider catalog");
     return selection.model;
+  }
+  /**
+   * The provider's own interrupt, the first step of a Stop: one that doesn't answer within
+   * INTERRUPT_GRACE_MS fails with StopUnanswered, so the Stop goes on to close the session.
+   */
+  interruptWithin<T>(work: Promise<T>): Promise<T> {
+    return bounded(
+      this.dependencies.clock.setTimer,
+      INTERRUPT_GRACE_MS,
+      "Provider interrupt",
+      work,
+    );
+  }
+  /**
+   * The last step of a Stop (ADR 0052): the session closes, which ends its process with SIGTERM
+   * then SIGKILL, within the bound. A close that fails or doesn't answer in time still ends the
+   * session here: the thread reads stopped, saying the provider didn't confirm, and a late exit
+   * of the old process changes nothing.
+   */
+  async closeForStop(actor: ThreadActor): Promise<void> {
+    const generation = actor.generation;
+    try {
+      await bounded(
+        this.dependencies.clock.setTimer,
+        TERMINATE_GRACE_MS + KILL_GRACE_MS,
+        "Provider close",
+        this.close(actor, "user"),
+      );
+    } catch (error) {
+      if (actor.generation !== generation) return;
+      const session = actor.session;
+      actor.session = undefined;
+      actor.lifetime?.abort();
+      actor.retireGeneration();
+      actor.idleDue = false;
+      const at = this.dependencies.clock.now();
+      const text = "Stopped · the provider didn't confirm it ended";
+      this.dependencies.repo.apply(
+        actor.id,
+        [
+          {
+            type: "item.upsert",
+            agent: this.dependencies.repo.requireState(actor.id).rootKey ?? "root",
+            item: `liveness:stop-unconfirmed:${at}`,
+            draft: {
+              type: "notice",
+              level: "warning",
+              code: "stop_unconfirmed",
+              text,
+              complete: true,
+            },
+          },
+          { type: "process.exited", deliberate: true, message: text },
+          { type: "queue.changed", source: "provider", count: 0 },
+        ],
+        at,
+      );
+      actor.releaseInputs();
+      actor.schedule();
+      // The old session is left to its own close, still in flight or failed; nothing waits on
+      // it, and the thread's notice says the provider didn't confirm (`error`).
+      void session;
+      void error;
+    }
   }
   async close(actor: ThreadActor, reason: "idle" | "user" | "shutdown"): Promise<void> {
     const session = actor.session;

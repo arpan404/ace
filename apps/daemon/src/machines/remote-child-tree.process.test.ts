@@ -22,6 +22,7 @@ async function remoteChild() {
     pollMs: 50,
     status: async () => (view ? [view] : []),
     resend: async () => "taken" as const,
+    cancel: async () => {},
     mirror: new RequestMirror({
       store: f.store,
       engine: () => f.engine,

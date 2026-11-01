@@ -85,9 +85,6 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   get queue() {
     return this.#view?.queue;
   }
-  get offshift() {
-    return this.#view?.offshift;
-  }
   get context() {
     const root = this.#view?.thread.rootAgentId;
     return root ? this.contextMeter(root) : undefined;
@@ -196,7 +193,6 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         usage: view.usage,
         usageSnapshots: view.usageSnapshots,
         ...(view.queue && { queue: view.queue }),
-        ...(view.offshift && { offshift: view.offshift }),
         ...(view.contextMeters && { contextMeters: view.contextMeters }),
       },
       truncated: [...this.#clipped],
@@ -490,9 +486,6 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           break;
         case "queue.updated":
           keys.add("queue");
-          break;
-        case "offshift.updated":
-          keys.add("offshift");
           break;
         case "context_meter.updated":
           if (!keys.has(`context:${p.meter.agentId}`))

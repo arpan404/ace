@@ -28,7 +28,7 @@ extension XCUIApplication {
                       "thread.reload": "Reload from machine", "thread.scripts": "Run and preview",
                       "thread.work": "Work", "thread.attachments": "Attachments",
                       "thread.computer": "Computer use", "thread.openIn": "Open in",
-                      "thread.turns": "Turns", "thread.logs": "Logs", "thread.offshift": "Offshift run",
+                      "thread.turns": "Turns", "thread.logs": "Logs",
                       "thread.menu.rename": "Rename", "thread.forkLast": "Fork from the last turn",
                       "thread.merge": "Bring back to parent", "thread.continueOn": "Continue on"]
         // A menu item with a second line reads both in its label: match its first words.

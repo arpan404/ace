@@ -183,7 +183,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"threadIds":{"type":"array","items":{"type":"string"}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"slotLimit":{"type":"integer","minimum":1,"maximum":64},"slotsInUse":{"type":"integer","minimum":0,"maximum":9007199254740991},"queuePosition":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"required":["threadIds"],"additionalProperties":{}} |
+| data | no | object | {"properties":{"threadIds":{"type":"array","items":{"type":"string"}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"slotLimit":{"type":"integer","minimum":1,"maximum":64},"slotsInUse":{"type":"integer","minimum":0,"maximum":9007199254740991},"queuePosition":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64},"contact":{"type":"string","enum":["lost","unconfirmed"]}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"required":["threadIds"],"additionalProperties":{}} |
 
 Example:
 
@@ -230,7 +230,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"slotLimit":{"type":"integer","minimum":1,"maximum":64},"slotsInUse":{"type":"integer","minimum":0,"maximum":9007199254740991},"queuePosition":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false} |
+| data | no | object | {"properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"slotLimit":{"type":"integer","minimum":1,"maximum":64},"slotsInUse":{"type":"integer","minimum":0,"maximum":9007199254740991},"queuePosition":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64},"contact":{"type":"string","enum":["lost","unconfirmed"]}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false} |
 
 Example:
 
@@ -271,7 +271,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | union | {"anyOf":[{"type":"object","properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled","unknown"]},"step":{"type":"string","maxLength":60},"slotLimit":{"type":"integer","minimum":1,"maximum":64},"slotsInUse":{"type":"integer","minimum":0,"maximum":9007199254740991},"queuePosition":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"queued":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"notice":{"type":"string","maxLength":400},"machine":{"type":"string","maxLength":64}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"omitted":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"queued":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"unknown":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","queued","needs_you","unknown","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false},{"type":"object","properties":{"threadId":{"type":"string"},"state":{"type":"string"},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}}]} |
+| data | no | union | {"anyOf":[{"type":"object","properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","queued","needs_you","done","failed","cancelled","unknown"]},"step":{"type":"string","maxLength":60},"slotLimit":{"type":"integer","minimum":1,"maximum":64},"slotsInUse":{"type":"integer","minimum":0,"maximum":9007199254740991},"queuePosition":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"queued":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"notice":{"type":"string","maxLength":400},"machine":{"type":"string","maxLength":64},"contact":{"type":"string","enum":["lost","unconfirmed"]}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"omitted":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"queued":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"unknown":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","queued","needs_you","unknown","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false},{"type":"object","properties":{"threadId":{"type":"string"},"state":{"type":"string"},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}}]} |
 
 Example:
 
@@ -1007,90 +1007,6 @@ Example:
 }
 ```
 
-## offshift
-
-This thread's durable record of a coding outcome: criteria, steps, phase, blocker, evidence. It records work, never runs it. Do what each result's next says. How: guide offshift.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## offshift.input
-
-[JSON Schema](schema/offshift.input.json), input validation.
-
-Semantic rule: start needs runId, outcome, endpoint and criteria; get needs runId; advance needs runId, version, phase and note; block and resume need runId, version and note; evidence needs runId, version and evidence; revise needs runId, version, criterion and note; step needs runId, version, stepId and state.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| action | yes | ["start","get","list","playbooks","advance","block","resume","evidence","revise","step"] | {"description":"start: outcome, endpoint, criteria. Later changes: runId, version. advance: phase. revise: criterion. step: stepId, state. Note why on each."} |
-| runId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| version | no | integer | {"description":"run.version, as next names it.","minimum":0,"maximum":9007199254740991} |
-| outcome | no | string | {"minLength":1,"maxLength":4096} |
-| endpoint | no | string | {"minLength":1,"maxLength":4096} |
-| criteria | no | [OffshiftCriteria.json](schema/OffshiftCriteria.json) |  |
-| criterion | no | [OffshiftCriterion.json](schema/OffshiftCriterion.json) |  |
-| phase | no | [OffshiftPhase.json](schema/OffshiftPhase.json) |  |
-| note | no | string | {"minLength":1,"maxLength":4096} |
-| playbook | no | [OffshiftPlaybookId.json](schema/OffshiftPlaybookId.json) |  |
-| steps | no | [OffshiftStepsInput.json](schema/OffshiftStepsInput.json) |  |
-| stepId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| state | no | ["done","skipped"] |  |
-| evidence | no | union | {"description":"A list is recorded whole or not at all.","anyOf":[{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceInput.json"},{"$ref":"https://ace.local/protocol/v1/OffshiftEvidenceBatch.json"}]} |
-| runOwner | no | [ThreadId.json](schema/ThreadId.json) | {"description":"The ancestor whose run you check."} |
-
-Example:
-
-```json
-{
-  "action": "playbooks",
-  "criteria": [
-    {
-      "description": "example",
-      "id": "p_40jB",
-      "independent": true,
-      "requiredKinds": [
-        "human"
-      ]
-    }
-  ],
-  "evidence": [
-    {
-      "action": "example",
-      "artifact": "example",
-      "criterionId": "OSsDSRz7KP",
-      "kind": "ui",
-      "note": "example",
-      "result": "pass",
-      "revision": "example"
-    }
-  ],
-  "note": "example",
-  "requestId": "q7",
-  "state": "done",
-  "version": 3
-}
-```
-
-## offshift.output
-
-[JSON Schema](schema/offshift.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | union | {"anyOf":[{"type":"object","properties":{"run":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","minLength":1,"maxLength":4096},"endpoint":{"type":"string","minLength":1,"maxLength":4096},"criteria":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"description":{"type":"string","minLength":1,"maxLength":4096},"requiredKinds":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["automated","source","ui","human","manual"]}},"independent":{"type":"boolean"}},"required":["id","description","requiredKinds"],"additionalProperties":false},"x-ace-constraint":"Criterion IDs must be unique."},"owner":{"default":null,"anyOf":[{"type":"object","properties":{"kind":{"type":"string","const":"agent"},"threadId":{"type":"string","minLength":1},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["threadId","provider","model"],"additionalProperties":false},{"type":"null"}]},"playbook":{"type":"string","enum":["fix","feature","refactor","perf","investigate","ui","land"]},"steps":{"default":[],"maxItems":24,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"title":{"type":"string","minLength":1,"maxLength":160},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"state":{"type":"string","enum":["todo","done","skipped"]},"note":{"type":"string","minLength":1,"maxLength":1024}},"required":["id","title","phase","state"],"additionalProperties":false}},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"version":{"type":"integer","minimum":0,"maximum":9007199254740991},"blocker":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]},"note":{"type":"string","minLength":1,"maxLength":4096},"evidence":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"kind":{"type":"string","enum":["automated","source","ui","human","manual"]},"result":{"type":"string","enum":["pass","fail"]},"revision":{"type":"string","minLength":1,"maxLength":512,"description":"From get, before the check ran."},"action":{"type":"string","minLength":1,"maxLength":4096},"artifact":{"type":"string","minLength":1,"maxLength":4096},"note":{"type":"string","minLength":1,"maxLength":4096},"recordedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"by":{"default":null,"anyOf":[{"anyOf":[{"type":"object","properties":{"kind":{"type":"string","const":"person"},"deviceId":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"device":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["kind","deviceId","device"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"agent"},"threadId":{"type":"string","minLength":1},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["threadId","provider","model"],"additionalProperties":false}]},{"type":"null"}]}},"required":["criterionId","kind","result","revision","action","artifact","note","recordedAt","by"],"additionalProperties":false}},"personChanges":{"default":[],"maxItems":16,"type":"array","items":{"type":"object","properties":{"version":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"at":{"type":"integer","minimum":0,"maximum":9007199254740991},"by":{"type":"object","properties":{"kind":{"type":"string","const":"person"},"deviceId":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"device":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["kind","deviceId","device"],"additionalProperties":false},"summary":{"type":"string","minLength":1,"maxLength":512}},"required":["version","at","by","summary"],"additionalProperties":false}},"ended":{"default":null,"anyOf":[{"type":"object","properties":{"at":{"type":"integer","minimum":0,"maximum":9007199254740991},"by":{"type":"object","properties":{"kind":{"type":"string","const":"person"},"deviceId":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"device":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["kind","deviceId","device"],"additionalProperties":false},"note":{"type":"string","minLength":1,"maxLength":4096}},"required":["at","by","note"],"additionalProperties":false},{"type":"null"}]},"startedBy":{"type":"object","properties":{"kind":{"type":"string","const":"person"},"deviceId":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"device":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["kind","deviceId","device"],"additionalProperties":false},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","outcome","endpoint","criteria","owner","steps","phase","version","blocker","note","evidence","personChanges","ended","createdAt","updatedAt"],"additionalProperties":false},"revision":{"type":"string","minLength":1,"maxLength":512},"state":{"type":"string","enum":["active","blocked","needs_evidence","waiting_on_tree","complete","ended"]},"pending":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"kind":{"type":"string","enum":["automated","source","ui","human","manual"]},"needs":{"type":"string","const":"independent"}},"required":["criterionId","kind"],"additionalProperties":false}},"treeState":{"type":"string","enum":["working","waiting","needs_you","failed","done","unknown"]},"next":{"type":"string","minLength":1,"maxLength":1024}},"required":["run","revision","state","pending","treeState","next"],"additionalProperties":false},{"maxItems":32,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"outcome":{"type":"string","maxLength":512},"outcomeTruncated":{"type":"boolean"}},"required":["id","phase","outcome","outcomeTruncated"],"additionalProperties":false}},{"type":"object","properties":{"playbooks":{"maxItems":16,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","enum":["fix","feature","refactor","perf","investigate","ui","land"]},"purpose":{"type":"string","minLength":1,"maxLength":160},"steps":{"minItems":1,"maxItems":8,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"title":{"type":"string","minLength":1,"maxLength":160},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"kinds":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["automated","source","ui","human","manual"]}}},"required":["id","title","phase"],"additionalProperties":false}}},"required":["id","purpose","steps"],"additionalProperties":false}}},"required":["playbooks"],"additionalProperties":false}]} |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": false
-}
-```
-
 ## automations_list
 
 Automations you or your threads created in this project, with each next run. runs: true reads recent runs instead, newest first, paged with before.
@@ -1516,7 +1432,7 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 | --- | --- | --- | --- |
 | query | yes | string | {"minLength":1,"maxLength":500,"description":"In plain words, e.g. \"click a button in Safari\"."} |
 | limit | no | integer | {"default":5,"minimum":1,"maximum":10} |
-| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use","offshift"] |  |
+| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use"] |  |
 
 Example:
 

@@ -8,8 +8,8 @@ export const guideTopics = [
   "ace-threads",
   "ace-computer-use",
 ] as const;
-/** Every family a tool can belong to: the guides above and offshift, loaded only on request. */
-export const toolFamilies = [...guideTopics, "offshift"] as const;
+/** Every family a tool can belong to: the guides above. */
+export const toolFamilies = [...guideTopics] as const;
 
 export type StatusReader = (caller: McpAttribution) => {
   access: McpStatus["access"];
@@ -65,7 +65,7 @@ export function aceGuidance(groups?: readonly string[], tools?: readonly string[
       : "",
     has("screen", "devices") ? `- the person names a native app or simulator: ${nativeApps};` : "",
     "Not sure which ace tool fits? tools_find with what you want to do.",
-    `How-tos and more tools: guide with topic ${guideTopics.join(", ")}, or offshift to own a coding outcome end to end.`,
+    `How-tos and more tools: guide with topic ${guideTopics.join(", ")}.`,
     "If an ace tool says its group is off, tell the person. Agents never answer approvals.",
   ]
     .filter(Boolean)
