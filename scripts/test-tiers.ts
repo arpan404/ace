@@ -88,7 +88,7 @@ export const failsOnFastBudget = (tier: Tier) => tier === "fast" || tier === "ch
 export interface FileTiming {
   file: string;
   project: string;
-  /** Import plus tests and hooks: the file's own time, without shared environment setup. */
+  /** Tests and hooks: the file's own time, without imports or shared environment setup. */
   ownMs: number;
 }
 

@@ -7,7 +7,8 @@ export interface TimingRecord {
   file: string;
   project: string;
   state: string;
-  /** Import plus tests and hooks: what the budgets measure. */
+  /** Tests and hooks: what the budgets measure. Imports are left out because a cold transform
+   * cache or a busy machine inflates them for reasons unrelated to the file. */
   ownMs: number;
   collectMs: number;
   testsMs: number;
@@ -44,7 +45,7 @@ export class TimingReporter implements Reporter {
         file: relative(this.#root, module.moduleId).split(sep).join("/"),
         project: module.project.name,
         state: module.state(),
-        ownMs: round(diagnostic.collectDuration + diagnostic.duration),
+        ownMs: round(diagnostic.duration),
         collectMs: round(diagnostic.collectDuration),
         testsMs: round(diagnostic.duration),
         setupMs: round(diagnostic.setupDuration),
