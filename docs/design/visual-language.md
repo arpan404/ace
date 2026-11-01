@@ -291,7 +291,8 @@ Three animations may repeat, each tied to something the person is waiting on:
 - `.fx-alive`, a live agent's provider mark in the Summary's agent tree, only while that agent or
   anything under it works or waits and only while the Summary is open (ADR 0107). It is the tree's
   one status mark, standing in for the status glyphs there; it holds still under reduced motion
-  and while facts are stale.
+  and while facts are stale. The owner chose it over a still mark on 2026-11-01, after comparing
+  the two side by side.
 
 Finite motion stays: entrances and exits, and a live step's words sweep three times when the step
 starts (`.step-shimmer`) and then hold still. `bun run check:ui` refuses any other `infinite`
