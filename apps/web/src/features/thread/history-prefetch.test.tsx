@@ -1,10 +1,11 @@
 import { longHistory } from "@ace/fake-daemon";
 import { act, fireEvent, screen, within } from "@testing-library/react";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { gestureWindowMs } from "./transcript/use-history-paging.ts";
 
 beforeEach(() => localStorage.clear());
+afterEach(() => vi.restoreAllMocks());
 
 test("one upward scroll prefetches one older page without the reply paging the rest of the thread", async () => {
   const app = harness({ snapshotItems: 20 });
@@ -40,8 +41,10 @@ test("a scroll long after the reader's last gesture never pages older history", 
   viewport.scrollTop = 5_000;
   fireEvent.wheel(viewport, { deltaY: -100 });
   fireEvent.scroll(viewport);
-  // Later, with no gesture, something above resizes and the view lands near the top.
-  await act(() => new Promise((resolve) => setTimeout(resolve, gestureWindowMs + 100)));
+  // Later, with no gesture, something above resizes and the view lands near the top. The page's
+  // clock jumps past the gesture window rather than the test waiting it out.
+  const realNow = performance.now.bind(performance);
+  vi.spyOn(performance, "now").mockImplementation(() => realNow() + gestureWindowMs + 100);
   viewport.scrollTop = 100;
   fireEvent.scroll(viewport);
   await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
