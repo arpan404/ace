@@ -37,11 +37,14 @@ async function openPanel(app: ReturnType<typeof harness>, path = "/new") {
   });
 }
 
-test("a thread settled long ago stays dimmed in its project, whatever the old grace setting says", async () => {
+test("a thread settled long ago stays in the Settled tab, whatever the old grace setting says", async () => {
   await openPanel(settledDaysAgo(30, "1d"));
-  const row = await within(threads()).findByRole("link", { name: bump });
-  expect(row.getAttribute("aria-label")).toMatch(/^Bump Codex app-server to 0\.48\. Settled/);
-  expect(row.textContent).toBe("Bump Codex app-server to 0.48");
+  const nav = within(threads());
+  // The Inbox holds the running thread, never the long-settled bump.
+  expect(nav.queryByRole("link", { name: bump })).toBeNull();
+  await userEvent.click(nav.getByRole("tab", { name: "Settled" }));
+  expect(await nav.findByRole("link", { name: bump })).toBeTruthy();
+  expect(nav.queryByRole("link", { name: /^Dedupe thread events/ })).toBeNull();
 });
 
 test("Settings no longer offers a grace period for settled threads", async () => {
@@ -72,16 +75,4 @@ test("History lists settled threads by week and filters by project", async () =>
   expect(await within(main).findByRole("link", { name: bump })).toBeTruthy();
   await userEvent.click(within(main).getByRole("button", { name: "All projects" }));
   expect(await within(main).findByRole("link", { name: bump })).toBeTruthy();
-});
-
-test("History opens from a project's row, prefiltered to it; the panel has no History row", async () => {
-  await openPanel(settledDaysAgo(2));
-  expect(screen.queryByRole("link", { name: /^History/ })).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "History of relay" }));
-  const main = screen.getByRole("main");
-  await within(main).findByRole("heading", { level: 2, name: "History" });
-  expect(within(main).getByRole("button", { name: "relay" }).getAttribute("aria-pressed")).toBe(
-    "true",
-  );
-  expect(within(main).queryByRole("link", { name: bump })).toBeNull();
 });
