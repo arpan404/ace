@@ -149,7 +149,7 @@ export function TabItem(props: {
                   props.onKeyDown(event);
                 }}
                 className={cn(
-                  "focus-ring flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pl-2 text-sm font-medium whitespace-nowrap text-muted-foreground",
+                  "flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pl-2 text-sm font-medium whitespace-nowrap text-muted-foreground focus-ring-inset",
                   "transition-[color,background-color,box-shadow] duration-(--motion-fast)",
                   "hover:text-foreground hover:not-aria-selected:bg-foreground/5",
                   "focus-visible:text-foreground",
@@ -222,7 +222,7 @@ export function TabItem(props: {
               aria-label={`${closeLabel} ${title}`}
               onClick={() => void actions.close(tab.key)}
               className={cn(
-                "absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-xs text-subtle-foreground outline-none",
+                "absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-xs text-subtle-foreground outline-none focus-ring-inset",
                 // Shown on keyboard focus too, where Delete closes the tab it marks.
                 "opacity-0 transition-[opacity,background-color,color] duration-(--motion-fast) group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 pointer-coarse:opacity-100 hover:bg-accent hover:text-foreground",
                 props.active && "opacity-100",

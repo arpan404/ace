@@ -85,7 +85,7 @@ export function BottomTabs(props: {
               }}
               onKeyDown={onKeyDown(index)}
               className={cn(
-                "focus-ring flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-7 pl-2 text-sm font-medium whitespace-nowrap text-muted-foreground",
+                "flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-7 pl-2 text-sm font-medium whitespace-nowrap text-muted-foreground focus-ring-inset",
                 "transition-[color,background-color] duration-(--motion-fast)",
                 "hover:text-foreground hover:not-aria-selected:bg-foreground/5",
                 "aria-selected:bg-foreground/8 aria-selected:text-foreground",
@@ -106,7 +106,7 @@ export function BottomTabs(props: {
                 aria-label={`${kind?.closeLabel ?? "Close"} ${title}`}
                 onClick={() => void actions.close(tab.key)}
                 className={cn(
-                  "absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-xs text-subtle-foreground outline-none focus-ring",
+                  "absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-xs text-subtle-foreground outline-none focus-ring-inset",
                   "opacity-0 transition-[opacity,background-color,color] duration-(--motion-fast) group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 pointer-coarse:opacity-100 hover:bg-accent hover:text-foreground",
                   active && "opacity-100",
                 )}
