@@ -1,4 +1,4 @@
-import type { ProviderHeadroom } from "./usage-headroom.ts";
+import type { PooledHeadroom } from "./usage-headroom.ts";
 import { usableSessionLeft } from "./usage-headroom.ts";
 import type { AccountLimits } from "./usage-limits.ts";
 
@@ -9,7 +9,7 @@ import type { AccountLimits } from "./usage-limits.ts";
  */
 
 export interface UsageSuggestion {
-  provider: ProviderHeadroom["provider"];
+  provider: PooledHeadroom["provider"];
   providerKey: string;
   /** The account to make the default. */
   account: AccountLimits;
@@ -32,7 +32,7 @@ const shortNames: Partial<Record<string, string>> = { claude: "Claude", codex: "
  * clearly better than the default.
  */
 export function usageSuggestion(
-  headroom: readonly ProviderHeadroom[],
+  headroom: readonly PooledHeadroom[],
   subject?: string,
 ): UsageSuggestion | undefined {
   const candidates = headroom.flatMap((entry) => {

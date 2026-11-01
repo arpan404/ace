@@ -25,7 +25,7 @@ export function headroomTone(left: number): HeadroomTone {
   return left < lowHeadroomPercent ? "low" : "ok";
 }
 
-export interface ProviderHeadroom {
+export interface PooledHeadroom {
   key: string;
   provider: ProviderLimits["provider"];
   acpAgentId: string | undefined;
@@ -89,7 +89,7 @@ function backAt(account: AccountLimits): number | null {
 }
 
 /** Pooled headroom for one provider, from its accounts as the Usage page lists them. */
-export function providerHeadroom(group: ProviderLimits): ProviderHeadroom {
+export function pooledHeadroom(group: ProviderLimits): PooledHeadroom {
   const current =
     group.accounts.find((entry) => entry.account.isDefault) ?? group.accounts[0] ?? undefined;
   let best: AccountLimits | undefined;
@@ -121,8 +121,8 @@ export function providerHeadroom(group: ProviderLimits): ProviderHeadroom {
   };
 }
 
-export function usageHeadroom(limits: UsageLimits): ProviderHeadroom[] {
-  return limits.providers.map(providerHeadroom);
+export function usageHeadroom(limits: UsageLimits): PooledHeadroom[] {
+  return limits.providers.map(pooledHeadroom);
 }
 
 /** One bar of the rail's Usage icon. */
@@ -150,16 +150,16 @@ const railBars = 4;
  * page's order, so limits never hide behind a missing ranking.
  */
 export function railUsage(
-  headroom: readonly ProviderHeadroom[],
+  headroom: readonly PooledHeadroom[],
   used: ReadonlyMap<string, number> | undefined,
 ): RailUsage {
   const readable = headroom.filter((entry) => entry.sessionLeft !== null);
   const ranked =
     used && used.size > 0
-    ? readable
-        .filter((entry) => (used.get(entry.provider) ?? 0) > 0)
-        .toSorted((a, b) => (used.get(b.provider) ?? 0) - (used.get(a.provider) ?? 0))
-    : readable;
+      ? readable
+          .filter((entry) => (used.get(entry.provider) ?? 0) > 0)
+          .toSorted((a, b) => (used.get(b.provider) ?? 0) - (used.get(a.provider) ?? 0))
+      : readable;
   const bars = ranked.slice(0, railBars).map((entry) => {
     const left = entry.sessionLeft ?? 0;
     return { key: entry.key, label: entry.providerLabel, left, tone: headroomTone(left) };
@@ -198,20 +198,18 @@ const line = (...parts: (string | { text: string; strong: true })[]): UsageLine 
 };
 const strong = (text: string) => ({ text, strong: true as const });
 
-const readable = (headroom: readonly ProviderHeadroom[]) =>
+const readable = (headroom: readonly PooledHeadroom[]) =>
   headroom.filter((entry) => entry.currentLeft !== null || entry.sessionLeft !== null);
 
 /** Providers with no account that can take work, soonest back first. */
-function outProviders(headroom: readonly ProviderHeadroom[]): ProviderHeadroom[] {
+function outProviders(headroom: readonly PooledHeadroom[]): PooledHeadroom[] {
   return headroom
     .filter((entry) => entry.sessionLeft === 0)
     .toSorted((a, b) => (a.backAt ?? Infinity) - (b.backAt ?? Infinity));
 }
 
 /** The provider whose account for new threads has the least session left. */
-export function tightestProvider(
-  headroom: readonly ProviderHeadroom[],
-): ProviderHeadroom | undefined {
+export function tightestProvider(headroom: readonly PooledHeadroom[]): PooledHeadroom | undefined {
   return readable(headroom).toSorted(
     (a, b) =>
       (a.currentLeft ?? a.sessionLeft ?? 100) - (b.currentLeft ?? b.sessionLeft ?? 100) ||
@@ -219,7 +217,7 @@ export function tightestProvider(
   )[0];
 }
 
-function backIn(entry: ProviderHeadroom, now: number): string {
+function backIn(entry: PooledHeadroom, now: number): string {
   return entry.backAt === null ? "" : formatCountdown(entry.backAt - now);
 }
 
@@ -228,10 +226,7 @@ function backIn(entry: ProviderHeadroom, now: number): string {
  * account for new threads is out; else "You have room on every provider" and the tightest one,
  * with its forecast when it runs out before its reset. Undefined with nothing read.
  */
-export function usageNow(
-  headroom: readonly ProviderHeadroom[],
-  now: number,
-): UsageLine | undefined {
+export function usageNow(headroom: readonly PooledHeadroom[], now: number): UsageLine | undefined {
   const out = outProviders(headroom);
   const [first, ...rest] = out;
   if (first) {
@@ -274,7 +269,7 @@ export function usageNow(
 }
 
 /** The hover card's one sentence about the tightest provider. */
-export function headroomSentence(headroom: readonly ProviderHeadroom[], now: number): string {
+export function headroomSentence(headroom: readonly PooledHeadroom[], now: number): string {
   const [first] = outProviders(headroom);
   if (first) {
     const back = backIn(first, now);

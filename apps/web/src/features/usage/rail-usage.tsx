@@ -6,7 +6,7 @@ import {
   resetCountdown,
   type AccountWindow,
   type HeadroomTone,
-  type ProviderHeadroom,
+  type PooledHeadroom,
 } from "@ace/ui-core";
 import { useState } from "react";
 import { railPlaceClass } from "@/components/rail-place.ts";
@@ -41,7 +41,7 @@ export function UsagePlace(props: { current: boolean }) {
         <UsageBars bars={usage.rail.bars} />
       </HoverCardTrigger>
       {open && (
-        <HoverCardContent side="right" align="end" className="w-[340px] px-4 pt-3.5 pb-2.5">
+        <HoverCardContent side="right" align="end" className="w-85 px-4 pt-3.5 pb-2.5">
           <UsageCard
             headroom={usage.headroom}
             now={usage.now}
@@ -55,7 +55,7 @@ export function UsagePlace(props: { current: boolean }) {
 }
 
 function UsageCard(props: {
-  headroom: readonly ProviderHeadroom[];
+  headroom: readonly PooledHeadroom[];
   now: number;
   observedAt: number | undefined;
   close(): void;

@@ -46,3 +46,15 @@
 [data-scheme="dark"] [data-provider="antigravity"] {
   --provider: #a58cf0;
 }
+
+/* Token types on Usage's Tokens share bar and table: cache in cool tones, reasoning violet. */
+:root {
+  --token-cache-read: #4a68a8;
+  --token-cache-write: #8293b8;
+  --token-reasoning: #7c5bd6;
+}
+[data-scheme="dark"] {
+  --token-cache-read: #5f7fbf;
+  --token-cache-write: #9aa9c9;
+  --token-reasoning: #b49cff;
+}

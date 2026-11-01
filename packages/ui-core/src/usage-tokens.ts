@@ -73,11 +73,12 @@ export function tokenTable(report: UsageReport): TokenTable {
   const tokens = parts.reduce((sum, row) => sum + row.tokens, 0);
   const usd = parts.reduce((sum, row) => sum + row.usd, 0);
   return {
-    rows: parts.map((row) => ({
-      ...row,
-      tokenShare: ratio(row.tokens, tokens),
-      costShare: ratio(row.usd, usd),
-    })),
+    rows: parts.map((row): TokenRow =>
+      Object.assign(row, {
+        tokenShare: ratio(row.tokens, tokens),
+        costShare: ratio(row.usd, usd),
+      }),
+    ),
     tokens,
     usd,
     cacheHitRate: ratio(types.cacheRead, types.cacheRead + types.cacheWrite + types.input),

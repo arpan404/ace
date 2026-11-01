@@ -4,7 +4,7 @@ import {
   usageDay,
   usageHeadroom,
   usageLimits,
-  type ProviderHeadroom,
+  type PooledHeadroom,
   type RailUsage,
 } from "@ace/ui-core";
 import { useMemo } from "react";
@@ -14,7 +14,7 @@ import { useNow } from "@/lib/time.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 
 export interface UsageHeadroom {
-  headroom: ProviderHeadroom[];
+  headroom: PooledHeadroom[];
   rail: RailUsage;
   /** When the freshest limit was read; undefined before any. */
   observedAt: number | undefined;
@@ -39,7 +39,7 @@ export function useUsageHeadroom(): UsageHeadroom {
   }, [accounts]);
   const from = usageDay(now, zone.timeZone, 6);
   const to = usageDay(now, zone.timeZone);
-  const used = useDaemonQuery({
+  const used = useDaemonQuery<ReadonlyMap<string, number>>({
     queryKey: ["usage", "rail", from, to, observedAt ?? 0],
     enabled: zone.ready,
     staleTime: Number.POSITIVE_INFINITY,

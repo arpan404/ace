@@ -1,10 +1,5 @@
 import { DaemonMenuItems } from "./daemon-menu-content.tsx";
-import {
-  ArchiveIcon,
-  InfoIcon,
-  KeyboardIcon,
-  PlugsIcon,
-} from "@phosphor-icons/react";
+import { ArchiveIcon, InfoIcon, KeyboardIcon, PlugsIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   MenuContent,

@@ -58,7 +58,6 @@ export function UsageBars(props: { bars: readonly HeadroomBar[]; size?: number }
   );
 }
 
-
 /** Usage in the rail before its live figures load: the empty bars, linking to the page. */
 export function UsageLink(props: { current: boolean }) {
   return (

@@ -16,7 +16,7 @@ interface Seed {
   isDefault?: boolean;
   /** Session used, and minutes until it resets (of 300). */
   session: [used: number, resetsInMins: number] | null;
-  weekly?: number;
+  weekly?: number | undefined;
   signInLapsed?: boolean;
 }
 
