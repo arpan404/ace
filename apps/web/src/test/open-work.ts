@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { findTopBar } from "./top-bar.ts";
 
 /**
  * Open the side panel's Summary tab through its public shortcut, keeping an already selected
@@ -37,7 +38,7 @@ export async function summaryStatus(work: HTMLElement) {
 
 /** The header's thread details icon; its name gains ", working" or ", something needs you" with a dot. */
 export async function workButton() {
-  return within(await screen.findByRole("banner")).findByRole("button", {
+  return within(await findTopBar()).findByRole("button", {
     name: /^Thread details/,
   });
 }
