@@ -106,8 +106,27 @@ than a sidebar and a column each with its own header.
   content. Its empty space drags the window; on Windows it, not the header, clears the caption
   buttons (the column holding the header is marked `data-beside-panel`). In
   full view the strip takes the whole bar, led by back, forward and the sidebar toggle while
-  the sidebar is hidden. Floating over a narrow window, docked at the bottom or in a phone's
-  sheet, the strip heads the panel as before and the toggle stays at the header's right.
+  the sidebar is hidden. Docked at the bottom, the strip heads the panel as before and the
+  toggle stays at the header's right.
+- **Docked at every size** (owner, 2026-11-01, replacing the floating panel at 896px and below
+  and the phone's sheet). The side panel never floats over the chat, never opens as a sheet or
+  modal and never dims anything. One pure rule (`apps/web/src/lib/shell-room.ts`) shares the
+  window's width: from 640px up the panel docks beside the column with its strip in the top bar,
+  the sidebar stepping aside first (at 1100px and below while the panel is open, or wherever it
+  would leave the column and the panel under their minimums), then the panel narrowing towards
+  320px while the column keeps 360px; below that the panel caps its width rather than cover the
+  column. Widths follow the window continuously; the dragged width is remembered unclamped and
+  drawn again once there is room. Below 640px (a phone, never the desktop app, whose window is
+  at least 768px) the panel takes the canvas in the column's place, as full view does, its
+  strip led by Back to chat, with no full view or toggle; focus moves into it and Back hands
+  focus to the header's toggle, so the keyboard never rises. A bottom dock stays a split under
+  the column at every width.
+- **Boundary markers in the top bar** (owner, 2026-11-01). The bar carries a short hairline
+  (1px `--border`, 20px, centred) where the sidebar meets the column and where the column meets
+  a panel docked beside it, on the edge the canvas's hairline runs down, so the bar reads in
+  the same columns as the canvas. Each shows only while both parts beside it are there (none in
+  full view or on a phone), follows its edge as it resizes, is `aria-hidden` and takes no
+  pointer, leaving the bar draggable.
 - **Rail.** Bare 20px glyphs in 40px boxes; a short hairline divides Threads and Spade from
   GitHub, Automations and Skills. A dot on a place is in the warning colour while something there
   needs the person, blue while it holds news not yet seen (GitHub's unread notifications).
