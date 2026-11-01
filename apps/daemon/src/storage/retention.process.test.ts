@@ -13,6 +13,7 @@ import { basename, join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { prepareBuiltinSkills } from "@ace/plugins";
 import { storageFixture } from "./test-support.ts";
+import { StorageInventory } from "./inventory.ts";
 import { createBuiltinSkillRoot } from "../builtin-skill-roots.ts";
 import { builtinSkillProcessLease } from "../builtin-skill-processes.ts";
 
@@ -92,6 +93,41 @@ test("pinned and human-waiting descendants protect their whole archived tree", a
       .filter((item) => item.kind === "threads")
       .every((item) => item.reasons.includes("pinned")),
   ).toBe(true);
+});
+
+test("a delegation root that joined another tree keeps its members while that tree is busy", async () => {
+  const f = await setup();
+  const leaf = f.thread("leaf");
+  const inner = f.thread("inner");
+  const outer = f.thread("outer");
+  const busy = f.thread("busy", { state: "needs_you", interactions: 1 });
+  const unrelated = f.thread("unrelated");
+  f.store.atomic((db) => {
+    db.exec(
+      "CREATE TABLE delegation_participants(thread_id TEXT PRIMARY KEY,root_id TEXT); CREATE TABLE delegation_trees(root_id TEXT PRIMARY KEY,active INTEGER)",
+    );
+    const insert = db.prepare("INSERT INTO delegation_participants VALUES (?,?)");
+    insert.run(leaf.id, inner.id);
+    insert.run(inner.id, outer.id);
+    insert.run(busy.id, outer.id);
+  });
+  const items = (
+    await f.storage.plan("owner", { op: "cleanup.plan", kinds: ["threads"], forceItems: [] })
+  ).items;
+  const byLabel = (label: string) => items.find((item) => item.label === label);
+  expect(byLabel("leaf")).toMatchObject({ disposition: "protect" });
+  expect(byLabel("leaf")?.reasons).toContain("active_tree");
+  expect(byLabel("unrelated")).toMatchObject({ disposition: "remove" });
+  // Removal re-inspects one thread on its own: it must reach the outer tree too.
+  const inventory = new StorageInventory({
+    root: f.root,
+    store: f.store,
+    services: f.services,
+    now: f.now,
+    id: () => "inspect",
+  });
+  expect((await inventory.thread(leaf.id))?.protections).toContain("active_tree");
+  expect((await inventory.thread(unrelated.id))?.protections).not.toContain("active_tree");
 });
 
 test("paused and uncertain sends survive retention even when the stored thread says done", async () => {
@@ -316,7 +352,7 @@ test("cleaning up an archived tree of 300 delegated threads removes every thread
   }
   for (const thread of [root, ...children])
     expect(f.store.getThread(thread.id)?.deletedAt).toBeDefined();
-}, 300000);
+}, 120000);
 
 test("purging a thread removes its Offshift outcome and evidence while preserving another run", async () => {
   const f = await setup();
