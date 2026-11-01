@@ -165,3 +165,20 @@ holds only ace's APNs key and its own sealing key. It sees device tokens, daemon
 timing and size, never provider credentials, prompts, code, transcripts or alert text, and it
 stores nothing. Every other clause of this ADR stands: providers are still reached only through
 the person's own CLIs, and no other part of ace is hosted.
+
+## Amendment: public model prices
+
+Date: 2026-11-01. Approved by the owner. The local usage worker may fetch
+LiteLLM's public `model_prices_and_context_window.json` from
+`https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json`.
+It sends only conditional HTTP validators, never credentials, model ids, usage,
+prompts or other user data. Redirects are refused. This is a public metadata read,
+not provider inference, hosting or a credential proxy.
+
+The worker checks at most once per 24 hours, with at most one additional check
+per hour when recorded usage has an unpriced model. Concurrent checks coalesce,
+failures back off, and scheduling metadata survives restarts. Requests time out
+in five seconds. The last validated list is atomically cached under the daemon's
+data directory. A failed download logs one fixed line and keeps existing prices.
+Set `"fetchPrices": false` in `usage-settings.json` in that directory and restart
+the daemon to use only bundled prices, ignoring the downloaded cache.

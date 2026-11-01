@@ -27,7 +27,7 @@ const typeNames: TokenTypes<string> = {
 };
 const typeOrder = ["input", "cacheRead", "cacheWrite", "output"] as const;
 const estimateNote =
-  "API estimate: what these tokens would cost at each model's list API price. Subscriptions bill differently; models ace has no price for are left out.";
+  "API estimate: what these tokens would cost at each model's LiteLLM list API price. Subscriptions bill differently; models ace has no price for are left out.";
 
 /**
  * Tokens or money over the range: the total with growth against the days before, each provider,

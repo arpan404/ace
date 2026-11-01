@@ -39,7 +39,9 @@ export function migrate(db: DatabaseSync, timezone: string): void {
     CREATE INDEX IF NOT EXISTS usage_increment_thread ON usage_increments(thread);
     CREATE INDEX IF NOT EXISTS usage_window ON usage_increments(account, at);
     CREATE INDEX IF NOT EXISTS usage_increment_at ON usage_increments(at);
-    CREATE TEMP TABLE usage_prices (model TEXT PRIMARY KEY, input REAL, cached REAL, write REAL, write1h REAL, output REAL);
+    CREATE INDEX IF NOT EXISTS usage_daily_model ON usage_daily(model, day);
+    CREATE TABLE IF NOT EXISTS usage_price_history (model TEXT NOT NULL, day TEXT NOT NULL, input REAL, cached REAL, write REAL, write1h REAL, output REAL, reasoning REAL, PRIMARY KEY(model, day)) WITHOUT ROWID;
+    CREATE TEMP TABLE usage_prices (model TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL, input REAL, cached REAL, write REAL, write1h REAL, output REAL, reasoning REAL, PRIMARY KEY(model, start)) WITHOUT ROWID;
   `);
   const existing = db.prepare("SELECT version, timezone FROM usage_meta WHERE id=1").get();
   if (existing && (existing.version !== 2 || existing.timezone !== timezone))

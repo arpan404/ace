@@ -1,3 +1,6 @@
+import { UsageBatch } from "./events.ts";
+import { matchModel } from "./litellm.ts";
+import { type PriceTable } from "./settings.ts";
 import { SessionTotals } from "./session-totals.ts";
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { UsageResult, type UsageResult as Result } from "@ace/protocol";
@@ -15,13 +18,17 @@ export class UsageStore {
   private readonly sessionTotals: SessionTotals;
   private readonly ingestion: Ingestion;
   private readonly settings: UsageSettings;
-  private readonly priceVersion: string;
-  private readonly priceSources: string[];
-  private readonly priceAsOf: string | undefined;
+  private priceVersion: string;
+  private priceSources: string[];
+  private priceAsOf: string | undefined;
   private readonly day: (at: number) => string;
+  private prices: PriceTable;
+  private unpriced = false;
+  private readonly known = new Set<string>();
   constructor(path: string, settings: unknown = {}) {
     this.settings = UsageSettings.parse(settings);
     const prices = resolvePrices(this.settings);
+    this.prices = prices;
     this.priceVersion = prices.version;
     this.priceSources = prices.sources;
     this.priceAsOf = prices.asOf;
@@ -29,9 +36,9 @@ export class UsageStore {
     this.db = new DatabaseSync(path);
     try {
       migrate(this.db, this.settings.timezone);
-      const insert = this.db.prepare("INSERT INTO usage_prices VALUES (?, ?, ?, ?, ?, ?)");
-      for (const [model, rate] of Object.entries(prices.models))
-        insert.run(model, rate.input, rate.cached, rate.write, rate.write1h, rate.output);
+      for (const row of this.db.prepare("SELECT DISTINCT model FROM usage_daily").iterate())
+        this.known.add(String(row.model));
+      this.updatePrices(prices);
       this.sessionTotals = new SessionTotals(this.db);
       this.ingestion = new Ingestion(
         this.db,
@@ -60,7 +67,92 @@ export class UsageStore {
     return Number(this.statement("SELECT cursor FROM usage_meta WHERE id=1").get()?.cursor);
   }
   ingest(batch: unknown): number {
-    return this.ingestion.ingest(batch);
+    const result = this.ingestion.ingest(batch);
+    // Parse at the boundary; inspect only this batch, never scan usage history on ingestion.
+    const parsed = UsageBatch.parse(batch);
+    for (const { payload } of parsed.events) {
+      if (payload.type !== "usage.updated") continue;
+      let model = payload.model;
+      if (!model)
+        model = String(
+          this.statement("SELECT model FROM usage_agents WHERE agent=?").get(payload.agentId)
+            ?.model ?? "",
+        );
+      if (model && !this.known.has(model)) {
+        this.known.add(model);
+        this.insertPrice(model);
+      }
+    }
+    return result;
+  }
+  private insertPrice(model: string): void {
+    const key = matchModel(model, this.prices.models);
+    const rate = key === undefined ? undefined : this.prices.models[key];
+    if (!rate) {
+      const historical =
+        this.settings.fetchPrices &&
+        this.statement("SELECT 1 FROM usage_price_history WHERE model=? LIMIT 1").get(model);
+      if (historical) this.insertHistory(model);
+      else if (model) this.unpriced = true;
+      return;
+    }
+    const values = [
+      rate.input,
+      rate.cached,
+      rate.write,
+      rate.write1h,
+      rate.output,
+      rate.reasoning ?? rate.output,
+    ];
+    if (!this.settings.fetchPrices || this.settings.priceOverrides[model]) {
+      this.statement(
+        "INSERT OR REPLACE INTO usage_prices VALUES (?, '0000', '9999', ?, ?, ?, ?, ?, ?)",
+      ).run(model, ...values);
+      return;
+    }
+    const previous = this.statement(
+      "SELECT input,cached,write,write1h,output,reasoning FROM usage_price_history WHERE model=? ORDER BY day DESC LIMIT 1",
+    ).get(model);
+    if (
+      !previous ||
+      values.some(
+        (value, index) =>
+          value !==
+          previous[["input", "cached", "write", "write1h", "output", "reasoning"][index] ?? ""],
+      )
+    )
+      this.statement(
+        "INSERT OR REPLACE INTO usage_price_history VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(model, this.prices.asOf ?? "0000", ...values);
+    this.insertHistory(model);
+  }
+  private insertHistory(model: string): void {
+    this.statement(`INSERT OR REPLACE INTO usage_prices
+      SELECT model, CASE WHEN ROW_NUMBER() OVER (ORDER BY day)=1 THEN '0000' ELSE day END,
+      COALESCE(LEAD(day) OVER (ORDER BY day), '9999'), input, cached, write, write1h, output, reasoning
+      FROM usage_price_history WHERE model=?`).run(model);
+  }
+
+  updatePrices(prices: PriceTable): void {
+    this.prices = resolvePrices({ ...this.settings, prices });
+    this.priceVersion = this.prices.version;
+    this.priceSources = this.prices.sources.map(
+      (source) => `${source}#as-of=${this.prices.asOf ?? "unknown"}`,
+    );
+    this.priceAsOf = this.prices.asOf;
+    this.db.exec("BEGIN; DELETE FROM usage_prices;");
+    try {
+      this.unpriced = false;
+      for (const model of new Set([...Object.keys(this.prices.models), ...this.known]))
+        this.insertPrice(model);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+  hasUnpricedModels(): boolean {
+    return this.unpriced;
   }
   sessionTotalsFor(input: unknown) {
     return this.sessionTotals.list(input);

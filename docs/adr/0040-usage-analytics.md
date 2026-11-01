@@ -213,3 +213,34 @@ metadata. History beyond the horizon requires a rebuild from retained events.
 No speculative OpenCode Go/Zen quota decoder is added: the current recordings
 and CLI contract expose no numeric quota windows to validate. Unknown billing,
 models, stale windows and missing observation sources remain explicit.
+
+## LiteLLM prices, 2026-11-01
+
+Owner approved replacing the manually maintained table with LiteLLM's public list.
+ADR 0002's public model prices amendment governs fetching and the opt-out.
+Regenerate the offline snapshot with `node scripts/update-usage-prices.ts` and
+format it with oxfmt. Entries without valid token input/output rates are ignored;
+unknown fields are tolerated. Non-price documents never replace the cache.
+
+Model matching is pure and ordered: exact id, id without a `#` effort suffix,
+explicit route alias (`opencode-go` to `opencode_go`, `github-copilot` to `github_copilot`, `google-gemini-cli` and
+`google` to `gemini`), explicit model alias, optional `openrouter/` followed by known CLI prefix removal, alias of
+the stripped id, then `gemini/`, `anthropic/`, `openai/` namespaces in that order.
+No substring matching or arbitrary reseller fallback occurs. An exact OpenRouter
+route therefore wins over upstream rates when it exists. Otherwise a known
+upstream id uses its first-party API estimate. Models absent from this rule stay
+unpriced. Prices are USD per token converted to USD per million internally.
+Absent cache rates use input rates; absent reasoning rates use output rates.
+Cache and reasoning subsets are subtracted from their parent counts before
+pricing, so they are never charged twice. Tier/context, regional and tool fees
+remain outside the token estimate and can use explicit local overrides.
+
+SQLite retains observed rate changes by model and list date. Indexed model/date
+intervals join daily aggregates, preserving historical prices where observed.
+The earliest observed price covers earlier unpriced usage. Same-day changes
+replace that day's rate. Local overrides apply throughout history. Query costs
+are computed from aggregated counters, so a new price never replays canonical
+events or rewrites token history. Refresh work, JSON parsing and SQL all run in
+the usage worker. Result source URLs identify LiteLLM and include the current
+list date as a fragment; `priceAsOf` also carries it. In offline-only mode,
+historical downloaded prices are ignored. These remain estimates, not invoices.
