@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 import { cleanTypecheck, prepareTypecheck } from "./typecheck-projects.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-// The compiler is tsc-rs, a Rust port of TypeScript 7; `typescript` still supplies the config API.
-const tsc = fileURLToPath(new URL("./bin/tsc-rs", import.meta.resolve("tsc-rs/package.json")));
+// The compiler is tsrs, a Rust port of TypeScript 7; `typescript` still supplies the config API.
+const tsc = fileURLToPath(new URL("./bin/tsrs", import.meta.resolve("tsrs/package.json")));
 process.env.GOMAXPROCS = "2";
 mkdirSync(join(root, ".cache/typecheck"), { recursive: true });
 const fixture = mkdtempSync(join(root, ".cache/typecheck/regression-"));
@@ -37,7 +37,7 @@ function build(): { status: number | null; output: string } {
   for (const project of [projects.declarations, projects.checks]) {
     const result = spawnSync(
       process.execPath,
-      [tsc, "-b", project, "--builders", "2", "--checkers", "1"],
+      [tsc, "-b", project, "--builders", "2", "--checkers", "1", "--fast"],
       { cwd: fixture, encoding: "utf8" },
     );
     if (result.error) throw result.error;
