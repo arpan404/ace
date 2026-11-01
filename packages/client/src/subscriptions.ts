@@ -161,7 +161,7 @@ export class Subscriptions {
     const room = this.#freeRoom();
     if (room === this.#room) return;
     this.#room = room;
-    for (const listener of [...this.#roomListeners]) listener();
+    for (const listener of this.#roomListeners) listener();
   }
   /**
    * Give up a thread only optional holders keep, for a thread the person opened: its holders read

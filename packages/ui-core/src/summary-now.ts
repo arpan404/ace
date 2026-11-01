@@ -71,6 +71,7 @@ function work(tally: ForestTally): string {
   const words: string[] = [];
   if (tally.working) words.push(`${pluralCount(tally.working, "agent")} working`);
   if (tally.done) words.push(`${tally.done} done`);
+  if (tally.syncing) words.push(`${tally.syncing} syncing`);
   if (tally.commands) words.push(`${pluralCount(tally.commands, "command")} running`);
   return words.join(" · ");
 }
@@ -148,6 +149,7 @@ export function forestNow(
     const below = main.kind === "agent" ? main.tally : forestTally([main]);
     tally.working += below.working;
     tally.done += below.done;
+    tally.syncing += below.syncing;
     tally.commands += below.commands;
   }
   return {

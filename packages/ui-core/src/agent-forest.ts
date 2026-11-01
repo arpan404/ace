@@ -29,8 +29,10 @@ export interface ThreadWork {
 export interface ForestTally {
   /** Agents still working or waiting. */
   working: number;
-  /** Agents whose whole branch settled. */
+  /** Agents whose whole branch settled, as the daemon confirmed. */
   done: number;
+  /** Settled-looking agents whose facts aren't confirmed yet: maybe working again. */
+  syncing: number;
   /** Background commands still running. */
   commands: number;
 }
@@ -166,8 +168,7 @@ function layerOf(facts: ThreadWork): Layer {
     bucket.sort(
       parent === null
         ? (left, right) =>
-            Number(right.origin === "root") - Number(left.origin === "root") ||
-            byStart(left, right)
+            Number(right.origin === "root") - Number(left.origin === "root") || byStart(left, right)
         : byStart,
     );
   const commands = new Map<string, BackgroundTask[]>();
@@ -181,21 +182,30 @@ function layerOf(facts: ThreadWork): Layer {
   return { running: work.running, needsYou: work.needsYou, kids, commands };
 }
 
-const noTally = (): ForestTally => ({ working: 0, done: 0, commands: 0 });
+const noTally = (): ForestTally => ({ working: 0, done: 0, syncing: 0, commands: 0 });
 
 /** Add a row and everything below it to a tally. */
 function count(into: ForestTally, entry: ForestNode): void {
   if (entry.kind === "command") into.commands++;
   else if (entry.live) into.working++;
+  else if (entry.stale) into.syncing++;
   else into.done++;
   into.working += entry.tally.working;
   into.done += entry.tally.done;
+  into.syncing += entry.tally.syncing;
   into.commands += entry.tally.commands;
 }
 
-/** A row's children in reading order: the person's, then working, commands, then finished. */
+/** Its own work failed: the delegate's thread's main agent's, or its own. */
+const failed = (node: AgentForestNode) => (node.childRoot ?? node.agent).status.state === "failed";
+
+/**
+ * A row's children in reading order: those waiting on the person, failed ones, working ones,
+ * running commands, then finished ones.
+ */
 function ordered(entries: readonly ForestNode[]): ForestNode[] {
   const asks: ForestNode[] = [];
+  const failures: ForestNode[] = [];
   const working: ForestNode[] = [];
   const commands: ForestNode[] = [];
   const finished: ForestNode[] = [];
@@ -203,8 +213,10 @@ function ordered(entries: readonly ForestNode[]): ForestNode[] {
     if (entry.kind === "command") commands.push(entry);
     else if (entry.needsYou) asks.push(entry);
     else if (entry.live) working.push(entry);
+    else if (failed(entry)) failures.push(entry);
     else finished.push(entry);
-  for (const list of [working, commands, finished]) for (const entry of list) asks.push(entry);
+  for (const list of [failures, working, commands, finished])
+    for (const entry of list) asks.push(entry);
   return asks;
 }
 
@@ -320,6 +332,7 @@ export function foldWords(tally: ForestTally): string {
   const words: string[] = [];
   if (tally.working) words.push(`${tally.working} working`);
   if (tally.done) words.push(`${tally.done} done`);
+  if (tally.syncing) words.push(`${tally.syncing} syncing`);
   if (tally.commands)
     words.push(`${tally.commands} ${tally.commands === 1 ? "command" : "commands"}`);
   return words.join(" · ");
@@ -343,8 +356,8 @@ export type ForestRow =
   | { kind: "finished"; key: string; nodes: AgentForestNode[] };
 
 /**
- * A parent's children as rows, with consecutive finished agents (settled, confirmed, nothing
- * under them live) folded into one row once there are at least `least` of them. Children come
+ * A parent's children as rows, with consecutive finished agents (settled, confirmed, loaded, not
+ * failed, nothing under them live) folded into one row once there are at least `least` of them. Children come
  * ordered (`agentForest`), so everything live or waiting on the person stays its own row above.
  */
 export function foldFinished(
@@ -367,7 +380,8 @@ export function foldFinished(
     run = [];
   };
   for (const node of children) {
-    if (node.kind === "agent" && !node.live && !node.needsYou && !node.unconfirmed) {
+    const settled = node.kind === "agent" && !node.live && !node.needsYou && !node.unconfirmed;
+    if (settled && !node.notLoaded && !failed(node)) {
       run.push(node);
       continue;
     }

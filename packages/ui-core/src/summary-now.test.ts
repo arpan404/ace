@@ -72,8 +72,6 @@ test("Now never says done while a delegated thread's facts are unconfirmed", () 
 });
 
 test("a second root agent still working keeps Now from saying done", () => {
-  const works = new Map([
-    ["t1", work([agent("t1", "root", idle), agent("t1", "side", working)])],
-  ]);
+  const works = new Map([["t1", work([agent("t1", "root", idle), agent("t1", "side", working)])]]);
   expect(now(works).say).toBe("Working");
 });

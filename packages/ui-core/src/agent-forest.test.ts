@@ -176,7 +176,8 @@ function wide(width: number, threads: number): Map<string, ThreadWork> {
   return works;
 }
 
-const median = (runs: number[]) => runs.toSorted((left, right) => left - right)[runs.length >> 1] ?? 0;
+const median = (runs: number[]) =>
+  runs.toSorted((left, right) => left - right)[runs.length >> 1] ?? 0;
 
 /** The median time of joining `works`, after a warm-up. */
 function joinTime(works: Map<string, ThreadWork>): number {
@@ -196,7 +197,7 @@ test("a wide tree of 2,000 agents joins in time proportional to its size", () =>
   // Eight times the agents: linear work costs about 8x, the old quadratic join about 64x.
   expect(large / Math.max(small, 0.05)).toBeLessThan(24);
   const [root] = agentForest("w0", wide(2000, 1)).roots;
-  expect(root?.tally).toEqual({ working: 1000, done: 1000, commands: 0 });
+  expect(root?.tally).toEqual({ working: 1000, done: 1000, syncing: 0, commands: 0 });
 });
 
 test("joins that share kept layers still see the new facts of the one thread that changed", () => {
@@ -205,7 +206,12 @@ test("joins that share kept layers still see the new facts of the one thread tha
   const first = agentForest("w0", works, undefined, layers);
   // w3 finishes all its work; the other threads' facts objects stay the same.
   const settled = works.get("w3");
-  works.set("w3", thread((settled?.agents ?? []).map((one) => ({ ...one, status: idle }))));
+  works.set(
+    "w3",
+    thread(
+      (settled?.agents ?? []).map((one) => Object.assign(structuredClone(one), { status: idle })),
+    ),
+  );
   const second = agentForest("w0", works, undefined, layers);
   const tally = (forest: typeof first) => forestTally(forest.roots);
   // Its 50 working agents settle, and so does the delegate in w2 that waited on them.

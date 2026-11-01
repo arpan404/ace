@@ -689,8 +689,7 @@ export class RemoteClient implements ClientApi {
     if (this.streamListeners.size) this.post({ t: "watchStreams" });
     for (const [id, record] of this.intents.entries())
       if (record.watchers > 0) this.post({ t: "watchIntent", id });
-    for (const held of this.mirrors.values())
-      this.post(leaseMessage(held));
+    for (const held of this.mirrors.values()) this.post(leaseMessage(held));
     if (this.window) void this.call("threadsWindow", [this.window]).catch(noop);
     if (this.online === false) void this.call("networkOnline", [false]).catch(noop);
     for (const [call, pending] of this.pending) this.resend(call, pending);
