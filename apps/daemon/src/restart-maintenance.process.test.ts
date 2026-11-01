@@ -104,7 +104,9 @@ it("a daemon started in maintenance holds a restart continuation until admission
   expect(second.daemon.maintenance.status().draining).toBe(true);
   expect(after.sends()).toEqual([]);
 
-  second.daemon.maintenance.leave();
+  // A daemon started mid-update holds admission as the update, not as the person's pause.
+  expect(second.daemon.maintenance.status().holds).toEqual(["update"]);
+  second.daemon.maintenance.leave("update");
   clock.advance(clock.now());
   await second.engine.flush();
   const sent = after.sends();
