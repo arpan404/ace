@@ -1,4 +1,5 @@
-import { workbench } from "@ace/fake-daemon";
+import { workbench, type FakeDaemon } from "@ace/fake-daemon";
+import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -84,14 +85,75 @@ test("the filter button shows a shortened selected device name and reveals its f
   const control = await screen.findByRole("button", {
     name: `Project filter: All projects, Device: ${name}`,
   });
-  // The panel's title stays ace; the device that narrows the list follows it, shortened.
-  expect(control.textContent).toBe("aceBuild server wi…");
+  // The device that narrows the list takes Everywhere's place, shortened.
+  expect(control.textContent).toBe("Build server wi…");
   await userEvent.hover(control);
   expect((await screen.findByRole("tooltip")).textContent).toBe(`All projects on ${name}`);
   await userEvent.unhover(control);
   await chooseDevice("All devices");
-  // With no filter on, the button is the panel's title alone.
+  // With no filter on, the button reads Everywhere.
   expect(screen.getByRole("button", { name: "Project filter: All projects" }).textContent).toBe(
-    "ace",
+    "Everywhere",
   );
+});
+
+const tab = (name: RegExp) => threads().getByRole("tab", { name });
+/** The thread titles the open tab lists. */
+const listed = () =>
+  threads()
+    .queryAllByRole("link")
+    .map((link) => link.getAttribute("aria-label")?.split(".")[0]);
+
+/** Run a thread command on `daemon` as another device would. */
+function run(
+  daemon: FakeDaemon,
+  id: string,
+  payload: Parameters<FakeDaemon["command"]>[0]["payload"],
+) {
+  daemon.command({ id: CommandId.parse(id), deviceId: DeviceId.parse("phone"), payload });
+}
+
+test("choosing a device narrows the Inbox, Snoozed and Settled tabs to its threads and the filter names it", async () => {
+  const made = harness({ machines: [{ hostId: "build", name: "Build server" }] });
+  const build = made.machines.get("build");
+  if (!build) throw new Error("Missing build server");
+  // Each device has one thread in each tab: one in the Inbox, one snoozed, one settled.
+  for (const [daemon, where] of [
+    [made.daemon, "Local"],
+    [build, "Remote"],
+  ] as const) {
+    for (const kind of ["inbox", "snoozed", "settled"])
+      daemon.createThread({
+        id: `thread-${kind}`,
+        workspaceId: "relay",
+        title: `${where} ${kind}`,
+        provider: "claude",
+        hasSentMessage: true,
+      });
+    run(daemon, `snooze-${where}`, {
+      type: "thread.snooze",
+      threadId: ThreadId.parse("thread-snoozed"),
+      until: Date.now() + 24 * 60 * 60 * 1000,
+    });
+    run(daemon, `settle-${where}`, {
+      type: "thread.settle",
+      threadId: ThreadId.parse("thread-settled"),
+    });
+  }
+  await made.open("/");
+  await waitFor(() =>
+    expect(listed()).toEqual(expect.arrayContaining(["Local inbox", "Remote inbox"])),
+  );
+
+  await chooseDevice("Build server");
+  await waitFor(() => expect(listed()).toEqual(["Remote inbox"]));
+  expect(screen.getByRole("button", { name: /^Project filter:/ }).textContent).toBe("Build server");
+  await userEvent.click(tab(/^Snoozed/));
+  await waitFor(() => expect(listed()).toEqual(["Remote snoozed"]));
+  await userEvent.click(tab(/^Settled/));
+  await waitFor(() => expect(listed()).toEqual(["Remote settled"]));
+
+  await chooseDevice("This Mac");
+  await waitFor(() => expect(listed()).toEqual(["Local settled"]));
+  expect(screen.getByRole("button", { name: /^Project filter:/ }).textContent).toBe("This Mac");
 });

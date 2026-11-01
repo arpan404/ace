@@ -44,8 +44,8 @@ test("Home's task rows and the thread header name the project, not its id", asyn
   const card = await within(nav).findByRole("link", {
     name: /^Rotate the signing keys\..*Project billing/,
   });
-  // The project heads its threads by name, never by its opaque id.
-  expect(within(nav).getByRole("button", { name: /^billing/ })).toBeTruthy();
+  // The row's top line names its project, never by its opaque id.
+  expect(card.textContent).toContain("billing");
   expect(within(nav).queryByText(billing.id)).toBeNull();
 
   await userEvent.click(card);
