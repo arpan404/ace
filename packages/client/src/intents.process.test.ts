@@ -1,16 +1,16 @@
 import { afterEach, expect, test } from "vitest";
 import { stubHandler } from "@ace/daemon";
 import { AgentId, InteractionId, DeviceId, CommandResult } from "@ace/protocol";
-import { setup, ready, when, barrier, memoryStorage } from "./test-support.ts";
+import { setup, sharedDaemon, ready, when, barrier, memoryStorage } from "./test-support.ts";
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
   await cleanup?.();
   cleanup = undefined;
 });
+const fresh = sharedDaemon();
 
 test("a persisted outbox replays after restart and an accepted command applies exactly once", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const first = h.make({ storage: h.storage });
   await ready(first.client);
   first.faults.incoming = (message, frame, deliver) => {
@@ -35,8 +35,7 @@ test("a persisted outbox replays after restart and an accepted command applies e
 });
 
 test("offline sends persist and replay when the network returns", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client } = h.make({ storage: h.storage });
   await ready(client);
   client.networkOnline(false);
@@ -49,8 +48,7 @@ test("offline sends persist and replay when the network returns", async () => {
 });
 
 test("a failed persistence write never sends a command", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client } = h.make({
     storage: {
       async load() {
@@ -70,8 +68,7 @@ test("a failed persistence write never sends a command", async () => {
 });
 
 test("queued intent capacity rejects excess offline sends without losing pending work", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client } = h.make({ limits: { intents: 1 } });
   await ready(client);
   client.networkOnline(false);
@@ -85,8 +82,7 @@ test("queued intent capacity rejects excess offline sends without losing pending
 });
 
 test("an idempotency key cannot silently change its command", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client } = h.make();
   await ready(client);
   client.networkOnline(false);
@@ -97,8 +93,7 @@ test("an idempotency key cannot silently change its command", async () => {
 });
 
 test("saved work from another device is never sent, and never blocks connecting", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const storage = memoryStorage();
   await storage.save(
     JSON.stringify([
@@ -167,8 +162,7 @@ test("the first interaction answer wins and a later daemon rejection becomes a f
 });
 
 test("retrying an acknowledged command returns its receipt without repeating its effect", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client } = h.make();
   await ready(client);
   const payload = { type: "thread.archive" as const, threadId: h.thread.id };
@@ -177,7 +171,7 @@ test("retrying an acknowledged command returns its receipt without repeating its
   expect(await client.command(payload, {}, "repeat")).toEqual(first);
   expect(
     h.daemon.store
-      .readEvents({ afterSeq: 0, limit: 100 })
+      .readEvents({ afterSeq: 0, threadId: h.thread.id, limit: 100 })
       .filter((event) => event.payload.type === "thread.updated"),
   ).toHaveLength(1);
 });
@@ -206,6 +200,7 @@ test("an oversized daemon rejection cannot grow the persisted outbox beyond its 
 });
 
 test("a command refused during an update drain stays pending on a live connection and lands after the drain", async () => {
+  // Maintenance is daemon-wide, so this test owns its daemon.
   const h = await setup();
   cleanup = h.cleanup;
   const { client, faults, scheduler } = h.make();
@@ -224,8 +219,7 @@ test("a command refused during an update drain stays pending on a live connectio
 });
 
 test("a permanent command refusal fails only that intent and keeps the connection", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client, faults } = h.make();
   await ready(client);
   faults.incoming = (message, frame, deliver) =>
@@ -249,8 +243,7 @@ test("a permanent command refusal fails only that intent and keeps the connectio
 });
 
 test("an offline durable action waits through reconnect and applies once", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client, scheduler } = h.make();
   await ready(client);
   client.networkOnline(false);
@@ -268,8 +261,7 @@ test("an offline durable action waits through reconnect and applies once", async
 });
 
 test("a cancelled command reattached offline recovers its complete receipt on reconnect", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await fresh();
   const { client, faults } = h.make();
   await ready(client);
   let receipt: (() => void) | undefined;
