@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { once } from "node:events";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { GitService, spawnGitProcess } from "@ace/git";
 import { Client as McpClient, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -12,15 +13,27 @@ const execute = promisify(execFile);
 
 test("revoking an external enrollment during workspace preparation prevents its child admission", async () => {
   const entered = Promise.withResolvers<ReturnType<typeof spawnGitProcess>>();
+  let release = "";
   const git = new GitService({
     processRuntime: {
       spawn(command, args, options) {
         if (args.includes("worktree") && args.includes("list")) {
+          // Holds workspace preparation open until the test releases it, then answers as Git.
           const child = spawnGitProcess(
             process.execPath,
             [
               "-e",
-              `process.stdin.once('data', () => { console.log('worktree ' + process.cwd() + '\\nHEAD ' + '1'.repeat(40) + '\\nbranch refs/heads/main\\n'); process.exit(0); });`,
+              `const [marker, git, ...args] = process.argv.slice(1);
+              const fs = require("node:fs");
+              const wait = setInterval(() => {
+                if (!fs.existsSync(marker)) return;
+                clearInterval(wait);
+                const run = require("node:child_process").spawnSync(git, args, { stdio: "inherit" });
+                process.exit(run.status ?? 1);
+              }, 10);`,
+              release,
+              command,
+              ...args,
             ],
             options,
           );
@@ -36,6 +49,7 @@ test("revoking an external enrollment during workspace preparation prevents its 
   let child: ReturnType<typeof spawnGitProcess> | undefined;
   try {
     await execute("git", ["init", f.h.home]);
+    release = join(f.h.home, "daemon", "release-worktree-list");
     const output = await invoke(join(f.h.home, "daemon"), [
       "mcp",
       "enroll",
@@ -66,7 +80,7 @@ test("revoking an external enrollment during workspace preparation prevents its 
             request: {
               requestId: "revoked-effect",
               task: "synthetic",
-              role: "delegate",
+              role: "revoked-enrollment-child",
               provider: "claude",
               workspace: { kind: "existing_worktree", path: f.h.home },
             },
@@ -74,11 +88,15 @@ test("revoking an external enrollment during workspace preparation prevents its 
         },
       })
       .catch(() => ({ isError: true }));
+    let settled = false;
+    void effect.finally(() => (settled = true));
     child = await entered.promise;
     const exited = once(child, "close");
+    // The spawn is still inside workspace preparation when the enrollment is revoked.
+    expect(settled).toBe(false);
     const revoked = await invoke(join(f.h.home, "daemon"), ["mcp", "revoke", lease.id, "--json"]);
     expect(revoked.code, revoked.stderr).toBe(0);
-    child.stdin.end("\n");
+    await writeFile(release, "");
     const result = await effect;
     expect(result.isError).toBe(true);
     await exited;
