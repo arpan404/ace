@@ -6,6 +6,7 @@ import { detectChromium } from "@ace/browser";
 import { readConfig, startDaemon } from "./index.ts";
 import { createDevThread } from "./commands.ts";
 import { BrowserClient } from "./browser-test-client.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const executablePath = await detectChromium();
 
@@ -19,6 +20,7 @@ describe.skipIf(!executablePath)("which threads an agent browses in", () => {
     if (!executablePath) throw new Error("Missing test Chromium");
     const home = await mkdtemp(join(tmpdir(), "ace-browsing-"));
     const daemon = await startDaemon({
+      engine: noProviderDiscovery,
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
       browser: {
         executablePath,

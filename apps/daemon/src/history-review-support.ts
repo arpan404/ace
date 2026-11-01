@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { once } from "node:events";
 import { Capabilities, DeviceId, ItemId, ThreadId, type ServerMessage } from "@ace/protocol";
 import type { SessionContext, ProviderAdapter } from "@ace/engine-api";
-import { startDaemon, readConfig } from "./index.ts";
+import { AdapterRegistry, startDaemon, readConfig } from "./index.ts";
 import { Client } from "./socket-test-support.ts";
 
 /** Fake provider transport only; sockets, history workers and event persistence are real. */
@@ -144,6 +144,8 @@ export async function reviewFixture(backpressure = true) {
     toolkits: [],
     notificationChannels: {},
     modelInstances: [],
+    // No provider CLIs: history runs on the fake transport above, never the machine's CLIs.
+    engine: { registry: new AdapterRegistry() },
     history: options,
   });
   store = daemon.store;
@@ -241,6 +243,7 @@ export async function reviewFixture(backpressure = true) {
         toolkits: [],
         notificationChannels: {},
         modelInstances: [],
+        engine: { registry: new AdapterRegistry() },
         history: options,
       });
       store = daemon.store;

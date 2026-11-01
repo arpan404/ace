@@ -12,6 +12,7 @@ import { readConfig } from "./config.ts";
 import { exitCodes } from "./cli/output.ts";
 import { launchDaemon } from "./process-test-support.ts";
 import { Client } from "./socket-test-support.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -78,7 +79,7 @@ describe("daemon lifecycle", () => {
   it("starts from config, keeps its token private and permits a graceful reopen", async () => {
     const home = tempHome();
     const config = readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" });
-    const daemon = await startDaemon({ config: config });
+    const daemon = await startDaemon({ config: config, engine: noProviderDiscovery });
     cleanups.push(() => daemon.close());
     const token = readFileSync(daemon.tokenPath, "utf8");
     expect(statSync(daemon.tokenPath).mode & 0o777).toBe(0o600);
@@ -88,7 +89,7 @@ describe("daemon lifecycle", () => {
     const closed = once(client.socket, "close");
     await daemon.close();
     await closed;
-    const reopened = await startDaemon({ config: config });
+    const reopened = await startDaemon({ config: config, engine: noProviderDiscovery });
     cleanups.push(() => reopened.close());
     expect(readFileSync(reopened.tokenPath, "utf8")).toBe(token);
     const again = await connect(reopened.url, home);
@@ -131,6 +132,7 @@ describe("daemon lifecycle", () => {
   it("unwinds a failed bind so the same data directory can start again", async () => {
     const firstHome = tempHome();
     const first = await startDaemon({
+      engine: noProviderDiscovery,
       config: readConfig({ ACE_HOME: firstHome, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     });
     cleanups.push(() => first.close());
@@ -138,10 +140,12 @@ describe("daemon lifecycle", () => {
     const port = new URL(first.url).port;
     await expect(
       startDaemon({
+        engine: noProviderDiscovery,
         config: readConfig({ ACE_HOME: secondHome, ACE_PORT: port, ACE_LOG_LEVEL: "silent" }),
       }),
     ).rejects.toThrow("EADDRINUSE");
     const second = await startDaemon({
+      engine: noProviderDiscovery,
       config: readConfig({ ACE_HOME: secondHome, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
     });
     cleanups.push(() => second.close());
@@ -151,7 +155,7 @@ describe("daemon lifecycle", () => {
   it("rejects a newer database schema and releases its startup lock", async () => {
     const home = tempHome();
     const config = readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" });
-    const first = await startDaemon({ config: config });
+    const first = await startDaemon({ config: config, engine: noProviderDiscovery });
     await first.close();
     const database = new DatabaseSync(join(home, "events.sqlite"));
     const original = database.prepare("SELECT version FROM schema_version").get();
@@ -159,7 +163,7 @@ describe("daemon lifecycle", () => {
       throw new Error("Expected schema version");
     database.prepare("UPDATE schema_version SET version = 999").run();
     database.close();
-    const attempt = startDaemon({ config: config });
+    const attempt = startDaemon({ config: config, engine: noProviderDiscovery });
     void attempt.then(
       (daemon) => {
         cleanups.push(() => daemon.close());
@@ -173,7 +177,7 @@ describe("daemon lifecycle", () => {
     const restored = new DatabaseSync(join(home, "events.sqlite"));
     restored.prepare("UPDATE schema_version SET version = ?").run(original.version);
     restored.close();
-    const again = await startDaemon({ config: config });
+    const again = await startDaemon({ config: config, engine: noProviderDiscovery });
     cleanups.push(() => again.close());
     expect(again.store.headSeq()).toBe(0);
   });

@@ -9,6 +9,7 @@ import { afterEach, expect, it } from "vitest";
 import { ClientMessage, FilesServerMessage, Item, ServerMessage } from "@ace/protocol";
 import { startRelay, connectClientViaRelay } from "@ace/relay";
 import { startDaemon, createDevThread } from "./index.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 /*
  * A phone opens a file an agent linked in its answer, even when the file sits outside the
@@ -83,6 +84,7 @@ async function setup(transport: "websocket" | "relay") {
   const relay = transport === "relay" ? await startRelay() : undefined;
   if (relay) cleanup.push(() => relay.close());
   const daemon = await startDaemon({
+    engine: noProviderDiscovery,
     config: {
       dataDir: join(home, "data"),
       host: "127.0.0.1",
