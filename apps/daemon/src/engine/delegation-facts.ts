@@ -8,9 +8,11 @@ import type {
   Thread,
   ThreadId,
   ThreadStatus,
+  WatchedState,
 } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
+import { childAgentKey, remoteChildStatus } from "./remote-child-status.ts";
 
 /** The rows a parent thread shows for the children it delegated to, on this or another machine. */
 export class DelegationFacts {
@@ -24,7 +26,9 @@ export class DelegationFacts {
   }
   /**
    * A child on another paired machine (ADR 0078): its launch row names the machine, and a
-   * background hold keeps the parent from reading done while the child works there.
+   * background hold keeps the parent from reading done while the child works there. Like a
+   * child here, it is a summary agent in the parent's tree, labelled with its machine and in the
+   * state that machine last reported (ADR 0108); the hold names that agent as the one doing it.
    */
   machineChild(
     child: {
@@ -39,6 +43,8 @@ export class DelegationFacts {
       role: string;
       title: string;
       status: ThreadStatus;
+      /** The child as its machine reads it, the same state `agents_status` reports. */
+      state: WatchedState;
       outcome: DelegationOutcome | null;
     },
     hold: "start" | "end" | undefined,
@@ -49,9 +55,45 @@ export class DelegationFacts {
     const task = `ace-machine:${child.id}`;
     const settled = child.outcome !== null;
     const now = this.clock.now();
+    const summary = childAgentKey(child.id);
+    const summaryId = state.agents[summary]?.agent.id;
+    // Its requests mirrored here open on its agent; those already count for the parent.
+    const asksHere =
+      summaryId !== undefined &&
+      Object.keys(state.indexes.pendingInteractions).some(
+        (key) => state.interactions[key]?.agentId === summaryId,
+      );
+    const held = state.tasks[task];
+    // A hold opened before it named its agent learns it while still running.
+    const relink = hold === undefined && held?.status === "running" && !held.childAgentId;
+    const machine = {
+      machine: child.machine,
+      name: child.name,
+      ...(child.hostId ? { hostId: child.hostId } : {}),
+    };
     this.repo.apply(
       child.parentId,
       [
+        {
+          type: "agent.seen",
+          agent: summary,
+          parent: agent,
+          origin: "ace",
+          fidelity: "summary",
+          native: { provider: child.provider },
+          cwd: "",
+          role: child.role,
+          ...(child.model ? { model: child.model } : {}),
+          machine,
+        },
+        {
+          type: "agent.external",
+          agent: summary,
+          threadId: child.id,
+          status: settled
+            ? remoteChildStatus(outcomeState(child.outcome), child.status, false)
+            : remoteChildStatus(child.state, child.status, asksHere),
+        },
         {
           type: "item.upsert",
           agent,
@@ -70,14 +112,10 @@ export class DelegationFacts {
             generation: 0,
             complete: settled,
             outcome: child.outcome,
-            machine: {
-              machine: child.machine,
-              name: child.name,
-              ...(child.hostId ? { hostId: child.hostId } : {}),
-            },
+            machine,
           },
         },
-        ...(hold === "start"
+        ...(hold === "start" || relink
           ? [
               {
                 type: "background.started" as const,
@@ -86,6 +124,7 @@ export class DelegationFacts {
                 task,
                 kind: "subagent" as const,
                 title: `${child.role} · ${child.name}`,
+                childAgent: summary,
                 stoppable: true,
               },
             ]
@@ -189,4 +228,10 @@ export class DelegationFacts {
       );
     });
   }
+}
+
+/** A settled child's state, from the outcome it settled with. */
+function outcomeState(outcome: DelegationOutcome | null): WatchedState {
+  if (outcome?.outcome === "completed") return "done";
+  return outcome?.outcome === "cancelled" ? "cancelled" : "failed";
 }

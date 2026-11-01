@@ -5,6 +5,7 @@ import { StepMeasurement } from "./interaction-measurement.ts";
 import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { DelegationOutcome } from "./agent-control.ts";
+import { AgentMachine } from "./agent.ts";
 import {
   MergedForkContext,
   ExecutionSource,
@@ -13,16 +14,7 @@ import {
 } from "./thread-transitions.ts";
 import { Attachment } from "./context.ts";
 import { z } from "zod";
-import {
-  AgentId,
-  CommandId,
-  HostId,
-  InteractionId,
-  ItemId,
-  RunId,
-  ThreadId,
-  Timestamp,
-} from "./ids.ts";
+import { AgentId, CommandId, InteractionId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ProviderKind, RawPayload } from "./provider.ts";
 import { ToolCall } from "./tools.ts";
 
@@ -73,8 +65,13 @@ export const MessageOrigin = z.object({
   commandId: CommandId.optional(),
   interactionId: InteractionId.optional(),
   threadIds: z.array(ThreadId).optional(),
+  /** `spawn`, `parent_agent`: the thread whose agent sent this message, on this machine. */
   parentThreadId: ThreadId.optional(),
   role: z.string().optional(),
+  /**
+   * A switch or handoff: the model it came from. `spawn`, `parent_agent`: the sending agent's
+   * provider (and model), so the transcript can name who sent it.
+   */
   from: z.object({ provider: ProviderKind, model: z.string().optional() }).optional(),
   to: z.object({ provider: ProviderKind, model: z.string().optional() }).optional(),
   /** A context handoff: every model whose work the new agent received, oldest first. */
@@ -139,14 +136,7 @@ export const AgentItem = z.discriminatedUnion("type", [
     generation: z.number().int().nonnegative(),
     outcome: DelegationOutcome.nullable().default(null),
     /** Set when the child runs on another paired machine; its thread lives there (ADR 0078). */
-    machine: z
-      .object({
-        machine: z.string().min(1).max(64),
-        name: z.string().min(1).max(256),
-        /** That machine's host id when known, so a window paired with it opens the child there. */
-        hostId: HostId.optional(),
-      })
-      .optional(),
+    machine: AgentMachine.optional(),
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({

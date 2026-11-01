@@ -38,7 +38,7 @@ export function NewSkillPage() {
       ? skillAgents
       : undefined;
   return (
-    <Screen title="Skills">
+    <Screen title="Skills" namedByPanel>
       <div className="h-full overflow-auto">
         <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
           <h2 className="text-2xl font-semibold tracking-title">New skill</h2>

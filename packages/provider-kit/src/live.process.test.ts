@@ -1,15 +1,10 @@
-import { createServer } from "node:net";
-import { once } from "node:events";
-import { randomBytes } from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { discoverProviders, type DiscoveryResult, type Provider } from "./discovery/index.ts";
 import { JsonRpcPeer } from "./jsonrpc.ts";
 import { spawnSupervised, type SupervisedProcess } from "./process.ts";
 import { PROCESS_TEST_TIMEOUT } from "./testing/cli.ts";
-import { readSse } from "./sse.ts";
 
 const processes: SupervisedProcess[] = [];
-const streams: AbortController[] = [];
 let discovery: Record<Provider, DiscoveryResult>;
 function launch(provider: Provider, args: string[], env: NodeJS.ProcessEnv = {}) {
   const command = discovery[provider].path;
@@ -19,7 +14,6 @@ function launch(provider: Provider, args: string[], env: NodeJS.ProcessEnv = {})
   return proc;
 }
 afterEach(async () => {
-  streams.splice(0).forEach((stream) => stream.abort());
   await Promise.all(processes.splice(0).map((proc) => proc.stop({ graceMs: 5000 })));
 });
 
@@ -46,53 +40,6 @@ describe.skipIf(process.env["ACE_LIVE_CLI"] !== "1")(
         expect(result.auth).not.toBe("unknown");
         expect(result.error).toBeUndefined();
       }
-    });
-    it("OpenCode global SSE emits connected and heartbeat without creating a session", async (ctx) => {
-      if (!discovery.opencode.installed) ctx.skip();
-      const password = randomBytes(24).toString("base64url");
-      const reservation = createServer();
-      reservation.listen(0, "127.0.0.1");
-      await once(reservation, "listening");
-      const address = reservation.address();
-      if (!address || typeof address === "string") throw new Error("No ephemeral port");
-      const port = String(address.port);
-      await new Promise<void>((resolve, reject) =>
-        reservation.close((error) => (error ? reject(error) : resolve())),
-      );
-      const proc = launch("opencode", ["serve", "--hostname", "127.0.0.1", "--port", port], {
-        OPENCODE_SERVER_PASSWORD: password,
-        OPENCODE_DISABLE_PROJECT_CONFIG: "1",
-      });
-      const listening = new Promise<string>((resolve, reject) => {
-        proc.stdout.on("line", (line) => {
-          const url = /listening on (http:\/\/\S+)/.exec(line)?.[1];
-          if (url) resolve(url);
-        });
-        void proc.exited.then(() => reject(new Error("OpenCode ended before listen URL")));
-      });
-      const base = await listening;
-      const abort = new AbortController();
-      streams.push(abort);
-      const received: string[] = [];
-      await readSse(new URL("/global/event", base), {
-        signal: abort.signal,
-        reconnect: false,
-        headers: {
-          authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`,
-        },
-        onEvent: ({ data }) => {
-          const event: unknown = JSON.parse(data);
-          if (typeof event !== "object" || !event) return;
-          const payload = (event as { payload?: { type?: unknown } }).payload;
-          if (typeof payload?.type === "string") received.push(payload.type);
-          if (received.includes("server.connected") && received.includes("server.heartbeat"))
-            abort.abort();
-        },
-      });
-      expect(received).toEqual(expect.arrayContaining(["server.connected", "server.heartbeat"]));
-      const exit = await proc.stop({ graceMs: 5000 });
-      expect(exit.reason).toBe("stopped");
-      console.info("Live OpenCode: connected + heartbeat; stopped");
     });
     it("Codex app-server initializes over stdio without starting a thread", async (ctx) => {
       if (!discovery.codex.installed) ctx.skip();

@@ -41,11 +41,14 @@ export type GroupOffReasons = { unregistered?: string; withheld?: string };
 export function aceGuidance(groups?: readonly string[], tools?: readonly string[]): string {
   const has = (...names: string[]) => !groups || names.some((name) => groups.includes(name));
   // The background engine's tool where the daemon runs it (macOS, Linux); else the older
-  // session tools' (Windows, or no engine helper).
+  // session tools' (Windows, or no engine helper). With only devices, the guide opens the
+  // simulator tools.
   const nativeApps =
-    tools && !tools.includes("screen_state") && tools.includes("screen_open_app")
-      ? "screen_open_app"
-      : "screen_state";
+    !tools || tools.includes("screen_state")
+      ? "screen_state"
+      : tools.includes("screen_open_app")
+        ? "screen_open_app"
+        : "guide ace-computer-use";
   return [
     "ace runs this session. Your shell, file and web tools work as usual; use ace's for what only ace can:",
     "- you start in an existing project: context first;",
@@ -58,7 +61,7 @@ export function aceGuidance(groups?: readonly string[], tools?: readonly string[
     "- visuals or images: guide visualize first;",
     "- after gh pr create or finding the PR: thread_link_pr;",
     has("thread_control")
-      ? "- the person wants a separate thread in any project: thread_start; only when they explicitly ask to settle: thread_control settle. Automatic settling follows their settings;"
+      ? "- the person wants a separate thread in any project: thread_start; settle only when they explicitly ask: thread_control settle;"
       : "",
     has("screen", "devices") ? `- the person names a native app or simulator: ${nativeApps};` : "",
     "Not sure which ace tool fits? tools_find with what you want to do.",

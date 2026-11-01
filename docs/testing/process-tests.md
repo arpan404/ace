@@ -127,10 +127,8 @@ worker resolves beside the real source. That merged behavior needs run at merge.
 | `packages/orchestrator/src/git.process.test.ts`                 | Real Git processes and temporary repositories             |
 | `packages/provider-kit/src/discovery/discovery.process.test.ts` | Real Node/shell processes; discovery also uses a TCP gate |
 | `packages/provider-kit/src/jsonrpc.process.test.ts`             | Real Node/shell processes; discovery also uses a TCP gate |
-| `packages/provider-kit/src/live.process.test.ts`                | Opt-in installed CLI handshakes and local server          |
+| `packages/provider-kit/src/live.process.test.ts`                | Opt-in installed CLI handshakes                           |
 | `packages/provider-kit/src/process.process.test.ts`             | Real Node/shell processes; discovery also uses a TCP gate |
-| `packages/provider-kit/src/sse-recovery.process.test.ts`        | Real HTTP/SSE server                                      |
-| `packages/provider-kit/src/sse.process.test.ts`                 | Real HTTP/SSE server                                      |
 | `tools/recorder/src/stdio.process.test.ts`                      | Synthetic Node CLI processes; no subscription use         |
 
 The additional suites from `19a7e14` are:

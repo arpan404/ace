@@ -90,6 +90,9 @@
             }
           ]
         },
+        "startedBy": {
+          "$ref": "https://ace.local/protocol/v1/StartedBy.json"
+        },
         "status": {
           "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
         },
@@ -183,6 +186,9 @@
         },
         "lineage": {
           "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
+        },
+        "machine": {
+          "$ref": "https://ace.local/protocol/v1/AgentMachine.json"
         },
         "model": {
           "type": "string"

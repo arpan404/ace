@@ -45,7 +45,8 @@
     "./tablet-workspace": "./src/tablet-workspace.ts"
   },
   "scripts": {
-    "typecheck": "node ../../scripts/typecheck.ts --workspace"
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
+    "bench": "node bench/forest.ts"
   },
   "dependencies": {
     "@ace/accounts": "workspace:*",

@@ -11,6 +11,7 @@ import {
   type EventPayload,
 } from "@ace/protocol";
 import { z } from "zod";
+import { cursorClientHeader } from "@ace/mcp-server";
 import { ScreenManager } from "@ace/screen";
 import { afterEach, expect, it } from "vitest";
 import { startDaemon, readConfig, createDevThread, Store } from "./index.ts";
@@ -351,10 +352,12 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
     { ...scope, capabilities: ["agents", "notify", "browser", "screen", "devices"] },
     new AbortController().signal,
   );
-  async function catalog() {
+  /** The list as a client sees it: by default one that lists every tool and reloads. */
+  async function catalog(headers: Record<string, string> = {}) {
     const response = await fetch(daemon.mcp.url, {
       method: "POST",
       headers: {
+        ...headers,
         Authorization: `Bearer ${lease.bearer}`,
         "Content-Type": "application/json",
         Accept: "application/json, text/event-stream",
@@ -380,16 +383,24 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
       .parse(await response.json());
     return result.result.tools.map((tool) => tool.name);
   }
-  const disabled = await catalog();
-  expect(disabled.filter((name) => /^(screen_|sim_)/.test(name))).toEqual([]);
+  const devices = daemon.devices;
+  if (!devices) throw new Error("Missing catalog devices service");
+  // Cursor never reloads its list, so it sees every registered tool upfront.
+  const everything = { [cursorClientHeader.name]: cursorClientHeader.value };
+  // Devices are on by default (ADR 0064); screen control waits until the person enables it.
+  // A client that reloads gets the simulator tools once it first uses devices.
+  const initial = await catalog(everything);
+  expect(initial.filter((name) => name.startsWith("screen_"))).toEqual([]);
+  expect(initial).toEqual(expect.arrayContaining(["sim_list", "sim_ui"]));
+  expect((await catalog()).filter((name) => name.startsWith("sim_"))).toEqual([]);
+  await devices.request({ op: "enable", enabled: false }, { kind: "human", owner: "catalog" });
+  expect((await catalog(everything)).filter((name) => /^(screen_|sim_)/.test(name))).toEqual([]);
   await screen.enable(true);
   expect((await catalog()).filter((name) => name.startsWith("screen_"))).toEqual(
     expect.arrayContaining(["screen_open_app", "screen_ui_tree", "screen_input"]),
   );
-  const devices = daemon.devices;
-  if (!devices) throw new Error("Missing catalog devices service");
   await devices.request({ op: "enable", enabled: true }, { kind: "human", owner: "catalog" });
-  const names = await catalog();
+  const names = await catalog(everything);
   expect(new Set(names).size).toBe(names.length);
   expect(names).toEqual(
     expect.arrayContaining([

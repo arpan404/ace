@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useConnectionState } from "@ace/client-react";
 import { RetentionDays, type StorageUsage } from "@ace/protocol";
+import { failedBackupsView } from "@ace/ui-core/host-care";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import {
   SettingFooter,
@@ -118,23 +119,18 @@ export function WorktreeStorageSettings(props: {
 
 /** One note for every failed backup, so a bad origin can't flood the page. */
 export function FailedBackups(props: { backups: StorageUsage["backups"] }) {
-  const failed = props.backups.filter((backup) => backup.state === "failed");
-  if (!failed.length) return null;
-  const shown = failed.slice(0, 3);
+  const view = failedBackupsView(props.backups);
+  if (!view) return null;
   return (
     <SettingNote role="alert">
-      {failed.length === 1
-        ? "Backup failed for 1 worktree. It was kept."
-        : `Backup failed for ${failed.length} worktrees. They were kept.`}
-      {shown.map((backup) => (
-        <span key={backup.path} className="mt-1 block break-all">
-          {backup.path}
-          {backup.error ? ` · ${backup.error}` : ""}
+      {view.line}
+      {view.entries.map((entry) => (
+        <span key={entry.path} className="mt-1 block">
+          <span className="block break-all font-mono text-xs">{entry.path}</span>
+          <span className="block">{entry.reason}</span>
         </span>
       ))}
-      {failed.length > shown.length && (
-        <span className="mt-1 block">and {failed.length - shown.length} more</span>
-      )}
+      {view.more && <span className="mt-1 block">{view.more}</span>}
     </SettingNote>
   );
 }

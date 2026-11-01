@@ -3,12 +3,33 @@ import { once } from "node:events";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
-import { DeviceId, SocketTicket } from "@ace/protocol";
+import {
+  DeviceId,
+  SocketTicket,
+  type DiagnosticReport,
+  type DiagnosticsHealth,
+  type ServerMessage,
+} from "@ace/protocol";
 import { expect, it } from "vitest";
 import { startDaemon, readConfig, AdapterRegistry } from "./index.ts";
 import { Client } from "./socket-test-support.ts";
 import { createDevThread } from "./commands.ts";
 import { fixture } from "./socket-test-support.ts";
+
+const health: DiagnosticsHealth = {
+  at: 1,
+  eventLoop: { meanMs: null, p99Ms: null, maxMs: null },
+  memory: { rssBytes: 1, heapUsedBytes: 1, heapTotalBytes: 1 },
+  openHandles: 0,
+  sqlite: { pageBytes: null, walBytes: null },
+  activeSessions: null,
+  queues: {},
+  logs: { dropped: 0, failed: 0, queued: 0 },
+};
+const report: DiagnosticReport = {
+  at: 1,
+  checks: [{ id: "git", status: "ok", message: "Git available", fix: "Install Git" }],
+};
 
 it("the connected app can run checks and toolchain probes without creating a durable command", async () => {
   let at = 1;
@@ -47,17 +68,193 @@ it("the connected app can run checks and toolchain probes without creating a dur
   }
 });
 
-it("failed and overlapping app checks return retryable errors without exposing probe details", async () => {
+it("a second Run checks joins the one running, and a failure reaches both without probe details", async () => {
   const pending = Promise.withResolvers<never>();
-  const f = await fixture({ doctor: () => pending.promise });
+  let runs = 0;
+  const f = await fixture({
+    doctor: () => {
+      runs++;
+      return pending.promise;
+    },
+  });
   try {
     const client = await f.connect();
     await client.next();
     client.send({ type: "diagnostics.request", requestId: "first", operation: "doctor" });
     client.send({ type: "diagnostics.request", requestId: "second", operation: "doctor" });
-    expect(await client.next()).toMatchObject({ requestId: "second", error: "diagnostics_busy" });
+    // Requests are handled in order: once status answers, both have reached the run.
+    client.send({ type: "diagnostics.request", requestId: "status", operation: "status" });
+    expect(await client.next()).toMatchObject({ requestId: "status", run: { state: "running" } });
     pending.reject(new Error("private probe detail"));
-    expect(await client.next()).toMatchObject({ requestId: "first", error: "diagnostics_failed" });
+    const answers = [await client.next(), await client.next()];
+    expect(answers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ requestId: "first", error: "diagnostics_failed" }),
+        expect.objectContaining({ requestId: "second", error: "diagnostics_failed" }),
+      ]),
+    );
+    expect(JSON.stringify(answers)).not.toContain("private probe detail");
+    expect(runs).toBe(1);
+  } finally {
+    await f.close();
+  }
+});
+
+it("ace health still answers while the checks are running", async () => {
+  const pending = Promise.withResolvers<DiagnosticReport>();
+  const f = await fixture({
+    doctor: () => pending.promise,
+    health: async () => health,
+  });
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "diagnostics.request", requestId: "checks", operation: "doctor" });
+    client.send({ type: "diagnostics.health", requestId: "health" });
+    expect(await client.next()).toMatchObject({
+      type: "diagnostics.health.result",
+      requestId: "health",
+      ok: true,
+    });
+    pending.resolve(report);
+    expect(await client.next()).toMatchObject({ requestId: "checks", report });
+  } finally {
+    await f.close();
+  }
+});
+
+/** The id of the run a status answer reports. */
+function runIdOf(message: ServerMessage): string {
+  if (message.type !== "diagnostics.result" || !message.run || message.run.state === "idle")
+    throw new Error("No run in the status answer");
+  return message.run.id;
+}
+
+it("checks keep running after the app that started them leaves, and a new connection reads and joins them", async () => {
+  const pending = Promise.withResolvers<DiagnosticReport>();
+  let at = 100;
+  const f = await fixture({ doctor: () => pending.promise, now: () => at });
+  try {
+    const first = await f.connect();
+    await first.next();
+    first.send({ type: "diagnostics.request", requestId: "start", operation: "doctor" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await first.close();
+
+    const second = await f.connect();
+    await second.next();
+    second.send({ type: "diagnostics.request", requestId: "status", operation: "status" });
+    const status = await second.next();
+    expect(status).toMatchObject({
+      requestId: "status",
+      run: { state: "running", operation: "doctor", startedAt: 100 },
+    });
+    const runId = runIdOf(status);
+    second.send({ type: "diagnostics.request", requestId: "join", operation: "join", runId });
+    second.send({ type: "diagnostics.request", requestId: "joined", operation: "status" });
+    expect(await second.next()).toMatchObject({ requestId: "joined", run: { state: "running" } });
+    at = 160;
+    pending.resolve(report);
+    expect(await second.next()).toMatchObject({ requestId: "join", report });
+    second.send({ type: "diagnostics.request", requestId: "after", operation: "status" });
+    expect(await second.next()).toMatchObject({
+      run: { state: "done", id: runId, startedAt: 100, finishedAt: 160, report },
+    });
+  } finally {
+    await f.close();
+  }
+});
+
+it("joining repairs that ended between the status read and the join answers their outcome and never repairs again", async () => {
+  const pending = Promise.withResolvers<{ report: DiagnosticReport; repairs: [] }>();
+  let repairs = 0;
+  const f = await fixture({
+    doctorFix: () => {
+      repairs++;
+      return pending.promise;
+    },
+  });
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "diagnostics.request", requestId: "fix", operation: "fix" });
+    client.send({ type: "diagnostics.request", requestId: "status", operation: "status" });
+    const runId = runIdOf(await client.next());
+    // The repairs end before the join arrives.
+    pending.resolve({ report, repairs: [] });
+    expect(await client.next()).toMatchObject({ requestId: "fix", report });
+    client.send({ type: "diagnostics.request", requestId: "join", operation: "join", runId });
+    expect(await client.next()).toMatchObject({ requestId: "join", report, repairs: [] });
+    expect(repairs).toBe(1);
+  } finally {
+    await f.close();
+  }
+});
+
+it("joining a run that is gone (an older one, or one from before a restart) says so and starts nothing", async () => {
+  let runs = 0;
+  const f = await fixture({
+    doctor: async () => {
+      runs++;
+      return report;
+    },
+  });
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({ type: "diagnostics.request", requestId: "join", operation: "join", runId: "x" });
+    expect(await client.next()).toMatchObject({
+      requestId: "join",
+      error: "diagnostics_run_gone",
+    });
+    expect(runs).toBe(0);
+  } finally {
+    await f.close();
+  }
+});
+
+it("a device that may only read sees repairs another device started through to their outcome, but can't start them", async () => {
+  const pending = Promise.withResolvers<{ report: DiagnosticReport; repairs: [] }>();
+  const f = await fixture({ doctorFix: () => pending.promise });
+  try {
+    const admin = await f.connect();
+    await admin.next();
+    admin.send({ type: "diagnostics.request", requestId: "fix", operation: "fix" });
+    admin.send({ type: "diagnostics.request", requestId: "status", operation: "status" });
+    await admin.next();
+
+    const paired = f.store.devices.create("Reader", ["read"], 1);
+    const ticket = SocketTicket.parse(
+      await (
+        await fetch(f.server.url.replace("ws:", "http:") + "/v1/tickets", {
+          method: "POST",
+          headers: { authorization: `Bearer ${paired.token}` },
+        })
+      ).json(),
+    );
+    const reader = await f.open();
+    reader.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: DeviceId.parse(paired.device.id),
+      ticket: ticket.ticket,
+    });
+    await reader.next();
+    reader.send({ type: "diagnostics.request", requestId: "start", operation: "fix" });
+    expect(await reader.next()).toMatchObject({ requestId: "start", error: "forbidden" });
+    reader.send({ type: "diagnostics.request", requestId: "status", operation: "status" });
+    const status = await reader.next();
+    expect(status).toMatchObject({ run: { state: "running", operation: "fix" } });
+    reader.send({
+      type: "diagnostics.request",
+      requestId: "join",
+      operation: "join",
+      runId: runIdOf(status),
+    });
+    reader.send({ type: "diagnostics.request", requestId: "joined", operation: "status" });
+    await reader.next();
+    pending.resolve({ report, repairs: [] });
+    expect(await reader.next()).toMatchObject({ requestId: "join", report, repairs: [] });
   } finally {
     await f.close();
   }
@@ -65,10 +262,6 @@ it("failed and overlapping app checks return retryable errors without exposing p
 
 it("support export works before adding a project, redacts secrets, and includes conversations only when chosen locally", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-app-diagnostics-"));
-  const report = {
-    at: 1,
-    checks: [{ id: "git", status: "ok" as const, message: "Git available", fix: "Install Git" }],
-  };
   const daemon = await startDaemon({
     config: readConfig({ ACE_HOME: root, ACE_PORT: "0" }),
     engine: { registry: new AdapterRegistry() },

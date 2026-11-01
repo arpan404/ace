@@ -49,6 +49,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { findInThread } from "./long/nav-keys.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
 import { whenIdle } from "@/lib/idle.ts";
+import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
 import { DeferredThreadHotkeys, DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
@@ -66,6 +67,7 @@ import { DelegateBottom } from "./subagent/delegate-bottom.tsx";
 import { GuestBottom } from "./guest/guest-bottom.tsx";
 import { QueuedLaunch } from "./subagent/queued-launch.tsx";
 import { ThreadForgeLinks } from "@/components/forge-links.tsx";
+import { ThreadLinkedFiles } from "@/components/linked-file.tsx";
 
 /**
  * A thread New thread started a moment ago, until the daemon names it: its view's code loads
@@ -119,7 +121,9 @@ export function ThreadView(props: {
         }
       >
         <ThreadForgeLinks threadId={props.threadId}>
-          <ThreadScreen threadId={props.threadId} target={props.target} crumb={props.crumb} />
+          <ThreadLinkedFiles>
+            <ThreadScreen threadId={props.threadId} target={props.target} crumb={props.crumb} />
+          </ThreadLinkedFiles>
         </ThreadForgeLinks>
       </Suspense>
     </ThreadNavProvider>
@@ -140,6 +144,9 @@ function ThreadScreen(props: {
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [merging, setMerging] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  // Asked with the screen, not when ⋯ opens, so "Continue on…" is in the menu from the start
+  // instead of appearing under the pointer once the answer comes back.
+  useHasLinkedMachines();
   const id = props.threadId;
   const openForkOf = useOpenFork();
   const openFork = useCallback((point: ForkPoint) => openForkOf(id, point), [openForkOf, id]);

@@ -72,8 +72,9 @@ for (const provider of ["cursor", "antigravity", "acp"] as const) {
           { name: "Authorization", value: `Bearer ${connection.bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
           // Antigravity reloads a growing list; an unknown ACP agent keeps a fixed list.
+          // Cursor never reloads, so it says who it is and lists every tool from the start.
           ...(provider === "cursor"
-            ? []
+            ? [{ name: "X-Ace-Client", value: "cursor" }]
             : [{ name: "X-Ace-Tools", value: provider === "acp" ? "static" : "core" }]),
         ],
       },
@@ -106,6 +107,7 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
         Authorization: `Bearer ${connection.bearer}`,
         "X-Ace-Instructions": "native",
         "X-Ace-Notifications": "stream",
+        "X-Ace-Client": "cursor",
         "X-Ace-Call-Budget": "50",
       },
     },

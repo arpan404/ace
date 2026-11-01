@@ -20,6 +20,11 @@
       "minLength": 1,
       "type": "string"
     },
+    "provider": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },

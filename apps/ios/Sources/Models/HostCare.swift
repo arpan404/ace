@@ -29,7 +29,10 @@ struct MachineAppUpdateInfo: Codable, Sendable, Equatable {
 struct StoragePage: Decodable, Sendable, Equatable {
     struct Row: Decodable, Sendable, Equatable, Identifiable { let kind: String; let title: String; let detail: String; let size: String; var id: String { kind } }
     struct Database: Decodable, Sendable, Equatable { let size: String; let detail: String }
-    struct Backups: Decodable, Sendable, Equatable { let line: String; let paths: [String] }
+    struct Backups: Decodable, Sendable, Equatable {
+        struct Entry: Decodable, Sendable, Equatable { let path: String; let reason: String }
+        let line: String; let entries: [Entry]; let more: String?
+    }
     struct Usage: Decodable, Sendable, Equatable { let rows: [Row]; let database: Database; let partial: String?; let backups: Backups? }
     struct Pinned: Decodable, Sendable, Equatable { let value: Double; let pinnedBy: String? }
     struct Kind: Decodable, Sendable, Equatable, Identifiable { let kind: String; let title: String; let days: Double?; let note: String?; var id: String { kind } }

@@ -1,9 +1,12 @@
-import { ChatsIcon, ClockCounterClockwiseIcon, NotePencilIcon } from "@phosphor-icons/react";
+import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@phosphor-icons/react";
+import { tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Suspense } from "react";
+import { Suspense, useState, type KeyboardEvent } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { PanelRowBody, panelRow, PanelTitleRow } from "@/components/ui/panel.tsx";
+import { cn } from "@/lib/cn.ts";
+import { panelIconButton, PanelTitle, PanelTitleRow } from "@/components/ui/panel.tsx";
+import { Icon } from "@/components/icon.tsx";
 import { PaletteButton } from "@/features/shell/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
@@ -22,6 +25,7 @@ import { useMachines } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { usePanelRows } from "./use-panel-rows.ts";
+import { ThreadsTabs } from "./threads-tabs.tsx";
 import {
   useOrganizer,
   useOrganizerState,
@@ -34,19 +38,19 @@ const StartedTitlePublisher = deferredComponent(() =>
 );
 
 /**
- * The Threads panel, under the window's top bar (ADR 0107): its title row ("ace" and its filter
- * caret, Search), a New thread row, then the list: Active, every unsettled thread across
- * projects (pinned ones first, then what needs the person, then what is at work, then the rest),
- * then Projects, each folding open in place with only its settled threads, quiet projects folded
- * at the foot, and History below the list. Chats are the Chats panel's. Search (⌘K) opens the
- * palette.
+ * The Threads panel, under the window's top bar (ADR 0107): its title row ("Threads", the
+ * Everywhere filter, Search, New thread), the tabs (Inbox, Snoozed, Settled), then the open
+ * tab's list. The Inbox is one flat list across projects and machines in the order the person
+ * would act (pinned, needs you, running, unseen, the rest), with no headings; the filter narrows
+ * every tab to a project or a device. 1, 2 and 3 switch tabs from anywhere in the panel. Chats
+ * are the Chats panel's. Search (⌘K) opens the palette, which also finds older settled threads.
  */
 export function HomeSidebar() {
   // Other machines' threads join the list, each row marked with its machine.
   const host = useHostIdentity()?.hostId;
   const others = useOverlaidMachineEntries(useMachineEntries(host));
   const list = useHomeList(others);
-  const { project } = useOrganizerState();
+  const { project, tab } = useOrganizerState();
   const device = useSidebarDevice();
   const deviceName = useMachines().find((machine) => machine.id === device)?.name;
   useThreadsWindowSync();
@@ -54,24 +58,39 @@ export function HomeSidebar() {
   const loaded = useSidebarLoaded();
   // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
   const skeleton = useHeld(!loaded);
-  const rows = usePanelRows({ list });
-  const { tree } = list;
-  // No thread at all: projects that hold none (Quiet projects) don't count.
-  const empty =
-    [list.pinned, list.listed, list.snoozed, list.settled].every((ids) => !ids.length) &&
-    !tree.projects.length;
+  const [nearEnd, setNearEnd] = useState(false);
+  const rows = usePanelRows({ list, tab, nearEnd, project, device });
+  const empty = !tabThreads(list.panel, tab).length;
+  // No thread anywhere (not even snoozed or settled): the first-run words, not Inbox zero.
+  const none = [list.panel.inbox, list.panel.snoozed, list.panel.settled].every(
+    (ids) => !ids.length,
+  );
   const directory = useProjectDirectory();
   const keys = useResolvedKeymap();
+  const narrowed = project
+    ? `in ${directory.name(project)}`
+    : deviceName
+      ? `on ${deviceName}`
+      : undefined;
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <PanelTitleRow className="@container/thread-filters">
-        <span className="flex min-w-0 flex-1">
-          <ProjectFilter />
-        </span>
+        <PanelTitle>Threads</PanelTitle>
+        <ProjectFilter />
         <PaletteButton />
+        <NewThreadButton />
       </PanelTitleRow>
-      <NewThreadRow />
-      <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
+      <nav
+        aria-label="Threads"
+        className="flex min-h-0 flex-1 flex-col"
+        onKeyDown={(event) => {
+          const next = tabKey(event);
+          if (!next) return;
+          event.preventDefault();
+          organizer.setTab(next);
+        }}
+      >
+        <ThreadsTabs tab={tab} panel={list.panel} onTab={(next) => organizer.setTab(next)} />
         {loaded && (
           <Suspense fallback={null}>
             <StartedTitlePublisher.Component />
@@ -83,20 +102,14 @@ export function HomeSidebar() {
           <>
             <EmptyState
               className="shrink-0 justify-start pt-6"
-              icon={ChatsIcon}
-              title={
-                project
-                  ? `Nothing in ${directory.name(project)}`
-                  : deviceName
-                    ? `No threads on ${deviceName}`
-                    : "No threads yet"
-              }
+              icon={tab === "inbox" ? TrayIcon : tab === "snoozed" ? ClockIcon : CheckIcon}
+              title={emptyTitle(tab, narrowed, none)}
               description={
-                project
-                  ? "Threads from this project will land here."
-                  : deviceName
-                    ? "Threads from this device will land here."
-                    : `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
+                tab !== "inbox"
+                  ? undefined
+                  : none && !narrowed
+                    ? `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
+                    : "Nothing needs you, and nothing is running."
               }
               action={
                 project ? (
@@ -105,7 +118,7 @@ export function HomeSidebar() {
                     className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
                     onClick={() => organizer.setProject(null)}
                   >
-                    Show all projects
+                    Show everywhere
                   </button>
                 ) : device ? (
                   <button
@@ -115,20 +128,48 @@ export function HomeSidebar() {
                   >
                     Show all devices
                   </button>
-                ) : directory.loaded && !directory.projects.length ? (
+                ) : tab === "inbox" && directory.loaded && !directory.projects.length ? (
                   <AddProjectAction />
                 ) : undefined
               }
             />
-            <ThreadList rows={unsentOnly} needsYou={list.needsYou} pinned={list.pinned} />
+            {tab === "inbox" && (
+              <ThreadList rows={unsentOnly} needsYou={list.needsYou} pinned={list.pinned} triage />
+            )}
           </>
         ) : (
-          <ThreadList rows={rows} needsYou={list.needsYou} pinned={list.pinned} />
+          <ThreadList
+            rows={rows}
+            needsYou={list.needsYou}
+            pinned={list.pinned}
+            onNearEnd={setNearEnd}
+            triage
+          />
         )}
       </nav>
-      {loaded && <HistoryFoot count={list.settledTotal} />}
     </div>
   );
+}
+
+/** The empty tab's words: "No threads yet", "Inbox zero", "Nothing snoozed in docs". */
+function emptyTitle(tab: ThreadsTab, narrowed: string | undefined, none: boolean): string {
+  const where = narrowed ? ` ${narrowed}` : "";
+  if (none) return narrowed ? `No threads ${narrowed}` : "No threads yet";
+  if (tab === "inbox") return `Inbox zero${where}`;
+  return tab === "snoozed" ? `Nothing snoozed${where}` : `Nothing settled${where}`;
+}
+
+const tabKeys: Record<string, ThreadsTab> = { "1": "inbox", "2": "snoozed", "3": "settled" };
+
+/** 1, 2 or 3 pressed in the panel, outside a field and with no modifier: the tab it opens. */
+function tabKey(event: KeyboardEvent): ThreadsTab | undefined {
+  if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return undefined;
+  if (
+    event.target instanceof HTMLElement &&
+    event.target.closest("input, textarea, [contenteditable], [role=menu]")
+  )
+    return undefined;
+  return tabKeys[event.key];
 }
 
 /** With no project yet, the empty panel's way to add one. */
@@ -147,64 +188,37 @@ function AddProjectAction() {
 }
 
 /**
- * The panel's first row: New thread, as a pencil and the words. With one project it opens New
+ * New thread, the pencil at the title row's end after Search. With one project it opens New
  * thread there; with several it asks which (Shift skips the question: the current project).
  */
-function NewThreadRow() {
+function NewThreadButton() {
   const entry = useNewThreadEntry();
   const { only } = entry;
   const here = useRouterState({ select: (state) => state.location.pathname === "/new" });
   return (
-    <div className="shrink-0 px-2 pb-1">
-      <Tip label="New thread" shortcut="newThread">
-        <Link
-          to="/new"
-          {...(only ? { search: { project: only } } : {})}
-          aria-label="New thread"
-          aria-current={here ? "page" : undefined}
-          {...panelRow()}
-          onClick={(event) => {
-            if (event.shiftKey) {
-              event.preventDefault();
-              entry.here();
-            } else if (!only) {
-              event.preventDefault();
-              entry.start();
-            }
-          }}
-        >
-          <PanelRowBody icon={NotePencilIcon} title="New thread" />
-        </Link>
-      </Tip>
-    </div>
-  );
-}
-
-/** The quiet way to History at the panel's foot, with how many threads it holds. */
-function HistoryFoot(props: { count: number }) {
-  const here = useRouterState({ select: (state) => state.location.pathname === "/history" });
-  return (
-    <div className="shrink-0 px-2 pt-1 pb-2">
+    <Tip label="New thread" shortcut="newThread">
       <Link
-        to="/history"
+        to="/new"
+        {...(only ? { search: { project: only } } : {})}
+        aria-label="New thread"
         aria-current={here ? "page" : undefined}
-        {...panelRow(
-          "text-muted-foreground hover:text-foreground aria-[current=page]:text-foreground",
+        className={cn(
+          panelIconButton,
+          "aria-[current=page]:bg-active aria-[current=page]:text-foreground",
         )}
-      >
-        <PanelRowBody
-          icon={ClockCounterClockwiseIcon}
-          title="History"
-          trailing={
-            props.count > 0 && (
-              <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
-                {props.count}
-              </span>
-            )
+        onClick={(event) => {
+          if (event.shiftKey) {
+            event.preventDefault();
+            entry.here();
+          } else if (!only) {
+            event.preventDefault();
+            entry.start();
           }
-        />
+        }}
+      >
+        <Icon icon={NotePencilIcon} size={18} />
       </Link>
-    </div>
+    </Tip>
   );
 }
 

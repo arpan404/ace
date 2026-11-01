@@ -3,6 +3,7 @@ import type {
   UsageMetadata,
   AgentActivity,
   AgentFidelity,
+  AgentMachine,
   AgentOrigin,
   AgentStatus,
   BackgroundTask,
@@ -86,6 +87,8 @@ export type Fact =
       role?: string;
       model?: string;
       background?: boolean;
+      /** A delegated child on another paired machine: where it runs. */
+      machine?: AgentMachine;
     }
   | {
       type: "agent.linked";

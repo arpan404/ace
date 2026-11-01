@@ -13,8 +13,10 @@ function row(
     name,
     platform,
     runtime,
-    detail: `${runtime} · ${options.running ? "Running" : "Off"}`,
+    detail: `${runtime} · ${options.running ? "Running" : "Shut down"}`,
     running: options.running ?? false,
+    state: options.running ? "booted" : "shutdown",
+    bootable: !options.running,
     live: options.live ?? false,
   };
 }

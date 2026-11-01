@@ -9,13 +9,21 @@ export interface BubbleSegment {
   text: string;
 }
 
-/** A message folds past this many lines or characters, showing about `foldedLines`. */
-const longLines = 12;
-const longChars = 1200;
-export const foldedLines = 10;
+/** A message folds past `lines` lines or `chars` characters, showing about `shown` lines. */
+export interface BubbleFold {
+  lines: number;
+  chars: number;
+  shown: number;
+}
 
-export function isLongMessage(text: string): boolean {
-  return text.length > longChars || text.split("\n").length > longLines;
+/** The person's own words fold late: only a long paste hides behind "Show more". */
+export const personFold: BubbleFold = { lines: 12, chars: 1200, shown: 10 };
+/** A brief another thread's agent sent folds to a few lines: it is often hundreds long. */
+export const sentFold: BubbleFold = { lines: 5, chars: 400, shown: 4 };
+export const foldedLines = personFold.shown;
+
+export function isLongMessage(text: string, fold: BubbleFold = personFold): boolean {
+  return text.length > fold.chars || text.split("\n").length > fold.lines;
 }
 
 const fence = /^ {0,3}(```|~~~)[^\n]*\n([\s\S]*?)\n {0,3}\1[ \t]*$/gm;

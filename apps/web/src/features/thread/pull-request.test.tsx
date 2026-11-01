@@ -388,7 +388,7 @@ test("a second linked PR leads the PR line, a duplicate link changes nothing, an
   ).toBeTruthy();
 });
 
-test("a live link publication leads the card's PR line, and the row's name names both PRs", async () => {
+test("a live link publication leads the card's PR line, and the sidebar counts both PRs", async () => {
   const app = await withPr(pr({ ref: { repository, number: 284 } }));
   const card = await openWorkCard();
   await within(card).findByRole("button", { name: /^Open pull request #284/ });
@@ -398,10 +398,10 @@ test("a live link publication leads the card's PR line, and the row's name names
   expect(await within(card).findByRole("button", { name: /^Open pull request #283/ })).toBeTruthy();
   const sidebar = screen.getByRole("navigation", { name: "Threads" });
   const row = await within(sidebar).findByRole("link", { name: /^Retry the replay cursor/ });
-  // The row is its title alone; its name carries every linked pull request.
-  expect(row.textContent).toBe("Retry the replay cursor");
-  await waitFor(() => expect(row.getAttribute("aria-label")).toContain("Pull request #283"));
-  expect(row.getAttribute("aria-label")).toContain("Pull request #284");
+  expect(row.textContent).toContain("#283+1");
+  expect(
+    within(row).getAllByRole("button", { name: /^Open .*pull request #283, 1 more linked/i }),
+  ).toHaveLength(1);
 });
 
 test("explicit PR addresses can link another repository and unlink only that association", async () => {

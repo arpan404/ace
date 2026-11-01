@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createCliControlSession } from "./cli-control.ts";
 import { createStorageSession } from "./storage.ts";
 import { createRepositoriesSession } from "./repositories.ts";
@@ -55,6 +56,7 @@ import { createModelsSession } from "./models.ts";
 import { createReviewSession } from "./review.ts";
 import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
+import { DoctorRuns } from "./doctor-runs.ts";
 import { createAdmissionSession } from "./admission.ts";
 import { createAppUpdateSession } from "./app-update.ts";
 import { createActivityReadsSession } from "./activity-reads.ts";
@@ -62,6 +64,7 @@ import { createVerifySession } from "./verify.ts";
 import { createOffshiftSession } from "./offshift.ts";
 import { createIconsSession } from "./icons.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
+import type { ServerOptions } from "../server-options.ts";
 export const socketServiceFactories = [
   createCliControlSession,
   createStorageSession,
@@ -114,7 +117,6 @@ export const socketServiceFactories = [
   createReviewSession,
   createThreadTransitionsSession,
   createEngineSession,
-  createDiagnosticsSession,
   createAdmissionSession,
   createAppUpdateSession,
 ];
@@ -129,8 +131,17 @@ export function createSocketRegistry() {
     if (!state) lockedUse.set(installer, (state = new LockedUseState(installer)));
     return state;
   };
+  // One checks run per daemon, so every socket can join it, read it or come back to it.
+  const doctorRuns = new WeakMap<ServerOptions, DoctorRuns>();
+  const doctorRunsFor = (options: ServerOptions) => {
+    let runs = doctorRuns.get(options);
+    if (!runs)
+      doctorRuns.set(options, (runs = new DoctorRuns(options.now ?? Date.now, () => randomUUID())));
+    return runs;
+  };
   return (context: SocketContext) => [
     ...socketServiceFactories.map((factory) => factory(context)),
+    createDiagnosticsSession(context, doctorRunsFor(context.options)),
     createScreenSession(context, simulators),
     createLockedUseSession(context, lockedUseState(context.options.lockedUse ?? placeholder)),
   ];

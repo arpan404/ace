@@ -7,6 +7,7 @@ import {
   type MachineThreadView,
 } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { childAgentKey } from "../engine/remote-child-status.ts";
 import type { Engine } from "../engine/index.ts";
 import { savedView, type ChildLedger, type ChildRow } from "./child-ledger.ts";
 import type { ChildResults } from "./child-results.ts";
@@ -64,13 +65,16 @@ export class LostChildren {
   keep(row: ChildRow): void {
     const name = this.deps.label(row.machine);
     if (row.lost_at === null) {
-      this.deps.store.atomic(() => {
-        this.deps.ledger.markLost(row.id, this.deps.now());
-        this.launchRow(row, name, { state: "needs_you", interactions: 1 });
-      });
       // Requests it had open there can't be answered from here any more.
       this.deps.mirror.release(`child:${row.id}`);
+      // The person's approval about it opens first, on its row, so the row counts it once.
+      this.ask(row, name);
+      this.deps.store.atomic(() => {
+        this.deps.ledger.markLost(row.id, this.deps.now());
+        this.launchRow(row, name, { state: "needs_you", interactions: 1 }, "needs_you");
+      });
       this.deps.emit([row.id]);
+      return;
     }
     this.ask(row, name);
   }
@@ -80,7 +84,7 @@ export class LostChildren {
     this.deps.store.atomic(() => {
       this.close(row, { state: "expired" });
       this.deps.ledger.clearLost(row.id);
-      this.launchRow(row, name, { state: "working", agents: 1 });
+      this.launchRow(row, name, { state: "working", agents: 1 }, "working");
     });
     this.deps.emit([row.id]);
   }
@@ -99,7 +103,7 @@ export class LostChildren {
     this.deps.store.atomic(() => {
       this.close(row, { state: "resolved", resolution, resolvedBy: command.deviceId });
       this.deps.ledger.markAbandoned(row.id, JSON.stringify(view));
-      this.launchRow(row, name, view.status, {
+      this.launchRow(row, name, view.status, view.state, {
         threadId: row.id,
         outcome: "cancelled",
         result: view.result ?? "",
@@ -131,6 +135,7 @@ export class LostChildren {
           lostRequest(row, name),
           // Names the child, so its row can offer the same answer.
           [{ type: "ace.machine.lost", data: { machine: row.machine, threadId: row.id } }],
+          childAgentKey(row.id),
         );
         this.deps.ledger.setLostAsk(row.id, key, ask);
       });
@@ -150,6 +155,7 @@ export class LostChildren {
     row: ChildRow,
     name: string,
     status: MachineThreadView["status"],
+    state: MachineThreadView["state"],
     outcome: Parameters<Engine["machineChild"]>[0]["outcome"] = null,
   ): void {
     this.deps.engine()?.machineChild(
@@ -165,6 +171,7 @@ export class LostChildren {
         role: row.role,
         title: savedView(row)?.title || row.role,
         status,
+        state,
         outcome,
       },
       outcome ? "end" : undefined,

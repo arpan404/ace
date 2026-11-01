@@ -25,7 +25,7 @@ export function SkillsLandingScreen() {
       />
     );
   return (
-    <Screen title="Skills">
+    <Screen title="Skills" namedByPanel>
       {skills.isError ? (
         <EmptyState
           icon={CubeIcon}

@@ -63,10 +63,18 @@ export function cancelPending(repo: EngineRepository, id: ThreadId, now: number)
   });
 }
 
-/** Cancelling a delegated task retires its work; ordinary Stop retains the queue. */
-export function cancelDelegatedInputs(repo: EngineRepository, id: ThreadId, now: number): void {
-  repo.store.atomic(() => {
-    repo.cancelPending(id, now);
+/**
+ * Cancelling a delegated task retires its work, a provider switch it was still waiting to apply
+ * included; ordinary Stop retains the queue and the switch. Returns the threads whose transition
+ * guards it released.
+ */
+export function cancelDelegatedInputs(
+  repo: EngineRepository,
+  id: ThreadId,
+  now: number,
+): ThreadId[] {
+  return repo.store.atomic(() => {
+    const released = new Set(repo.cancelPending(id, now));
     for (const intent of repo.pending.headers(id)) {
       if (
         !["thread.send", "thread.create", "thread.fork", "thread.switch"].includes(intent.kind) ||
@@ -75,7 +83,23 @@ export function cancelDelegatedInputs(repo: EngineRepository, id: ThreadId, now:
         continue;
       repo.mark(intent, "failed", "Cancelled before delivery");
       repo.queue.prune(intent.id);
+      if (intent.kind !== "thread.switch") continue;
+      for (const thread of repo.transitions.releaseGuards(intent.commandId)) released.add(thread);
+      // The thread's own record of the switch must stop reading as queued.
+      const pending = repo.store.getThread(id)?.switch;
+      if (pending?.state === "queued")
+        repo.store.appendEvents(
+          id,
+          [
+            {
+              type: "thread.updated",
+              switch: { ...pending, state: "failed", error: "Cancelled before delivery", at: now },
+            },
+          ],
+          now,
+        );
     }
     repo.queue.set(id, {}, now);
+    return [...released];
   });
 }

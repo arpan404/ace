@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 afterEach(() => {
@@ -109,4 +109,25 @@ test("in a browser there is no app folder to choose, and the person's Chrome dec
   );
   await screen.findByRole("switch", { name: "Picture in picture" });
   expect(screen.queryByText("Desktop app downloads")).toBeNull();
+});
+
+test("Use my Chrome settings opens Computer use at its Use my Chrome section, not the top", async () => {
+  // jsdom doesn't lay out or scroll; record which rows ask to be scrolled to.
+  const scrolled: string[] = [];
+  const original = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
+  Element.prototype.scrollIntoView = function (this: Element) {
+    scrolled.push(this.id);
+  };
+  onTestFinished(() => {
+    if (original) Object.defineProperty(Element.prototype, "scrollIntoView", original);
+    else delete (Element.prototype as Partial<Element>).scrollIntoView;
+  });
+  const app = harness();
+  await app.open("/settings/browser");
+  await userEvent.click(await screen.findByRole("button", { name: "Use my Chrome settings" }));
+
+  await screen.findByRole("heading", { name: "Computer use", level: 2 });
+  await waitFor(() => expect(scrolled).toContain("browser.userChrome.connection"));
+  const row = document.getElementById("browser.userChrome.connection");
+  expect(row?.textContent).toContain("Browser connection");
 });

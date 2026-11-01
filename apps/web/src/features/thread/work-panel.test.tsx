@@ -1,7 +1,8 @@
 import {
   gitAction,
   machineRow,
-  openDoneAgents,
+  agentRow,
+  isBreathing,
   openWorkCard,
   openWorkPanel,
 } from "@/test/open-work.ts";
@@ -68,15 +69,8 @@ test("a child keeps working through a non-blocking question and requests attenti
     ).toBe(true),
   );
   lease.release();
-  await waitFor(() =>
-    expect(within(card).queryByRole("treeitem", { name: /.*: Needs you/ })).toBeNull(),
-  );
-  // One still works while the other is done: the Working section holds its two
-  // live agents (the runner and the parent waiting on it), and the settled one
-  // folds into Done with its count. Sections draw asynchronously, so wait for them.
-  const working = await within(card).findByRole("heading", { name: "Working" });
-  expect(working.textContent).toMatch(/^Working\s*2$/);
-  expect(await within(card).findByRole("button", { name: "1 done" })).toBeTruthy();
+  // A question the agent can work past doesn't ask for the person yet.
+  expect(card.querySelector("[data-tone=needs-you]")).toBeNull();
   expect(
     within(screen.getByRole("banner")).queryByRole("button", {
       name: "Thread details, something needs you",
@@ -84,12 +78,15 @@ test("a child keeps working through a non-blocking question and requests attenti
   ).toBeNull();
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-1")]));
   expect(
-    await within(card).findByRole("treeitem", { name: "Check supervisor logs: Needs you" }),
+    await within(card).findByRole("status", {
+      name: "Thread status: Check supervisor logs needs your answer",
+    }),
   ).toBeTruthy();
-  expect(within(card).getByRole("treeitem", { name: "Write retry tests: Needs you" })).toBeTruthy();
-  const root = within(card).getByRole("treeitem", { name: "Main agent: Needs you" });
-  // One status per row: the badge says Needs you, no second "Needs you" in words beside it.
-  expect(within(root).getAllByText("Needs you")).toHaveLength(1);
+  const asker = await agentRow(card, "Check supervisor logs");
+  expect(asker.getAttribute("aria-label")).toBe("Check supervisor logs: asks: Which cases?");
+  expect(asker.querySelector("[data-tone=needs-you]")).toBeTruthy();
+  // Its parents wait on it: they stay live and say so in grey, not as a second request.
+  expect(isBreathing(await agentRow(card, "Codex"))).toBe(true);
 });
 
 test.each(["completed", "interrupted"] as const)(
@@ -100,15 +97,12 @@ test.each(["completed", "interrupted"] as const)(
     app.play(fixture).runUntilBlocked();
     const work = await openWork(app, fixture.thread.id);
     act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-0", outcome)]));
-    const parent = await within(work).findByRole("treeitem", {
-      name: /^Write retry tests: Waiting on (work|subagents|background task)$/,
-    });
-    expect(parent.getAttribute("aria-label")).toMatch(
-      /Waiting on (work|subagents|background task)/,
+    await waitFor(async () =>
+      expect((await agentRow(work, "Write retry tests")).getAttribute("aria-label")).toMatch(
+        /^Write retry tests: waiting /,
+      ),
     );
-    expect(
-      within(work).queryByRole("treeitem", { name: /Write retry tests: (Idle|Interrupted)/ }),
-    ).toBeNull();
+    expect(isBreathing(await agentRow(work, "Write retry tests"))).toBe(true);
   },
 );
 
@@ -134,8 +128,12 @@ test("a retrying child remains active while it waits on its provider", async () 
   act(() =>
     app.daemon.apply(fixture.thread.id, [{ type: "retry", agent: "worker-0", on: "rate_limit" }]),
   );
-  await within(work).findByRole("treeitem", { name: "Write retry tests: Waiting on rate limit" });
-  expect(within(work).queryByRole("treeitem", { name: "Write retry tests: Done" })).toBeNull();
+  await waitFor(async () =>
+    expect((await agentRow(work, "Write retry tests")).getAttribute("aria-label")).toMatch(
+      /rate limit/,
+    ),
+  );
+  expect(isBreathing(await agentRow(work, "Write retry tests"))).toBe(true);
 });
 
 test("a failed child opens its own work without leaking its raw error into the tree", async () => {
@@ -143,14 +141,13 @@ test("a failed child opens its own work without leaking its raw error into the t
   const fixture = workCardScenario("failed");
   app.play(fixture).runUntilBlocked();
   const work = await openWork(app, fixture.thread.id);
-  // The tree only says that it failed, not why: opening the row shows the error. The settled
-  // child folds into Done, so open the fold first as the person would.
+  // The tree only says that it failed, in red, not why: opening the row shows the error.
   const tree = await within(work).findByRole("tree", { name: "Agent tree" });
   expect(within(tree).queryByText("The test command failed. Check its output.")).toBeNull();
-  const done = await openDoneAgents(work);
-  await userEvent.click(
-    within(done).getByRole("treeitem", { name: "Check supervisor logs: Failed" }),
-  );
+  const failed = await agentRow(work, "Check supervisor logs");
+  expect(failed.getAttribute("aria-label")).toBe("Check supervisor logs: couldn't finish");
+  expect(failed.querySelector("[data-tone=failed]")).toBeTruthy();
+  await userEvent.click(failed);
   // A subagent opens as the whole chat (042b898e3).
   expect(
     await screen.findByRole("heading", { level: 1, name: /Check supervisor logs/ }),
@@ -163,21 +160,25 @@ test("an ended parent remains active until its nested child settles", async () =
   app.play(fixture).runUntilBlocked();
   const work = await openWork(app, fixture.thread.id);
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-0")]));
-  await within(work).findByRole("treeitem", {
-    name: /^Write retry tests: Waiting on (work|subagents|background task)$/,
-  });
+  await waitFor(async () =>
+    expect((await agentRow(work, "Write retry tests")).getAttribute("aria-label")).toMatch(
+      /: waiting /,
+    ),
+  );
+  // Its own turn ended, but its subagent still works: it never reads done.
+  expect(isBreathing(await agentRow(work, "Write retry tests"))).toBe(true);
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-1")]));
-  // Both of the main agent's subagents completed, joining the already-settled
-  // reader in the Done fold: three settled rows under one button.
-  await userEvent.click(await within(work).findByRole("button", { name: "3 done" }));
-  await within(work).findByRole("treeitem", { name: "Write retry tests: Idle" });
-  await within(work).findByRole("treeitem", { name: "Check supervisor logs: Idle" });
-  expect(
-    within(work).getByRole("treeitem", { name: /^Main agent: Waiting on (work|background task)$/ }),
-  ).toBeTruthy();
+  // Both subagents settled: it joins the finished reader in one done line (ADR 0108), while the
+  // main agent still waits on its background command.
+  await userEvent.click(await within(work).findByRole("treeitem", { name: "2 done" }));
+  const settled = await agentRow(work, "Write retry tests");
+  expect(isBreathing(settled)).toBe(false);
+  // The settled branch folds and says what it holds.
+  expect(settled.getAttribute("aria-label")).toMatch(/ · 1 done$/);
+  expect(isBreathing(await agentRow(work, "Codex"))).toBe(true);
 });
 
-test("project schedules show their cadence and persist toggles and run-now results", async () => {
+test("the project's schedules read as one line at the foot of the Summary that opens them", async () => {
   // Midday UTC, so the next run is "Today" whatever time the suite runs (at 18:00 it reads "Tonight").
   const now = Date.UTC(2026, 5, 10, 12, 0);
   const app = harness({ clock: () => now, uiClock: () => now });
@@ -212,31 +213,11 @@ test("project schedules show their cadence and persist toggles and run-now resul
     settings: { "automations.enabled": true },
   });
   const card = await openWork(app, fixture.thread.id);
-  const section = within(card).getByRole("region", { name: "Automations" });
-  const row = await within(section).findByRole("button", {
-    name: "Open automation Review changes",
-  });
-  // One row: its cadence is the tooltip, and Edit and Run show while it is hovered.
-  await userEvent.hover(row);
-  expect((await screen.findByRole("tooltip")).textContent).toContain("Every 5 minutes");
-  expect(section.textContent).toMatch(/Today .* · in 4m/);
-  expect(within(section).queryByText("Other project")).toBeNull();
-  await userEvent.click(within(section).getByRole("button", { name: "Run Review changes now" }));
-  await waitFor(async () => {
-    const inbox = await app.client.request({ type: "automation.inbox", limit: 10 });
-    expect(inbox.inbox?.runs.some((run) => run.automationId === "review")).toBe(true);
-  });
-  await userEvent.click(within(section).getByRole("switch", { name: "Enable Review changes" }));
-  await waitFor(async () => {
-    const stored = await app.client.request({ type: "automation.list" });
-    expect(stored.automations?.find((entry) => entry.id === "review")?.enabled).toBe(false);
-  });
-  await within(section).findByText(/Paused. Resume/);
-  expect(
-    within(section)
-      .getByRole("button", { name: "Resume this automation to run it" })
-      .hasAttribute("disabled"),
-  ).toBe(true);
+  // One quiet line: this project's schedules only, and when the next one runs.
+  const line = await within(card).findByRole("button", { name: /automation in this project/ });
+  expect(line.textContent).toMatch(/^1 automation in this project · next today /);
+  await userEvent.click(line);
+  expect(await screen.findByRole("complementary", { name: "Automations" })).toBeTruthy();
 });
 
 test("push waits for confirmation and cancellation leaves the branch unchanged", async () => {

@@ -74,7 +74,8 @@ test("source-backed thinking and answer text grow independently before either co
   expect(await within(feed).findByText(/Thought past preview/)).toBeTruthy();
   expect(await within(feed).findByText(/Answer preview/)).toBeTruthy();
   expect(await within(feed).findByText(/Answer past preview/)).toBeTruthy();
-  expect(within(feed).getByRole("status", { name: "Streaming" })).toBeTruthy();
+  // Still being written: no finished answer's actions yet.
+  expect(within(feed).queryByRole("button", { name: "Copy answer" })).toBeNull();
   expect(within(feed).getByRole("group", { name: "Turn in progress" })).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: "Show full answer" })).toBeNull();
   const suffix = "\n\nNew answer delta while still thinking 😀";

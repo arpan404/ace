@@ -4,7 +4,7 @@ import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
 import { MachineIcon } from "@ace/protocol";
 import { regeneratedTitle } from "./title-regenerate.ts";
-import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
+import { markUncertainInput, restoreInput, repeatInput, waitingSteer } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
 import { FakeWorktreeCreations, refusedAtAdmission } from "./worktree-creation.ts";
 import { prepareFakeDelete, reconcileFakeTerminals, withExitFacts } from "./thread-lifecycle.ts";
@@ -357,6 +357,10 @@ export class FakeDaemon implements Host {
   get computerUsing(): FakeComputerUsing {
     return this.servicesWire.computerUsing;
   }
+  /** Run checks and safe repairs (`diagnostics.request`), for holding a run in progress. */
+  get checks(): Pick<import("./checks-wire.ts").FakeChecks, "hold" | "starts"> {
+    return this.servicesWire.checks;
+  }
   /**
    * Seed what a long-running daemon's services hold: decks, automations and their runs,
    * installed plugins and the forge's pull requests. Threads a seed links to must exist.
@@ -376,6 +380,12 @@ export class FakeDaemon implements Host {
   uncertainQueuedMessage(threadId: string, messageId: string): void {
     const host = this.thread(threadId);
     markUncertainInput(host, messageId);
+    this.afterChange(host, this.options.clock());
+  }
+  /** A steer the daemon holds until the provider can take it, or one that fell back. */
+  waitingSteer(threadId: string, messageId: string, text: string, kind: "steer" | "fell_back") {
+    const host = this.thread(threadId);
+    waitingSteer(host, messageId, text, kind);
     this.afterChange(host, this.options.clock());
   }
   /** A legacy daemon lost admission proof after filling the follow-up queue. */
@@ -512,6 +522,8 @@ export class FakeDaemon implements Host {
       ...(init.lineage ? { lineage: init.lineage } : {}),
       // A delegated child names its parent, as the daemon records it at launch.
       ...(init.parentThreadId ? { delegatedBy: ThreadId.parse(init.parentThreadId) } : {}),
+      ...(init.startedBy ? { startedBy: ThreadId.parse(init.startedBy) } : {}),
+      ...(init.delegatedFrom ? { delegatedFrom: init.delegatedFrom } : {}),
       ...(init.queuedLaunch ? { queuedLaunch: init.queuedLaunch } : {}),
       ...(init.execution ? { execution: init.execution } : {}),
       permission: {

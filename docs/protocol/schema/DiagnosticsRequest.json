@@ -6,11 +6,18 @@
       "enum": [
         "doctor",
         "toolchains",
-        "fix"
+        "fix",
+        "status",
+        "join"
       ],
       "type": "string"
     },
     "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "runId": {
       "maxLength": 128,
       "minLength": 1,
       "type": "string"

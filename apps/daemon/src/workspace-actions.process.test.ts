@@ -60,7 +60,7 @@ test("workspace reads expose declared scripts and installed editors and receipts
           operation: { op: "editors.list" },
         })
       ).result,
-    ).toEqual({ kind: "editors", editors: [] });
+    ).toEqual({ kind: "editors", editors: [], fileManager: "Files" });
     await writeFile(join(root, "code"), "#!/bin/sh\nexit 0\n");
     await chmod(join(root, "code"), 0o700);
     expect(
@@ -91,7 +91,7 @@ test("workspace reads expose declared scripts and installed editors and receipts
           operation: { op: "editors.list" },
         })
       ).result,
-    ).toEqual({ kind: "editors", editors: [] });
+    ).toEqual({ kind: "editors", editors: [], fileManager: "Files" });
     expect(
       await runtime.execute(Command.parse({ ...command, id: "removed-editor" })),
     ).toMatchObject({ ok: false });

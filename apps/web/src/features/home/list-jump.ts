@@ -5,8 +5,7 @@ import { parseChord } from "@/lib/keymap.ts";
 const numbered = new Set<HomeRow["kind"]>(["thread", "settled", "snoozed"]);
 
 /**
- * The threads ⌘1 to ⌘9 open, in the order the list draws them: the first nine thread rows
- * (each open project's, then Snoozed while it is open, or search's matches).
+ * The threads ⌘1 to ⌘9 open, in the order the list draws them: the open tab's first nine.
  */
 export function jumpTargets(rows: readonly { item: HomeRow; phase: string }[]): string[] {
   const ids: string[] = [];

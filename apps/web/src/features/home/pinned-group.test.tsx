@@ -21,7 +21,7 @@ const order = () =>
   within(threads())
     .queryAllByRole("link")
     .map((link) => titles.find((title) => link.textContent?.includes(title)));
-/** Every pinned thread, top to bottom, at the head of Active. */
+/** Every pinned thread, top to bottom, at the head of the Inbox. */
 const pinnedAll = () =>
   within(threads())
     .queryAllByRole("link", { name: /\bPinned\b/ })
@@ -55,9 +55,9 @@ async function pinFromRow(title: RegExp, name: string) {
   );
 }
 
-test("pinned threads lead Active, each new pin first", async () => {
+test("pinned threads lead the Inbox, each new pin first, with no heading over them", async () => {
   await openHome();
-  // Active spans projects, by most recent activity: relay's thread is the newest.
+  // The Inbox spans projects, by most recent activity: relay's thread is the newest.
   await waitFor(() =>
     expect(order()).toEqual(["Other project task", "Gamma task", "Beta task", "Alpha task"]),
   );
@@ -66,7 +66,7 @@ test("pinned threads lead Active, each new pin first", async () => {
   await waitFor(() =>
     expect(order()).toEqual(["Beta task", "Alpha task", "Other project task", "Gamma task"]),
   );
-  expect(within(threads()).getByRole("heading", { name: "Active" })).toBeTruthy();
+  expect(within(threads()).queryAllByRole("heading")).toEqual([]);
   expect(pinnedGroup()).toEqual(["Beta task", "Alpha task"]);
 });
 

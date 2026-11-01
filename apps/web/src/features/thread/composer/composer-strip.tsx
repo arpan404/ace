@@ -12,7 +12,7 @@ import { useShownPlans } from "@/lib/use-plans.ts";
 import { ThreadTransferStrip, useThreadTransferState } from "@/features/transfers/index.ts";
 import { failedHead, withoutMessage } from "./failed-head.ts";
 import { withoutAgentPending, withoutAgentResults } from "./queued-agent-result.ts";
-import { holdsTurn, stoppedHold } from "@ace/ui-core";
+import { holdsTurn, sameQueuedContent, stoppedHold } from "@ace/ui-core";
 import { HeldTurnStrip, useHeldTurn } from "./held-turn-strip.tsx";
 import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
@@ -27,6 +27,7 @@ import { ConnectionStrip, PlanStrip, StripIndicators, type StripCounts } from ".
 import { GoalStrip } from "./goal-strip.tsx";
 import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 import { StripSurface } from "./strip-surface.tsx";
+import { HoldWhileSettling, useSendSettling } from "./strip-settle.tsx";
 import { ConfirmStopStrip, useStoppedCommands } from "./stop-strips.tsx";
 import { StoppedStrip, WaitingStrip } from "./waiting-strip.tsx";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
@@ -94,6 +95,7 @@ export function ComposerStrip(props: {
   const thread = useThreadMeta(props.threadId);
   const goal = thread?.goal;
   const queued = queuedCount(queue, pending);
+
   const offline = connection === "offline";
   // Reconnecting and offline are said here, so the header stays quiet; anything else (a
   // fatal error) is the header's.
@@ -118,6 +120,12 @@ export function ComposerStrip(props: {
       ).catch(() => undefined);
       const newer = page?.messages.find((entry) => entry.id === message.id);
       if (!page || !newer) return "gone" as const;
+      // The queue changed but this message still says what was read (another device moved it,
+      // or touched other messages): nothing would be overwritten, so save at the newer revision.
+      if (sameQueuedContent(message, newer)) {
+        const again = await all.edit(newer, text, page.revision);
+        if (again !== "conflict") return again;
+      }
       markQueueEditChanged(props.threadId, newer, page.revision);
       return "changed" as const;
     },
@@ -130,6 +138,13 @@ export function ComposerStrip(props: {
     [props.threadId],
   );
   const transfer = useThreadTransferState(props.threadId);
+  // A request, a lost connection or a send that needs Retry shows at once, never held.
+  const settling = useSendSettling(
+    props.threadId,
+    props.status,
+    queued,
+    requests.length > 0 || connection !== "ready" || sending.some((row) => row.failed),
+  );
   const facts: StripFacts = {
     confirmStop: !!props.confirmStop,
     requests,
@@ -169,11 +184,15 @@ export function ComposerStrip(props: {
     return () => reportWaiting(false);
   }, [waitingShown]);
   if (!slot.shown)
-    return automation ? (
-      <StripSurface slot="automation">
-        <ThreadAutomationStrip line={automation} />
-      </StripSurface>
-    ) : null;
+    return (
+      <HoldWhileSettling settling={settling}>
+        {automation ? (
+          <StripSurface slot="automation">
+            <ThreadAutomationStrip line={automation} />
+          </StripSurface>
+        ) : null}
+      </HoldWhileSettling>
+    );
   const counts: StripCounts = {
     requests: requests.length,
     sending: { count: sending.length, failed: sending.filter((row) => row.failed).length },
@@ -196,78 +215,84 @@ export function ComposerStrip(props: {
     />
   );
   return (
-    <StripSurface slot={slot.shown}>
-      {slot.shown === "confirm-stop" ? (
-        <ConfirmStopStrip subagents={props.confirmStop?.subagents ?? 0} />
-      ) : slot.shown === "held" && heldTurn ? (
-        <HeldTurnStrip
-          threadId={props.threadId}
-          turn={heldTurn}
-          queue={noAgents}
-          indicators={indicators}
-          onSwitch={props.onChooseModel}
-        />
-      ) : slot.shown === "stopped" ? (
-        <StoppedStrip threadId={props.threadId} commands={stopped} indicators={indicators} />
-      ) : slot.shown === "waiting" && wait ? (
-        <WaitingStrip
-          threadId={props.threadId}
-          wait={wait}
-          since={activity?.elapsedFrom}
-          onStop={props.onStop}
-          stopping={props.stopping}
-          indicators={indicators}
-        />
-      ) : slot.shown === "request" ? (
-        <Suspense fallback={null}>
-          <RequestStack
+    <HoldWhileSettling settling={settling}>
+      <StripSurface
+        slot={slot.shown}
+        // A held queue's notices differ in height: a change of notice eases like a change of slot.
+        variant={slot.shown === "queue" ? held?.notice.kind : undefined}
+      >
+        {slot.shown === "confirm-stop" ? (
+          <ConfirmStopStrip subagents={props.confirmStop?.subagents ?? 0} />
+        ) : slot.shown === "held" && heldTurn ? (
+          <HeldTurnStrip
             threadId={props.threadId}
-            ids={own}
-            descendant={descendant}
-            queued={queued}
-            target={props.requestTarget}
-            focus={asked}
-            onLeave={props.onLeave}
+            turn={heldTurn}
+            queue={noAgents}
+            indicators={indicators}
+            onSwitch={props.onChooseModel}
+          />
+        ) : slot.shown === "stopped" ? (
+          <StoppedStrip threadId={props.threadId} commands={stopped} indicators={indicators} />
+        ) : slot.shown === "waiting" && wait ? (
+          <WaitingStrip
+            threadId={props.threadId}
+            wait={wait}
+            since={activity?.elapsedFrom}
+            onStop={props.onStop}
+            stopping={props.stopping}
             indicators={indicators}
           />
-        </Suspense>
-      ) : slot.shown === "sending" ? (
-        <OutgoingStrip threadId={props.threadId} rows={sending} indicators={indicators} />
-      ) : slot.shown === "connection" ? (
-        <ConnectionStrip
-          offline={offline}
-          mismatch={client.error?.code === "version_mismatch"}
-          onRetry={() => (offline ? daemon.retry() : client.reconnectNow())}
-          indicators={indicators}
-        />
-      ) : slot.shown === "queue" ? (
-        <QueueStrip
-          threadId={props.threadId}
-          queue={queue}
-          pending={pending}
-          held={held}
-          onEditInComposer={props.onLeave}
-          indicators={indicators}
-          onChooseModel={props.onChooseModel}
-        />
-      ) : slot.shown === "goal" && goal ? (
-        <GoalStrip
-          threadId={props.threadId}
-          goal={goal}
-          editable={!!thread?.capabilities?.goals}
-          working={props.status?.state === "working"}
-          indicators={indicators}
-        />
-      ) : slot.shown === "plan" && plan ? (
-        <PlanStrip progress={plan} indicators={indicators} />
-      ) : slot.shown === "transfer" && transfer.state ? (
-        <ThreadTransferStrip
-          threadId={props.threadId}
-          state={transfer.state}
-          onDismiss={transfer.dismiss}
-          indicators={indicators}
-        />
-      ) : null}
-    </StripSurface>
+        ) : slot.shown === "request" ? (
+          <Suspense fallback={null}>
+            <RequestStack
+              threadId={props.threadId}
+              ids={own}
+              descendant={descendant}
+              queued={queued}
+              target={props.requestTarget}
+              focus={asked}
+              onLeave={props.onLeave}
+              indicators={indicators}
+            />
+          </Suspense>
+        ) : slot.shown === "sending" ? (
+          <OutgoingStrip threadId={props.threadId} rows={sending} indicators={indicators} />
+        ) : slot.shown === "connection" ? (
+          <ConnectionStrip
+            offline={offline}
+            mismatch={client.error?.code === "version_mismatch"}
+            onRetry={() => (offline ? daemon.retry() : client.reconnectNow())}
+            indicators={indicators}
+          />
+        ) : slot.shown === "queue" ? (
+          <QueueStrip
+            threadId={props.threadId}
+            queue={queue}
+            pending={pending}
+            held={held}
+            onEditInComposer={props.onLeave}
+            indicators={indicators}
+            onChooseModel={props.onChooseModel}
+          />
+        ) : slot.shown === "goal" && goal ? (
+          <GoalStrip
+            threadId={props.threadId}
+            goal={goal}
+            editable={!!thread?.capabilities?.goals}
+            working={props.status?.state === "working"}
+            indicators={indicators}
+          />
+        ) : slot.shown === "plan" && plan ? (
+          <PlanStrip progress={plan} indicators={indicators} />
+        ) : slot.shown === "transfer" && transfer.state ? (
+          <ThreadTransferStrip
+            threadId={props.threadId}
+            state={transfer.state}
+            onDismiss={transfer.dismiss}
+            indicators={indicators}
+          />
+        ) : null}
+      </StripSurface>
+    </HoldWhileSettling>
   );
 }

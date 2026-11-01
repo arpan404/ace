@@ -10,14 +10,19 @@ import {
 
 /**
  * The composer's one strip: a floating surface above it, a little narrower, its bottom tucked
- * behind the composer's top edge. When what it shows changes (`slot`), the new content fades in
- * while the surface eases to its height; under reduced motion it only fades. Its first content
+ * behind the composer's top edge. When what it shows changes (`slot`, or `variant` within it),
+ * the new content fades in while the surface eases to its height; under reduced motion it only fades. Its first content
  * takes its height at once, however late its parts arrive, so a thread opening on a request
  * never grows the strip (lifting the transcript) after its first paint. Content taller than
  * half the window scrolls inside it. One-line content (the queue, the connection, the plan)
  * sits on dense 12px rows; a request keeps a card's padding.
  */
-export function StripSurface(props: { slot: string; children: ReactNode }) {
+export function StripSurface(props: {
+  slot: string;
+  /** A change within one slot that changes its height too (a held queue's notice). */
+  variant?: string | undefined;
+  children: ReactNode;
+}) {
   const body = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   // The body follows its content's height through the style alone, so a change of height
@@ -34,11 +39,12 @@ export function StripSurface(props: { slot: string; children: ReactNode }) {
     return () => observer.disconnect();
   }, []);
   // Only a change of what the slot shows eases the height; the strip arriving never does.
-  const shown = useRef(props.slot);
+  const kind = props.variant === undefined ? props.slot : `${props.slot}:${props.variant}`;
+  const shown = useRef(kind);
   useLayoutEffect(() => {
     const outer = body.current;
-    if (!outer || shown.current === props.slot) return;
-    shown.current = props.slot;
+    if (!outer || shown.current === kind) return;
+    shown.current = kind;
     outer.setAttribute("data-easing", "");
     const eased = (event: TransitionEvent) => {
       if (event.target === outer && event.propertyName === "height")
@@ -50,7 +56,7 @@ export function StripSurface(props: { slot: string; children: ReactNode }) {
       outer.removeEventListener("transitionend", eased);
       outer.removeEventListener("transitioncancel", eased);
     };
-  }, [props.slot]);
+  }, [kind]);
   return (
     <div data-composer-strip className={cn("relative z-0", attachedInset, attachedOverlap)}>
       {/* It rises from behind the composer when it first arrives. */}

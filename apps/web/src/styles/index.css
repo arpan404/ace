@@ -179,8 +179,12 @@
   [tabindex="-1"]:focus {
     outline: none;
   }
+  :root {
+    /* Also painted on selected math in answers (markit-ace.css). */
+    --selection: color-mix(in oklab, var(--ring) 32%, transparent);
+  }
   ::selection {
-    background: color-mix(in oklab, var(--ring) 32%, transparent);
+    background: var(--selection);
   }
   code,
   pre,

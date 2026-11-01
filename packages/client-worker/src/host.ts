@@ -77,6 +77,10 @@ interface Entry {
 }
 interface Held {
   scope: Scope;
+  /** Held only while there is spare room: a thread the person opens may take it. */
+  optional: boolean;
+  /** The store it reads, so a change of priority can tell whether it holds the same one. */
+  store: object;
   release(): void;
   unobserve(): void;
   read(keys: Iterable<string>): Patch[];
@@ -249,6 +253,7 @@ class Tab {
   #stopMessages: (() => void) | undefined;
   #wantsStreams = false;
   #stopStreams: (() => void) | undefined;
+  #stopRoom: (() => void) | undefined;
   #visible = true;
   #dropped = false;
   #stopLock: (() => void) | undefined;
@@ -348,7 +353,7 @@ class Tab {
     }
     switch (message.t) {
       case "lease":
-        return this.#lease(client, message.lease, message.scope);
+        return this.#lease(client, message.lease, message.scope, message.optional === true);
       case "release":
         return this.#release(message.lease);
       case "call":
@@ -400,21 +405,56 @@ class Tab {
     this.#entry = entry;
     this.#watchMessages();
     this.#watchStreams();
+    this.#watchRoom();
     entry.started.then(
       () => this.#post({ t: "attached", idPrefix: entry.client.commandId() }),
       (error: unknown) => this.#post({ t: "attached", error: errorShape(error) }),
     );
     this.connection();
   }
-  #lease(client: Client, lease: number, scope: Scope): void {
-    if (this.#leases.has(lease)) return;
+  /** Tell the tab how much spare room optional leases have, now and whenever it changes. */
+  #watchRoom(): void {
+    const client = this.#entry?.client;
+    this.#stopRoom?.();
+    if (!client) return;
+    const room = client.threadRoom();
+    const send = () => this.#post({ t: "room", room: room.getSnapshot() });
+    this.#stopRoom = room.subscribe(send);
+    send();
+  }
+  #lease(client: Client, lease: number, scope: Scope, optional: boolean): void {
+    const existing = this.#leases.get(lease);
+    if (existing) {
+      if (optional === existing.optional || scope.kind !== "thread") return;
+      // Its priority changed: hold it the new way before letting go of the old, so the thread
+      // stays held across the swap and the tab keeps the store it reads.
+      let next: { store: object; release(): void };
+      try {
+        next = client.thread(scope.threadId, { optional });
+      } catch {
+        return;
+      }
+      if (next.store === existing.store) {
+        existing.release();
+        existing.release = next.release;
+        existing.optional = optional;
+        return;
+      }
+      // The optional store already gave its room away: start over on the one now held.
+      this.#release(lease);
+      this.#lease(client, lease, scope, optional);
+      next.release();
+      return;
+    }
     let held: Held;
     try {
       if (scope.kind === "thread") {
-        const subscription = client.thread(scope.threadId);
+        const subscription = client.thread(scope.threadId, { optional });
         const store = subscription.store;
         held = {
           scope,
+          optional,
+          store,
           release: subscription.release,
           unobserve: () => {},
           read: (keys) => threadPatches(store, keys, held.sent),
@@ -428,6 +468,8 @@ class Tab {
         const store = subscription.store;
         held = {
           scope,
+          optional: false,
+          store,
           release: subscription.release,
           unobserve: () => {},
           read: (keys) => sidebarPatches(store, keys),
@@ -690,6 +732,8 @@ class Tab {
     this.#stopMessages = undefined;
     this.#stopStreams?.();
     this.#stopStreams = undefined;
+    this.#stopRoom?.();
+    this.#stopRoom = undefined;
     for (const controller of this.#calls.values()) controller.abort();
     for (const call of this.#iterators.keys()) void this.#stop(call);
     this.#flushing?.();

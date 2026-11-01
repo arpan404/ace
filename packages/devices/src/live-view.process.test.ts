@@ -10,7 +10,7 @@ import { ScreenManager } from "@ace/screen";
 import { ThreadId, AgentId } from "@ace/protocol";
 import type { DeviceServerMessage } from "@ace/protocol/devices";
 import { DeviceClient, DeviceClientError, type DeviceTransport } from "./client.ts";
-import { DevicesService, DevicePlatform, connectDevices, agentOwner } from "./index.ts";
+import { DevicesService, DevicePlatform, reserveDevices, agentOwner } from "./index.ts";
 
 /*
  * The iOS Simulator live view end to end, minus macOS: a fake `xcrun simctl` keeps the
@@ -158,10 +158,12 @@ async function fixture(
 /** A devices client connected to the service through the bridge, as the app connects. */
 function connect(service: DevicesService, owner = "browser-1") {
   const sent: DeviceServerMessage[] = [];
-  let channel: ReturnType<typeof connectDevices> | undefined;
+  let channel: ReturnType<typeof reserveDevices> | undefined;
   const transport: DeviceTransport = {
     open(events) {
-      channel = connectDevices(service, owner, {
+      // As the daemon does with a loaded service: the channel subscribes before the welcome and
+      // speaks only once the welcome has gone out.
+      const opened = reserveDevices(service, owner, {
         authorize: () => true,
         canReadThread: () => true,
         agentExists: () => true,
@@ -176,7 +178,11 @@ function connect(service: DevicesService, owner = "browser-1") {
           },
         },
       });
-      queueMicrotask(() => events.ready());
+      channel = opened;
+      queueMicrotask(() => {
+        events.ready();
+        opened.activate();
+      });
     },
     send(message) {
       if (message.type === "devices.ack") channel?.ack(message);
@@ -195,7 +201,9 @@ function connect(service: DevicesService, owner = "browser-1") {
   });
   client.connect(transport);
   onTestFinished(() => client.disconnect());
-  return { client, sent };
+  /** The window comes back online on a fresh channel, as after a dropped socket. */
+  const reconnect = () => client.connect(transport);
+  return { client, sent, reconnect };
 }
 
 const deviceState = (client: DeviceClient) =>
@@ -255,6 +263,26 @@ it("turning devices on or off reaches every open view, even one with no device s
   await waitFor(() => expect(quiet.client.getSnapshot().enabled).toBe(true));
   await first.client.request({ op: "enable", enabled: false });
   await waitFor(() => expect(quiet.client.getSnapshot().enabled).toBe(false));
+  await first.client.request({ op: "enable", enabled: true });
+  await waitFor(() => expect(quiet.client.getSnapshot().enabled).toBe(true));
+});
+
+it("a window that was offline when devices were turned off reads them as off once it reconnects", async () => {
+  const f = await fixture();
+  const away = connect(f.service, "window-2");
+  const first = connect(f.service, "window-1");
+  await waitFor(() => expect(away.client.getSnapshot().enabled).toBe(true));
+  await waitFor(() => expect(first.client.getSnapshot().connected).toBe(true));
+
+  away.client.disconnect();
+  await first.client.request({ op: "enable", enabled: false });
+  away.reconnect();
+  await waitFor(() => expect(away.client.getSnapshot().enabled).toBe(false));
+
+  away.client.disconnect();
+  await first.client.request({ op: "enable", enabled: true });
+  away.reconnect();
+  await waitFor(() => expect(away.client.getSnapshot().enabled).toBe(true));
 });
 
 it("a second view that has no device sessions yet still learns that devices are on", async () => {

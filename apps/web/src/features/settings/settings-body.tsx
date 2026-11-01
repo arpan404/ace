@@ -43,7 +43,7 @@ export function SettingsBody(props: {
   return (
     // The sidebar already says Settings and the page names itself below: the header keeps only
     // its controls, with the view's name for assistive tech.
-    <Screen title={<span className="sr-only">Settings</span>} actions={props.actions}>
+    <Screen title="Settings" namedByPanel actions={props.actions}>
       <div className="h-full overflow-auto">
         <div className="@container mx-auto w-full max-w-(--settings-column) px-5 pt-8 pb-20 sm:px-7">
           {props.back && <div className="mb-1 text-ui">{props.back}</div>}

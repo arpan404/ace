@@ -15,6 +15,7 @@ import {
   type MachineThreadView,
   type McpAttribution,
   type AgentId,
+  type ProviderKind,
   type ThreadId,
 } from "@ace/protocol";
 import { HostId } from "@ace/protocol";
@@ -59,6 +60,11 @@ export interface CallerDeps {
   jobs(): RemoteJobs | undefined;
 }
 
+/** The calling thread's provider, when it has one, for the child there to name its sender. */
+function providerOf(provider: ProviderKind | undefined): { provider?: ProviderKind } {
+  return provider ? { provider } : {};
+}
+
 /**
  * What agents on this machine do on other machines. The target applies its own pairing scope;
  * permissions stay with the calling provider (ace's tools are always allowed).
@@ -74,6 +80,7 @@ export class MachineCaller {
       hostName: clip((await this.deps.hostName()) || "ace", 256) || "ace",
       threadId,
       threadTitle: clip(this.deps.store.getThread(threadId)?.title ?? "", 256),
+      ...providerOf(this.deps.store.getThread(threadId)?.provider),
       ceiling: this.deps.ceiling(threadId),
     };
   }

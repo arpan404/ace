@@ -101,6 +101,11 @@ export interface ClientOptions {
 export interface Limits {
   intents: number;
   threads: number;
+  /**
+   * Thread subscriptions kept free for what the person opens: an optional lease (a view that
+   * shows more when there is room, like the Summary's delegated threads) never takes one of them.
+   */
+  threadReserve: number;
   requests: number;
   frameBytes: number;
   /** Aggregate retained UTF-16 bytes across fragment assemblies. */
@@ -133,6 +138,7 @@ export interface Limits {
 export const defaultLimits: Limits = {
   intents: 256,
   threads: 32,
+  threadReserve: 8,
   requests: 256,
   frameBytes: 2 * 1024 * 1024,
   fragmentBytes: 64 * 1024 * 1024,

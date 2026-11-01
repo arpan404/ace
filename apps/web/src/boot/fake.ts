@@ -5,6 +5,7 @@ import {
   ScenarioPlayer,
   buildServerChats,
   crossDevice,
+  streamingReply,
   delegatedQuestion,
   devWorld,
   showcaseWorld,
@@ -135,6 +136,23 @@ export function bootFake(): {
   // `?fakeWorld=cross-device`: a thread working on another of the person's machines.
   if (world === "cross-device")
     new ScenarioPlayer(daemon, crossDevice(), { agoMs: 0 }).runUntilBlocked();
+  // `?fakeWorld=streaming-reply`: a reply that streams under a finished subagent once
+  // `aceStreamReply.play()` runs, or a chunk at a time with `aceStreamReply.step()`.
+  if (world === "streaming-reply") {
+    const search = new URLSearchParams(globalThis.location?.search ?? "");
+    const history = Number(search.get("history")) || 0;
+    const afterStep = search.has("afterStep");
+    const player = new ScenarioPlayer(daemon, streamingReply({ history, afterStep }), {
+      agoMs: 0,
+    });
+    player.runThrough("asked");
+    Object.assign(globalThis, {
+      aceStreamReply: {
+        play: (speed = 1) => player.autoplay(timer, speed),
+        step: () => player.step(),
+      },
+    });
+  }
   // Playwright's screens stage failures and empty states before the app's first request.
   const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
   setup?.(daemon);

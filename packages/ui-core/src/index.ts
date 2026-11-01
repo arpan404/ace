@@ -27,6 +27,8 @@ export * from "./accounts.ts";
 export * from "./antigravity-sign-in.ts";
 export * from "./account-threads.ts";
 export * from "./agents.ts";
+export * from "./agent-forest.ts";
+export * from "./summary-now.ts";
 export * from "./lost-child.ts";
 export * from "./agent-runs.ts";
 export * from "./agent-prs.ts";
@@ -60,7 +62,12 @@ export * from "./counts.ts";
 export * from "./devices.ts";
 export * from "./diff.ts";
 export { diffBytes } from "./diff-weight.ts";
-export { gitPatchFiles, patchSections, type PatchSection } from "./git-patch.ts";
+export {
+  gitPatchFiles,
+  patchSections,
+  truncatedPatchNotice,
+  type PatchSection,
+} from "./git-patch.ts";
 export { PatchFileReader } from "./git-patch-reader.ts";
 export * from "./line-marks.ts";
 export * from "./motion.ts";
@@ -70,7 +77,7 @@ export * from "./first-launch.ts";
 export * from "./chat-list.ts";
 export * from "./home-history.ts";
 export * from "./home-rows.ts";
-export * from "./home-tree.ts";
+export * from "./threads-panel.ts";
 export * from "./list-selection.ts";
 export * from "./pin-drag.ts";
 export * from "./pin-order.ts";
@@ -122,6 +129,7 @@ export * from "./queue-actions.ts";
 export * from "./retained-input.ts";
 export * from "./last-sent.ts";
 export * from "./queued-input.ts";
+export * from "./queued-steer.ts";
 export * from "./snooze.ts";
 export * from "./live-status.ts";
 export * from "./offshift.ts";
@@ -195,11 +203,14 @@ export * from "./repeated-events.ts";
 export * from "./background-groups.ts";
 export * from "./transcript-groups.ts";
 export * from "./system-events.ts";
+export * from "./sent-by.ts";
+export * from "./bubble-markdown.ts";
 export { mergeReceipts, receiptEntry, receiptResults } from "./delegation-receipts.ts";
 export * from "./handoff-marker.ts";
 export * from "./system-input.ts";
 export * from "./approvals.ts";
 export * from "./approval-copy.ts";
+export * from "./command-risk.ts";
 export * from "./follow-up.ts";
 export * from "./stop-fence.ts";
 export * from "./fork-point.ts";

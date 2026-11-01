@@ -76,7 +76,11 @@ struct StorageView: View {
                 if let backups = usage.backups {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                         Text(backups.line).foregroundStyle(AceTheme.StatusText.failed)
-                        ForEach(backups.paths, id: \.self) { Text($0).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption2) }
+                        ForEach(backups.entries, id: \.path) { entry in
+                            Text(entry.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption2)
+                            Text(entry.reason).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        }
+                        if let more = backups.more { Text(more).foregroundStyle(AceTheme.Colours.mutedForeground) }
                     }
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                 }

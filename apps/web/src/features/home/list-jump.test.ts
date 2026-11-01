@@ -5,16 +5,14 @@ import { holdsJumpModifiers, jumpChords, jumpTargets } from "./list-jump.ts";
 
 const row = (item: HomeRow, phase = "idle") => ({ item, phase });
 
-test("numbers go to thread rows as drawn, skipping headings, Unsent and leaving rows", () => {
+test("numbers go to thread rows as drawn, skipping labels, Unsent, notes and leaving rows", () => {
   const rows = [
     row({ kind: "unsent" }),
     row({ kind: "active-label" }),
     row({ kind: "thread", id: "gone", place: "active" }, "exit"),
     row({ kind: "thread", id: "t1", place: "active" }),
-    row({ kind: "projects-label" }),
-    row({ kind: "project-header", project: "ace", open: true, active: 1 }),
     row({ kind: "settled", id: "s1" }),
-    row({ kind: "quiet-header", count: 1, open: false }),
+    row({ kind: "older" }),
   ];
   expect(jumpTargets(rows)).toEqual(["t1", "s1"]);
 });

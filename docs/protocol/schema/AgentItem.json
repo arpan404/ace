@@ -225,26 +225,7 @@
           "$ref": "https://ace.local/protocol/v1/InheritedItem.json"
         },
         "machine": {
-          "properties": {
-            "hostId": {
-              "$ref": "https://ace.local/protocol/v1/HostId.json"
-            },
-            "machine": {
-              "maxLength": 64,
-              "minLength": 1,
-              "type": "string"
-            },
-            "name": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          "required": [
-            "machine",
-            "name"
-          ],
-          "type": "object"
+          "$ref": "https://ace.local/protocol/v1/AgentMachine.json"
         },
         "model": {
           "maxLength": 256,

@@ -1,34 +1,29 @@
 import { coldStartReplay } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 const threadId = "thread-cold-start";
 beforeEach(() => localStorage.clear());
 
-test("a thread's hover card names the Mac apps its agent is using, and the mark goes when the agent stops", async () => {
+test("a thread's row names the Mac apps its agent is using, and the mark goes when the agent stops", async () => {
   const app = harness();
   const scenario = coldStartReplay();
   app.play(scenario).step();
   await app.open("/");
   const nav = await screen.findByRole("navigation", { name: "Threads" });
   const row = await within(nav).findByRole("link", { name: new RegExp(scenario.thread.title) });
-  await userEvent.hover(row);
-  const card = await screen.findByLabelText(/^Details for /);
-  expect(within(card).queryByRole("img", { name: /An agent is using/ })).toBeNull();
+  expect(within(row).queryByRole("img", { name: /An agent is using/ })).toBeNull();
 
   act(() => app.daemon.computerUsing.use(threadId, ["Calculator", "Notes", "Mail"]));
   await waitFor(() =>
     expect(
-      within(card).getByRole("img", { name: "An agent is using Calculator, Notes and 1 more" }),
+      within(row).getByRole("img", { name: "An agent is using Calculator, Notes and 1 more" }),
     ).toBeTruthy(),
   );
-  // The row itself stays one line: its title and its one mark.
-  expect(within(row).queryByRole("img", { name: /An agent is using/ })).toBeNull();
 
   act(() => app.daemon.computerUsing.use(threadId, []));
   await waitFor(() =>
-    expect(within(card).queryByRole("img", { name: /An agent is using/ })).toBeNull(),
+    expect(within(row).queryByRole("img", { name: /An agent is using/ })).toBeNull(),
   );
 });

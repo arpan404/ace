@@ -31,11 +31,6 @@ async function open(scenario: Scenario) {
   });
   return { app, feed, header, row };
 }
-/** The one mark at a row's right edge (`RowIndicator`): its kind and tone. */
-const mark = (row: HTMLElement) => {
-  const found = row.querySelector<HTMLElement>("[data-indicator]");
-  return found && { kind: found.dataset.indicator, tone: found.dataset.tone };
-};
 
 test("a background command appears once in the transcript while its row keeps the status", async () => {
   const { header, row, feed } = await open(watchingRelay());
@@ -55,8 +50,9 @@ test("a thread whose turn ended with a background command reads Background, its 
   ).toBeNull();
   const waiting = await strip(/^Running bun run dev:relay/);
   expect(within(waiting).getByRole("button", { name: "Stop the background command" })).toBeTruthy();
-  // The row carries the quiet background ring; its name says what runs, never Working or Done.
-  expect(mark(row)).toEqual({ kind: "live", tone: "background" });
+  expect(within(row).getByText("Background · 1", { exact: true })).toBeTruthy();
+  expect(within(row).queryByText("Working", { exact: true })).toBeNull();
+  expect(within(row).queryByText("Done", { exact: true })).toBeNull();
   const spoken = row.getAttribute("aria-label") ?? "";
   expect(spoken).toContain("Running in background");
   expect(spoken).not.toMatch(/\. Working|\. Done/);
@@ -71,7 +67,7 @@ test("a thread waiting on subagents keeps their count in the composer strip", as
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
-test("a thread waiting on its subagents shows the waiting ring in its row, its strip timed with the only Stop", async () => {
+test("a thread waiting on its subagents reads Waiting in its row, its strip timed with the only Stop", async () => {
   const { feed, row } = await open(waitingOnSubagents());
   // The main agent does nothing itself: no "Working for" line; the strip waits, timed.
   const waiting = await strip(/^Waiting for 2 subagents/);
@@ -81,7 +77,8 @@ test("a thread waiting on its subagents shows the waiting ring in its row, its s
   expect(screen.getAllByRole("button", { name: "Stop the agent" })).toEqual([
     within(waiting).getByRole("button", { name: "Stop the agent" }),
   ]);
-  expect(mark(row)).toEqual({ kind: "live", tone: "waiting" });
+  expect(within(row).getByText("Waiting", { exact: true })).toBeTruthy();
+  expect(within(row).queryByText("Working", { exact: true })).toBeNull();
   // What the row says aloud and what its hover card shows read the same word.
   const spoken = row.getAttribute("aria-label") ?? "";
   expect(spoken).toContain(". Waiting for 2 subagents");
@@ -155,9 +152,9 @@ test("the side panel lists only the background commands still running", async ()
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(
-    await within(panel).findByRole("listitem", { name: "bun run dev:relay: running" }),
+    await within(panel).findByRole("treeitem", { name: "$ bun run dev:relay: running" }),
   ).toBeTruthy();
-  expect(within(panel).queryByRole("listitem", { name: /^bun run build/ })).toBeNull();
+  expect(within(panel).queryByRole("treeitem", { name: /^\$ bun run build/ })).toBeNull();
   // The two commands read as one group; the finished build stays reachable inside it, and its
   // row opens its output.
   const group = within(feed).getByRole("group", { name: "2 background tasks · 1 running" });
@@ -171,7 +168,6 @@ test("with nothing running in the background, the side panel shows no background
   await open(oneTurnWork());
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByRole("region", { name: "This turn" });
-  expect(within(panel).queryByRole("region", { name: "Background" })).toBeNull();
-  expect(within(panel).queryByRole("listitem", { name: /OpenCode background work/ })).toBeNull();
+  await within(panel).findByRole("status", { name: /^Thread status: Done/ });
+  expect(within(panel).queryByRole("treeitem", { name: /^\$ / })).toBeNull();
 });

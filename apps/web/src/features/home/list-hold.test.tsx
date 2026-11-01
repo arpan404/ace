@@ -77,7 +77,7 @@ test("rows reorder at once while the pointer rests on the list", async () => {
   expect(row(/^Oldest thread\. Working/)).toBeTruthy();
 });
 
-test("a thread that needs you rises to the top of Active at once under a resting pointer", async () => {
+test("a thread that needs you rises to the top of the Inbox at once under a resting pointer", async () => {
   const app = await openHome();
   await userEvent.hover(list());
   app.daemon.apply("thread-middle", asks);
@@ -86,8 +86,9 @@ test("a thread that needs you rises to the top of Active at once under a resting
 
 test("while the keyboard is in the list rows hold, and only a thread that needs you leaves", async () => {
   const app = await openHome();
-  // Tab into the list from New thread, the stop just before it: the keyboard is on its one Tab stop.
-  screen.getByRole("link", { name: "New thread" }).focus();
+  // Tab into the list from the open tab, the stop just before it: the keyboard is on its one Tab
+  // stop.
+  within(threads()).getByRole("tab", { selected: true }).focus();
   await userEvent.tab();
   expect(list().contains(document.activeElement)).toBe(true);
 

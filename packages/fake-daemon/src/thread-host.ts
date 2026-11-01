@@ -26,6 +26,8 @@ export interface FakeQueued {
   context?: MessageContext | undefined;
   delivery: FollowUpBehavior;
   state: "queued" | "uncertain";
+  /** A steer the provider refused, back in the queue as the next message. */
+  fellBack?: true;
   model?: string;
   options?: TurnOptions;
 }

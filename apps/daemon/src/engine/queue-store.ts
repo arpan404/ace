@@ -193,7 +193,7 @@ export class QueueStore {
       ).get(id),
     );
   }
-  private message(payload: unknown, uncertain: unknown) {
+  private message(payload: unknown, uncertain: unknown, fellBack?: unknown) {
     const command = Command.parse(JSON.parse(String(payload)));
     const p = command.payload;
     if (p.type !== "thread.send" && p.type !== "thread.create") {
@@ -217,6 +217,7 @@ export class QueueStore {
       context: p.context,
       delivery: p.type === "thread.send" ? (p.delivery ?? "queue") : "queue",
       state: uncertain === 1 ? "uncertain" : "queued",
+      fellBack: fellBack === 1 || undefined,
     });
   }
   hasUncertain(id: ThreadId): boolean {
@@ -238,14 +239,14 @@ export class QueueStore {
         messages: [],
       });
     const rows = this.sql(
-      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 256",
+      "SELECT payload,uncertain,(SELECT fell_back FROM engine_steer_notes WHERE intent_id=intents.id) AS fell_back FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 256",
     ).all(id);
     const { exited, ...shown } = this.shown(id);
     return QueueSnapshot.parse({
       ...shown,
       ...exitShown(exited),
       threadId: id,
-      messages: rows.map((row) => this.message(row.payload, row.uncertain)),
+      messages: rows.map((row) => this.message(row.payload, row.uncertain, row.fell_back)),
     });
   }
   page(request: Pick<QueueGet, "threadId" | "after" | "expectedRevision" | "limit">): QueuePage {
@@ -262,7 +263,7 @@ export class QueueStore {
       : undefined;
     if (request.after && !cursor) throw new Error("invalid_queue_cursor");
     const rows = this.sql(
-      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) AND (position>? OR (position=? AND id>?)) ORDER BY position,id LIMIT ?",
+      "SELECT payload,uncertain,(SELECT fell_back FROM engine_steer_notes WHERE intent_id=intents.id) AS fell_back FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) AND (position>? OR (position=? AND id>?)) ORDER BY position,id LIMIT ?",
     ).all(
       request.threadId,
       cursor?.position ?? -1,
@@ -276,7 +277,7 @@ export class QueueStore {
       const size = Buffer.byteLength(String(row.payload));
       if (messages.length >= limit || (messages.length && bytes + size > 512 * 1024)) break;
       bytes += size;
-      messages.push(this.message(row.payload, row.uncertain));
+      messages.push(this.message(row.payload, row.uncertain, row.fell_back));
     }
     const { exited, ...shown } = queue;
     return QueuePage.parse({

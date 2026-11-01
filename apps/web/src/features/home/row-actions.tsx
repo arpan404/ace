@@ -11,7 +11,8 @@ import { RowItems, useRowDialogs } from "./row-menu-items.tsx";
 import { useRowMenuShortcuts } from "./use-row-menu-shortcuts.ts";
 
 /**
- * The row's hover and focus actions, in its indicator's place at its right edge: Snooze (a clock that
+ * The row's hover and focus actions, in its indicator's place at its right edge (an Active row's:
+ * beside its status on the top line): Snooze (a clock that
  * opens the snooze times), Settle or Unsettle where the thread allows it, and the ⋯ menu of
  * everything else. `shown` while the row is under the pointer or keyboard focus; an open menu
  * keeps them up. The same registry owns row and header menu entries.
@@ -22,17 +23,23 @@ export interface RowActionsProps {
   onRename(): void;
   onHover(): void;
   shown: boolean;
+  /** H asked for the snooze menu: it opens until the person closes it. */
+  snoozeRequested?: boolean | undefined;
+  onSnoozeClosed?: (() => void) | undefined;
 }
 
 export function RowActions(props: RowActionsProps) {
   const actions = useThreadActions();
   const settle = settleAction(props.entry, props.flags, actions);
   const title = props.entry.title;
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const { onSnoozeClosed } = props;
   return (
     <div
-      // Centred on the row's one line, so the row never moves.
+      // Centred on the row's one line, or an Active row's top line beside its status (10px
+      // padding, 16px line), so the row never moves.
       className={cn(
-        "absolute top-1/2 right-1.5 -translate-y-1/2 items-center gap-0.5",
+        "absolute top-1/2 right-1.5 -translate-y-1/2 items-center gap-0.5 group-data-[shape=task]/row:top-4.5",
         props.shown ? "flex" : "hidden has-[[data-popup-open]]:flex",
       )}
       role="presentation"
@@ -40,7 +47,13 @@ export function RowActions(props: RowActionsProps) {
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <Menu>
+      <Menu
+        open={snoozeOpen || props.snoozeRequested === true}
+        onOpenChange={(open) => {
+          setSnoozeOpen(open);
+          if (!open) onSnoozeClosed?.();
+        }}
+      >
         <MenuTrigger
           render={
             <IconButton

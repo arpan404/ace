@@ -29,7 +29,7 @@ export function AutomationsEmptyScreen() {
     );
   if (list.isError && !list.data)
     return (
-      <Screen title="Automations">
+      <Screen title="Automations" namedByPanel>
         <EmptyState
           icon={TimerIcon}
           title="Automations unavailable"
@@ -43,9 +43,14 @@ export function AutomationsEmptyScreen() {
       </Screen>
     );
   // Until the list arrives there's nothing to say: the sidebar shows its skeleton.
-  if (!list.data) return <Screen title="Automations">{null}</Screen>;
+  if (!list.data)
+    return (
+      <Screen title="Automations" namedByPanel>
+        {null}
+      </Screen>
+    );
   return (
-    <Screen title="Automations">
+    <Screen title="Automations" namedByPanel>
       <EmptyState
         icon={TimerIcon}
         heading

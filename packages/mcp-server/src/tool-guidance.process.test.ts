@@ -1,7 +1,13 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { expect, test, onTestFinished } from "vitest";
-import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from "./index.ts";
+import {
+  CredentialRegistry,
+  ToolRegistry,
+  codexClientHeader,
+  nodeScheduler,
+  startMcpServer,
+} from "./index.ts";
 import { scope } from "./test-support.ts";
 
 // The server never reads which client it serves; one legacy and one modern client suffice.
@@ -73,14 +79,16 @@ test.each(["codex", "opencode"])(
   },
 );
 
-// Cursor and ACP connect like Claude (legacy), Pi like OpenCode (modern).
+// Cursor and ACP connect like Claude (legacy), Pi like OpenCode (modern). Codex never reloads,
+// so it names itself and lists the simulator tools as soon as devices are on; a client that
+// reloads gets them once it first uses devices.
 test.each([
-  { provider: "codex", mode: "legacy", nativeInstructions: true },
-  { provider: "claude", mode: "legacy", nativeInstructions: false },
-  { provider: "opencode", mode: "modern", nativeInstructions: false },
+  { provider: "codex", mode: "legacy", nativeInstructions: true, reloads: false },
+  { provider: "claude", mode: "legacy", nativeInstructions: false, reloads: true },
+  { provider: "opencode", mode: "modern", nativeInstructions: false, reloads: true },
 ] as const)(
   "$provider offers every computer use tool once it is on, read-only mode included, and hides them when it is off",
-  async ({ provider, mode, nativeInstructions }) => {
+  async ({ provider, mode, nativeInstructions, reloads }) => {
     let enabled = false,
       readOnly = false,
       effects = 0;
@@ -126,6 +134,7 @@ test.each([
             Authorization: `Bearer ${lease.bearer}`,
             "X-Ace-Notifications": "stream",
             ...(nativeInstructions ? { "X-Ace-Instructions": "native" } : {}),
+            ...(reloads ? {} : { [codexClientHeader.name]: codexClientHeader.value }),
           },
         },
       }),
@@ -154,12 +163,23 @@ test.each([
       await change(() => {
         enabled = true;
       }),
-    ).toEqual(["context", "tools_find", "screen_state", "sim_list"]);
+    ).toEqual(
+      reloads
+        ? ["context", "tools_find", "screen_state"]
+        : ["context", "tools_find", "screen_state", "sim_list"],
+    );
     for (const tool of await listed())
       expect(tool.description).not.toContain("ace tools add ace-specific actions");
+    // Opening a native app is devices' first use: the simulator tools join the list.
     expect(await client.callTool({ name: "screen_state", arguments: {} })).not.toMatchObject({
       isError: true,
     });
+    expect((await listed()).map((tool) => tool.name)).toEqual([
+      "context",
+      "tools_find",
+      "screen_state",
+      "sim_list",
+    ]);
     // Read-only is the provider's own mode: its permission system decides each call.
     expect(
       await change(() => {

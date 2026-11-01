@@ -15,6 +15,13 @@ export {
 } from "./history-visibility.ts";
 export { isProviderRetryNotice } from "./retry-notice.ts";
 export { queueWakesSnooze, threadAttention } from "./thread-attention.ts";
+export {
+  snoozedPullRequests,
+  snoozeWakeDue,
+  snoozeWakeFor,
+  threadLive,
+  type WakeFacts,
+} from "./snooze-wake.ts";
 export { startsTurn, startedRunTurn, runTurn } from "./turn-boundary.ts";
 export { siteOrigin, toolSurface, toolSurfaces } from "./tool-surface.ts";
 export { withoutPortableHandoff } from "./portable-input.ts";
@@ -183,6 +190,7 @@ export function updateThread(thread: Thread, event: Event): void {
     if (payload.delegatedBy !== undefined) thread.delegatedBy = payload.delegatedBy;
     if (payload.delegatedFrom !== undefined)
       thread.delegatedFrom = structuredCopy(payload.delegatedFrom);
+    if (payload.startedBy !== undefined) thread.startedBy = payload.startedBy;
     if (payload.queuedLaunch === null) delete thread.queuedLaunch;
     else if (payload.queuedLaunch !== undefined)
       thread.queuedLaunch = structuredCopy(payload.queuedLaunch);

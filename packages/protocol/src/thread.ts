@@ -13,6 +13,7 @@ import {
   DelegatedBy,
   DelegatedFrom,
   QueuedLaunch,
+  StartedBy,
 } from "./thread-transitions.ts";
 import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { RunCheckpoints } from "./run-client.ts";
@@ -132,6 +133,8 @@ export const Thread = z.object({
   delegatedBy: DelegatedBy.optional(),
   /** Set when an agent on a paired machine delegated this thread here (`DelegatedFrom`). */
   delegatedFrom: DelegatedFrom.optional(),
+  /** Set when another thread's agent started this one with `thread_start` (`StartedBy`). */
+  startedBy: StartedBy.optional(),
   /** Present while the thread, delegated past its parent's run slots, waits to start. */
   queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),

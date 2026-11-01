@@ -8,6 +8,7 @@ import type { Scenario } from "../scenario.ts";
 import { teamAtLimit } from "./account-limit.ts";
 import { coldStartReplay } from "./cold-start-replay.ts";
 import { delegatedDocs } from "./delegated-docs.ts";
+import { nestedDelegation } from "./nested-delegation.ts";
 import { queuedDelegation } from "./queued-delegation.ts";
 import { failingSubagent } from "./failing-subagent.ts";
 import { summaryFleet } from "./summary-fleet.ts";
@@ -19,6 +20,7 @@ import { multiDayDemo } from "./multi-day-demo.ts";
 import { longHistory } from "./long-history.ts";
 import { replayCursor } from "./replay-cursor.ts";
 import { startedConversation } from "./started-conversation.ts";
+import { markdownMessage } from "./markdown-message.ts";
 import { explainer, postedImage, visualization } from "./visualization.ts";
 
 /** One thread of the development world and how it is played. */
@@ -66,10 +68,14 @@ export function devWorld(): WorldThread[] {
     ...childActions().map((scenario) => ({ scenario, agoMs: 0 })),
     // A thread that delegated work to Codex through ace: the delegate is a thread of its own.
     ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
+    // Delegation three threads deep: the Summary's agent tree joins every thread's agents.
+    ...nestedDelegation().map((scenario) => ({ scenario, agoMs: 0 })),
     // Two children delegated with one run slot free: one runs, one waits in the launch queue.
     ...queuedDelegation().map((scenario) => ({ scenario, agoMs: 0 })),
     // An OpenCode thread whose agent started a separate Codex conversation (thread_start).
     ...startedConversation().map((scenario) => ({ scenario, agoMs: minute })),
+    // The person's bug report written in markdown: it renders in their bubble.
+    { scenario: markdownMessage(), agoMs: 2 * minute },
     // Agents using ace's own tools: computer use, the browser and a simulator.
     ...aceTools().map((scenario) => ({ scenario, agoMs: 20 * minute })),
     { scenario: aceToolsComputerBackground(), agoMs: 20 * minute },

@@ -60,6 +60,8 @@ export function Prose(props: {
   streaming?: boolean;
   className?: string;
   thread?: { threadId: string; cwd?: string; itemId?: string };
+  /** Forge text: draws `@name`, `#12` and commit hashes as links to these addresses. */
+  forgeReference?: (reference: { kind: string; target: string }) => string | undefined;
 }) {
   // The renderer is module state that changes once, when its code arrives.
   "use no memo";
@@ -75,6 +77,7 @@ export function Prose(props: {
       streaming={props.streaming}
       className={props.className}
       thread={props.thread}
+      forgeReference={props.forgeReference}
     />
   );
 }

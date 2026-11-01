@@ -8,6 +8,9 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
   const supported = cli.installed && admitsVersion("claude", cli.version);
   return {
     steer: supported,
+    // A `now` message joins the running turn, but the CLI holds it until the running foreground
+    // tool returns: it lands at the next tool boundary. A person's steer backgrounds the tool.
+    steerTiming: "after_tool",
     permissionModes: nativePermissionModes("claude"),
     accessModes: accessModeOffers({ provider: "claude" }),
     permissions: {

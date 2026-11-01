@@ -27,6 +27,29 @@ const ListOrder = z
   .describe(
     "Place in the Home list when it is ordered by hand (threads.sortBy manual), higher first. Absent: the thread's creation time stands in, so a new thread leads.",
   );
+/**
+ * What a linked pull request looked like when a thread was snoozed until it changes: a new
+ * review, comment or push moves `updatedAt` (or `head`), and checks finishing end `pending`.
+ */
+export const SnoozedPullRequest = z.object({
+  /** The PR's repository-qualified key: forge, host, owner, name and number. */
+  pr: z.string().min(1).max(1024),
+  state: z.enum(["open", "draft", "merged", "closed"]),
+  updatedAt: z.number().int().nonnegative(),
+  head: z.string().max(64).optional(),
+  checks: z.enum(["pending", "passed", "failed"]).optional(),
+});
+export type SnoozedPullRequest = z.infer<typeof SnoozedPullRequest>;
+/**
+ * A snooze that ends on an event as well as at its time (`snoozedUntil`, then only a backstop):
+ * `needs_you` when the thread's tree asks for an approval or an answer, fails or finishes;
+ * `pr` when a linked pull request gets a review or comment, a push, or its checks finish.
+ */
+export const SnoozeWake = z.discriminatedUnion("on", [
+  z.object({ on: z.literal("needs_you") }),
+  z.object({ on: z.literal("pr"), prs: z.array(SnoozedPullRequest).min(1).max(100) }),
+]);
+export type SnoozeWake = z.infer<typeof SnoozeWake>;
 export const ThreadOrganization = z.object({
   pinned: z.boolean().optional(),
   pinOrder: PinOrder.optional(),
@@ -36,6 +59,8 @@ export const ThreadOrganization = z.object({
   settledAt: Timestamp.optional(),
   settledReason: z.enum(["manual", "inactivity", "pr_merged", "pr_closed"]).optional(),
   snoozedUntil: Timestamp.optional(),
+  /** The event that ends the snooze before `snoozedUntil`; absent for a snooze to a time. */
+  snoozeWake: SnoozeWake.optional(),
   deletedAt: Timestamp.optional(),
   /** Last execution activity; organization and metadata refresh do not reset it. */
   activityAt: Timestamp.optional(),
@@ -241,6 +266,7 @@ export const ThreadClientUpdated = z.object({
     settledAt: Timestamp.nullable().optional(),
     settledReason: ThreadOrganization.shape.settledReason.unwrap().nullable().optional(),
     snoozedUntil: Timestamp.nullable().optional(),
+    snoozeWake: SnoozeWake.nullable().optional(),
     autoSettleAt: Timestamp.nullable().optional(),
     autoSettle: z.literal(false).nullable().optional(),
     settleWhenDone: z.literal(true).nullable().optional(),
@@ -294,7 +320,16 @@ export const ThreadOrganizationCommands = [
   }),
   /** Let this thread settle by itself again (`enabled`), or keep it in the list until settled by hand. */
   z.object({ type: z.literal("thread.autoSettle"), threadId: ThreadId, enabled: z.boolean() }),
-  z.object({ type: z.literal("thread.snooze"), threadId: ThreadId, until: Timestamp.nullable() }),
+  z.object({
+    type: z.literal("thread.snooze"),
+    threadId: ThreadId,
+    until: Timestamp.nullable(),
+    /**
+     * Wake on an event before `until`, which is then a backstop: `needs_you` (only while the
+     * thread works or waits) or `pr` (only with a linked pull request the forge has confirmed).
+     */
+    wake: z.enum(["needs_you", "pr"]).optional(),
+  }),
   /** Put a thread at a place in the hand-ordered Home list. */
   z.object({ type: z.literal("thread.place"), threadId: ThreadId, order: ListOrder }),
 ] as const;

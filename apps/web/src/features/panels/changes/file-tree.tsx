@@ -226,7 +226,11 @@ function TreeRowView(props: {
       {props.viewed && (
         <CheckIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
       )}
-      <DiffStat additions={row.additions} deletions={row.deletions} className="shrink-0" />
+      {row.kind === "file" && row.binary ? (
+        <span className="shrink-0 text-xs text-subtle-foreground">binary</span>
+      ) : (
+        <DiffStat additions={row.additions} deletions={row.deletions} className="shrink-0" />
+      )}
     </div>
   );
 }

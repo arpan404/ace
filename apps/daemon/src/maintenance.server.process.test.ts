@@ -21,7 +21,7 @@ test("maintenance closes websocket command admission until the local host releas
   ).rejects.toThrow("403");
   expect(
     await accessRequest(f.server.httpUrl, "/v1/maintenance", { method: "POST", token }),
-  ).toEqual({ draining: true, blockers: 0 });
+  ).toEqual({ draining: true, blockers: 0, waiting: 0, holds: ["user"] });
   c.send({
     type: "command",
     command: Command.parse({
@@ -66,23 +66,28 @@ test("maintenance closes websocket command admission until the local host releas
 test("working, approval, background and unresponsive threads block updates even when archived", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
-  const statuses: ThreadStatus[] = [
-    { state: "working", agents: 1 },
-    { state: "needs_you", interactions: 1 },
-    { state: "waiting", on: "background_task" },
-    { state: "unresponsive" },
+  // Only a thread waiting on a person also counts as `waiting`.
+  const statuses: [ThreadStatus, number][] = [
+    [{ state: "working", agents: 1 }, 0],
+    [{ state: "needs_you", interactions: 1 }, 1],
+    [{ state: "waiting", on: "background_task" }, 0],
+    [{ state: "unresponsive" }, 0],
   ];
-  for (const status of statuses) {
+  for (const [status, waiting] of statuses) {
     f.store.appendEvents(f.thread.id, [{ type: "thread.updated", status, archivedAt: 10 }]);
     expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
       draining: false,
       blockers: 1,
+      waiting,
+      holds: [],
     });
   }
   f.store.appendEvents(f.thread.id, [{ type: "thread.updated", status: { state: "done" } }]);
   expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
     draining: false,
     blockers: 0,
+    waiting: 0,
+    holds: [],
   });
 });
 test("a journaled candidate starts with command admission closed", async () => {
@@ -91,6 +96,8 @@ test("a journaled candidate starts with command admission closed", async () => {
   expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
     draining: true,
     blockers: 0,
+    waiting: 0,
+    holds: ["update"],
   });
 });
 test("draining still accepts a human approval so existing work can settle", async () => {
@@ -127,6 +134,8 @@ test("draining still accepts a human approval so existing work can settle", asyn
   expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
     draining: true,
     blockers: 0,
+    waiting: 0,
+    holds: ["user"],
   });
 });
 
@@ -163,6 +172,8 @@ test("draining still serves read-only diagnostics without changing agent work", 
   expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
     draining: true,
     blockers: 0,
+    waiting: 0,
+    holds: ["update"],
   });
 });
 
@@ -191,6 +202,8 @@ test("paired credentials cannot inspect or change the host maintenance lease on 
         expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
           draining,
           blockers: 0,
+          waiting: 0,
+          holds: draining ? ["user"] : [],
         });
       }
     }
@@ -211,5 +224,7 @@ test("the remote HTTPS listener omits the maintenance route even for a paired ad
   expect(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })).toEqual({
     draining: false,
     blockers: 0,
+    waiting: 0,
+    holds: [],
   });
 });

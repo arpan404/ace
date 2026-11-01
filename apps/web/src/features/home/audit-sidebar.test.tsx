@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { createIdleTask } from "@/test/tasks.ts";
+import { rowText } from "@/test/row-text.ts";
 import { resetDismissed } from "@/lib/dismissed-sends.ts";
 
 const originalMedia = globalThis.matchMedia;
@@ -43,7 +44,7 @@ async function rename(link: HTMLElement) {
   return screen.findByRole("textbox", { name: "Thread title" });
 }
 
-test("a refused send says Not sent in its row's name and shows the needs-you dot", async () => {
+test("a refused send shows Not sent in both the sidebar and its spoken name", async () => {
   const made = app();
   made.daemon.refuseCommands("model_unavailable", "thread.send");
   await made.open("/t/thread-dedupe");
@@ -53,14 +54,9 @@ test("a refused send says Not sent in its row's name and shows the needs-you dot
   );
   await screen.findByRole("button", { name: "Retry" });
   await waitFor(() => expect(row(/^Dedupe.*Not sent/)).toBeTruthy());
-  const dot = () =>
-    row(/^Dedupe/)
-      .querySelector("[data-indicator]")
-      ?.getAttribute("data-indicator");
-  expect(dot()).toBe("needs-you");
-  expect(within(row(/^Dedupe/)).queryByText("Not sent")).toBeNull();
+  expect(within(row(/^Dedupe/)).getByText("Not sent")).toBeTruthy();
   await userEvent.click(screen.getByRole("link", { name: "New thread" }));
-  await waitFor(() => expect(row(/^Dedupe.*Not sent/)).toBeTruthy());
+  expect(within(row(/^Dedupe/)).getByText("Not sent")).toBeTruthy();
 });
 
 test("the palette finds other projects and their threads while the sidebar is filtered", async () => {
@@ -176,11 +172,11 @@ test("a filtered empty state names the project rather than its opaque id", async
   await made.client.start();
   await made.client.command({ type: "thread.archive", threadId: ThreadId.parse("ledger-seed") });
   await made.open("/new");
-  expect(await screen.findByText("Nothing in Ledger")).toBeTruthy();
-  expect(screen.queryByText(`Nothing in ${project.id}`)).toBeNull();
+  expect(await screen.findByText("No threads in Ledger")).toBeTruthy();
+  expect(screen.queryByText(`No threads in ${project.id}`)).toBeNull();
 });
 
-test("a task keeps project and provider context in its name and hover card, never a Done", async () => {
+test("a task keeps project and provider context visible without duplicating Done", async () => {
   const made = harness();
   createIdleTask(made.daemon, {
     id: "bare",
@@ -194,16 +190,17 @@ test("a task keeps project and provider context in its name and hover card, neve
     { name: /^Bare thread/ },
   );
   expect(bare.getAttribute("aria-label")).toContain("Codex");
-  // Its project heads the group it sits in; the row itself doesn't repeat it.
-  expect(within(nav()).getByRole("button", { name: /^relay/ })).toBeTruthy();
+  // The flat Inbox has no project headings: the row's own top line names its project.
+  expect(rowText(bare)).toMatch(/^relay/);
   expect(bare.getAttribute("aria-label")).toContain("Project relay");
   // Seen before this device's first launch, so it rests quietly: no Done at all, never two.
   expect(within(bare).queryAllByText("Done", { exact: true })).toHaveLength(0);
-  expect(within(bare).queryByRole("img", { name: "Codex" })).toBeNull();
+  expect(within(bare).getByRole("img", { name: "Codex" })).toBeTruthy();
   await userEvent.hover(bare);
   expect(
     within(await screen.findByLabelText(/^Details for Bare thread/)).getByText("Codex"),
   ).toBeTruthy();
+  expect(within(nav()).getByRole("img", { name: "Codex" })).toBeTruthy();
 });
 
 test("composition Enter leaves rename open and Escape preserves the existing multi-selection", async () => {
@@ -226,9 +223,8 @@ test("composition Enter leaves rename open and Escape preserves the existing mul
   expect(screen.queryByRole("toolbar", { name: "Selected threads" })).toBeNull();
 });
 
-test("a rename survives changing from a task row to a settled row", async () => {
-  // The UI's clock just past the daemon's, so the thread settled below rests dimmed in relay.
-  const made = app({ uiClock: () => 600_000 });
+test("a rename in progress survives its thread settling: what was typed is kept in Settled", async () => {
+  const made = app();
   createIdleTask(made.daemon, {
     id: "rename-row",
     title: "Rename across settlement",
@@ -245,15 +241,16 @@ test("a rename survives changing from a task row to a settled row", async () => 
   await act(() =>
     made.client.command({ type: "thread.settle", threadId: ThreadId.parse("rename-row") }),
   );
-  // Settled, the thread turns into its project's dimmed settled row, keeping what was typed.
-  expect(screen.getByRole("textbox", { name: "Thread title" })).toHaveProperty(
-    "value",
-    "Retained rename",
-  );
-  await userEvent.type(screen.getByRole("textbox", { name: "Thread title" }), "{Enter}");
-  expect(
-    await within(nav()).findByRole("link", { name: /^Retained rename\. Settled/ }),
-  ).toBeTruthy();
+  // Settled, the thread leaves the Inbox, and the title typed so far is saved, not dropped.
+  await waitFor(() => expect(screen.queryByRole("textbox", { name: "Thread title" })).toBeNull());
+  await waitFor(() => {
+    const view = made.daemon.snapshot({ kind: "threads" });
+    expect(view?.kind === "threads" ? view.threads["rename-row"]?.title : undefined).toBe(
+      "Retained rename",
+    );
+  });
+  await userEvent.click(within(nav()).getByRole("tab", { name: /^Settled/ }));
+  expect(await within(nav()).findByRole("link", { name: /^Retained rename\. / })).toBeTruthy();
 });
 
 test("Shift-click selects a range in the narrow sheet without closing it", async () => {

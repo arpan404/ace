@@ -230,6 +230,22 @@ test("Search in the sidebar opens the launcher over the current screen", async (
   expect(screen.getByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
 });
 
+test("New thread is the pencil after Search in the Threads panel's title row", async () => {
+  await workbenchApp().open("/new");
+  await title("New thread");
+  const search = screen.getByRole("button", { name: "Search" });
+  const row = search.parentElement;
+  if (!row) throw new Error("No title row");
+  // In the title row beside Search, after it, as a glyph alone: no full-width row of words.
+  const start = within(row).getByRole("link", { name: "New thread" });
+  expect(search.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(start.textContent).toBe("");
+  const threads = screen.getByRole("navigation", { name: "Threads" });
+  expect(within(threads).queryByRole("link", { name: "New thread" })).toBeNull();
+  await userEvent.hover(start);
+  expect((await screen.findByRole("tooltip")).textContent).toContain("New thread");
+});
+
 test("every view's shortcut opens it from anywhere", async () => {
   // Not from New thread: with no project it is a chat, and its focused composer takes the keys.
   await harness().open("/settings");
@@ -387,7 +403,7 @@ test("the panel's New thread row opens New thread in the one project there is", 
   expect(row.getAttribute("aria-current")).toBe("page");
 });
 
-test("an open project shows five settled threads, then Show more brings the rest and Show less folds them", async () => {
+test("settled threads leave the Inbox, and the Settled tab lists every one of them", async () => {
   const app = harness();
   const titles = ["One", "Two", "Three", "Four", "Five", "Six", "Seven"].map(
     (word) => `${word} task`,
@@ -399,18 +415,17 @@ test("an open project shows five settled threads, then Show more brings the rest
       workspaceId: "relay",
       provider: "codex",
     });
-  // A project holds only its settled threads; the unsettled ones are in Active.
   await app.client.start();
   for (const index of titles.keys())
     await app.client.command({ type: "thread.settle", threadId: ThreadId.parse(`task-${index}`) });
   await app.open("/new");
   const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
-  await nav.findAllByRole("link", { name: / task\. Settled/ });
-  expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(5);
-  await userEvent.click(nav.getByRole("button", { name: "Show 2 more in relay" }));
+  await userEvent.click(await nav.findByRole("tab", { name: "Settled" }));
+  // All seven at once: no project folds them behind Show more.
   await waitFor(() => expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(7));
-  await userEvent.click(nav.getByRole("button", { name: "Show fewer in relay" }));
-  await waitFor(() => expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(5));
+  expect(nav.queryByRole("button", { name: /^Show / })).toBeNull();
+  await userEvent.click(nav.getByRole("tab", { name: "Inbox, 0" }));
+  await waitFor(() => expect(nav.queryAllByRole("link", { name: / task\./ })).toHaveLength(0));
 });
 
 test("Skills, Automations, Settings and GitHub panels share one title row and one row", async () => {

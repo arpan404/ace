@@ -1,4 +1,4 @@
-import { sidebarSettled } from "@ace/projection";
+import { sidebarSettled, snoozeWakeDue } from "@ace/projection";
 import type { ThreadListEntry, ThreadListWindow, ThreadReadStateResponse } from "@ace/protocol";
 
 /*
@@ -19,9 +19,18 @@ export function settledTotal(window: ThreadListWindow | undefined): number | und
   return window?.before ? window.total : undefined;
 }
 
-/** Snoozed until a moment still ahead. The daemon clears it once it passes. */
+/**
+ * Snoozed until a moment still ahead, and not woken yet by the event it waits for (a request,
+ * failure or finish; a pull request change). The daemon clears both once either happens; this
+ * reads the wake here too, so a thread that needs the person never hides while that word travels.
+ */
 export function isSnoozed(entry: ThreadListEntry, now: number): boolean {
-  return entry.snoozedUntil !== undefined && entry.snoozedUntil > now;
+  return entry.snoozedUntil !== undefined && entry.snoozedUntil > now && !snoozeWakeDue(entry);
+}
+
+/** Snoozed to a time the person chose: only these stay out of the needs-you counts. */
+export function isSnoozedToTime(entry: ThreadListEntry, now: number): boolean {
+  return isSnoozed(entry, now) && entry.snoozeWake === undefined;
 }
 
 /** When the thread last did work; organization changes don't count. */

@@ -1,3 +1,5 @@
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import {
   Agent,
@@ -7,7 +9,10 @@ import {
   Item,
   ItemId,
   type CommandPayload,
+  type LinkedPullRequest,
+  type ThreadStatus,
 } from "@ace/protocol";
+import { Store } from "./store.ts";
 import { token, fixture } from "./socket-test-support.ts";
 import { ThreadOrganizer } from "./thread-organizer.ts";
 import { EngineRepository } from "./engine/repository.ts";
@@ -393,4 +398,133 @@ test("a queue hold wakes a snoozed thread only when it starts after the snooze",
   expect(f.store.getThread(f.thread.id)?.snoozedUntil).toBe(9000);
   queue.set(f.thread.id, { paused: true, reason: "uncertain" }, 1000);
   expect(f.store.getThread(f.thread.id)?.snoozedUntil).toBeUndefined();
+});
+
+/** An organizer that sweeps only when the test says so. */
+function organizerFor(store: Store, now: () => number) {
+  return new ThreadOrganizer(store, undefined, now, () => () => {});
+}
+
+test.each<[string, ThreadStatus]>([
+  ["asks for an approval", { state: "needs_you", interactions: 1 }],
+  ["fails", { state: "failed" }],
+  ["finishes", { state: "done" }],
+])(
+  "a thread snoozed until it needs you wakes when it %s, even when the daemon restarted first",
+  async (_name, status) => {
+    let now = 1000;
+    const f = await setup(() => now);
+    const path = join(f.home, "events.sqlite");
+    let store = f.store;
+    let organizer = organizerFor(store, () => now);
+    close = async () => {
+      await organizer.close();
+      await f.close();
+    };
+    const working: ThreadStatus = { state: "working", agents: 1 };
+    store.appendEvents(f.thread.id, [{ type: "thread.updated", status: working }], now);
+    const backstop = now + 30 * 86_400_000;
+    expect(
+      await f.command({
+        type: "thread.snooze",
+        threadId: f.thread.id,
+        until: backstop,
+        wake: "needs_you",
+      }),
+    ).toMatchObject({ ok: true });
+    await organizer.sweep();
+    now += 60_000;
+    store.appendEvents(
+      f.thread.id,
+      [{ type: "thread.updated", status: { state: "waiting", on: "background_task" } }],
+      now,
+    );
+    await organizer.sweep();
+    expect(store.getThread(f.thread.id)).toMatchObject({
+      snoozedUntil: backstop,
+      snoozeWake: { on: "needs_you" },
+    });
+    // The daemon stops; the tree's request lands as it goes down, before the organizer sees it.
+    await organizer.close();
+    store.appendEvents(f.thread.id, [{ type: "thread.updated", status }], now);
+    expect(store.getThread(f.thread.id)?.snoozedUntil).toBe(backstop);
+    for (const client of [f.first, f.second]) await client.close();
+    await f.server.close();
+    await store.close();
+    // Started again on the same database, its first sweep wakes the thread.
+    store = new Store(path);
+    organizer = organizerFor(store, () => now);
+    close = async () => {
+      await organizer.close();
+      await store.close();
+      rmSync(f.home, { recursive: true, force: true });
+    };
+    await organizer.sweep();
+    const thread = store.getThread(f.thread.id);
+    expect(thread?.snoozedUntil).toBeUndefined();
+    expect(thread?.snoozeWake).toBeUndefined();
+  },
+);
+
+test("until it needs you is refused for a thread that is no longer working", async () => {
+  const f = await setup();
+  f.store.appendEvents(f.thread.id, [{ type: "thread.updated", status: { state: "done" } }], 1000);
+  expect(
+    await f.command({
+      type: "thread.snooze",
+      threadId: f.thread.id,
+      until: 9000,
+      wake: "needs_you",
+    }),
+  ).toMatchObject({ ok: false, error: "snooze_not_live" });
+  expect(f.store.getThread(f.thread.id)?.snoozedUntil).toBeUndefined();
+});
+
+const linkedPr = (extra: Partial<LinkedPullRequest> = {}): LinkedPullRequest => ({
+  number: 12,
+  state: "open",
+  repo: { forge: "github", host: "github.com", owner: "acme", name: "app" },
+  url: "https://github.com/acme/app/pull/12",
+  updatedAt: 500,
+  head: "a".repeat(40),
+  checks: "passed",
+  ...extra,
+});
+
+test.each<[string, Partial<LinkedPullRequest>]>([
+  ["a new review", { updatedAt: 900 }],
+  ["a push", { updatedAt: 900, head: "b".repeat(40) }],
+])("a thread snoozed until the PR changes wakes on %s", async (_name, change) => {
+  let now = 1000;
+  const f = await setup(() => now);
+  const organizer = organizerFor(f.store, () => now);
+  close = async () => {
+    await organizer.close();
+    await f.close();
+  };
+  const details = (pr: LinkedPullRequest) => ({
+    type: "thread.client.updated" as const,
+    changes: { details: { ...f.store.getThread(f.thread.id)?.details, linkedPrs: [pr] } },
+  });
+  f.store.appendEvents(
+    f.thread.id,
+    [{ type: "thread.updated", status: { state: "done" } }, details(linkedPr())],
+    now,
+  );
+  expect(
+    await f.command({ type: "thread.snooze", threadId: f.thread.id, until: 90_000, wake: "pr" }),
+  ).toMatchObject({ ok: true });
+  await organizer.sweep();
+  // The refresh reading the same PR again changes nothing.
+  now += 60_000;
+  f.store.appendEvents(f.thread.id, [details(linkedPr())], now);
+  await organizer.sweep();
+  expect(f.store.getThread(f.thread.id)).toMatchObject({
+    snoozedUntil: 90_000,
+    snoozeWake: { on: "pr" },
+  });
+  f.store.appendEvents(f.thread.id, [details(linkedPr(change))], now);
+  await organizer.sweep();
+  expect(f.store.getThread(f.thread.id)?.snoozedUntil).toBeUndefined();
+  expect(f.store.getThread(f.thread.id)?.snoozeWake).toBeUndefined();
 });

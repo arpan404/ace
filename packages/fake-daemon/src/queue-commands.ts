@@ -231,6 +231,7 @@ export function queuePage(
             context: m.context,
             delivery: m.delivery,
             state: m.state,
+            fellBack: m.fellBack,
             requiresNextTurn: m.model !== undefined || m.options !== undefined || undefined,
           }
         : {
@@ -238,6 +239,7 @@ export function queuePage(
             input: m.input,
             delivery: m.delivery,
             state: m.state,
+            fellBack: m.fellBack,
             requiresNextTurn: m.model !== undefined || m.options !== undefined || undefined,
           },
     ),

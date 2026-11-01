@@ -167,6 +167,14 @@ export const DelegatedBy = ThreadId.meta({
   description: "The thread whose agent delegated this one through ace.",
 });
 /**
+ * The thread whose agent started this top-level thread with `thread_start`. Unlike a delegated
+ * child, the thread is the person's own: it stays in their sidebar and never reports to its
+ * starter. Absent for threads a person started and for threads started before it was recorded.
+ */
+export const StartedBy = ThreadId.meta({
+  description: "The thread whose agent started this top-level thread through ace.",
+});
+/**
  * The thread on a paired machine whose agent delegated this one here, and that machine. Its
  * owner is the person on that machine: the thread is reached through its parent there, and is
  * never a top-level thread on this machine.
@@ -176,6 +184,13 @@ export const DelegatedFrom = z.object({
   /** The machine's name when it was delegated, for showing the parent as remote. */
   hostName: z.string().min(1).max(256).optional(),
   threadId: ThreadId,
+  /** The parent thread's title when it delegated, for naming it here. */
+  threadTitle: z.string().min(1).max(256).optional(),
+  /**
+   * The parent thread's provider, for naming the agent that sent it work. Any string: a peer may
+   * run a provider this machine doesn't know, and clients read an unknown one as absent.
+   */
+  provider: z.string().min(1).max(64).optional(),
 });
 export type DelegatedFrom = z.infer<typeof DelegatedFrom>;
 /**
@@ -202,6 +217,7 @@ export const ThreadTransitionView = z.object({
   lineage: ThreadLineage.optional(),
   delegatedBy: DelegatedBy.optional(),
   delegatedFrom: DelegatedFrom.optional(),
+  startedBy: StartedBy.optional(),
   queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),
   switch: ThreadSwitch.optional(),

@@ -73,6 +73,8 @@ export class FakeScreen {
   private readonly options: FakeScreenOptions;
   private readonly sessions = new Map<string, Session>();
   private readonly channels = new Set<Channel>();
+  /** How to drop each open dedicated channel, for `dropChannels`. */
+  private readonly drops = new Set<() => void>();
   private sequence = 0;
   constructor(options: FakeScreenOptions) {
     this.options = options;
@@ -133,6 +135,15 @@ export class FakeScreen {
         queueMicrotask(() => {
           if (epoch === stamp) events.ready();
         });
+        const drop = () => {
+          this.drops.delete(drop);
+          if (epoch !== stamp) return;
+          epoch++;
+          connection?.close();
+          connection = undefined;
+          events.close();
+        };
+        this.drops.add(drop);
       },
       send: (message) => {
         if (!connection) throw new Error("Screen channel is not authenticated");
@@ -246,6 +257,11 @@ export class FakeScreen {
   /** The person at the machine answers its sharing dialog: what they picked, or declined. */
   answerSharingDialog(answer: ScreenChooserPick | "declined"): void {
     for (const session of this.sessions.values()) session.answer?.(answer);
+  }
+  /** Every open screen channel drops, as a lost connection drops them. */
+  dropChannels(): void {
+    // Each drop removes itself from the set, so walk a copy.
+    for (const drop of Array.from(this.drops)) drop();
   }
   enable(enabled: boolean): void {
     const changed = this.enabled !== enabled;

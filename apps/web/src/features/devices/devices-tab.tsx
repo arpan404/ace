@@ -216,7 +216,12 @@ export function DevicesTab(props: { threadId: string }) {
                 groups={catalog.groups}
                 searching={searching}
                 open={open}
+                pending={view.pending}
                 onOpen={openDevice}
+                onBoot={(row) => {
+                  requestBoot(row.id);
+                  openDevice(row);
+                }}
               />
             </Section>
           </>

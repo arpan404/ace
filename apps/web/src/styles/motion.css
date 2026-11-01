@@ -278,11 +278,14 @@
  * (components/status-glyph.tsx), the Spinner's ring, a word in foreground ink. An infinite
  * animation keeps the compositor drawing frames for as long as anything works, in every thread
  * the sidebar shows, which costs idle CPU on the GPU and renderer for nothing the person reads.
- * Two exceptions, each brief and tied to something the person is waiting on:
+ * Three exceptions, each tied to something the person is waiting on:
  *
  *   .fx-breathe        the startup mark, only while ace starts
  *   .fx-indeterminate  a progress bar that doesn't know how far along it is, only during that
  *                      transfer (a frozen indeterminate bar would read as stuck)
+ *   .fx-alive          a provider mark in the Summary's agent tree, only while that agent or
+ *                      anything under it works or waits, and only while the Summary is open:
+ *                      it is the tree's one status mark, standing in for the status glyphs
  *
  * `bun run check:ui` refuses any other `infinite` animation.
  */
@@ -310,6 +313,23 @@
 :root[data-reduce-motion] .fx-indeterminate {
   width: 100%;
   animation: fx-breathe 1.6s ease-in-out infinite alternate;
+}
+.fx-alive {
+  animation: fx-alive 2.4s ease-in-out infinite;
+}
+:root[data-reduce-motion] .fx-alive {
+  animation: none;
+}
+@keyframes fx-alive {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 @keyframes fx-breathe {
   to {

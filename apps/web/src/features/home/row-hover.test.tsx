@@ -8,12 +8,6 @@ import { rowText } from "@/test/row-text.ts";
 configure({ asyncUtilTimeout: 10000 });
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
-const titles = workbench().map((scenario) => scenario.thread.title);
-const order = () =>
-  within(threads())
-    .queryAllByRole("link")
-    .map((link) => titles.find((title) => link.textContent?.includes(title)));
-const before = (a: string, b: string) => order().indexOf(a) < order().indexOf(b);
 const card = (title: RegExp) => within(threads()).getByRole("link", { name: title });
 
 async function openHome(options: Parameters<typeof harness>[0] = {}, path = "/") {
@@ -61,73 +55,76 @@ test("an open row's details close as soon as the list scrolls", async () => {
   );
 });
 
-/**
- * The workbench seen while its Codex bump was settled moments ago: within the grace period it
- * rests dimmed in ace, offering Unsettle.
- */
-const recentlySettled = () => openHome({ uiClock: () => 600_000 });
-const settledLabel = (title: string) => card(new RegExp(`^${title}`)).getAttribute("aria-label");
+/** Open one of the panel's tabs: Inbox, Snoozed or Settled. */
+const openTab = (name: "Inbox" | "Snoozed" | "Settled") =>
+  userEvent.click(within(threads()).getByRole("tab", { name: new RegExp(`^${name}`) }));
+const listed = (title: string) =>
+  within(threads()).queryByRole("link", { name: new RegExp(`^${title}`) }) !== null;
 
-/** Unsettle the dimmed Codex bump back into an ordinary row of ace. */
+/** Unsettle the workbench's settled Codex bump from the Settled tab, back into the Inbox. */
 async function unsettleBump(title: string) {
-  await waitFor(() => expect(settledLabel(title)).toMatch(new RegExp(`^${title}\\. Settled`)));
+  await openTab("Settled");
   await userEvent.click(await screen.findByRole("button", { name: `Unsettle ${title}` }));
-  await waitFor(() => expect(settledLabel(title)).not.toMatch(/\. Settled/));
+  await waitFor(() => expect(listed(title)).toBe(false));
+  await openTab("Inbox");
+  await waitFor(() => expect(listed(title)).toBe(true));
 }
 
-test("Settle and Unsettle on a recently settled row's hover actions move it out of and back into settled work", async () => {
-  const app = await recentlySettled();
+test("Settle and Unsettle on a settled row's hover actions move it between Settled and the Inbox", async () => {
+  const app = await openHome();
   const title = "Bump Codex app-server to 0.48";
   await unsettleBump(title);
   expect(threadOf(app, "thread-bump-codex")?.settledAt).toBeUndefined();
 
   await userEvent.click(screen.getByRole("button", { name: `Settle ${title}` }));
-  // Settled just now, it stays dimmed in ace, offering Unsettle again.
-  await waitFor(() => expect(settledLabel(title)).toMatch(new RegExp(`^${title}\\. Settled`)));
+  await waitFor(() => expect(listed(title)).toBe(false));
+  await waitFor(() => expect(threadOf(app, "thread-bump-codex")?.settledAt).toBeDefined());
+  // Back in Settled, offering Unsettle again.
+  await openTab("Settled");
   expect(await screen.findByRole("button", { name: `Unsettle ${title}` })).toBeTruthy();
   expect(screen.queryByRole("button", { name: `Settle ${title}` })).toBeNull();
-  await waitFor(() => expect(threadOf(app, "thread-bump-codex")?.settledAt).toBeDefined());
 });
 
 /**
- * The one mark at the row's right edge (`RowIndicator`), by kind, and the controls its box
- * offers beside the row's link.
+ * The status word on an Active row's top line, and the controls its box offers beside the row's
+ * link.
  */
-const mark = (title: RegExp) =>
-  card(title).querySelector<HTMLElement>("[data-indicator]")?.dataset.indicator;
+const status = (title: RegExp, word: string) =>
+  within(card(title)).queryByText(word, { exact: true }) !== null;
 const controls = (title: RegExp) =>
   within(card(title).parentElement ?? document.body)
     .getAllByRole("button")
     .filter((button) => !card(title).contains(button))
     .map((button) => button.getAttribute("aria-label"));
 
-test("hovering an active row shows only snooze, settle and more actions beside its title", async () => {
-  await recentlySettled();
+test("hovering an Inbox row shows only snooze, settle and more actions, and keeps its three lines", async () => {
+  await openHome();
   const title = "Bump Codex app-server to 0.48";
   await unsettleBump(title);
   const row = new RegExp(`^${title}`);
   await waitFor(() => expect(card(row)).toBeTruthy());
 
   await userEvent.hover(card(row));
-  expect(rowText(card(row))).toBe(title);
-  expect(mark(row)).toBeUndefined();
+  expect(rowText(card(row))).toContain(title);
+  expect(rowText(card(row))).toMatch(/^ace/);
   expect(controls(row)).toEqual([`Snooze ${title}`, `Settle ${title}`, `Actions for ${title}`]);
 });
 
-test("a waiting row's mark steps aside for its actions under the pointer or focus", async () => {
+test("a waiting row keeps its status beside its actions under the pointer or focus", async () => {
   await openHome();
   const row = /^Dedupe thread events after reconnect/;
-  expect(mark(row)).toBe("live");
+  const title = "Dedupe thread events after reconnect";
+  expect(status(row, "Waiting")).toBe(true);
 
   await userEvent.hover(card(row));
-  expect(mark(row)).toBeUndefined();
+  expect(status(row, "Waiting")).toBe(true);
+  expect(controls(row)).toContain(`Snooze ${title}`);
   await userEvent.unhover(card(row));
-  expect(mark(row)).toBe("live");
+  expect(status(row, "Waiting")).toBe(true);
 
   card(row).focus();
-  await waitFor(() => expect(mark(row)).toBeUndefined());
-  card(row).blur();
-  await waitFor(() => expect(mark(row)).toBe("live"));
+  await waitFor(() => expect(document.activeElement).toBe(card(row)));
+  expect(status(row, "Waiting")).toBe(true);
 });
 
 /** Open on the Dedupe thread, so clicking its row keeps focus on the row. */
@@ -137,17 +134,17 @@ const openOnDedupe = () => {
   return openHome({}, `/t/${id}`);
 };
 
-test("a clicked row shows its mark again once the pointer moves off it", async () => {
+test("a clicked row keeps its status, under the pointer and after it moves off", async () => {
   await openOnDedupe();
   const row = /^Dedupe thread events after reconnect/;
   await userEvent.click(card(row));
   expect(document.activeElement).toBe(card(row));
-  expect(mark(row)).toBeUndefined();
+  expect(status(row, "Waiting")).toBe(true);
   await userEvent.unhover(card(row));
-  expect(mark(row)).toBe("live");
+  expect(status(row, "Waiting")).toBe(true);
 });
 
-test("a clicked row keeps its mark when the window gives focus back to it", async () => {
+test("a clicked row keeps its status when the window gives focus back to it", async () => {
   await openOnDedupe();
   const row = /^Dedupe thread events after reconnect/;
   await userEvent.click(card(row));
@@ -158,10 +155,10 @@ test("a clicked row keeps its mark when the window gives focus back to it", asyn
   away.mockRestore();
   await act(async () => card(row).focus());
   expect(document.activeElement).toBe(card(row));
-  expect(mark(row)).toBe("live");
+  expect(status(row, "Waiting")).toBe(true);
 });
 
-test("a row shows its mark again once its ⋯ menu closes under the pointer", async () => {
+test("a row keeps its status once its ⋯ menu closes under the pointer", async () => {
   await openHome();
   const row = /^Dedupe thread events after reconnect/;
   await userEvent.hover(card(row));
@@ -170,7 +167,7 @@ test("a row shows its mark again once its ⋯ menu closes under the pointer", as
   await userEvent.hover(await screen.findByRole("menuitem", { name: /^Rename/ }));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("menuitem", { name: /^Rename/ })).toBeNull());
-  expect(mark(row)).toBe("live");
+  expect(status(row, "Waiting")).toBe(true);
 });
 
 test("work still running offers Snooze on hover but no Settle", async () => {
@@ -180,15 +177,17 @@ test("work still running offers Snooze on hover but no Settle", async () => {
   expect(screen.queryByRole("button", { name: `Settle ${title}` })).toBeNull();
 });
 
-test("the hover clock folds quiet work into Snoozed until the time picked", async () => {
+test("the hover clock moves work out of the Inbox into Snoozed until the time picked", async () => {
   const app = await openHome();
   const title = "Dedupe thread events after reconnect";
   const id = workbench().find((scenario) => scenario.thread.title === title)?.thread.id;
   if (!id) throw new Error("Missing scenario");
   await userEvent.click(screen.getByRole("button", { name: `Snooze ${title}` }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
-  await userEvent.click(await within(threads()).findByRole("button", { name: "Snoozed 1" }));
+  await waitFor(() => expect(listed(title)).toBe(false));
+  expect(listed("Backpressure on broadcast fan-out")).toBe(true);
+  await openTab("Snoozed");
   expect(card(/^Dedupe.*Snoozed until tomorrow/)).toBeTruthy();
+  expect(within(threads()).getByRole("tab", { name: "Snoozed, 1" })).toBeTruthy();
   expect(threadOf(app, id)?.snoozedUntil).toBeDefined();
-  expect(before("Backpressure on broadcast fan-out", title)).toBe(true);
 });

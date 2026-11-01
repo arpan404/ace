@@ -227,6 +227,50 @@ for await (const line of lines) {
     write({ type: "system", subtype: "fake_input", input: data });
     // Hold a turn open until a follow-up arrives; no timers or model involved.
     if (text === "steer-wait") continue;
+    // A foreground Bash call that returns by itself: messages held behind it join the turn at
+    // that tool boundary, before the turn ends, as Claude Code's do.
+    if (text === "foreground-brief") {
+      const call = { tool: "brief-tool", task: "brief-task" };
+      foreground = call;
+      write({
+        type: "assistant",
+        parent_tool_use_id: null,
+        session_id: session,
+        message: {
+          id: "brief-message",
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: call.tool, name: "Bash", input: { command: "bun run build" } },
+          ],
+        },
+      });
+      setTimeout(
+        () => {
+          if (foreground !== call) return;
+          foreground = undefined;
+          write({
+            type: "user",
+            parent_tool_use_id: null,
+            session_id: session,
+            message: {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: call.tool, content: "built" }],
+            },
+          });
+          for (const input of heldBehindTool.splice(0))
+            write({ type: "system", subtype: "fake_input", input });
+          write({
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            terminal_reason: "completed",
+            session_id: session,
+          });
+        },
+        Number(process.env["ACE_FAKE_CLAUDE_FOREGROUND_MS"] ?? 400),
+      );
+      continue;
+    }
     // A foreground Bash call that blocks the turn until it is backgrounded.
     if (text === "foreground-wait") {
       foreground = { tool: "wait-tool", task: "wait-task" };

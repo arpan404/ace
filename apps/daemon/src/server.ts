@@ -418,6 +418,7 @@ export async function startServer(options: ServerOptions): Promise<{
           protocolVersion: 1,
           headSeq: options.store.headSeq(),
         });
+        for (const service of sessions) service.welcomed?.();
         return;
       }
       for (const service of sessions) if (await service.handle?.(message, device)) return;

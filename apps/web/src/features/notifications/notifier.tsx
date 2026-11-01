@@ -10,7 +10,7 @@ import {
   useSidebarThread,
 } from "@ace/client-react";
 import type { ThreadStatus } from "@ace/protocol";
-import { isRemoteChild } from "@ace/ui-core";
+import { isRemoteChild, isSnoozedToTime } from "@ace/ui-core";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -71,7 +71,7 @@ function ThreadNotifier() {
   const show = (cause: ToastCause) => {
     if (cause.kind === "automation") return;
     const thread = sidebar?.thread(cause.threadId);
-    if (!thread || (thread.snoozedUntil ?? 0) > Date.now()) return;
+    if (!thread || isSnoozedToTime(thread, Date.now())) return;
     const needsYou = cause.kind === "needs_you";
     const visible = documentVisibility.visible();
     const description = `${projectName(thread.workspaceId)} · ${thread.title}`;
@@ -167,7 +167,7 @@ function NeedsYouToast(props: { threadId: string }) {
       (thread.status.state !== "needs_you" ||
         thread.archivedAt !== undefined ||
         thread.deletedAt !== undefined ||
-        (thread.snoozedUntil ?? 0) > now));
+        isSnoozedToTime(thread, now)));
   useEffect(() => {
     if (left) latest.current.toast.close(id);
   }, [left, id]);

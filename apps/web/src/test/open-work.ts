@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { findTopBar } from "./top-bar.ts";
 
 /**
  * Open the side panel's Summary tab through its public shortcut, keeping an already selected
@@ -17,23 +18,27 @@ export async function openWorkPanel() {
 }
 
 /**
- * Open the Summary's folded Done section (its "N done" header) and resolve to its tree: the
- * agents whose work settled, finished, failed or stopped.
+ * An agent's row in the Summary's agent tree by the agent's name ("Explore the panel: Read 41
+ * files" is found by "Explore the panel"), waiting until it shows.
  */
-export async function openDoneAgents(work: HTMLElement) {
-  const fold = await within(work).findByRole("button", { name: /^\d+ done$/ });
-  if (fold.getAttribute("aria-expanded") === "false") await userEvent.click(fold);
-  return within(work).findByRole("tree", { name: "Done agents" });
+export async function agentRow(work: HTMLElement, name: string) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return within(work).findByRole("treeitem", { name: new RegExp(`^${escaped}: `) });
 }
 
-/** The Summary's one-line thread status: "Working · 2 agents running · 4m", "Done · finished …". */
+/** Whether a tree row's provider mark breathes: it, or something under it, works or waits. */
+export function isBreathing(row: HTMLElement): boolean {
+  return row.querySelector("[data-breathing]") !== null;
+}
+
+/** The Summary's one sentence for now: "Working for 4m", "Done in 52m", "… needs your answer". */
 export async function summaryStatus(work: HTMLElement) {
   return (await within(work).findByRole("status", { name: /^Thread status/ })).textContent ?? "";
 }
 
 /** The header's thread details icon; its name gains ", working" or ", something needs you" with a dot. */
 export async function workButton() {
-  return within(await screen.findByRole("banner")).findByRole("button", {
+  return within(await findTopBar()).findByRole("button", {
     name: /^Thread details/,
   });
 }
@@ -88,4 +93,10 @@ export async function gitAction(name: string | RegExp) {
   const card = await openWorkCard();
   await userEvent.click(await within(card).findByRole("button", { name: "More git actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name }));
+}
+
+/** Open every folded "N done" line of the agent tree, so the finished agents' rows show. */
+export async function showFinished(work: HTMLElement) {
+  for (const row of within(work).queryAllByRole("treeitem", { name: /^\d+ done$/ }))
+    if (row.getAttribute("aria-expanded") === "false") await userEvent.click(row);
 }

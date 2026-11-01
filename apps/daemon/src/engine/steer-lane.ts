@@ -2,7 +2,7 @@ import type { Capabilities, ThreadId } from "@ace/protocol";
 import type { ThreadActor } from "./actor.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineRepository, IntentHeader } from "./repository.ts";
-import { rootRun, steerRoute, type SteerRoute } from "./steer-yield.ts";
+import { isPersonSteer, rootRun, steerRoute, type SteerRoute } from "./steer-yield.ts";
 
 interface Ports {
   repo: EngineRepository;
@@ -14,12 +14,13 @@ interface Ports {
 }
 
 /**
- * The steering lane: a person's Steer reaches the model now. Where the provider steers natively
- * mid-tool it goes straight in. Where the provider can move the running tools to the background
- * (Claude), it goes straight in and the lane backgrounds them. Where its steer waits for the
- * running command, the lane interrupts the turn first and delivers the message once that turn
- * ends. The message stays an
- * unclaimed intent until then, so a restart in between keeps it, once, for recovery.
+ * The steering lane: a steer reaches the model as soon as the provider allows. Where the
+ * provider's own steer waits for the running command, every steer is handed over at once and
+ * lands at the next tool boundary. A person's steer (one they sent, or a waiting message they
+ * chose to steer in) also gets a running command out of the way: the lane moves it to the
+ * background where the session can (Claude), else interrupts the turn and delivers the message
+ * once that turn ends. The message stays an unclaimed intent until it goes in, so a restart in
+ * between keeps it, once, for recovery.
  */
 export class SteerLane {
   private ports: Ports;
@@ -117,6 +118,13 @@ export class SteerLane {
       this.ports.registry.get(state.config.provider, repo.backend(intent.threadId)).capabilities;
     if (!capabilities.steer) return undefined;
     if (actor.steerYield && actor.steerYield.run !== rootRun(state)) actor.steerYield = undefined;
-    return steerRoute(intent, state, capabilities, actor.steerYield);
+    const person = isPersonSteer(intent, repo.steerNotes.personChose(intent.id));
+    return steerRoute(
+      { person },
+      state,
+      capabilities,
+      actor.steerYield,
+      actor.session.backgroundTools !== undefined,
+    );
   }
 }

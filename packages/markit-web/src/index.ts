@@ -55,7 +55,9 @@ export type MarkitLinkTarget =
  */
 export function markitLinkTarget(url: string): MarkitLinkTarget | undefined {
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)?.[1]?.toLowerCase();
-  if (scheme === undefined) return url.trim() ? { kind: "local", path: url } : undefined;
+  // markit percent-encodes link targets; the host knows a linked path as it was written.
+  if (scheme === undefined)
+    return url.trim() ? { kind: "local", path: decodedPath(url) } : undefined;
   if (scheme === "ace" || scheme === "thread") return { kind: "ace", href: url };
   if (scheme === "file") return { kind: "local", path: url };
   if (scheme !== "http" && scheme !== "https" && scheme !== "mailto") return undefined;
@@ -63,5 +65,13 @@ export function markitLinkTarget(url: string): MarkitLinkTarget | undefined {
     return { kind: "web", href: new URL(url).href };
   } catch {
     return undefined;
+  }
+}
+
+function decodedPath(path: string): string {
+  try {
+    return decodeURI(path);
+  } catch {
+    return path;
   }
 }

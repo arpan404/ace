@@ -59,6 +59,7 @@ export class ThreadOrganizer {
               p.changes.deletedAt !== undefined ||
               p.changes.pinned !== undefined ||
               p.changes.snoozedUntil !== undefined ||
+              p.changes.snoozeWake !== undefined ||
               p.changes.settleWhenDone !== undefined ||
               p.changes.autoSettle !== undefined))
         ) {

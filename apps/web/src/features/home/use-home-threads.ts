@@ -7,22 +7,17 @@ import {
   activityOf,
   archivedOrder,
   arrange,
-  homeTree,
-  isDraft,
-  isRemoteChild,
-  isRemoved,
-  isSettled,
   projectCounts,
   standingReader,
   threadMatches,
-  type Arrangement,
+  threadsPanel,
   type HomeSort,
-  type HomeTree,
   type ProjectCount,
   type Standing,
+  type ThreadsPanel,
 } from "@ace/ui-core";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
-import { useIsChat, useIsChatThread, useProjectDirectory, useProjectName } from "@/lib/projects.ts";
+import { useIsChatThread, useProjectName } from "@/lib/projects.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useOrganizeOverlay, useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
@@ -37,33 +32,29 @@ export function useHomeSort(): HomeSort {
 }
 
 /**
- * Home's threads: pinned ones in their own order, every other open thread in Home order,
- * Snoozed and Settled apart, and the Threads panel's tree over them (`homeTree`): Active on
- * top, and each project's settled threads below.
+ * Home's threads in the Threads panel's three places (`threadsPanel`): the Inbox, band by band,
+ * with its pinned threads leading; Snoozed; and Settled.
  */
 export interface HomeList {
   pinned: string[];
-  /** Open threads below Pinned, in Home order. */
+  /** The Inbox below its pinned threads, in its order. */
   listed: string[];
   snoozed: string[];
   /** Settled threads at rest that are loaded, most recent activity first. */
   settled: string[];
-  /** Settled threads in all, loaded or not: what History holds. */
-  settledTotal: number;
   /** The listed threads that need you, which may rise while the list otherwise holds still. */
   needsYou: string[];
-  tree: HomeTree;
+  panel: ThreadsPanel;
 }
 const syncing = (): Standing => ({ level: "syncing", done: false });
-const noTree: HomeTree = { active: [], projects: [], quiet: [], order: [], settled: [] };
+const noPanel: ThreadsPanel = { inbox: [], pinned: [], snoozed: [], settled: [] };
 const empty: HomeList = {
   pinned: [],
   listed: [],
   snoozed: [],
   settled: [],
-  settledTotal: 0,
   needsYou: [],
-  tree: noTree,
+  panel: noPanel,
 };
 const noProjects: ProjectCount[] = [];
 const noOthers: readonly ThreadListEntry[] = [];
@@ -94,31 +85,13 @@ export function useEveryEntryKey(): readonly SidebarKey[] {
   return everyEntry;
 }
 
-const treeEqual = (a: HomeTree, b: HomeTree) =>
-  arrayEqual(a.active, b.active) &&
-  arrayEqual(a.order, b.order) &&
-  arrayEqual(a.quiet, b.quiet) &&
-  arrayEqual(a.settled, b.settled) &&
-  a.projects.length === b.projects.length &&
-  a.projects.every((place, i) => {
-    const other = b.projects[i];
-    return (
-      other !== undefined &&
-      place.id === other.id &&
-      place.active === other.active &&
-      place.held === other.held &&
-      arrayEqual(place.settled, other.settled)
-    );
-  });
-
 const listEqual = (a: HomeList, b: HomeList) =>
   arrayEqual(a.pinned, b.pinned) &&
   arrayEqual(a.listed, b.listed) &&
   arrayEqual(a.snoozed, b.snoozed) &&
   arrayEqual(a.settled, b.settled) &&
-  a.settledTotal === b.settledTotal &&
   arrayEqual(a.needsYou, b.needsYou) &&
-  treeEqual(a.tree, b.tree);
+  arrayEqual(a.panel.inbox, b.panel.inbox);
 
 /** Each entry's standing on this clock (`standingReader`): a new catalog, baseline or minute starts over. */
 export function useStandingOf(now: number): (entry: ThreadListEntry) => Standing {
@@ -128,39 +101,9 @@ export function useStandingOf(now: number): (entry: ThreadListEntry) => Standing
 }
 
 /**
- * Settled threads per project the daemon still holds back: its count of a project's threads
- * less the ones loaded that it doesn't page (every open thread is loaded). Undefined once
- * every settled thread is loaded.
- */
-function settledCounts(
-  reader: SidebarReader,
-  entries: readonly ThreadListEntry[],
-  project: string | null,
-  isChat: (project: string) => boolean,
-): Map<string, number> | undefined {
-  const window = reader.homeWindow;
-  if (!window?.before || window !== reader.window) return undefined;
-  const live = new Map<string, number>();
-  for (const entry of entries) {
-    if (isRemoved(entry) || isDraft(entry) || isRemoteChild(entry)) continue;
-    // The daemon pages settled threads that aren't pinned; every other one it sends at once.
-    if (isSettled(entry) && entry.pinned !== true) continue;
-    live.set(entry.workspaceId, (live.get(entry.workspaceId) ?? 0) + 1);
-  }
-  const counts = new Map<string, number>();
-  for (const count of window.counts) {
-    if (project !== null && count.id !== project) continue;
-    // A chat's project is the Chats panel's, never a quiet project here.
-    if (isChat(count.id)) continue;
-    counts.set(count.id, Math.max(0, count.threads - (live.get(count.id) ?? 0)));
-  }
-  return counts;
-}
-
-/**
- * Home order (`arrange`) across every project the filter lets through, and the Threads panel's
- * tree over it. Chats (ADR 0099) are the Chats panel's: they stay out of the tree and History,
- * as the Chats panel holds its own Active chats. `query` narrows it to the threads whose
+ * Home order (`arrange`) across every project and device the filter lets through, and the
+ * Threads panel's places over it. Chats (ADR 0099) are the Chats panel's: they stay out of the
+ * Threads panel and History, as the Chats panel holds its own. `query` narrows it to the threads whose
  * title, project, branch or pull request match. Only ids are selected, so a status change re-renders its own row and moves rows only
  * when the order changes. `others` are other machines' threads under their machine row ids
  * (`useMachineEntries`), ordered in the same list (ADR 0102).
@@ -175,9 +118,7 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
   const read = useEntries();
   const standingOf = useStandingOf(now);
   const projectName = useProjectName();
-  const directory = useProjectDirectory();
   const isChatThread = useIsChatThread();
-  const isChatProject = useIsChat();
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
       const own = read(reader);
@@ -185,58 +126,32 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
       const onDevice = device
         ? all.filter((entry) => (machineRow(entry.id)?.hostId ?? ownDevice) === device)
         : all;
-      const chats: ThreadListEntry[] = [];
-      const work: ThreadListEntry[] = [];
-      for (const entry of onDevice) (isChatThread(entry) ? chats : work).push(entry);
-      const chatProjects = new Set<string>(chats.map((entry) => entry.workspaceId));
-      const isChat = (id: string) => chatProjects.has(id) || isChatProject(id);
-      const searching = query.trim().length > 0;
-      const entries = searching
-        ? work.filter((entry) => threadMatches(entry, query, projectName(entry.workspaceId)))
-        : work;
+      const work = onDevice.filter((entry) => !isChatThread(entry));
+      const entries =
+        query.trim().length > 0
+          ? work.filter((entry) => threadMatches(entry, query, projectName(entry.workspaceId)))
+          : work;
       const arrangement = arrange(entries, { ...state, sortBy }, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
-      // The daemon's counts are this machine's own, and only while nothing narrows the list.
-      const counts =
-        searching || (device && device !== ownDevice)
-          ? undefined
-          : settledCounts(reader, own, state.project, isChat);
-      // Projects with no thread at all are quiet: this machine's own, while nothing narrows the list.
-      const known =
-        searching || (device && device !== ownDevice)
-          ? undefined
-          : directory.projects
-              .map((place) => place.id)
-              .filter((id) => state.project === null || id === state.project);
-      const treeOf = (
-        shown: Arrangement,
-        entry: (id: string) => ThreadListEntry | undefined,
-        held?: ReadonlyMap<string, number>,
-      ) =>
-        homeTree({
-          arrangement: shown,
-          entry,
-          // A saved list's statuses may be stale: it claims nothing (as its rows say Syncing).
-          standing: reader.unconfirmed ? syncing : standingOf,
-          sortBy,
-          settledCounts: held,
-          projects: known,
-        });
-      const tree = treeOf(arrangement, (id) => byId.get(id), counts);
-      let held = 0;
-      for (const count of counts?.values() ?? []) held += count;
-      const listed = [...arrangement.active, ...arrangement.recent];
+      const panel = threadsPanel({
+        arrangement,
+        entry: (id) => byId.get(id),
+        // A saved list's statuses may be stale: it claims nothing (as its rows say Syncing).
+        standing: reader.unconfirmed ? syncing : standingOf,
+        sortBy,
+      });
+      const pinned = new Set(panel.pinned);
+      const listed = panel.inbox.filter((id) => !pinned.has(id));
       const needsYou = reader.unconfirmed
         ? []
         : listed.filter((id) => byId.get(id)?.status.state === "needs_you");
       return {
-        pinned: arrangement.pinned,
+        pinned: panel.pinned,
         listed,
-        snoozed: arrangement.snoozed,
-        settled: tree.settled,
-        settledTotal: Math.max(tree.settled.length, held),
+        snoozed: panel.snoozed,
+        settled: panel.settled,
         needsYou,
-        tree,
+        panel,
       };
     },
     [
@@ -249,18 +164,16 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
       ownDevice,
       query,
       projectName,
-      directory,
       standingOf,
       isChatThread,
-      isChatProject,
     ],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }
 
-/** The top of the Home list: the first thread the panel's tree lists. */
+/** The top of the Home list: the Inbox's first thread, else the newest settled one. */
 export function topThread(list: HomeList): string | undefined {
-  return list.tree.order[0] ?? list.pinned[0];
+  return list.panel.inbox[0] ?? list.panel.settled[0];
 }
 
 /** Settled threads with when each last worked and its project, for History and search. */

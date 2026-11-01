@@ -1,3 +1,4 @@
+import { createContext, use } from "react";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
 import { type RowAttention, type ThreadCard } from "@ace/ui-core";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
@@ -6,12 +7,20 @@ import { formatSpan } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useMachines } from "@/lib/machines.ts";
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
 import { useThreadComputerUse } from "@/lib/computer-using.ts";
-import { ClockIcon, CursorClickIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
+import {
+  ClockIcon,
+  CursorClickIcon,
+  GlobeSimpleIcon,
+  TreeStructureIcon,
+} from "@phosphor-icons/react";
 import type { LinkClick } from "@/lib/web-links.ts";
 import { useOpenThreadPullRequest } from "./open-pull-request.ts";
 
@@ -40,7 +49,7 @@ export function threadDetails(card: ThreadCard): string[] {
     `Project ${card.project}`,
     card.flags.pinned && "Pinned",
     card.machine && `Running on ${card.machine}`,
-    card.wake && `Snoozed until ${card.wake}`,
+    card.wake && `Snoozed ${card.wake}`,
   ].filter((part): part is string => typeof part === "string" && part.length > 0);
 }
 
@@ -142,12 +151,15 @@ export function PullRequest(props: { card: ThreadCard }) {
  * - what asks the person to act or look: a glyph and a word in the status colour;
  * - live work, waiting or background, open or not: its glyph (none for waiting), word and
  *   elapsed time, muted unless open;
- * - a failure already seen: a quiet word; a thread at rest: only its age.
+ * - a failure already seen: a quiet word; a thread at rest: only its age;
+ * - a snoozed thread: what it waits for, unless it needs the person.
  */
 export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) {
   const { card } = props;
   const { level, word, tone, muted } = props.attention;
-  if (word === undefined) return card.wake ? <RowWake wake={card.wake} /> : <RowTime card={card} />;
+  // A snoozed row says what it waits for where its status sits, unless it needs the person.
+  if (card.wake && level !== "needs-you" && level !== "failed") return <RowWake wake={card.wake} />;
+  if (word === undefined) return <RowTime card={card} />;
   // An unconfirmed copy says only that it is syncing: no glyph, no colour, no time.
   if (level === "failed-seen" || level === "syncing")
     return <span className="shrink-0 text-meta text-muted-foreground">{word}</span>;
@@ -194,8 +206,7 @@ function ActiveElapsed(props: { card: ThreadCard }) {
   return <span className="tabular-nums">{props.card.age}</span>;
 }
 
-/** Only visible, fresh working rows subscribe to the shared second clock. */
-/** A snoozed row says when it wakes where others say their age. */
+/** A snoozed row says what it waits for ("until it needs you") where others say their status. */
 function RowWake(props: { wake: string }) {
   return (
     <span className="inline-flex shrink-0 items-center gap-1 text-meta whitespace-nowrap text-muted-foreground">
@@ -218,6 +229,81 @@ function RowTime(props: { card: ThreadCard }) {
     </span>
   );
 }
+
+/**
+ * An Active row's last line: where a settled tree's run stopped, then the branch and pull request lead; the provider keeps the trailing
+ * slot. With more than one device connected, the machine's icon sits beside the provider's, its
+ * name in the tooltip and the row's spoken details.
+ */
+export function RowContext(props: { card: ThreadCard }) {
+  const { card } = props;
+  const devices = use(ManyDevices);
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
+      {card.run && <RunMark run={card.run} />}
+      {card.branch && <MiddleTruncate text={card.branch.name} className="flex-1 font-mono" />}
+      {card.pr !== undefined && (
+        <span className="shrink-0">
+          <PullRequest card={card} />
+        </span>
+      )}
+      <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        {devices && (
+          <Tip label={card.machine ?? "This machine"}>
+            <span className="inline-flex">
+              <MachineMark icon={card.machineIcon} />
+            </span>
+          </Tip>
+        )}
+        <span role="img" aria-label={card.providerLabel} className="flex items-center gap-1">
+          {card.subagents > 0 && (
+            <span className="inline-flex items-center gap-0.5 tabular-nums">
+              <TreeStructureIcon aria-hidden size={12} />
+              {card.subagents}
+            </span>
+          )}
+          {/* A black-and-white mark (OpenAI, OpenCode) takes the row's muted ink; coloured marks
+              keep their own colours. */}
+          <ProviderAccountIcon
+            provider={card.provider}
+            acpAgentId={card.acpAgentId}
+            instance={card.account}
+            size={14}
+            decorative
+            className="text-subtle-foreground"
+          />
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Where a settled thread's Offshift run stopped: its phase word, after a paused ring in the
+ * waiting colour when a blocker holds it. Only a settled tree has one (`ThreadCard.run`).
+ */
+function RunMark(props: { run: NonNullable<ThreadCard["run"]> }) {
+  const { run } = props;
+  return (
+    <Tip label={run.label}>
+      <span
+        role="img"
+        aria-label={run.label}
+        data-run={run.blocked ? "blocked" : "open"}
+        className="inline-flex shrink-0 items-center gap-1 text-muted-foreground"
+      >
+        {run.blocked && <StatusGlyph state="paused" tone="waiting" size={12} />}
+        {run.phase}
+      </span>
+    </Tip>
+  );
+}
+
+/**
+ * More than one of the person's devices is connected: Active rows show their machine's icon. The
+ * list reads the machines once and hands the answer to every row.
+ */
+export const ManyDevices = createContext(false);
 
 /** More than one of the person's devices is connected: rows show their machine's icon. */
 export function useManyDevices(): boolean {

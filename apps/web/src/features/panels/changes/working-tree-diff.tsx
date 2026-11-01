@@ -1,4 +1,4 @@
-import { contentHash } from "@ace/ui-core";
+import { contentHash, truncatedPatchNotice } from "@ace/ui-core";
 import { GitDiffIcon } from "@phosphor-icons/react";
 import { useMemo } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -47,7 +47,7 @@ export function useUncommitted(threadId: string, shown: boolean) {
   );
   const notice = diff.data?.truncated && (
     <p role="status" className="px-3.5 py-2 text-xs text-subtle-foreground">
-      This diff is truncated at 256 KiB. The last file may be cut short.
+      {truncatedPatchNotice(files)}
     </p>
   );
   return {
