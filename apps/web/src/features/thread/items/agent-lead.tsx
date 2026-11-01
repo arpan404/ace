@@ -17,7 +17,9 @@ export interface AgentMark {
 }
 
 /** One agent's mark: its provider's, else a robot while the provider isn't known. */
-export function AgentIcon(props: AgentMark & { size: 18 | 20; className?: string | undefined }) {
+export function AgentIcon(
+  props: AgentMark & { size: 16 | 18 | 20; className?: string | undefined },
+) {
   return props.provider ? (
     <ProviderIcon
       provider={props.provider}
