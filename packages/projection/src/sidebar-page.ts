@@ -27,6 +27,7 @@ export function sidebarPage(
   const counts = new Map<string, number>();
   for (const entry of visible)
     if (
+      entry.delegatedFrom === undefined &&
       entry.hasSentMessage !== false &&
       !(
         entry.hasSentMessage === undefined &&

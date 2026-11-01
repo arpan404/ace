@@ -71,6 +71,9 @@
     "delegatedBy": {
       "$ref": "https://ace.local/protocol/v1/DelegatedBy.json"
     },
+    "delegatedFrom": {
+      "$ref": "https://ace.local/protocol/v1/DelegatedFrom.json"
+    },
     "deletedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

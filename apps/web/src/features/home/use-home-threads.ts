@@ -9,6 +9,7 @@ import {
   arrange,
   homeTree,
   isDraft,
+  isRemoteChild,
   isRemoved,
   isSettled,
   projectCounts,
@@ -141,7 +142,7 @@ function settledCounts(
   if (!window?.before || window !== reader.window) return undefined;
   const live = new Map<string, number>();
   for (const entry of entries) {
-    if (isRemoved(entry) || isDraft(entry)) continue;
+    if (isRemoved(entry) || isDraft(entry) || isRemoteChild(entry)) continue;
     // The daemon pages settled threads that aren't pinned; every other one it sends at once.
     if (isSettled(entry) && entry.pinned !== true) continue;
     live.set(entry.workspaceId, (live.get(entry.workspaceId) ?? 0) + 1);

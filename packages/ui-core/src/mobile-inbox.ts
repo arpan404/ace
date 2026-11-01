@@ -1,7 +1,14 @@
 import type { ThreadListEntry } from "@ace/protocol";
 import type { PendingSend } from "@ace/client";
 import { threadAttention } from "@ace/projection";
-import { homeListKey, isDraft, isRemoved, pinOrderOf, type HomeSort } from "./arrange.ts";
+import {
+  homeListKey,
+  isDraft,
+  isRemoteChild,
+  isRemoved,
+  pinOrderOf,
+  type HomeSort,
+} from "./arrange.ts";
 import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
 import {
   mobileThreadStatus,
@@ -115,7 +122,7 @@ const listedGroups: ReadonlySet<InboxGroupKey> = new Set([
  */
 export function inboxGroup(thread: InboxThread, now: number): InboxGroupKey | undefined {
   const { entry } = thread;
-  if (isRemoved(entry) || isDraft(entry)) return undefined;
+  if (isRemoved(entry) || isDraft(entry) || isRemoteChild(entry)) return undefined;
   const state = entry.status.state;
   if (state === "needs_you" || threadAttention(entry) !== undefined) return "needs-you";
   if (isSnoozed(entry, now)) return "snoozed";

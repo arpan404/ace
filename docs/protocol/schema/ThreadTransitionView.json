@@ -5,6 +5,9 @@
     "delegatedBy": {
       "$ref": "https://ace.local/protocol/v1/DelegatedBy.json"
     },
+    "delegatedFrom": {
+      "$ref": "https://ace.local/protocol/v1/DelegatedFrom.json"
+    },
     "execution": {
       "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
     },

@@ -136,3 +136,20 @@ test("each rail place's dot comes from its own threads", () => {
   expect(signals.chats).toEqual({ tone: "needs-you", needsYou: 1 });
   expect(signals.threads).toEqual({ tone: "unread", needsYou: 0 });
 });
+
+test("a paired machine's child asking for approval never lights this machine's Threads dot", () => {
+  const signals = placeSignals({
+    entries: [
+      entry("delegated", { state: "needs_you", interactions: 1 }, now - minute, {
+        hasSentMessage: true,
+        delegatedFrom: { hostId: "host-a", threadId: "parent-on-a" },
+      }),
+      entry("finished", { state: "done" }, now - minute, {
+        delegatedFrom: { hostId: "host-a", threadId: "parent-on-a" },
+      }),
+    ],
+    isChat: isChatEntry,
+    standing: standingReader({ baseline: 0, now }),
+  });
+  expect(signals.threads).toEqual({ tone: undefined, needsYou: 0 });
+});

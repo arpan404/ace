@@ -40,6 +40,10 @@ export const WorkerCall = z.discriminatedUnion("method", [
     preferences: NotificationPreferences,
   }),
   z.object({ method: z.literal("revoke"), device: DeviceId.and(z.string().max(200)) }),
+  z.object({
+    method: z.literal("markRemote"),
+    threads: z.array(ThreadId.and(z.string().max(200))).max(256),
+  }),
   z.object({ method: z.literal("snooze"), thread: ThreadId.and(z.string().max(200)), until: seq }),
   z.object({
     method: z.literal("presence"),
