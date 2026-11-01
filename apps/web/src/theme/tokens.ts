@@ -99,9 +99,9 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--reading": p.s0,
     "--sidebar": p.sidebar,
     "--panel": p.sidebar,
-    // The sidebar's panel: on the canvas with the chat, a half step towards the raised surface so
-    // the two read as separate areas in every theme and mode.
-    "--sidebar-panel": `color-mix(in oklab, ${p.s0}, ${p.s1})`,
+    // The sidebar's panel: darker than the chat, most of the way to the frame the rail sits on,
+    // so the panel and the chat read as separate areas in every theme and mode.
+    "--sidebar-panel": `color-mix(in oklab, ${p.s0} 30%, ${p.sidebar})`,
     "--popover": p.s2,
     "--card": p.s1,
     "--bubble": p.s1,

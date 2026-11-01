@@ -11,8 +11,8 @@ export const canvasClass =
   "relative flex min-h-0 min-w-0 flex-1 overflow-clip border-t border-border bg-background [[data-sidebar=shown]_&]:border-l";
 
 /**
- * The sidebar's panel as the start of the canvas, with its rounded corner: a half step apart from
- * the chat (`--sidebar-panel`) so the list and the conversation read as separate areas.
+ * The sidebar's panel as the start of the canvas, with its rounded corner: darker than
+ * the chat (`--sidebar-panel`), so the list and the conversation read as separate areas.
  */
 export const panelCanvasClass =
   "overflow-clip rounded-tl-lg border-t border-l border-border bg-(--sidebar-panel)";
