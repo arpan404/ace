@@ -16083,7 +16083,8 @@ Example:
 | complete | no | boolean | {"default":true} |
 | inherited | no | [InheritedItem.json](schema/InheritedItem.json) |  |
 | type | yes | `"unknown"` |  |
-| raw | yes | any JSON value |  |
+| raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
+| data | yes | any JSON value |  |
 
 Example:
 
@@ -16091,12 +16092,12 @@ Example:
 {
   "agentId": "example",
   "createdAt": 7,
+  "data": null,
   "id": "example",
   "inherited": {
     "threadId": "example"
   },
   "nativeId": "example",
-  "raw": null,
   "type": "unknown"
 }
 ```
@@ -33396,8 +33397,8 @@ Example:
     "agentId": "example",
     "complete": false,
     "createdAt": 1,
+    "data": null,
     "id": "example",
-    "raw": null,
     "type": "unknown"
   },
   "seq": 10

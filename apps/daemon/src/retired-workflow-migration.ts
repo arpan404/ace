@@ -11,6 +11,7 @@ export const retiredWorkflowMigration = `
         AND ((v.collection='agents' AND json_extract(v.value,'$.status.state')
           IN ('starting','working','blocked','unresponsive'))
           OR (v.collection='backgroundTasks' AND json_extract(v.value,'$.status')='running')
+          OR (v.collection='queue' AND json_extract(v.value,'$.pendingCount')>0)
           OR (v.collection='interactions' AND json_extract(v.value,'$.state')='pending')));
   UPDATE threads SET provider_metadata=json_remove(provider_metadata,'$.run')
     WHERE json_type(provider_metadata,'$.run') IS NOT NULL;

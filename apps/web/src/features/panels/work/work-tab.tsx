@@ -4,7 +4,6 @@ import { OptionalLeaseScope, useThread, useThreadMeta } from "@ace/client-react"
 import {
   changesByAgent,
   forestTally,
-  isActivelyRunning,
   latestChecks,
   queuedInputLine,
   summaryPullRequests,
@@ -50,10 +49,7 @@ export default function WorkTab(props: TabViewProps) {
     thread?.workspaceId ?? "",
     thread?.details?.workspace?.path,
   );
-  const status = thread?.status;
-  const live = thread?.live;
   const agents = own?.agents;
-  const interactions = own?.interactions;
   const linked = thread?.details?.linkedPrs;
   const prs = useMemo(() => summaryPullRequests(linked ?? []), [linked]);
   const checks = useMemo(() => (turn ? latestChecks(turn.digest.commands) : []), [turn]);

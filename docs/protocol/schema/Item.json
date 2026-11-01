@@ -650,6 +650,7 @@
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "data": {},
         "executionSource": {
           "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
         },
@@ -663,7 +664,13 @@
           "maxLength": 256,
           "type": "string"
         },
-        "raw": {},
+        "raw": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+          },
+          "type": "array"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -677,7 +684,7 @@
         "agentId",
         "createdAt",
         "type",
-        "raw"
+        "data"
       ],
       "type": "object"
     },

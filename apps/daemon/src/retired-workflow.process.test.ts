@@ -1,4 +1,6 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { SettingsService, fileIO } from "@ace/settings";
+import { fixture } from "./socket-test-support.ts";
+import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
@@ -13,6 +15,35 @@ test("upgrading an unfinished Offshift run settles stale work and preserves old 
   const path = join(root, "events.sqlite");
   let store = new Store(path);
   try {
+    const settingsPath = join(root, "settings.json");
+    await writeFile(
+      settingsPath,
+      JSON.stringify({
+        version: 2,
+        settings: {
+          "offshift.enabled": true,
+          offshift: { lastRun: "old" },
+          "threads.settleOnClose": true,
+          "future.preference": 42,
+        },
+      }),
+    );
+    const settings = new SettingsService({
+      dataDir: root,
+      io: { ...fileIO, watch: async () => () => {} },
+    });
+    try {
+      expect(await settings.get("threads.settleOnClose")).toMatchObject({ value: true });
+      expect(JSON.parse(await readFile(settingsPath, "utf8"))).toEqual({
+        version: 2,
+        settings: {
+          "threads.settleOnClose": true,
+          "future.preference": 42,
+        },
+      });
+    } finally {
+      await settings.close();
+    }
     const workspace = store.createWorkspace(root, "Upgrade", 1);
     const thread = createDevThread(store, workspace);
     const active = createDevThread(store, workspace);
@@ -71,6 +102,15 @@ test("upgrading an unfinished Offshift run settles stale work and preserves old 
         head + 1,
         JSON.stringify(item),
       );
+      db.prepare("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)").run(
+        head + 2,
+        "retired-item-event",
+        thread.id,
+        4,
+        "item.created",
+        JSON.stringify({ type: "item.created", item }),
+      );
+      db.prepare("UPDATE host_sequence SET seq=? WHERE id=1").run(head + 2);
       db.prepare(
         "INSERT INTO item_heads(id,thread_id,created_seq,size,item_type,text_prefix,text_last_unit,agent_id) VALUES(?,?,?,?,?,0,-1,?)",
       ).run(item.id, thread.id, head + 1, JSON.stringify(item).length, item.type, item.agentId);
@@ -82,7 +122,11 @@ test("upgrading an unfinished Offshift run settles stale work and preserves old 
     // Removing a workflow must never settle a real live agent tree.
     expect(store.getThread(active.id)?.status.state).toBe("working");
     const events = store.readEvents({ afterSeq: head, threadId: thread.id, limit: 10 });
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
+    expect(events[1]?.payload).toMatchObject({
+      type: "item.created",
+      item: { type: "unknown", data: { type: "offshift", record: { outcome: "keep this" } } },
+    });
     expect(events[0]?.payload).toEqual({
       type: "unknown",
       raw: { type: "offshift.updated", card: { id: "run", future: "retained" } },
@@ -100,5 +144,27 @@ test("upgrading an unfinished Offshift run settles stale work and preserves old 
   } finally {
     await store.close();
     await rm(root, { recursive: true, force: true });
+  }
+  const server = await fixture();
+  try {
+    const client = await server.connect();
+    expect(await client.next()).toMatchObject({ type: "welcome" });
+    client.socket.send(
+      JSON.stringify({
+        type: "offshift.request",
+        requestId: "retired",
+        threadId: server.thread.id,
+        op: { action: "get", runId: "run" },
+      }),
+    );
+    expect(await client.next()).toMatchObject({
+      type: "error",
+      code: "unsupported",
+      requestId: "retired",
+    });
+    client.send({ type: "ping" });
+    expect(await client.next()).toMatchObject({ type: "pong" });
+  } finally {
+    await server.close();
   }
 });

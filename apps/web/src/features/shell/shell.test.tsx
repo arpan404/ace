@@ -54,7 +54,7 @@ test("removed pages are gone: their addresses show Not found and the palette nev
   await userEvent.keyboard("{Meta>}k{/Meta}");
   const search = await screen.findByRole("combobox", { name: "Search commands" });
   await userEvent.type(search, "Usage");
-  expect(await screen.findByRole("option", { name: /^Usage/ })).toBeTruthy();
+  expect(await screen.findByRole("option", { name: /^Usage\s*Go to/ })).toBeTruthy();
   // Pull requests and Issues are pages again, at /pulls and /issues.
   for (const page of ["Pull requests", "Issues"]) {
     await userEvent.clear(search);

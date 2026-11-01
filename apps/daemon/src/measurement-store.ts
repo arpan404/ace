@@ -1,5 +1,5 @@
 import { decodeStoredItem } from "./stored-decode.ts";
-import { Item, StepMeasurement, type EventPayload, type ThreadId } from "@ace/protocol";
+import { StepMeasurement, type EventPayload, type ThreadId } from "@ace/protocol";
 import type { StatementSync, DatabaseSync } from "node:sqlite";
 import { measurementCall } from "./measurement-correlation.ts";
 
