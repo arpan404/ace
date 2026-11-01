@@ -1,4 +1,4 @@
-import { inputTooLarge, parseToolArguments, toolFailure } from "./tool-failure.ts";
+import { ToolDataInvalid, inputTooLarge, parseToolArguments, toolFailure } from "./tool-failure.ts";
 import { PublicToolError, type PublicToolCode } from "./public-error.ts";
 import { maxStructuredResultBytes } from "./result-budgets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
@@ -207,7 +207,10 @@ export class ToolRegistry {
           context.signal.throwIfAborted();
           const result = await definition.run(args, context);
           if (!withinJsonBudget(result, maxStructuredResultBytes)) throw new ResultBudgetExceeded();
-          const structuredContent = output.parse(result);
+          const checked = output.safeParse(result);
+          if (!checked.success)
+            throw new ToolDataInvalid(bareToolName(name), "output", checked.error);
+          const structuredContent = checked.data;
           const text = JSON.stringify(structuredContent);
           if (Buffer.byteLength(text) > maxStructuredResultBytes) throw new ResultBudgetExceeded();
           return {
@@ -462,11 +465,14 @@ export class ToolRegistry {
     });
     const executing = Promise.resolve()
       .then(() => entry.execute(input, { ...context, signal }))
-      .catch((error: unknown) =>
-        error instanceof ResultBudgetExceeded
-          ? failure("result_too_large")
-          : toolFailure(error, this.report(entry.name, context.caller, error)),
-      )
+      .catch((caught: unknown) => {
+        if (caught instanceof ResultBudgetExceeded) return failure("result_too_large");
+        const error =
+          caught instanceof z.ZodError
+            ? new ToolDataInvalid(bareToolName(entry.name), "backend", caught)
+            : caught;
+        return toolFailure(error, this.report(entry.name, context.caller, error));
+      })
       .finally(() => {
         executionSettled = true;
         release();

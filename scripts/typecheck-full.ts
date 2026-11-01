@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { sourceTypecheckConfigs } from "./typecheck-projects.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-// The compiler is tsc-rs, a Rust port of TypeScript 7; `typescript` still supplies the config API.
-const tsc = fileURLToPath(new URL("./bin/tsc-rs", import.meta.resolve("tsc-rs/package.json")));
+// The compiler is tsrs, a Rust port of TypeScript 7; `typescript` still supplies the config API.
+const tsc = fileURLToPath(new URL("./bin/tsrs", import.meta.resolve("tsrs/package.json")));
 process.env.GOMAXPROCS = "2";
 // Optional original config paths allow focused verification without a full-repo run.
 const requested = process.argv.slice(2);
@@ -31,6 +31,7 @@ try {
         join(temporary, `${index}.tsbuildinfo`),
         "--checkers",
         "1",
+        "--fast",
       ],
       { cwd: root, stdio: "inherit" },
     );

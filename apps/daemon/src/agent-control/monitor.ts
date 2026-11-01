@@ -2,6 +2,7 @@ import { isAgentProse } from "@ace/projection";
 import type {
   AgentControlResult,
   DelegationOutcome,
+  DelegationRecord,
   Event,
   McpAttribution,
   MonitorSnapshot,
@@ -21,6 +22,13 @@ import type { Store } from "../store.ts";
 import type { DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 import { queuedStep } from "./child-status.ts";
+import {
+  checkedChild,
+  snapshotOf,
+  unreadableChild,
+  type CheckedChild,
+  type ChildIdentity,
+} from "./snapshot-rows.ts";
 import {
   agentStep,
   clip,
@@ -55,6 +63,8 @@ export interface MonitorDependencies {
   resuming?(id: ThreadId): boolean;
   /** Where a queued child stands: slot limit, slots in use and its queue place. */
   queueFacts?(child: ThreadId): QueueFacts | undefined;
+  /** A child agents_status could only partly read, for the log. */
+  report?(child: ThreadId, problem: string): void;
 }
 /** Children that run on other paired machines (ADR 0078), observed by their own poller. */
 export interface RemoteChildren {
@@ -151,55 +161,70 @@ export class AgentMonitor {
       data: typeof status === "string" ? this.respond(caller, ids, input.mode, status) : status,
     };
   }
-  /** Every delegated descendant of the caller, a few short fields each. */
+  /**
+   * Every delegated descendant of the caller, a few short fields each. A child whose facts can't
+   * be read is still listed, as `unknown`, so one bad row never fails or empties the listing.
+   */
   snapshot(caller: McpAttribution): MonitorSnapshot {
-    const now = this.deps.clock.now();
-    const counts: Record<WatchedState, number> = {
-      working: 0,
-      queued: 0,
-      needs_you: 0,
-      done: 0,
-      failed: 0,
-      cancelled: 0,
-    };
-    const children: MonitoredChild[] = [];
+    const rows: MonitoredChild[] = [];
     for (const edge of this.deps.journal.descendants(caller.threadId)) {
-      const thread = this.deps.store.getThread(edge.childId);
-      if (!thread) continue;
-      const state = this.state(thread.id);
-      counts[state]++;
-      const needs = state === "needs_you" ? this.needs(thread) : [];
-      const queue = state === "queued" ? this.deps.queueFacts?.(edge.childId) : undefined;
-      const step =
-        state === "queued"
-          ? queuedStepText(queue)
-          : state === "working" || state === "needs_you"
-            ? this.step(thread)
-            : undefined;
-      const last = state === "working" ? this.lastOutput(thread, 100) : undefined;
-      children.push({
-        id: thread.id,
+      const identity: ChildIdentity = {
+        id: edge.childId,
+        role: edge.request.role,
         ...(edge.parentId === caller.threadId ? {} : { parent: edge.parentId }),
-        role: clip(edge.request.role, 40),
-        state,
-        ...(step ? { step: clip(step, 60) } : {}),
-        ...(queue ? { ...queue } : {}),
-        elapsedSeconds: elapsedSeconds(
-          edge.createdAt,
-          settledStates.has(state) ? thread.updatedAt : now,
-        ),
-        ...(needs[0] ? { needs: needs.length, ask: clip(needs[0].prompt, 100) } : {}),
-        ...(last ? { last } : {}),
-        ...(thread.queue?.pendingCount ? { queued: thread.queue.pendingCount } : {}),
-        ...(edge.messageNotice ? { notice: edge.messageNotice.text } : {}),
-      });
+      };
+      let checked: CheckedChild | undefined;
+      try {
+        const row = this.monitoredChild(caller, edge);
+        checked = row ? checkedChild(identity, row) : undefined;
+      } catch (error) {
+        checked = unreadableChild(identity, error);
+      }
+      if (!checked) continue;
+      if (checked.problem) this.deps.report?.(edge.childId, checked.problem);
+      rows.push(checked.child);
     }
     for (const child of this.remote?.children(caller) ?? []) {
-      // Counts describe the whole tree even when the compact display is full.
-      counts[child.state]++;
-      if (children.length < 64) children.push(child);
+      const checked = checkedChild(child, child);
+      if (checked.problem) this.deps.report?.(child.id, checked.problem);
+      rows.push(checked.child);
     }
-    return { children, counts };
+    return snapshotOf(rows);
+  }
+  /** One local child's row, or nothing when its thread is gone. */
+  private monitoredChild(
+    caller: McpAttribution,
+    edge: DelegationRecord,
+  ): MonitoredChild | undefined {
+    const thread = this.deps.store.getThread(edge.childId);
+    if (!thread) return undefined;
+    const now = this.deps.clock.now();
+    const state = this.state(thread.id);
+    const needs = state === "needs_you" ? this.needs(thread) : [];
+    const queue = state === "queued" ? this.deps.queueFacts?.(edge.childId) : undefined;
+    const step =
+      state === "queued"
+        ? queuedStepText(queue)
+        : state === "working" || state === "needs_you"
+          ? this.step(thread)
+          : undefined;
+    const last = state === "working" ? this.lastOutput(thread, 100) : undefined;
+    return {
+      id: thread.id,
+      ...(edge.parentId === caller.threadId ? {} : { parent: edge.parentId }),
+      role: clip(edge.request.role, 40),
+      state,
+      ...(step ? { step: clip(step, 60) } : {}),
+      ...(queue ? { ...queue } : {}),
+      elapsedSeconds: elapsedSeconds(
+        edge.createdAt,
+        settledStates.has(state) ? thread.updatedAt : now,
+      ),
+      ...(needs[0] ? { needs: needs.length, ask: clip(needs[0].prompt, 100) } : {}),
+      ...(last ? { last } : {}),
+      ...(thread.queue?.pendingCount ? { queued: thread.queue.pendingCount } : {}),
+      ...(edge.messageNotice ? { notice: edge.messageNotice.text } : {}),
+    };
   }
   /** Resolves every pending wait as `interrupted`, so a restart never leaves a caller hanging. */
   close() {

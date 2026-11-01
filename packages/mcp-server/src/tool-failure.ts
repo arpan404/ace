@@ -34,6 +34,35 @@ export function inputTooLarge(maxBytes: number): PublicToolError {
     `The arguments exceed ${Math.floor(maxBytes / 1024)} KiB as JSON. Send less in one call.`,
   );
 }
+/** A path segment safe to show: a field name or index ace's schema owns, never a data key. */
+const segment = (part: PropertyKey) =>
+  typeof part === "number" || (typeof part === "string" && /^[A-Za-z_][\w-]{0,39}$/.test(part))
+    ? String(part)
+    : "*";
+/**
+ * Data a tool produced or read failed a schema, so the next failure says where; values never
+ * leave. The agent sees the tool, and for its result the fields its published output schema
+ * names; a schema read inside the tool shows the agent its issue codes only, and the log gets
+ * the fields.
+ */
+export class ToolDataInvalid extends Error {
+  readonly detail: string;
+  constructor(tool: string, stage: "output" | "backend", error: z.ZodError) {
+    const issues = error.issues.slice(0, 3);
+    const fields = issues
+      .map((issue) => `${issue.path.map(segment).join(".") || "(root)"} (${issue.code})`)
+      .join(", ");
+    super(
+      stage === "output"
+        ? `${tool}: its result breaks the output schema in ${fields}.`
+        : `${tool}: data it read breaks a schema in ${fields}.`,
+    );
+    this.detail =
+      stage === "output"
+        ? this.message
+        : `${tool}: data it read breaks a schema (${[...new Set(issues.map((issue) => issue.code))].join(", ")}).`;
+  }
+}
 const Origin = z.object({
   blocked: z.object({
     origin: z.string().max(8192),
@@ -67,11 +96,13 @@ export function toolFailure(error: unknown, errorId?: string): CallToolResult {
         error.errorId,
       )
     : new PublicToolError(
-        error instanceof z.ZodError ? "invalid_data" : "execution_failed",
+        error instanceof z.ZodError || error instanceof ToolDataInvalid
+          ? "invalid_data"
+          : "execution_failed",
         undefined,
         undefined,
         undefined,
-        undefined,
+        error instanceof ToolDataInvalid ? error.detail : undefined,
         undefined,
         errorId,
       );

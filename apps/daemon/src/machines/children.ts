@@ -16,6 +16,7 @@ import type { Store } from "../store.ts";
 import type { Engine } from "../engine/index.ts";
 import type { RemoteChildren } from "../agent-control/monitor.ts";
 import { childAgentKey } from "../engine/remote-child-status.ts";
+import { unreadableChild } from "../agent-control/snapshot-rows.ts";
 import { clip, settledStates } from "../agent-control/watch-view.ts";
 import type { RequestMirror } from "./mirror.ts";
 import { ChildMessages, type Answer, type ChildMessagesDeps } from "./child-messages.ts";
@@ -228,13 +229,26 @@ export class MachineChildren implements RemoteChildren {
     ]);
     return rows.map((row) => {
       const name = this.deps.label(row.machine);
-      const read = watchedChild(
-        row,
-        name,
-        this.held.get(row.id) ?? this.unreachable.get(row.id),
-        this.deps.now(),
-      );
-      return monitoredChild(row, read.view, caller.threadId, name);
+      try {
+        const read = watchedChild(
+          row,
+          name,
+          this.held.get(row.id) ?? this.unreachable.get(row.id),
+          this.deps.now(),
+        );
+        return monitoredChild(row, read.view, caller.threadId, name);
+      } catch (error) {
+        // A saved view this build can't read still lists the child, as unknown, never settled.
+        const identity = {
+          id: row.id,
+          role: row.role,
+          ...(row.parent_thread === caller.threadId ? {} : { parent: row.parent_thread }),
+          machine: name,
+        };
+        const unread = unreadableChild(identity, error);
+        this.deps.log("Machine child view not read", { child: row.id, problem: unread.problem });
+        return unread.child;
+      }
     });
   }
   /**

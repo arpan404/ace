@@ -9,7 +9,7 @@ import {
 } from "@ace/offshift";
 import type { OffshiftAuthor, OffshiftPerson, OffshiftView } from "@ace/protocol/offshift";
 import type { OffshiftClientResult, OffshiftPersonOperation } from "@ace/protocol/offshift-person";
-import type { AgentControlResult, McpAttribution, ThreadId } from "@ace/protocol";
+import type { AgentControlResult, McpAttribution, MonitorSnapshot, ThreadId } from "@ace/protocol";
 import type { ThreadStatus } from "@ace/protocol/thread-status";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "./delegations.ts";
@@ -24,14 +24,17 @@ const otherCheckout =
 const notDescendant =
   "runOwner must be a thread that delegated you (directly or through other children) and is still your live ancestor. Omit runOwner to use your own runs.";
 
+/** Descendants not settled: a queued or unreadable child still holds the tree open. */
+const liveChildren = (counts: MonitorSnapshot["counts"]) =>
+  counts.working + counts.queued + counts.unknown;
 /** The whole tree's state: the owner's own status, then anything a descendant still holds. */
 function treeState(
   status: ThreadStatus["state"],
-  counts: { working: number; needs_you: number },
+  counts: MonitorSnapshot["counts"],
 ): OffshiftView["treeState"] {
   if (status === "needs_you" || counts.needs_you) return "needs_you";
   if (status === "failed") return "failed";
-  if (status === "working" || counts.working) return "working";
+  if (status === "working" || liveChildren(counts)) return "working";
   if (status === "waiting" || status === "limited") return "waiting";
   return status === "done" ? "done" : "unknown";
 }
@@ -116,7 +119,7 @@ export function createOffshifts(context: ServiceContext, delegations: Delegation
             threadId,
             agentId: owner.rootAgentId,
           }).counts
-        : { working: 0, needs_you: 0 };
+        : { working: 0, queued: 0, needs_you: 0, unknown: 0, done: 0, failed: 0, cancelled: 0 };
       const at = now();
       const observation = {
         threadId,
@@ -125,7 +128,7 @@ export function createOffshifts(context: ServiceContext, delegations: Delegation
         now: at,
         revision,
         treeState: treeState(owner.status.state, counts),
-        children: counts.working + counts.needs_you,
+        children: liveChildren(counts) + counts.needs_you,
       };
       try {
         const result = commit(threadId, at, () =>
@@ -207,7 +210,7 @@ export function createOffshifts(context: ServiceContext, delegations: Delegation
             now: at,
             revision,
             treeState: treeState(owner.status.state, counts),
-            children: counts.working + counts.needs_you,
+            children: liveChildren(counts) + counts.needs_you,
           }),
         );
         return { ok: true, data };
