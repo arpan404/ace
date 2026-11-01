@@ -6,7 +6,7 @@ import {
   PlusIcon,
   RobotIcon,
   ScrollIcon,
-  SparkleIcon,
+  StackIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -44,7 +44,7 @@ import { skillTitle, type Skill, type SkillKind } from "./skills-model.ts";
 import { useSkills } from "./skills-source.ts";
 
 export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }[] = [
-  { kind: "skill", label: "Skills", icon: SparkleIcon },
+  { kind: "skill", label: "Skills", icon: StackIcon },
   { kind: "command", label: "Slash commands", icon: SlashIcon },
   { kind: "agent", label: "Agents", icon: RobotIcon },
   { kind: "rule", label: "Rules", icon: ScrollIcon },
@@ -53,8 +53,7 @@ export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }
   { kind: "workflow", label: "Workflows", icon: ClockIcon },
 ];
 
-const kindIcon = (kind: SkillKind) =>
-  kinds.find((entry) => entry.kind === kind)?.icon ?? SparkleIcon;
+const kindIcon = (kind: SkillKind) => kinds.find((entry) => entry.kind === kind)?.icon ?? StackIcon;
 
 /** The library as the sidebar draws it: by where each skill lives, in list order within. */
 export function catalogOrder(skills: readonly Skill[]): Skill[] {
