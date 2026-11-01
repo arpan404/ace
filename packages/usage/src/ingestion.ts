@@ -4,7 +4,7 @@ import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { UsageBatch, type UsageEvent } from "./events.ts";
 import { Counts, type Counts as CountValues } from "./counters.ts";
 import { accountSample, counterPolicy } from "./accounting.ts";
-import { upsertDaily } from "./database.ts";
+import { upsertDaily, upsertSkillDaily } from "./database.ts";
 import { retainedDay } from "./retention.ts";
 const Agent = z.object({
   thread: z.string(),
@@ -13,7 +13,18 @@ const Agent = z.object({
   provider: z.string(),
   run: z.string(),
   workspace: z.string(),
+  skills: z.string().nullable(),
 });
+const Skills = z.array(z.string()).catch([]);
+/** The thread's current turn skills, stored as a JSON array; anything unreadable counts as none. */
+function turnSkills(stored: string | null): string[] {
+  if (stored === null) return [];
+  try {
+    return Skills.parse(JSON.parse(stored));
+  } catch {
+    return [];
+  }
+}
 export type DailyIncrement = CountValues & {
   day: string;
   thread: string;
@@ -57,25 +68,29 @@ export class Ingestion {
     try {
       const cursor = Number(this.sql("SELECT cursor FROM usage_meta WHERE id=1").get()?.cursor);
       if (batch.afterSeq > cursor) throw new Error("Usage replay gap");
-      const deltas: DailyIncrement[] = [];
+      let deltas: DailyIncrement[] = [];
+      let skillDeltas: (DailyIncrement & { skill: string })[] = [];
       for (const event of batch.events)
         if (event.seq > cursor) {
-          const delta = this.apply(event);
+          const applied = this.apply(event);
           if (event.payload.type === "thread.deleted") {
             // Deferred rollups from this same batch must not resurrect a deleted thread.
-            for (let i = deltas.length - 1; i >= 0; i--) {
-              if (deltas[i]?.thread === event.threadId) deltas.splice(i, 1);
-            }
+            deltas = deltas.filter((d) => d.thread !== event.threadId);
+            skillDeltas = skillDeltas.filter((d) => d.thread !== event.threadId);
           }
-          if (delta) deltas.push(delta);
+          if (!applied) continue;
+          const [delta, skills] = applied;
+          deltas.push(delta);
+          for (const skill of skills) skillDeltas.push({ ...delta, skill });
         }
       if (deltas.length) this.sql(upsertDaily).run(JSON.stringify(deltas));
+      if (skillDeltas.length) this.sql(upsertSkillDaily).run(JSON.stringify(skillDeltas));
       const latest = Number(
         this.sql("SELECT latest_at FROM usage_meta WHERE id=1").get()?.latest_at,
       );
-      this.sql("DELETE FROM usage_daily WHERE day<?").run(
-        retainedDay(this.day(latest), this.retentionDays),
-      );
+      const retained = retainedDay(this.day(latest), this.retentionDays);
+      this.sql("DELETE FROM usage_daily WHERE day<?").run(retained);
+      this.sql("DELETE FROM usage_skill_daily WHERE day<?").run(retained);
       this.sql("DELETE FROM usage_increments WHERE at<?").run(
         Math.max(0, latest - this.incrementRetentionDays * 86_400_000),
       );
@@ -104,7 +119,8 @@ export class Ingestion {
     );
     if (child) throw new Error("Cross-thread usage child");
   }
-  private apply(event: UsageEvent): DailyIncrement | undefined {
+  /** The event's daily increment and the skills it also counts for, if it spent anything. */
+  private apply(event: UsageEvent): [DailyIncrement, string[]] | undefined {
     const p = event.payload;
     const thread = event.threadId;
     if (p.type === "usage.skipped") {
@@ -118,16 +134,32 @@ export class Ingestion {
       ).run(thread);
       this.sql("DELETE FROM usage_agents WHERE thread=?").run(thread);
       this.sql("DELETE FROM usage_daily WHERE thread=?").run(thread);
+      this.sql("DELETE FROM usage_skill_daily WHERE thread=?").run(thread);
       this.sql("DELETE FROM usage_increments WHERE thread=?").run(thread);
       this.sql("DELETE FROM usage_threads WHERE thread=?").run(thread);
       return;
     }
     if (p.type === "thread.created") {
-      this.sql("INSERT OR IGNORE INTO usage_threads VALUES (?, ?, ?)").run(
+      this.sql(
+        `INSERT INTO usage_threads(thread, workspace, provider, delegated) VALUES (?, ?, ?, ?)
+        ON CONFLICT(thread) DO UPDATE SET delegated=MAX(delegated, excluded.delegated)`,
+      ).run(thread, p.workspace, p.provider, p.delegated ? 1 : 0);
+      return;
+    }
+    if (p.type === "thread.delegated") {
+      this.sql("UPDATE usage_threads SET delegated=1 WHERE thread=?").run(thread);
+      return;
+    }
+    if (p.type === "turn.asked") {
+      // A subagent's prompt is not the person's ask: only the thread's root agent opens turns.
+      const asker = this.sql("SELECT parent FROM usage_agents WHERE agent=? AND thread=?").get(
+        p.agent,
         thread,
-        p.workspace,
-        p.provider,
       );
+      if (asker?.parent != null) return;
+      this.sql(
+        "UPDATE usage_threads SET skills=?, automation=COALESCE(automation, ?) WHERE thread=?",
+      ).run(p.skills.length ? JSON.stringify(p.skills) : null, p.automation ?? null, thread);
       return;
     }
     if (p.type === "agent.created") {
@@ -178,7 +210,7 @@ export class Ingestion {
       return;
     }
     const metadata = this.sql(`SELECT a.thread, a.parent, a.model,
-      COALESCE(a.provider,t.provider) AS provider, a.run, t.workspace
+      COALESCE(a.provider,t.provider) AS provider, a.run, t.workspace, t.skills
       FROM usage_agents a JOIN usage_threads t ON t.thread=a.thread
       WHERE a.agent=? AND a.thread=?`).get(p.agentId, thread);
     if (!metadata) {
@@ -228,7 +260,7 @@ export class Ingestion {
       delta.output,
       billing === "subscription" ? 0 : delta.cost,
     );
-    return {
+    const daily = {
       ...delta,
       cost: billing === "subscription" ? 0 : delta.cost,
       day: this.day(event.at),
@@ -240,5 +272,7 @@ export class Ingestion {
       workspace: a.workspace,
       billing,
     };
+    // The whole thread's spend in the turn counts for its skills, subagents included.
+    return [daily, turnSkills(a.skills)];
   }
 }

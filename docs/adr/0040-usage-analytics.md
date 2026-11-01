@@ -213,3 +213,35 @@ metadata. History beyond the horizon requires a rebuild from retained events.
 No speculative OpenCode Go/Zen quota decoder is added: the current recordings
 and CLI contract expose no numeric quota windows to validate. Unknown billing,
 models, stale windows and missing observation sources remain explicit.
+
+## Skill, automation and role attribution, 2026-11-01
+
+Three dimensions join the projection, all learned from the replayed canonical log:
+
+- **skill**: a root user message that opens a turn (ADR 0062's rule, minus synthetic
+  messages and fork copies) sets the thread's current skills from its skill mentions. Every
+  usage increment until the thread's next ask counts for those skills, subagents included,
+  because the skill shapes the whole turn. Each skill gets the full amount, so skill rows
+  overlap and don't sum to the total. They live in `usage_skill_daily`, which carries every
+  other dimension so skill filters and groups compose with the rest. `usage_daily` is not
+  multiplied.
+- **automation**: the automation id in the `origin` of the thread's first automation prompt
+  (`kind: "automation"`, `role: <id>`), stored once per thread. Null otherwise.
+- **role**: `delegated` for every increment in a thread another thread's agent started
+  (`delegatedBy`, `delegatedFrom` or `startedBy`, from `thread.created` or `thread.updated`),
+  else `subagent` for an agent with a parent, else `main`.
+
+Automation and role are joined from the thread and agent tables at query time instead of
+being stored on daily rows. A delegation or parent link that arrives after the usage still
+applies, the daily primary key is unchanged, and queries that don't use these dimensions
+add no joins. The replay reads only `item.created` rows that are root asks and
+`thread.updated` rows that carry a delegation link. Item payloads are parsed in SQLite, and
+only names and ids cross into Node, under the same 8 KiB caps. Oversized skill names or
+automation ids are dropped, never fatal. One ask attributes at most 32 skills.
+
+Provider-side skill invocations, such as a Claude `Skill` tool call, are not counted. No
+recorded fixture shows their shape, their input usually arrives in later `item.updated`
+frames, and reading every tool item would put the busiest event type on the replay path.
+
+Projection v3 drops the derived tables of v1 and v2 projections and replays retained
+history. That recovers all three dimensions for every retained event.
