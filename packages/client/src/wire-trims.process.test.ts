@@ -1,12 +1,8 @@
-import { afterEach, expect, test } from "vitest";
+import { expect, test } from "vitest";
 import { AgentId, Capabilities, ClientMessage, ItemId } from "@ace/protocol";
-import { setup, ready, when } from "./test-support.ts";
+import { sharedDaemon, ready, when } from "./test-support.ts";
 
-let cleanup: (() => Promise<void>) | undefined;
-afterEach(async () => {
-  await cleanup?.();
-  cleanup = undefined;
-});
+const harness = sharedDaemon();
 
 const capabilities = Capabilities.parse({
   steer: true,
@@ -24,8 +20,7 @@ const capabilities = Capabilities.parse({
 });
 
 test("a thread opened through the real daemon keeps its capabilities and items though the wire omits them", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   h.daemon.store.appendEvents(h.thread.id, [{ type: "thread.updated", capabilities }]);
   h.daemon.store.appendEvents(h.thread.id, [
     {
@@ -69,8 +64,7 @@ test("a thread opened through the real daemon keeps its capabilities and items t
 });
 
 test("a client opens its connection by listing the trims it can undo", async () => {
-  const h = await setup();
-  cleanup = h.cleanup;
+  const h = await harness();
   const { client, faults } = h.make();
   await ready(client);
   const hello = faults.sent

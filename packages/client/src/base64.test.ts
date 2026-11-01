@@ -39,7 +39,19 @@ describe.each([
 
   it("refuses text that isn't canonical base64 or decodes past the limit", () => {
     useNative(native);
-    for (const bad of ["abc", "ab=c", "a b=", "QQ==QQ==", "QR==", "QUJ=", "-_8="])
+    for (const bad of [
+      "abc",
+      "ab=c",
+      "a b=",
+      "QQ==QQ==",
+      "QR==",
+      "QUJ=",
+      "-_8=",
+      "??==",
+      "YQ",
+      "YQ=Z",
+      "YR==",
+    ])
       expect(() => decodeBase64(bad, 1000), bad).toThrow("protocol");
     expect(() => decodeBase64(Buffer.from(bytes).toString("base64"), 999)).toThrow("protocol");
   });
