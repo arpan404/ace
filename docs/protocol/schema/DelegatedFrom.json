@@ -10,8 +10,16 @@
       "minLength": 1,
       "type": "string"
     },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "threadTitle": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
     }
   },
   "required": [

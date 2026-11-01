@@ -2,8 +2,20 @@
   "$id": "https://ace.local/protocol/v1/LinkedPullRequest.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "checks": {
+      "enum": [
+        "pending",
+        "passed",
+        "failed"
+      ],
+      "type": "string"
+    },
     "deleted": {
       "type": "boolean"
+    },
+    "head": {
+      "maxLength": 64,
+      "type": "string"
     },
     "number": {
       "exclusiveMinimum": 0,

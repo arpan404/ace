@@ -17,6 +17,9 @@
     "queuedLaunch": {
       "$ref": "https://ace.local/protocol/v1/QueuedLaunch.json"
     },
+    "startedBy": {
+      "$ref": "https://ace.local/protocol/v1/StartedBy.json"
+    },
     "switch": {
       "$ref": "https://ace.local/protocol/v1/ThreadSwitch.json"
     }
