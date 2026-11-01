@@ -153,11 +153,16 @@ export async function setup(
  * in the file uses: item IDs are unique per daemon, not per thread. Client command IDs keep
  * counting across tests so receipts never collide.
  */
-export function sharedDaemon(): () => Promise<Harness> {
+export function sharedDaemon(
+  options: {
+    handler?: CommandHandler;
+    engine?: DaemonOptions["engine"];
+  } = {},
+): () => Promise<Harness> {
   let base: TestDaemon | undefined;
   const scopes: Harness[] = [];
   beforeAll(async () => {
-    base = await startTestDaemon();
+    base = await startTestDaemon(options.handler, undefined, options.engine);
   });
   afterEach(async () => {
     for (const scope of scopes.splice(0)) await scope.cleanup();
