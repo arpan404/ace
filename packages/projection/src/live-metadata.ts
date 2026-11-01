@@ -36,11 +36,19 @@ function subagentRunning(task: TaskFacts | undefined): number {
   return Number(task?.status === "running" && standsForSubagent(task));
 }
 
-/** A delegated child thread this agent summarises, while its tree waits on the person. */
+/**
+ * A delegated child thread this agent summarises, while its tree waits on the person. A child on
+ * another machine isn't a thread here to open; its parent shows what it asks.
+ */
 function askingChild(
   agent: Agent | undefined,
 ): { id: Agent["threadId"]; name?: string } | undefined {
-  if (!agent?.childThreadId || agent.status.state !== "blocked" || agent.status.on !== "human")
+  if (
+    !agent?.childThreadId ||
+    agent.machine ||
+    agent.status.state !== "blocked" ||
+    agent.status.on !== "human"
+  )
     return undefined;
   const name = (agent.name ?? agent.role)?.slice(0, titleLength);
   return { id: agent.childThreadId, ...(name ? { name } : {}) };

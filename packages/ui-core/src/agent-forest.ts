@@ -74,6 +74,11 @@ export interface AgentForestNode extends NodeBase {
   stale: boolean;
   /** A delegate whose thread couldn't be loaded (no room, or its subscription failed). */
   notLoaded: boolean;
+  /**
+   * The running task that stands for this agent's work (a subagent task naming it, such as the
+   * hold a child on another machine keeps): this row is that work, so no command row repeats it.
+   */
+  hold?: BackgroundTask | undefined;
 }
 
 export interface CommandForestNode extends NodeBase {
@@ -122,7 +127,8 @@ function reachable(
     const next: string[] = [];
     for (const threadId of level)
       for (const agent of works.get(threadId)?.agents ?? []) {
-        const child = agent.childThreadId;
+        // A child on another machine has no thread here to load: its row is all there is.
+        const child = agent.machine ? undefined : agent.childThreadId;
         if (!child || seen.has(child) || reach.length >= bounds.threads) continue;
         seen.add(child);
         reach.push(child);
@@ -141,6 +147,8 @@ interface Layer {
   kids: ReadonlyMap<string | null, readonly Agent[]>;
   /** Running background commands by the shown agent that owns them. */
   commands: ReadonlyMap<string, readonly BackgroundTask[]>;
+  /** Running subagent tasks by the shown agent doing the work. */
+  holds: ReadonlyMap<string, BackgroundTask>;
 }
 
 /**
@@ -178,14 +186,20 @@ function layerOf(facts: ThreadWork): Layer {
         : byStart,
     );
   const commands = new Map<string, BackgroundTask[]>();
+  const holds = new Map<string, BackgroundTask>();
   for (const task of facts.tasks)
     if (runningTask(task)) {
+      // A subagent task naming an agent in this tree is that agent's work: its row stands for it.
+      if (task.kind === "subagent" && task.childAgentId && byId.has(task.childAgentId)) {
+        holds.set(shown(task.childAgentId), task);
+        continue;
+      }
       const owner = byId.has(task.agentId) ? shown(task.agentId) : task.agentId;
       const bucket = commands.get(owner);
       if (bucket) bucket.push(task);
       else commands.set(owner, [task]);
     }
-  return { running: work.running, needsYou: work.needsYou, kids, commands };
+  return { running: work.running, needsYou: work.needsYou, kids, commands, holds };
 }
 
 const noTally = (): ForestTally => ({ working: 0, done: 0, syncing: 0, commands: 0 });
@@ -254,7 +268,7 @@ export function agentForest(
   const build = (threadId: string): ForestNode[] => {
     const facts = works.get(threadId);
     if (!facts || facts.facts === "not_loaded") return [];
-    const { running, needsYou, kids, commands } = layer(facts);
+    const { running, needsYou, kids, commands, holds } = layer(facts);
     const syncing = facts.facts === "syncing";
     const visiting = new Set<string>();
     const node = (agent: Agent): AgentForestNode => {
@@ -275,7 +289,8 @@ export function agentForest(
           children: [],
         });
       visiting.delete(agent.id);
-      const child = agent.childThreadId;
+      const child = agent.machine ? undefined : agent.childThreadId;
+      const hold = holds.get(agent.id);
       let childThread: string | undefined;
       let childRoot: AgentForestNode | undefined;
       let stale = syncing;
@@ -297,7 +312,8 @@ export function agentForest(
         }
       }
       const tally = noTally();
-      let live = running.has(agent.id) || childRoot?.live === true;
+      // Work still running for it keeps it live, whatever its own status last said.
+      let live = running.has(agent.id) || hold !== undefined || childRoot?.live === true;
       let asks = needsYou.has(agent.id) || childRoot?.needsYou === true;
       // A thread that couldn't load may be working: its branch is as uncertain as a syncing one.
       let unconfirmed = stale || notLoaded || childRoot?.unconfirmed === true;
@@ -319,6 +335,7 @@ export function agentForest(
         unconfirmed,
         stale,
         notLoaded,
+        hold,
         tally,
         children: ordered(children),
       };
