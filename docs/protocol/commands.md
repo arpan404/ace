@@ -548,6 +548,7 @@ Example:
 | type | yes | `"thread.snooze"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | until | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},{"type":"null"}]} |
+| wake | no | ["needs_you","pr"] |  |
 
 Example:
 

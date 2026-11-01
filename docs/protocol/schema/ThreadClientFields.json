@@ -71,6 +71,9 @@
       ],
       "type": "string"
     },
+    "snoozeWake": {
+      "$ref": "https://ace.local/protocol/v1/SnoozeWake.json"
+    },
     "snoozedUntil": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

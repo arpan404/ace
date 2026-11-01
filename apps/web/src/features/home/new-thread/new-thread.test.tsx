@@ -520,6 +520,10 @@ test("a draft typed offline survives a reload and starts its thread once reconne
   );
 });
 
+/** The first bubble as drawn: it renders the message's markdown, "reconnect" in bold. */
+const reconnectBubble = (_: string, node: Element | null) =>
+  node?.tagName === "P" && node.textContent === "Trace the reconnect storm @src/relay.ts";
+
 test("Enter opens the new thread at once with the message as its first bubble, even offline", async () => {
   const made = app();
   await made.open("/new?project=relay");
@@ -532,7 +536,7 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   // The header reads the provisional title; the message is the first bubble, on its way.
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect storm" });
   const feed = screen.getByRole("feed", { name: "Transcript" });
-  expect(within(feed).getByText("Trace the **reconnect** storm @src/relay.ts")).toBeTruthy();
+  expect(await within(feed).findByText(reconnectBubble)).toBeTruthy();
   expect(within(feed).getByText("Will apply when reconnected")).toBeTruthy();
   expect(screen.getByRole("status", { name: /^(Preparing worktree|Starting .+)…$/ })).toBeTruthy();
   expect(listed(made)).toHaveLength(workbench().length);
@@ -552,9 +556,7 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   });
   expect(created).toMatchObject({ workspaceId: "relay" });
   const opened = screen.getByRole("feed", { name: "Transcript" });
-  expect(within(opened).getAllByText("Trace the **reconnect** storm @src/relay.ts")).toHaveLength(
-    1,
-  );
+  expect(await within(opened).findAllByText(reconnectBubble)).toHaveLength(1);
 });
 
 afterEach(() => vi.restoreAllMocks());

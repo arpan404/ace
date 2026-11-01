@@ -8,6 +8,10 @@
     "delivery": {
       "$ref": "https://ace.local/protocol/v1/FollowUpBehavior.json"
     },
+    "fellBack": {
+      "const": true,
+      "type": "boolean"
+    },
     "id": {
       "$ref": "https://ace.local/protocol/v1/CommandId.json"
     },

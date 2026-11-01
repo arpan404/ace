@@ -28,7 +28,9 @@ test("opening the panel defaults to Summary with the agent tree and its running 
   await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
   const work = await screen.findByRole("tabpanel", { name: "Summary" });
   expect(screen.getByRole("tab", { name: "Summary", selected: true })).toBeTruthy();
-  expect(screen.getAllByRole("tab")[0]?.textContent).toBe("Summary");
+  // The panel's own strip: the sidebar's Inbox tabs are tabs too.
+  const strip = screen.getByRole("tablist", { name: "Thread panel tabs" });
+  expect(within(strip).getAllByRole("tab")[0]?.textContent).toBe("Summary");
   const tree = await within(work).findByRole("tree", { name: "Agent tree" });
   expect(within(tree).getByRole("treeitem", { name: "$ bun run dev: running" })).toBeTruthy();
   expect(within(work).getByRole("button", { name: "Stop" })).toBeTruthy();
