@@ -30,9 +30,8 @@ import { useAgentForest } from "./use-agent-forest.tsx";
 const queueOf = (reader: ThreadReader) => reader.queue;
 
 /**
- * The thread at a glance, top to bottom: Now (one sentence and one grey line), an active
- * threads it delegated, what came out of the work, the plan, and the project's automations in
- * one line. A section with nothing in it is left out. Everything reads bounded facts: the live
+ * The thread at a glance: current work, what happened since the person last looked,
+ * the agent tree, results, the plan, and the project's automations. A section with nothing in it is left out. Everything reads bounded facts: the live
  * entities of each thread and the turn index's digests, never a thread's history.
  */
 export default function WorkTab(props: TabViewProps) {

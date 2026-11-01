@@ -121,6 +121,9 @@ test("upgrading an unfinished Offshift run settles stale work and preserves old 
     expect(store.getThread(thread.id)?.status).toEqual({ state: "done" });
     // Removing a workflow must never settle a real live agent tree.
     expect(store.getThread(active.id)?.status.state).toBe("working");
+    expect(() =>
+      store.readSearchPage({ afterSeq: head, limit: 10, maxBytes: 256 * 1024 }),
+    ).not.toThrow();
     const events = store.readEvents({ afterSeq: head, threadId: thread.id, limit: 10 });
     expect(events).toHaveLength(2);
     expect(events[1]?.payload).toMatchObject({

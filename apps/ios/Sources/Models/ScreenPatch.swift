@@ -188,7 +188,7 @@ enum ScreenPatch: Sendable {
     case mergeDraft(MergeDraftRow)
 
     static let types: Set<String> = ["thread.work", "thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.annotations", "thread.laneBlock", "thread.laneBlockPosition", "thread.laneInfo", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, opened, draft, items, info, run }
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, opened, draft, items, info }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {

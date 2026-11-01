@@ -9,7 +9,6 @@ import { facts, type FakeDaemon } from "@ace/fake-daemon";
  *   the person a question, so its branch waits on the person and never reads done.
  * - `ios-big-tree`: 160 finished subagents, two still working, and 45 background commands, for
  *   the Agents sheet's pages.
- * must read Working while its two subagents still work.
  */
 
 function launch(item: string, name: string, prompt: string): Fact[] {

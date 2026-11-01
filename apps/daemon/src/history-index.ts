@@ -1,3 +1,4 @@
+import { decodeStoredPayload } from "./stored-decode.ts";
 import { decodeStoredItem } from "./stored-decode.ts";
 import { HistorySearchReplay } from "./history-search-replay.ts";
 import type { SearchReplayItem } from "@ace/search";
@@ -93,7 +94,7 @@ export class HistoryIndex {
           id: row.id,
           threadId: row.thread_id,
           at: row.at,
-          payload: JSON.parse(String(row.payload)),
+          payload: decodeStoredPayload(JSON.parse(String(row.payload))),
         });
         this.replay(event);
       }

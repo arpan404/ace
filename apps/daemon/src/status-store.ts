@@ -1,3 +1,4 @@
+import { decodeStoredPayload } from "./stored-decode.ts";
 import { EntityWindow } from "./entity-window.ts";
 import { EntityRetention, retainedEntity } from "./entity-retention.ts";
 import { trimAgentMetadata } from "./metadata-retention.ts";
@@ -91,7 +92,7 @@ export class StatusStore {
           id: row.id,
           threadId: row.thread_id,
           at: row.at,
-          payload: JSON.parse(String(row.payload)),
+          payload: decodeStoredPayload(JSON.parse(String(row.payload))),
         };
         const parsed = Event.safeParse(input);
         if (!parsed.success && row.type === "usage.updated") continue;
@@ -123,7 +124,7 @@ export class StatusStore {
           id: row.id,
           threadId: row.thread_id,
           at: row.at,
-          payload: JSON.parse(String(row.payload)),
+          payload: decodeStoredPayload(JSON.parse(String(row.payload))),
         });
         if (!parsed.success) continue;
         const thread = getThread(parsed.data.threadId);

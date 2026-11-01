@@ -209,7 +209,6 @@ export function updateThread(thread: Thread, event: Event): void {
   }
   if (payload.type === "agent.created" && payload.agent.origin === "root")
     thread.rootAgentId = payload.agent.id;
-  // The row carries where the latest run stands; a run write is not thread activity.
   if (isSidebarEvent(event)) thread.updatedAt = event.at;
 }
 export function isSidebarEvent(event: Event): boolean {
