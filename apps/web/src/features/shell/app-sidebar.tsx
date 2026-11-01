@@ -2,14 +2,16 @@ import { useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { NavButtons } from "./app-header.tsx";
 import { AppRail } from "./app-rail.tsx";
+import { panelCanvasClass } from "./canvas.ts";
 import { ForgePanel } from "./forge-panel.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 import { activeView } from "./views.ts";
 
 /**
- * The one sidebar, on the frame colour: its top row is the left of the window's top bar (the
+ * The one sidebar: its top row is the left of the window's top bar (the
  * macOS traffic lights, then back, forward and the sidebar's toggle), and under it the rail of
- * places beside the current place's panel, the only part that scrolls. Threads' panel is the
+ * places (on the frame colour) beside the current place's panel, where the canvas begins: the
+ * page surface with its rounded corner (`panelCanvasClass`), the only part that scrolls. Threads' panel is the
  * thread list, which draws its own title row with the filter, the Inbox bell and Search;
  * GitHub's lists its three pages; Settings, Automations and Skills draw their own lists into it
  * (`ViewFrame`). ⌘K opens the palette anywhere.
@@ -35,7 +37,10 @@ export function AppSidebar(props: {
       </div>
       <div className="flex min-h-0 flex-1">
         <AppRail forge={props.forge} />
-        <div data-slot="sidebar-panel" className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          data-slot="sidebar-panel"
+          className={`flex min-h-0 min-w-0 flex-1 flex-col ${sheet ? "" : panelCanvasClass}`}
+        >
           {!bodyClaimed && (onForge ? <ForgePanel /> : props.threads)}
           <div ref={setBody} className="contents" />
         </div>

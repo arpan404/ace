@@ -85,12 +85,15 @@ than a sidebar and a column each with its own header.
   the side panel's toggle. Built as two halves on the same row: the sidebar's top row carries the
   navigation while the sidebar is beside the column, and the screen header carries it while the
   sidebar is hidden or a sheet. There is no other header row and no hairline under the bar.
-- **Frame and canvas.** The top bar, the rail and the panel sit on the frame colour (`--sidebar`).
-  The main column and any side panel beside it sit below the bar on the page surface
-  (`--background`) as one raised canvas, with a 12px corner at its top left and one hairline
-  where it meets the frame. With the sidebar hidden or in a sheet, the canvas runs to the
-  window's edge and keeps only its top hairline. The side panel's strip sits on the canvas; its
-  toggle stays in the top bar, and the strip keeps full view and the dock choice.
+- **Frame and canvas.** Only the top bar and the rail sit on the frame colour (`--sidebar`).
+  Everything under the bar from the sidebar's panel rightwards is one canvas on the page
+  surface (`--background`): it begins at the panel, which turns a 12px corner at its top left
+  with a hairline along its top and left, and runs on through the main column and any side
+  panel, with one hairline between the panel and the main column (owner, 2026-11-01: the
+  sidebar reads as part of the workspace, not part of the chrome). With the sidebar hidden or
+  in a sheet, the canvas runs to the window's edge and keeps only its top hairline. The side
+  panel's strip sits on the canvas; its toggle stays in the top bar, and the strip keeps full
+  view and the dock choice.
 - **Rail.** Bare 20px glyphs in 40px boxes; a short hairline divides Threads and Spade from
   GitHub, Automations and Skills. A dot on a place is in the warning colour while something there
   needs the person, blue while it holds news not yet seen (GitHub's unread notifications).
