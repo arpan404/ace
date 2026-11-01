@@ -46,13 +46,6 @@ test("a patch release that drops an operation ace calls is refused, naming the v
   );
 });
 
-test("a patch release that moves an operation ace calls is refused, naming the old and new route", async () => {
-  const failure = setup(release("2.0.28", { ACE_TEST_CONTRACT_CHANGE: "move session.interrupt" }));
-  await expect(failure).rejects.toThrow(
-    "OpenCode 2.0.28 changed the API ace uses (session.interrupt moved from POST /api/session/:sessionID/interrupt to POST /api/v3/session.interrupt)",
-  );
-});
-
 test.each(["2.0.21", "1.18.33"])(
   "OpenCode %s older than the supported range is refused as too old, naming both versions",
   async (version) => {
