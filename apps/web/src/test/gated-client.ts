@@ -20,6 +20,10 @@ export interface Gate {
   queue: (() => void)[];
   /** Also hold every frame of a subscription that started while held, replays included. */
   newWires?: boolean;
+  /** Each thread's latest subscription, by thread id, from the snapshots that came through. */
+  subscriptions?: Map<string, string>;
+  /** Hand the client a frame as if the daemon sent it, once the connection is open. */
+  deliver?: (text: string) => void;
 }
 
 /** A client over `daemon` that keeps read snapshots in `saved`, its snapshots behind `gate`. */
@@ -54,6 +58,7 @@ function holding(daemon: FakeDaemon, gate: Gate) {
   const flowing = new Set<string>();
   return {
     open(events: TransportEvents) {
+      gate.deliver = (text) => events.message(text);
       inner.open({
         open: () => events.open(),
         close: (code, reason) => events.close(code, reason),
@@ -75,6 +80,8 @@ function holding(daemon: FakeDaemon, gate: Gate) {
             return;
           }
           if (typeof wire === "string") flowing.add(wire);
+          const viewed = snapshot && typeof wire === "string" ? threadOf(frame) : undefined;
+          if (viewed && typeof wire === "string") gate.subscriptions?.set(viewed, wire);
           events.message(text);
         },
       });
@@ -82,4 +89,14 @@ function holding(daemon: FakeDaemon, gate: Gate) {
     send: (text: string) => inner.send(text),
     close: () => inner.close(),
   };
+}
+
+/** The thread a snapshot frame is of, read without trusting its shape. */
+function threadOf(frame: unknown): string | undefined {
+  if (typeof frame !== "object" || frame === null || !("view" in frame)) return undefined;
+  const view = frame.view;
+  if (typeof view !== "object" || view === null || !("thread" in view)) return undefined;
+  const thread = view.thread;
+  if (typeof thread !== "object" || thread === null || !("id" in thread)) return undefined;
+  return typeof thread.id === "string" ? thread.id : undefined;
 }

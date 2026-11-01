@@ -1,8 +1,9 @@
 import { foldFinished, type ForestNode, type ThreadWork } from "@ace/ui-core";
 import type { Interaction } from "@ace/protocol";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { AgentLine, CommandLine, FinishedLine, guideLeft } from "./summary-rows.tsx";
+import { useKeptFocus } from "./summary-tree-focus.ts";
 
 /** The key a person's fold of a row is kept under, with the Summary tab. */
 const foldKey = (row: string) => `fold:${row}`;
@@ -145,16 +146,7 @@ export function SummaryTree(props: {
   // The selected row may have folded away (an agent finished into "N done"): the row standing
   // for it takes the tree's Tab stop, so the tree is never left without one.
   const active = (selected === undefined ? undefined : stand.get(selected)) ?? props.roots[0]?.key;
-  const tree = useRef<HTMLUListElement>(null);
-  const focusInside = useRef(false);
-  useLayoutEffect(() => {
-    const lost = document.activeElement === null || document.activeElement === document.body;
-    if (!focusInside.current || !lost || active === undefined) return;
-    // Focus was on a row that just went away: carry it to the row that took its place, whose
-    // focus handler then makes it the selected row.
-    const rows = tree.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [];
-    for (const row of rows) if (row.dataset.row === active) row.focus();
-  }, [active]);
+  const { tree, onFocus, onBlur } = useKeptFocus(active);
   const context: TreeContext = {
     viewed: props.threadId,
     active,
@@ -171,13 +163,8 @@ export function SummaryTree(props: {
       role="tree"
       aria-label="Agent tree"
       onKeyDown={treeKeys(setActive, context.fold)}
-      onFocus={() => (focusInside.current = true)}
-      onBlur={(event) => {
-        // A row that unmounts while focused blurs with nowhere to go: that keeps the focus here.
-        const next = event.relatedTarget;
-        if (next instanceof Node && !event.currentTarget.contains(next))
-          focusInside.current = false;
-      }}
+      onFocus={onFocus}
+      onBlur={onBlur}
       className="-mx-1"
     >
       <Branch nodes={props.roots} depth={0} context={context} />

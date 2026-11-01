@@ -249,3 +249,66 @@ test("when the focused agent finishes and folds into the done line, focus moves 
   await userEvent.keyboard("{ArrowRight}{ArrowDown}");
   expect(document.activeElement).toBe(await agentRow(work, "Task 0"));
 });
+
+test("when the viewed thread's own subscription fails, the done it kept is not shown as current", async () => {
+  const gate: Gate = { held: false, queue: [], subscriptions: new Map() };
+  const app = harness({ client: (daemon) => gatedClient(daemon, memoryReadSnapshots(), gate) });
+  for (const scenario of finishedChain()) app.play(scenario).runUntilBlocked();
+  await app.open("/t/thread-cold-check");
+  const work = await openWorkPanel();
+  await waitFor(async () => expect(await summaryStatus(work)).toMatch(/^Done/));
+  const subscriptionId = gate.subscriptions?.get("thread-cold-check");
+  if (!subscriptionId || !gate.deliver) throw new Error("The thread's subscription never opened");
+  const deliver = gate.deliver;
+  act(() =>
+    deliver(
+      JSON.stringify({ type: "error", code: "internal", message: "Lost it", subscriptionId }),
+    ),
+  );
+  // Its metadata still says done; the Summary doesn't repeat that as fact.
+  await waitFor(async () => expect(await summaryStatus(work)).toBe("Syncing"));
+});
+
+/** Tab into the tree at its one stop, go Home, then ↓ until the row named `name` has focus. */
+async function focusRow(work: HTMLElement, name: string) {
+  const tree = await within(work).findByRole("tree", { name: "Agent tree" });
+  for (let step = 0; step < 80 && !tree.contains(document.activeElement); step++)
+    await userEvent.tab();
+  await userEvent.keyboard("{Home}");
+  const target = await agentRow(work, name);
+  for (let step = 0; step < 40 && document.activeElement !== target; step++)
+    await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(target);
+}
+
+test("when the focused agent finishes into an open done line, focus stays on its row there", async () => {
+  const app = harness();
+  app.play(fleet).runUntilBlocked();
+  await app.open("/t/thread-fold");
+  const work = await openWorkPanel();
+  const done = await within(work).findByRole("treeitem", { name: "19 done" });
+  await userEvent.click(done);
+  expect(done.getAttribute("aria-expanded")).toBe("true");
+  await focusRow(work, "Task 0");
+
+  act(() => app.daemon.apply("thread-fold", [facts.endTurn("s0")]));
+  await within(work).findByRole("treeitem", { name: "20 done" });
+  // Its row now sits in the open line, a new element: the keyboard is still on it.
+  await waitFor(async () => expect(document.activeElement).toBe(await agentRow(work, "Task 0")));
+  expect((await agentRow(work, "Task 0")).tabIndex).toBe(0);
+});
+
+test("after the person clicks away from the tree, a row folding away never pulls focus back", async () => {
+  const app = harness();
+  app.play(fleet).runUntilBlocked();
+  await app.open("/t/thread-fold");
+  const work = await openWorkPanel();
+  await focusRow(work, "Task 0");
+  // A click on background that takes no focus: the row blurs with nowhere to go.
+  await userEvent.click(document.body);
+  expect(document.activeElement).toBe(document.body);
+
+  act(() => app.daemon.apply("thread-fold", [facts.endTurn("s0")]));
+  await within(work).findByRole("treeitem", { name: "20 done" });
+  expect(document.activeElement).toBe(document.body);
+});
