@@ -95,7 +95,7 @@ export function ComposerStrip(props: {
   const thread = useThreadMeta(props.threadId);
   const goal = thread?.goal;
   const queued = queuedCount(queue, pending);
-  const settling = useSendSettling(props.threadId, props.status, queued);
+
   const offline = connection === "offline";
   // Reconnecting and offline are said here, so the header stays quiet; anything else (a
   // fatal error) is the header's.
@@ -132,6 +132,13 @@ export function ComposerStrip(props: {
     [props.threadId],
   );
   const transfer = useThreadTransferState(props.threadId);
+  // A request, a lost connection or a send that needs Retry shows at once, never held.
+  const settling = useSendSettling(
+    props.threadId,
+    props.status,
+    queued,
+    requests.length > 0 || connection !== "ready" || sending.some((row) => row.failed),
+  );
   const facts: StripFacts = {
     confirmStop: !!props.confirmStop,
     requests,

@@ -1,4 +1,4 @@
-import { longHistory } from "@ace/fake-daemon";
+import { facts, longHistory } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -69,4 +69,87 @@ test("a send whose turn doesn't start lets the strip show what is current after 
   // The queue stays paused, so the turn never runs: the strip says so once the hold is up.
   await waitFor(() => expect(stripKind()).toBe("queue"), { timeout: 4_000 });
   expect(screen.getByText("Queue paused")).toBeTruthy();
+});
+
+/** An idle thread whose queue holds what's sent, so a send would sit in the strip's hold. */
+async function heldSend() {
+  const app = harness();
+  app.play(longHistory(2)).runUntilBlocked();
+  app.daemon.holdQueue(id, "manual");
+  await app.open(`/t/${id}`);
+  await screen.findByRole("feed", { name: "Transcript" });
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  return { app, message };
+}
+
+/** Well inside the hold's two seconds: what must show at once shows by then. */
+const atOnce = { timeout: 1_000 };
+
+test("an approval that arrives while a send settles shows at once", async () => {
+  const { app, message } = await heldSend();
+  await userEvent.type(message, "continue{Enter}");
+  act(() =>
+    app.daemon.apply(id, [
+      {
+        type: "interaction.opened",
+        agent: "root",
+        interaction: "approve-run",
+        blocking: true,
+        request: {
+          kind: "approval",
+          title: "Run bun test?",
+          options: [
+            { id: "allow", label: "Allow once", kind: "allow_once" },
+            { id: "deny", label: "Deny", kind: "deny" },
+          ],
+        },
+      },
+    ]),
+  );
+  await waitFor(() => expect(stripKind()).toBe("request"), atOnce);
+});
+
+test("a lost connection while a send settles shows at once", async () => {
+  const { app, message } = await heldSend();
+  await userEvent.type(message, "continue{Enter}");
+  act(() => app.client.networkOnline(false));
+  await waitFor(() => expect(stripKind()).toBe("connection"), atOnce);
+});
+
+test("a send that fails shows Retry at once instead of being held", async () => {
+  const { app, message } = await heldSend();
+  app.daemon.refuseCommands("thread_busy", "thread.send");
+  await userEvent.type(message, "continue{Enter}");
+  await waitFor(() => expect(stripKind()).toBe("sending"), atOnce);
+  expect(screen.getByRole("button", { name: /Retry/ })).toBeTruthy();
+});
+
+test("a message sent while a turn runs shows in the queue at once", async () => {
+  const running = "thread-running";
+  const app = harness();
+  app
+    .play({
+      thread: { id: running, title: "Replay cursor", workspaceId: "ace", provider: "codex" },
+      steps: [
+        {
+          kind: "facts",
+          facts: [
+            facts.rootAgent("codex"),
+            facts.turn("root"),
+            facts.message("root", "ask", "user", "Check the replay cursor."),
+            facts.tool("root", "build", {
+              kind: "shell",
+              title: "bun run build",
+              detail: { kind: "shell", command: "bun run build" },
+            }),
+          ],
+        },
+      ],
+    })
+    .runUntilBlocked();
+  await app.open(`/t/${running}`);
+  await screen.findByRole("feed", { name: "Transcript" });
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  await userEvent.type(message, "Check mobile next.{Enter}");
+  await waitFor(() => expect(stripKind()).toBe("queue"), atOnce);
 });
