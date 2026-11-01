@@ -147,9 +147,11 @@ export async function setup(
 }
 
 /**
- * One daemon for the whole file; each `fresh()` gets its own workspace, thread, outbox file and
- * clients. Use it only for tests that leave daemon-wide state (settings, devices, maintenance)
- * alone. Client command IDs keep counting across scopes so receipts never collide.
+ * One daemon for the whole file; each call of the returned function gets its own workspace,
+ * thread, outbox file and clients, closed after the test. Use it only for tests that leave
+ * daemon-wide state (settings, devices, maintenance) alone and give their items IDs no other test
+ * in the file uses: item IDs are unique per daemon, not per thread. Client command IDs keep
+ * counting across tests so receipts never collide.
  */
 export function sharedDaemon(): () => Promise<Harness> {
   let base: TestDaemon | undefined;

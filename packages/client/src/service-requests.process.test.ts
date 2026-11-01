@@ -14,10 +14,10 @@ afterEach(async () => {
   cleanup = undefined;
 });
 // No test on the shared daemon writes a durable command, so receipt counts stay at zero.
-const fresh = sharedDaemon();
+const harness = sharedDaemon();
 
 test("service reads correlate concurrent replies without storing commands or touching the outbox", async () => {
-  const f = await fresh();
+  const f = await harness();
   const storage = memoryStorage();
   const { client, faults } = f.make({ storage });
   await ready(client);
@@ -54,7 +54,7 @@ test("service reads correlate concurrent replies without storing commands or tou
 });
 
 test("legacy health command callers receive health without creating a durable intent", async () => {
-  const f = await fresh();
+  const f = await harness();
   const { client } = f.make();
   await ready(client);
   expect(await client.command({ type: "diagnostics.health" }, {}, "health-read")).toMatchObject({
@@ -71,7 +71,7 @@ test("legacy health command callers receive health without creating a durable in
 });
 
 test("an invalid request is refused before it reaches the daemon", async () => {
-  const f = await fresh();
+  const f = await harness();
   const { client, faults } = f.make();
   await ready(client);
   const sent = faults.sent.length;
@@ -82,13 +82,13 @@ test("an invalid request is refused before it reaches the daemon", async () => {
 });
 
 test("a request made while offline rejects instead of waiting for a connection", async () => {
-  const f = await fresh();
+  const f = await harness();
   const { client } = f.make();
   await expect(client.request({ type: "models.list" })).rejects.toMatchObject({ code: "offline" });
 });
 
 test("disconnect rejects one-off requests and reconnect never replays them", async () => {
-  const f = await fresh();
+  const f = await harness();
   const { client, faults, scheduler } = f.make();
   await ready(client);
   faults.incoming = (message, frame, deliver) => {
@@ -109,7 +109,7 @@ test("disconnect rejects one-off requests and reconnect never replays them", asy
 });
 
 test("cancellation releases request capacity and does not cancel a different correlation", async () => {
-  const f = await fresh();
+  const f = await harness();
   const { client, faults } = f.make({ limits: { requests: 1 } });
   await ready(client);
   faults.incoming = (message, frame, deliver) => {
@@ -182,7 +182,7 @@ test("a written setting reads back, is pushed to subscribers, and stops pushing 
 });
 
 test("a denied service write rejects that request while a read-only device stays connected", async () => {
-  const f = await fresh();
+  const f = await harness();
   const device = f.daemon.store.devices.create("Reader", ["read"], 1);
   const access = new AccessClient({
     origin: new URL(f.daemon.url.replace(/^ws:/, "http:")).origin,
@@ -210,7 +210,7 @@ test("a denied service write rejects that request while a read-only device stays
 });
 
 test("mention completion uses the authoritative workspace rather than a projected client path", async () => {
-  const f = await fresh();
+  const f = await harness();
   const outside = await mkdtemp(join(tmpdir(), "ace-context-outside-"));
   try {
     const project = f.daemon.store.getWorkspacePath(f.workspaceId);
@@ -240,7 +240,7 @@ test("mention completion uses the authoritative workspace rather than a projecte
 });
 
 test("context reads cannot fall back to the project while an isolated workspace is unprepared", async () => {
-  const f = await fresh();
+  const f = await harness();
   const project = f.daemon.store.getWorkspacePath(f.workspaceId);
   if (!project) throw new Error("Missing project");
   await promisify(execFile)("git", ["init", project]);
@@ -286,7 +286,7 @@ test("finding and releasing past sessions works without durable receipts", async
 });
 
 test("daemon draft adoption uses the same canonical project identity as mention completion", async () => {
-  const f = await fresh();
+  const f = await harness();
   const { client } = f.make();
   await ready(client);
   const draft = await client.request({
@@ -339,7 +339,7 @@ test("daemon draft adoption uses the same canonical project identity as mention 
 });
 
 test("listener-phase service routing reads persisted automation changes", async () => {
-  const f = await fresh();
+  const f = await harness();
   const { client } = f.make();
   await ready(client);
   const automation = {
@@ -370,7 +370,7 @@ test("listener-phase service routing reads persisted automation changes", async 
 });
 
 test("a workspace draft lists slash commands without creating a thread and refuses another device", async () => {
-  const f = await fresh();
+  const f = await harness();
   const { client } = f.make();
   const { client: other } = f.make({ deviceId: DeviceId.parse("other") });
   await ready(client);
