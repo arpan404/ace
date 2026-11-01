@@ -1,5 +1,6 @@
 import { Agent, type AgentStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { wideForest } from "./agent-forest.fixture.ts";
 import {
   agentForest,
   foldFinished,
@@ -160,48 +161,21 @@ test("the person is named by the agent that asks, not the parents waiting on it"
   expect(asker?.threadId).toBe("t2");
 });
 
-/** A thread whose main agent has `width` subagents, every other one working, each delegating. */
-function wide(width: number, threads: number): Map<string, ThreadWork> {
-  const works = new Map<string, ThreadWork>();
-  const per = Math.ceil(width / threads);
-  for (let t = 0; t < threads; t++) {
-    const id = `w${t}`;
-    const agents = [agent(id, "root", idle)];
-    for (let index = 0; index < per; index++) {
-      const delegate = index === 0 && t + 1 < threads ? `w${t + 1}` : undefined;
-      agents.push(agent(id, `a${index}`, index % 2 ? working : idle, "root", delegate));
-    }
-    works.set(id, thread(agents));
-  }
-  return works;
-}
-
-const median = (runs: number[]) =>
-  runs.toSorted((left, right) => left - right)[runs.length >> 1] ?? 0;
-
-/** The median time of joining `works`, after a warm-up. */
-function joinTime(works: Map<string, ThreadWork>): number {
-  agentForest("w0", works);
-  const runs: number[] = [];
-  for (let run = 0; run < 7; run++) {
-    const start = performance.now();
-    agentForest("w0", works);
-    runs.push(performance.now() - start);
-  }
-  return median(runs);
-}
-
-test("a wide tree of 2,000 agents joins in time proportional to its size", () => {
-  const small = joinTime(wide(500, 4));
-  const large = joinTime(wide(4000, 16));
-  // Eight times the agents: linear work costs about 8x, the old quadratic join about 64x.
-  expect(large / Math.max(small, 0.05)).toBeLessThan(24);
-  const [root] = agentForest("w0", wide(2000, 1)).roots;
-  expect(root?.tally).toEqual({ working: 1000, done: 1000, syncing: 0, commands: 0 });
+test("a wide tree of 2,000 subagents across delegated threads is joined whole", () => {
+  // Four threads, each with 500 subagents; how its cost grows is measured in bench/forest.ts.
+  const forest = agentForest("w0", wideForest(4, 500));
+  expect(forest.reach).toEqual(["w1", "w2", "w3"]);
+  const [main] = forest.roots;
+  // Every one of the 2,000 is placed; the three idle delegates count as working, since the
+  // threads under them still work.
+  expect(main?.tally).toEqual({ working: 1003, done: 997, syncing: 0, commands: 0 });
+  // Each delegate holds the next thread's subagents directly under it.
+  const delegate = main?.children.find((entry) => entry.kind === "agent" && entry.childThread);
+  expect(delegate?.tally).toEqual({ working: 752, done: 748, syncing: 0, commands: 0 });
 });
 
 test("joins that share kept layers still see the new facts of the one thread that changed", () => {
-  const works = wide(400, 4);
+  const works = wideForest(4, 100);
   const layers = forestLayers();
   const first = agentForest("w0", works, undefined, layers);
   // w3 finishes all its work; the other threads' facts objects stay the same.
@@ -280,4 +254,45 @@ test("a delegate whose thread had no room stands alone, marked not loaded", () =
   expect(a?.kind === "agent" && a.notLoaded).toBe(true);
   expect(a?.live).toBe(true);
   expect(a?.children).toEqual([]);
+});
+
+test("an idle delegate whose thread couldn't load keeps the forest unsettled and never folds as done", () => {
+  const works = new Map<string, ThreadWork>([
+    [
+      "t1",
+      thread([
+        agent("t1", "root", idle),
+        agent("t1", "a", idle, "root", "t2"),
+        agent("t1", "b", idle, "root"),
+        agent("t1", "c", idle, "root"),
+      ]),
+    ],
+    ["t2", { agents: [], tasks: [], interactions: [], facts: "not_loaded" }],
+  ]);
+  const forest = agentForest("t1", works);
+  expect(forest.confirmed).toBe(false);
+  const [root] = forest.roots;
+  expect(root?.unconfirmed).toBe(true);
+  expect(root?.tally).toEqual({ working: 0, done: 2, syncing: 1, commands: 0 });
+  const rows = foldFinished(root?.key ?? "", root?.children ?? []);
+  expect(
+    rows.map((row) => (row.kind === "node" ? row.node.key : `${row.nodes.length} done`)),
+  ).toEqual(["t1/a", "2 done"]);
+});
+
+test("every ancestor of a syncing branch counts as syncing, not done, however far up", () => {
+  const works = new Map<string, ThreadWork>([
+    ["t1", thread([agent("t1", "root", idle), agent("t1", "a", idle, "root", "t2")])],
+    ["t2", thread([agent("t2", "root", idle), agent("t2", "b", idle, "root", "t3")])],
+    [
+      "t3",
+      { ...thread([agent("t3", "root", idle), agent("t3", "c", idle, "root")]), facts: "syncing" },
+    ],
+  ]);
+  const [root] = agentForest("t1", works).roots;
+  const a = root?.children[0];
+  // a's own thread is confirmed, but b's delegated thread isn't: neither reads as done.
+  expect(a?.kind === "agent" && a.stale).toBe(false);
+  expect(a?.unconfirmed).toBe(true);
+  expect(root?.tally).toEqual({ working: 0, done: 0, syncing: 3, commands: 0 });
 });

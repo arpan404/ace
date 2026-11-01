@@ -752,8 +752,12 @@ export class RemoteClient implements ClientApi {
       release: () => {
         if (released) return;
         released = true;
-        if (!optional) owned.foreground = Math.max(0, owned.foreground - 1);
-        if (--owned.refs) return;
+        const lastForeground = !optional && --owned.foreground === 0;
+        if (--owned.refs) {
+          // Only optional views still hold it: the worker may give its room away again.
+          if (lastForeground) this.post(leaseMessage(owned));
+          return;
+        }
         this.mirrors.delete(key);
         this.byLease.delete(owned.lease);
         this.post({ t: "release", lease: owned.lease });

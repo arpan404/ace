@@ -71,3 +71,16 @@ test("an optional hold on a thread already open costs no room and never gives wa
   expect(extra.store.error).toBeUndefined();
   await client.close();
 });
+
+test("a thread opened and closed again while an optional view holds it can give its room away", async () => {
+  const client = small();
+  const summary = client.thread("t1", { optional: true });
+  const opened = client.thread("t1");
+  opened.release();
+  for (const id of ["t2", "t3", "t4"]) client.thread(id);
+  // Full, with t1 held only by the optional view: the next thread opened takes its room.
+  const next = client.thread("t5");
+  expect(next.store.error).toBeUndefined();
+  expect(summary.store.error?.code).toBe("no_room");
+  await client.close();
+});

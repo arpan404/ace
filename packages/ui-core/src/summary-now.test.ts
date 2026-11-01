@@ -75,3 +75,11 @@ test("a second root agent still working keeps Now from saying done", () => {
   const works = new Map([["t1", work([agent("t1", "root", idle), agent("t1", "side", working)])]]);
   expect(now(works).say).toBe("Working");
 });
+
+test("Now never says done while a delegated thread couldn't be loaded", () => {
+  const works = new Map([
+    ["t1", work([agent("t1", "root", idle), agent("t1", "a", idle, "root", "t2")])],
+    ["t2", work([], { facts: "not_loaded" })],
+  ]);
+  expect(now(works).say).toBe("Syncing");
+});

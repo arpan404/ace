@@ -31,7 +31,7 @@ export interface ForestTally {
   working: number;
   /** Agents whose whole branch settled, as the daemon confirmed. */
   done: number;
-  /** Settled-looking agents whose facts aren't confirmed yet: maybe working again. */
+  /** Settled-looking agents whose branch isn't confirmed or loaded yet: maybe working again. */
   syncing: number;
   /** Background commands still running. */
   commands: number;
@@ -46,7 +46,10 @@ interface NodeBase {
   live: boolean;
   /** It, or anything under it in any thread, waits on the person. */
   needsYou: boolean;
-  /** It, or anything under it, shows facts the daemon hasn't confirmed yet. */
+  /**
+   * It, or anything under it, shows facts the daemon hasn't confirmed yet, or couldn't be loaded:
+   * a settled-looking row with this set may still be working, so it never reads as done.
+   */
   unconfirmed: boolean;
   /** Everything below this row, counted once when the forest is built. */
   tally: ForestTally;
@@ -188,7 +191,8 @@ const noTally = (): ForestTally => ({ working: 0, done: 0, syncing: 0, commands:
 function count(into: ForestTally, entry: ForestNode): void {
   if (entry.kind === "command") into.commands++;
   else if (entry.live) into.working++;
-  else if (entry.stale) into.syncing++;
+  // Settled-looking, but it or something under it isn't confirmed: not done yet.
+  else if (entry.unconfirmed) into.syncing++;
   else into.done++;
   into.working += entry.tally.working;
   into.done += entry.tally.done;
@@ -292,7 +296,8 @@ export function agentForest(
       const tally = noTally();
       let live = running.has(agent.id) || childRoot?.live === true;
       let asks = needsYou.has(agent.id) || childRoot?.needsYou === true;
-      let unconfirmed = stale;
+      // A thread that couldn't load may be working: its branch is as uncertain as a syncing one.
+      let unconfirmed = stale || notLoaded || childRoot?.unconfirmed === true;
       for (const entry of children) {
         count(tally, entry);
         live ||= entry.live;

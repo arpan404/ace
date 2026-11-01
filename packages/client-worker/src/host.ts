@@ -79,6 +79,8 @@ interface Held {
   scope: Scope;
   /** Held only while there is spare room: a thread the person opens may take it. */
   optional: boolean;
+  /** The store it reads, so a change of priority can tell whether it holds the same one. */
+  store: object;
   release(): void;
   unobserve(): void;
   read(keys: Iterable<string>): Patch[];
@@ -423,18 +425,25 @@ class Tab {
   #lease(client: Client, lease: number, scope: Scope, optional: boolean): void {
     const existing = this.#leases.get(lease);
     if (existing) {
-      if (optional || !existing.optional) return;
-      // Moved to the foreground: hold it afresh (the store may have given way already), keeping
-      // the thread held across the swap so its subscription carries on.
-      let bridge: { release(): void } | undefined;
+      if (optional === existing.optional || scope.kind !== "thread") return;
+      // Its priority changed: hold it the new way before letting go of the old, so the thread
+      // stays held across the swap and the tab keeps the store it reads.
+      let next: { store: object; release(): void };
       try {
-        bridge = scope.kind === "thread" ? client.thread(scope.threadId) : undefined;
+        next = client.thread(scope.threadId, { optional });
       } catch {
-        bridge = undefined;
+        return;
       }
+      if (next.store === existing.store) {
+        existing.release();
+        existing.release = next.release;
+        existing.optional = optional;
+        return;
+      }
+      // The optional store already gave its room away: start over on the one now held.
       this.#release(lease);
-      this.#lease(client, lease, scope, false);
-      bridge?.release();
+      this.#lease(client, lease, scope, optional);
+      next.release();
       return;
     }
     let held: Held;
@@ -445,6 +454,7 @@ class Tab {
         held = {
           scope,
           optional,
+          store,
           release: subscription.release,
           unobserve: () => {},
           read: (keys) => threadPatches(store, keys, held.sent),
@@ -459,6 +469,7 @@ class Tab {
         held = {
           scope,
           optional: false,
+          store,
           release: subscription.release,
           unobserve: () => {},
           read: (keys) => sidebarPatches(store, keys),

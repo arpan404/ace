@@ -44,3 +44,31 @@ test("through the worker, threads the person opens take the room of optional one
   for (const lease of [opened, d, e]) expect(lease.store.error).toBeUndefined();
   expect(a.store.error).toBeUndefined();
 });
+
+test("through the worker, a thread opened and closed again goes back to optional and can give its room away", async () => {
+  const { client } = await small();
+  const summary = client.thread("t-a", { optional: true });
+  const opened = client.thread("t-a");
+  await vi.waitFor(() => expect(summary.store.thread?.id).toBe("t-a"));
+  opened.release();
+  const d = client.thread("t-d");
+  const e = client.thread("t-e");
+  await vi.waitFor(() => expect(e.store.thread?.id).toBe("t-e"));
+  // Full, with t-a held only by the optional view: the next thread opened takes its room.
+  const b = client.thread("t-b");
+  await vi.waitFor(() => expect(summary.store.error?.code).toBe("no_room"));
+  for (const lease of [d, e, b]) expect(lease.store.error).toBeUndefined();
+});
+
+test("through the worker, a priority change keeps the store the tab reads", async () => {
+  const { client } = await small();
+  const summary = client.thread("t-a", { optional: true });
+  await vi.waitFor(() => expect(summary.store.thread?.id).toBe("t-a"));
+  const opened = client.thread("t-a");
+  opened.release();
+  const again = client.thread("t-a");
+  await client.request({ type: "diagnostics.health" });
+  expect(summary.store.thread?.id).toBe("t-a");
+  expect(summary.store.error).toBeUndefined();
+  again.release();
+});
