@@ -127,7 +127,7 @@ struct TerminalView: View {
                     onReturn: { type([modifiers.apply(key: "Enter")]) },
                     onKey: { type([$0]) }
                 )
-                .frame(height: AceTheme.Dimensions.touchTarget)
+                .frame(height: AceDesign.Size.tap)
                 Button("Interrupt") { type([.key("c", ctrl: true)]) }
                     .frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("terminal.interrupt")

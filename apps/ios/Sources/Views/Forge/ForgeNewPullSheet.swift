@@ -28,7 +28,7 @@ struct ForgeNewPullSheet: View {
                     EmptyState(icon: nil, title: "Couldn't read the branches", line: failure, failed: true) {
                         Button("Try again") { Task { await load() } }
                     }
-                } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
+                } else { SkeletonPage(label: "Reading the branches") }
             }
             .background(AceTheme.Colours.background)
             .navigationTitle("New pull request")
@@ -80,7 +80,7 @@ struct ForgeNewPullSheet: View {
                     if creating { ProgressView().controlSize(.small) }
                     Text(draft ? "Create draft pull request" : "Create pull request").fontWeight(.semibold)
                 }
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             }
             .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
             .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
@@ -105,7 +105,7 @@ struct ForgeNewPullSheet: View {
             }
             .accessibilityIdentifier(identifier)
         }
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
     }
 
     private var canCreate: Bool {

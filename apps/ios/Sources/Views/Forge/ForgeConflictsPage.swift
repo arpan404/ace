@@ -29,7 +29,7 @@ struct ForgeConflictsPageView: View {
                 EmptyState(icon: nil, title: "Couldn't read the conflicts", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.pageState)
             } else {
                 SkeletonPage()
             }
@@ -109,7 +109,7 @@ struct ForgeConflictsPageView: View {
                         Button("Take ours") { step(["action": "take", "path": file.path, "side": "ours"], key: file.path) }
                         Button("Take theirs") { step(["action": "take", "path": file.path, "side": "theirs"], key: file.path) }
                     }
-                    .disabled(!ready).frame(minHeight: 44)
+                    .disabled(!ready).frame(minHeight: AceDesign.Size.tap)
                 }
                 .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.xs)
             }
@@ -120,7 +120,7 @@ struct ForgeConflictsPageView: View {
                 Button("Ask the agent") { ask(file) }.disabled(!client.canOperate)
                 if writing == file.path { ProgressView().controlSize(.small).transition(.opacity) }
             }
-            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
             .accessibilityIdentifier("forge.conflicts.ask.\(file.path)")
         }
         .buttonStyle(.forgeWord)
@@ -138,7 +138,7 @@ struct ForgeConflictsPageView: View {
                 Button("Edit") { editing = Editing(file: file, hunk: index, text: hunk.draft) }
             }
             .disabled(!ready || file.revision == nil)
-            .frame(minHeight: 44)
+            .frame(minHeight: AceDesign.Size.tap)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("forge.conflicts.hunk.\(file.path).\(index)")
         }
@@ -197,7 +197,7 @@ struct ForgeHunkEditor: View {
     var body: some View {
         NavigationStack {
             TextEditor(text: $text)
-                .font(.system(.footnote, design: .monospaced))
+                .font(AceDesign.Typeface.code)
                 .padding(.horizontal, AceTheme.Spacing.md)
                 .accessibilityIdentifier("forge.conflicts.editor")
                 .navigationTitle(path).navigationBarTitleDisplayMode(.inline)

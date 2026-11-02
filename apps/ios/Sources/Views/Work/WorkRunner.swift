@@ -81,7 +81,7 @@ struct WorkWordButton: View {
         Button(action: action) {
             Text(label)
                 .padding(.horizontal, AceTheme.Spacing.sm)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

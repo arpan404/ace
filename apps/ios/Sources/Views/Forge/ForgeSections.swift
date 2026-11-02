@@ -9,7 +9,7 @@ struct ForgeSection<Rows: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             if let title {
-                Text(title).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(.medium)
+                Text(title).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .padding(.horizontal, AceTheme.Spacing.lg)
                     .padding(.bottom, AceTheme.Spacing.xs)
@@ -43,7 +43,7 @@ struct ForgeLine: View {
                 .lineLimit(1)
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
-        .frame(minHeight: 40)
+        .frame(minHeight: AceDesign.Size.tap)
         .accessibilityElement(children: .combine)
     }
 }
@@ -61,7 +61,7 @@ struct ForgeThreadsSection: View {
                 ForEach(threads, id: \.self) { thread in
                     Button { openThread(InboxKey(machineId: machineId, id: thread.id)) } label: {
                         HStack(spacing: AceTheme.Spacing.sm) {
-                            AceIcon(.chats, size: 15, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
+                            AceIcon(.chats, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
                             Text(thread.title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
                                 .foregroundStyle(thread.archived ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
                                 .lineLimit(1)
@@ -73,7 +73,7 @@ struct ForgeThreadsSection: View {
                             }
                         }
                         .padding(.horizontal, AceTheme.Spacing.lg)
-                        .frame(minHeight: 44)
+                        .frame(minHeight: AceDesign.Size.tap)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.row)
@@ -98,10 +98,10 @@ struct ForgeLinkRow: View {
                     .foregroundStyle(AceTheme.Colours.foreground)
                 Spacer(minLength: AceTheme.Spacing.sm)
                 if !detail.isEmpty { Text(detail).meta() }
-                AceIcon(.caretRight, size: 12, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
+                AceIcon(.caretRight, size: AceDesign.Size.caret, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
             }
             .padding(.horizontal, AceTheme.Spacing.lg)
-            .frame(minHeight: 44)
+            .frame(minHeight: AceDesign.Size.tap)
             .contentShape(Rectangle())
         }
         .buttonStyle(.row)

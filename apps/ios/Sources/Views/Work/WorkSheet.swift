@@ -122,7 +122,7 @@ struct WorkSheet: View {
             }
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .body)
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("work.place.\(mode)")
     }

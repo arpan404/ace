@@ -33,7 +33,7 @@ struct ForgeMergeCommitSheet: View {
             .background(AceTheme.Colours.background)
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 Button { confirm(target) } label: {
-                    Text(target.action.label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: 44)
+                    Text(target.action.label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
                 .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)

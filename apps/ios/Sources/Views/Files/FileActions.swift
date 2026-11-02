@@ -192,7 +192,7 @@ struct FilesStripView: View {
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
         .foregroundStyle(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
         .floatingGlass()
         .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
         .transition(.opacity)

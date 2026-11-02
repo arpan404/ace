@@ -40,7 +40,7 @@ struct WorkProblemLine: View {
                 }
             }
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+            .frame(minHeight: AceDesign.Size.tap)
             .accessibilityElement(children: .contain)
         }
         .accessibilityIdentifier("thread.work")
@@ -70,7 +70,7 @@ struct ClearStaleLockWord: View {
             Button("Clear stale lock", action: clear)
                 .foregroundStyle(AceTheme.StatusText.failed)
                 .padding(.horizontal, AceTheme.Spacing.sm)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("thread.clearStaleLock")

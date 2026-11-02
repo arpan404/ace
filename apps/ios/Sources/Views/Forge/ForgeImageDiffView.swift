@@ -31,11 +31,11 @@ struct ForgeImageDiffView: View {
             } else {
                 AceTheme.Colours.fill.aspectRatio(16 / 9, contentMode: .fit)
                     .clipShape(AceDesign.Shape.block)
-                    .overlay(ProgressView())
+                    .accessibilityLabel("Loading the images")
             }
         }
         .padding(AceTheme.Spacing.lg)
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: sides == nil)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: sides == nil)
         .task(id: ForgeSidesKey(route: route, revisions: revisions)) { await load() }
     }
 
@@ -72,7 +72,6 @@ struct ForgeImageDiffView: View {
         VStack(spacing: AceTheme.Spacing.xs) {
             Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
                 .clipShape(AceDesign.Shape.block)
-                .overlay(AceDesign.Shape.block.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
                 .accessibilityLabel("\(route.path ?? "Image") \(label.lowercased())")
             Text(size.map { "\(label) · \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))" } ?? label)
                 .meta().monospacedDigit()
@@ -90,8 +89,8 @@ struct ForgeImageDiffView: View {
                             Rectangle().frame(width: box.size.width * (1 - reveal))
                         }
                     Rectangle().fill(AceTheme.Colours.accent)
-                        .frame(width: 2)
-                        .offset(x: box.size.width * reveal - 1)
+                        .frame(width: AceDesign.Size.rail)
+                        .offset(x: box.size.width * reveal - AceDesign.Size.rail / 2)
                         .accessibilityHidden(true)
                 }
                 .contentShape(Rectangle())

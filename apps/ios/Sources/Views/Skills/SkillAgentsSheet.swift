@@ -63,7 +63,7 @@ struct SkillAgentToggles: View {
                 }
             }
             .disabled(agent.locked && agent.on)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            .frame(minHeight: AceDesign.Size.tap)
             .accessibilityIdentifier("skill.agent.\(agent.id)")
         }
     }

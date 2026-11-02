@@ -61,10 +61,9 @@ struct ForgeCodeToolbar: View {
                 .fontWeight(on ? .semibold : .regular)
                 .foregroundStyle(on ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                 .padding(.horizontal, AceTheme.Spacing.md)
-                .frame(minHeight: 32)
+                .frame(minHeight: AceDesign.Size.pill)
                 .background(on ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
-                .overlay(AceShape.capsule.strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
-                .frame(minHeight: 44)
+                .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
                 .animation(AceMotion.smooth, value: on)
         }

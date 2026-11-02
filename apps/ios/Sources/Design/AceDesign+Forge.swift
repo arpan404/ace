@@ -35,6 +35,8 @@ extension AceDesign.Size {
     static let dragEdge: CGFloat = 24
     /// A file's git status mark: a small outlined square.
     static let fileMark: CGFloat = barIcon
+    /// A diff's line-number column: room for four digits.
+    static let lineNumber: CGFloat = 32
     /// A hairline: a divider, a diff's comment rail, the image-diff split.
     static let hairline: CGFloat = 1
     static let rail: CGFloat = 2
@@ -66,6 +68,8 @@ extension AceDesign.Size {
 extension AceDesign.Ink {
     /// A forge label's own colour, behind its words.
     static let labelFillOpacity: Double = 0.2
+    /// …and its words, mixed this far toward the page's ink so they read in either appearance.
+    static let labelInkMix: Double = 0.45
     /// Something the person has finished with (a viewed file, a folder's totals) steps back to this.
     static let settledOpacity: Double = 0.6
     /// Content dimmed while it can't be used (a terminal that has ended).

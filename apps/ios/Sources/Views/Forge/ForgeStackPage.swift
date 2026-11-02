@@ -28,7 +28,7 @@ struct ForgeStackPageView: View {
                 EmptyState(icon: nil, title: "Couldn't read the stack", line: failure, failed: true) {
                     Button("Try again") { Task { await load(fresh: true) } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.pageState)
             } else {
                 SkeletonPage()
             }
@@ -97,7 +97,7 @@ struct ForgeStackPageView: View {
                 }
             }
             .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
-            .frame(minHeight: 44).contentShape(Rectangle())
+            .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
         }
         .buttonStyle(.row)
         .accessibilityIdentifier("forge.stack.layer.\(layer.number)")
@@ -121,7 +121,7 @@ struct ForgeStackPageView: View {
                 } label: { Text(Self.methods.first { $0.0 == method }?.1 ?? method).meta() }
                     .accessibilityIdentifier("forge.stack.method")
             }
-            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
             ForEach(page.controls) { control in
                 ForgeTextAction(label: control.label, destructive: control.destructive, reason: control.reason,
                                 busy: writing && confirming?.action == control.action, identifier: "forge.stack.\(control.action)") {

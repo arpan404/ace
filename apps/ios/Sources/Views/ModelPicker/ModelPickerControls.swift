@@ -38,7 +38,7 @@ struct ModelChoiceRow: View {
                 Image(systemName: row.starred ? "star.fill" : "star")
                     .font(AceDesign.Typeface.title)
                     .foregroundStyle(row.starred ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
-                    .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

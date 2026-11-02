@@ -18,7 +18,7 @@ struct ForgeTextAction: View {
                     if busy { ProgressView().controlSize(.small).transition(.opacity) }
                 }
                 .foregroundStyle(destructive ? AceTone.failed.text : AceTheme.Colours.foreground)
-                .frame(minHeight: 44, alignment: .leading)
+                .frame(minHeight: AceDesign.Size.tap, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
@@ -78,7 +78,7 @@ struct ForgeThreadPicker: View {
                 } label: { Text(threads.first { $0.id == chosen }?.title ?? "Choose").meta().lineLimit(1) }
                     .accessibilityIdentifier("forge.work.thread")
             }
-            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
         }
     }
 }
@@ -105,10 +105,10 @@ struct ForgeWordButtonStyle: ButtonStyle {
         @Environment(\.isEnabled) private var enabled
         var body: some View {
             configuration.label
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
-                .opacity(!enabled ? 0.45 : configuration.isPressed ? 0.6 : 1)
-                .animation(.smooth(duration: 0.15), value: configuration.isPressed)
+                .opacity(!enabled ? AceDesign.Ink.dimmedOpacity : configuration.isPressed ? AceDesign.Ink.settledOpacity : 1)
+                .animation(AceMotion.smooth, value: configuration.isPressed)
         }
     }
 }
@@ -122,7 +122,6 @@ extension ButtonStyle where Self == ForgeWordButtonStyle {
 enum AceMotion {
     @MainActor static var smooth: Animation {
         // Reduce Motion as ace applies it: the system's, or ace's own (Settings › Appearance).
-        UIAccessibility.isReduceMotionEnabled || UserDefaults.standard.bool(forKey: PhoneLook.reduceMotionKey)
-            ? .easeInOut(duration: 0.2) : .smooth
+        AceDesign.Motion.arriving(UIAccessibility.isReduceMotionEnabled || UserDefaults.standard.bool(forKey: PhoneLook.reduceMotionKey))
     }
 }

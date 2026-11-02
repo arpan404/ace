@@ -155,7 +155,7 @@ struct AddProjectView: View {
                     Text(failure).foregroundStyle(AceTheme.StatusText.failed).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     if let allowable, client.canOperate {
                         Button("Allow this folder") { Task { await allow(allowable) } }
-                            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                            .frame(minHeight: AceDesign.Size.tap)
                             .disabled(adding != nil)
                             .accessibilityIdentifier("folder.allow")
                     }

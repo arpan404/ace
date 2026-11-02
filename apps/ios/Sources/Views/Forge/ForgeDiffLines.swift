@@ -108,7 +108,7 @@ struct ForgeDiffLines: View {
                 .background(tint(line))
             }
         } else {
-            AceTheme.Colours.fill.opacity(0.5).frame(maxWidth: .infinity, maxHeight: .infinity)
+            AceDesign.Surface.band.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -117,7 +117,7 @@ struct ForgeDiffLines: View {
         let line = file.lines[index]
         let picked = pick?.holds(line) == true
         let row = content()
-            .overlay(AceTheme.Colours.accent.opacity(picked ? 0.14 : 0))
+            .overlay(picked ? AceDesign.Surface.picked : .clear)
             .animation(AceMotion.smooth, value: picked)
         if let anchor = line.anchor, pickable {
             Button { tap(index) } label: { row.contentShape(Rectangle()) }
@@ -133,7 +133,7 @@ struct ForgeDiffLines: View {
     private func number(_ value: Int?) -> some View {
         Text(verbatim: value.map(String.init) ?? "")
             .monospacedDigit().foregroundStyle(AceTheme.Colours.subtleForeground)
-            .frame(minWidth: 32, alignment: .trailing)
+            .frame(minWidth: AceDesign.Size.lineNumber, alignment: .trailing)
             .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
     }
 

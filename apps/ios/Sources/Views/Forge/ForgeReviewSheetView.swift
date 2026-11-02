@@ -61,7 +61,7 @@ struct ForgeReviewSheetView: View {
                         if desk.writing { ProgressView().controlSize(.small) }
                         Text("Submit review").fontWeight(.semibold)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
                 .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
@@ -95,7 +95,7 @@ struct ForgeReviewSheetView: View {
                 .disabled(!desk.ready)
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
-        .frame(minHeight: 48)
+        .frame(minHeight: AceDesign.Size.rowDetail)
     }
 
     private func submit() {

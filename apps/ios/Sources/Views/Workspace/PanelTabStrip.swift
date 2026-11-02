@@ -49,7 +49,7 @@ struct PanelTabStrip: View {
             openMenu
             tabMenu
         }
-        .frame(height: AceTheme.Dimensions.touchTarget)
+        .frame(height: AceDesign.Size.tap)
         // The order the bridge settled replaces the one shown while dragging.
         .onChange(of: view.tabs.map(\.key)) { _, _ in if drag.dragging == nil { drag.order = nil } }
         .accessibilityElement(children: .contain)
@@ -66,7 +66,7 @@ struct PanelTabStrip: View {
             }
         } label: {
             AceIcon(.plus, size: AceDesign.Size.icon).foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("Open a tool")
@@ -87,7 +87,7 @@ struct PanelTabStrip: View {
         } label: {
             // A caret, not ⋯: the screen below has its own ⋯ in its bar.
             AceIcon(.caretDown, size: AceDesign.Size.metaIcon).foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("Tab options")
@@ -167,7 +167,7 @@ private struct PanelTabItem: View {
         .contentShape(AceDesign.Shape.control)
         .opacity(dragging ? AceDesign.Ink.dimmedOpacity : 1)
         // A 44-point target: the strip's full height.
-        .frame(height: AceTheme.Dimensions.touchTarget)
+        .frame(height: AceDesign.Size.tap)
         .contentShape(Rectangle())
         .hoverEffect(.highlight)
     }

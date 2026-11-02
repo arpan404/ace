@@ -31,7 +31,7 @@ struct ForgeCommitsView: View {
                 EmptyState(icon: nil, title: "Couldn't load the commits", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.pageState)
             } else {
                 SkeletonPage()
             }
@@ -109,7 +109,7 @@ struct ForgeCommitPicker: View {
                 after = nil
             }
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .frame(minHeight: 44)
+            .frame(minHeight: AceDesign.Size.tap)
             .accessibilityIdentifier("forge.commits.compare")
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
@@ -124,7 +124,7 @@ struct ForgeCommitPicker: View {
             choose(commit, index, start: start)
         }
         // A commit at or before the start can't end a span.
-        .opacity(comparing && start.map { index <= $0 && commit.sha != after } == true ? 0.45 : 1)
+        .opacity(comparing && start.map { index <= $0 && commit.sha != after } == true ? AceDesign.Ink.dimmedOpacity : 1)
     }
 
     private func choose(_ commit: ForgeCommits.Commit, _ index: Int, start: Int?) {
@@ -160,7 +160,7 @@ struct ForgeCommitPicker: View {
                 if let add = stats.0, let del = stats.1 { ForgeDiffStat(additions: add, deletions: del) }
             }
             .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
-            .frame(minHeight: 44)
+            .frame(minHeight: AceDesign.Size.tap)
             .contentShape(Rectangle())
         }
         .buttonStyle(.row)

@@ -37,7 +37,7 @@ struct WorkRow: View {
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .body)
         .padding(.horizontal, AceTheme.Spacing.lg)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -60,7 +60,7 @@ struct WorkPullLine: View {
             Spacer(minLength: AceTheme.Spacing.sm)
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .body)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("work.pr.\(pr.number)")

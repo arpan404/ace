@@ -110,7 +110,7 @@ struct SkillField<Content: View>: View {
             content()
                 .aceFont(InsetStyle.label, relativeTo: .body)
                 .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minHeight: AceDesign.Size.tap)
                 .background(AceTheme.Colours.fill, in: AceShape.field)
         }
         .padding(.horizontal, AceTheme.Spacing.lg)

@@ -162,7 +162,7 @@ struct ForgeHome: View {
             ])
             if kind == .pulls, session?.client.canOperate == true, chosen != nil {
                 Button { creating = true } label: {
-                    Image(ace: .plus).frame(width: AceTheme.Dimensions.tapMinimum, height: AceTheme.Dimensions.tapMinimum).contentShape(Rectangle())
+                    Image(ace: .plus).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap).contentShape(Rectangle())
                 }
                 .accessibilityLabel("New pull request")
                 .accessibilityIdentifier("forge.newpr")
@@ -245,7 +245,7 @@ struct ForgeEmpty<Content: View>: View {
     @Environment(\.onSidebarGlass) private var onGlass
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     var body: some View {
-        ScrollView { content().padding(.top, 120).frame(maxWidth: .infinity) }
+        ScrollView { content().padding(.top, AceDesign.Space.pageState).frame(maxWidth: .infinity) }
             .background(surface)
     }
 }

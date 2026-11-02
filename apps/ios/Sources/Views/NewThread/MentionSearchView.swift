@@ -52,6 +52,6 @@ struct FilePathRow: View {
             }
             Spacer(minLength: AceTheme.Spacing.none)
         }
-        .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+        .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
     }
 }

@@ -80,7 +80,7 @@ struct ForgeRevertSheet: View {
                 if busy { ProgressView().controlSize(.small) }
                 Text(label).fontWeight(.semibold)
             }
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
         }
         .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
         .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)

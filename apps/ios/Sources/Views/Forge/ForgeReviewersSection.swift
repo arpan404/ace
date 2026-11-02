@@ -26,7 +26,7 @@ struct ForgeReviewersSection: View {
                     if reviewers.canRequest, client.canOperate {
                         Button("Request review") { requesting = true }
                             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
                             .disabled(!desk.ready)
                             .accessibilityIdentifier("forge.reviewers.request")
                     }
@@ -41,7 +41,7 @@ struct ForgeReviewersSection: View {
 
     private func rowView(_ row: ForgeReviewers.Row) -> some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            AceIcon(row.kind == "team" ? .users : .user, size: 15, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
+            AceIcon(row.kind == "team" ? .users : .user, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
             Text(row.label).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
                 .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
             Spacer(minLength: AceTheme.Spacing.sm)
@@ -51,14 +51,14 @@ struct ForgeReviewersSection: View {
                     if row.canRerequest { Button("Re-request review", ace: .arrowClockwise) { ask(row, kind: "reviewers.request") } }
                     if row.canRemove { Button("Remove request", ace: .x) { ask(row, kind: "reviewers.remove") } }
                     if row.canDismiss, let id = row.reviewId { Button("Dismiss review", ace: .prohibit) { dismiss(row, reviewId: id) } }
-                } label: { Image(ace: .dotsThree).frame(width: AceTheme.Dimensions.tapMinimum, height: AceTheme.Dimensions.tapMinimum).contentShape(Rectangle()) }
+                } label: { Image(ace: .dotsThree).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap).contentShape(Rectangle()) }
                     .disabled(!desk.ready)
                     .accessibilityLabel("Actions for \(row.label)")
                     .accessibilityIdentifier("forge.reviewer.\(row.name)")
             }
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
-        .frame(minHeight: 44)
+        .frame(minHeight: AceDesign.Size.tap)
     }
 
     private func ask(_ row: ForgeReviewers.Row, kind: String) {

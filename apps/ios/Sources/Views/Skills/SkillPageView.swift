@@ -48,7 +48,7 @@ struct SkillPageView: View {
                         if page.editable, model.canOperate {
                             Button("Edit") { editing = true }
                                 .aceFont(InsetStyle.header, relativeTo: .subheadline).textCase(nil)
-                                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                                .frame(minHeight: AceDesign.Size.tap)
                                 .accessibilityIdentifier("skill.edit")
                         }
                     }
@@ -207,7 +207,7 @@ struct SkillDetailRow<Trailing: View>: View {
             trailing()
         }
         .padding(.vertical, AceTheme.Spacing.xs)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .frame(minHeight: AceDesign.Size.tap)
     }
 }
 
