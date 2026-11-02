@@ -1,8 +1,12 @@
 import {
   AceAccountOrigin,
   AceAccountSession,
+  AceGrantRequest,
+  AceGrantResponse,
   AceLogin,
   AceLoginStatus,
+  AceMachine,
+  AceMachineList,
 } from "@ace/protocol/ace-account";
 import { httpJson } from "./http-json.ts";
 
@@ -22,15 +26,21 @@ export function aceAccountClient(options: { origin: string; fetch: typeof fetch 
     method: string,
     token: string | undefined,
     signal: AbortSignal,
+    body?: unknown,
   ) {
-    const response = await options.fetch(`${origin}/v1/account/${path}`, {
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    // Built apart from the call: Workers typings (the relay's tests) lack `credentials`.
+    const init = {
       method,
       signal,
       credentials: "omit",
       redirect: "error",
       cache: "no-store",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    } as const;
+    const response = await options.fetch(`${origin}/v1/${path}`, init);
     if (!response.ok) {
       await response.body?.cancel();
       throw new AceAccountError(response.status);
@@ -39,7 +49,7 @@ export function aceAccountClient(options: { origin: string; fetch: typeof fetch 
   }
   return {
     async login(signal: AbortSignal) {
-      const login = AceLogin.parse(await call("login", "POST", undefined, signal));
+      const login = AceLogin.parse(await call("account/login", "POST", undefined, signal));
       const url = new URL(login.loginUrl);
       if (
         url.origin !== origin ||
@@ -50,16 +60,32 @@ export function aceAccountClient(options: { origin: string; fetch: typeof fetch 
       return login;
     },
     async poll(login: AceLogin, signal: AbortSignal) {
-      return AceLoginStatus.parse(await call(`login/${login.id}`, "GET", login.secret, signal));
+      return AceLoginStatus.parse(
+        await call(`account/login/${login.id}`, "GET", login.secret, signal),
+      );
     },
     async cancel(login: AceLogin, signal: AbortSignal) {
-      await call(`login/${login.id}`, "DELETE", login.secret, signal);
+      await call(`account/login/${login.id}`, "DELETE", login.secret, signal);
     },
     async session(token: string, signal: AbortSignal) {
-      return AceAccountSession.parse(await call("session", "GET", token, signal));
+      return AceAccountSession.parse(await call("account/session", "GET", token, signal));
     },
     async logout(token: string, signal: AbortSignal) {
-      await call("session", "DELETE", token, signal);
+      await call("account/session", "DELETE", token, signal);
+    },
+    /** A five-minute grant for the hosted relay: `machine` for a daemon, `device` for a client. */
+    async grant(token: string, request: AceGrantRequest, signal: AbortSignal) {
+      return AceGrantResponse.parse(
+        await call("grants", "POST", token, signal, AceGrantRequest.parse(request)),
+      );
+    },
+    /** Machines signed in to this account, most recently seen first. */
+    async machines(token: string, signal: AbortSignal): Promise<AceMachine[]> {
+      return AceMachineList.parse(await call("machines", "GET", token, signal)).machines;
+    },
+    /** Removes a machine from this account's list. It returns if it signs in again. */
+    async forgetMachine(token: string, hostId: string, signal: AbortSignal) {
+      await call(`machines/${AceMachine.shape.hostId.parse(hostId)}`, "DELETE", token, signal);
     },
   };
 }

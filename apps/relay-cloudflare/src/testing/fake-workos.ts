@@ -8,15 +8,20 @@ function reply(response: ServerResponse, status: number, body: unknown) {
   response.end(JSON.stringify(body));
 }
 
-type User = { id: string; email: string; first_name: string; last_name: string | null };
+export type WorkosUser = {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string | null;
+};
 
 /**
  * WorkOS's User Management API, as far as ace uses it: authorization codes checked against
  * their PKCE challenge, and single-use refresh tokens that rotate on every refresh.
  */
 export async function fakeWorkos() {
-  const codes = new Map<string, { user: User; challenge: string }>();
-  const refreshTokens = new Map<string, User>();
+  const codes = new Map<string, { user: WorkosUser; challenge: string }>();
+  const refreshTokens = new Map<string, WorkosUser>();
   let failure: "invalid_grant" | "unavailable" | undefined;
   let barrier: Promise<void> | undefined;
   let entered: (() => void) | undefined;
@@ -34,7 +39,7 @@ export async function fakeWorkos() {
           return reply(response, 401, { error: "invalid_client" });
         if (failure === "unavailable") return reply(response, 503, { message: "Unavailable" });
         if (failure === "invalid_grant") return reply(response, 400, { error: "invalid_grant" });
-        let user: User | undefined;
+        let user: WorkosUser | undefined;
         if (body.grant_type === "authorization_code") {
           const entry = codes.get(body.code ?? "");
           codes.delete(body.code ?? "");
@@ -60,7 +65,7 @@ export async function fakeWorkos() {
   return {
     url: `http://127.0.0.1:${port}`,
     /** The person signs in at WorkOS: the authorization URL's challenge gets a code. */
-    authorize(authorizeUrl: string, user: User, code: string) {
+    authorize(authorizeUrl: string, user: WorkosUser, code: string) {
       const url = new URL(authorizeUrl);
       codes.set(code, { user, challenge: url.searchParams.get("code_challenge") ?? "" });
       return url.searchParams.get("state") ?? "";
