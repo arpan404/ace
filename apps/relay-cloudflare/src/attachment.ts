@@ -13,13 +13,17 @@ export type CipherSnapshot = z.infer<typeof Cipher>;
  * these attachments, kept by the runtime with their sockets, are the relay's whole state.
  */
 export const Attachment = z.discriminatedUnion("kind", [
-  /** A daemon's control socket before its Noise handshake ends. Its `hostId` is only claimed. */
-  z.object({ kind: z.literal("handshake"), id: z.string(), hostId: HostId }),
-  /** A daemon whose handshake proved `hostId`, with its registration session. */
+  /**
+   * A daemon's control socket before its Noise handshake ends. Its `hostId` is only claimed;
+   * `account` comes from its machine grant.
+   */
+  z.object({ kind: z.literal("handshake"), id: z.string(), hostId: HostId, account: z.string() }),
+  /** A daemon whose handshake proved `hostId`, with its account and registration session. */
   z.object({
     kind: z.literal("host"),
     id: z.string(),
     hostId: HostId,
+    account: z.string(),
     send: Cipher,
     receive: Cipher,
   }),
@@ -55,6 +59,16 @@ export function routeFacts(attachments: readonly Attachment[]): {
       });
   }
   return { hosts, pending };
+}
+
+/** The account of the daemon registered as `hostId` here, if one is. */
+export function hostAccount(
+  attachments: readonly Attachment[],
+  hostId: string,
+): string | undefined {
+  for (const attachment of attachments)
+    if (attachment.kind === "host" && attachment.hostId === hostId) return attachment.account;
+  return undefined;
 }
 
 /** When the next waiting client expires, if any is waiting. */

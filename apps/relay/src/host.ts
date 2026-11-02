@@ -15,6 +15,7 @@ import {
 } from "./handshake.ts";
 import { ControlMessage, HostOptionsSchema } from "./config.ts";
 import { ClientSlots } from "./admission.ts";
+import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { systemClock, delay } from "./clock.ts";
 import type { Clock } from "./clock.ts";
 import type { z } from "zod";
@@ -34,6 +35,12 @@ export async function connectHostToRelay(options: {
   clock?: Clock;
   random?: () => number;
   limits?: Partial<z.infer<typeof HostOptionsSchema>>;
+  /**
+   * ace's hosted relay admits a host only with an account `machine` grant (ADR 0111). `grant`
+   * is called before every registration, since grants live five minutes. `name` and
+   * `platform` label the machine in the account's machine list.
+   */
+  account?: { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string };
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -121,13 +128,20 @@ export async function connectHostToRelay(options: {
       let socket: WebSocket | undefined;
       let expire: () => void = noop;
       try {
+        const account = options.account;
+        const grant = account ? await account.grant(controller.signal) : undefined;
         const connection = await dial(
           // The id only selects where a relay routes this host (a Durable Object); the
           // handshake below still proves it.
-          relayAddress(options.relayUrl, "/host", { hostId: id }),
+          relayAddress(options.relayUrl, "/host", {
+            hostId: id,
+            ...(account?.name ? { name: account.name } : {}),
+            ...(account?.platform ? { platform: account.platform } : {}),
+          }),
           controller.signal,
           clock,
           limits.handshakeTimeoutMs,
+          grant ? [GRANT_SUBPROTOCOL_PREFIX + grant] : [],
         );
         socket = connection.socket;
         watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
