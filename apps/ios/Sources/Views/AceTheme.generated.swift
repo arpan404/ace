@@ -59,7 +59,7 @@ import UIKit
             "theme": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
                 "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
@@ -72,7 +72,7 @@ import UIKit
             "blue": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
                 "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
@@ -85,7 +85,7 @@ import UIKit
             "teal": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
                 "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
@@ -98,7 +98,7 @@ import UIKit
             "green": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
                 "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
@@ -111,7 +111,7 @@ import UIKit
             "orange": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
                 "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
@@ -124,7 +124,7 @@ import UIKit
             "magenta": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
                 "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
@@ -137,7 +137,7 @@ import UIKit
             "ink": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
                 "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
@@ -152,7 +152,7 @@ import UIKit
             "theme": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
@@ -165,7 +165,7 @@ import UIKit
             "blue": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
@@ -178,7 +178,7 @@ import UIKit
             "teal": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
@@ -191,7 +191,7 @@ import UIKit
             "green": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
@@ -204,7 +204,7 @@ import UIKit
             "orange": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
@@ -217,7 +217,7 @@ import UIKit
             "magenta": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
@@ -230,7 +230,7 @@ import UIKit
             "ink": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
@@ -245,7 +245,7 @@ import UIKit
             "theme": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
@@ -258,7 +258,7 @@ import UIKit
             "blue": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
@@ -271,7 +271,7 @@ import UIKit
             "teal": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
@@ -284,7 +284,7 @@ import UIKit
             "green": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
@@ -297,7 +297,7 @@ import UIKit
             "orange": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
@@ -310,7 +310,7 @@ import UIKit
             "magenta": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
@@ -323,7 +323,7 @@ import UIKit
             "ink": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
@@ -338,7 +338,7 @@ import UIKit
             "theme": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
@@ -351,7 +351,7 @@ import UIKit
             "blue": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
@@ -364,7 +364,7 @@ import UIKit
             "teal": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
@@ -377,7 +377,7 @@ import UIKit
             "green": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
@@ -390,7 +390,7 @@ import UIKit
             "orange": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
@@ -403,7 +403,7 @@ import UIKit
             "magenta": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
@@ -416,7 +416,7 @@ import UIKit
             "ink": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
@@ -431,7 +431,7 @@ import UIKit
             "theme": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
@@ -444,7 +444,7 @@ import UIKit
             "blue": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
@@ -457,7 +457,7 @@ import UIKit
             "teal": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
@@ -470,7 +470,7 @@ import UIKit
             "green": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
@@ -483,7 +483,7 @@ import UIKit
             "orange": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
@@ -496,7 +496,7 @@ import UIKit
             "magenta": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
@@ -509,7 +509,7 @@ import UIKit
             "ink": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),

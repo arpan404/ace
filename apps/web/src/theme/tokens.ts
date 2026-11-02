@@ -151,7 +151,10 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--faint-foreground": p.faint,
     // Modal backdrops: a light neutral scrim when solid, a barely-there tint over blur when glass.
     "--scrim": light ? `rgb(${p.shadow} / 0.14)` : "rgb(0 0 0 / 0.36)",
-    "--scrim-glass": light ? "rgb(255 255 255 / 0.16)" : "rgb(0 0 0 / 0.18)",
+    // Over a modal's blurred page: a wash of the theme's own canvas in light, never plain white,
+    // and a dim in dark, with the page's colour never boosted, so in every theme the palette
+    // (the canvas raised, `tintedLike`) reads as the same colour lifted off the page.
+    "--scrim-glass": light ? `color-mix(in srgb, ${p.s0} 16%, transparent)` : "rgb(0 0 0 / 0.18)",
     "--skel": wash(p.t1, light ? 6 : 8),
     "--skel-hi": wash(p.s0, light ? 70 : 12),
 
