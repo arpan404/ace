@@ -1,6 +1,7 @@
 import type { WebSocket } from "ws";
 import { FrameReader, sendFrame } from "./socket.ts";
 import type { Limits } from "./config.ts";
+import { PAIRED_MARKER } from "./wire.ts";
 export type Peer = { socket: WebSocket; reader: FrameReader };
 export type RelayStats = {
   peakBufferedBytes: number;
@@ -51,7 +52,7 @@ export function pairStreams(
       close();
     }
   }
-  void sendFrame(client.socket, new Uint8Array([1]))
+  void sendFrame(client.socket, new Uint8Array([PAIRED_MARKER]))
     .then(() => {
       void pump(client, host);
       void pump(host, client);

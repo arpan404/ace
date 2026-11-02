@@ -1,0 +1,21 @@
+{
+  "name": "@ace/relay-cloudflare",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@ace/relay": "workspace:*",
+    "@ace/secure-channel": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/protocol": "workspace:*",
+    "@cloudflare/workers-types": "^5.20261102.1",
+    "wrangler": "^4.156.2"
+  }
+}

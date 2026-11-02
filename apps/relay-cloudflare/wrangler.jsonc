@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ace-relay",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-01",
+  // node:net for the shared IP normalization.
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "RELAY", "class_name": "RelayObject" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayObject"] }],
+  "ratelimits": [
+    { "name": "UPGRADES", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } },
+  ],
+  // Request logs would record join tickets in URLs.
+  "observability": { "enabled": false },
+}

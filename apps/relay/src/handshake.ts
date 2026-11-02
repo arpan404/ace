@@ -3,8 +3,7 @@ import type { KeyPair, Transport } from "@ace/secure-channel";
 import type { WebSocket } from "ws";
 import type { Clock } from "./clock.ts";
 import { FrameReader, sendFrame } from "./socket.ts";
-export const CONTROL_PROLOGUE = new TextEncoder().encode("ace relay registration v1");
-export const STREAM_PROLOGUE = new TextEncoder().encode("ace daemon relay stream v1");
+export { CONTROL_PROLOGUE, STREAM_PROLOGUE } from "./wire.ts";
 type Options = {
   staticKey?: KeyPair;
   pinnedFingerprint?: string;

@@ -72,3 +72,41 @@ it("normalized peer handles retain the same shared quota across connection churn
   expect(b.acquire(1000)).toBe(true);
   expect(b.take(1000)).toBe(0);
 });
+it("routes restored after a restart pair, expire and reject a waiting client as before", () => {
+  const id = hostId(keyPair().publicKey);
+  const [paired, expired, rejected] = ["a", "b", "c"].map((c) => c.repeat(64));
+  const routes = new RelayRoutes({ ticketTimeoutMs: 100 });
+  expect(
+    routes.restore(
+      [{ socket: "owner", hostId: id }],
+      [
+        { ticket: paired!, client: "c1", owner: "owner", expires: 500 },
+        { ticket: expired!, client: "c2", owner: "owner", expires: 50 },
+        { ticket: rejected!, client: "c3", owner: "owner", expires: 500 },
+      ],
+    ),
+  ).toEqual([]);
+  expect(routes.premature("c1")).toEqual([
+    { type: "close", socket: "c1", code: 1008, reason: "Stream not paired" },
+  ]);
+  expect(routes.join("j1", paired!, 100)).toEqual([{ type: "pair", client: "c1", host: "j1" }]);
+  expect(routes.sweep(100)).toEqual([
+    { type: "close", socket: "c2", code: 1008, reason: "Ticket expired" },
+  ]);
+  expect(routes.reject("owner", rejected!)).toEqual([
+    { type: "close", socket: "c3", code: 1013, reason: "Host busy" },
+  ]);
+  expect(routes.request("c4", id, "d".repeat(64), 100)).toEqual([
+    { type: "offer", socket: "owner", ticket: "d".repeat(64) },
+  ]);
+});
+it("a client restored without its host's socket is closed as disconnected", () => {
+  const routes = new RelayRoutes({ ticketTimeoutMs: 100 });
+  const ticket = "a".repeat(64);
+  expect(routes.restore([], [{ ticket, client: "c1", owner: "gone", expires: 500 }])).toEqual([
+    { type: "close", socket: "c1", code: 1008, reason: "Host disconnected" },
+  ]);
+  expect(routes.join("j1", ticket, 0)).toEqual([
+    { type: "close", socket: "j1", code: 1008, reason: "Invalid ticket" },
+  ]);
+});

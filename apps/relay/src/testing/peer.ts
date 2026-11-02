@@ -3,8 +3,9 @@ import type { RawData } from "ws";
 import { NoiseXX, keyPair } from "@ace/secure-channel";
 import type { KeyPair, Transport } from "@ace/secure-channel";
 import { z } from "zod";
-export const CONTROL = new TextEncoder().encode("ace relay registration v1");
-export const STREAM = new TextEncoder().encode("ace daemon relay stream v1");
+import { CONTROL_PROLOGUE, STREAM_PROLOGUE } from "../wire.ts";
+export const CONTROL = CONTROL_PROLOGUE;
+export const STREAM = STREAM_PROLOGUE;
 export function bytes(data: RawData): Buffer {
   if (Array.isArray(data)) return Buffer.concat(data);
   return data instanceof ArrayBuffer ? Buffer.from(data) : data;

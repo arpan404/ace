@@ -69,7 +69,7 @@ export async function connectHostToRelay(options: {
     });
     try {
       const { socket, reader } = await dial(
-        relayAddress(options.relayUrl, "/join", { ticket }),
+        relayAddress(options.relayUrl, "/join", { ticket, hostId: id }),
         signal,
         clock,
         limits.handshakeTimeoutMs,
@@ -122,7 +122,9 @@ export async function connectHostToRelay(options: {
       let expire: () => void = noop;
       try {
         const connection = await dial(
-          relayAddress(options.relayUrl, "/host"),
+          // The id only selects where a relay routes this host (a Durable Object); the
+          // handshake below still proves it.
+          relayAddress(options.relayUrl, "/host", { hostId: id }),
           controller.signal,
           clock,
           limits.handshakeTimeoutMs,
