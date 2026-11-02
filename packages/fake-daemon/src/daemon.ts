@@ -120,12 +120,17 @@ export class FakeDaemon implements Host {
   platform: string | undefined;
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
-  /** Places listed threads as the daemon does: its sort, no seen baseline, this clock. */
+  /**
+   * Places listed threads as the daemon does: its sort, this clock, and its seen baseline. The
+   * real daemon's is its first start, long before what it lists finished; a fake is seeded just
+   * before it is read, so what it was seeded with counts as seen unless its read time says
+   * otherwise (`seenBefore` sets another moment).
+   */
   placeInput(): PlaceInput {
     const sorts = ["activity", "created", "manual"] as const;
     const value = this.services.settings.get("threads.sortBy");
     return {
-      baseline: 0,
+      baseline: this.options.seenBefore ?? Number.MAX_SAFE_INTEGER,
       now: this.options.clock(),
       sortBy: sorts.find((sort) => sort === value) ?? "activity",
     };

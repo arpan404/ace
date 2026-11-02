@@ -5,6 +5,8 @@ import type { FakeServices } from "./services/index.ts";
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
   clock(): number;
+  /** Finished work before this moment counts as seen when placing threads; default: all of it. */
+  seenBefore?: number;
   /** Keep creation visible for screenshot capture. */
   worktreeCreationSlow?: boolean;
   worktreeCreationSchedule?: (callback: () => void, delay: number) => () => void;

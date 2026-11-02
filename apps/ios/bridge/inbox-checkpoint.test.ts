@@ -8,7 +8,7 @@ await vi.hoisted(async () => {
 });
 
 import { FakeDaemon, facts } from "@ace/fake-daemon";
-import { CommandId, DeviceId, ThreadId, type ThreadListEntry } from "@ace/protocol";
+import { CommandId, DeviceId, ThreadId, ThreadListEntry } from "@ace/protocol";
 import type { SidebarReader } from "@ace/client";
 import { followInbox, type InboxClock } from "./inbox.ts";
 import { checkpointDelayMs, inboxCheckpoint } from "./inbox-checkpoint.ts";
@@ -199,11 +199,11 @@ describe("inbox checkpoint tabs", () => {
       activityAt: 10,
       hasSentMessage: true,
     } as const;
-    const entries: ThreadListEntry[] = [
-      { ...base, id: ThreadId.parse("open"), title: "Open", status: { state: "done" }, readAt: 20 },
+    const entries = [
+      { ...base, id: "open", title: "Open", status: { state: "done" }, readAt: 20 },
       {
         ...base,
-        id: ThreadId.parse("rest"),
+        id: "rest",
         title: "Rest",
         status: { state: "done" },
         readAt: 20,
@@ -212,12 +212,12 @@ describe("inbox checkpoint tabs", () => {
       },
       {
         ...base,
-        id: ThreadId.parse("nap"),
+        id: "nap",
         title: "Nap",
         status: { state: "done" },
         snoozedUntil: 9_000_000_000_000,
       },
-    ];
+    ].map((entry) => ThreadListEntry.parse(entry));
     const byId = new Map(entries.map((entry) => [entry.id as string, entry]));
     const store = {
       ids: [...byId.keys()],
