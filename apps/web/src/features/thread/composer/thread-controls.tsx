@@ -157,7 +157,8 @@ export function ThreadModelControl(props: {
   // Held by a usage limit, a pick with room carries the held work on there at once.
   const { carryOn } = useCarryOn(props.thread.id);
   const limitHeld =
-    meta?.status.state === "limited" || (meta?.queue?.paused === true && meta.queue.reason === "limit");
+    meta?.status.state === "limited" ||
+    (meta?.queue?.paused === true && meta.queue.reason === "limit");
   const carries = (choice: ModelChoice) => limitHeld && !choice.exhausted;
   const online = useConnectionState() === "ready";
   const { selection, unavailable } = useThreadModelAvailability(props.thread.id);

@@ -253,7 +253,9 @@ export class IntentDelivery {
       const key = `input:${intent.command.id}`;
       // A switch from the limit names where the work carried on, for the transcript's one line.
       const moved = p.type === "thread.limit" && p.action === "switch";
-      const selection = moved ? this.dependencies.repo.transitions.get(actor.id).selection : undefined;
+      const selection = moved
+        ? this.dependencies.repo.transitions.get(actor.id).selection
+        : undefined;
       const switched = selection && {
         provider: selection.provider,
         ...(selection.model ? { model: selection.model } : {}),

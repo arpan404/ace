@@ -15,7 +15,7 @@ function choice(
     model: modelId.toUpperCase(),
     modelId,
     aliases: [],
-    account: accountId ? accountId.split("-")[1] ?? accountId : "",
+    account: accountId ? (accountId.split("-")[1] ?? accountId) : "",
     accountId,
     note: "",
     used: undefined,

@@ -116,7 +116,10 @@ export function queueHold(
             { id: "choose_model", label: "Switch", primary: false },
             ...(turn.cancel
               ? [action(turn.cancel, true)]
-              : [...(turn.atReset ? [action(turn.atReset, false)] : []), action(turn.carryOn, true)]),
+              : [
+                  ...(turn.atReset ? [action(turn.atReset, false)] : []),
+                  action(turn.carryOn, true),
+                ]),
           ],
         }
       : notice && notice.kind !== "not_sent" && !holdsTurn(notice)

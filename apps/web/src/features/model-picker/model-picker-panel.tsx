@@ -110,14 +110,20 @@ export function ModelPickerPanel(props: {
   const tabs = props.only ? entries.filter((entry) => entry.provider === props.only) : entries;
   const [chosen, setChosen] = useState<string>();
   // It opens on Favorites when the person has any: switching usually means going elsewhere.
+  // Otherwise on the thread's account, unless it is at its limit: then on an account with room,
+  // the same provider's first.
+  const own = tabs.find(
+    (entry) => entry.provider === props.currentProvider && entry.instance === props.currentInstance,
+  );
+  const home = props.only ?? props.currentProvider;
   const selected =
     tabs.find((entry) => entry.id === chosen) ??
     (favorites.length ? tabs.find((entry) => entry.id === "favorites") : undefined) ??
-    tabs.find(
-      (entry) =>
-        entry.provider === props.currentProvider && entry.instance === props.currentInstance,
-    ) ??
-    tabs.find((entry) => entry.provider === (props.only ?? props.currentProvider)) ??
+    (own && !own.reason ? own : undefined) ??
+    tabs.find((entry) => entry.provider === home && !entry.reason) ??
+    (props.only ? undefined : tabs.find((entry) => entry.id !== "favorites" && !entry.reason)) ??
+    own ??
+    tabs.find((entry) => entry.provider === home) ??
     tabs.find((entry) => !entry.reason);
   const tab = selected?.id ?? "favorites";
   const provider = selected?.provider;

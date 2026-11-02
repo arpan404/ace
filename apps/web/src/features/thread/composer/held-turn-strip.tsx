@@ -73,24 +73,31 @@ export function useLeavesLimit(threadId: string): boolean {
 const textButton =
   "h-7 shrink-0 rounded-md px-2 font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring disabled:opacity-50";
 
-/** The strip's sentence, the time in the foreground ink. */
+/** A time in the strip's sentence, in the foreground ink. */
+function Time(props: { children: string }) {
+  return <span className="font-medium text-foreground tabular-nums">{props.children}</span>;
+}
+
+/** The strip's sentence. */
 function Sentence(props: { turn: HeldTurn }) {
   const { turn } = props;
-  const time = (text: string) => (
-    <span className="font-medium text-foreground tabular-nums">{text}</span>
-  );
   if (turn.scheduled && turn.until)
     return (
       <>
         {scheduledLead(turn)}
-        {time(turn.until)} when {turn.who} resets
+        <Time>{turn.until}</Time> when {turn.who} resets
         {turn.left && <span className="tabular-nums"> · in {turn.left}</span>}
       </>
     );
   return (
     <>
       {turn.lead}
-      {turn.until && <> until {time(turn.until)}</>}
+      {turn.until && (
+        <>
+          {" "}
+          until <Time>{turn.until}</Time>
+        </>
+      )}
     </>
   );
 }
@@ -120,7 +127,10 @@ export function HeldTurnStrip(props: {
       // line, the actions move to a second line, still at the right.
       className="flex min-h-9 min-w-0 flex-wrap items-center gap-x-1 py-1 pr-1 pl-2.5 text-xs"
     >
-      <p role={moving ? "status" : undefined} className="min-w-[14rem] flex-1 py-1 text-muted-foreground">
+      <p
+        role={moving ? "status" : undefined}
+        className="min-w-[14rem] flex-1 py-1 text-muted-foreground"
+      >
         <Sentence turn={turn} />
       </p>
       <div className="ml-auto flex shrink-0 items-center gap-1">

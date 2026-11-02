@@ -57,7 +57,9 @@ export function heldTurn(
       until: known ? describeWake(at, now, locale) : undefined,
       scheduled,
       left: scheduled ? formatCountdown(at - now) : undefined,
-      cancel: scheduled ? notice.actions.find((action) => action.id === "cancel_resume") : undefined,
+      cancel: scheduled
+        ? notice.actions.find((action) => action.id === "cancel_resume")
+        : undefined,
       who,
       atReset: notice.actions.find((action) => action.id === "resume_at_reset"),
       carryOn: { id: "resume_now", label: "Continue" },

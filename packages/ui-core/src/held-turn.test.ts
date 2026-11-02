@@ -29,9 +29,7 @@ test("once the person chose to resume at reset, the strip says when and when it 
     now,
   );
   const turn = heldTurn(notice, undefined, "Codex", now, "en-US");
-  expect(turn && heldTurnSentence(turn)).toBe(
-    "Resumes at 11:59 PM when Codex resets · in 13m",
-  );
+  expect(turn && heldTurnSentence(turn)).toBe("Resumes at 11:59 PM when Codex resets · in 13m");
   expect(turn?.atReset).toBeUndefined();
   expect(turn?.cancel).toEqual({ id: "cancel_resume", label: "Cancel" });
 });
@@ -48,7 +46,9 @@ test("Cancel goes back to the limited strip: its sentence, Resume at reset and C
     now,
   );
   const cancel = scheduled?.cancel;
-  expect(cancel && queueActionPayload(cancel, threadId, { revision: 4, paused: true, reason: "limit" })).toEqual({
+  expect(
+    cancel && queueActionPayload(cancel, threadId, { revision: 4, paused: true, reason: "limit" }),
+  ).toEqual({
     type: "thread.limit",
     threadId,
     expectedRevision: 4,
