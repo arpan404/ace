@@ -29,6 +29,7 @@
     "bench:reads": "node bench/reads.ts"
   },
   "dependencies": {
+    "@ace/account-grant": "workspace:*",
     "@ace/browser": "workspace:*",
     "@ace/devices": "workspace:*",
     "@ace/files": "workspace:*",

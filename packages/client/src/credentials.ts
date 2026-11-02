@@ -2,14 +2,29 @@ import { z } from "zod";
 import { DeviceToken, SocketTicket } from "@ace/protocol";
 import { ClientError } from "./errors.ts";
 
-export type Credential = string | { token: string } | { ticket: string };
+/**
+ * What a hello presents: a device token, a one-use ticket, or a device grant from the ace
+ * account backend (ADR 0111) with the machine code when the daemon asked for one.
+ */
+export type Credential =
+  | string
+  | { token: string }
+  | { ticket: string }
+  | { grant: string; machineCode?: string };
 const HelloCredential = z.union([
   z.string().transform((token) => ({ token })),
   z.strictObject({ token: z.string() }),
   z.strictObject({ ticket: z.string() }),
+  z.strictObject({ grant: z.string(), machineCode: z.string().optional() }),
 ]);
-export function parseCredential(credential: Credential): { token: string } | { ticket: string } {
+export function parseCredential(
+  credential: Credential,
+): { token: string } | { ticket: string } | { grant: string; machineCode?: string | undefined } {
   return HelloCredential.parse(credential);
+}
+/** The grant to offer the relay itself, when the credential is an account grant. */
+export function relayGrant(credential: Credential): string | undefined {
+  return typeof credential === "object" && "grant" in credential ? credential.grant : undefined;
 }
 /** Exchange a device token for a new single-use ticket on every connection attempt.
  * The caller's exchange owns HTTP, response bounds and pinned TLS. */

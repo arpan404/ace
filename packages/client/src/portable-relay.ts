@@ -1,6 +1,7 @@
 import { ClientMessage, ServerMessage } from "@ace/protocol";
 import { MAX_MESSAGE, NoiseXX, type HandshakeOptions, type Transport } from "@ace/secure-channel";
 import { inflate } from "./inflate.ts";
+import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 
 /** Browser and React Native socket boundary; no Node or ws dependency. */
 export interface PortableSocket {
@@ -20,7 +21,10 @@ export interface PortableRelay {
 export interface PortableRelayOptions {
   relayUrl: string;
   pinnedFingerprint: string;
-  socket(url: string): PortableSocket;
+  /** Opens the socket, offering `protocols` as WebSocket subprotocols when given. */
+  socket(url: string, protocols?: string[]): PortableSocket;
+  /** A device grant for ace's hosted relay (ADR 0111), offered as `ace.grant.<token>`. */
+  grant?: string | undefined;
   keys(): Pick<HandshakeOptions, "staticKey" | "ephemeralKey">;
   schedule(callback: () => void, delayMs: number): () => void;
   signal?: AbortSignal;
@@ -40,7 +44,9 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   url.pathname = "/client";
   url.search = new URLSearchParams({ hostId: options.pinnedFingerprint }).toString();
   url.hash = "";
-  const socket = options.socket(url.toString());
+  const socket = options.grant
+    ? options.socket(url.toString(), [`${GRANT_SUBPROTOCOL_PREFIX}${options.grant}`])
+    : options.socket(url.toString());
   socket.binaryType = "arraybuffer";
   const queue: (Uint8Array | undefined)[] = Array.from({ length: 256 });
   let head = 0;

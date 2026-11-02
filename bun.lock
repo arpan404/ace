@@ -515,6 +515,7 @@
     "packages/client": {
       "name": "@ace/client",
       "dependencies": {
+        "@ace/account-grant": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/devices": "workspace:*",
         "@ace/files": "workspace:*",

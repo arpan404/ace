@@ -45,6 +45,8 @@ export type { Intent } from "./intents.ts";
 export type { Sidebar } from "./sidebar.ts";
 export type { SidebarKey, SidebarReader } from "./readers.ts";
 export { ticketCredential } from "./credentials.ts";
+export { machineCodeGate } from "./machine-code-gate.ts";
+export type { MachineCodeGate } from "./machine-code-gate.ts";
 export type { Credential } from "./credentials.ts";
 export { retryDelay } from "./lifecycle.ts";
 export { rootProviderControls, childProviderControls } from "./provider-controls.ts";

@@ -4,7 +4,8 @@ import { ClientMessage, HostId } from "@ace/protocol";
 import { connectHostToRelay, startRelay } from "@ace/relay";
 import { fingerprint, keyPair } from "@ace/secure-channel";
 import { DeviceClient } from "@ace/devices/client";
-import { deviceTransport } from "./device-transport.ts";
+import { authenticatedChannel, deviceTransport } from "./device-transport.ts";
+import { machineCodeGate } from "./machine-code-gate.ts";
 
 const disposals: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -232,4 +233,80 @@ it("a dedicated device channel reports capacity and retries slowly without repla
   for (const callback of Array.from(timers.keys())) callback();
   await connected;
   expect(client.getSnapshot().error).toBeUndefined();
+});
+
+it("an account device offers its grant to the relay and in hello, and sends the machine code when asked", async () => {
+  const relay = await startRelay({ port: 0, bind: "127.0.0.1" });
+  disposals.push(() => relay.close());
+  const hostKeys = keyPair(new Uint8Array(32).fill(9));
+  const hostId = HostId.parse(fingerprint(hostKeys.publicKey));
+  const hellos: unknown[] = [];
+  const host = await connectHostToRelay({
+    relayUrl: relay.url,
+    hostKeys,
+    async onClientChannel(channel) {
+      const first = await channel.receive();
+      hellos.push(first);
+      if (first.type !== "hello" || first.grant === undefined) return channel.close();
+      if (first.machineCode !== "2468") {
+        await channel.send({
+          type: "error",
+          code: first.machineCode ? "machine_code_wrong" : "machine_code_required",
+          message: "Enter this machine's code.",
+        });
+        return channel.close();
+      }
+      channel.authorize();
+      await channel.send({ type: "welcome", protocolVersion: 1, hostId, headSeq: 0 });
+      for await (const frame of channel)
+        if (frame.type === "ping") await channel.send({ type: "pong" });
+    },
+  });
+  disposals.push(() => host.close());
+  let issued = 0;
+  const gate = machineCodeGate(async () => `grant-${++issued}`);
+  const offered: (string[] | undefined)[] = [];
+  const channel = authenticatedChannel(
+    {
+      target: { kind: "relay", url: relay.url, pinnedFingerprint: hostId },
+      deviceId: "phone",
+      credential: () => gate.credential(),
+      socket: (url, protocols) => {
+        offered.push(protocols);
+        return new WebSocket(url, protocols);
+      },
+      keys,
+      schedule,
+    },
+    "files",
+  );
+  disposals.push(() => channel.close());
+  const opened = () => {
+    const outcome = deferred<string>();
+    channel.open({
+      ready: () => {
+        gate.welcomed();
+        outcome.resolve("welcome");
+      },
+      message: noop,
+      close: () => outcome.resolve("closed"),
+      refused: (reason) => gate.refused(reason),
+    });
+    return outcome.promise;
+  };
+  expect(await opened()).toBe("closed");
+  expect(gate.asking).toBe("machine_code_required");
+  gate.enter("1111");
+  expect(await opened()).toBe("closed");
+  expect(gate.asking).toBe("machine_code_wrong");
+  gate.enter("2468");
+  expect(await opened()).toBe("welcome");
+  expect(gate.asking).toBeUndefined();
+  expect(offered).toEqual([["ace.grant.grant-1"], ["ace.grant.grant-2"], ["ace.grant.grant-3"]]);
+  expect(hellos).toMatchObject([
+    { grant: "grant-1", deviceId: "phone", channel: "files" },
+    { grant: "grant-2", machineCode: "1111" },
+    { grant: "grant-3", machineCode: "2468" },
+  ]);
+  expect(hellos[0]).not.toHaveProperty("machineCode");
 });
