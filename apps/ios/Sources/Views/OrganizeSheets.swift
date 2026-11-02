@@ -25,14 +25,14 @@ struct MoveThreadSheet: View {
             List {
                 switch client.compose.projectsState {
                 case "failed":
-                    ContentUnavailableView {
-                        Label("Couldn't read projects", systemImage: "wifi.exclamationmark")
-                    } description: { Text("Your computer didn't answer.") } actions: { Button("Try again", action: reload) }
+                    EmptyState(icon: nil, title: "Couldn't read projects", line: "Your computer didn't answer.", failed: true) {
+                        Button("Try again", action: reload)
+                    }
                     .listRowBackground(Color.clear)
                 case "ready":
                     if projects.isEmpty {
-                        ContentUnavailableView(query.isEmpty ? "No other project" : "No projects match", systemImage: "folder",
-                                               description: query.isEmpty ? Text("Add one on your computer first.") : nil)
+                        EmptyState(systemImage: "folder", title: query.isEmpty ? "No other project" : "No projects match",
+                                   line: query.isEmpty ? "Add one on your computer first." : nil)
                             .listRowBackground(Color.clear)
                     } else {
                         Section {

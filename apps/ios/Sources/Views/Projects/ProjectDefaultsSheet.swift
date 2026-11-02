@@ -27,7 +27,7 @@ struct ProjectDefaultsSheet: View {
                 if let project {
                     EditProjectView(model: model, project: project) { _ in done() }
                 } else if let problem {
-                    ContentUnavailableView("Project unavailable", systemImage: "folder", description: Text(problem))
+                    EmptyState(systemImage: "folder", title: "Project unavailable", line: problem)
                 } else {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }

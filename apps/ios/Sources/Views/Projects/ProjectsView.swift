@@ -58,8 +58,8 @@ struct ProjectsView: View {
             }
             .insetRowBackground()
             Group {
-                if loading, !loaded { HStack { Spacer(); ProgressView().accessibilityLabel("Loading projects"); Spacer() } }
-                if loaded && !loading && projects.isEmpty && problem == nil { ContentUnavailableView("No projects", systemImage: "folder") }
+                if loading, !loaded { SkeletonRows(count: 4, label: "Loading projects").listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
+                if loaded && !loading && projects.isEmpty && problem == nil { EmptyState(systemImage: "folder", title: "No projects") }
             }
             .listRowBackground(Color.clear)
             if query.isEmpty {

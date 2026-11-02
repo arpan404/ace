@@ -97,7 +97,7 @@ struct ProjectDetailView: View {
         .task(id: model.readGeneration(ProjectsView.firstPage)) { await reread() }
         .overlay {
             if gone {
-                ContentUnavailableView("Project removed", systemImage: "folder", description: Text("It's no longer on this machine."))
+                EmptyState(systemImage: "folder", title: "Project removed", line: "It's no longer on this machine.")
                     .transition(.opacity)
             }
         }

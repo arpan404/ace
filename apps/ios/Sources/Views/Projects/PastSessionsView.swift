@@ -47,7 +47,7 @@ struct PastSessionsView: View {
                 ServiceProblem(message: problem)
                 if problem != nil { Button("Retry") { Task { await read() } } }
                 if ["scanning", "retrying"].contains(state) { Label("Reading CLI history", systemImage: "clock") }
-                if !loading && sessions.isEmpty && problem == nil { ContentUnavailableView.search(text: query) }
+                if !loading && sessions.isEmpty && problem == nil { EmptyState.search(query) }
                 if next != nil { Button("Show more sessions") { Task { await read(more: true) } }.disabled(loading) }
             }
             .insetRowBackground()

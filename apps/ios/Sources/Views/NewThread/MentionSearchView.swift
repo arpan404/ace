@@ -14,13 +14,13 @@ struct MentionSearchView: View {
         List {
             switch result?.state {
             case "ready":
-                if result?.paths.isEmpty == true { ContentUnavailableView.search(text: query) }
+                if result?.paths.isEmpty == true { EmptyState.search(query) }
                 ForEach(result?.paths ?? [], id: \.self) { path in
                     Button { choose(path) } label: { FilePathRow(path: path) }
                         .buttonStyle(.plain).accessibilityIdentifier("mention.\(path)")
                 }
             case "failed":
-                ContentUnavailableView("Couldn't search files", systemImage: "wifi.exclamationmark", description: Text("Check the connection and try again."))
+                EmptyState(systemImage: "wifi.exclamationmark", title: "Couldn't search files", line: "Check the connection and try again.")
             default:
                 HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
             }

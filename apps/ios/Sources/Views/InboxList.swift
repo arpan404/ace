@@ -178,22 +178,22 @@ struct InboxList: View {
 
     @ViewBuilder private var emptyState: some View {
         if inbox.sessions.isEmpty, let pair {
-            NoComputerPaired(pair: pair).padding(.top, 120)
+            NoComputerPaired(pair: pair).padding(.top, AceTheme.Spacing.xxxl * 2)
         } else if !inbox.anyLoaded || !inbox.allReady {
             if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
                 EmptyState(icon: .wifiSlash, title: inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine",
                            line: "Your threads appear once it's back.") {
                     Button("Retry") { for session in inbox.sessions { session.client.retry() } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceTheme.Spacing.xxxl * 2)
             } else {
-                InboxSkeleton()
+                SkeletonRows(label: "Loading threads")
             }
         } else {
             EmptyState(icon: .tray, title: "No threads yet") {
                 if let compose { Button("New thread", action: compose).accessibilityIdentifier("inbox.empty.compose") }
             }
-            .padding(.top, 120)
+            .padding(.top, AceTheme.Spacing.xxxl * 2)
         }
     }
 }
@@ -219,31 +219,6 @@ private struct TabEmpty: View {
     }
 }
 
-/// The list while the first rows load (DESIGN.md §3 "Loading"): skeleton pills in the shape of
-/// rows, never a page spinner.
-private struct InboxSkeleton: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xl) {
-            ForEach(0..<5, id: \.self) { index in
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-                    pill(width: 96, height: 11)
-                    pill(width: index.isMultiple(of: 2) ? 220 : 180, height: 15)
-                    pill(width: 120, height: 11)
-                }
-            }
-        }
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Loading threads")
-    }
-    private func pill(width: CGFloat, height: CGFloat) -> some View {
-        AceShape.capsule
-            .fill(AceTheme.Colours.fill)
-            .frame(width: width, height: height)
-    }
-}
 
 extension View {
     /// The task list's row chrome: inset 8pt from the screen edge, 4pt between rows, the list's

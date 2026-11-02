@@ -90,7 +90,7 @@ struct ForgeListFrame<Rows: View>: View {
                 .padding(.top, 100)
                 .forgeRowChrome()
             } else if !loaded {
-                ForgeSkeleton().forgeRowChrome()
+                SkeletonRows(count: 6).forgeRowChrome()
             } else if empty {
                 EmptyState(icon: icon, title: emptyTitle) { EmptyView() }
                     .padding(.top, 100)
@@ -127,28 +127,6 @@ struct ForgeListFrame<Rows: View>: View {
     }
 }
 
-/// Row-shaped pills while the first page reads (DESIGN.md: skeletons, never a page spinner).
-private struct ForgeSkeleton: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xl) {
-            ForEach(0..<6, id: \.self) { index in
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-                    pill(width: 120, height: 11)
-                    pill(width: index.isMultiple(of: 2) ? 260 : 200, height: 15)
-                    pill(width: 160, height: 11)
-                }
-            }
-        }
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Loading")
-    }
-    private func pill(width: CGFloat, height: CGFloat) -> some View {
-        AceShape.capsule.fill(AceTheme.Colours.fill).frame(width: width, height: height)
-    }
-}
 
 extension View {
     /// The lists' row chrome: the inbox's insets, no rules, the page colour behind.

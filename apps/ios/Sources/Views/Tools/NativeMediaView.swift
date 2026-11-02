@@ -22,7 +22,7 @@ struct NativeMediaView: View {
         Group {
             if let document { SandboxedCanvas(document: document).padding(.horizontal, AceTheme.Spacing.xl) }
             else if let picture { ZoomableImage(image: picture, label: title) }
-            else if let problem { ContentUnavailableView("Couldn't open media", systemImage: "doc", description: Text(problem)) }
+            else if let problem { EmptyState(systemImage: "doc", title: "Couldn't open media", line: problem) }
             else { ProgressView("Loading…") }
         }
         .navigationTitle(title).navigationBarTitleDisplayMode(.inline)

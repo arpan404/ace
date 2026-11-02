@@ -34,7 +34,7 @@ struct ForgeTimelineView: View {
                     }
                     .padding(.top, 120)
                 } else {
-                    ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
+                    SkeletonPage()
                 }
             }
             .defaultScrollAnchor(.bottom)

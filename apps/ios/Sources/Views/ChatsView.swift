@@ -138,30 +138,18 @@ private struct ChatsList: View {
         if id == "rename" { actions.rename(key) } else { organizer?.perform(key, id) }
     }
 
+    /// Nothing to list: the shared empty state, worded as the web's Chats panel, or the search's.
     @ViewBuilder private var empty: some View {
         if searching {
-            Text("No chats match.")
-                .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.top, AceTheme.Spacing.xxl)
+            EmptyState.search("")
+        } else if !inbox.anyLoaded {
+            SkeletonRows(count: 4, label: "Loading chats")
+                .frame(maxHeight: .infinity, alignment: .top)
         } else {
-            VStack(spacing: AceTheme.Spacing.sm) {
-                Text(device.isEmpty ? "No chats yet" : "No chats on \(inbox.name(device))")
-                    .aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                Text(device.isEmpty ? "A chat needs no project. Ask anything." : "Chats on this device will land here.")
-                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                if device.isEmpty && inbox.canStartThreads {
-                    Button("New chat", action: actions.newChat).fontWeight(.medium)
-                        .foregroundStyle(AceTheme.Colours.foreground)
-                        .padding(.top, AceTheme.Spacing.xs)
-                }
+            EmptyState(icon: .chatCircle, title: device.isEmpty ? "No chats yet" : "No chats on \(inbox.name(device))") {
+                if device.isEmpty && inbox.canStartThreads { Button("New chat", action: actions.newChat) }
             }
-            .multilineTextAlignment(.center)
-            .padding(AceTheme.Spacing.xl)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxHeight: .infinity)
         }
     }
 }

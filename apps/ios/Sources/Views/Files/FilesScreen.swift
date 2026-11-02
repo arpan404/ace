@@ -89,7 +89,7 @@ struct FilesScreen: View {
     @ViewBuilder private var treeRows: some View {
         if let tree {
             if tree.rows.isEmpty {
-                ContentUnavailableView("No files", systemImage: "folder").listRowSeparator(.hidden)
+                EmptyState(systemImage: "folder", title: "No files").listRowSeparator(.hidden)
             }
             ForEach(visible) { row in
                 Button { tap(row) } label: { FileTreeRowView(row: row, open: open.contains(row.path)) }
@@ -111,14 +111,13 @@ struct FilesScreen: View {
                     .accessibilityIdentifier("files.more")
             }
         } else if let failure {
-            ContentUnavailableView {
-                Label("Couldn't read the files", systemImage: "exclamationmark.triangle")
-            } description: { Text(failure) } actions: {
+            EmptyState(icon: nil, title: "Couldn't read the files", line: failure, failed: true) {
                 Button("Try again") { Task { await load() } }
             }
             .listRowSeparator(.hidden)
         } else {
-            HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+            SkeletonRows(label: "Loading files").listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                .listRowInsets(EdgeInsets())
         }
     }
 
@@ -154,7 +153,7 @@ struct FilesScreen: View {
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                 .listRowSeparator(.hidden)
         } else if let shown {
-            if shown.rows.isEmpty { ContentUnavailableView.search(text: query).listRowSeparator(.hidden) }
+            if shown.rows.isEmpty { EmptyState.search(query).listRowSeparator(.hidden) }
             ForEach(shown.rows) { row in
                 Button { pick(row) } label: { FileSearchRowView(row: row) }
                     .buttonStyle(.plain)

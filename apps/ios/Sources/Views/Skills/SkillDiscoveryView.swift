@@ -39,7 +39,7 @@ struct SkillDiscoveryView: View {
                 if stale { Text("Showing cached entries. Refresh when the machine is ready.").foregroundStyle(AceTheme.Colours.mutedForeground) }
                 ServiceProblem(message: problem)
                 if problem != nil { Button("Retry") { Task { if project.isEmpty { await readProjects() }; await read() } } }
-                if loaded && entries.isEmpty && problem == nil { ContentUnavailableView("No entries for this agent", systemImage: "book", description: Text("Choose another coding agent or project.")) }
+                if loaded && entries.isEmpty && problem == nil { EmptyState(systemImage: "book", title: "No entries for this agent", line: "Choose another coding agent or project.") }
             }
             .insetRowBackground()
         }

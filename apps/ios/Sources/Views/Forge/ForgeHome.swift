@@ -127,7 +127,7 @@ struct ForgeHome: View {
         } else if session != nil, projects.isEmpty, session?.client.connection == "ready" {
             ForgeEmpty { EmptyState(icon: .gitPullRequest, title: "No projects yet", line: "Add a project with a GitHub remote to see its pull requests and issues.") { EmptyView() } }
         } else {
-            ForgeEmpty { ProgressView().controlSize(.regular) }
+            SkeletonRows(label: "Loading pull requests")
         }
     }
 

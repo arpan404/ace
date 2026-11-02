@@ -70,7 +70,7 @@ struct ConversationSearchView: View {
             } else if search.loading {
                 ProgressView().accessibilityLabel("Searching conversations")
             } else if search.loaded && search.hits.isEmpty {
-                ContentUnavailableView.search(text: text)
+                EmptyState.search(text)
             }
             if search.cursor != nil {
                 Button("Show more results") { Task { await search.more(model: model, text: text, kind: kind, threadId: threadId) } }.disabled(search.loading)

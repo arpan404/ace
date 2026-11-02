@@ -195,7 +195,7 @@ struct InboxSearchList: View {
                 .listRowSeparator(.hidden).listRowBackground(surface)
         } else if !messages.loading && foundThreads.isEmpty && everything.commands.isEmpty && everything.projects.isEmpty
                     && messages.merged(inbox).isEmpty {
-            ContentUnavailableView.search(text: text)
+            EmptyState.search(text)
                 .listRowSeparator(.hidden).listRowBackground(surface)
         }
     }

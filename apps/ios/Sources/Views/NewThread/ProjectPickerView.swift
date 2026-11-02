@@ -58,15 +58,15 @@ struct ProjectPickerView: View {
             }
             switch compose.projectsState {
             case "failed":
-                ContentUnavailableView {
-                    Label("Couldn't read projects", systemImage: "wifi.exclamationmark")
-                } description: { Text("Your computer didn't answer.") } actions: { Button("Try again", action: reload) }
+                EmptyState(icon: nil, title: "Couldn't read projects", line: "Your computer didn't answer.", failed: true) {
+                    Button("Try again", action: reload)
+                }
                 .listRowBackground(Color.clear)
             case "ready":
                 let recent = matches.filter(\.recent)
                 let rest = matches.filter { !$0.recent }
                 if matches.isEmpty, !query.isEmpty {
-                    ContentUnavailableView("No projects match", systemImage: "folder")
+                    EmptyState(systemImage: "folder", title: "No projects match")
                         .listRowBackground(Color.clear)
                 }
                 if !recent.isEmpty {
@@ -165,7 +165,7 @@ struct AddProjectView: View {
             }
             switch folders?.state {
             case "ready":
-                if folders?.folders.isEmpty == true { ContentUnavailableView.search(text: query).listRowBackground(Color.clear) }
+                if folders?.folders.isEmpty == true { EmptyState.search(query).listRowBackground(Color.clear) }
                 Section {
                     ForEach(folders?.folders ?? []) { folder in
                         Button { add(folder) } label: {
@@ -187,11 +187,11 @@ struct AddProjectView: View {
                 }
                 .insetRowBackground()
             case "forbidden":
-                ContentUnavailableView("Add it on your computer", systemImage: "desktopcomputer",
-                                       description: Text("This computer doesn't let this phone browse its folders. In ace on your computer, choose Add project."))
+                EmptyState(systemImage: "desktopcomputer", title: "Add it on your computer",
+                           line: "This computer doesn't let this phone browse its folders. In ace on your computer, choose Add project.")
                     .listRowBackground(Color.clear)
             case "failed":
-                ContentUnavailableView("Couldn't search folders", systemImage: "wifi.exclamationmark", description: Text("Check the connection and try again."))
+                EmptyState(systemImage: "wifi.exclamationmark", title: "Couldn't search folders", line: "Check the connection and try again.")
                     .listRowBackground(Color.clear)
             default:
                 HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)

@@ -31,7 +31,7 @@ struct ForgeConflictsPageView: View {
                 }
                 .padding(.top, 120)
             } else {
-                ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
+                SkeletonPage()
             }
         }
         .animation(AceMotion.smooth, value: page)

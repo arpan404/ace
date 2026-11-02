@@ -196,13 +196,12 @@ struct UsageView: View {
     }
 
     private func empty(_ title: String, systemImage: String, detail: String? = nil) -> some View {
-        ContentUnavailableView(title, systemImage: systemImage, description: detail.map { Text($0) })
+        EmptyState(systemImage: systemImage, title: title, line: detail)
             .frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
     }
 
     private func loading(_ label: String) -> some View {
-        ProgressView().accessibilityLabel(label)
-            .frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
+        SkeletonRows(count: 4, label: label)
     }
 
     private func read(fresh: Bool) async {

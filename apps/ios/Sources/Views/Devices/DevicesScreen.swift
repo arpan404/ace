@@ -65,7 +65,7 @@ struct DevicesScreen: View {
             if let offline = view.offline {
                 DeviceNote(sentence: offline.text, action: "Reconnect") { reconnect() }
             } else if !view.connected || view.loading {
-                ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden).accessibilityLabel("Loading devices")
+                SkeletonRows(count: 3, label: "Loading devices").listRowSeparator(.hidden).listRowInsets(EdgeInsets())
             } else if !view.enabled {
                 DeviceNote(sentence: "Devices are off on this machine.", action: model.canOperate ? "Turn on" : nil) {
                     Task { await turnOn() }
@@ -75,7 +75,7 @@ struct DevicesScreen: View {
             }
             if let problem = devices.problem { DeviceNote(sentence: problem.text, action: nil) {} }
         } else {
-            ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden).accessibilityLabel("Loading devices")
+            SkeletonRows(count: 3, label: "Loading devices").listRowSeparator(.hidden).listRowInsets(EdgeInsets())
         }
     }
 

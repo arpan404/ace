@@ -86,10 +86,9 @@ private struct ArchiveRows: View {
             Button("Retry loading older threads") { client.loadMoreArchived() }
                 .frame(minHeight: AceTheme.Dimensions.touchTarget).accessibilityIdentifier("archive.retry")
         } else if !archive.list.loaded {
-            ContentUnavailableView("Can't reach this machine", systemImage: "wifi.slash",
-                                   description: Text("Archived threads load once it's connected."))
+            EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "Archived threads load once it's connected.")
         } else if empty {
-            ContentUnavailableView("Nothing archived", systemImage: "archivebox", description: Text("Threads you archive on this machine wait here."))
+            EmptyState(systemImage: "archivebox", title: "Nothing archived", line: "Threads you archive on this machine wait here.")
         } else if archive.canLoadMore {
             Button("Show older archived threads") { client.loadMoreArchived() }
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
