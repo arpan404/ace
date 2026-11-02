@@ -62,6 +62,9 @@ import QuartzCore
             PerfProbe.record(["frames.late": "\(late)", "frames.hitchMsPerS": String(format: "%.1f", lost * 1000 / max(seconds, 0.001)),
                               "frames.worstMs": String(format: "%.0f", worst * 1000)])
             PerfProbe.add("frames.windows", 1)
+            // The probe's numbers in the log too, for runs driven without an accessibility
+            // client (whose snapshots of a long transcript can stall the run they measure).
+            if PerfProbe.enabled { ThreadOpenTrace.log.notice("probe \(PerfProbe.shared.text, privacy: .public)") }
             ThreadOpenTrace.log.notice("""
                 frames window=\(String(format: "%.1f", seconds), privacy: .public)s frames=\(self.frames) late=\(self.late) \
                 lostMs=\(String(format: "%.0f", self.lost * 1000), privacy: .public) \
