@@ -177,7 +177,6 @@ export function createAgentRegistry(config: {
               kind: "shell",
               title: recoveredCommand(turns, itemId) ?? "Background command",
               stoppable: true,
-              wakesAgent: false,
             });
         }
         agent.terminalItems = recoveredTerminals;

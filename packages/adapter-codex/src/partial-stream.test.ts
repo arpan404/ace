@@ -15,6 +15,24 @@ test("command output without its start frame still holds completion after the tu
   h.item({ ...shell, status: "completed", aggregatedOutput: "running" }, true);
   expect(h.state.status.state).toBe("done");
 });
+test("a command whose start was seen, left running by a completed turn, is released yet listed and stoppable until it ends", () => {
+  const h = setup();
+  h.start();
+  h.item(shell);
+  h.end();
+  // Codex never wakes the agent for it (ADR 0109): the thread is done, the command still runs.
+  expect(h.state.status.state).toBe("done");
+  const [task] = Object.values(h.state.tasks);
+  expect(task).toMatchObject({
+    kind: "shell",
+    status: "running",
+    stoppable: true,
+    wakesAgent: false,
+  });
+  h.item({ ...shell, status: "completed" }, true);
+  expect(Object.values(h.state.tasks)[0]?.status).toBe("completed");
+  expect(h.state.status.state).toBe("done");
+});
 test("unknown delta methods remain raw instead of corrupting an existing tool", () => {
   const h = setup();
   h.start();
