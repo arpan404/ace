@@ -211,6 +211,11 @@ const ascending = (value: number) =>
   );
 const descending = (value: number) => ascending(rankTop - value);
 
+/** Most recent first, as fixed-width digits that compare as plain strings (`inboxRank`'s order). */
+export function recentRank(at: number): string {
+  return descending(at);
+}
+
 /**
  * Where a row sorts within its group, as a string compared by UTF-16 code units (JavaScript's
  * own `<`). Most recent activity leads; Working puts running trees above those waiting or
