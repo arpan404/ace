@@ -182,7 +182,8 @@ struct InboxRowLine: View {
 }
 
 /// The row's trailing marks: the machine (named for VoiceOver), running subagents with the tree
-/// icon, then the provider with its account bubble. Settled rows grey them with the rest.
+/// icon, then the provider's mark (never with an account bubble: the preview names the account).
+/// Settled rows grey them with the rest.
 struct InboxRowMarks: View {
     let row: ThreadRow
     let look: RowLook
@@ -203,7 +204,7 @@ struct InboxRowMarks: View {
                 .accessibilityLabel("\(look.subagents) agents")
             }
             // The provider in its own colours at 80% (a one-colour mark in the foreground ink).
-            ProviderMark(provider: row.provider, size: 15, account: row.account, quiet: look.settled)
+            ProviderMark(provider: row.provider, size: 15, quiet: look.settled)
                 .foregroundStyle(look.settled ? AceTheme.Colours.faintForeground : AceTheme.Colours.foreground)
                 .opacity(look.settled ? 1 : 0.8)
         }
