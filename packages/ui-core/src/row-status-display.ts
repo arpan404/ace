@@ -8,15 +8,18 @@ import type { Tone } from "./status.ts";
  * which one a row shows, so iOS can reuse it. The existing attention (`rowAttention`) stays the
  * single rule for which state a row is in; only the presentation changes.
  *
- * - needs-you: shield (approval), bubble (question), chip (model), else the shield with a short
- *   noun. Warning colour, word in the state's colour.
- * - failed: triangle. Destructive colour, word in the state's colour.
- * - working: still quarter-filled circle. Working blue icon, elapsed time in muted ink.
- * - waiting: hourglass. Waiting violet icon, elapsed time in muted ink.
- * - background: terminal. Muted icon, elapsed time in muted ink.
- * - done-unread: filled circle. Unseen blue icon, `Done` in the state's colour.
- * - done-seen/idle: small check (or nothing without a finished turn). Subtle icon, relative
- *   time in muted ink.
+ * Rows are quiet: colour only where the person is needed or something failed, and no status
+ * words on the row itself. The meaning (`Needs approval`) goes in the tooltip and the row's
+ * accessible name.
+ * - needs-you: shield (approval), bubble (question), chip (model), else the shield. The icon
+ *   alone, in the warning colour.
+ * - failed: triangle. The icon alone, in the destructive colour.
+ * - working: still quarter-filled circle, grey, then the elapsed time in muted ink.
+ * - waiting: hourglass, grey, then the elapsed time.
+ * - background: terminal, grey, then the elapsed time.
+ * - failed-seen: the triangle in grey, then the age.
+ * - done-unread, done-seen, idle: the age alone. An unread result is marked by its bold title.
+ * - syncing: a quiet word, the one state with no icon or time to stand for it.
  * Nothing animates on rows.
  */
 
@@ -40,22 +43,49 @@ export type RowStatusTone =
   | "unread"
   | "idle";
 
+/** The colour a row's icon draws in: only needs-you and failed are coloured. */
+export type RowStatusInk = "warning" | "destructive" | "muted";
+
 export interface RowStatusLook {
-  /** The solid icon to draw, or `none` for a quiet word with no icon. */
+  /** The solid icon a row draws, or `none` for no icon. */
   icon: RowStatusIconKind | "none";
-  /** The `data-tone` the icon (and a coloured word) draws in. */
+  /** The state's `data-tone`, for the worded form (the hover card). */
   tone: RowStatusTone;
-  /** How the row words its line: a short static word, its live elapsed time, or its age. */
-  mode: "word" | "elapsed" | "age";
-  /** The visual short word for `word` mode; undefined for times, which the row computes. */
+  /** The colour the row's icon draws in. */
+  ink: RowStatusInk;
+  /**
+   * What the row shows: the icon alone, the icon (if any) and the live elapsed time, the icon
+   * (if any) and the age, or a quiet word.
+   */
+  mode: "icon" | "elapsed" | "age" | "word";
+  /** The short word the hover card shows beside the icon; undefined where it shows a time. */
   word: string | undefined;
-  /** The full wording for assistive tech (the row's existing status label, unchanged). */
+  /** The state in a few plain words ("Needs approval"), for the tooltip and the row's name. */
+  meaning: string;
+  /** The card's own status label (the row's existing wording, unchanged). */
   full: string;
 }
 
 const approval = (label: string): boolean => /approv/i.test(label);
 const answer = (label: string): boolean => /answer/i.test(label);
 const review = (label: string): boolean => /review/i.test(label);
+
+type Needs = Pick<RowStatusLook, "icon" | "word" | "meaning">;
+
+function needs(old: string, full: string): Needs {
+  if (old === "Approve" || approval(full))
+    return { icon: "approve", word: "Approval", meaning: "Needs approval" };
+  if (old === "Answer" || answer(full))
+    return { icon: "question", word: "Question", meaning: "Has a question" };
+  if (old === "Pick a model" || full === "Pick a model")
+    return { icon: "model", word: "Model", meaning: "Needs a model" };
+  if (old === "Needs you" && review(full))
+    return { icon: "approve", word: "Review", meaning: "Needs a review" };
+  if (old === "Not sent") return { icon: "approve", word: "Not sent", meaning: "Not sent" };
+  if (old === "Needs you" || old.endsWith("needs you"))
+    return { icon: "approve", word: "Request", meaning: "Needs you" };
+  return { icon: "approve", word: old, meaning: old || full };
+}
 
 /**
  * Which solid icon, colour and wording a row shows for its attention. Pure: the caller passes
@@ -67,51 +97,76 @@ export function rowStatusLook(
 ): RowStatusLook {
   const full = card.status.label;
   switch (attention.level) {
-    case "needs-you": {
-      const old = attention.word ?? "";
-      if (old === "Approve" || approval(full))
-        return { icon: "approve", tone: "needs-you", mode: "word", word: "Approval", full };
-      if (old === "Answer" || answer(full))
-        return { icon: "question", tone: "needs-you", mode: "word", word: "Question", full };
-      if (old === "Pick a model" || full === "Pick a model")
-        return { icon: "model", tone: "needs-you", mode: "word", word: "Model", full };
-      if (old === "Needs you" && review(full))
-        return { icon: "approve", tone: "needs-you", mode: "word", word: "Review", full };
-      if (old === "Not sent")
-        return { icon: "approve", tone: "needs-you", mode: "word", word: "Not sent", full };
-      if (old === "Needs you" || old.endsWith("needs you"))
-        return { icon: "approve", tone: "needs-you", mode: "word", word: "Request", full };
-      return { icon: "approve", tone: "needs-you", mode: "word", word: old, full };
-    }
+    case "needs-you":
+      return {
+        ...needs(attention.word ?? "", full),
+        tone: "needs-you",
+        ink: "warning",
+        mode: "icon",
+        full,
+      };
     case "failed":
-      return { icon: "failed", tone: "failed", mode: "word", word: "Failed", full };
+      return {
+        icon: "failed",
+        tone: "failed",
+        ink: "destructive",
+        mode: "icon",
+        word: "Failed",
+        meaning: "Failed",
+        full,
+      };
     case "active": {
+      const busy = { ink: "muted", mode: "elapsed", word: undefined, full } as const;
       if (attention.tone === "working")
-        return { icon: "working", tone: "working", mode: "elapsed", word: undefined, full };
+        return { ...busy, icon: "working", tone: "working", meaning: full };
       if (attention.tone === "background")
-        return {
-          icon: "background",
-          tone: "background",
-          mode: "elapsed",
-          word: undefined,
-          full,
-        };
+        return { ...busy, icon: "background", tone: "background", meaning: full };
+      // A plain wait says what it waits for in the card's own words; a recovery keeps its own.
       const old = attention.word ?? "";
-      if (old === "Waiting" || old.startsWith("Limited"))
-        return { icon: "waiting", tone: "waiting", mode: "elapsed", word: undefined, full };
-      return { icon: "waiting", tone: "waiting", mode: "word", word: old, full };
+      const plain = old === "" || old === "Waiting" || old.startsWith("Limited");
+      return { ...busy, icon: "waiting", tone: "waiting", meaning: plain ? full : old };
     }
     case "done-unread":
-      return { icon: "done", tone: "unread", mode: "word", word: "Done", full };
+      return {
+        icon: "none",
+        tone: "unread",
+        ink: "muted",
+        mode: "age",
+        word: "Done",
+        meaning: "Done",
+        full,
+      };
     case "failed-seen":
-      return { icon: "none", tone: "idle", mode: "word", word: "Failed", full };
+      return {
+        icon: "failed",
+        tone: "idle",
+        ink: "muted",
+        mode: "age",
+        word: "Failed",
+        meaning: "Failed",
+        full,
+      };
     case "syncing":
-      return { icon: "none", tone: "idle", mode: "word", word: attention.word, full };
+      return {
+        icon: "none",
+        tone: "idle",
+        ink: "muted",
+        mode: "word",
+        word: attention.word,
+        meaning: attention.word ?? full,
+        full,
+      };
     case "quiet": {
       const finished = card.status.tone === "done" || card.status.label === "Done";
-      return finished
-        ? { icon: "seen", tone: "idle", mode: "age", word: undefined, full }
-        : { icon: "none", tone: "idle", mode: "age", word: undefined, full };
+      return {
+        icon: "none",
+        tone: "idle",
+        ink: "muted",
+        mode: "age",
+        word: undefined,
+        meaning: finished ? "Done" : full,
+        full,
+      };
     }
   }
 }
