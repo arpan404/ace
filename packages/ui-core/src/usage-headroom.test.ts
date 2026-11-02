@@ -1,9 +1,8 @@
 import { AccountSummary } from "@ace/protocol/accounts";
 import { expect, test } from "vitest";
 import { accountView } from "./accounts.ts";
-import { headroomSentence, railUsage, usageHeadroom, usageNow } from "./usage-headroom.ts";
+import { headroomSentence, railUsage, usageHeadroom } from "./usage-headroom.ts";
 import { usageLimits } from "./usage-limits.ts";
-import { usageSuggestion } from "./usage-suggestion.ts";
 
 const now = Date.parse("2026-11-01T12:00:00Z");
 const minute = 60_000;
@@ -172,7 +171,7 @@ test("a session past its reset since its last reading counts as fresh", () => {
   expect(stale?.sessionLeft).toBe(43);
 });
 
-test("with room everywhere, Now names the tightest provider and when it runs out at this pace", () => {
+test("with room everywhere, the card names the tightest provider and when it runs out at this pace", () => {
   const list = headroom(claudePersonal, {
     provider: "codex",
     id: "codex-personal",
@@ -180,11 +179,6 @@ test("with room everywhere, Now names the tightest provider and when it runs out
     isDefault: true,
     session: [38, 181],
   });
-  const line = usageNow(list, now);
-  expect(line?.text).toBe(
-    "You have room on every provider. Claude Code is the tightest: 38% of the session left, out in about 2h at this pace.",
-  );
-  expect(line?.parts.find((part) => part.strong)?.text).toBe("Claude Code");
   expect(headroomSentence(list, now)).toBe(
     "Claude Code's session runs out in about 2h at this pace; it resets in 2h 1m.",
   );
@@ -192,51 +186,21 @@ test("with room everywhere, Now names the tightest provider and when it runs out
 
 test("a tightest provider on pace to last until its reset gets no forecast", () => {
   const list = headroom({ ...claudePersonal, session: [30, 60] });
-  expect(usageNow(list, now)?.text).toBe(
-    "You have room on every provider. Claude Code is the tightest: 59% of the session left.",
-  );
   expect(headroomSentence(list, now)).toBe(
     "Claude Code is the tightest, with 59% of the session left; it resets in 1h.",
   );
 });
 
-test("Now says who is out on every account and when they're back", () => {
+test("the card says who is out on every account and when they're back", () => {
   const list = headroom(
     { ...claudePersonal, session: [100, 88] },
     { ...claudeWork, session: [100, 150] },
   );
-  expect(usageNow(list, now)?.text).toBe(
-    "Claude Code is out on every account; it's back in 1h 28m.",
-  );
   expect(headroomSentence(list, now)).toBe("Claude Code is out; it's back in 1h 28m.");
 });
 
-test("Now says when the account for new threads is out though another has room", () => {
-  const list = headroom({ ...claudePersonal, session: [100, 88] }, claudeWork);
-  expect(usageNow(list, now)?.text).toBe(
-    "Claude Code's Personal account is out; it's back in 1h 28m.",
-  );
-  expect(usageSuggestion(list, "claude:")?.text).toBe(
-    "Its Work account has 43% of its session left.",
-  );
-});
-
-test("Now says nothing with no limits read", () => {
-  expect(usageNow([], now)).toBeUndefined();
+test("the card says nothing with no limits read", () => {
   expect(headroomSentence([], now)).toBe("No limits read yet.");
-});
-
-test("another account with clearly more room is suggested as the default", () => {
-  const list = headroom(claudePersonal, { ...claudeWork, weekly: 0 });
-  const suggestion = usageSuggestion(list, "claude:");
-  expect(suggestion?.text).toBe("Its Work account has a fresh session.");
-  expect(suggestion?.action).toBe("Make Work the default for new Claude threads");
-  expect(suggestion?.account.account.id).toBe("claude-work");
-  // No suggestion when the default already has room, or is the best.
-  expect(usageSuggestion(headroom({ ...claudePersonal, session: [10, 200] }, claudeWork))).toBe(
-    undefined,
-  );
-  expect(usageSuggestion(headroom(claudePersonal))).toBeUndefined();
 });
 
 test("set to session, the bars show each account's usable session instead of its week", () => {
