@@ -100,3 +100,26 @@ test("browser sign-in survives a transient backend failure and sign-out removes 
   expect(sessionStorage.getItem(`ace.account.session:${origin}`)).toBeNull();
   expect(screen.getByRole("textbox", { name: "Your name" })).toBeDefined();
 });
+
+test("signing out a session the backend already ended still signs this window out", async () => {
+  const origin = "https://backend.example.com";
+  vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
+  const session = {
+    token: "t".repeat(43),
+    expiresAt: 1_900_000_000_000,
+    account: { id: "user_gone", email: "gone@example.com", name: "Gone Person" },
+  };
+  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  vi.stubGlobal("fetch", async (_input: string, init?: RequestInit) =>
+    init?.method === "DELETE"
+      ? Response.json({ error: "unauthenticated" }, { status: 401 })
+      : Response.json(session),
+  );
+  await harness().open("/settings/general");
+  const signOut = await screen.findByRole("button", { name: "Sign out" });
+  await waitFor(() => expect(signOut.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(signOut);
+  expect(await screen.findByRole("button", { name: "Sign in" })).toBeDefined();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(sessionStorage.getItem(`ace.account.session:${origin}`)).toBeNull();
+});

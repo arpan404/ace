@@ -36,6 +36,7 @@ import { fakeMachinePool } from "./fake-machines.ts";
 import { installFakeVideoDecoder } from "./fake-video.ts";
 import { seedBuildServerUsage, seedLimitReadings } from "./fake-usage.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
+import { withFakeMachineAccount } from "./fake-account.ts";
 
 const timer = {
   set(delayMs: number, callback: () => void) {
@@ -277,11 +278,11 @@ export function fakeConnection(daemon: FakeDaemon): DaemonConnection {
     ...fallback,
     endpoint: {
       kind: "fake",
-      access: {
+      access: withFakeMachineAccount({
         origin: "http://127.0.0.1:4242/",
         fetch: daemon.access.fetch,
         token: async () => daemon.access.token,
-      },
+      }),
       devices: () => daemon.appDevices.transport(),
       screen: () => daemon.screen.transport(),
     },

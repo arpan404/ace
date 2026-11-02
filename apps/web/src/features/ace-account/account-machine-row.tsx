@@ -39,9 +39,11 @@ export function AccountMachineRow(props: {
   const line =
     state?.kind === "connecting"
       ? "Opening…"
-      : state?.kind === "failed"
-        ? state.message
-        : accountMachineLine(machine, now);
+      : state?.kind === "open"
+        ? "Connected"
+        : state?.kind === "failed"
+          ? state.message
+          : accountMachineLine(machine, now);
   return (
     <div data-account-machine="" className="group/setting">
       <div className="flex min-h-(--setting-row-height) items-center gap-3 py-(--setting-row-y)">
@@ -52,7 +54,7 @@ export function AccountMachineRow(props: {
             {line}
           </span>
         </div>
-        {connector && state?.kind !== "asking" && state?.kind !== "connecting" && (
+        {connector && (state === undefined || state.kind === "failed") && (
           <Button
             size="sm"
             variant="ghost"

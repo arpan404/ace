@@ -165,7 +165,7 @@ function MachineCodeSetting(props: {
       </SettingRow>
       {editing && (
         <form
-          aria-label="New machine code"
+          aria-label="Change machine code"
           data-setting-slot=""
           className="flex items-center gap-2 py-3"
           onSubmit={(event) => {
