@@ -1,5 +1,6 @@
 import { TransferHost } from "@/features/transfers/index.ts";
 import { TransferOpenerProvider } from "@/lib/transfer-opener.ts";
+import { ThreadPreviewProvider } from "@/lib/thread-preview.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { ForgeButton } from "@/components/forge-button.tsx";
 import { UsageLink } from "@/components/usage-bars.tsx";
@@ -20,6 +21,7 @@ import { loadFloatingBrowsers, PullRequestViewProvider } from "@/features/panels
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import {
   OpenWorkWarmup,
+  ThreadHoverPreview,
   ThreadLeaveProvider,
   ThreadStepKeys,
   ThreadsSidebar,
@@ -86,9 +88,11 @@ export function AppShell() {
                   }
                 >
                   <ThreadLeaveProvider>
-                    <PullRequestViewProvider value={PullRequestTab.Component}>
-                      <Outlet />
-                    </PullRequestViewProvider>
+                    <ThreadPreviewProvider value={ThreadHoverPreview}>
+                      <PullRequestViewProvider value={PullRequestTab.Component}>
+                        <Outlet />
+                      </PullRequestViewProvider>
+                    </ThreadPreviewProvider>
                   </ThreadLeaveProvider>
                 </SidebarFrame>
                 <LocalBoundary label="the command palette" fallback={null}>
