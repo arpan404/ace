@@ -103,6 +103,7 @@ export const ThreadAction = z.discriminatedUnion("type", [
           "resume",
           "continue",
           "hold",
+          "cancel_resume",
         ]),
         label: z.string().max(128).default(""),
       }),

@@ -29,6 +29,8 @@ import { createDesktopLog, type Log } from "./log/desktop-log.ts";
 import { createFileLog } from "./log/file-log.ts";
 import { rendererReports } from "./diagnostics/renderer-reports.ts";
 import { startLocalCrashReporter, watchProcessDeaths } from "./diagnostics/watch.ts";
+import { bundledStallWorker, watchFreezes } from "./diagnostics/freeze-watch.ts";
+import { createStallOperation } from "@ace/diagnostics/stall";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { windowsAppUserModelId } from "./notifications/native.ts";
 import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activation.ts";
@@ -158,6 +160,15 @@ function main(target: DaemonTarget, crashDumps: string): void {
   const logger = openLogs();
   const log = logger("desktop");
   const daemonLog = logger("daemon");
+  // Names what the main thread is doing, so a freeze is reported with its operation.
+  const operation = createStallOperation();
+  watchFreezes({
+    log: logger("freeze"),
+    directory: app.getPath("logs"),
+    pid: process.pid,
+    operation,
+    spawn: bundledStallWorker(import.meta.url),
+  });
   void logFreshStart(target, log, new Date());
   const info: AppInfo = {
     version: app.isPackaged ? app.getVersion() : ACE_APP_VERSION,
@@ -182,8 +193,9 @@ function main(target: DaemonTarget, crashDumps: string): void {
     },
     env: process.env,
     log: logger("supervisor"),
-    daemonOutput: (line, stream) =>
+    daemonOutput: operation.wrap("daemon output", (line: string, stream: "stdout" | "stderr") =>
       daemonLog(stream === "stderr" ? "warn" : "info", line, { stream }),
+    ),
   });
   const settings = new SettingsStore(join(app.getPath("userData"), "desktop-settings.json"));
   const backgrounds = new WindowBackgroundStore(
@@ -217,6 +229,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     open: (link) => open(link),
     quitAll: () => app.quit(),
     log: (message) => log("warn", message),
+    mark: operation.run,
     trayHost:
       process.platform === "linux" ? () => linuxTrayHost(runProgram(trayCheckMs)) : undefined,
   });
@@ -620,6 +633,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       rendererUrl,
       isAppWindow: (sender) => sender === window?.webContents,
       handlers,
+      mark: operation.run,
     });
     nativeTheme.on("updated", () => emit(contents(), "theme.changed", appearance()));
     // Windows keeps toasts in the notification centre after their objects are gone (and after

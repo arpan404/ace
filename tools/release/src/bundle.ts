@@ -93,7 +93,7 @@ export async function bundleDaemon(
                   '"./history-publish-worker.ts"',
                   '"./history-publish-worker.mjs"',
                 );
-              if (args.path.endsWith("/daemon/src/stall-watchdog.ts"))
+              if (args.path.endsWith("/diagnostics/src/stall-watchdog.ts"))
                 contents = contents.replace(
                   '"./stall-watchdog-worker.ts"',
                   '"./stall-watchdog-worker.mjs"',
@@ -225,7 +225,7 @@ export async function bundleDaemon(
     ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],
     ["apps/daemon/src/storage/worktree-worker.ts", "storage-worktree-worker.mjs"],
     ["apps/daemon/src/storage/usage-worker.ts", "storage-usage-worker.mjs"],
-    ["apps/daemon/src/stall-watchdog-worker.ts", "stall-watchdog-worker.mjs"],
+    ["packages/diagnostics/src/stall-watchdog-worker.ts", "stall-watchdog-worker.mjs"],
     ["apps/daemon/src/wal-checkpoint-worker.ts", "wal-checkpoint-worker.mjs"],
     ["packages/adapter-cursor/src/host-entry.ts", "cursor-sdk-host.mjs"],
     ["packages/adapter-cursor/src/api-key-entry.ts", "cursor-api-key.mjs"],

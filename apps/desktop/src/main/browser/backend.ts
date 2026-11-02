@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { stringifyWithin } from "./bounded-json.ts";
 import { traceBatches } from "./trace-batches.ts";
 import { compactPolicyEvent } from "@ace/browser/policy-events";
 import { videoRelay, type VideoRelaySource } from "./video-relay.ts";
@@ -93,6 +94,11 @@ export interface BackendOptions {
    */
   drawable?: () => boolean;
   log(message: string): void;
+  /**
+   * Names the work the main thread is doing, for the freeze watchdog: a reply or event that
+   * freezes the app is reported by name. Absent: unnamed.
+   */
+  mark?<T>(name: string, work: () => T): T;
   /** The app's video encoder: its events go to the daemon as binary messages (ADR 0088). */
   video?: VideoRelaySource;
 }
@@ -294,7 +300,15 @@ export class BrowserBackend {
       });
       return;
     }
-    this.respond(link, request, { result });
+    // The reply is handled after the await, outside any mark the request had: name it here.
+    const operation = request.operation;
+    this.mark(`browser reply ${operation.kind === "cdp" ? operation.method : operation.kind}`, () =>
+      this.respond(link, request, { result }),
+    );
+  }
+
+  private mark<T>(name: string, work: () => T): T {
+    return this.options.mark ? this.options.mark(name, work) : work();
   }
 
   private async run(
@@ -443,6 +457,10 @@ export class BrowserBackend {
   }
 
   private event(session: Session, method: string, params: unknown): void {
+    this.mark(`browser event ${method}`, () => this.forward(session, method, params));
+  }
+
+  private forward(session: Session, method: string, params: unknown): void {
     const link = this.link;
     if (!link || this.sessions.get(session.id) !== session) return;
     if (method === "Page.screencastFrame") return this.frame(session, params);
@@ -544,12 +562,15 @@ export class BrowserBackend {
       this.send({ ...ids, error: "Browser relay payload limit" });
   }
 
-  /** Serializes once; false when the message is over the relay limit and was not sent. */
+  /**
+   * Serializes once; false when the message is over the relay limit and was not sent. Gives up
+   * at the limit instead of serializing an oversized result in full first (`stringifyWithin`).
+   */
   private send(message: BrowserBackendClientMessage): boolean {
     const link = this.link;
     if (!link) return true;
-    const serialized = JSON.stringify(message);
-    if (Buffer.byteLength(serialized) > relayLimits.messageBytes) {
+    const serialized = stringifyWithin(message, relayLimits.messageBytes);
+    if (serialized === undefined) {
       this.options.log(`Dropped an oversized ${message.type} from the embedded browser`);
       return false;
     }

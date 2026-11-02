@@ -268,7 +268,7 @@ for (const [outcome, label, at] of [
 
 test("a usage-limit pause before any work leaves only the ask, and the limit is said only in the strip", async () => {
   const app = harness();
-  app.play(accountLimit(id, "Replay cursor")).runUntilBlocked();
+  app.play(accountLimit(id, "Replay cursor", undefined, undefined, false)).runUntilBlocked();
   await app.open(`/t/${id}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   expect(await screen.findByRole("region", { name: "Codex is out of usage" })).toBeTruthy();

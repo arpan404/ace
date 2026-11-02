@@ -149,5 +149,7 @@ test("a usage limit holds the turn with Switch, Resume at reset and Continue", a
     () => commands("thread.limit").some((payload) => payload.action === "resume_at_reset"),
     "Resume at reset on the wire",
   );
-  await until(() => queue()?.strip?.sentence.includes("resumes"), "the chosen resume said");
+  await until(() => queue()?.strip?.sentence.startsWith("Resumes "), "the chosen resume said");
+  // Scheduled: Switch, or Cancel back to the limit.
+  expect(queue()?.strip?.actions.map((action) => action.label)).toEqual(["Switch", "Cancel"]);
 });

@@ -21,7 +21,7 @@ export type DaemonOptions = {
   /** Event-loop stall measurement clock; tests drive drift without sleeping. */
   loopClock?: import("../loop-monitor.ts").LoopClock;
   /** Main-thread stall watchdog timing; tests shorten it. */
-  stallTiming?: Partial<import("../stall-watchdog.ts").StallWatchdogTiming>;
+  stallTiming?: Partial<import("@ace/diagnostics/stall").StallWatchdogTiming>;
   storageSchedule?: import("../storage/schedule.ts").StorageSchedule;
   /** Automatic data-retention pass timing; tests shorten it. */
   retentionTiming?: import("../storage/data-retention-policy.ts").RetentionTiming;

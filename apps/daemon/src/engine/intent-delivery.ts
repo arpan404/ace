@@ -222,6 +222,13 @@ export class IntentDelivery {
         this.dependencies.recovery.moveTarget(actor.id, p.instanceId),
       );
     }
+    // The limit's Switch: the same switch the composer makes (a handoff across providers),
+    // then the held turn carries on there.
+    if (p.type === "thread.limit" && p.action === "switch" && p.selection) {
+      await this.dependencies.sessions.close(actor, "user");
+      await this.dependencies.transitions.carryTo(actor, intent, p.selection);
+      this.dependencies.invalidateContext(actor.id);
+    }
     if (!this.dependencies.recovery.owns(actor.id, token)) return;
     const queue = this.dependencies.repo.queue.get(actor.id);
     if (queue.continuation) {

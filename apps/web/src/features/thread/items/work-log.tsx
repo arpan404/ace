@@ -63,6 +63,7 @@ function SettledLog(props: { threadId: string; block: WorkBlock; ordinal?: numbe
   // not a disclosure that opens on "No steps recorded".
   const answers = new Set(block.answerIds);
   const digest = summary?.digest;
+  if (block.bare) return <WorkLogLine label={headline.label} />;
   if (
     digest &&
     !items.some((id) => !answers.has(id)) &&

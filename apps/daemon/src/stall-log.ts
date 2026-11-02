@@ -1,11 +1,11 @@
 import { logError, logFields, type ComponentLogger } from "@ace/diagnostics";
-import { systemLoopClock } from "./loop-monitor.ts";
-import { stallFields } from "./stall-report.ts";
 import {
   startStallWatchdog,
+  stallFields,
+  systemHeartbeat,
   takePreviousStallReports,
   type StallWatchdogTiming,
-} from "./stall-watchdog.ts";
+} from "@ace/diagnostics/stall";
 
 /**
  * Logs where the previous run froze if it was killed frozen, then watches this run. A watchdog
@@ -31,7 +31,7 @@ export function watchStalls(
       directory,
       pid: process.pid,
       // Always real time: the watchdog thread measures silence on its own monotonic clock.
-      clock: systemLoopClock,
+      clock: systemHeartbeat,
       ...(timing ? { timing } : {}),
       onStall: (report) =>
         log.log(

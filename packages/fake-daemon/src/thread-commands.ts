@@ -8,7 +8,18 @@ import type { ThreadHost } from "./thread-host.ts";
  * queued message waits until the root agent's turn ends (background work and subagents keep
  * running past it). Pure: returns the facts to apply.
  */
-export type ThreadCommandOutcome = { ok: true; facts: Fact[] } | { ok: false; error: string };
+export type ThreadCommandOutcome =
+  | {
+      ok: true;
+      facts: Fact[];
+      /**
+       * Facts that happen after `facts`, each a moment after the one before, as the daemon's
+       * commits and the provider's session follow each other (a switch from a limit: the paused
+       * turn's end, then the handoff, then the resumed turn).
+       */
+      after?: Fact[][];
+    }
+  | { ok: false; error: string };
 
 /** Text sent to the agent, with file mentions written the way a provider would see them. */
 export function inputText(

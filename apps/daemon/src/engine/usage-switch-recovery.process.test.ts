@@ -177,3 +177,87 @@ test("a source that refuses to close leaves both parent and child on their origi
   expect(h.store.getThread(child)?.provider).toBe("codex");
   expect(h.inputs.filter((input) => input.provider === "claude")).toHaveLength(0);
 });
+
+function switchFromLimit(
+  h: ReturnType<typeof transitionHarness>,
+  id: Awaited<ReturnType<ReturnType<typeof transitionHarness>["create"]>>,
+  selection: { provider: "codex" | "claude"; model?: string },
+) {
+  return h.command({
+    type: "thread.limit",
+    threadId: id,
+    expectedRevision: h.engine.queue(id).revision,
+    action: "switch",
+    selection,
+  });
+}
+
+test("switching from the limit to another provider carries the held turn on there with the thread's context", async () => {
+  const options = { limited: true, recovery: { resetAt: () => 5000 } };
+  const h = transitionHarness(options);
+  cleanup.push(h.close);
+  const id = await h.create();
+  expect(h.store.getThread(id)?.status.state).toBe("limited");
+  options.limited = false;
+  expect(switchFromLimit(h, id, { provider: "claude" }).ok).toBe(true);
+  await h.engine.flush();
+  // No Continue or message from the person: the held turn went on by itself, once.
+  const sent = h.inputs.filter((input) => input.provider === "claude");
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.text).toContain("<ace_context_handoff");
+  expect(sent[0]?.text).toContain("Continue where you left off.");
+  expect(h.store.getThread(id)).toMatchObject({ provider: "claude", status: { state: "done" } });
+  expect(h.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
+  // The transcript shows the move as the usual context handoff row, codex → claude.
+  const handoffs = Object.values(h.store.snapshotThread(id).items).filter(
+    (item) => item.type === "message" && item.origin?.kind === "handoff",
+  );
+  expect(handoffs).toEqual([
+    expect.objectContaining({
+      origin: expect.objectContaining({
+        from: expect.objectContaining({ provider: "codex" }),
+        to: expect.objectContaining({ provider: "claude" }),
+      }),
+    }),
+  ]);
+  // A replay of the same command changes nothing.
+  await h.engine.flush();
+  expect(h.inputs.filter((input) => input.provider === "claude")).toHaveLength(1);
+});
+
+test("switching from the limit to another model carries the held turn on without a Continue", async () => {
+  const options = { limited: true, recovery: { resetAt: () => 5000 } };
+  const h = transitionHarness(options);
+  cleanup.push(h.close);
+  const id = await h.create();
+  options.limited = false;
+  const before = h.inputs.length;
+  expect(switchFromLimit(h, id, { provider: "codex", model: "model-b" }).ok).toBe(true);
+  await h.engine.flush();
+  expect(h.inputs.slice(before)).toEqual([
+    expect.objectContaining({ provider: "codex", model: "model-b" }),
+  ]);
+  expect(h.store.getThread(id)?.status.state).toBe("done");
+});
+
+test("switching from the limit supersedes a scheduled resume at reset", async () => {
+  const options = { limited: true, recovery: { resetAt: () => 5000 } };
+  const h = transitionHarness(options);
+  cleanup.push(h.close);
+  const id = await h.create();
+  expect(
+    h.command({
+      type: "thread.limit",
+      threadId: id,
+      expectedRevision: h.engine.queue(id).revision,
+      action: "resume_at_reset",
+    }).ok,
+  ).toBe(true);
+  options.limited = false;
+  expect(switchFromLimit(h, id, { provider: "claude" }).ok).toBe(true);
+  await h.engine.flush();
+  h.clock.advance(6000);
+  await h.engine.flush();
+  expect(h.inputs.filter((input) => input.provider === "claude")).toHaveLength(1);
+  expect(h.inputs.filter((input) => input.provider === "codex")).toHaveLength(1);
+});
