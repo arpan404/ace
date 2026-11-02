@@ -3,6 +3,7 @@ import { providerNames, subagentLabels } from "@ace/ui-core";
 import type { ReactElement, ReactNode } from "react";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
+import { cn } from "@/lib/cn.ts";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 import { AgentIcon } from "./agent-lead.tsx";
@@ -17,7 +18,9 @@ export type AgentCardSubject =
  * An agent row's hover card, the sidebar's in a transcript's shape: who the agent is and how it
  * stands, whole where the row cuts it. Its name with its status and time on the same line, then
  * the account, model and effort it runs on under its provider's mark, then the machine it runs
- * on. A subagent runs on its parent's account; a delegated thread on its own. It opens under the
+ * on, then, under a hairline, its latest turn as the row's second line says it, whole: what it
+ * does now, what it found, what it waits on, or why it failed. A subagent runs on its parent's
+ * account; a delegated thread on its own. It opens under the
  * row (above when there's no room) once the pointer settles, and closes when it leaves.
  */
 export function AgentHoverCard(props: {
@@ -84,6 +87,23 @@ function CardBody(props: { subject: AgentCardSubject; parts: AgentRowParts }) {
           <span className="min-w-0 truncate">{parts.machine ?? here.name}</span>
         </Fact>
       </div>
+      {/* Its latest turn, the row's second line whole: what it does now, what it found, what it
+          waits on, or why it failed. */}
+      {parts.detail && (
+        <p
+          data-detail={parts.detailKind}
+          className={cn(
+            "mt-1 max-h-32 overflow-y-auto border-t border-border pt-2 whitespace-pre-line",
+            parts.detailKind === "failed"
+              ? "text-status-failed"
+              : parts.detailKind === "live" || parts.detailKind === "human"
+                ? "text-foreground"
+                : "text-muted-foreground",
+          )}
+        >
+          {parts.detail}
+        </p>
+      )}
     </div>
   );
 }
