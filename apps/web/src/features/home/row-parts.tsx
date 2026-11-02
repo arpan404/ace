@@ -198,6 +198,31 @@ function ActiveElapsed(props: { card: ThreadCard }) {
   return <span className="text-muted-foreground tabular-nums">{props.card.age}</span>;
 }
 
+/**
+ * What a one-line snoozed or settled row has to show for its work, where a chat shows its status:
+ * its pull request (in the muted ink, opening it as a task row's does) and the lines it changed,
+ * "+120 −8". Nothing when it has neither.
+ */
+export function RowWork(props: { card: ThreadCard }) {
+  const { card } = props;
+  if (card.pr === undefined && !card.diff) return null;
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5 text-meta whitespace-nowrap text-muted-foreground tabular-nums">
+      <PullRequest card={card} ink="muted" />
+      {card.diff && (
+        <span
+          role="img"
+          aria-label={`${card.diff.added} lines added, ${card.diff.removed} lines removed`}
+          className="inline-flex items-center gap-1"
+        >
+          <span className="text-status-done">+{card.diff.added}</span>
+          <span className="text-status-failed">−{card.diff.removed}</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** A snoozed row says what it waits for ("until it needs you") where others say their status. */
 export function RowWake(props: { wake: string }) {
   return (

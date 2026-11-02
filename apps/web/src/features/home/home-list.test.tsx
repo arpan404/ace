@@ -420,7 +420,7 @@ test("hovering a row's link shows what its marks mean in a tooltip", async () =>
   expect(within(prs).getByRole("listitem", { name: /^#74, open\b/ })).toBeTruthy();
 });
 
-test("Settle moves a finished thread to Settled in muted ink, and Unsettle puts it back", async () => {
+test("Settle moves a finished thread to Settled, and Unsettle puts it back", async () => {
   const app = workbenchApp(soon);
   const settledAt = () => {
     const view = app.daemon.snapshot({ kind: "threads" });

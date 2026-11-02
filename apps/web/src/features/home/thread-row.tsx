@@ -19,7 +19,7 @@ import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions, type RowActionsProps } from "./row-actions.tsx";
-import { boldTitle, RowWake, threadDetails } from "./row-parts.tsx";
+import { boldTitle, RowWork, threadDetails } from "./row-parts.tsx";
 import { RowIndicator } from "./row-indicator.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
@@ -90,6 +90,11 @@ export function ThreadRow(props: {
   compactActions?: boolean | undefined;
   /** At rest: the title in muted ink (full ink while open), as a settled row's. */
   dimmed?: boolean | undefined;
+  /**
+   * What a one-line row ends with: its status mark (a chat's), or its work (`work`: the pull
+   * request and lines changed, a snoozed or settled row's), unless it needs the person.
+   */
+  end?: "status" | "work" | undefined;
 }) {
   const { machine } = props;
   const Actions = props.actions ?? RowActions;
@@ -189,9 +194,11 @@ export function ThreadRow(props: {
       </span>
       {!actions && !renaming && (
         <span className="flex shrink-0 items-center group-has-[[data-popup-open]]/row:hidden">
-          {/* A snoozed row says when it wakes, unless it needs the person, as a task row's status does. */}
-          {card.wake && attention.level !== "needs-you" && attention.level !== "failed" ? (
-            <RowWake wake={card.wake} />
+          {/* A snoozed or settled row ends with its work (PR, lines changed) unless it needs the person. */}
+          {props.end === "work" &&
+          attention.level !== "needs-you" &&
+          attention.level !== "failed" ? (
+            <RowWork card={card} />
           ) : (
             <RowIndicator attention={attention} card={card} />
           )}

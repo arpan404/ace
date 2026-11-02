@@ -515,6 +515,7 @@ export function ThreadList(props: {
                       id={thread}
                       shape={row.kind === "chat" ? "chat" : "task"}
                       lead={rowLead(row)}
+                      end={isLine(row) ? "work" : "status"}
                       leaving={leaving}
                       settled={row.kind === "settled" || (row.kind === "chat" && row.settled)}
                     />
@@ -524,9 +525,9 @@ export function ThreadList(props: {
                         <ThreadRow
                           threadId={row.id}
                           settled={row.kind === "settled"}
-                          dimmed={row.kind === "settled"}
                           leaving={leaving}
                           lead={rowLead(row)}
+                          end={isLine(row) ? "work" : "status"}
                         />
                       )}
                       {row.kind === "chat" && (
@@ -556,10 +557,10 @@ export function ThreadList(props: {
   );
 }
 
-/** Inbox rows lead with their project, in three lines; chats with their provider; the rest with nothing. */
+/** Inbox rows lead with their project, in three lines; chats, snoozed and settled rows with their provider. */
 function rowLead(row: HomeRow): RowLead {
   if (isTask(row)) return "task";
-  return row.kind === "chat" ? "provider" : "none";
+  return row.kind === "chat" || isLine(row) ? "provider" : "none";
 }
 
 /**
