@@ -134,14 +134,14 @@ struct UsageTypeBar: View {
                 HStack(spacing: AceTheme.Spacing.xxs) {
                     if total > 0 {
                         ForEach(Array(types.parts.enumerated()), id: \.offset) { index, part in
-                            Capsule().fill(tone(index))
+                            AceDesign.Shape.control.fill(tone(index))
                                 .frame(width: max(0, (box.size.width - AceTheme.Spacing.xxs * 3) * part.value / total))
                         }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AceDesign.Surface.fill, in: Capsule())
-                .clipShape(Capsule())
+                .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
+                .clipShape(AceDesign.Shape.control)
             }
             .frame(height: AceDesign.Size.legendDot)
             .padding(.bottom, AceDesign.Space.related)

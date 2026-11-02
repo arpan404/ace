@@ -85,7 +85,7 @@ struct FleetRulesView: View {
             if let line = shown.caption { caption(line) }
             let chosen = rule.options?.first { option in if case .string(let text)? = current { text == option.value } else { false } }
             if let note = chosen?.note ?? rule.note {
-                Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(note).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -93,7 +93,7 @@ struct FleetRulesView: View {
         .accessibilityIdentifier("fleetRule.\(rule.key)")
     }
     private func caption(_ text: String) -> some View {
-        Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+        Text(text).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
             .accessibilityIdentifier("fleetRule.state")
     }
 

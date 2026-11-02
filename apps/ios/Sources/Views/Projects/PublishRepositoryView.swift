@@ -60,7 +60,7 @@ struct PublishRepositoryView: View {
                 Button { done() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
             }
             ToolbarItem(placement: .confirmationAction) {
-                if busy { ProgressView() } else if let status, status.publication?.phase != "pushed", status.publication?.phase != "empty" {
+                if busy { WorkingMark() } else if let status, status.publication?.phase != "pushed", status.publication?.phase != "empty" {
                     Button(status.locked == true ? "Resume" : "Publish") { Task { await publish() } }
                         .disabled(status.ready != true || status.running == true || draft?.name.isEmpty != false)
                         .accessibilityIdentifier("publish.submit")
@@ -72,7 +72,7 @@ struct PublishRepositoryView: View {
 
     @ViewBuilder private func record(_ publication: PublishStatus.Publication) -> some View {
         Section {
-            Text(publication.words).aceFont(InsetStyle.label, relativeTo: .body).accessibilityIdentifier("publish.phase")
+            Text(publication.words).font(AceDesign.Typeface.body).accessibilityIdentifier("publish.phase")
             if let url = publication.url.flatMap(URL.init(string:)) {
                 Link(publication.fullName ?? url.absoluteString, destination: url)
             }
@@ -90,7 +90,7 @@ struct PublishRepositoryView: View {
             if let hosts = status.hosts, hosts.count > 1 {
                 Picker("Host", selection: binding(\.host)) { ForEach(hosts, id: \.self) { Text($0).tag($0) } }
             }
-            LabeledContent("Account") { Text(draft?.account ?? "").foregroundStyle(AceTheme.Colours.mutedForeground) }
+            LabeledContent("Account") { Text(draft?.account ?? "").foregroundStyle(AceDesign.Ink.muted) }
             LabeledContent("Owner") {
                 TextField("Owner", text: binding(\.owner)).multilineTextAlignment(.trailing).accessibilityIdentifier("publish.owner")
             }

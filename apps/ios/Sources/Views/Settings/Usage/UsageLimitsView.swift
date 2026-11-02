@@ -123,8 +123,8 @@ private struct UsageLimitWindow: View {
         } else {
             GeometryReader { box in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(out ? AceTheme.StatusText.failed.opacity(AceDesign.Ink.recede) : AceTheme.Colours.separator)
-                    Capsule().fill(AceDesign.Ink.primary)
+                    AceDesign.Shape.control.fill(out ? AceTheme.StatusText.failed.opacity(AceDesign.Ink.recede) : AceTheme.Colours.separator)
+                    AceDesign.Shape.control.fill(AceDesign.Ink.primary)
                         .frame(width: box.size.width * min(1, max(0, window.leftPercent / 100)))
                 }
             }

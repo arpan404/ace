@@ -93,8 +93,8 @@ struct BadgeFields: View {
             glyph()
                 .foregroundStyle(selected ? AceDesign.Ink.onAccent : AceDesign.Ink.primary)
                 .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
-                .background(Capsule().fill(selected ? AceDesign.Ink.accent : Color.clear))
-                .contentShape(Capsule())
+                .background(AceDesign.Shape.control.fill(selected ? AceDesign.Ink.accent : Color.clear))
+                .contentShape(AceDesign.Shape.control)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

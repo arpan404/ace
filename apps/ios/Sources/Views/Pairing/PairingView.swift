@@ -24,7 +24,7 @@ struct PairingView: View {
                     TextField("https://…/pair#…", text: $pasted, axis: .vertical)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                         .privacySensitive().lineLimit(1...4)
-                        .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .font(AceDesign.Typeface.code)
                         .accessibilityIdentifier("pairing.link")
                     Button("Continue") { accept(pasted) }
                         .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -84,10 +84,10 @@ struct ConfirmPairingView: View {
                 Section {
                     LabeledContent("Address", value: link.displayHost)
                     LabeledContent("Access", value: link.accessSummary)
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                        Text("Fingerprint").aceFont(AceTheme.Typography.label, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        Text(link.fingerprintGroups).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.foreground).textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                        Text("Fingerprint").font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.muted)
+                        Text(link.fingerprintGroups).font(AceDesign.Typeface.code)
+                            .foregroundStyle(AceDesign.Ink.primary).textSelection(.enabled)
                             .accessibilityIdentifier("pairing.fingerprint")
                     }
                 } header: { InsetHeader("Computer") } footer: {
@@ -103,7 +103,7 @@ struct ConfirmPairingView: View {
                     Button {
                         Task { await pair() }
                     } label: {
-                        HStack { Text(pairing ? "Pairing…" : "Pair this phone"); if pairing { Spacer(); ProgressView() } }
+                        HStack { Text(pairing ? "Pairing…" : "Pair this phone"); if pairing { Spacer(); WorkingMark(label: "Pairing") } }
                     }
                     .disabled(pairing || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("pairing.confirm")

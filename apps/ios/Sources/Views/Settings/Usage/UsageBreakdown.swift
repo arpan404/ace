@@ -80,7 +80,7 @@ private struct UsageBreakdownRow: View {
                         .foregroundStyle(line.figure == "Unpriced" ? AceDesign.Ink.subtle : AceDesign.Ink.primary)
                 }
                 GeometryReader { box in
-                    Capsule().fill(UsageColour.of(line.hue, ink: line.ink))
+                    AceDesign.Shape.control.fill(UsageColour.of(line.hue, ink: line.ink))
                         .frame(width: max(Self.barHeight, box.size.width * min(1, line.fraction)))
                 }
                 .frame(height: Self.barHeight)

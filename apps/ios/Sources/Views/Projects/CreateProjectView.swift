@@ -53,8 +53,8 @@ struct CreateProjectView: View {
                 if busy {
                     if cloning, let progress = model.compose.clone, progress.id == draft.commandId {
                         if let percent = progress.percent { ProgressView(progress.label, value: percent, total: 100) }
-                        else { ProgressView(progress.label) }
-                    } else { ProgressView(cloning ? "Cloning repository…" : "Creating project…") }
+                        else { HStack(spacing: AceDesign.Space.related) { WorkingMark(); Text(progress.label) } }
+                    } else { HStack(spacing: AceDesign.Space.related) { WorkingMark(); Text(cloning ? "Cloning repository…" : "Creating project…") } }
                 }
                 Button(cloning ? "Clone repository" : "Create project") { submission = Task { await submit() } }
                     .disabled(!ready || busy || !model.canOperate || model.connection != "ready")

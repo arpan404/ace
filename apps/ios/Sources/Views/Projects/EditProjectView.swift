@@ -43,7 +43,7 @@ struct EditProjectView: View {
             Section {
                 TextField("Name", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityIdentifier("project.edit.name")
-            } footer: { Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption) }
+            } footer: { Text(project.path).font(AceDesign.Typeface.code) }
             .insetRowBackground()
             iconSection
             if let options {
@@ -71,7 +71,7 @@ struct EditProjectView: View {
             if waiting {
                 Section {
                     Text("Saved on this phone. Waiting for your computer to apply it…")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                 }
                 .insetRowBackground()
             }
@@ -92,7 +92,7 @@ struct EditProjectView: View {
                 Button { done(.cancelled) } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
             }
             ToolbarItem(placement: .confirmationAction) {
-                if saving { ProgressView() } else {
+                if saving { WorkingMark(label: "Saving") } else {
                     Button("Save") { Task { await save() } }.disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                         .accessibilityIdentifier("project.edit.save")
                 }
@@ -108,7 +108,7 @@ struct EditProjectView: View {
 
     @ViewBuilder private var iconSection: some View {
         Section {
-            HStack(spacing: AceTheme.Spacing.md) {
+            HStack(spacing: AceDesign.Space.row) {
                 ProjectIconPreview(initials: initials, glyph: options?.choices.glyphs.first { $0.id == icon.glyph }?.icon, icon: icon)
                 Picker("Icon", selection: Binding(get: { icon.mode }, set: { icon.mode = $0; iconTouched = true; imageProblem = nil })) {
                     Text("Auto").tag(ProjectIconDraft.Mode.auto)
@@ -127,23 +127,23 @@ struct EditProjectView: View {
                 .accessibilityIdentifier("project.edit.colour")
             }
             if icon.mode == .glyph, let glyphs = options?.choices.glyphs {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: AceTheme.Spacing.xs), count: 6), spacing: AceTheme.Spacing.xs) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: AceDesign.Space.tight), count: 6), spacing: AceDesign.Space.tight) {
                     ForEach(glyphs) { glyph in
                         let chosen = icon.glyph == glyph.id
                         Button { icon.glyph = glyph.id; iconTouched = true } label: {
                             Group {
-                                if let name = AceIcon.Name(rawValue: glyph.icon) { AceIcon(name, size: 19) } else { Text(glyph.label.prefix(1)) }
+                                if let name = AceIcon.Name(rawValue: glyph.icon) { AceIcon(name, size: AceDesign.Size.icon, relativeTo: .subheadline) } else { Text(glyph.label.prefix(1)) }
                             }
-                            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
-                            .background(chosen ? AceTheme.Colours.foreground.opacity(0.12) : .clear, in: Capsule())
-                            .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
+                            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
+                            .background(chosen ? AceDesign.Surface.fill : .clear, in: AceDesign.Shape.control)
+                            .foregroundStyle(chosen ? AceDesign.Ink.primary : AceDesign.Ink.muted)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(glyph.label)
                         .accessibilityAddTraits(chosen ? .isSelected : [])
                     }
                 }
-                .padding(.vertical, AceTheme.Spacing.xs)
+                .padding(.vertical, AceDesign.Space.tight)
             }
             if icon.mode == .image {
                 PhotosPicker(selection: $photo, matching: .images) { Text(icon.image == nil ? "Choose image…" : "Replace image…") }
@@ -176,7 +176,7 @@ struct EditProjectView: View {
                 HStack(alignment: .firstTextBaseline) {
                     TextField("Note", text: $note.text, axis: .vertical).lineLimit(1...6)
                     Button { notes.removeAll { $0.id == note.id } } label: { Image(systemName: "minus.circle") }
-                        .buttonStyle(.borderless).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .buttonStyle(.borderless).foregroundStyle(AceDesign.Ink.muted)
                         .accessibilityLabel("Remove note")
                 }
             }
@@ -255,7 +255,7 @@ private struct ProjectDefaultsSections: View {
         .insetRowBackground()
         Section {
             TextField("Check command", text: string("checkCommand"), prompt: Text("The project's check script"))
-                .aceMonospace(AceTheme.Typography.caption, relativeTo: .body)
+                .font(AceDesign.Typeface.code)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .accessibilityIdentifier("project.edit.check")
         } header: { InsetHeader("Pull requests") } footer: { Text("Verify runs this against pull requests. Empty uses the project's own check script.") }
@@ -306,19 +306,18 @@ private struct ProjectIconPreview: View {
     @State private var image: UIImage?
     var body: some View {
         AceDesign.Shape.control
-            .fill(AceTheme.Colours.background)
+            .fill(AceDesign.Surface.fill)
             .overlay {
                 if icon.mode == .image, let image {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else if icon.mode == .glyph, let glyph = glyph.flatMap(AceIcon.Name.init(rawValue:)) {
-                    AceIcon(glyph, size: 20).foregroundStyle(AceTheme.Colours.foreground)
+                    AceIcon(glyph, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.primary)
                 } else {
-                    Text(initials).font(.system(size: 15, weight: .semibold)).foregroundStyle(AceTheme.Colours.foreground)
+                    Text(initials).font(AceDesign.Typeface.body.weight(AceDesign.Typeface.strong)).foregroundStyle(AceDesign.Ink.primary)
                 }
             }
             .clipShape(AceDesign.Shape.control)
-            .overlay { AceDesign.Shape.control.strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border) }
-            .frame(width: 40, height: 40)
+            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
             .accessibilityHidden(true)
             .task(id: icon.image) { image = icon.image.flatMap(ProjectBadgeImage.decode) }
     }

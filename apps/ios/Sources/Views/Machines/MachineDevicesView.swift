@@ -32,7 +32,7 @@ struct MachineDevicesView: View {
                 }
                 .insetRowBackground()
             } else {
-                Section { HStack { ProgressView().controlSize(.small); Text("Reading this machine's devices…").foregroundStyle(AceTheme.Colours.mutedForeground) } }
+                Section { SkeletonRows(count: 2, label: "Reading this machine's devices").listRowInsets(EdgeInsets()) }
                     .insetRowBackground()
             }
         }
@@ -54,7 +54,7 @@ struct MachineDevicesView: View {
         .sheet(isPresented: $pairing, onDismiss: { Task { await read() } }) {
             if let choices = overview?.choices {
                 NavigationStack { PairDeviceView(model: model, machine: machine, choices: choices) { pairing = false } }
-                    .tint(AceTheme.Colours.foreground)
+                    .tint(AceDesign.Ink.accent)
                     .presentationDetents([.large]).presentationDragIndicator(.visible)
             }
         }
@@ -75,16 +75,16 @@ struct MachineDevicesView: View {
     @ViewBuilder private func devices(_ overview: FleetOverview) -> some View {
         Section {
             if overview.devices.isEmpty, overview.devicesProblem == nil {
-                Text("No paired devices.").foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text("No paired devices.").foregroundStyle(AceDesign.Ink.muted)
             }
             ForEach(overview.devices) { device in
-                HStack(alignment: .center, spacing: AceTheme.Spacing.sm) {
+                HStack(alignment: .center, spacing: AceDesign.Space.related) {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(device.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                        Text(line(device)).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground).fixedSize(horizontal: false, vertical: true)
+                        Text(device.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+                        Text(line(device)).font(AceDesign.Typeface.meta)
+                            .foregroundStyle(AceDesign.Ink.muted).fixedSize(horizontal: false, vertical: true)
                     }
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                    Spacer(minLength: AceDesign.Space.related)
                     if model.canOperate {
                         Button("Revoke", role: .destructive) { revoking = device }
                             .buttonStyle(.borderless).foregroundStyle(AceTheme.Status.failed).rowButtonTarget()
@@ -108,13 +108,13 @@ struct MachineDevicesView: View {
         if !open.isEmpty || overview.pairingsProblem != nil {
             Section {
                 ForEach(open) { pairing in
-                    HStack(spacing: AceTheme.Spacing.sm) {
+                    HStack(spacing: AceDesign.Space.related) {
                         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                            Text(pairing.label).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                            Text(pairing.label).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
                             Text("\(pairing.line) · works until \(Date(timeIntervalSince1970: pairing.expiresAt / 1000).formatted(date: .omitted, time: .shortened))")
-                                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                                .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                         }
-                        Spacer(minLength: AceTheme.Spacing.sm)
+                        Spacer(minLength: AceDesign.Space.related)
                         if model.canOperate {
                             Button("Cancel") { Task { await run(["op": "cancelPairing", "id": pairing.id]) } }
                                 .buttonStyle(.borderless).rowButtonTarget()
@@ -185,7 +185,7 @@ struct PairDeviceView: View {
             }
             if made == nil {
                 ToolbarItem(placement: .confirmationAction) {
-                    if making { ProgressView() } else {
+                    if making { WorkingMark(label: "Making") } else {
                         Button("Make link") { Task { await make() } }.accessibilityIdentifier("pair.make")
                     }
                 }
@@ -201,13 +201,13 @@ struct PairDeviceView: View {
         Section {
             ForEach(choices.access) { choice in
                 Button { access = choice.id } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+                    HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
                         Image(systemName: access == choice.id ? "largecircle.fill.circle" : "circle")
-                            .foregroundStyle(access == choice.id ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
+                            .foregroundStyle(access == choice.id ? AceDesign.Ink.primary : AceDesign.Ink.muted)
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                            Text(choice.label).foregroundStyle(AceTheme.Colours.foreground)
-                            Text(choice.note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                            Text(choice.label).foregroundStyle(AceDesign.Ink.primary)
+                            Text(choice.note).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                         }
                     }
                 }
@@ -227,7 +227,7 @@ struct PairDeviceView: View {
                 Toggle(isOn: Binding(get: { extras.contains(extra.id) }, set: { if $0 { extras.insert(extra.id) } else { extras.remove(extra.id) } })) {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                         Text(extra.label)
-                        Text(extra.note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text(extra.note).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                     }
                 }
                 .toggleStyle(.systemSwitch)
@@ -239,23 +239,24 @@ struct PairDeviceView: View {
 
     @ViewBuilder private func result(_ made: FleetAnswer, url: String) -> some View {
         Section {
-            VStack(spacing: AceTheme.Spacing.md) {
+            VStack(spacing: AceDesign.Space.row) {
                 if let image = Self.qr(url) {
                     Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
-                        .frame(maxWidth: 240).padding(AceTheme.Spacing.md)
+                        .frame(maxWidth: AceDesign.Size.qrCode).padding(AceDesign.Space.row)
+                        // A QR code needs its white quiet zone to scan, in either scheme: content.
                         .background(Color.white, in: AceDesign.Shape.block)
                         .accessibilityLabel("Pairing QR code")
                 }
                 if let code = made.codeText {
-                    Text(code).aceMonospace(AceTheme.Typography.body, relativeTo: .title3).textSelection(.enabled)
+                    Text(code).font(AceDesign.Typeface.codeBody).textSelection(.enabled)
                         .accessibilityIdentifier("pair.code")
                 }
                 if let expires = made.expiresAt {
                     Text("Works once, until \(Date(timeIntervalSince1970: expires / 1000).formatted(date: .omitted, time: .shortened)).")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                 }
             }
-            .frame(maxWidth: .infinity).padding(.vertical, AceTheme.Spacing.sm)
+            .frame(maxWidth: .infinity).padding(.vertical, AceDesign.Space.related)
             if let link = URL(string: url) { ShareLink(item: link) { Text("Share link") } }
         } footer: { Text("Scan it with ace on the other device, or open the link there.") }
         .insetRowBackground()

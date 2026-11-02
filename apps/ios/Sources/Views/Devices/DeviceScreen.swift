@@ -61,8 +61,8 @@ struct DeviceScreen: View {
                 guard showStats, info?.live == true, scene == .active else { return }
                 await sampleStats()
             }
-            .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: screenOnly)
-            .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: showStats)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: screenOnly)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: showStats)
             .onChange(of: info?.running == true && info?.live == false && info?.busy == false) { _, idle in autoStart(idle) }
             .onChange(of: info?.activity?.sequence) { _, _ in showActivity() }
             .onAppear { seen = info?.activity?.sequence }

@@ -36,14 +36,14 @@ struct PastSessionsView: View {
                         importing = session.id
                         Task { await open(session) }
                     } label: {
-                        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                            Text(session.title.isEmpty ? "Untitled session" : session.title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                            Text("\(session.provider.capitalized) · \(session.messageCount) messages").foregroundStyle(AceTheme.Colours.mutedForeground)
-                            if let reason = session.support.reason { Text(reason).foregroundStyle(AceTheme.Colours.subtleForeground) }
+                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                            Text(session.title.isEmpty ? "Untitled session" : session.title).foregroundStyle(AceDesign.Ink.primary).lineLimit(2)
+                            Text("\(session.provider.capitalized) · \(session.messageCount) messages").foregroundStyle(AceDesign.Ink.muted)
+                            if let reason = session.support.reason { Text(reason).foregroundStyle(AceDesign.Ink.subtle) }
                         }
                     }.disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
                 }
-                if loading || importing != nil { ProgressView().accessibilityLabel(importing == nil ? "Loading sessions" : "Opening session") }
+                if loading || importing != nil { WorkingMark(label: importing == nil ? "Loading sessions" : "Opening session") }
                 ServiceProblem(message: problem)
                 if problem != nil { Button("Retry") { Task { await read() } } }
                 if ["scanning", "retrying"].contains(state) { Label("Reading CLI history", systemImage: "clock") }
