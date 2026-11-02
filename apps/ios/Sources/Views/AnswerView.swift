@@ -29,18 +29,14 @@ struct AnswerRow: View {
     var body: some View {
         // Text left incomplete by a turn that stopped no longer streams.
         let live = streaming && !row.complete
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             if !shown.isEmpty {
                 let menu = !between && !live
                 AceMarkdown(text: shown, streaming: live, selectable: !menu, resolveImage: images(of: row.id))
                     .fileLinks(fileLinks, itemId: row.id)
                     .messageMenu(menu ? shown : "", title: "Answer", row: row)
             }
-            if live { StreamingCaret() }
             if row.truncated && !live && full == nil { partial }
-            if !between && (row.complete || (row.truncated && !live)) {
-                MessageActions(row: row, copy: shown, label: full == nil && row.truncated ? "Copy preview" : "Copy answer")
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
@@ -54,14 +50,14 @@ struct AnswerRow: View {
         return { reference in await readImage(itemId, reference) }
     }
     @ViewBuilder private var partial: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             if let problem {
                 Text(problem)
-                HStack(spacing: AceTheme.Spacing.md) {
+                HStack(spacing: AceDesign.Space.row) {
                     if readMessage != nil { Button("Try again") { Task { await load() } } }
                     if let openMessage { Button("Read full message") { openMessage(row) } }
                 }
-                .fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+                .fontWeight(AceDesign.Typeface.regular).foregroundStyle(AceTheme.Colours.foreground)
             } else if readMessage != nil {
                 Text("Loading full answer…").accessibilityAddTraits(.updatesFrequently)
             } else if let openMessage {
@@ -84,19 +80,3 @@ struct AnswerRow: View {
     }
 }
 
-/// The caret after text still arriving: a soft pulse, still under Reduce Motion.
-struct StreamingCaret: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
-    @State private var dim = false
-    var body: some View {
-        AceShape.capsule.fill(AceTheme.Colours.mutedForeground)
-            .frame(width: 3, height: AceTheme.Typography.body.size)
-            .opacity(dim ? 0.3 : 1)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { dim = true }
-            }
-            .accessibilityElement()
-            .accessibilityLabel("Streaming")
-    }
-}

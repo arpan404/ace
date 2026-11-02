@@ -14,14 +14,14 @@ struct MachineAppUpdateRow: View {
                     if update.needsYou {
                         StateLabel(status: StatusDisplay(label: line, token: "needsYou"))
                     } else {
-                        Text(line).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text(line).foregroundStyle(AceDesign.Ink.muted)
                     }
                 }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                .font(AceDesign.Typeface.meta)
                 .transition(.opacity)
             }
         }
-        .animation(.smooth, value: update)
+        .smoothChange(update)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("machine.appUpdate")
     }

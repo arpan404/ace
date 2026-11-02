@@ -10,6 +10,10 @@ import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
  * - ios-held-long: a not-sent message longer than the phone's 8,192-character preview.
  * - ios-limited: Codex ran out of usage with a known reset (Switch, Resume at reset, Continue).
  * - ios-stopped: the person stopped the turn (Continue).
+ * - ios-resuming: out of usage, set to resume at reset ("Resumes at …", Switch or Cancel).
+ * - ios-stopped-queued: the person stopped the turn with a message queued (Send now).
+ * - ios-restart: a daemon restart cut the turn short (Continue).
+ * - ios-left-running: the person stopped the turn while a dev server it started still runs (Stop).
  */
 
 const minute = 60_000;
@@ -171,4 +175,91 @@ export function seedQueues(
     true,
   );
   daemon.holdQueue("ios-stopped", "stopped");
+
+  thread(
+    daemon,
+    details,
+    "ios-resuming",
+    "Backfill the audit log",
+    "Backfill the audit log for last month.",
+    false,
+  );
+  daemon.apply("ios-resuming", [
+    {
+      type: "retry",
+      agent: "root",
+      on: "rate_limit",
+      until: Date.now() + 47 * minute,
+      message: "You've hit your usage limit for this window.",
+    },
+  ]);
+  // The queue's revision isn't known here: the first one the daemon takes is current.
+  for (let revision = 0; revision < 8; revision++) {
+    const result = daemon.command({
+      id: CommandId.parse(`ios-resuming-at-reset-${revision}`),
+      deviceId: device,
+      payload: {
+        type: "thread.limit",
+        threadId: ThreadId.parse("ios-resuming"),
+        expectedRevision: revision,
+        action: "resume_at_reset",
+      },
+    });
+    if (result.ok) break;
+  }
+
+  daemon.createThread(
+    {
+      hasSentMessage: true,
+      id: "ios-left-running",
+      workspaceId: "ace",
+      title: "Start the relay for the phone",
+      provider: "claude",
+      details: details("fix/relay"),
+    },
+    12 * minute,
+  );
+  daemon.apply("ios-left-running", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Start the relay so I can test the phone."),
+    facts.tool("root", "relay", {
+      kind: "shell",
+      title: "bun run dev:relay --port 8787",
+      detail: { kind: "shell", command: "bun run dev:relay --port 8787" },
+    }),
+    {
+      type: "background.started",
+      agent: "root",
+      task: "relay",
+      kind: "shell",
+      title: "bun run dev:relay --port 8787",
+      item: "relay",
+      stoppable: true,
+    },
+    facts.endTurn("root", "interrupted"),
+  ]);
+
+  // Queued while the turn runs, then the person stops it: the Stop keeps the message.
+  thread(
+    daemon,
+    details,
+    "ios-stopped-queued",
+    "Split the settings page",
+    "Split the settings page into tabs.",
+    false,
+  );
+  queue(daemon, "ios-stopped-queued", "ios-stopped-queued-1", "Then add a search box to it");
+  daemon.holdQueue("ios-stopped-queued", "stopped");
+  daemon.apply("ios-stopped-queued", [facts.endTurn("root", "interrupted")]);
+
+  thread(
+    daemon,
+    details,
+    "ios-restart",
+    "Migrate the sessions table",
+    "Migrate the sessions table to the new schema.",
+    true,
+  );
+  daemon.holdQueue("ios-restart", "restart");
 }

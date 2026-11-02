@@ -25,12 +25,21 @@ struct UsageDailyChart: View {
         return count > 2 ? [0, (count - 1) / 2, count - 1] : Array(0..<count)
     }
 
+    /// The chart's own drawing: the plot's height, the line and its dots, the pick rule, and the
+    /// legend's line kept one line tall so picking a day never moves the plot.
+    private static let plotHeight: CGFloat = 176
+    private static let readoutHeight: CGFloat = 20
+    private static let lineWidth: CGFloat = 1.75
+    private static let ruleWidth: CGFloat = 1
+    private static let loneDot: CGFloat = 36
+    private static let pickedDot: CGFloat = 28
+
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             UsageSectionHeading(title: chart.title)
             readout
             plot
-                .frame(height: 176)
+                .frame(height: Self.plotHeight)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(chart.summary)
         }
@@ -46,28 +55,28 @@ struct UsageDailyChart: View {
             readoutLine(day: day, names: false)
             readoutLine(day: day, names: false).minimumScaleFactor(0.7)
         }
-        .frame(minHeight: 20, alignment: .leading)
+        .frame(minHeight: Self.readoutHeight, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 
     private func readoutLine(day: UsageMetricView.Chart.Day?, names: Bool) -> some View {
-        HStack(spacing: AceTheme.Spacing.md) {
+        HStack(spacing: AceDesign.Space.row) {
             if let day {
-                Text(day.title).aceFont(AceTheme.Typography.label, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.foreground)
+                Text(day.title).font(AceDesign.Typeface.body)
+                    .foregroundStyle(AceDesign.Ink.primary)
             }
             ForEach(Array(chart.series.enumerated()), id: \.offset) { index, series in
-                HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                    Circle().fill(UsageColour.of(series.hue, ink: series.ink)).frame(width: 7, height: 7)
+                HStack(spacing: AceDesign.Space.tight) {
+                    Circle().fill(UsageColour.of(series.hue, ink: series.ink)).frame(width: AceDesign.Size.legendDot, height: AceDesign.Size.legendDot)
                     if names || day == nil {
-                        Text(series.name).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text(series.name).foregroundStyle(AceDesign.Ink.muted)
                     }
                     if let day {
-                        Text(day.texts[safe: index] ?? "").monospacedDigit().foregroundStyle(AceTheme.Colours.foreground)
+                        Text(day.texts[safe: index] ?? "").monospacedDigit().foregroundStyle(AceDesign.Ink.primary)
                             .accessibilityLabel("\(series.name) \(day.texts[safe: index] ?? "")")
                     }
                 }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                .font(AceDesign.Typeface.meta)
             }
         }
         .lineLimit(1)
@@ -99,7 +108,7 @@ struct UsageDailyChart: View {
             if chart.days.count > 1 {
                 line(point)
             } else {
-                dot(point, size: 36)
+                dot(point, size: Self.loneDot)
             }
         }
     }
@@ -108,7 +117,7 @@ struct UsageDailyChart: View {
         Charts.LineMark(x: .value("Day", point.index), y: .value("Value", point.value),
                  series: .value("Provider", point.series))
             .foregroundStyle(colour(point.series))
-            .lineStyle(StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
+            .lineStyle(StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round, lineJoin: .round))
             .interpolationMethod(.monotone)
     }
 
@@ -122,9 +131,9 @@ struct UsageDailyChart: View {
         if let picked {
             RuleMark(x: .value("Day", picked))
                 .foregroundStyle(AceTheme.Colours.separator)
-                .lineStyle(StrokeStyle(lineWidth: 1))
+                .lineStyle(StrokeStyle(lineWidth: Self.ruleWidth))
             ForEach(points.filter { $0.index == picked }) { point in
-                dot(point, size: 28)
+                dot(point, size: Self.pickedDot)
             }
         }
     }
@@ -134,8 +143,8 @@ struct UsageDailyChart: View {
             let index = value.as(Int.self) ?? 0
             AxisValueLabel(anchor: anchor(index)) {
                 Text(chart.days[safe: index]?.label ?? "")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption2)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.subtle)
             }
         }
     }
@@ -146,8 +155,8 @@ struct UsageDailyChart: View {
                 .foregroundStyle(AceTheme.Colours.separator)
             AxisValueLabel {
                 Text(label(value.as(Double.self) ?? 0)).monospacedDigit()
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption2)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.subtle)
             }
         }
     }

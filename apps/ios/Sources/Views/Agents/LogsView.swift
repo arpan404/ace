@@ -22,18 +22,16 @@ struct LogsView: View {
                 if let logs {
                     if logs.earlier > 0 {
                         Button("Show earlier lines") { model.sheet(["kind": "logs.earlier"]) }
-                            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.semibold)
-                            .foregroundStyle(AceTheme.Colours.foreground)
-                            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                            .font(AceDesign.Typeface.body).fontWeight(.semibold)
+                            .foregroundStyle(AceDesign.Ink.primary)
+                            .frame(minHeight: AceDesign.Size.tap)
                             .accessibilityHint("\(logs.earlier) earlier")
                             .accessibilityIdentifier("logs.earlier")
                     }
                     ForEach(logs.lines) { line in LogLineRow(line: line) }
                     if logs.lines.isEmpty {
-                        Text(logs.all == 0 ? "Nothing logged yet." : "No lines match.")
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
-                            .frame(maxWidth: .infinity, minHeight: 120)
+                        EmptyState(icon: nil, title: logs.all == 0 ? "Nothing logged yet" : "No lines match")
+                            .padding(.vertical, AceDesign.Space.section)
                     }
                 }
             }
@@ -41,14 +39,14 @@ struct LogsView: View {
             .listSectionSeparator(.hidden)
         }
         .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
-            filters.padding(.horizontal, AceTheme.Spacing.lg).background(AceTheme.Colours.background)
+            filters.padding(.horizontal, AceDesign.Space.margin).background(AceDesign.Surface.background)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(AceTheme.Colours.background)
-        .overlay { if logs == nil { ProgressView().accessibilityLabel("Loading logs").transition(.opacity) } }
+        .background(AceDesign.Surface.background)
+        .overlay(alignment: .top) { if logs == nil { SkeletonRows(label: "Loading logs").transition(.opacity) } }
         .searchable(text: $query.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Filter lines")
-        .animation(reduceMotion ? nil : .smooth, value: logs?.lines.count)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: logs?.lines.count)
         .navigationTitle(logs?.scopeName ?? (query.agentId == nil ? "Logs" : "Agent log"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -78,7 +76,7 @@ struct LogsView: View {
     /// Scope, level and sources as three capsules; each opens its own short list.
     private var filters: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 Menu {
                     Picker("Scope", selection: $query.agentId) {
                         Text("Whole thread").tag(String?.none)
@@ -106,11 +104,11 @@ struct LogsView: View {
                 } label: { FilterChip(title: sourcesTitle, active: !query.hidden.isEmpty) }
                 .accessibilityIdentifier("logs.sources")
                 if let logs, logs.total != logs.all {
-                    Text("\(logs.total) of \(logs.all)").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
+                    Text("\(logs.total) of \(logs.all)").font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted).monospacedDigit()
                 }
             }
-            .padding(.vertical, AceTheme.Spacing.xs)
+            .padding(.vertical, AceDesign.Space.tight)
         }
         .scrollIndicators(.hidden)
         .textCase(nil)
@@ -137,18 +135,17 @@ private struct FilterChip: View {
     let title: String
     let active: Bool
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
+        HStack(spacing: AceDesign.Space.tight) {
             Text(title).lineLimit(1)
-            AceIcon(.caretDown, size: 10, relativeTo: .caption)
+            AceIcon(.caretDown, size: AceDesign.Size.icon, relativeTo: .caption)
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(active ? .semibold : .regular)
-        .foregroundStyle(active ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
-        .background(active ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
-        .overlay(AceShape.capsule.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
-        .contentShape(AceShape.capsule)
+        .font(AceDesign.Typeface.body).fontWeight(active ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
+        .foregroundStyle(active ? AceDesign.Ink.primary : AceDesign.Ink.muted)
+        .padding(.horizontal, AceDesign.Space.row)
+        .frame(minHeight: AceDesign.Size.tap - AceDesign.Space.related)
+        .background(active ? AceDesign.Surface.fill : .clear, in: AceDesign.Shape.control)
+        .frame(minHeight: AceDesign.Size.tap)
+        .contentShape(AceDesign.Shape.control)
     }
 }
 
@@ -158,29 +155,28 @@ private struct LogLineRow: View {
     let line: LogsSheet.Line
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 Text(Date(timeIntervalSince1970: line.at / 1000), format: .dateTime.hour().minute().second())
                     .monospacedDigit()
                 Text(line.sourceLabel)
                 if line.level != "info" {
                     Text(line.level == "error" ? "Error" : "Warning")
-                        .foregroundStyle(line.level == "error" ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
-                        .fontWeight(.medium)
+                        .foregroundStyle(line.level == "error" ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
                 }
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-            .foregroundStyle(AceTheme.Colours.subtleForeground)
+            .font(AceDesign.Typeface.meta)
+            .foregroundStyle(AceDesign.Ink.subtle)
             Group {
                 if line.source == "shell" {
-                    Text(line.text).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                    Text(line.text).font(AceDesign.Typeface.code)
                 } else {
-                    Text(line.text).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                    Text(line.text).font(AceDesign.Typeface.body).fontWeight(.regular)
                 }
             }
-            .foregroundStyle(AceTheme.Colours.foreground)
+            .foregroundStyle(AceDesign.Ink.primary)
             .textSelection(.enabled)
         }
-        .padding(.vertical, AceTheme.Spacing.xs)
+        .padding(.vertical, AceDesign.Space.tight)
         .accessibilityElement(children: .combine)
     }
 }

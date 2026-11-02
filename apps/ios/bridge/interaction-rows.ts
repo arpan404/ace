@@ -1,6 +1,21 @@
 import type { ThreadReader } from "@ace/client";
 import type { Interaction } from "@ace/protocol";
-import { approvalCopy, questionOptions, questionTitle } from "@ace/ui-core";
+import {
+  agentName,
+  approvalCopy,
+  browserHelpTitle,
+  questionOptions,
+  questionTitle,
+} from "@ace/ui-core";
+import {
+  approvalStripLine,
+  browserHelpStripLine,
+  formStripLine,
+  planReviewLine,
+  planStripLine,
+  questionStripLine,
+  type StripLine,
+} from "@ace/ui-core/mobile";
 import { approvalRow, preview } from "./presentation.ts";
 import { requestRow } from "./thread-requests.ts";
 
@@ -58,6 +73,52 @@ function questions(interaction: Interaction) {
   }));
 }
 
+/** A strip line cut to what a phone frame carries. */
+const clip = (strip: StripLine): StripLine => ({
+  lead: strip.lead,
+  sentence: preview(strip.sentence, 256),
+  payload: preview(strip.payload, 512),
+  detail: preview(strip.detail, 512),
+});
+
+/**
+ * The request as its strip above the composer says it (`@ace/ui-core/mobile` strip lines): who
+ * asks, by the asking agent's name and provider mark, and the one line under it.
+ */
+function stripOf(interaction: Interaction, reader: ThreadReader, command: string): StripLine {
+  const agent = reader.agent(interaction.agentId);
+  const provider = agent?.native?.provider ?? reader.thread?.provider ?? "";
+  const who = agent ? agentName(agent) : "The agent";
+  const request = interaction.request;
+  switch (request.kind) {
+    case "approval":
+      return clip(
+        approvalStripLine(
+          approvalCopy(request, command ? { command } : {}),
+          request.target,
+          who,
+          provider,
+        ),
+      );
+    case "question":
+      return clip(
+        questionStripLine(
+          request.questions.map((question) => question.text),
+          who,
+          provider,
+        ),
+      );
+    case "plan_review":
+      return clip(planStripLine(planReviewLine(request), provider));
+    case "elicitation":
+      return clip(formStripLine(request.message, who, provider));
+    case "browser_help":
+      return clip(browserHelpStripLine(browserHelpTitle(request), who, provider));
+    default:
+      return clip({ lead: { provider }, sentence: `${who} needs you`, payload: "", detail: "" });
+  }
+}
+
 export function interactionRow(interaction: Interaction, reader: ThreadReader) {
   const base = approvalRow(interaction, reader);
   const request = interaction.request;
@@ -72,5 +133,6 @@ export function interactionRow(interaction: Interaction, reader: ThreadReader) {
         request.questions.some((question) => question.options.length > optionLimit)),
     ...approval(interaction, base.command),
     questions: questions(interaction),
+    strip: stripOf(interaction, reader, base.command),
   };
 }

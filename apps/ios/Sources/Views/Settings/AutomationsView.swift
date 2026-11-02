@@ -35,8 +35,8 @@ struct AutomationsView: View {
         List {
             Section {
                 Button { creating = true } label: {
-                    Text("New automation").aceFont(InsetStyle.label, relativeTo: .body)
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    Text("New automation").font(AceDesign.Typeface.body)
+                        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .disabled(!model.canOperate || unavailable)
@@ -48,10 +48,10 @@ struct AutomationsView: View {
                 if let off = page?.off {
                     // Nothing runs while the machine has automations off: said once, above the rows.
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(off.text).foregroundStyle(AceTheme.Colours.foreground)
-                        Text(off.fix).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text(off.text).foregroundStyle(AceDesign.Ink.primary)
+                        Text(off.fix).foregroundStyle(AceDesign.Ink.muted)
                     }
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .font(AceDesign.Typeface.meta)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("automations.off")
                     .transition(.opacity)
@@ -65,9 +65,9 @@ struct AutomationsView: View {
             } else if person.isEmpty && threads.isEmpty && problem == nil {
                 Section {
                     Text("Automations run a task for you on a schedule, when a pull request or issue changes, or when files change. Each run opens its own thread.")
-                        .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .padding(.vertical, AceTheme.Spacing.sm)
+                        .font(AceDesign.Typeface.title)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .padding(.vertical, AceDesign.Space.related)
                 }
                 .insetRowBackground()
                 .transition(.opacity)
@@ -78,11 +78,11 @@ struct AutomationsView: View {
         }
         .insetGroupedList()
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { undoStrip }
-        .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: links?.undo.deleted)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: links?.undo.deleted)
         .sensoryFeedback(.success, trigger: restored)
-        .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: page?.person ?? [])
-        .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: loading)
-        .navigationTitle("Automations").navigationBarTitleDisplayMode(.inline)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: page?.person ?? [])
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: loading)
+        .nativeTitle("Automations")
         // The new automation opens once the editor has gone, so the push never races its dismissal.
         .sheet(isPresented: $creating, onDismiss: {
             if let made { links?.open(made) }
@@ -162,25 +162,25 @@ struct AutomationsView: View {
 struct AutomationListRowView: View {
     let row: AutomationListRow
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.md) {
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.row) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(row.title).aceFont(InsetStyle.label, relativeTo: .body)
-                    .foregroundStyle(row.enabled ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
+                Text(row.title).font(AceDesign.Typeface.body)
+                    .foregroundStyle(row.enabled ? AceDesign.Ink.primary : AceDesign.Ink.muted)
                     .lineLimit(2)
-                Text(row.detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                Text(row.detail).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             if let status = row.status {
                 StateLabel(status: status.status)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .font(AceDesign.Typeface.meta)
                     .transition(.opacity)
             }
             Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
-                .foregroundStyle(AceTheme.Colours.mutedForeground).accessibilityHidden(true)
+                .foregroundStyle(AceDesign.Ink.muted).accessibilityHidden(true)
         }
-        .padding(.vertical, AceTheme.Spacing.xs)
-        .frame(minHeight: 44)
+        .padding(.vertical, AceDesign.Space.tight)
+        .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -189,12 +189,13 @@ struct AutomationListRowView: View {
 /// A row's shape while the first list loads, so nothing jumps when it arrives.
 struct AutomationRowPlaceholder: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            Capsule().fill(AceTheme.Colours.mutedForeground.opacity(0.18)).frame(width: 180, height: 12)
-            Capsule().fill(AceTheme.Colours.mutedForeground.opacity(0.12)).frame(width: 120, height: 10)
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            // The bars trace a row's name and its schedule line: content geometry.
+            SkeletonBar(width: 180, height: 12)
+            SkeletonBar(width: 120, height: 10)
         }
-        .padding(.vertical, AceTheme.Spacing.sm)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .padding(.vertical, AceDesign.Space.related)
+        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
         .accessibilityLabel("Reading automations")
     }
 }

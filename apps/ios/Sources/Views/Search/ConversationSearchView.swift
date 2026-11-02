@@ -68,9 +68,9 @@ struct ConversationSearchView: View {
                 ServiceProblem(message: problem)
                 Button("Retry search") { Task { await run() } }
             } else if search.loading {
-                ProgressView().accessibilityLabel("Searching conversations")
+                SkeletonRows(count: 3, label: "Searching conversations").listRowInsets(EdgeInsets())
             } else if search.loaded && search.hits.isEmpty {
-                ContentUnavailableView.search(text: text)
+                EmptyState.search(text)
             }
             if search.cursor != nil {
                 Button("Show more results") { Task { await search.more(model: model, text: text, kind: kind, threadId: threadId) } }.disabled(search.loading)

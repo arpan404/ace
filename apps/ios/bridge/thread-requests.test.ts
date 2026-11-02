@@ -45,6 +45,8 @@ test("a plan is approved as is, or sent back only with what should change", asyn
     title: "Ship kill-all",
     markdown: "1. Record start times\n2. Filter by owner",
     todos: [{ text: "Record start times", status: "pending" }],
+    // The strip's one line: the plan's own todo list counts its steps.
+    line: "Plan ready · Ship kill-all · 1 step",
   });
   const interactionId = String(row.id);
   thread.handle({
@@ -233,5 +235,45 @@ test("a browser request says Done for the tab the agent waits on", async () => {
   expect(commands("interaction.resolve")[0]?.resolution).toEqual({
     kind: "browser_help",
     outcome: "done",
+  });
+});
+
+test("each request carries its strip line: who asks, by provider mark, and the one line under it", async () => {
+  open(
+    connect(
+      asking("strip-run", {
+        kind: "approval",
+        title: "Run bun run test",
+        target: { tool: "Bash", command: "bun run test", access: "execute" },
+        options: [
+          { id: "allow", label: "Allow", kind: "allow_once" },
+          { id: "deny", label: "Deny", kind: "deny" },
+        ],
+      }),
+    ),
+    "strip-run",
+  );
+  const approval = await card("approval");
+  expect(approval.strip).toEqual({
+    lead: { provider: "claude" },
+    sentence: "Claude Code wants to run a command",
+    payload: "bun run test",
+    detail: "",
+  });
+  reset();
+  open(
+    connect(
+      asking("strip-plan", {
+        kind: "plan_review",
+        title: "Kill-all filters",
+        markdown: "1. Record start times\n2. Add filters\n3. Skip reused PIDs",
+      }),
+    ),
+    "strip-plan",
+  );
+  const plan = await card("plan_review");
+  expect(plan.strip).toMatchObject({
+    lead: { provider: "claude" },
+    sentence: "Plan ready · Kill-all filters · 3 steps",
   });
 });

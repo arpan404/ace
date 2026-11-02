@@ -37,7 +37,7 @@ struct ForgeCheckPageView: View {
                 EmptyState(icon: nil, title: "Couldn't read this check", line: failure, failed: true) {
                     Button("Try again") { Task { await load(fresh: true) } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.pageState)
             } else {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
                     ForEach(0..<5, id: \.self) { _ in Text(verbatim: "Reading the check").meta().redacted(reason: .placeholder) }
@@ -84,7 +84,7 @@ struct ForgeCheckPageView: View {
             if !page.annotations.isEmpty {
                 ForgeSection(title: "Annotations") {
                     ForEach(page.annotations, id: \.self) { annotation in annotationRow(annotation) }
-                    if page.annotationsMore { Text("More annotations are on GitHub.").meta().padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 36) }
+                    if page.annotationsMore { Text("More annotations are on GitHub.").meta().padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap) }
                 }
             }
             if page.log != nil, page.steps.count > 1 {
@@ -97,7 +97,7 @@ struct ForgeCheckPageView: View {
             }
             if let log = page.log, let id = page.checkRunId {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                    Text("Log").aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(.medium)
+                    Text("Log").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.mutedForeground).padding(.horizontal, AceTheme.Spacing.lg)
                         .accessibilityAddTraits(.isHeader)
                     if log.truncated { Text("Older lines are on GitHub.").meta().padding(.horizontal, AceTheme.Spacing.lg) }

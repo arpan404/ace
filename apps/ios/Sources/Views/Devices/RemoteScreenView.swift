@@ -20,7 +20,7 @@ struct RemoteScreenView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(AceTheme.Colours.background.ignoresSafeArea())
+        .background(AceDesign.Surface.background.ignoresSafeArea())
         .threadTitle("Computer use", subtitle: subtitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -76,13 +76,13 @@ struct RemoteScreenView: View {
                 }
             } else {
                 if screen.sessions.isEmpty {
-                    Text("No apps in use.").aceFont(AceTheme.Typography.body, relativeTo: .body)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).listRowSeparator(.hidden)
+                    Text("No apps in use.").font(AceDesign.Typeface.title)
+                        .foregroundStyle(AceDesign.Ink.muted).listRowSeparator(.hidden)
                 }
                 ForEach(screen.sessions) { session in
                     Button { opened = session } label: { SessionRow(session: session) }
                         .buttonStyle(.plain)
-                        .listRowBackground(AceTheme.Colours.background)
+                        .listRowBackground(AceDesign.Surface.background)
                         .listRowSeparatorTint(AceTheme.Colours.separator)
                         .listSectionSeparator(.hidden, edges: .top)
                         .accessibilityIdentifier("screen.row")
@@ -91,44 +91,44 @@ struct RemoteScreenView: View {
             permission("Screen Recording", allowed: status.permissions.screenRecording, key: "screenRecording")
             permission("Accessibility", allowed: status.permissions.accessibility, key: "accessibility")
         } else if screen.problem == nil {
-            ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden).accessibilityLabel("Loading computer use")
+            SkeletonRows(count: 2, label: "Loading computer use").listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
         }
         if let problem = screen.problem {
             DeviceNote(sentence: problem, action: "Try again") { Task { await screen.refresh(model) } }
         }
         if let locked = model.computerAccess.state?.locked {
             LockedUseRow(model: model, locked: locked, busy: model.computerAccess.state?.busy != nil)
-                .listRowBackground(AceTheme.Colours.background)
+                .listRowBackground(AceDesign.Surface.background)
                 .listRowSeparator(.hidden)
                 .transition(.opacity)
         }
         if let error = model.computerAccess.state?.error {
-            ServiceProblem(message: error).listRowBackground(AceTheme.Colours.background).listRowSeparator(.hidden)
+            ServiceProblem(message: error).listRowBackground(AceDesign.Surface.background).listRowSeparator(.hidden)
         }
         NavigationLink { UseMyChromeView(model: model) } label: {
             HStack {
-                Text("Use my Chrome").aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.foreground)
+                Text("Use my Chrome").font(AceDesign.Typeface.title)
+                    .foregroundStyle(AceDesign.Ink.primary)
                 Spacer()
                 if !model.mayAdminister {
-                    Text("Owner only").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text("Owner only").font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
                 } else if let chrome = model.computerAccess.state?.chrome {
                     Text(chrome.installed ? (chrome.connections.isEmpty ? "Installed" : "\(chrome.connections.count) connected") : "Not set up")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
                 }
             }
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            .frame(minHeight: AceDesign.Size.tap)
         }
-        .listRowBackground(AceTheme.Colours.background)
+        .listRowBackground(AceDesign.Surface.background)
         .listRowSeparator(.hidden)
         .accessibilityIdentifier("computer.chrome")
         NavigationLink { RemoteSettingsView(model: model, category: .computer) } label: {
-            Text("App access and device preferences").aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+            Text("App access and device preferences").font(AceDesign.Typeface.title)
+                .foregroundStyle(AceDesign.Ink.muted)
         }
-        .listRowBackground(AceTheme.Colours.background)
+        .listRowBackground(AceDesign.Surface.background)
         .listRowSeparator(.hidden)
     }
 
@@ -154,21 +154,21 @@ struct RemoteScreenView: View {
 private struct SessionRow: View {
     let session: ScreenSessionInfo
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.md) {
-            AceIcon(.appWindow, size: 21)
-                .foregroundStyle(AceTheme.Colours.foreground).frame(width: 28).accessibilityHidden(true)
+        HStack(spacing: AceDesign.Space.row) {
+            AceIcon(.appWindow, size: AceDesign.Size.icon, relativeTo: .subheadline)
+                .foregroundStyle(AceDesign.Ink.primary).frame(width: AceDesign.Size.icon + AceDesign.Space.related).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(session.app).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+                Text(session.app).font(AceDesign.Typeface.body)
+                    .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
                 Text([session.status, session.mode].joined(separator: " · "))
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(session.error.isEmpty ? AceTheme.Colours.mutedForeground : AceTheme.StatusText.failed).lineLimit(1)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(session.error.isEmpty ? AceDesign.Ink.muted : AceTheme.StatusText.failed).lineLimit(1)
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
-            AceIcon(.caretRight, size: 14, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.decoration).accessibilityHidden(true)
+            Spacer(minLength: AceDesign.Space.related)
+            AceIcon(.caretRight, size: AceDesign.Size.icon, relativeTo: .footnote)
+                .foregroundStyle(AceDesign.Ink.faint).accessibilityHidden(true)
         }
-        .frame(minHeight: 60)
+        .frame(minHeight: AceDesign.Size.rowThread)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -212,7 +212,7 @@ private struct ScreenTargetPicker: View {
                     }
                 } header: { InsetHeader("Open windows") }
                 }
-                if let problem = screen.problem { Text(problem).foregroundStyle(AceTheme.Colours.mutedForeground).listRowBackground(Color.clear) }
+                if let problem = screen.problem { Text(problem).foregroundStyle(AceDesign.Ink.muted).listRowBackground(Color.clear) }
             }
             .insetGroupedList()
             .disabled(screen.busy || starting)

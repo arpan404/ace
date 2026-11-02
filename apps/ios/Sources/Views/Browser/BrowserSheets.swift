@@ -28,7 +28,7 @@ struct BrowserSheets: View {
 extension View {
     /// A hairline row on the page colour, with no rule above the first.
     func browserRow() -> some View {
-        listRowBackground(AceTheme.Colours.background).listRowSeparator(.hidden, edges: .top)
+        listRowBackground(AceDesign.Surface.background).listRowSeparator(.hidden, edges: .top)
     }
 }
 
@@ -66,13 +66,13 @@ struct BrowserTabsSheet: View {
                     .accessibilityIdentifier("browser.tab.\(tab.id)")
                 }
                 if let more = state?.moreTabs, more > 0 {
-                    Text("\(more) more tabs").foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text("\(more) more tabs").foregroundStyle(AceDesign.Ink.muted)
                         .browserRow()
                 }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(AceTheme.Colours.background)
+            .background(AceDesign.Surface.background)
             .overlay {
                 if state?.tabs.isEmpty ?? true { EmptyState(icon: .browsers, title: "No tabs open") }
             }
@@ -91,7 +91,7 @@ struct BrowserTabsSheet: View {
                 }
             }
         }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.accent)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
 
@@ -100,20 +100,20 @@ struct BrowserTabsSheet: View {
         return count == 1 ? "1 tab" : "\(count) tabs"
     }
     private func row(_ tab: BrowserViewInfo.Tab) -> some View {
-        HStack(spacing: AceTheme.Spacing.md) {
-            AceIcon(tab.agent != nil ? .cursor : tab.private == true ? .hand : .globe, size: 17, relativeTo: .subheadline)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .frame(width: 24)
+        HStack(spacing: AceDesign.Space.row) {
+            AceIcon(tab.agent != nil ? .cursor : tab.private == true ? .hand : .globe, size: AceDesign.Size.icon, relativeTo: .subheadline)
+                .foregroundStyle(AceDesign.Ink.muted)
+                .frame(width: AceDesign.Size.icon + AceDesign.Space.related)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(tab.title).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                Text(detail(tab)).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                Text(tab.title).font(AceDesign.Typeface.body)
+                    .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
+                Text(detail(tab)).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
-            if tab.loading == true { ProgressView().controlSize(.small) }
+            Spacer(minLength: AceDesign.Space.related)
+            if tab.loading == true { WorkingMark(label: "Loading") }
             if tab.id == state?.activeTabId {
-                AceIcon(.check).foregroundStyle(AceTheme.Colours.foreground)
+                AceIcon(.check).foregroundStyle(AceDesign.Ink.primary)
                     .accessibilityElement(children: .ignore).accessibilityLabel("Shown")
             }
         }
@@ -137,30 +137,30 @@ struct BrowserDownloadsSheet: View {
     var body: some View {
         NavigationStack {
             List(downloads) { download in
-                HStack(spacing: AceTheme.Spacing.md) {
-                    AceIcon(.file, size: 19).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: 24)
+                HStack(spacing: AceDesign.Space.row) {
+                    AceIcon(.file, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.muted).frame(width: AceDesign.Size.icon + AceDesign.Space.related)
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(download.filename).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).lineLimit(1)
-                        Text(detail(download)).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(download.failed || download.risky || saving(download)?.phase == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
+                        Text(download.filename).font(AceDesign.Typeface.body).lineLimit(1)
+                        Text(detail(download)).font(AceDesign.Typeface.meta)
+                            .foregroundStyle(download.failed || download.risky || saving(download)?.phase == "failed" ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
                             .lineLimit(2)
                             .contentTransition(.opacity)
                     }
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                    Spacer(minLength: AceDesign.Space.related)
                     save(download)
                 }
                 .frame(minHeight: InsetStyle.rowHeight)
-                .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: saving(download))
+                .animation(AceDesign.Motion.arriving(reduceMotion), value: saving(download))
                 .browserRow()
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(AceTheme.Colours.background)
+            .background(AceDesign.Surface.background)
             .overlay { if downloads.isEmpty { EmptyState(icon: .arrowCircleDown, title: "Nothing downloaded yet") } }
             .navigationTitle("Downloads").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
         }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.accent)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
     private func saving(_ download: BrowserViewInfo.Download) -> BrowserSaving? {
@@ -172,14 +172,14 @@ struct BrowserDownloadsSheet: View {
         if saving?.phase == "ready", let saving,
            let file = SavedFiles(scope: model.hostId ?? "").file(id: saving.key, name: download.filename) {
             ShareLink(item: file) { Text("Share") }
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .font(AceDesign.Typeface.body)
+                .frame(minHeight: AceDesign.Size.tap)
                 .transition(.opacity)
                 .accessibilityIdentifier("browser.download.share")
         } else if saving?.phase == "saving" {
             Button { model.browserSaveCancel(download.id) } label: {
-                ProgressView(value: saving?.progress ?? 0).progressViewStyle(.circular).controlSize(.small)
-                    .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                ProgressView(value: saving?.progress ?? 0).progressViewStyle(.circular)
+                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Stop saving")
@@ -187,8 +187,8 @@ struct BrowserDownloadsSheet: View {
             .transition(.opacity)
         } else if download.saveable == true {
             Button("Save") { model.browserSave(download.id) }
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .font(AceDesign.Typeface.body)
+                .frame(minHeight: AceDesign.Size.tap)
                 .transition(.opacity)
                 .accessibilityLabel("Save to this phone")
                 .accessibilityIdentifier("browser.download.save")
@@ -226,11 +226,11 @@ struct BrowserHistorySheet: View {
                 } label: {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                         Text(visit.title.isEmpty ? visit.url : visit.title)
-                            .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                            .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+                            .font(AceDesign.Typeface.body)
+                            .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
                         Text("\(URL(string: visit.url)?.host() ?? visit.url) · \(Date(timeIntervalSince1970: visit.at / 1000).formatted(.relative(presentation: .named)))")
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                            .font(AceDesign.Typeface.meta)
+                            .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                     }
                     .frame(minHeight: InsetStyle.rowHeight, alignment: .leading)
                 }
@@ -239,7 +239,7 @@ struct BrowserHistorySheet: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(AceTheme.Colours.background)
+            .background(AceDesign.Surface.background)
             .searchable(text: $query, prompt: "Search history")
             .overlay {
                 if found.isEmpty {
@@ -249,7 +249,7 @@ struct BrowserHistorySheet: View {
             .navigationTitle("History").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
         }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.accent)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .onChange(of: query, initial: true) { model.browserVisits(open: true, query: query) }
         .onDisappear { model.browserVisits(open: false) }

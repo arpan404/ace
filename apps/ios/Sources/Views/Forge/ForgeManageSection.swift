@@ -56,14 +56,14 @@ struct ForgeManageSection: View {
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .disabled(writing || !client.canOperate)
                 }
-                .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
             }
             milestone(manage)
             ForEach(manage.closingIssues, id: \.number) { issue in issueRow(issue) }
             if manage.canLink, client.canOperate {
                 Button("Link an issue") { linking = true }
                     .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
                     .disabled(!ready)
                     .accessibilityIdentifier("forge.manage.link")
             }
@@ -73,7 +73,7 @@ struct ForgeManageSection: View {
                 Button("Revert") { reverting = true }
                     .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                     .foregroundStyle(AceTone.failed.text)
-                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
                     .disabled(!ready)
                     .accessibilityIdentifier("forge.manage.revert")
             }
@@ -102,20 +102,20 @@ struct ForgeManageSection: View {
                 Text(manage.milestone?.title ?? "None").meta()
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
     }
 
     private func issueRow(_ issue: ForgeManage.Issue) -> some View {
         Button { open(ForgeRoute(kind: .issue, machineId: route.machineId, project: route.project, number: issue.number, repository: route.repository)) } label: {
             HStack(spacing: AceTheme.Spacing.sm) {
-                ForgeIssueGlyph(state: issue.state, size: 15)
+                ForgeIssueGlyph(state: issue.state, size: AceDesign.Size.icon)
                 Text(verbatim: "#\(issue.number)").monospacedDigit().meta(AceTheme.Colours.subtleForeground)
                 Text(issue.title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
                     .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
                 Spacer(minLength: AceTheme.Spacing.sm)
                 Text(issue.manual ? "Linked" : "Closes").meta()
             }
-            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44).contentShape(Rectangle())
+            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
         }
         .buttonStyle(.row)
         .contextMenu {
@@ -142,7 +142,7 @@ struct ForgeManageSection: View {
             }
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
     }
 
     private func lockRow(_ conversation: ForgeManage.Conversation, _ reasons: [ForgeManage.Reason]) -> some View {
@@ -163,7 +163,7 @@ struct ForgeManageSection: View {
             }
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
     }
 
     private func choose(_ number: Int?, _ manage: ForgeManage) {

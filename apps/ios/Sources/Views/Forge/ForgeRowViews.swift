@@ -29,7 +29,7 @@ struct ForgePullRowView: View {
 
     var body: some View {
         ForgeRowLayout(title: row.title, updatedAt: row.updatedAt) {
-            ForgePullGlyph(state: row.state, merged: row.merged, conflicting: row.conflicting, size: 15)
+            ForgePullGlyph(state: row.state, merged: row.merged, conflicting: row.conflicting, size: AceDesign.Size.icon)
         } line: {
             ForgeRowLine(number: row.number, author: row.author, step: row.step, needsYou: row.stepNeedsYou,
                          quiet: row.quiet, thread: row.thread)
@@ -47,7 +47,7 @@ struct ForgeIssueRowView: View {
 
     var body: some View {
         ForgeRowLayout(title: row.title, updatedAt: row.updatedAt) {
-            ForgeIssueGlyph(state: row.state, size: 15)
+            ForgeIssueGlyph(state: row.state, size: AceDesign.Size.icon)
         } line: {
             ForgeRowLine(number: row.number, author: row.author, step: nil, needsYou: false, quiet: row.milestone, thread: row.thread)
         } marks: {
@@ -86,7 +86,7 @@ private struct ForgeRowLayout<Glyph: View, Line: View, Marks: View>: View {
                 .aceFont(InboxRowType.line, relativeTo: .subheadline)
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.rowInner)
         .padding(.vertical, AceTheme.Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
@@ -108,11 +108,11 @@ private struct ForgeRowLine: View {
         Text("· \(author)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).layoutPriority(-1)
         if let step {
             Text("· \(step)")
-                .fontWeight(needsYou ? .medium : .regular)
+                .fontWeight(needsYou ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
                 .foregroundStyle(needsYou ? AceTone.needsYou.text : AceTheme.Colours.mutedForeground)
                 .lineLimit(1).layoutPriority(1)
         } else if let thread, thread.needsYou {
-            Text("· \(thread.title)").fontWeight(.medium).foregroundStyle(AceTone.needsYou.text).lineLimit(1)
+            Text("· \(thread.title)").fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceTone.needsYou.text).lineLimit(1)
                 .accessibilityLabel("Thread \(thread.title), needs you")
         } else if let quiet, !quiet.isEmpty {
             Text("· \(quiet)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)

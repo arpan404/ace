@@ -39,13 +39,13 @@ struct ProjectScriptsView: View {
                         Button { openPreview(preview.url) } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                                    Text(preview.title).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                                    Text(verbatim: "localhost:\(preview.port)").aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                                    Text(preview.title).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+                                    Text(verbatim: "localhost:\(preview.port)").font(AceDesign.Typeface.code).foregroundStyle(AceDesign.Ink.muted)
                                 }
                                 Spacer()
-                                Text("Open").foregroundStyle(AceTheme.Colours.foreground)
+                                Text("Open").foregroundStyle(AceDesign.Ink.primary)
                             }
-                            .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+                            .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("scripts.preview.\(preview.port)")
@@ -55,16 +55,16 @@ struct ProjectScriptsView: View {
             }
             Section {
                 if let scripts = reply?.scripts {
-                    if scripts.isEmpty { Text("This project has no scripts in package.json, a Makefile, a justfile or a Procfile.").foregroundStyle(AceTheme.Colours.mutedForeground) }
+                    if scripts.isEmpty { Text("This project has no scripts in package.json, a Makefile, a justfile or a Procfile.").foregroundStyle(AceDesign.Ink.muted) }
                     ForEach(scripts) { script in
-                        HStack(spacing: AceTheme.Spacing.sm) {
+                        HStack(spacing: AceDesign.Space.related) {
                             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                                Text(script.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                                Text(script.command).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
+                                Text(script.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+                                Text(script.command).font(AceDesign.Typeface.code)
+                                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
                             }
-                            Spacer(minLength: AceTheme.Spacing.sm)
-                            if running == script.id { ProgressView().controlSize(.small).frame(minWidth: AceTheme.Dimensions.touchTarget) }
+                            Spacer(minLength: AceDesign.Space.related)
+                            if running == script.id { WorkingMark(label: "Running").frame(minWidth: AceDesign.Size.tap) }
                             else {
                                 Button(script.running ? "Show" : "Run") { Task { await run(script) } }
                                     .buttonStyle(.borderless).rowButtonTarget()

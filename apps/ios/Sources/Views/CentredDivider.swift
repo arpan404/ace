@@ -6,20 +6,20 @@ import SwiftUI
 struct CentredDivider<Content: View>: View {
     @ViewBuilder let content: Content
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.md) {
+        HStack(spacing: AceDesign.Space.row) {
             rule
-            HStack(spacing: AceTheme.Spacing.xs) { content }
+            HStack(spacing: AceDesign.Space.tight) { content }
                 .lineLimit(1)
                 .layoutPriority(1)
             rule
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .padding(.vertical, AceTheme.Spacing.xs)
+        .padding(.vertical, AceDesign.Space.tight)
     }
     private var rule: some View {
         Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
-            .frame(minWidth: AceTheme.Spacing.xxl).accessibilityHidden(true)
+            .frame(minWidth: AceDesign.Space.group).accessibilityHidden(true)
     }
 }
 
@@ -49,8 +49,8 @@ struct ForkedDivider: View {
     }
     private func line(_ title: String, linked: Bool) -> some View {
         CentredDivider {
-            AceIcon(.gitFork, size: 12, relativeTo: .caption)
-            Text("Forked from").fontWeight(.medium)
+            AceIcon(.gitFork, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
+            Text("Forked from").fontWeight(AceDesign.Typeface.regular)
             // A title that opens reads one step up from the line, like a handoff's new model.
             Text(title)
                 .foregroundStyle(linked ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)

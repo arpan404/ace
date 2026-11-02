@@ -48,7 +48,7 @@ struct VideoViewer: View {
             if let player { SystemPlayer(player: player, label: title) }
             else { Spacer() }
         }
-        .background(Color.black.ignoresSafeArea())
+        .background(AceDesign.Surface.media.ignoresSafeArea())
         .environment(\.colorScheme, .dark)
         .accessibilityAction(.escape) { dismiss() }
         .task {
@@ -70,7 +70,7 @@ private struct SystemPlayer: UIViewControllerRepresentable {
         controller.videoGravity = .resizeAspect
         // No audio background mode, so no Picture in Picture: don't offer a button that can't work.
         controller.allowsPictureInPicturePlayback = false
-        controller.view.backgroundColor = .black
+        controller.view.backgroundColor = UIColor(AceDesign.Surface.media)
         controller.view.accessibilityIdentifier = "media.video"
         controller.view.accessibilityLabel = label
         return controller

@@ -50,7 +50,7 @@ struct ForgeCommentView: View {
 
     private var header: some View {
         HStack(spacing: AceTheme.Spacing.xs) {
-            Text(comment.author).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+            Text(comment.author).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
             if let words {
                 Text(words).foregroundStyle(tone.map { AceTone($0).text } ?? AceTheme.Colours.mutedForeground).lineLimit(1)
             }
@@ -93,7 +93,7 @@ struct ForgeCommentView: View {
                 Button("Delete", ace: .trash, role: .destructive) { deleting = true }
             }
         } label: {
-            Image(ace: .dotsThree).frame(width: 32, height: 28).contentShape(Rectangle())
+            Image(ace: .dotsThree).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap).contentShape(Rectangle())
         }
         .disabled(!actions.desk.ready)
         .accessibilityLabel("Actions for \(comment.author)'s comment")
@@ -147,16 +147,18 @@ struct ForgeReactionsRow: View {
                 ForEach(comment.reactions.filter { $0.count > 0 }, id: \.content) { reaction in
                     Button { toggle(reaction) } label: {
                         HStack(spacing: AceTheme.Spacing.xxs) {
-                            AceIcon(Self.icon(reaction.content), size: 14, relativeTo: .footnote)
+                            AceIcon(Self.icon(reaction.content), size: AceDesign.Size.metaIcon, relativeTo: .footnote)
                             Text(verbatim: "\(reaction.count)").monospacedDigit()
                         }
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .fontWeight(reaction.viewer ? .semibold : .regular)
                         .foregroundStyle(reaction.viewer ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                         .padding(.horizontal, AceTheme.Spacing.sm)
-                        .frame(minHeight: 28)
+                        .frame(minHeight: AceDesign.Size.pill)
                         .background(reaction.viewer ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
-                        .overlay(AceShape.capsule.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+                        // A full tap's reach around the drawn pill.
+                        .padding(.vertical, (AceDesign.Size.tap - AceDesign.Size.pill) / 2)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .disabled(!desk.ready)
@@ -169,9 +171,9 @@ struct ForgeReactionsRow: View {
                         }
                     }
                 } label: {
-                    AceIcon(.smileySticker, size: 16, relativeTo: .footnote)
+                    AceIcon(.smileySticker, size: AceDesign.Size.icon, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
-                        .frame(width: 32, height: 28).contentShape(Rectangle())
+                        .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap).contentShape(Rectangle())
                 }
                 .disabled(!desk.ready)
                 .accessibilityLabel("Add reaction")

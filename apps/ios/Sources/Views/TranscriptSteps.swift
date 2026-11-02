@@ -6,14 +6,14 @@ struct QuietRow<Content: View>: View {
     var tint: Color = AceTheme.Colours.decoration
     @ViewBuilder var content: () -> Content
     var body: some View {
-        HStack(alignment: .center, spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
-            AceIcon(icon, size: 16, relativeTo: .subheadline).foregroundStyle(tint)
-                .frame(width: AceTheme.Spacing.xxl)
+        HStack(alignment: .center, spacing: AceDesign.Space.related) {
+            AceIcon(icon, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(tint)
+                .frame(width: AceDesign.Space.group)
             content()
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .frame(minHeight: AceTheme.Spacing.xxxl, alignment: .leading)
+        .frame(minHeight: AceDesign.Space.section, alignment: .leading)
     }
 }
 
@@ -38,7 +38,7 @@ struct StepRow: View {
                 if open, let detail = step.detail {
                     StepDetailView(detail: detail).rowDetailIndent()
                         .onAppear { DisclosureTrace.shared.shown(key) }
-                        .padding(.top, AceTheme.Spacing.xs).padding(.bottom, AceTheme.Spacing.sm)
+                        .padding(.top, AceDesign.Space.tight).padding(.bottom, AceDesign.Space.related)
                 }
             }
             .railMark(!step.settled ? .running : failed ? .failed : .done)
@@ -54,7 +54,7 @@ struct StepRow: View {
         } else if expandable {
             Button {
                 if !open { DisclosureTrace.shared.asked("step", key: key) }
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
+                withAnimation(AceDesign.Motion.arriving(reduceMotion)) {
                     if let thread { thread.disclosures.toggle(key) } else { localOpen.toggle() }
                 }
             } label: { line(open: open) }
@@ -68,14 +68,14 @@ struct StepRow: View {
         LogRowBox(open: open) {
             StepGlyph(step: step, failed: failed)
         } title: {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                if !step.verb.isEmpty { Text(step.verb).layoutPriority(1).shimmer(!step.settled) }
+            HStack(spacing: AceDesign.Space.related) {
+                if !step.verb.isEmpty { Text(step.verb).layoutPriority(1) }
                 if !step.target.isEmpty { TargetChip(target: step.target) }
             }
         } meta: {
-            HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+            HStack(spacing: AceDesign.Space.tight) {
                 if let added = step.added, let removed = step.removed, added > 0 || removed > 0 {
-                    HStack(spacing: AceTheme.Spacing.xs) {
+                    HStack(spacing: AceDesign.Space.tight) {
                         Text("+\(added)").foregroundStyle(AceTheme.StatusText.done)
                         Text("−\(removed)").foregroundStyle(AceTheme.StatusText.failed)
                     }
@@ -113,7 +113,7 @@ struct TargetChip: View {
         .lineLimit(1)
         .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
         .foregroundStyle(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceTheme.Spacing.xs + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.xxs)
+        .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceTheme.Spacing.xxs)
         .background(AceTheme.Colours.fill, in: AceShape.capsule)
     }
 }
@@ -126,9 +126,9 @@ struct StepGlyph: View {
     var body: some View {
         Group {
             if step.glyph == "ace" {
-                AceMark().frame(width: 14, height: 13)
+                AceMark().frame(width: AceDesign.Size.glyphMeta, height: AceDesign.Size.glyphMeta)
             } else {
-                AceIcon(Self.icon(step.glyph ?? step.icon), size: 16, relativeTo: .subheadline)
+                AceIcon(Self.icon(step.glyph ?? step.icon), size: AceDesign.Size.icon, relativeTo: .subheadline)
             }
         }
         .foregroundStyle(failed ? AceTheme.StatusText.failed : AceTheme.Colours.subtleForeground)
@@ -161,9 +161,9 @@ struct StepGlyph: View {
 struct StepDetailView: View {
     let detail: StepDetail
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             if !detail.text.isEmpty {
-                Text(detail.text).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                Text(detail.text).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
                     .foregroundStyle(AceTheme.Colours.mutedForeground).textSelection(.enabled)
             }
             if !detail.output.isEmpty {
@@ -173,9 +173,9 @@ struct StepDetailView: View {
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
-                        .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
+                        .padding(.horizontal, AceDesign.Space.row).padding(.vertical, AceDesign.Space.related)
                 }
-                .frame(maxHeight: 288)
+                .frame(maxHeight: AceDesign.Size.foldedOutput)
                 .background(AceTheme.Colours.fill, in: AceShape.block)
                 .accessibilityLabel("Output")
             }
@@ -189,39 +189,39 @@ private struct StepDiff: View {
     let diff: StepDetail.Diff
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 Text(diff.path).lineLimit(1).truncationMode(.head)
                 if !diff.kind.isEmpty { Text(diff.kind).foregroundStyle(AceTheme.Colours.subtleForeground) }
             }
             .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .frame(maxWidth: .infinity, minHeight: AceTheme.Spacing.xxxl, alignment: .leading)
-            .padding(.horizontal, AceTheme.Spacing.md)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Space.section, alignment: .leading)
+            .padding(.horizontal, AceDesign.Space.row)
             .overlay(alignment: .bottom) { Hairline() }
             ScrollView([.horizontal, .vertical]) {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                     ForEach(Array(diff.lines.enumerated()), id: \.offset) { _, line in
                         HStack(spacing: AceTheme.Spacing.none) {
-                            Text(Self.sign(line.kind)).frame(width: AceTheme.Spacing.lg, alignment: .leading)
+                            Text(Self.sign(line.kind)).frame(width: AceDesign.Space.margin, alignment: .leading)
                                 .foregroundStyle(line.kind == "add" ? AceTheme.StatusText.done : line.kind == "del" ? AceTheme.StatusText.failed : .clear)
                             Text(line.text).foregroundStyle(line.kind == "hunk" ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
                                 .fixedSize()
                         }
-                        .padding(.horizontal, AceTheme.Spacing.md)
+                        .padding(.horizontal, AceDesign.Space.row)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(line.kind == "add" ? AceTheme.Colours.diffAdd : line.kind == "del" ? AceTheme.Colours.diffDelete : .clear)
                     }
                     if diff.more > 0 {
                         Text("\(diff.more) more lines").foregroundStyle(AceTheme.Colours.subtleForeground)
-                            .padding(.horizontal, AceTheme.Spacing.md).padding(.top, AceTheme.Spacing.xs)
+                            .padding(.horizontal, AceDesign.Space.row).padding(.top, AceDesign.Space.tight)
                     }
                 }
                 .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                .padding(.vertical, AceTheme.Spacing.xs)
+                .padding(.vertical, AceDesign.Space.tight)
             }
-            .frame(maxHeight: 320)
+            .frame(maxHeight: AceDesign.Size.foldedOutput)
         }
-        .overlay(AceShape.block.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        .background(AceDesign.Surface.fill, in: AceShape.block)
         .clipShape(AceShape.block)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Diff of \(diff.path)")
@@ -267,7 +267,7 @@ struct WorkBlockView: View {
                     DisclosureTrace.shared.asked("steps", key: blockId)
                     holdSteps()
                 }
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { thread.disclosures.toggle(blockId) }
+                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { thread.disclosures.toggle(blockId) }
             } label: {
                 LogRowBox(open: expanded) { Text(row.work?.label ?? "Worked") }
             }
@@ -276,7 +276,8 @@ struct WorkBlockView: View {
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
             .accessibilityHint(expanded ? "Hides the steps" : "Shows the steps")
             .accessibilityIdentifier("work.toggle")
-            Hairline().padding(.top, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+            // Space, not a rule, sets the work apart from the answer (design language §3).
+            Color.clear.frame(height: AceDesign.Space.tight).accessibilityHidden(true)
             if expanded {
                 Group {
                     if let ordinal = row.ordinal, let steps {
@@ -284,11 +285,11 @@ struct WorkBlockView: View {
                     } else if let log = row.log, !log.isEmpty {
                         StepRail { WorkLogRows(rows: log, source: source) }.onAppear { DisclosureTrace.shared.shown(blockId) }
                     } else {
-                        Text("No steps recorded.").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-                            .foregroundStyle(AceTheme.Colours.subtleForeground).padding(.vertical, AceTheme.Spacing.xs)
+                        Text("No steps recorded.").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+                            .foregroundStyle(AceTheme.Colours.subtleForeground).padding(.vertical, AceDesign.Space.tight)
                     }
                 }
-                .padding(.vertical, AceTheme.Spacing.xs)
+                .padding(.vertical, AceDesign.Space.tight)
             }
         }
         .task(id: row.ordinal) {
@@ -305,37 +306,10 @@ struct WorkBlockView: View {
     }
 }
 
-/// A light sweep across live text. Off with Reduce Motion, where the text simply stays put.
-private struct Shimmer: ViewModifier {
-    let active: Bool
-    @Environment(\.aceReduceMotion) private var reduceMotion
-    func body(content: Content) -> some View {
-        if active && !reduceMotion {
-            content.overlay {
-                TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-                    let period = AceTheme.Motion.statusPulse
-                    let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
-                    GeometryReader { geometry in
-                        LinearGradient(colors: [.clear, AceTheme.Colours.foreground, .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: geometry.size.width * 0.5)
-                            .offset(x: (phase * 1.5 - 0.5) * geometry.size.width)
-                    }
-                }
-                .mask(content)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-        } else {
-            content
-        }
-    }
-}
-
 extension View {
-    func shimmer(_ active: Bool) -> some View { modifier(Shimmer(active: active)) }
     /// What the agent says between steps stands apart from the step rows around it.
     func stepNarration(_ narration: Bool) -> some View {
-        padding(.vertical, narration ? AceTheme.Spacing.sm - AceTheme.Spacing.xxs : AceTheme.Spacing.none)
+        padding(.vertical, narration ? AceDesign.Space.tight : AceTheme.Spacing.none)
     }
 }
 

@@ -9,7 +9,10 @@ struct ComposerSuggestionList: View {
     let retry: () -> Void
     /// The most the list may take; nil allows about five rows.
     var maxHeight: CGFloat? = nil
+    /// A suggestion's two lines (name and detail), for sizing the list before it measures.
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 48
+    /// Rows shown before it scrolls: the half row says there are more.
+    private static let shownRows: CGFloat = 5.5
     @State private var contentHeight: CGFloat = 0
     var body: some View {
         let shape = AceShape.group
@@ -20,20 +23,20 @@ struct ComposerSuggestionList: View {
                     LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                         ForEach(Array((list?.rows ?? []).enumerated()), id: \.element.id) { index, row in
                             if index == 0 || list?.rows[index - 1].group != row.group { header(row.group, first: index == 0) }
-                            else { Hairline().padding(.leading, AceTheme.Spacing.lg + 24) }
+                            else { Hairline().padding(.leading, AceDesign.Space.margin + AceDesign.Size.glyphBox) }
                             SuggestionRowView(row: row) { pick(row) }
                         }
                     }
-                    .padding(.vertical, AceTheme.Spacing.xs)
+                    .padding(.vertical, AceDesign.Space.tight)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 // As tall as its rows, never past the room the screen leaves it.
-                .frame(height: min(contentHeight, min(rowHeight * 5.5, maxHeight ?? .infinity)))
+                .frame(height: min(contentHeight, min(rowHeight * Self.shownRows, maxHeight ?? .infinity)))
             case "failed":
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     Text("Couldn't read suggestions.").foregroundStyle(AceTheme.Colours.mutedForeground)
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                    Spacer(minLength: AceDesign.Space.related)
                     Button("Try again", action: retry).accessibilityIdentifier("composer.suggestions.retry")
                 }
                 .line()
@@ -46,17 +49,17 @@ struct ComposerSuggestionList: View {
         }
         .aceFont(AceTheme.Typography.body, relativeTo: .body)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .containerShape(shape)
+        .concentricContainer()
         .background(GroupedSurface.colour, in: shape)
-        .padding(.bottom, AceTheme.Spacing.sm)
+        .padding(.bottom, AceDesign.Space.related)
         .accessibilityIdentifier("composer.suggestions")
     }
     private func header(_ title: String, first: Bool) -> some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             if !first { Hairline() }
             Text(title).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .padding(.horizontal, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.xs)
+                .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
                 .accessibilityAddTraits(.isHeader)
         }
     }
@@ -65,7 +68,7 @@ struct ComposerSuggestionList: View {
 private extension View {
     /// One status line in the list's place.
     func line() -> some View {
-        padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
+        padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.row)
     }
 }
 
@@ -75,10 +78,10 @@ private struct SuggestionRowView: View {
     let pick: () -> Void
     var body: some View {
         Button(action: pick) {
-            HStack(spacing: AceTheme.Spacing.md) {
-                AceIcon(SuggestionSymbol.icon(row), size: 16, relativeTo: .body)
+            HStack(spacing: AceDesign.Space.row) {
+                AceIcon(SuggestionSymbol.icon(row), size: AceDesign.Size.icon, relativeTo: .body)
                     .foregroundStyle(AceTheme.Colours.decoration)
-                    .frame(width: 24)
+                    .frame(width: AceDesign.Size.glyphBox)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                     title.lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)
                     if let detail = row.detail, !detail.isEmpty {
@@ -92,8 +95,8 @@ private struct SuggestionRowView: View {
                 }
                 Spacer(minLength: AceTheme.Spacing.none)
             }
-            .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
+            .frame(minHeight: AceDesign.Size.tap)
             .contentShape(Rectangle())
         }
         .buttonStyle(RowPressStyle())

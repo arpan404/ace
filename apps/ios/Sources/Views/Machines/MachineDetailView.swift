@@ -30,16 +30,16 @@ struct MachineDetailView: View {
                     LabeledContent("Access", value: readOnly ? "View only" : "Full access").accessibilityIdentifier("machine.access")
                 }
                 if let address = facts.address {
-                    LabeledContent("Address") { Text(address).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote) }
+                    LabeledContent("Address") { Text(address).font(AceDesign.Typeface.code) }
                 }
                 if let version = client?.providers?.version { LabeledContent("ace", value: version) }
                 if let update = client?.appUpdate, update.known { MachineAppUpdateRow(update: update) }
                 if let problem = facts.needsPairing ? nil : client?.problem {
                     // At accessibility sizes Retry goes under the message instead of squeezing it.
-                    let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xs)) : AnyLayout(HStackLayout())
+                    let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceDesign.Space.tight)) : AnyLayout(HStackLayout())
                     layout {
                         problemText(problem.message)
-                        if !typeSize.isAccessibilitySize { Spacer(minLength: AceTheme.Spacing.sm) }
+                        if !typeSize.isAccessibilitySize { Spacer(minLength: AceDesign.Space.related) }
                         retry(problem.code)
                     }
                 }
@@ -78,7 +78,7 @@ struct MachineDetailView: View {
             if let machines {
                 Section {
                     Button("Rename") { newName = facts.name; renaming = true }.accessibilityIdentifier("machine.rename")
-                        .foregroundStyle(AceTheme.Colours.foreground)
+                        .foregroundStyle(AceDesign.Ink.primary)
                     Button("Remove from this phone", role: .destructive) { removing = true }.accessibilityIdentifier("machine.remove")
                 } footer: {
                     Text("Removing forgets this phone's access and unsent work for \(facts.name). Revoke the device on the computer too.")
@@ -106,12 +106,12 @@ struct MachineDetailView: View {
     }
 
     private func problemText(_ message: String) -> some View {
-        Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.mutedForeground).accessibilityIdentifier("machine.problem")
+        Text(message).font(AceDesign.Typeface.meta)
+            .foregroundStyle(AceDesign.Ink.muted).accessibilityIdentifier("machine.problem")
     }
     @ViewBuilder private func retry(_ code: String) -> some View {
         if code == "unreachable" || code == "offline" {
-            Button("Retry") { client?.retry() }.buttonStyle(.borderless).frame(minHeight: AceTheme.Dimensions.touchTarget)
+            Button("Retry") { client?.retry() }.buttonStyle(.borderless).frame(minHeight: AceDesign.Size.tap)
         }
     }
     @ViewBuilder private var providers: some View {
@@ -126,17 +126,17 @@ struct MachineDetailView: View {
                 ForEach(info.providers) { provider in ProviderRow(provider: provider) }
                 if !info.absent.isEmpty {
                     Text("Not installed: \(info.absent.joined(separator: ", "))")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                 }
                 if let problem = info.problem {
-                    Text(problem).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text(problem).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                 }
             } else if client?.connection == "ready" {
-                HStack(spacing: AceTheme.Spacing.sm) { ProgressView().controlSize(.mini); Text("Checking…") }
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                HStack(spacing: AceDesign.Space.related) { WorkingMark(label: "Checking"); Text("Checking…") }
+                    .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
             } else {
                 Text("Shown once this phone reaches the computer.")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
             }
         }
     }
@@ -150,27 +150,27 @@ struct ProviderRow: View {
         // At accessibility sizes the status and each usage value sit under their label.
         let stacked = typeSize.isAccessibilitySize
         let line = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xxs))
-                           : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm))
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                           : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: AceDesign.Space.related))
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             line {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Label { Text(provider.name) } icon: { ProviderMark(provider: provider.provider, size: 18) }.aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                    Label { Text(provider.name) } icon: { ProviderMark(provider: provider.provider, size: AceDesign.Size.icon) }.font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
                     // The status word beside it already says "Sign in needed"; the line adds only what's new.
                     let summary = provider.summary.caseInsensitiveCompare(provider.status.label) == .orderedSame ? nil : provider.summary
                     Text([summary, provider.version].compactMap { $0 }.joined(separator: " · "))
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
+                if !stacked { Spacer(minLength: AceDesign.Space.related) }
                 StateLabel(status: provider.status)
             }
             ForEach(provider.usage, id: \.self) { usage in
                 line {
                     Text(usage.label)
-                    if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
+                    if !stacked { Spacer(minLength: AceDesign.Space.related) }
                     Text([usage.left, usage.resets].compactMap { $0 }.joined(separator: " · ")).monospacedDigit()
                 }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
             }
         }
         .padding(.vertical, AceTheme.Spacing.xxs)

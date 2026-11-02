@@ -28,12 +28,12 @@ struct SkillSourceView: View {
                         }
                     }
                 }
-                if loading { ProgressView("Reading source…") }
+                if loading { SkeletonPage(label: "Reading source").listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 ServiceProblem(message: problem)
                 if problem != nil { Button("Retry") { Task { await read() } } }
                 if hash != nil {
                     if editing {
-                        TextEditor(text: $source).frame(minHeight: AceTheme.Dimensions.touchTarget * 5).scrollContentBackground(.hidden)
+                        TextEditor(text: $source).frame(minHeight: AceDesign.Size.editorHeight).scrollContentBackground(.hidden)
                             .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
                         Button("Review changes") {
                             if let hash { review = PluginReviewRequest(operation: ["type": "plugins.edit", "name": component.plugin, "path": component.path, "expectedHash": hash, "text": source]) }

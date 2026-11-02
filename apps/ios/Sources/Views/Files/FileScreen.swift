@@ -72,7 +72,7 @@ struct FileScreen: View {
                 Button("Keep editing", role: .cancel) {}
             }
             .overlay(alignment: .bottom) { mentionLines }
-            .animation(reduceMotion ? .easeInOut(duration: 0.15) : .smooth(duration: 0.25), value: selectedLines)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: selectedLines)
             .sensoryFeedback(.success, trigger: mentioned)
             .modifier(FileActionPrompts(actions: actions))
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
@@ -92,21 +92,17 @@ struct FileScreen: View {
         if let content {
             switch content.kind {
             case "missing":
-                ContentUnavailableView {
-                    Label("Not in the checkout", systemImage: "doc.questionmark")
-                } description: {
-                    Text("Nothing is at \(path) in this thread's checkout. It may have been moved or deleted.")
-                } actions: {
+                EmptyState(systemImage: "doc.questionmark", title: "Not in the checkout",
+                           line: "Nothing is at \(path) in this thread's checkout. It may have been moved or deleted.") {
                     if hasChanges { Button("Show changes") { showChanges = true } }
                 }
             case "large":
                 LargeFileView(model: model, scope: scope, path: path, size: content.size)
             case "binary":
-                ContentUnavailableView {
-                    Label("Binary file", systemImage: "doc")
-                } description: {
-                    Text("\(name) (\(size(content.size))) isn't text, so there's nothing to read here.")
-                } actions: { Button("Share") { shareFile() } }
+                EmptyState(systemImage: "doc", title: "Binary file",
+                           line: "\(name) (\(size(content.size))) isn't text, so there's nothing to read here.") {
+                    Button("Share") { shareFile() }
+                }
             case "image":
                 ScrollView {
                     VStack(spacing: AceTheme.Spacing.md) {
@@ -115,29 +111,27 @@ struct FileScreen: View {
                         Text(size(content.size)).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
                     }
-                    .padding(AceTheme.Spacing.xl)
+                    .padding(AceDesign.Space.margin)
                 }
             default:
                 textBody(content)
             }
         } else if let failure {
-            ContentUnavailableView {
-                Label("Couldn't open \(name)", systemImage: "exclamationmark.triangle")
-            } description: { Text(failure) } actions: {
+            EmptyState(icon: nil, title: "Couldn't open \(name)", line: failure, failed: true) {
                 Button("Try again") { self.failure = nil; Task { await load() } }
             }
         } else {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            SkeletonPage(label: "Loading \(name)")
         }
     }
 
     @ViewBuilder private func textBody(_ content: FileContent) -> some View {
         let text = content.text ?? ""
         if text.isEmpty && !editing {
-            ContentUnavailableView("Empty file", systemImage: "doc.text", description: Text("\(name) has no content."))
+            EmptyState(systemImage: "doc.text", title: "Empty file", line: "\(name) has no content.")
         } else if markdownPreview {
             ScrollView {
-                AceMarkdown(text: text).padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg)
+                AceMarkdown(text: text).padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.margin)
             }
             .accessibilityIdentifier("preview.markdown")
         } else {
@@ -161,7 +155,7 @@ struct FileScreen: View {
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .monospacedDigit()
                     .padding(.horizontal, AceTheme.Spacing.lg)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .contentShape(AceShape.capsule)
             }
             .buttonStyle(.plain)

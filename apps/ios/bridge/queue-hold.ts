@@ -12,6 +12,12 @@ import {
   shortReason,
   type QueueAction,
 } from "@ace/ui-core";
+import {
+  holdStripLead,
+  notSentStripLine,
+  type StripLead,
+  type StripLine,
+} from "@ace/ui-core/mobile";
 import { preview } from "./presentation.ts";
 import { queuedFiles } from "./queued-words.ts";
 
@@ -42,6 +48,8 @@ export interface HoldStrip {
   /** A second, muted line where the hold needs one (a delivery that may have gone already). */
   detail: string;
   actions: StripAction[];
+  /** What leads the sentence: the row's own icon for the hold's state (`holdStripLead`). */
+  lead: StripLead;
 }
 
 export interface NotSentRow {
@@ -52,6 +60,8 @@ export interface NotSentRow {
   reason: string;
   /** The rest behind Details; empty when there is nothing more to say. */
   detail: string;
+  /** The strip above the composer: "Not sent · …" with the message's opening words. */
+  strip: StripLine;
 }
 
 export interface QueueHoldView {
@@ -109,6 +119,7 @@ export function queueHold(
     strip: turn
       ? {
           kind: "limit",
+          lead: holdStripLead("limit"),
           sentence: heldTurnSentence(turn),
           detail: "",
           // Scheduled to resume at reset: Switch, or Cancel back to the limit.
@@ -125,6 +136,7 @@ export function queueHold(
       : notice && notice.kind !== "not_sent" && !holdsTurn(notice)
         ? {
             kind: notice.kind,
+            lead: holdStripLead(notice.kind),
             sentence: preview(notice.title, 256),
             detail: notice.kind === "uncertain" ? notice.detail : "",
             actions:
@@ -153,5 +165,6 @@ function notSentRow(
     reason: preview(reason, 256),
     // Details repeats nothing the line already says.
     detail: detail && detail !== failure?.trim() ? preview(detail, 2048) : "",
+    strip: notSentStripLine(preview(reason, 256), preview(textOf(message), 512)),
   };
 }

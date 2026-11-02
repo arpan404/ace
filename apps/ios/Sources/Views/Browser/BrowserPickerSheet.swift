@@ -47,9 +47,9 @@ struct BrowserPickerSheet: View {
                             Button { choose([option.element.value]) } label: {
                                 HStack {
                                     Text(option.element.label.isEmpty ? option.element.value : option.element.label)
-                                        .foregroundStyle(option.element.disabled == true ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
+                                        .foregroundStyle(option.element.disabled == true ? AceDesign.Ink.muted : AceDesign.Ink.primary)
                                     Spacer()
-                                    if option.element.value == picker.value { AceIcon(.check).foregroundStyle(AceTheme.Colours.accent) }
+                                    if option.element.value == picker.value { AceIcon(.check).foregroundStyle(AceDesign.Ink.accent) }
                                 }
                             }
                             .disabled(option.element.disabled == true)
@@ -70,9 +70,9 @@ struct BrowserPickerSheet: View {
                     .environment(\.calendar, Self.calendar)
             } else {
                 Text("This picker isn't supported on the phone. Finish it on your computer.")
-                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(AceTheme.Spacing.xl)
+                    .font(AceDesign.Typeface.title)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .padding(AceDesign.Space.margin)
             }
         }
     }

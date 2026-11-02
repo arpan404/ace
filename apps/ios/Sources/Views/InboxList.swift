@@ -23,45 +23,43 @@ struct InboxRowActions {
     let select: (InboxKey) -> Void
 }
 
-/// What the list holds, in order: which rows are in which group, and which shelves are open.
-/// Equal, for the animation, when nothing moved or when the whole list was replaced (the first
-/// rows, or the live list taking over from the saved one): those arrive at once, never as a
-/// crossfade of every row over itself.
+/// What the list holds, in order: which rows are in which group of the open tab. Equal, for the
+/// animation, when nothing moved, when the person switched tabs, or when the whole list was
+/// replaced (the first rows, or the live list taking over from the saved one): those arrive at
+/// once, never as a crossfade of every row over itself.
 private struct Membership: Equatable {
     let keys: [String]
     let rows: [[InboxKey]]
-    let shelves: InboxShelves
-    init(sections: [MergedInbox.Section], shelves: InboxShelves) {
+    let tab: String
+    init(sections: [MergedInbox.Section], tab: String) {
         keys = sections.map(\.key)
         rows = sections.map(\.rows)
-        self.shelves = shelves
+        self.tab = tab
     }
     /// More rows than this joining or leaving at once is a replacement, not a move.
     static let animatedChange = 8
     static func == (lhs: Membership, rhs: Membership) -> Bool {
-        if lhs.keys == rhs.keys && lhs.rows == rhs.rows && lhs.shelves == rhs.shelves { return true }
-        if lhs.shelves != rhs.shelves { return false }
+        if lhs.tab != rhs.tab { return true }
+        if lhs.keys == rhs.keys && lhs.rows == rhs.rows { return true }
         let old = Set(lhs.rows.joined()), new = Set(rhs.rows.joined())
         if old.isEmpty || new.isEmpty { return true }
         return old.symmetricDifference(new).count > animatedChange
     }
 }
 
-/// Which folded groups at the end of the list are open.
-struct InboxShelves: Equatable { var snoozed = false; var settled = false }
-
-/// The flat task list (DESIGN.md §3, §8): the shared sections merged by rank with no headings,
-/// rows separated by space rather than rules, a soft rounded fill on the pressed row, then the
-/// Snoozed and Settled shelves. `includes` applies the scope; grouping and wording come from
-/// each machine's runtime.
+/// The flat task list (DESIGN.md §3, §8): the open Threads tab's shared sections merged by rank
+/// with no headings, rows separated by space rather than rules, a soft rounded fill on the
+/// pressed row. `includes` applies the scope; grouping, the tab each section is in and the
+/// wording come from each machine's runtime.
 struct InboxList: View {
     @Bindable var inbox: MachineInbox
     let includes: (InboxKey) -> Bool
     /// Whether the scope takes every thread of a machine, so its unloaded threads still count.
     let whole: (String) -> Bool
-    @Binding var shelves: InboxShelves
-    /// A row to bring into view as soon as it is among the list's own rows (an Undo's), then
-    /// cleared. One still on a shelf waits: the shelf is not where it is coming back to.
+    /// The open Threads tab: "inbox", "snoozed" or "settled".
+    let tab: String
+    /// A row to bring into view as soon as it is among the open tab's rows (an Undo's), then
+    /// cleared. One in another tab waits: that tab is not where it is coming back to.
     @Binding var reveal: InboxKey?
     let actions: InboxRowActions
     /// Opens New thread; nil while every machine is view-only.
@@ -73,7 +71,6 @@ struct InboxList: View {
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.onSidebarGlass) private var onGlass
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
-    private static let shelved = ["snoozed", "settled"]
 
     private var sections: [MergedInbox.Section] {
         inbox.merged.sections.compactMap { $0.scoped(includes, whole: whole) }
@@ -81,6 +78,7 @@ struct InboxList: View {
 
     var body: some View {
         let sections = sections
+        let shown = sections.filter { $0.tab == tab }
         ScrollViewReader { proxy in
             List(selection: selection) {
                 if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) {
@@ -89,41 +87,26 @@ struct InboxList: View {
                         .inboxRowChrome()
                         .selectionDisabled()
                 }
-                let live = sections.filter { !Self.shelved.contains($0.key) }
-                ForEach(live) { section in
-                    // One section sorted by hand or by creation needs no heading: the title says it.
-                    if live.count > 1 || section.key != "threads" {
-                        InboxSectionHeading(label: section.label).inboxRowChrome().selectionDisabled()
-                    }
-                    rows(section)
-                }
-                ForEach(Self.shelved, id: \.self) { key in
-                    if let section = sections.first(where: { $0.key == key }) {
-                        let open = key == "snoozed" ? shelves.snoozed : shelves.settled
-                        InboxShelf(label: section.label, count: section.count, expanded: open) {
-                            withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
-                                if key == "snoozed" { shelves.snoozed.toggle() } else { shelves.settled.toggle() }
-                            }
-                        }
-                        .accessibilityIdentifier("inbox.\(key)")
-                        .inboxRowChrome()
-                        .selectionDisabled()
-                        .padding(.top, AceTheme.Spacing.sm)
-                        if open { rows(section) }
-                    }
-                }
-                if !inbox.merged.more.isEmpty {
+                // One flat list in the shared order, as the desktop's tabs: no headings. Pinned
+                // and the rest stay separate sections only so pins can be dragged among themselves.
+                ForEach(shown) { section in rows(section) }
+                // Older settled threads the daemons hold back page in where they belong.
+                if tab == "settled" && !inbox.merged.more.isEmpty {
                     Button { for id in inbox.merged.more { inbox.client(id)?.loadOlderThreads() } } label: {
                         Text("Show older threads").meta()
-                            .padding(.horizontal, AceTheme.Spacing.md)
-                            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                            .padding(.horizontal, AceDesign.Space.row)
+                            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                     }
                     .buttonStyle(.row)
                     .accessibilityIdentifier("inbox.more")
                     .inboxRowChrome()
                     .selectionDisabled()
                 }
-                if sections.isEmpty { emptyState.inboxRowChrome().selectionDisabled() }
+                if sections.isEmpty {
+                    emptyState.inboxRowChrome().selectionDisabled()
+                } else if shown.isEmpty, let empty = inbox.merged.tabs.first(where: { $0.id == tab }) {
+                    TabEmpty(tab: empty).inboxRowChrome().selectionDisabled()
+                }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -132,25 +115,29 @@ struct InboxList: View {
             // Select mode is the system's own: a check circle on each row, two-finger drag and
             // (on iPad) Shift or Command with the pointer or arrows to pick several.
             .environment(\.editMode, .constant(selection == nil ? .inactive : .active))
-            .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
+            .contentMargins(.vertical, AceDesign.Space.tight, for: .scrollContent)
             // Rows joining, leaving or moving between groups take the list's own insert, remove
             // and move animations, keyed on membership alone, so a row's own text changing never
             // animates the list. Reduce Motion crossfades instead.
-            .animation(reduceMotion ? .easeInOut(duration: 0.2) : AceTheme.Motion.standardCurve,
-                       value: Membership(sections: sections, shelves: shelves))
+            .animation(AceDesign.Motion.arriving(reduceMotion),
+                       value: Membership(sections: shown, tab: tab))
             .onAppear { if !sections.isEmpty { InboxList.traceRows(sections) } }
             .onChange(of: sections.isEmpty) { _, empty in if !empty { InboxList.traceRows(sections) } }
-            .onChange(of: revealable(sections), initial: true) { _, key in
+            // Each tab opens at its top.
+            .onChange(of: tab) { _, _ in
+                if let first = shown.first(where: { $0.key != "unsent" })?.rows.first { proxy.scrollTo(first, anchor: .top) }
+            }
+            .onChange(of: revealable(shown), initial: true) { _, key in
                 guard let key else { return }
                 reveal = nil
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { proxy.scrollTo(key, anchor: .center) }
+                withAnimation(reduceMotion ? nil : AceDesign.Motion.arrive) { proxy.scrollTo(key, anchor: .center) }
             }
         }
     }
-    /// The row to reveal, once it is listed outside the shelves.
-    private func revealable(_ sections: [MergedInbox.Section]) -> InboxKey? {
+    /// The row to reveal, once the open tab lists it.
+    private func revealable(_ shown: [MergedInbox.Section]) -> InboxKey? {
         guard let reveal else { return nil }
-        let listed = sections.contains { !Self.shelved.contains($0.key) && $0.rows.contains(reveal) }
+        let listed = shown.contains { $0.rows.contains(reveal) }
         return listed ? reveal : nil
     }
     /// Marks the first time this process draws inbox rows, for launch timing.
@@ -191,51 +178,38 @@ struct InboxList: View {
 
     @ViewBuilder private var emptyState: some View {
         if inbox.sessions.isEmpty, let pair {
-            NoComputerPaired(pair: pair).padding(.top, 120)
+            NoComputerPaired(pair: pair).padding(.top, AceDesign.Space.section * 2)
         } else if !inbox.anyLoaded || !inbox.allReady {
             if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
                 EmptyState(icon: .wifiSlash, title: inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine",
                            line: "Your threads appear once it's back.") {
                     Button("Retry") { for session in inbox.sessions { session.client.retry() } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.section * 2)
             } else {
-                InboxSkeleton()
+                SkeletonRows(label: "Loading threads")
             }
         } else {
             EmptyState(icon: .tray, title: "No threads yet") {
                 if let compose { Button("New thread", action: compose).accessibilityIdentifier("inbox.empty.compose") }
             }
-            .padding(.top, 120)
+            .padding(.top, AceDesign.Space.section * 2)
         }
     }
 }
 
-/// The list while the first rows load (DESIGN.md §3 "Loading"): skeleton pills in the shape of
-/// rows, never a page spinner.
-private struct InboxSkeleton: View {
+/// An empty tab while other threads exist: the shared empty state with its runtime's words
+/// ("Inbox zero", "Nothing snoozed"), as the desktop's panel says them.
+private struct TabEmpty: View {
+    let tab: MergedInbox.Tab
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xl) {
-            ForEach(0..<5, id: \.self) { index in
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-                    pill(width: 96, height: 11)
-                    pill(width: index.isMultiple(of: 2) ? 220 : 180, height: 15)
-                    pill(width: 120, height: 11)
-                }
-            }
-        }
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Loading threads")
-    }
-    private func pill(width: CGFloat, height: CGFloat) -> some View {
-        AceShape.capsule
-            .fill(AceTheme.Colours.fill)
-            .frame(width: width, height: height)
+        EmptyState(systemImage: tab.id == "snoozed" ? "moon.zzz" : tab.id == "settled" ? "checkmark.circle" : "tray",
+                   title: tab.empty, line: tab.emptyLine)
+            .padding(.top, AceDesign.Space.section * 2)
+            .accessibilityIdentifier("threads.empty.\(tab.id)")
     }
 }
+
 
 extension View {
     /// The task list's row chrome: inset 8pt from the screen edge, 4pt between rows, the list's
@@ -243,28 +217,13 @@ extension View {
     func inboxRowChrome() -> some View { modifier(InboxRowChrome()) }
 }
 
-/// A section's name over its rows: Needs you, Working, Done.
-struct InboxSectionHeading: View {
-    let label: String
-    var body: some View {
-        Text(label)
-            .aceFont(AceTheme.TypeStyle(size: 13, lineHeight: 17, weight: 600, tracking: 0), relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .padding(.top, AceTheme.Spacing.lg)
-            .padding(.bottom, AceTheme.Spacing.xxs)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityAddTraits(.isHeader)
-    }
-}
-
 private struct InboxRowChrome: ViewModifier {
     @Environment(\.onSidebarGlass) private var onGlass
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     func body(content: Content) -> some View {
         content
-            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: AceTheme.Spacing.sm,
-                                      bottom: AceTheme.Spacing.xxs, trailing: AceTheme.Spacing.sm))
+            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: AceDesign.Space.related,
+                                      bottom: AceTheme.Spacing.xxs, trailing: AceDesign.Space.related))
             .listRowBackground(surface)
             .listRowSeparator(.hidden)
     }

@@ -47,7 +47,7 @@ struct ForgeWorkSection: View {
                         Button("Try again") { Task { await load(fresh: true) } }.buttonStyle(.forgeWord)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     }
-                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
                 }
                 .transition(.opacity)
             }
@@ -75,7 +75,7 @@ struct ForgeWorkSection: View {
                             .accessibilityIdentifier("forge.work.start")
                     }
                 }
-                .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
             }
             if !work.threads.isEmpty {
                 ForgeLinkRow(title: "Merge conflicts", detail: "Resolve in the thread's checkout", identifier: "forge.pull.conflicts") { push(pushed(.conflicts)) }
@@ -107,7 +107,7 @@ struct ForgeWorkSection: View {
         }
         .buttonStyle(.forgeWord)
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 52)
+        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.rowDetail)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("forge.work.thread.\(thread.id)")
     }

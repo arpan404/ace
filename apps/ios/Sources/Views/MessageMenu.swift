@@ -24,6 +24,10 @@ private struct MessageMenu: ViewModifier {
         content
             .contextMenu {
                 if !text.isEmpty {
+                    // When it was sent heads the menu: nothing sits under a message at rest.
+                    if let row {
+                        Section(Date(timeIntervalSince1970: row.createdAt / 1000).formatted(date: .abbreviated, time: .shortened)) {}
+                    }
                     Button("Copy", ace: .copy) { UIPasteboard.general.string = text }
                     Button("Select text", ace: .textAlignLeft) { selecting = true }
                     ShareLink(item: text) { Label("Share", ace: .export) }
@@ -40,9 +44,9 @@ private struct MessageMenu: ViewModifier {
                 }
             } preview: {
                 AceMarkdown(text: String(text.prefix(600)), selectable: false)
-                    .padding(AceTheme.Spacing.lg)
-                    .frame(width: 340, alignment: .topLeading)
-                    .frame(maxHeight: 360, alignment: .top)
+                    .padding(AceDesign.Space.margin)
+                    .frame(width: AceDesign.Size.popover, alignment: .topLeading)
+                    .frame(maxHeight: AceDesign.Size.popoverHeight, alignment: .top)
                     .clipped()
                     .background(AceTheme.Colours.background)
             }
@@ -82,7 +86,7 @@ private struct SelectableText: UIViewRepresentable {
         view.adjustsFontForContentSizeCategory = true
         view.font = UIFont.preferredFont(forTextStyle: .body)
         view.textColor = .label
-        view.textContainerInset = UIEdgeInsets(top: AceTheme.Spacing.lg, left: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.xxl, right: AceTheme.Spacing.lg)
+        view.textContainerInset = UIEdgeInsets(top: AceDesign.Space.margin, left: AceDesign.Space.margin, bottom: AceDesign.Space.group, right: AceDesign.Space.margin)
         view.accessibilityIdentifier = "select.text"
         return view
     }

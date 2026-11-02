@@ -63,7 +63,7 @@ struct PluginReviewView: View {
                                 .accessibilityIdentifier("plugins.accept")
                         } footer: { Text("Only accept code and endpoints you trust. Installation uses the exact commit and hash shown above.") }
                     }
-                    if busy || (review == nil && problem == nil) { ProgressView("Reading review…") }
+                    if busy || (review == nil && problem == nil) { SkeletonRows(count: 3, label: "Reading review").listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                     ServiceProblem(message: problem)
                     if problem != nil { Text("Close and retry from Skills. Pending reviews remain available there.") }
                 }

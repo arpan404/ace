@@ -1,5 +1,5 @@
 import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@phosphor-icons/react";
-import { tabThreads, type ThreadsTab } from "@ace/ui-core";
+import { emptyInboxLine, emptyTabTitle, tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import { Suspense, useState, type KeyboardEvent } from "react";
@@ -110,13 +110,13 @@ export function HomeSidebar() {
             <EmptyState
               className="shrink-0 justify-start pt-6"
               icon={tab === "inbox" ? TrayIcon : tab === "snoozed" ? ClockIcon : CheckIcon}
-              title={emptyTitle(tab, narrowed, none)}
+              title={emptyTabTitle(tab, narrowed, none)}
               description={
                 tab !== "inbox"
                   ? undefined
                   : none && !narrowed
                     ? `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
-                    : "Nothing needs you, and nothing is running."
+                    : emptyInboxLine
               }
               action={
                 project ? (
@@ -156,14 +156,6 @@ export function HomeSidebar() {
       </nav>
     </div>
   );
-}
-
-/** The empty tab's words: "No threads yet", "Inbox zero", "Nothing snoozed in docs". */
-function emptyTitle(tab: ThreadsTab, narrowed: string | undefined, none: boolean): string {
-  const where = narrowed ? ` ${narrowed}` : "";
-  if (none) return narrowed ? `No threads ${narrowed}` : "No threads yet";
-  if (tab === "inbox") return `Inbox zero${where}`;
-  return tab === "snoozed" ? `Nothing snoozed${where}` : `Nothing settled${where}`;
 }
 
 const tabKeys: Record<string, ThreadsTab> = { "1": "inbox", "2": "snoozed", "3": "settled" };

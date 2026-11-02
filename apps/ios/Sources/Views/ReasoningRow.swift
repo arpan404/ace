@@ -23,11 +23,11 @@ struct ReasoningRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Button {
                 if !open { DisclosureTrace.shared.asked("thought", key: key) }
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
+                withAnimation(AceDesign.Motion.arriving(reduceMotion)) {
                     if let thread { thread.disclosures.toggle(key) } else { localOpen.toggle() }
                 }
             } label: {
-                LogRowBox(open: open) { AceIcon(.brain, size: 16, relativeTo: .subheadline) } title: { Text(label).shimmer(!done) }
+                LogRowBox(open: open) { AceIcon(.brain, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text(label) }
             }
             .buttonStyle(.plain)
             // Still thinking with no words yet: a header with nothing to open.
@@ -35,7 +35,7 @@ struct ReasoningRow: View {
             .accessibilityIdentifier("thought.\(row.id)")
             .accessibilityValue(text.isEmpty ? "" : open ? "Expanded" : "Collapsed")
             if open, !text.isEmpty {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                     AceMarkdown(text: text, streaming: !done, tone: .muted)
                     if row.truncated, let openMessage {
                         Button("Read full thought") { openMessage(row) }
@@ -43,7 +43,7 @@ struct ReasoningRow: View {
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
                 }
-                .rowDetailIndent().padding(.bottom, AceTheme.Spacing.sm)
+                .rowDetailIndent().padding(.bottom, AceDesign.Space.related)
                 .onAppear { DisclosureTrace.shared.shown(key) }
             }
         }

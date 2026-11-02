@@ -17,8 +17,8 @@ struct TunePanel<Rows: View, Footer: View>: View {
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, AceTheme.Spacing.xl)
-        .padding(.top, AceTheme.Spacing.xl)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .padding(.top, AceDesign.Space.margin)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .tint(AceTheme.Colours.foreground)
         .presentationDetents([.height(CGFloat(104 + 100 * max(1, count)))])

@@ -73,8 +73,8 @@ struct BrowserPrompts: ViewModifier {
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
                 if let upload = model.browser.upload {
                     ProgressView("Sending files to the page", value: upload.progress)
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.sm)
+                        .font(AceDesign.Typeface.meta)
+                        .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
                 }
             }
     }

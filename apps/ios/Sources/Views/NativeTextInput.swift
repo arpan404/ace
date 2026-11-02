@@ -39,7 +39,7 @@ struct NativeTextInput: UIViewRepresentable {
         view.font = AceTheme.uiFont(AceTheme.Typography.body, relativeTo: .body, traits: view.traitCollection)
         view.adjustsFontForContentSizeCategory = true
         view.backgroundColor = .clear
-        view.textContainerInset = UIEdgeInsets(top: AceTheme.Spacing.md, left: AceTheme.Spacing.none, bottom: AceTheme.Spacing.md, right: AceTheme.Spacing.none)
+        view.textContainerInset = UIEdgeInsets(top: AceDesign.Space.row, left: AceTheme.Spacing.none, bottom: AceDesign.Space.row, right: AceTheme.Spacing.none)
         view.textContainer.lineFragmentPadding = AceTheme.Spacing.none
         view.isScrollEnabled = true
         view.accessibilityIdentifier = identifier
@@ -69,7 +69,7 @@ struct NativeTextInput: UIViewRepresentable {
         guard let width = proposal.width else { return nil }
         let line = UIFontMetrics(forTextStyle: .body).scaledValue(for: AceTheme.Typography.body.lineHeight, compatibleWith: uiView.traitCollection)
         let content = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-        let fit = ComposerFit(line: line, inset: AceTheme.Spacing.md * 2, minimum: AceTheme.Dimensions.touchTarget)
+        let fit = ComposerFit(line: line, inset: AceDesign.Space.row * 2, minimum: AceDesign.Size.tap)
         return CGSize(width: width, height: fit.height(content: content, focused: focused))
     }
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -134,7 +134,7 @@ struct NativeTextInput: UIViewRepresentable {
             let text = textView.text ?? ""
             let font = textView.font ?? UIFont.preferredFont(forTextStyle: .body)
             let needed = (text as NSString).size(withAttributes: [.font: font]).width
-            let wraps = text.contains("\n") || (compactWidth > 0 && needed > compactWidth - AceTheme.Spacing.xs)
+            let wraps = text.contains("\n") || (compactWidth > 0 && needed > compactWidth - AceDesign.Space.tight)
             if wraps != parent.wraps { Task { @MainActor in onWrap(wraps) } }
         }
         func textViewDidChangeSelection(_ textView: UITextView) {

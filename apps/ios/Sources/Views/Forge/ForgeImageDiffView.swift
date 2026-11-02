@@ -30,12 +30,12 @@ struct ForgeImageDiffView: View {
                 }
             } else {
                 AceTheme.Colours.fill.aspectRatio(16 / 9, contentMode: .fit)
-                    .clipShape(AceShape.rounded(AceTheme.Radii.sm))
-                    .overlay(ProgressView())
+                    .clipShape(AceDesign.Shape.block)
+                    .accessibilityLabel("Loading the images")
             }
         }
         .padding(AceTheme.Spacing.lg)
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: sides == nil)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: sides == nil)
         .task(id: ForgeSidesKey(route: route, revisions: revisions)) { await load() }
     }
 
@@ -71,8 +71,7 @@ struct ForgeImageDiffView: View {
     private func figure(_ image: UIImage, label: String, size: Int?) -> some View {
         VStack(spacing: AceTheme.Spacing.xs) {
             Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
-                .clipShape(AceShape.rounded(AceTheme.Radii.sm))
-                .overlay(AceShape.rounded(AceTheme.Radii.sm).strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+                .clipShape(AceDesign.Shape.block)
                 .accessibilityLabel("\(route.path ?? "Image") \(label.lowercased())")
             Text(size.map { "\(label) · \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))" } ?? label)
                 .meta().monospacedDigit()
@@ -90,8 +89,8 @@ struct ForgeImageDiffView: View {
                             Rectangle().frame(width: box.size.width * (1 - reveal))
                         }
                     Rectangle().fill(AceTheme.Colours.accent)
-                        .frame(width: 2)
-                        .offset(x: box.size.width * reveal - 1)
+                        .frame(width: AceDesign.Size.rail)
+                        .offset(x: box.size.width * reveal - AceDesign.Size.rail / 2)
                         .accessibilityHidden(true)
                 }
                 .contentShape(Rectangle())
@@ -101,7 +100,7 @@ struct ForgeImageDiffView: View {
                 })
             }
             .aspectRatio(after.size.width / max(1, after.size.height), contentMode: .fit)
-            .clipShape(AceShape.rounded(AceTheme.Radii.sm))
+            .clipShape(AceDesign.Shape.block)
             Slider(value: $reveal, in: 0...1) { Text("Swipe between before and after") }
                 .accessibilityValue("\(Int(reveal * 100)) percent before")
                 .accessibilityIdentifier("forge.image.swipe")

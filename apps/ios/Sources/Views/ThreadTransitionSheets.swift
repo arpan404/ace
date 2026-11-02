@@ -101,6 +101,7 @@ private struct RenameThread: ViewModifier {
 /// message" under it. Return saves. A refusal stays on the sheet in words.
 private struct RenameSheet: View {
     let title: String
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let save: (String) async -> String?
     let retitle: () async -> String?
     let done: () -> Void
@@ -112,11 +113,11 @@ private struct RenameSheet: View {
     @FocusState private var focused: Bool
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+            VStack(alignment: .leading, spacing: AceDesign.Space.row) {
                 TextField("Name", text: $name, selection: $selection)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .padding(.horizontal, AceTheme.Spacing.md)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .padding(.horizontal, AceDesign.Space.row)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .background(AceTheme.Colours.fill, in: AceShape.field)
                     .focused($focused)
                     .submitLabel(.done)
@@ -134,8 +135,8 @@ private struct RenameSheet: View {
                     .accessibilityIdentifier("rename.retitle")
                 Spacer(minLength: AceTheme.Spacing.none)
             }
-            .padding(.horizontal, AceTheme.Spacing.xl).padding(.top, AceTheme.Spacing.sm)
-            .animation(.smooth, value: problem)
+            .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.related)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: problem)
             .background(AceTheme.Colours.background)
             .navigationTitle("Rename thread")
             .navigationBarTitleDisplayMode(.inline)
@@ -149,7 +150,7 @@ private struct RenameSheet: View {
                 }
             }
         }
-        .presentationDetents([.height(AceTheme.Dimensions.touchTarget * 4.5)])
+        .presentationDetents([.height(AceDesign.Size.tap * 4.5)])
         .presentationDragIndicator(.visible)
         .task {
             name = title
@@ -191,17 +192,17 @@ private struct MergeSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.lg) {
+                VStack(alignment: .leading, spacing: AceDesign.Space.margin) {
                     Text("Send a summary to \(parentTitle). Its agent reads it on the next turn. This fork stays available.")
                         .aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                    VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                         InsetHeader("Summary")
                         TextEditor(text: $summary)
                             .aceFont(AceTheme.Typography.body, relativeTo: .body)
                             .scrollContentBackground(.hidden)
-                            .frame(minHeight: AceTheme.Dimensions.touchTarget * 4)
-                            .padding(AceTheme.Spacing.sm)
+                            .frame(minHeight: AceDesign.Size.tap * 4)
+                            .padding(AceDesign.Space.related)
                             .background(AceTheme.Colours.fill, in: AceShape.field)
                             .disabled(sending)
                             .accessibilityIdentifier("merge.summary")
@@ -221,7 +222,7 @@ private struct MergeSheet: View {
                             .foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("merge.problem")
                     }
                 }
-                .padding(.horizontal, AceTheme.Spacing.xl).padding(.top, AceTheme.Spacing.sm)
+                .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.related)
             }
             .background(AceTheme.Colours.background)
             .navigationTitle("Bring back to parent")
@@ -291,11 +292,11 @@ private struct TurnsSheet: View {
                         jump(turn.ordinal)
                     } label: {
                         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                            HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+                            HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
                                 Text(turn.ask.isEmpty ? "No text in this ask" : turn.ask)
-                                    .aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(.medium)
+                                    .aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(AceDesign.Typeface.regular)
                                     .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                                Spacer(minLength: AceTheme.Spacing.sm)
+                                Spacer(minLength: AceDesign.Space.related)
                                 Text("\(turn.ordinal)").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                                     .foregroundStyle(AceTheme.Colours.subtleForeground).monospacedDigit()
                                     .accessibilityLabel("Turn \(turn.ordinal)")
@@ -305,7 +306,7 @@ private struct TurnsSheet: View {
                                 .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, AceTheme.Spacing.xs)
+                        .padding(.vertical, AceDesign.Space.tight)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(RowPressStyle())
@@ -419,16 +420,16 @@ private struct ThreadFilesSheet: View {
                             .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
                     }
                     ForEach(files) { file in
-                        HStack(spacing: AceTheme.Spacing.md) {
+                        HStack(spacing: AceDesign.Space.row) {
                           Button { open(file) } label: {
-                           HStack(spacing: AceTheme.Spacing.md) {
-                            AceIcon(file.kind == "image" ? .image : file.mimeType.hasPrefix("video/") ? .playCircle : .fileText, size: 18).foregroundStyle(AceTheme.Colours.mutedForeground)
+                           HStack(spacing: AceDesign.Space.row) {
+                            AceIcon(file.kind == "image" ? .image : file.mimeType.hasPrefix("video/") ? .playCircle : .fileText, size: AceDesign.Size.barIcon).foregroundStyle(AceTheme.Colours.mutedForeground)
                             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                                 Text(file.name).lineLimit(1).truncationMode(.middle).foregroundStyle(AceTheme.Colours.foreground)
                                 Text(opening == file.ref ? "Opening…" : file.size).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                                     .foregroundStyle(AceTheme.Colours.subtleForeground)
                             }
-                            Spacer(minLength: AceTheme.Spacing.sm)
+                            Spacer(minLength: AceDesign.Space.related)
                            }
                            .contentShape(Rectangle())
                           }
@@ -443,14 +444,14 @@ private struct ThreadFilesSheet: View {
                                     .accessibilityLabel("Remove \(file.name)")
                             }
                         }
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                        .frame(minHeight: AceDesign.Size.tap)
                         .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
                     }
                 } else if problem == nil {
                     ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
                 }
                 if let problem {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                    VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                         Text(problem).foregroundStyle(AceTheme.Colours.mutedForeground)
                         Button("Try again") { load() }.foregroundStyle(AceTheme.Colours.foreground)
                     }

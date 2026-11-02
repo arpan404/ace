@@ -42,7 +42,7 @@ struct AccountBadgeLook: Decodable, Equatable {
         case "amber": tint(0x5E4608, 0xF2C86C)
         case "rose": tint(0x801D4E, 0xFEB6D1)
         case "violet": tint(0x52348D, 0xD1C4FD)
-        default: AceTheme.Colours.foreground
+        default: AceDesign.Ink.primary
         }
     }
     static func name(_ colour: String) -> String { colour == "neutral" ? "Ink" : colour.capitalized }
@@ -58,20 +58,24 @@ struct AccountBadgeLook: Decodable, Equatable {
 /// An account's mark: its letters or icon on its colour, the surface's colour cut out of it.
 struct AccountBadgeMark: View {
     let look: AccountBadgeLook
-    var size: CGFloat = 26
+    var size: CGFloat = AceDesign.Size.avatar
+    /// The glyph and letters as a share of the badge: its own drawing, so they scale with it.
+    private static let glyphScale: CGFloat = 0.46
+    private static let oneLetterScale: CGFloat = 0.48
+    private static let twoLetterScale: CGFloat = 0.4
     var body: some View {
         ZStack {
             Circle().fill(AccountBadgeStyle.fill(look.color))
             if let icon = look.icon, let symbol = AccountBadgeStyle.symbol(icon) {
-                Image(systemName: symbol).font(.system(size: size * 0.46, weight: .bold))
+                Image(systemName: symbol).font(.system(size: size * Self.glyphScale, weight: AceDesign.Typeface.strong))
                     .contentTransition(.symbolEffect(.replace))
             } else {
-                Text(look.text).font(.system(size: size * (look.text.count > 1 ? 0.4 : 0.48), weight: .semibold, design: .rounded))
+                Text(look.text).font(.system(size: size * (look.text.count > 1 ? Self.twoLetterScale : Self.oneLetterScale), weight: AceDesign.Typeface.strong, design: .rounded))
                     .minimumScaleFactor(0.6).lineLimit(1)
                     .contentTransition(.numericText())
             }
         }
-        .foregroundStyle(AceTheme.Colours.background)
+        .foregroundStyle(AceDesign.Surface.background)
         .frame(width: size, height: size)
         .accessibilityHidden(true)
     }

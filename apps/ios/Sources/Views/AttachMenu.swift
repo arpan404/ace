@@ -34,7 +34,7 @@ struct AttachMenu: View {
     }
     var body: some View {
         AttachmentMenuButton(identifier: identifier, actions: actions, ask: ask)
-            .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
         .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: 8, matching: .any(of: [.images, .videos]))
         .onChange(of: photos) { _, picked in
             guard !picked.isEmpty else { return }
@@ -180,8 +180,8 @@ struct AttachmentChip: View {
     let file: AttachmentFile
     let remove: () -> Void
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
-            AceIcon(file.state == "failed" ? .warning : file.kind == "image" ? .image : file.kind == "video" ? .playCircle : .file, size: 14, relativeTo: .footnote)
+        HStack(spacing: AceDesign.Space.tight) {
+            AceIcon(file.state == "failed" ? .warning : file.kind == "image" ? .image : file.kind == "video" ? .playCircle : .file, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                 .foregroundStyle(file.state == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.decoration)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(file.name).lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)
@@ -189,11 +189,14 @@ struct AttachmentChip: View {
                 else if file.state == "uploading" { ProgressView(value: file.progress).progressViewStyle(.linear) }
                 else { Text(ByteCountFormatter.string(fromByteCount: Int64(file.bytes), countStyle: .file)).monospacedDigit() }
             }
-            Button(action: remove) { AceIcon(.xCircle, size: 16, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.decoration) }
+            Button(action: remove) {
+                AceIcon(.xCircle, size: AceDesign.Size.icon, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.decoration)
+                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap).contentShape(Rectangle())
+            }
                 .buttonStyle(.plain).accessibilityLabel("Remove \(file.name)")
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-        .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xs)
+        .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceDesign.Space.tight)
         .background(AceTheme.Colours.fill, in: AceShape.capsule)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("composer.attachment")

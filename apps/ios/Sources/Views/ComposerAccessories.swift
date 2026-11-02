@@ -16,7 +16,7 @@ struct ComposerAccessories: View {
     }
     var body: some View {
         if !screen.attachments.isEmpty || !screen.annotations.isEmpty || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 if !screen.attachments.isEmpty {
                     ComposerMediaStrip(files: screen.attachments) { model.detach($0) }
                 }
@@ -37,7 +37,7 @@ struct ComposerAccessories: View {
                 }
                 ServiceProblem(message: problem)
             }
-            .padding(.horizontal, AceTheme.Spacing.sm).padding(.top, AceTheme.Spacing.sm)
+            .padding(.horizontal, AceDesign.Space.related).padding(.top, AceDesign.Space.related)
         }
     }
 }
@@ -108,10 +108,10 @@ struct ComposerSettingsSheet: View {
         Button(action: openTune) {
             InsetRow(systemImage: nil, title: "Effort and speed",
                      subtitle: summary == nil ? (reason ?? "This model has no levels or speeds to choose") : nil) {
-                HStack(spacing: AceTheme.Spacing.xs) {
+                HStack(spacing: AceDesign.Space.tight) {
                     if let summary { InsetValue(text: summary) }
                     if summary != nil {
-                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                        Image(systemName: "chevron.right").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.subtleForeground)
                     }
                 }
             }
@@ -127,7 +127,7 @@ struct ComposerSettingsSheet: View {
                 Section {
                     Button(action: openModel) {
                         InsetRow(systemImage: nil, title: name, subtitle: screen.controls?.providerName.flatMap { $0 == name ? nil : $0 }) {
-                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                            Image(systemName: "chevron.right").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.subtleForeground)
                         }
                     }
                     .buttonStyle(.plain).insetRowBackground()

@@ -73,7 +73,7 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
         XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
-        app.tabBars.buttons["Pulls"].firstMatch.tap()
+        app.openPulls()
         return app
     }
     private func open(_ app: XCUIApplication, _ row: String) {

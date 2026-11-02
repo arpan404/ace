@@ -45,8 +45,8 @@ struct StorageView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(.smooth, value: plan)
-        .animation(.smooth, value: page)
+        .smoothChange(plan)
+        .smoothChange(page)
         .sensoryFeedback(.success, trigger: removals)
         .navigationTitle("Storage").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model, id: model.readGeneration(Self.read)) { await load() }
@@ -66,8 +66,8 @@ struct StorageView: View {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                     HStack(alignment: .firstTextBaseline) {
                         Text("Transcript database")
-                        Spacer(minLength: AceTheme.Spacing.sm)
-                        Text(usage.database.size).monospacedDigit().foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Spacer(minLength: AceDesign.Space.related)
+                        Text(usage.database.size).monospacedDigit().foregroundStyle(AceDesign.Ink.muted)
                     }
                     quiet(compaction?.line ?? usage.database.detail)
                 }
@@ -77,12 +77,12 @@ struct StorageView: View {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                         Text(backups.line).foregroundStyle(AceTheme.StatusText.failed)
                         ForEach(backups.entries, id: \.path) { entry in
-                            Text(entry.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption2)
-                            Text(entry.reason).foregroundStyle(AceTheme.Colours.mutedForeground)
+                            Text(entry.path).font(AceDesign.Typeface.code)
+                            Text(entry.reason).foregroundStyle(AceDesign.Ink.muted)
                         }
-                        if let more = backups.more { Text(more).foregroundStyle(AceTheme.Colours.mutedForeground) }
+                        if let more = backups.more { Text(more).foregroundStyle(AceDesign.Ink.muted) }
                     }
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .font(AceDesign.Typeface.meta)
                 }
             } else if let message = page?.usageProblem ?? problem {
                 ServiceProblem(message: message)
@@ -103,7 +103,7 @@ struct StorageView: View {
             }
             ServiceProblem(message: actionProblem)
         } header: {
-            HStack { InsetHeader("Usage"); Spacer(); if busy { ProgressView().controlSize(.mini) } }
+            HStack { InsetHeader("Usage"); Spacer(); if busy { WorkingMark() } }
         }
     }
 
@@ -130,7 +130,7 @@ struct StorageView: View {
     }
 
     private func quiet(_ text: String) -> some View {
-        Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+        Text(text).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
     }
 
     private func load() async {
@@ -204,18 +204,18 @@ private struct StoragePlanRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             HStack(alignment: .firstTextBaseline) {
                 Text(item.label).lineLimit(2).truncationMode(.middle)
-                Spacer(minLength: AceTheme.Spacing.sm)
-                Text(item.size).monospacedDigit().foregroundStyle(AceTheme.Colours.mutedForeground)
+                Spacer(minLength: AceDesign.Space.related)
+                Text(item.size).monospacedDigit().foregroundStyle(AceDesign.Ink.muted)
             }
             Group {
                 Text(item.line)
                 if let also = item.also { Text(also) }
-                if let outcome = item.outcome { Text(outcome).foregroundStyle(AceTheme.Colours.foreground) }
+                if let outcome = item.outcome { Text(outcome).foregroundStyle(AceDesign.Ink.primary) }
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+            .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
             if item.forceable, item.outcome == nil {
                 Toggle("Include despite uncommitted or unpushed work", isOn: $forced)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .font(AceDesign.Typeface.meta)
             }
         }
         .padding(.vertical, AceTheme.Spacing.xxs)

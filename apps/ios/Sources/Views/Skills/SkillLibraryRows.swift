@@ -16,7 +16,7 @@ struct SkillRowLabel: View {
             }
             Spacer(minLength: AceTheme.Spacing.sm)
             HStack(spacing: AceTheme.Spacing.xs) {
-                ForEach(row.marks, id: \.self) { ProviderMark(provider: $0, size: 14) }
+                ForEach(row.marks, id: \.self) { ProviderMark(provider: $0, size: AceDesign.Size.metaIcon) }
             }
             .accessibilityHidden(true)
         }

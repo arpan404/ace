@@ -34,15 +34,15 @@ struct MachinesView: View {
                     ZStack {
                         // The card is the link; the system chevron would sit oddly beside a centred card.
                         NavigationLink(value: SettingsRoute.pair) { EmptyView() }.opacity(0)
-                        VStack(spacing: AceTheme.Spacing.md) {
-                            Image(systemName: "qrcode.viewfinder").font(.system(size: 34, weight: .regular))
-                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        VStack(spacing: AceDesign.Space.row) {
+                            Image(systemName: "qrcode.viewfinder").font(AceDesign.Typeface.largeTitle)
+                                .foregroundStyle(AceDesign.Ink.muted)
                             Text("Scan the code from ace on your computer")
-                                .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                                .font(AceDesign.Typeface.title)
+                                .foregroundStyle(AceDesign.Ink.muted)
                                 .multilineTextAlignment(.center)
                         }
-                        .frame(maxWidth: .infinity).padding(.vertical, AceTheme.Spacing.xl)
+                        .frame(maxWidth: .infinity).padding(.vertical, AceDesign.Space.group)
                     }
                     .accessibilityElement(children: .combine).accessibilityAddTraits(.isButton)
                     .accessibilityIdentifier("machines.pair")
@@ -51,7 +51,7 @@ struct MachinesView: View {
             }
         }
         .insetGroupedList()
-        .navigationTitle("Machines").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Machines")
         .toolbar {
             if machines != nil {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -74,40 +74,36 @@ struct MachineRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         let facts = MachineFacts(inbox: inbox, machines: machines, hostId: hostId)
-        HStack(spacing: AceTheme.Spacing.md) {
+        HStack(spacing: AceDesign.Space.row) {
             ConnectionDot(token: facts.connection.token, trying: facts.trying)
-            Image(systemName: facts.symbol).font(.system(size: 19)).foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: 24).accessibilityHidden(true)
+            Image(systemName: facts.symbol).font(AceDesign.Typeface.title).foregroundStyle(AceDesign.Ink.primary)
+                .frame(width: AceDesign.Size.icon + AceDesign.Space.related).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(facts.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).fontWeight(.semibold)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                Text(facts.subtitle).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                Text(facts.name).font(AceDesign.Typeface.body).fontWeight(.semibold)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                Text(facts.subtitle).font(AceDesign.Typeface.code)
+                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
             }
         }
         .accessibilityElement(children: .combine)
     }
 }
 
-/// An 8pt connection dot: green when connected, faint while away, a pulsing amber while this
-/// phone is still trying to reach it.
+/// A connection dot: green when connected, faint while away, a dimmed amber while this phone is
+/// still trying to reach it.
 struct ConnectionDot: View {
     let token: String
     let trying: Bool
-    @Environment(\.aceReduceMotion) private var reduceMotion
-    @State private var dim = false
     var body: some View {
-        Circle().fill(colour).frame(width: 8, height: 8)
-            .opacity(trying && dim ? 0.35 : 1)
-            .animation(trying && !reduceMotion ? .easeInOut(duration: AceTheme.Motion.statusPulse / 2).repeatForever(autoreverses: true) : nil, value: dim)
-            .onAppear { dim = trying && !reduceMotion }
-            .onChange(of: trying) { _, now in dim = now && !reduceMotion }
+        Circle().fill(colour).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
+            // Still while it tries: the row's words say it is reconnecting.
+            .opacity(trying ? AceDesign.Ink.recede : 1)
             .accessibilityHidden(true)
     }
     private var colour: Color {
         if token == "done" { return AceTheme.Status.done }
         if token == "failed" { return AceTheme.Status.failed }
-        return trying ? AceTheme.Status.needsYou : AceTheme.Colours.decoration
+        return trying ? AceTheme.Status.needsYou : AceDesign.Ink.faint
     }
 }
 

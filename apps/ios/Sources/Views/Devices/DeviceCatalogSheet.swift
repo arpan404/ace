@@ -30,11 +30,11 @@ struct DeviceCatalogSheet: View {
                 }
                 if devices.view?.groups.isEmpty == true {
                     Text(query.isEmpty && platform == "all" ? "Every device is running." : "No devices match.")
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .foregroundStyle(AceDesign.Ink.muted)
                         .listRowBackground(Color.clear)
                 }
                 if let problem = devices.problem {
-                    Text(problem.text).foregroundStyle(AceTheme.Colours.mutedForeground).listRowBackground(Color.clear)
+                    Text(problem.text).foregroundStyle(AceDesign.Ink.muted).listRowBackground(Color.clear)
                 }
             }
             .insetGroupedList()
@@ -56,7 +56,7 @@ struct DeviceCatalogSheet: View {
     private func row(_ tile: DeviceTile) -> some View {
         Button { Task { await start(tile) } } label: {
             InsetRow(icon: DeviceIcon.of(tile.kind), title: tile.name, subtitle: tile.detail) {
-                if booting == tile.id { ProgressView() }
+                if booting == tile.id { WorkingMark(label: "Booting") }
             }
         }
         .buttonStyle(.plain)

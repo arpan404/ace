@@ -49,7 +49,7 @@ struct AddAccountView: View {
                     .transition(.opacity)
             } else { form.transition(.opacity) }
         }
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: started)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: started)
         .navigationTitle(started == nil ? "Add \(name) account" : label).navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if started == nil {
@@ -72,13 +72,13 @@ struct AddAccountView: View {
                 BadgeFields(model: model, name: label.isEmpty ? "Work" : label, draft: $draft, problem: $badgeProblem)
                 Section {
                     ForEach(ways) { option in
-                        Button { withAnimation(.smooth(duration: 0.2)) { way = option } } label: {
+                        Button { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { way = option } } label: {
                             HStack {
-                                Text(option.label).foregroundStyle(AceTheme.Colours.foreground)
+                                Text(option.label).foregroundStyle(AceDesign.Ink.primary)
                                 Spacer()
-                                if way?.id == option.id { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground) }
+                                if way?.id == option.id { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceDesign.Ink.primary) }
                             }
-                            .frame(minHeight: 44).contentShape(Rectangle())
+                            .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
                         }
                         .accessibilityAddTraits(way?.id == option.id ? .isSelected : [])
                     }
@@ -152,7 +152,7 @@ struct AccountSignInSheet: View {
                                 TextField("Location", text: $location).textInputAutocapitalization(.never).autocorrectionDisabled()
                             } header: { InsetHeader(target.way.label) } footer: { Text(target.way.next) }
                             Button("Continue") { Task { await start() } }.disabled(busy)
-                        } else if busy { HStack { Spacer(); ProgressView(); Spacer() } }
+                        } else if busy { SkeletonRows(count: 1, label: "Starting sign-in").listRowInsets(EdgeInsets()) }
                         ServiceProblem(message: problem)
                     }
                     .insetRowBackground()
@@ -161,7 +161,7 @@ struct AccountSignInSheet: View {
                 .transition(.opacity)
             }
         }
-        .animation(.smooth, value: started)
+        .smoothChange(started)
         .navigationTitle(target.account.label).navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { model.refreshMachine(); dismiss() } } }
         .task { if !target.way.cloud { await start() } }

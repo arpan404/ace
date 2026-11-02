@@ -63,6 +63,24 @@ export function tabThreads(panel: ThreadsPanel, tab: ThreadsTab): readonly strin
 }
 
 /**
+ * An empty tab's title: "No threads yet" while there is no thread anywhere, else "Inbox zero",
+ * "Nothing snoozed" or "Nothing settled", each narrowed to the filter ("in docs") when one is on.
+ */
+export function emptyTabTitle(
+  tab: ThreadsTab,
+  narrowed: string | undefined,
+  none: boolean,
+): string {
+  const where = narrowed ? ` ${narrowed}` : "";
+  if (none) return narrowed ? `No threads ${narrowed}` : "No threads yet";
+  if (tab === "inbox") return `Inbox zero${where}`;
+  return tab === "snoozed" ? `Nothing snoozed${where}` : `Nothing settled${where}`;
+}
+
+/** The line under an empty Inbox while other threads exist (snoozed, settled or filtered out). */
+export const emptyInboxLine = "Nothing needs you, and nothing is running.";
+
+/**
  * A stable key per row, for the virtualizer and the list's motion. Threads and other rows have
  * their own prefixes, so no thread id (ids are any string) can take another row's key. A thread
  * keeps one key wherever it shows, so a row that changes place slides rather than jumps.

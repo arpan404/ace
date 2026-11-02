@@ -36,25 +36,25 @@ struct EventRowLayout<Lead: View>: View {
     /// An agent, error or question reads strong; a step or event is muted.
     var strong = false
     var body: some View {
-        HStack(alignment: .center, spacing: AceTheme.Spacing.sm) {
-            lead().frame(minWidth: AceTheme.Spacing.xl).foregroundStyle(AceTheme.Colours.subtleForeground)
+        HStack(alignment: .center, spacing: AceDesign.Space.related) {
+            lead().frame(minWidth: AceDesign.Size.lead).foregroundStyle(AceTheme.Colours.subtleForeground)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 Text(title).lineLimit(1).truncationMode(.tail)
-                    .fontWeight(strong ? .medium : .regular)
+                    .fontWeight(strong ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
                     .foregroundStyle(strong ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                 if !subtitle.isEmpty {
                     Text(subtitle).lineLimit(1).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             if !meta.isEmpty {
                 Text(meta).aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
             }
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-        .frame(minHeight: AceTheme.Spacing.xxxl)
+        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+        .frame(minHeight: AceDesign.Space.section)
         .contentShape(Rectangle())
     }
 }
@@ -64,7 +64,9 @@ private func clock(_ at: Double) -> String {
 }
 
 /// Where a row's details open: indented to the title, past the lead and the gap.
-private let detailIndent = AceTheme.Spacing.xl + AceTheme.Spacing.sm
+private let detailIndent = AceDesign.Size.lead + AceDesign.Space.related
+/// Sits a lead glyph's centre on its line's first baseline rather than below it.
+private let leadBaseline: CGFloat = 5
 
 /// "Resumed after restart", "Context compacted": a glyph (or the provider's mark), the words and
 /// the time. What ace sent on the person's behalf opens from the row itself, folded until asked.
@@ -73,7 +75,7 @@ struct SystemRow: View {
     @State private var open = false
     var body: some View {
         let opens = !event.note.isEmpty || !event.detail.isEmpty
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             if opens {
                 Button { open.toggle() } label: { row }
                     .buttonStyle(.plain)
@@ -84,7 +86,7 @@ struct SystemRow: View {
             }
             if open {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                    VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                         if !event.note.isEmpty { Text(event.note) }
                         if !event.detail.isEmpty {
                             if event.mono { Text(verbatim: event.detail).monospaced() } else { Text(event.detail) }
@@ -93,7 +95,7 @@ struct SystemRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
                 }
-                .frame(maxHeight: 288)
+                .frame(maxHeight: AceDesign.Size.foldedOutput)
                 .fixedSize(horizontal: false, vertical: true)
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -107,9 +109,9 @@ struct SystemRow: View {
     }
     @ViewBuilder private var lead: some View {
         if !event.provider.isEmpty {
-            ProviderMark(provider: event.provider, size: 14)
+            ProviderMark(provider: event.provider, size: AceDesign.Size.icon)
         } else {
-            AceIcon(glyph, size: 14, relativeTo: .subheadline)
+            AceIcon(glyph, size: AceDesign.Size.glyphMeta, relativeTo: .subheadline)
         }
     }
     private var glyph: AceIcon.Name {
@@ -131,27 +133,27 @@ struct ErrorLine: View {
     let event: EventRow
     @State private var open = false
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-                AceIcon(event.icon == "limit" ? .hourglass : .warningCircle, size: 16, relativeTo: .subheadline)
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+                AceIcon(event.icon == "limit" ? .hourglass : .warningCircle, size: AceDesign.Size.icon, relativeTo: .subheadline)
                     .foregroundStyle(event.icon == "limit" ? AceTheme.Colours.subtleForeground : AceTheme.Status.failed)
-                    .frame(minWidth: AceTheme.Spacing.xl)
-                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
-                (Text(event.text).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+                    .frame(minWidth: AceDesign.Size.lead)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + leadBaseline }
+                (Text(event.text).fontWeight(AceDesign.Typeface.regular).foregroundStyle(AceTheme.Colours.foreground)
                  + Text(event.count > 1 ? " ×\(event.count)" : "").foregroundStyle(AceTheme.Colours.subtleForeground)
                  + Text(event.note.isEmpty ? "" : " · \(event.note)").foregroundStyle(AceTheme.Colours.mutedForeground))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !event.detail.isEmpty {
                     Button("Details") { open.toggle() }
-                        .buttonStyle(.plain).fontWeight(.medium)
+                        .buttonStyle(.plain).fontWeight(AceDesign.Typeface.regular)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                         .accessibilityValue(open ? "Expanded" : "Collapsed")
                 }
             }
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-            .frame(minHeight: AceTheme.Spacing.xxxl)
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+            .frame(minHeight: AceDesign.Space.section)
             if open {
-                Text(event.detail).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                Text(event.detail).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
                     .foregroundStyle(AceTheme.Colours.mutedForeground).textSelection(.enabled)
                     .padding(.leading, detailIndent)
             }
@@ -166,27 +168,28 @@ struct ErrorLine: View {
 struct RefusalLine: View {
     let event: EventRow
     var body: some View {
-        EventRowLayout(lead: { AceIcon(.robot, size: 16, relativeTo: .subheadline).foregroundStyle(AceTheme.Status.failed) },
+        EventRowLayout(lead: { AceIcon(.robot, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceTheme.Status.failed) },
                        title: event.text, subtitle: event.note, meta: event.count > 1 ? "×\(event.count)" : "", strong: true)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("event.refusal")
     }
 }
 
-/// "Not sent · the reason", where the daemon put its notice: just after the message.
+/// "Not sent · the reason", where the daemon put its notice: just after the message. A quiet
+/// line with the strip's own mark; the strip above the composer is where it is acted on.
 struct NotSentLine: View {
     let reason: String
     /// A stale Git lock stopped it: Clear stale lock follows, as a word.
     var fenced = false
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
-            AceIcon(.warning, size: 12, relativeTo: .caption)
-            Text("Not sent").fontWeight(.medium)
+        HStack(spacing: AceDesign.Space.tight) {
+            RowStatusIcon(kind: "approve", tone: "idle", size: AceDesign.Size.glyphMeta)
+            Text("Not sent")
             if !reason.isEmpty { Text("· \(reason)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2) }
             if fenced { ClearStaleLockWord() }
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-        .foregroundStyle(AceTheme.StatusText.failed)
+        .foregroundStyle(AceTheme.Colours.mutedForeground)
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .combine)
     }
@@ -196,13 +199,13 @@ struct NotSentLine: View {
 struct NoticeLine: View {
     let event: EventRow
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-            AceIcon(event.icon == "info" ? .info : .warning, size: 16, relativeTo: .subheadline)
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+            AceIcon(event.icon == "info" ? .info : .warning, size: AceDesign.Size.icon, relativeTo: .subheadline)
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + leadBaseline }
             Text(event.text).frame(maxWidth: .infinity, alignment: .leading)
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .accessibilityElement(children: .combine)
     }
@@ -215,9 +218,9 @@ struct QuietText: View {
     var body: some View {
         let first = text.split(separator: "\n").first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.map(String.init) ?? ""
         let more = text.trimmingCharacters(in: .whitespacesAndNewlines) != first.trimmingCharacters(in: .whitespaces)
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-            AceIcon(.info, size: 16, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
-                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+            AceIcon(.info, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + leadBaseline }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(open ? text : first).lineLimit(open ? nil : 1)
                 if more {
@@ -229,7 +232,7 @@ struct QuietText: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
     }
 }
@@ -244,13 +247,13 @@ struct HandoffRow: View {
         let shown = Array(handoff.from.prefix(Self.shownSources))
         let hidden = handoff.from.count - shown.count
         CentredDivider {
-            AceIcon(.arrowsLeftRight, size: 12, relativeTo: .caption)
-            Text(handoff.label).fontWeight(.medium)
+            AceIcon(.arrowsLeftRight, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
+            Text(handoff.label).fontWeight(AceDesign.Typeface.regular)
             ForEach(Array(shown.enumerated()), id: \.offset) { index, side in
                 end(side, comma: index < shown.count - 1 || hidden > 0)
             }
             if hidden > 0 { Text("+\(hidden)") }
-            if !shown.isEmpty { AceIcon(.arrowRight, size: 12, relativeTo: .caption) }
+            if !shown.isEmpty { AceIcon(.arrowRight, size: AceDesign.Size.glyphSmall, relativeTo: .caption) }
             end(handoff.to, target: true)
         }
         .accessibilityElement(children: .ignore)
@@ -258,9 +261,9 @@ struct HandoffRow: View {
         .accessibilityIdentifier("event.handoff")
     }
     private func end(_ side: HandoffLine.End, target: Bool = false, comma: Bool = false) -> some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
-            ProviderMark(provider: side.provider, size: 12)
-            Text(side.name + (comma ? "," : "")).fontWeight(.medium)
+        HStack(spacing: AceDesign.Space.tight) {
+            ProviderMark(provider: side.provider, size: AceDesign.Size.glyphSmall)
+            Text(side.name + (comma ? "," : "")).fontWeight(AceDesign.Typeface.regular)
                 .foregroundStyle(target ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                 .truncationMode(.middle)
         }

@@ -48,9 +48,9 @@ struct ForgeFileView: View {
                 EmptyState(icon: nil, title: "Couldn't load this file", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.pageState)
             } else {
-                ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
+                SkeletonPage()
             }
         }
         .animation(AceMotion.smooth, value: file == nil)

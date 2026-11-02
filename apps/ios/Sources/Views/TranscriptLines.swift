@@ -10,17 +10,17 @@ struct EndingLine: View {
     var body: some View {
         switch ending.kind {
         case "interrupted" where !ending.automatic:
-            HStack(spacing: AceTheme.Spacing.sm) {
-                Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Spacing.xxl, height: AceTheme.Dimensions.border)
+            HStack(spacing: AceDesign.Space.related) {
+                Rectangle().fill(AceTheme.Colours.separator).frame(width: AceDesign.Space.group, height: AceTheme.Dimensions.border)
                 Text(ending.label)
-                Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Spacing.xxl, height: AceTheme.Dimensions.border)
+                Rectangle().fill(AceTheme.Colours.separator).frame(width: AceDesign.Space.group, height: AceTheme.Dimensions.border)
             }
-            .font(.caption2).foregroundStyle(AceTheme.Colours.subtleForeground)
+            .font(AceDesign.Typeface.caption).foregroundStyle(AceTheme.Colours.subtleForeground)
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .ignore).accessibilityLabel(ending.label)
             .accessibilityIdentifier("turn.end")
         case "interrupted":
-            LogRowBox { AceIcon(.stopCircle, size: 14, relativeTo: .footnote) } title: { Text(ending.label) }
+            LogRowBox { AceIcon(.stopCircle, size: AceDesign.Size.glyphMeta, relativeTo: .footnote) } title: { Text(ending.label) }
                 .accessibilityElement(children: .combine).accessibilityIdentifier("turn.end")
         case "paused":
             PausedWork(ending: ending, row: row, thread: thread)
@@ -36,11 +36,11 @@ private struct FailedTurnRow: View {
     let ending: BlockRow.Ending
     @State private var open = false
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-                AceIcon(.warningCircle, size: 16, relativeTo: .subheadline).foregroundStyle(AceTheme.StatusText.failed)
-                    .frame(minWidth: AceTheme.Spacing.xl)
-                (Text(ending.label).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+                AceIcon(.warningCircle, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceTheme.StatusText.failed)
+                    .frame(minWidth: AceDesign.Size.lead)
+                (Text(ending.label).fontWeight(AceDesign.Typeface.regular).foregroundStyle(AceTheme.Colours.foreground)
                     + Text(ending.message.isEmpty ? "" : " · \(ending.message)").foregroundStyle(AceTheme.Colours.mutedForeground))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !ending.details.isEmpty {
@@ -50,10 +50,10 @@ private struct FailedTurnRow: View {
                         .accessibilityIdentifier("turn.failed.details")
                 }
             }
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+            .frame(minHeight: AceDesign.Size.tap - AceDesign.Space.tight)
             if open {
-                Text(ending.details).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                Text(ending.details).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
                     .foregroundStyle(AceTheme.Colours.mutedForeground).textSelection(.enabled)
                     .rowDetailIndent()
             }
@@ -73,7 +73,6 @@ private struct PausedWork: View {
         let key = "paused:\(row.items.first ?? "")"
         let open = thread.disclosures.isOpen(key)
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Hairline()
             Button { thread.disclosures.toggle(key) } label: { LogRowBox(open: open) { Text(ending.label) } }
                 .buttonStyle(.plain).accessibilityValue(open ? "Expanded" : "Collapsed")
             if open, let log = row.log {
@@ -89,19 +88,19 @@ struct ChangedFilesRow: View {
     let files: BlockRow.Files
     let open: () -> Void
     var body: some View {
-        ChipFlow(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+        ChipFlow(spacing: AceDesign.Space.tight) {
             ForEach(files.chips) { chip in
                 Button(action: open) {
-                    HStack(spacing: AceTheme.Spacing.sm) {
+                    HStack(spacing: AceDesign.Space.related) {
                         Text(chip.name).lineLimit(1).truncationMode(.middle).foregroundStyle(AceTheme.Colours.foreground)
-                        HStack(spacing: AceTheme.Spacing.xs) {
+                        HStack(spacing: AceDesign.Space.tight) {
                             Text("+\(chip.added)").foregroundStyle(AceTheme.StatusText.done)
                             Text("−\(chip.removed)").foregroundStyle(AceTheme.StatusText.failed)
                         }
                     }
                     .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                    .padding(.horizontal, AceTheme.Spacing.sm)
-                    .frame(minHeight: AceTheme.Spacing.xxl + AceTheme.Spacing.xs)
+                    .padding(.horizontal, AceDesign.Space.related)
+                    .frame(minHeight: AceDesign.Space.group + AceDesign.Space.tight)
                     .background(AceTheme.Colours.fill, in: AceShape.capsule)
                     .contentShape(Rectangle())
                 }
@@ -113,7 +112,7 @@ struct ChangedFilesRow: View {
                     .buttonStyle(.plain)
                     .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .frame(minHeight: AceTheme.Spacing.xxl + AceTheme.Spacing.xs)
+                    .frame(minHeight: AceDesign.Space.group + AceDesign.Space.tight)
             }
         }
         .accessibilityElement(children: .contain)
@@ -172,10 +171,10 @@ struct QuietLink: View {
         Button(action: action) {
             QuietRow(icon: icon) {
                 Text(title).lineLimit(1)
-                AceIcon(.caretRight, size: 12, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
+                AceIcon(.caretRight, size: AceDesign.Size.glyphSmall, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
                 Spacer(minLength: AceTheme.Spacing.none)
             }
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+            .frame(minHeight: AceDesign.Size.tap - AceDesign.Space.related)
             .contentShape(Rectangle())
         }.buttonStyle(.plain)
     }

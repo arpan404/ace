@@ -25,8 +25,8 @@ struct ProjectDetailView: View {
     var body: some View {
         List {
             Section {
-                Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).textSelection(.enabled)
+                Text(project.path).font(AceDesign.Typeface.code)
+                    .foregroundStyle(AceDesign.Ink.muted).textSelection(.enabled)
                     .accessibilityIdentifier("project.path")
             }
             .insetRowBackground()
@@ -86,18 +86,18 @@ struct ProjectDetailView: View {
                     else if saved == .saved { saves += 1; Task { await reread() } }
                 }
             }
-            .tint(AceTheme.Colours.foreground)
+            .tint(AceDesign.Ink.accent)
             .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $publishing) {
             NavigationStack { PublishRepositoryView(model: model, project: project) { publishing = false } }
-                .tint(AceTheme.Colours.foreground)
+                .tint(AceDesign.Ink.accent)
                 .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
         .task(id: model.readGeneration(ProjectsView.firstPage)) { await reread() }
         .overlay {
             if gone {
-                ContentUnavailableView("Project removed", systemImage: "folder", description: Text("It's no longer on this machine."))
+                EmptyState(systemImage: "folder", title: "Project removed", line: "It's no longer on this machine.")
                     .transition(.opacity)
             }
         }
@@ -107,17 +107,17 @@ struct ProjectDetailView: View {
         Section {
             if project.notes.isEmpty {
                 Text("No notes yet. Agents add what they learn about the project here, and so can you.")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
             }
             ForEach(project.notes) { note in
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Text(note.text).aceFont(InsetStyle.value, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                    Text(note.text).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
                         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     if note.threadId != nil {
-                        Text("From an agent").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text("From an agent").font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                     }
                 }
-                .padding(.vertical, AceTheme.Spacing.xs)
+                .padding(.vertical, AceDesign.Space.tight)
             }
             if model.canOperate {
                 Button(project.notes.isEmpty ? "Add a note" : "Edit notes") { editing = true }
@@ -153,10 +153,10 @@ private struct ProjectRemoval: ViewModifier {
             .overlay(alignment: .bottom) {
                 if waiting {
                     Text("Waiting for your computer to remove \(project.name)…")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
+                        .font(AceDesign.Typeface.meta)
+                        .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
                         .floatingGlass()
-                        .padding(.bottom, AceTheme.Spacing.lg)
+                        .padding(.bottom, AceDesign.Space.margin)
                         .transition(.opacity)
                 }
             }

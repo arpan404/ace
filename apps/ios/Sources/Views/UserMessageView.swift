@@ -8,14 +8,13 @@ struct UserMessageRow: View {
     let row: TranscriptRow
     var body: some View {
         let readable = row.bubble?.readable ?? !row.text.isEmpty
-        VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
             if let origin = row.bubble?.origin, !origin.isEmpty { MessageEyebrow(origin: origin) }
             if let attachments = row.attachments, !attachments.isEmpty {
                 MessageAttachments(row: row, attachments: attachments, more: row.moreAttachments ?? 0)
                     .padding(.leading, UserBubble.inset)
             }
             if readable { UserBubble(text: row.text, bubble: row.bubble, id: row.id).messageMenu(copyText, title: "Message", row: row) }
-            MessageActions(row: row, copy: readable ? copyText : nil, label: "Copy message")
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .contain)
@@ -36,7 +35,7 @@ private struct MessageEyebrow: View {
         Label {
             Text(origin == "steer" ? "Steer" : "Queued")
         } icon: {
-            AceIcon(origin == "steer" ? .arrowBendDownRight : .clock, size: 12, relativeTo: .caption)
+            AceIcon(origin == "steer" ? .arrowBendDownRight : .clock, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
         }
         .labelStyle(.titleAndIcon)
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -49,7 +48,7 @@ private struct MessageEyebrow: View {
 /// chips. A long message shows its first ten lines under a fade, with Show more / Show less.
 struct UserBubble: View {
     /// What the bubble leaves free beside it: about a fifth of a phone's column.
-    static let inset = AceTheme.Spacing.xxxl * 2 + AceTheme.Spacing.sm
+    static let inset = AceDesign.Space.section * 2 + AceDesign.Space.related
     let text: String
     var bubble: BubbleLine? = nil
     var id = ""
@@ -60,7 +59,7 @@ struct UserBubble: View {
         let folded = long && !open
         HStack(spacing: AceTheme.Spacing.none) {
             Spacer(minLength: Self.inset)
-            VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+            VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
                 // Full height, then clipped: the fold cuts the text rather than squeezing it.
                 BubbleText(text: text, bubble: bubble)
                     .fixedSize(horizontal: false, vertical: true)
@@ -73,15 +72,15 @@ struct UserBubble: View {
                 if long {
                     Button(open ? "Show less" : "Show more") { open.toggle() }
                         .buttonStyle(.plain)
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption).fontWeight(.medium)
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption).fontWeight(AceDesign.Typeface.regular)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .frame(minHeight: AceTheme.Spacing.xxl)
+                        .frame(minHeight: AceDesign.Space.group)
                         .contentShape(Rectangle())
                         .accessibilityValue(open ? "Expanded" : "Collapsed")
                         .accessibilityIdentifier("message.fold.\(id)")
                 }
             }
-            .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
+            .padding(.horizontal, AceDesign.Space.row).padding(.vertical, AceDesign.Space.related)
             // Round as a capsule while it's one line; continuous corners once it wraps.
             .background(AceTheme.Colours.fill, in: AceShape.bubble)
         }
@@ -94,7 +93,7 @@ private struct BubbleText: View {
     let bubble: BubbleLine?
     private enum Piece { case prose(AttributedString), code(String) }
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             ForEach(Array(pieces.enumerated()), id: \.offset) { _, piece in
                 switch piece {
                 case .prose(let text):
@@ -103,10 +102,10 @@ private struct BubbleText: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(verbatim: text).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
                             .fixedSize(horizontal: true, vertical: false)
-                            .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+                            .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceDesign.Space.tight)
                     }
                     // Concentric with the bubble: its radius less the bubble's padding.
-                    .background(AceTheme.Colours.background.opacity(0.5),
+                    .background(AceDesign.Surface.nested,
                                 in: AceShape.bubbleInset)
                 }
             }

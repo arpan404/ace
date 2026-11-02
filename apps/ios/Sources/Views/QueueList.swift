@@ -22,8 +22,8 @@ struct QueueList: View {
     @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var busy: String?
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            HStack(spacing: AceDesign.Space.tight) {
                 Text(queue.label).foregroundStyle(AceTheme.Colours.foreground)
                 if !queue.when.isEmpty { Text("· \(queue.when)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1) }
                 Spacer(minLength: AceTheme.Spacing.none)
@@ -41,9 +41,9 @@ struct QueueList: View {
                 }
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+            .frame(minHeight: AceDesign.Size.tap - AceDesign.Space.related)
             ForEach(queue.messages) { message in
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                         Text(message.text.isEmpty ? "Attachment" : message.text).lineLimit(2)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.foreground)
@@ -53,7 +53,7 @@ struct QueueList: View {
                                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                         }
                     }
-                    if message.attachments > 0 { AceIcon(.paperclip, size: 14, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.decoration) }
+                    if message.attachments > 0 { AceIcon(.paperclip, size: AceDesign.Size.glyphMeta, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.decoration) }
                     Spacer(minLength: AceTheme.Spacing.none)
                     if busy == message.id { ProgressView().controlSize(.mini) }
                     if canAct {
@@ -72,7 +72,7 @@ struct QueueList: View {
                             }
                             Button("Remove", ace: .trash, role: .destructive) { removing = message }
                         } label: {
-                            AceIcon(.dotsThree, size: 20).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                            AceIcon(.dotsThree, size: AceDesign.Size.barIcon).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                                 .foregroundStyle(AceTheme.Colours.mutedForeground).contentShape(Rectangle())
                         }
                         .disabled(busy != nil)
@@ -83,17 +83,17 @@ struct QueueList: View {
                 .accessibilityElement(children: .contain)
             }
             if queue.more > 0 {
-                Button("Show \(queue.more) more") { withAnimation(reduceMotion ? nil : .smooth) { showMore() } }
+                Button("Show \(queue.more) more") { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { showMore() } }
                     .buttonStyle(StripTextButtonStyle())
                     .monospacedDigit()
-                    .padding(.leading, -AceTheme.Spacing.sm)
+                    .padding(.leading, -AceDesign.Space.related)
                     .accessibilityIdentifier("queue.more")
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("queue.strip")
-        .animation(reduceMotion ? nil : .smooth, value: queue.messages.map(\.id))
-        .animation(reduceMotion ? nil : .smooth, value: queue.control)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: queue.messages.map(\.id))
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: queue.control)
         .sensoryFeedback(.impact(weight: .light), trigger: toggled)
         .sheet(item: $editor) { MessageEditSheet(editor: $0) }
         .confirmationDialog("Remove this message?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),

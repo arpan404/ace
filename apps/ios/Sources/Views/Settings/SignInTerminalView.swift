@@ -20,13 +20,13 @@ struct SignInTerminalRows: View {
 
     var body: some View {
         Text(manual.instruction)
-        Text(manual.command).monospaced().textSelection(.enabled).foregroundStyle(AceTheme.Colours.mutedForeground)
+        Text(manual.command).monospaced().textSelection(.enabled).foregroundStyle(AceDesign.Ink.muted)
         if let id = terminalId ?? manual.terminalId {
-            NavigationLink { SignInTerminalView(model: model, terminalId: id) } label: { Text("Open terminal").foregroundStyle(AceTheme.Colours.accent) }
+            NavigationLink { SignInTerminalView(model: model, terminalId: id) } label: { Text("Open terminal").foregroundStyle(AceDesign.Ink.accent) }
                 .accessibilityIdentifier("signin.terminal")
         } else {
             Button(opening ? "Opening…" : "Open terminal") { open() }.disabled(opening)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minHeight: AceDesign.Size.tap)
         }
         ServiceProblem(message: problem)
     }
@@ -58,14 +58,14 @@ struct SignInTerminalView: View {
     private var output: TerminalScreenModel { model.terminal }
 
     var body: some View {
-        VStack(spacing: AceTheme.Spacing.sm) {
+        VStack(spacing: AceDesign.Space.related) {
             ServiceProblem(message: problem ?? output.problem)
             ScrollViewReader { proxy in
                 GeometryReader { area in
                     ScrollView([.horizontal, .vertical]) {
                         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                             Text(output.text.isEmpty ? "Waiting for the CLI…" : output.text)
-                                .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote).textSelection(.enabled)
+                                .font(AceDesign.Typeface.code).textSelection(.enabled)
                             Color.clear.frame(height: AceTheme.Dimensions.border).id("tail")
                         }.frame(minWidth: area.size.width, alignment: .topLeading)
                     }
@@ -74,7 +74,7 @@ struct SignInTerminalView: View {
                     .accessibilityIdentifier("signin.terminal.output")
                 }
             }
-            if output.exited { Text("The CLI finished. Go back to see the result.").foregroundStyle(AceTheme.Colours.mutedForeground) }
+            if output.exited { Text("The CLI finished. Go back to see the result.").foregroundStyle(AceDesign.Ink.muted) }
             Group {
                 TerminalKeyBar(modifiers: $modifiers) { type([$0]) }
                 TerminalKeyField(
@@ -84,10 +84,10 @@ struct SignInTerminalView: View {
                     onReturn: { type([modifiers.apply(key: "Enter")]) },
                     onKey: { type([$0]) }
                 )
-                .frame(height: AceTheme.Dimensions.touchTarget)
+                .frame(height: AceDesign.Size.tap)
             }.disabled(!canType)
         }
-        .padding(AceTheme.Spacing.lg)
+        .padding(AceDesign.Space.margin)
         .navigationTitle("Sign-in terminal").navigationBarTitleDisplayMode(.inline)
         .onAppear(perform: watch)
         .onDisappear { if let id = output.streamId { model.action(["type": "terminal.unwatch", "id": id]); output.streamId = nil } }

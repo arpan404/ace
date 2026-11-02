@@ -32,23 +32,23 @@ struct AutomationWhenSection: View {
             case "file": files
             default:
                 Text("It runs only when you tap Run now.")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
             }
         } header: { InsetHeader("When it runs") }
         .insetRowBackground()
-        .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: form.trigger)
-        .animation(reduceMotion ? AceTheme.Motion.standardCurve : .smooth, value: form.cadence)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: form.trigger)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: form.cadence)
         .onChange(of: view.instants?.time) { _, _ in pendingTime = nil }
         .onChange(of: view.instants?.at) { _, _ in pendingAt = nil }
         .onChange(of: view.instants?.startsAt) { _, _ in pendingStart = nil }
         if form.trigger == "schedule", let upcoming = view.upcoming {
             Section {
                 if upcoming.isEmpty {
-                    Text("No upcoming run").foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text("No upcoming run").foregroundStyle(AceDesign.Ink.muted)
                 }
                 ForEach(upcoming, id: \.self) { start in
-                    Text(start).monospacedDigit().foregroundStyle(AceTheme.Colours.foreground)
+                    Text(start).monospacedDigit().foregroundStyle(AceDesign.Ink.primary)
                         .transition(.opacity)
                 }
             } header: { InsetHeader("Next starts") }
@@ -101,12 +101,12 @@ struct AutomationWhenSection: View {
     }
 
     @ViewBuilder private var custom: some View {
-        GlassChoice(items: choices.syntaxes.map { GlassChoiceItem(id: $0.value, label: $0.label) },
-                    selection: form.syntax, idPrefix: "automation.syntax") { form.syntax = $0 }
-            .padding(.vertical, AceTheme.Spacing.xs)
+        CapsuleSegments<String>(choices.syntaxes.map { (id: $0.value, label: $0.label) },
+                        selection: form.syntax, idPrefix: "automation.syntax") { form.syntax = $0 }
+            .padding(.vertical, AceDesign.Space.tight)
         TextField(form.syntax == "cron" ? "30 7 * * 1-5" : "FREQ=WEEKLY;BYDAY=MO;BYHOUR=9",
                   text: Binding(get: { form.expression }, set: { form.expression = $0; touch("expression") }))
-            .aceMonospace(AceTheme.Typography.code, relativeTo: .body)
+            .font(AceDesign.Typeface.code)
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .accessibilityIdentifier("automation.expression")
         problem("expression")
@@ -145,7 +145,7 @@ struct AutomationWhenSection: View {
         LabeledContent("Repository") {
             TextField("owner/name", text: Binding(get: { form.repository }, set: { form.repository = $0; touch("repository") }))
                 .multilineTextAlignment(.trailing)
-                .aceMonospace(AceTheme.Typography.code, relativeTo: .body)
+                .font(AceDesign.Typeface.code)
                 .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                 .accessibilityIdentifier("automation.repository")
         }
@@ -162,20 +162,20 @@ struct AutomationWhenSection: View {
             problem("label")
         }
         Text("ace checks GitHub every five minutes with this machine's GitHub sign-in.")
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .font(AceDesign.Typeface.meta)
+            .foregroundStyle(AceDesign.Ink.muted)
     }
 
     @ViewBuilder private var files: some View {
         TextField("src/**/*.ts", text: Binding(get: { form.paths }, set: { form.paths = $0; touch("paths") }), axis: .vertical)
             .lineLimit(2...8)
-            .aceMonospace(AceTheme.Typography.code, relativeTo: .body)
+            .font(AceDesign.Typeface.code)
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .accessibilityIdentifier("automation.paths")
         problem("paths")
         Text("One path or glob per line, inside the project.")
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .font(AceDesign.Typeface.meta)
+            .foregroundStyle(AceDesign.Ink.muted)
     }
 
     // MARK: Parts
@@ -191,7 +191,7 @@ struct AutomationWhenSection: View {
 
     @ViewBuilder private func problem(_ field: String) -> some View {
         if let message = error(field) {
-            Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+            Text(message).font(AceDesign.Typeface.meta)
                 .foregroundStyle(AceTheme.StatusText.failed)
                 .transition(.opacity)
         }
@@ -221,14 +221,14 @@ struct AutomationZonePicker: View {
             Button { selection = zone; dismiss() } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                        Text(zoneName(zone)).foregroundStyle(AceTheme.Colours.foreground)
-                        Text(zone).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text(zoneName(zone)).foregroundStyle(AceDesign.Ink.primary)
+                        Text(zone).font(AceDesign.Typeface.meta)
+                            .foregroundStyle(AceDesign.Ink.muted)
                     }
                     Spacer()
-                    if zone == selection { Image(systemName: "checkmark").foregroundStyle(AceTheme.Colours.foreground) }
+                    if zone == selection { Image(systemName: "checkmark").foregroundStyle(AceDesign.Ink.primary) }
                 }
-                .frame(minHeight: 44).contentShape(Rectangle())
+                .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .insetRowBackground()

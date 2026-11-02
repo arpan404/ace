@@ -22,7 +22,7 @@ struct SubagentGroupView: View {
             AgentRow(entry: only, open: open)
         } else {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { toggle() } } label: { head }
+                Button { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { toggle() } } label: { head }
                     .buttonStyle(TranscriptRowButtonStyle())
                     .accessibilityElement(children: .combine)
                     .accessibilityValue(expanded ? "Expanded" : "Collapsed")
@@ -31,12 +31,12 @@ struct SubagentGroupView: View {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                         ForEach(agents.entries) { entry in AgentRow(entry: entry, open: open) }
                     }
-                    .padding(.leading, AceTheme.Spacing.lg)
+                    .padding(.leading, AceDesign.Space.margin)
                     .overlay(alignment: .leading) {
                         Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Dimensions.border)
-                            .padding(.leading, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
+                            .padding(.leading, AceDesign.Space.related)
                     }
-                    .padding(.top, AceTheme.Spacing.xs)
+                    .padding(.top, AceDesign.Space.tight)
                     .transition(.opacity)
                 }
             }
@@ -44,18 +44,18 @@ struct SubagentGroupView: View {
     }
 
     private var head: some View {
-        HStack(spacing: AceTheme.Spacing.md) {
+        HStack(spacing: AceDesign.Space.row) {
             if let lead = agents.lead { ProvidersLead(lead: lead) }
-            (Text(agents.title).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+            (Text(agents.title).fontWeight(AceDesign.Typeface.regular).foregroundStyle(AceTheme.Colours.foreground)
              + Text(verbatim: "  ") + counts)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             AgentElapsed(since: agents.since, settled: agents.elapsed)
-            AceIcon(.caretRight, size: 12, relativeTo: .caption)
+            AceIcon(.caretRight, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
                 .rotationEffect(.degrees(expanded ? 90 : 0))
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
     }
     /// "2 working · 1 done", each count in its own tone, after "Last seen: " while stale.
     private var counts: Text {
@@ -65,7 +65,7 @@ struct SubagentGroupView: View {
             let separator = part.offset > 0 ? Text(" · ").foregroundStyle(AceTheme.Colours.subtleForeground) : Text(verbatim: "")
             return line + separator + Text(part.element.text).foregroundStyle(StateStyle.text(part.element.token))
         }
-        .font(.footnote)
+        .font(AceDesign.Typeface.meta)
     }
 }
 
@@ -77,14 +77,14 @@ struct ProvidersLead: View {
     var body: some View {
         HStack(spacing: -tuck) {
             ForEach(Array(lead.providers.enumerated()), id: \.offset) { _, provider in
-                ProviderMark(provider: provider, size: 18)
+                ProviderMark(provider: provider, size: AceDesign.Size.icon)
                     .padding(AceTheme.Dimensions.border)
                     .background(AceTheme.Colours.background, in: Circle())
             }
             if lead.more > 0 {
-                Text(verbatim: "+\(lead.more)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).fontWeight(.medium)
+                Text(verbatim: "+\(lead.more)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).fontWeight(AceDesign.Typeface.regular)
                     .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
-                    .padding(.leading, AceTheme.Spacing.xs + tuck)
+                    .padding(.leading, AceDesign.Space.tight + tuck)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -120,15 +120,15 @@ struct AgentRow: View {
     let open: (BlockRow.Agents.Entry) -> Void
     var body: some View {
         Button { open(entry) } label: {
-            HStack(alignment: .top, spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
-                ProviderMark(provider: entry.provider, size: 18).padding(.top, AceTheme.Dimensions.border)
+            HStack(alignment: .top, spacing: AceDesign.Space.related) {
+                ProviderMark(provider: entry.provider, size: AceDesign.Size.icon).padding(.top, AceTheme.Dimensions.border)
                 VStack(alignment: .leading, spacing: AceTheme.Dimensions.border) {
-                    HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+                    HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
                         Text(entry.title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1).layoutPriority(1)
                         if !entry.machine.isEmpty { quiet("on \(entry.machine)") }
                         if !entry.meta.isEmpty { quiet(entry.meta) }
-                        Spacer(minLength: AceTheme.Spacing.xs)
-                        HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+                        Spacer(minLength: AceDesign.Space.tight)
+                        HStack(spacing: AceDesign.Space.tight) {
                             Text(entry.label).foregroundStyle(StateStyle.text(entry.token))
                             AgentElapsed(since: entry.since, settled: entry.elapsed)
                         }
@@ -136,14 +136,14 @@ struct AgentRow: View {
                         .lineLimit(1).fixedSize().layoutPriority(2)
                     }
                     if !entry.detail.isEmpty {
-                        HStack(spacing: AceTheme.Spacing.sm) {
+                        HStack(spacing: AceDesign.Space.related) {
                             Text(entry.detail).lineLimit(1)
                                 .foregroundStyle(entry.detailKind == "failed" ? StateStyle.text("failed") : AceTheme.Colours.mutedForeground)
-                                .shimmer(entry.detailKind == "live")
+                                
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if entry.detailKind == "human", opens {
-                                Text("Review").fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
-                                    .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xxs)
+                                Text("Review").fontWeight(AceDesign.Typeface.regular).foregroundStyle(AceTheme.Colours.foreground)
+                                    .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceTheme.Spacing.xxs)
                                     .background(AceTheme.Colours.fill, in: AceShape.capsule)
                                     .accessibilityHidden(true)
                             }
@@ -152,8 +152,8 @@ struct AgentRow: View {
                     }
                 }
             }
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-            .padding(.vertical, AceTheme.Spacing.xs + AceTheme.Dimensions.border)
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+            .padding(.vertical, AceDesign.Space.tight + AceTheme.Dimensions.border)
         }
         .buttonStyle(TranscriptRowButtonStyle())
         .accessibilityElement(children: .combine)
@@ -173,10 +173,10 @@ struct AgentRow: View {
 struct TranscriptRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, alignment: .leading)
-            .padding(.horizontal, AceTheme.Spacing.sm)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap - AceDesign.Space.related, alignment: .leading)
+            .padding(.horizontal, AceDesign.Space.related)
             .aceConcentricBackground(configuration.isPressed ? AceTheme.Colours.fill : .clear, minimum: AceShape.rowRadius)
-            .padding(.horizontal, -AceTheme.Spacing.sm)
+            .padding(.horizontal, -AceDesign.Space.related)
             .contentShape(Rectangle())
     }
 }

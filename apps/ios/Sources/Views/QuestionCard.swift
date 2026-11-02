@@ -74,14 +74,14 @@ struct QuestionCard: View {
         let questions = interaction.questions ?? []
         let index = min(page, max(questions.count - 1, 0))
         let question = questions.indices.contains(index) ? questions[index] : nil
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.row) {
             if let question {
                 RequestHeader(title: question.text, detail: [question.header, questions.count > 1 ? "\(index + 1) of \(questions.count)" : ""].filter { !$0.isEmpty }.joined(separator: " · "))
                 ScrollView {
                     choices(question).onGeometryChange(for: CGFloat.self) { $0.size.height } action: { choicesHeight = $0 }
                 }
                 .scrollBounceBehavior(.basedOnSize)
-                .frame(height: min(choicesHeight, max(AceTheme.Dimensions.touchTarget * 2, maxHeight - AceTheme.Dimensions.touchTarget * 4.5)))
+                .frame(height: min(choicesHeight, max(AceDesign.Size.tap * 2, maxHeight - AceDesign.Size.tap * 4.5)))
                 .id(question.id)
             }
             if interaction.unanswerable == true {
@@ -113,7 +113,7 @@ struct QuestionCard: View {
                 Button { answers.pick(choice.id, in: question) } label: {
                     ChoiceRow(chosen: chosen, first: index == 0) {
                         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                            HStack(spacing: AceTheme.Spacing.xs) {
+                            HStack(spacing: AceDesign.Space.tight) {
                                 Text(choice.label).foregroundStyle(AceTheme.Colours.foreground)
                                 if choice.recommended { Text("Recommended").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
                             }
@@ -146,15 +146,15 @@ private struct ChoiceRow<Content: View>: View {
     @ViewBuilder var content: () -> Content
     var body: some View {
         GroupedRow(first: first) {
-            HStack(alignment: .center, spacing: AceTheme.Spacing.md) {
+            HStack(alignment: .center, spacing: AceDesign.Space.row) {
                 content()
                 Spacer(minLength: AceTheme.Spacing.none)
-                Image(systemName: "checkmark").font(.body.weight(.semibold))
+                Image(systemName: "checkmark").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong))
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .opacity(chosen ? 1 : 0)
                     .accessibilityHidden(true)
             }
-            .padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
+            .padding(.vertical, AceDesign.Space.row)
         }
     }
 }

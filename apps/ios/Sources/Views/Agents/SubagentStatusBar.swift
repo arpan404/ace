@@ -18,32 +18,32 @@ struct SubagentStatusBar: View {
 
     var body: some View {
         let stacked = typeSize.isAccessibilitySize
-        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.sm))
-                             : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.md))
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceDesign.Space.related))
+                             : AnyLayout(HStackLayout(spacing: AceDesign.Space.row))
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             layout {
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    ProviderMark(provider: info.provider, size: 16).foregroundStyle(AceTheme.Colours.foreground)
-                    Text(info.model).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.medium)
-                        .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                    Text(verbatim: "·").foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
+                HStack(spacing: AceDesign.Space.related) {
+                    ProviderMark(provider: info.provider, size: AceDesign.Size.icon).foregroundStyle(AceDesign.Ink.primary)
+                    Text(info.model).font(AceDesign.Typeface.body)
+                        .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
+                    Text(verbatim: "·").foregroundStyle(AceDesign.Ink.subtle).accessibilityHidden(true)
                     state.layoutPriority(1)
                 }
-                if !stacked { Spacer(minLength: AceTheme.Spacing.xs) }
+                if !stacked { Spacer(minLength: AceDesign.Space.tight) }
                 action
             }
             if let problem {
-                Text(problem).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                Text(problem).font(AceDesign.Typeface.meta)
                     .foregroundStyle(AceTheme.StatusText.failed).transition(.opacity)
             }
         }
-        .padding(.leading, AceTheme.Spacing.lg).padding(.trailing, AceTheme.Spacing.sm)
-        .padding(.vertical, AceTheme.Spacing.xs)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs)
+        .padding(.leading, AceDesign.Space.margin).padding(.trailing, AceDesign.Space.related)
+        .padding(.vertical, AceDesign.Space.tight)
+        .frame(minHeight: AceDesign.Size.tap + AceDesign.Space.tight)
         .modifier(ComposerFrame())
-        .animation(reduceMotion ? nil : .smooth, value: info.retry)
-        .animation(reduceMotion ? nil : .smooth, value: info.phase)
-        .animation(reduceMotion ? nil : .smooth, value: problem)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: info.retry)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: info.phase)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: problem)
         .sensoryFeedback(.success, trigger: asked == "queued" || asked == "sent")
         .confirmationDialog(stop.asking?.title ?? "", isPresented: Binding(get: { stop.asking != nil }, set: { if !$0 { stop.cancel() } }), titleVisibility: .visible) {
             Button("Stop", role: .destructive) {
@@ -65,13 +65,13 @@ struct SubagentStatusBar: View {
             if info.working {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text("Working for \(Elapsed.words(since: info.startedAt, now: context.date))")
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .foregroundStyle(AceDesign.Ink.muted)
                 }
             } else {
-                Text(info.status.label).foregroundStyle(loud ? StateStyle.text(info.status.token) : AceTheme.Colours.mutedForeground)
+                Text(info.status.label).foregroundStyle(loud ? StateStyle.text(info.status.token) : AceDesign.Ink.muted)
             }
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(loud ? .medium : .regular)
+        .font(AceDesign.Typeface.body).fontWeight(loud ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
         .monospacedDigit().lineLimit(1)
         .accessibilityIdentifier("subagent.state")
     }
@@ -96,15 +96,15 @@ struct SubagentStatusBar: View {
             switch asked {
             case "queued", "sent":
                 Text(asked == "queued" ? "Queued for parent" : "Sent to parent")
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .font(AceDesign.Typeface.body)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("subagent.retried")
                     .transition(.opacity)
             default:
                 let waiting = sending || asked == "pending"
                 Button(waiting ? "Asking…" : label) { Task { await askParent() } }
-                    .buttonStyle(BarWordStyle(tint: AceTheme.Colours.foreground))
+                    .buttonStyle(BarWordStyle(tint: AceDesign.Ink.primary))
                     .disabled(waiting)
                     .accessibilityIdentifier("subagent.retry")
                     .transition(.opacity)
@@ -127,12 +127,12 @@ struct BarWordStyle: ButtonStyle {
     let tint: Color
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.semibold)
+            .font(AceDesign.Typeface.body).fontWeight(.semibold)
             .foregroundStyle(tint)
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
-            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
-            .contentShape(AceShape.capsule)
-            .animation(.smooth(duration: 0.15), value: configuration.isPressed)
+            .padding(.horizontal, AceDesign.Space.row)
+            .frame(minHeight: AceDesign.Size.tap)
+            .background(configuration.isPressed ? AceDesign.Surface.fill : .clear, in: AceDesign.Shape.control)
+            .contentShape(AceDesign.Shape.control)
+            .smoothChange(configuration.isPressed)
     }
 }

@@ -1,4 +1,4 @@
-import { cardDetails, threadCard, threadGlyph } from "@ace/ui-core";
+import { cardDetails, rowStatusLook, threadCard, threadGlyph } from "@ace/ui-core";
 import { inboxGroup, type InboxThread } from "@ace/ui-core/mobile";
 
 /**
@@ -25,6 +25,9 @@ export function inboxLook(thread: InboxThread, baseline: number, now: number) {
   const { level, word, tone, muted } = card.attention;
   // A word with no glyph: waiting, a failure already seen, and an unconfirmed copy.
   const bare = tone === "waiting" || level === "failed-seen" || level === "syncing";
+  // The desktop row's status mark (`rowStatusLook`): one icon in its state's colour, with the
+  // live elapsed time for work under way, the age at rest, or a quiet word while syncing.
+  const status = rowStatusLook(card.attention, card);
   return {
     level,
     word: word ?? null,
@@ -37,5 +40,16 @@ export function inboxLook(thread: InboxThread, baseline: number, now: number) {
     subagents: card.subagents,
     /** A finished result not yet opened, or marked unread by hand. */
     unread: card.flags.unread,
+    /** The status icon (`RowStatusIconKind`, or `none`) and the colour it draws in. */
+    icon: status.icon,
+    iconTone: status.tone,
+    /** How many agents an `agents` icon waits on. */
+    count: status.count ?? null,
+    /** Beside the icon: the live elapsed time, the age, a quiet word, or nothing. */
+    mode: status.mode,
+    /** The state in a few words ("Needs approval"), for VoiceOver. */
+    meaning: status.meaning,
+    /** Only a thread that needs the person sets its title in semibold. */
+    strong: level === "needs-you",
   };
 }

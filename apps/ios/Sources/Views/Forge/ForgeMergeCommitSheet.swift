@@ -24,7 +24,7 @@ struct ForgeMergeCommitSheet: View {
                     TextField("Commit title", text: commitTitle)
                         .aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .padding(AceTheme.Spacing.md)
-                        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
+                        .background(AceTheme.Colours.fill, in: AceDesign.Shape.field)
                         .accessibilityIdentifier("forge.commit.title")
                     ForgeEditor(text: commitMessage, placeholder: "Commit message", minLines: 4)
                 }
@@ -33,7 +33,7 @@ struct ForgeMergeCommitSheet: View {
             .background(AceTheme.Colours.background)
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 Button { confirm(target) } label: {
-                    Text(target.action.label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: 44)
+                    Text(target.action.label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
                 .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)

@@ -38,7 +38,7 @@ struct KeyboardSettingsView: View {
             }
         }
         .insetGroupedList()
-        .animation(.smooth, value: stored)
+        .smoothChange(stored)
         .sensoryFeedback(.selection, trigger: returnSends)
         .sensoryFeedback(.success, trigger: stored)
         .confirmationDialog("Reset all shortcuts?", isPresented: $confirmReset, titleVisibility: .visible) {
@@ -71,6 +71,7 @@ struct KeyboardSettingsView: View {
 /// One shortcut's keys: pressed on a hardware keyboard, or set with the modifier switches and
 /// the key menu. A clash or a key the system keeps is named under the keys and Save waits.
 struct ShortcutEditor: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let entry: PhoneKeymapTable.Entry
     @AppStorage(PhoneKeymap.storageKey) private var stored = ""
     @Environment(\.dismiss) private var dismiss
@@ -90,34 +91,34 @@ struct ShortcutEditor: View {
         let problem = keymap.problem(draft, for: entry.id)
         List {
             Section {
-                VStack(spacing: AceTheme.Spacing.xs) {
+                VStack(spacing: AceDesign.Space.tight) {
                     Text(PhoneKeymap.format(draft))
-                        .font(.system(.largeTitle, design: .rounded).weight(.medium))
-                        .foregroundStyle(AceTheme.Colours.foreground)
+                        .font(AceDesign.Typeface.largeTitle).fontDesign(.rounded)
+                        .foregroundStyle(AceDesign.Ink.primary)
                         .contentTransition(.numericText())
                         .accessibilityIdentifier("shortcut.keys")
                     Text(message(problem))
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(problem == nil ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
+                        .font(AceDesign.Typeface.meta)
+                        .foregroundStyle(problem == nil ? AceDesign.Ink.muted : AceDesign.Ink.primary)
                         .multilineTextAlignment(.center)
                         .accessibilityIdentifier("shortcut.problem")
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, AceTheme.Spacing.md)
-                .background { KeyCapture { mods, pressed in withAnimation(.smooth) { modifiers = mods; key = pressed } } }
+                .padding(.vertical, AceDesign.Space.row)
+                .background { KeyCapture { mods, pressed in withAnimation(AceDesign.Motion.arriving(reduceMotion)) { modifiers = mods; key = pressed } } }
                 .listRowBackground(Color.clear)
             }
             Section {
                 ForEach(Self.modifierRows, id: \.0) { id, name, symbol in
                     InsetRow(systemImage: symbol, title: name) {
                         Toggle(name, isOn: Binding(get: { modifiers.contains(id) }, set: { on in
-                            withAnimation(.smooth) { if on { modifiers.insert(id) } else { modifiers.remove(id) } }
+                            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { if on { modifiers.insert(id) } else { modifiers.remove(id) } }
                         })).labelsHidden()
                         .accessibilityIdentifier("shortcut.modifier.\(id)")
                     }
                 }
                 InsetRow(systemImage: "keyboard", title: "Key") {
-                    Picker("Key", selection: Binding(get: { key }, set: { next in withAnimation(.smooth) { key = next } })) {
+                    Picker("Key", selection: Binding(get: { key }, set: { next in withAnimation(AceDesign.Motion.arriving(reduceMotion)) { key = next } })) {
                         ForEach(PhoneKeymapTable.keyOrder, id: \.self) { value in Text(PhoneKeymapTable.keyNames[value] ?? value).tag(value) }
                     }
                     .labelsHidden().pickerStyle(.menu)
@@ -131,7 +132,7 @@ struct ShortcutEditor: View {
                         stored = keymap.binding(entry.id, to: nil).stored
                         dismiss()
                     }
-                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .foregroundStyle(AceDesign.Ink.primary)
                     .accessibilityIdentifier("shortcut.reset")
                 }
                 .insetRowBackground()

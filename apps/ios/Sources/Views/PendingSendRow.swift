@@ -26,10 +26,10 @@ struct PendingSendRow: View {
                            staleLock: row.fenced == true)
                 .sheet(item: $editor) { MessageEditSheet(editor: $0) }
         } else {
-            VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+            VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
                 UserBubble(text: row.text, id: row.id)
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    AceIcon(.clock, size: 12, relativeTo: .caption)
+                HStack(spacing: AceDesign.Space.tight) {
+                    AceIcon(.clock, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
                     Text(row.label ?? "Sending…")
                 }
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -38,32 +38,6 @@ struct PendingSendRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
-    }
-}
-
-/// The message a failed send or session start left at the head of the daemon's queue, where it
-/// was written: "Not sent · the short reason", Try again (resumes the held queue), Edit (its words
-/// changed where it waits) and Remove, and the provider's detail behind Details. The messages
-/// behind it wait for it.
-struct HeldSendRow: View {
-    let message: QueueRow.NotSent
-    let canAct: Bool
-    let act: (QueueRow.Action) async -> Bool
-    let edit: (QueueRow.Message, [String: Any]) async -> Bool
-    /// The message's full words from the daemon's queue, and saving new ones in place.
-    let words: () async -> WordsRequests.Answer
-    let saveWords: (String, Int?) async -> String?
-    @State private var editor: MessageEditor?
-    var body: some View {
-        let queued = QueueRow.Message(id: message.id, text: message.text, delivery: "queue", state: "queued", attachments: message.attachments)
-        NotSentMessage(text: message.text, attachments: message.attachments, reason: message.reason, detail: message.detail,
-                       canAct: canAct, retryLabel: "Try again", removeLabel: "Remove",
-                       retry: { await act(QueueRow.Action(id: "resume", label: "Try again")) },
-                       edit: { editor = MessageEditor(attachments: message.attachments, read: words, write: saveWords) },
-                       remove: { await edit(queued, ["kind": "remove"]) })
-            .sheet(item: $editor) { MessageEditSheet(editor: $0) }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("heldSend")
     }
 }
 
@@ -92,10 +66,10 @@ struct NotSentMessage: View {
     @State private var recovered = 0
     @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
-        VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
             if !text.isEmpty { UserBubble(text: text) }
             if attachments > 0 {
-                Label { Text(attachments == 1 ? "1 file" : "\(attachments) files") } icon: { AceIcon(.paperclip, size: 12, relativeTo: .caption) }
+                Label { Text(attachments == 1 ? "1 file" : "\(attachments) files") } icon: { AceIcon(.paperclip, size: AceDesign.Size.glyphSmall, relativeTo: .caption) }
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
             }
@@ -103,7 +77,7 @@ struct NotSentMessage: View {
             if canAct || !detail.isEmpty || staleLock {
                 HStack(spacing: AceTheme.Spacing.none) {
                     if !detail.isEmpty {
-                        Button(details ? "Hide details" : "Details") { withAnimation(reduceMotion ? nil : .smooth) { details.toggle() } }
+                        Button(details ? "Hide details" : "Details") { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { details.toggle() } }
                             .buttonStyle(StripTextButtonStyle())
                             .accessibilityIdentifier("notSent.details")
                     }
@@ -125,7 +99,7 @@ struct NotSentMessage: View {
                     if staleLock { ClearStaleLockWord() }
                 }
                 .disabled(busy)
-                .padding(.trailing, -AceTheme.Spacing.sm)
+                .padding(.trailing, -AceDesign.Space.related)
             }
             if details {
                 Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption)

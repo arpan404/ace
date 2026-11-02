@@ -226,6 +226,11 @@ const ascending = (value: number) =>
   );
 const descending = (value: number) => ascending(rankTop - value);
 
+/** Most recent first, as fixed-width digits that compare as plain strings (`inboxRank`'s order). */
+export function recentRank(at: number): string {
+  return descending(at);
+}
+
 /** The band's position, one digit, so a group holding two bands keeps them in order. */
 const bandDigits: Record<InboxBand, string> = {
   pinned: "0",
