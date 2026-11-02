@@ -1,10 +1,9 @@
 import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@phosphor-icons/react";
 import { tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { Suspense, useState, type KeyboardEvent } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { cn } from "@/lib/cn.ts";
 import { panelIconButton, PanelTitle, PanelTitleRow } from "@/components/ui/panel.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { PaletteButton } from "@/features/shell/index.ts";
@@ -202,18 +201,13 @@ function AddProjectAction() {
 function NewThreadButton() {
   const entry = useNewThreadEntry();
   const { only } = entry;
-  const here = useRouterState({ select: (state) => state.location.pathname === "/new" });
   return (
     <Tip label="New thread" shortcut="newThread">
       <Link
         to="/new"
         {...(only ? { search: { project: only } } : {})}
         aria-label="New thread"
-        aria-current={here ? "page" : undefined}
-        className={cn(
-          panelIconButton,
-          "aria-[current=page]:bg-active aria-[current=page]:text-foreground",
-        )}
+        className={panelIconButton}
         onClick={(event) => {
           if (event.shiftKey) {
             event.preventDefault();
