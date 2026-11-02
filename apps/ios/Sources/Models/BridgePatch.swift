@@ -214,6 +214,14 @@ struct InboxLayout: Codable, Sendable, Equatable {
     /// The words for each row's `menu` ids (`threadMenuLabels`).
     var menuLabels: [String: String]? = nil
     var menuSections: [String: String]? = nil
+    /// The Threads panel's tabs as the daemon placed them (Inbox, Snoozed, Settled thread ids in
+    /// order); nil from older bridges and older checkpoints, which `sections` still draw.
+    struct Tabs: Codable, Sendable, Equatable { let inbox: [String]; let snoozed: [String]; let settled: [String] }
+    var tabs: Tabs? = nil
+    /// The machine's rail dots, as its daemon sent them; nil from older daemons and bridges.
+    struct PlaceAttention: Codable, Sendable, Equatable { let needsYou: Int; let unread: Int }
+    struct Attention: Codable, Sendable, Equatable { let threads: PlaceAttention; let chats: PlaceAttention }
+    var attention: Attention? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
 }
 

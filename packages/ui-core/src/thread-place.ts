@@ -145,6 +145,17 @@ export interface PlaceReaderInput {
   unconfirmed?: boolean | undefined;
 }
 
+/**
+ * The daemon's place, unless time has overtaken it: a snooze that ran out on this device's
+ * clock while its machine couldn't say so (offline, or not yet swept) is placed by the same
+ * rule now. Undefined when the entry came without a place.
+ */
+export function currentPlace(entry: ThreadListEntry, now: number): ThreadPlace | undefined {
+  const place = entry.place;
+  if (place?.tab === "snoozed" && !isSnoozed(entry, now)) return undefined;
+  return place;
+}
+
 const live: ReadonlySet<InboxBand> = new Set(["needs-you", "running", "unseen", "idle"]);
 
 /**
@@ -158,7 +169,7 @@ export function placeReader(
   return (entry) => {
     const hit = known.get(entry);
     if (hit) return hit.place;
-    let place = entry.place ?? placeThread(entry, input.fallback);
+    let place = currentPlace(entry, input.fallback.now) ?? placeThread(entry, input.fallback);
     if (input.unconfirmed && place?.band !== undefined && live.has(place.band))
       place = { ...place, band: "idle", rank: [activityOf(entry)] };
     known.set(entry, { place });
@@ -257,4 +268,25 @@ export function addAttention(a: PlaceAttentions, b: PlaceAttentions): PlaceAtten
       unread: a.chats.unread + b.chats.unread,
     },
   };
+}
+
+/**
+ * A whole window placed at once: each entry with its place, and the rail's dots for what it
+ * places live. The daemon does the same work per changed thread; a host that keeps no state
+ * between updates (the fake daemon) runs this over its window.
+ */
+export function placeWindow(
+  entries: readonly ThreadListEntry[],
+  input: PlaceInput,
+  isChat: (entry: ThreadListEntry) => boolean,
+): { threads: ThreadListEntry[]; attention: PlaceAttentions } {
+  let attention = noAttention;
+  const threads = entries.map((entry) => {
+    const { place: _old, ...rest } = entry;
+    const found = placeWithStanding(entry, input);
+    if (!found) return rest;
+    attention = withSignal(attention, threadSignal(found.place, found.standing, isChat(entry)), 1);
+    return { ...rest, place: found.place };
+  });
+  return { threads, attention };
 }

@@ -189,6 +189,8 @@ export function followInbox(
       return inboxLayout(threads, unsent, now, (store.homeWindow ?? store.window)?.before != null, {
         settledTotal: store.unconfirmed === true ? undefined : settledTotal(store.homeWindow),
         sortBy: sort.current(),
+        // A copy read back from disk claims no dots until the daemon confirms it.
+        attention: store.unconfirmed === true ? undefined : store.homeWindow?.attention,
       });
     });
   };

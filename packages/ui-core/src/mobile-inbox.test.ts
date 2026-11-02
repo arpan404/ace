@@ -85,13 +85,13 @@ test("requests lead, a snoozed request stays exposed and a failure asks the pers
   expect(result).toEqual({ "Needs you": ["mac/broke", "mac/asks"], Working: ["mac/busy"] });
 });
 
-test("Working puts running trees above waiting ones, most recent first", () => {
+test("Working lists running and waiting trees newest first, as the web's Inbox does", () => {
   const result = sections([
     on("mac", entry("waits", { state: "waiting", on: "background_task" }, now)),
     on("mac", entry("old", { state: "working", agents: 2 }, now - 5 * minute)),
     on("mac", entry("fresh", { state: "working", agents: 1 }, now - minute)),
   ]);
-  expect(result.Working).toEqual(["mac/fresh", "mac/old", "mac/waits"]);
+  expect(result.Working).toEqual(["mac/waits", "mac/fresh", "mac/old"]);
 });
 
 test("snoozed threads list the soonest wake first and return to their group once it passes", () => {

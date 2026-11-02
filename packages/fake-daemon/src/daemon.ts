@@ -1,3 +1,4 @@
+import type { PlaceInput } from "@ace/ui-core/thread-place";
 import { FakeComputerAccess } from "./computer-access.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
@@ -119,6 +120,16 @@ export class FakeDaemon implements Host {
   platform: string | undefined;
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
+  /** Places listed threads as the daemon does: its sort, no seen baseline, this clock. */
+  placeInput(): PlaceInput {
+    const sorts = ["activity", "created", "manual"] as const;
+    const value = this.services.settings.get("threads.sortBy");
+    return {
+      baseline: 0,
+      now: this.options.clock(),
+      sortBy: sorts.find((sort) => sort === value) ?? "activity",
+    };
+  }
   private options: FakeDaemonOptions;
   private worktreeCreations: FakeWorktreeCreations;
   private servicesWire: FakeServicesWire;
