@@ -29,8 +29,10 @@ export function cursorSdkEnvironment(
     ...launch,
     HOME: home,
     USERPROFILE: home,
-    // SDK auth is consumed by the SDK in the inherited environment, never IPC.
-    CURSOR_API_KEY: launch.CURSOR_API_KEY,
+    // SDK auth is consumed by the SDK in the inherited environment, never IPC. The SDK takes
+    // CURSOR_API_KEY, even an empty one, over the home's saved login, and an empty key never
+    // signs in, so it is dropped rather than allowed to hide that login.
+    CURSOR_API_KEY: launch.CURSOR_API_KEY || undefined,
     CURSOR_AUTH_TOKEN: undefined,
     CURSOR_CONFIG_DIR: undefined,
     CURSOR_DATA_DIR: undefined,

@@ -6,6 +6,7 @@ import { inspectAccountSupport, reportedAuthMethod } from "./provider-account-su
 import type { SdkDiscoveryOptions } from "@ace/provider-kit/sdk";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { fileURLToPath } from "node:url";
+import { catalogEnvironment } from "./catalog-env.ts";
 import {
   AccountManagementRequest,
   type AccountsResponse,
@@ -694,7 +695,8 @@ export class AccountManagement {
         ...(sdk ? { backend: "cursor-sdk", homeDir: instance.homeDir } : {}),
         executable,
         cwd: instance.implicit ? this.options.dataDir : instance.homeDir,
-        env: Object.fromEntries(Object.entries(env).map(([key, value]) => [key, value ?? ""])),
+        // Masked credentials stay unset; an empty CURSOR_API_KEY would sign Cursor out.
+        ...catalogEnvironment(env),
         loginRevision: this.options.registry.get(instance.id)?.instance.loginRevision ?? "0",
       },
       instance.implicit ? undefined : () => assertManagedHome(this.options.dataDir, instance),
