@@ -72,15 +72,20 @@ export interface AgentRowParts {
   /** The second line, and what it says. */
   detail?: ReactNode;
   detailKind?: AgentDetailKind | undefined;
+  /**
+   * False when the row opens its thread's details card on hover: the card says it all, so the
+   * truncated words carry no tooltips of their own on top of it.
+   */
+  tooltips?: boolean | undefined;
 }
 
 /** The meta's words, keeping the first and dropping the tail as the row narrows. */
-function MetaText(props: { meta: string }) {
+function MetaText(props: { meta: string; tips: boolean }) {
   const parts = props.meta.split(" · ");
   const [head, ...tail] = parts;
   if (!head || tail.length === 0) {
     return (
-      <span title={props.meta} className={agentRowStyles.meta}>
+      <span title={props.tips ? props.meta : undefined} className={agentRowStyles.meta}>
         {props.meta}
       </span>
     );
@@ -88,7 +93,7 @@ function MetaText(props: { meta: string }) {
   const last = tail[tail.length - 1];
   const middle = tail.slice(0, -1);
   return (
-    <span title={props.meta} className={agentRowStyles.meta}>
+    <span title={props.tips ? props.meta : undefined} className={agentRowStyles.meta}>
       <span>{head}</span>
       {middle.map((part) => (
         <span key={part} className={agentRowStyles.metaModel}>
@@ -107,7 +112,8 @@ function MetaText(props: { meta: string }) {
 /** The row's contents, laid on whatever opens it (a link, a button). */
 export function AgentRowContents(props: AgentRowParts) {
   const status = subagentLabels[props.state];
-  const detailText = typeof props.detail === "string" ? props.detail : undefined;
+  const tips = props.tooltips !== false;
+  const detailText = tips && typeof props.detail === "string" ? props.detail : undefined;
   return (
     <>
       <span aria-hidden className={agentRowStyles.mark}>
@@ -115,15 +121,18 @@ export function AgentRowContents(props: AgentRowParts) {
       </span>
       <span className={agentRowStyles.main}>
         <span className={agentRowStyles.first}>
-          <span title={props.name} className={agentRowStyles.name}>
+          <span title={tips ? props.name : undefined} className={agentRowStyles.name}>
             {props.name}
           </span>
           {props.machine && (
-            <span title={`on ${props.machine}`} className={agentRowStyles.machine}>
+            <span
+              title={tips ? `on ${props.machine}` : undefined}
+              className={agentRowStyles.machine}
+            >
               on {props.machine}
             </span>
           )}
-          {props.meta && <MetaText meta={props.meta} />}
+          {props.meta && <MetaText meta={props.meta} tips={tips} />}
         </span>
         <span
           data-detail={props.detailKind}

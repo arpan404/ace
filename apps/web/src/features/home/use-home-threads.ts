@@ -58,6 +58,7 @@ const empty: HomeList = {
 };
 const noProjects: ProjectCount[] = [];
 const noOthers: readonly ThreadListEntry[] = [];
+const noFound: ReadonlyMap<string, unknown> = new Map();
 
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
   reader.ids.flatMap((id) => {
@@ -119,13 +120,19 @@ export function useStandingOf(now: number): (entry: ThreadListEntry) => Standing
 
 /**
  * The daemon's tabs (`threadTabs`) across every project and device the filter lets through.
- * Filters only narrow what comes in; the order is the daemon's. Chats (ADR 0099) are the Chats panel's: they stay out of the
- * Threads panel and History, as the Chats panel holds its own. `query` narrows it to the threads whose
- * title, project, branch or pull request match. Only ids are selected, so a status change re-renders its own row and moves rows only
+ * Filters only narrow what comes in; the order is the daemon's. Chats (ADR 0099) are the Chats
+ * panel's: they stay out of the Threads panel and History, as the Chats panel holds its own.
+ * `query` narrows it to the threads whose title, project, branch or pull request match
+ * (`threadMatches`, forgiving typos), and to those the daemon's search `found` in their messages.
+ * Only ids are selected, so a status change re-renders its own row and moves rows only
  * when the order changes. `others` are other machines' threads under their machine row ids
  * (`useMachineEntries`), ordered in the same list (ADR 0102).
  */
-export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query = ""): HomeList {
+export function useHomeList(
+  others: readonly ThreadListEntry[] = noOthers,
+  query = "",
+  found: ReadonlyMap<string, unknown> = noFound,
+): HomeList {
   const device = useSidebarDevice();
   const ownDevice = usePrimaryMachine().id;
   const keys = useEveryEntryKey();
@@ -149,7 +156,10 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
       );
       const entries =
         query.trim().length > 0
-          ? work.filter((entry) => threadMatches(entry, query, projectName(entry.workspaceId)))
+          ? work.filter(
+              (entry) =>
+                threadMatches(entry, query, projectName(entry.workspaceId)) || found.has(entry.id),
+            )
           : work;
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
       // A saved list's statuses may be stale: its live bands claim nothing (its rows say Syncing).
@@ -168,7 +178,19 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
         panel,
       };
     },
-    [state, read, others, device, ownDevice, query, projectName, placed, syncing, isChatThread],
+    [
+      state,
+      read,
+      others,
+      device,
+      ownDevice,
+      query,
+      found,
+      projectName,
+      placed,
+      syncing,
+      isChatThread,
+    ],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }

@@ -1,4 +1,6 @@
 import { deriveAccent } from "./accent-fit.ts";
+import { rowFills } from "./row-fills.ts";
+import { tintedLike } from "./surface-tint.ts";
 import { oklchToHex, parseOpaqueColor, readableAcross, rgbToOklch } from "./colour.ts";
 import { ace } from "./sources/ace.ts";
 import { dusk } from "./sources/dusk.ts";
@@ -92,18 +94,23 @@ function fitted(draft: Palette, scheme: Scheme): Palette {
 }
 
 function palette(source: SchemeSource, scheme: Scheme, material: Material): Palette {
+  // A raised surface is the canvas lifted: its hue and chroma, at its own lightness.
+  const raised = tintedLike(source.raised, source.canvas);
   // The glass is solved against the designed text, before any fitting: fitting only moves text
   // further from the surfaces, so the tint stays thick enough and never shifts with it.
   const glassTint = glassTintAlpha(
-    { s2: source.raised, t1: source.text, t2: source.muted, t3: source.subtle, material },
+    { s2: raised, t1: source.text, t2: source.muted, t3: source.subtle, material },
     scheme,
   );
   const draft: Palette = {
     glassTint,
     ...source,
+    raised,
+    // Hover and the open row must show on the sidebar's panel, the surface rows sit on.
+    ...rowFills(source),
     s0: source.canvas,
     s1: source.surface,
-    s2: source.raised,
+    s2: raised,
     t1: source.text,
     t2: source.muted,
     t3: source.subtle,

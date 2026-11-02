@@ -5,7 +5,7 @@ import {
   GaugeIcon,
   HandPalmIcon,
   QuestionIcon,
-  SlidersHorizontalIcon,
+  SparkleIcon,
   TerminalWindowIcon,
   WarningCircleIcon,
   type Icon,
@@ -23,7 +23,7 @@ import { WaitingCountMark } from "./waiting-count-mark.tsx";
  */
 
 const glyphs: Record<Exclude<RowStatusIconKind, "agents">, { icon: Icon; weight: IconWeight }> = {
-  model: { icon: SlidersHorizontalIcon, weight: "fill" },
+  model: { icon: SparkleIcon, weight: "fill" },
   approve: { icon: HandPalmIcon, weight: "fill" },
   question: { icon: QuestionIcon, weight: "fill" },
   failed: { icon: WarningCircleIcon, weight: "fill" },

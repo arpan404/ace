@@ -566,3 +566,18 @@ test("a group leads with its providers' marks, not a status glyph, and a child's
   expect(done.querySelector("[data-detail='live']")).toBeNull();
   expect(done.querySelector(".text-foreground[data-detail]")).toBeNull();
 });
+
+test("hovering an agent row opens a card with its status and the machine it runs on", async () => {
+  const app = harness();
+  app.play(scenario(spawn("first"))).runUntilBlocked();
+  await app.open("/t/inline-subagents");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const row = await within(feed).findByRole("link", { name: /^Open Review first, Running/ });
+  await userEvent.hover(row);
+  const card = await screen.findByLabelText("Details for Review first", {}, { timeout: 3000 });
+  // Its name and status as the row says them, then where it runs: this machine.
+  expect(card.textContent).toContain("Review first");
+  expect(card.textContent).toContain("Running");
+  expect(card.textContent).toMatch(/This machine|Fake machine/);
+  await userEvent.unhover(row);
+});

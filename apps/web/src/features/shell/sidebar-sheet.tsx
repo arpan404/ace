@@ -1,6 +1,6 @@
-import { SidebarSimpleIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { SidebarShownIcon } from "@/components/ace-icons.tsx";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 
 /**
@@ -35,7 +35,7 @@ export function SidebarSheet(props: {
         <SheetTitle className="sr-only">Sidebar</SheetTitle>
         {props.children}
         <IconButton
-          icon={SidebarSimpleIcon}
+          icon={SidebarShownIcon}
           label="Hide sidebar"
           shortcut="toggleSidebar"
           onClick={() => props.onOpenChange(false)}

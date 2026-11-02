@@ -10,8 +10,10 @@ import {
   type SubagentDetail,
 } from "@ace/ui-core";
 import { useAgent, useItem, useSidebarThread } from "@ace/client-react";
+import type { ReactElement } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { AgentHoverCard, type AgentCardSubject } from "./agent-hover-card.tsx";
 import { useThreadHost } from "@/lib/machine-threads.ts";
 import { SubagentLink, type SubagentTarget } from "@/lib/subagent-link.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -99,6 +101,12 @@ export function SubagentRow(props: {
     detailKind: kind,
   };
   const classes = cn(agentRowStyles.box, props.listed && agentRowStyles.listed);
+  // What its hover card reads: a delegated thread (here or on another machine), or a subagent.
+  const subject: AgentCardSubject | undefined = entry.childThreadId
+    ? { kind: "delegated", threadId: props.threadId, childThreadId: entry.childThreadId }
+    : entry.agentId
+      ? { kind: "subagent", threadId: props.threadId, agentId: entry.agentId }
+      : undefined;
   const target: SubagentTarget | undefined =
     entry.machine && entry.childThreadId
       ? host
@@ -120,19 +128,23 @@ export function SubagentRow(props: {
     <li data-subagent-state={entry.state} className="relative">
       {/* A child on a machine this window can't reach has no thread here: it opens the Summary. */}
       {target ? (
-        <SubagentLink subagent={target} aria-label={label} className={classes}>
-          <AgentRowContents {...parts} />
-        </SubagentLink>
+        <WithCard subject={subject} parts={parts}>
+          <SubagentLink subagent={target} aria-label={label} className={classes}>
+            <AgentRowContents {...parts} tooltips={!subject} />
+          </SubagentLink>
+        </WithCard>
       ) : (
         // Its agent hasn't been seen yet: the spawn call is all there is, in the Work tree.
-        <button
-          type="button"
-          aria-label={label}
-          className={classes}
-          onClick={() => workspace.open({ kind: "work" })}
-        >
-          <AgentRowContents {...parts} />
-        </button>
+        <WithCard subject={subject} parts={parts}>
+          <button
+            type="button"
+            aria-label={label}
+            className={classes}
+            onClick={() => workspace.open({ kind: "work" })}
+          >
+            <AgentRowContents {...parts} tooltips={!subject} />
+          </button>
+        </WithCard>
       )}
       {entry.machine && entry.childThreadId && entry.state === "human" && (
         <LostChildAction threadId={props.threadId} childThreadId={entry.childThreadId} />
@@ -150,5 +162,20 @@ export function SubagentRow(props: {
         </SubagentLink>
       )}
     </li>
+  );
+}
+
+/** The row (`children`) with its agent's hover card, when there is an agent to describe. */
+function WithCard(props: {
+  subject: AgentCardSubject | undefined;
+  parts: AgentRowParts;
+  children: ReactElement;
+}) {
+  return props.subject ? (
+    <AgentHoverCard subject={props.subject} parts={props.parts}>
+      {props.children}
+    </AgentHoverCard>
+  ) : (
+    props.children
   );
 }

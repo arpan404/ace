@@ -3,9 +3,12 @@ import type { ThreadsPanel } from "./thread-place.ts";
 
 /*
  * The Threads panel's rows as the sidebar draws them (ADR 0107): the open tab's threads, one
- * flat list with no headings. The Inbox puts Unsent on top, then its threads band by band; the
- * Settled tab ends with a note that older settled threads are in search. Pure.
+ * flat list with no headings. The Inbox puts Unsent on top, then every thread band by band.
+ * Snoozed and Settled show a page at a time and end with Show more and Show less. Pure.
  */
+
+/** How many threads Snoozed and Settled show at first, and how many each Show more adds. */
+export const panelPage = 50;
 
 /** Where an Inbox row shows: among the pinned ones that lead it, or after them. */
 export type RowPlace = "pinned" | "active";
@@ -21,8 +24,11 @@ export type HomeRow =
   | { kind: "snoozed"; id: string }
   /** A thread in Settled. */
   | { kind: "settled"; id: string }
-  /** Settled's last row while the daemon holds older ones back: search (⌘K) reaches them. */
-  | { kind: "older" }
+  /**
+   * Snoozed's or Settled's last row while it shows part of its threads (`more`: Show more) or
+   * more than its first page (`less`: Show less).
+   */
+  | { kind: "more"; more: boolean; less: boolean }
   | { kind: "empty"; key: string; text: string }
   /** The Chats panel's label over its Active chats. */
   | { kind: "active-label" }
@@ -34,8 +40,10 @@ export type HomeRow =
 export interface PanelRowOptions {
   /** Unsent sends, at the Inbox's top. */
   includeUnsent?: boolean | undefined;
-  /** The daemon holds older settled threads back: Settled ends by pointing to search. */
-  olderInSearch?: boolean | undefined;
+  /** How many threads Snoozed or Settled shows (`panelPage` at first); unset, all of them. */
+  shown?: number | undefined;
+  /** The daemon holds older settled threads back: Settled can show more than it has loaded. */
+  moreOnDaemon?: boolean | undefined;
 }
 
 /** The rows of one tab, top to bottom. */
@@ -44,10 +52,15 @@ export function panelRows(
   tab: ThreadsTab,
   options: PanelRowOptions = {},
 ): HomeRow[] {
-  if (tab === "snoozed") return panel.snoozed.map((id) => ({ kind: "snoozed", id }));
-  if (tab === "settled") {
-    const rows: HomeRow[] = panel.settled.map((id) => ({ kind: "settled", id }));
-    if (options.olderInSearch) rows.push({ kind: "older" });
+  if (tab === "snoozed" || tab === "settled") {
+    const ids = panel[tab];
+    const shown = options.shown ?? ids.length;
+    const rows: HomeRow[] = ids
+      .slice(0, shown)
+      .map((id) => (tab === "snoozed" ? { kind: "snoozed", id } : { kind: "settled", id }));
+    const more = ids.length > shown || (tab === "settled" && options.moreOnDaemon === true);
+    const less = shown > panelPage && ids.length > panelPage;
+    if (more || less) rows.push({ kind: "more", more, less });
     return rows;
   }
   const pinned = new Set(panel.pinned);

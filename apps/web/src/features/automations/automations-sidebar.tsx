@@ -1,9 +1,15 @@
 import { PlusIcon } from "@phosphor-icons/react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useRef, useState } from "react";
-import { Button } from "@/components/ui/button.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
-import { panelLabel, PanelRowBody, panelRow, PanelSearch } from "@/components/ui/panel.tsx";
+import {
+  panelIconButton,
+  panelLabel,
+  PanelNoMatch,
+  PanelRowBody,
+  panelRow,
+} from "@/components/ui/panel.tsx";
+import { Icon } from "@/components/icon.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { ViewSidebarError, useViewListKeys } from "@/components/ui/view-row.tsx";
 import { VirtualList, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
@@ -24,8 +30,9 @@ const rowKey = (entry: ListRow) =>
 const estimateOf = (entry: ListRow) => (entry.kind === "row" ? 37 : entry.first ? 32 : 48);
 
 /**
- * Automations' panel: its title, "Search automations" once there is one, New automation, then
- * Upcoming (soonest first), Paused, and the ones agents made in threads. Each row is one line:
+ * Automations' panel: its title row (New automation, then the magnifier that opens "Search
+ * automations" in place once there is one), then Upcoming (soonest first), Paused, and the ones
+ * agents made in threads. Each row is one line:
  * its title, then a status word when it needs a look and when it runs next.
  */
 export function AutomationsSidebar() {
@@ -52,44 +59,15 @@ export function AutomationsSidebar() {
   return (
     <ViewSidebar
       title="Automations"
-      toolbar={
-        <>
-          {any && (
-            <PanelSearch
-              label="Search automations"
-              placeholder="Search automations"
-              value={query}
-              onValueChange={setQuery}
-            />
-          )}
-          <div className="shrink-0 px-2 pb-1">
-            <Link
-              to="/automations/new"
-              activeOptions={{ exact: true }}
-              activeProps={{ "aria-current": "page" }}
-              {...panelRow()}
-            >
-              <PanelRowBody icon={PlusIcon} title="New automation" />
-            </Link>
-          </div>
-        </>
-      }
+      actions={<NewAutomationButton />}
+      {...(any ? { search: { label: "Search automations", query, onQuery: setQuery } } : {})}
     >
       {!list.data && list.isError ? (
         <ViewSidebarError onRetry={() => void list.refetch()} />
       ) : !groups ? (
         <ListSkeleton label="automations" shape="row" rows={4} />
       ) : !groups.length && query.trim() ? (
-        <EmptyState
-          variant="inline"
-          title="No matching automations"
-          description={`Nothing matches "${query.trim()}".`}
-          action={
-            <Button size="sm" variant="ghost" onClick={() => setQuery("")}>
-              Clear search
-            </Button>
-          }
-        />
+        <PanelNoMatch>No automations match.</PanelNoMatch>
       ) : (
         <nav {...keys} aria-label="Automation list">
           <VirtualList
@@ -147,5 +125,25 @@ function AutomationRow(props: { row: SidebarRow; selected: boolean }) {
         }
       />
     </Link>
+  );
+}
+
+/** New automation, the + in the title row, as Skills' Add and Threads' New thread sit there. */
+function NewAutomationButton() {
+  return (
+    <Tip label="New automation">
+      <Link
+        to="/automations/new"
+        aria-label="New automation"
+        activeOptions={{ exact: true }}
+        activeProps={{ "aria-current": "page" }}
+        className={cn(
+          panelIconButton,
+          "aria-[current=page]:bg-active aria-[current=page]:text-foreground",
+        )}
+      >
+        <Icon icon={PlusIcon} size={18} />
+      </Link>
+    </Tip>
   );
 }

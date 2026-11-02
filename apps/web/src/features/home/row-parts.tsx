@@ -6,19 +6,19 @@ import {
   type ThreadCard,
 } from "@ace/ui-core";
 import { StatusIcon } from "@/components/status-icons.tsx";
-import { AgentCursorIcon } from "@/components/ace-icons.tsx";
+import { AgentCursorIcon, BrowserUseIcon } from "@/components/ace-icons.tsx";
 import { formatElapsed } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useMachines } from "@/lib/machines.ts";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
 import { useThreadComputerUse } from "@/lib/computer-using.ts";
-import { ClockIcon, GlobeSimpleIcon, TreeStructureIcon } from "@phosphor-icons/react";
+import { ClockIcon, TreeStructureIcon } from "@phosphor-icons/react";
 import type { LinkClick } from "@/lib/web-links.ts";
 import { useOpenThreadPullRequest } from "./open-pull-request.ts";
 
@@ -53,7 +53,7 @@ export function threadDetails(card: ThreadCard): string[] {
 
 export { ProjectMark } from "@/components/project-mark.tsx";
 
-/** A quiet globe in the working colour while an agent works in the thread's browser. */
+/** The globe with the agent's pointer, in the working colour, while an agent works in the thread's browser. */
 export function BrowsingMark(props: { threadId: string }) {
   if (!useThreadBrowsing(props.threadId)) return null;
   return (
@@ -64,7 +64,7 @@ export function BrowsingMark(props: { threadId: string }) {
         data-tone="working"
         className="inline-flex shrink-0 text-status-working"
       >
-        <GlobeSimpleIcon aria-hidden size={12} />
+        <BrowserUseIcon aria-hidden size={14} />
       </span>
     </Tip>
   );
@@ -91,8 +91,10 @@ export function ComputerUseMark(props: { threadId: string }) {
 }
 
 /**
- * State is also spoken, so the PR's colour is never the only clue. `ink="muted"` (rows) draws it
- * in the surrounding muted ink; the hover card keeps the state's colour.
+ * A thread's pull request: its state's glyph (the merge glyph once merged) in the state's colour,
+ * everywhere it shows, so a row and its hover card always agree. `ink="muted"` (rows) keeps the
+ * number in the surrounding muted ink; elsewhere it takes the state's colour too. State is also
+ * spoken, so the colour is never the only clue.
  */
 export function PullRequest(props: { card: ThreadCard; ink?: "state" | "muted" | undefined }) {
   const { pr, prState } = props.card;
@@ -104,7 +106,7 @@ export function PullRequest(props: { card: ThreadCard; ink?: "state" | "muted" |
   const label = `${prState ?? "Linked"} pull request #${pr}${more > 0 ? `, ${more} more linked` : ""}`;
   const content = (
     <>
-      <PullRequestGlyph state={props.ink === "muted" ? undefined : prState} size={12} />#{pr}
+      <PullRequestGlyph state={prState} size={12} />#{pr}
       {more > 0 && <span>+{more}</span>}
     </>
   );
@@ -198,6 +200,51 @@ function ActiveElapsed(props: { card: ThreadCard }) {
   return <span className="text-muted-foreground tabular-nums">{props.card.age}</span>;
 }
 
+/**
+ * The provider a thread runs on, as every row shows it: its mark at 80%, with the account's badge
+ * on its corner when the person has more than one account for that provider. Decorative: the
+ * row's spoken name and hover card name both.
+ */
+export function RowProvider(props: { card: ThreadCard }) {
+  const { card } = props;
+  return (
+    <ProviderAccountIcon
+      provider={card.provider}
+      acpAgentId={card.acpAgentId}
+      instance={card.account}
+      size={14}
+      decorative
+      tooltip={false}
+      className="text-foreground opacity-80"
+    />
+  );
+}
+
+/**
+ * What a one-line snoozed or settled row has to show for its work, where a chat shows its status:
+ * its pull request (in the muted ink, opening it as a task row's does) and the lines it changed,
+ * "+120 −8". Nothing when it has neither.
+ */
+export function RowWork(props: { card: ThreadCard }) {
+  const { card } = props;
+  if (card.pr === undefined && !card.diff) return null;
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5 text-meta whitespace-nowrap text-muted-foreground tabular-nums">
+      <PullRequest card={card} ink="muted" />
+      {card.diff && (
+        <span
+          role="img"
+          aria-label={`${card.diff.added} lines added, ${card.diff.removed} lines removed`}
+          className="inline-flex items-center gap-1"
+        >
+          <span className="text-status-done">+{card.diff.added}</span>
+          <span className="text-status-failed">−{card.diff.removed}</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** A snoozed row says what it waits for ("until it needs you") where others say their status. */
 export function RowWake(props: { wake: string }) {
   return (
@@ -262,13 +309,7 @@ export function RowContext(props: {
               {card.subagents}
             </span>
           )}
-          <ProviderIcon
-            provider={card.provider}
-            acpAgentId={card.acpAgentId}
-            size={14}
-            decorative
-            className="text-foreground opacity-80"
-          />
+          <RowProvider card={card} />
         </span>
       </span>
     </div>
@@ -281,19 +322,11 @@ export function useManyDevices(): boolean {
 }
 
 /**
- * Whether a row's title is semibold: only when the thread needs the person (an approval, a
- * question, a model to pick). Every other title, open or not, is regular weight.
- */
-export function boldTitle(attention: RowAttention): boolean {
-  return attention.level === "needs-you";
-}
-
-/**
- * The title's ink and weight from the row's attention level: semibold for what needs the person
- * (`boldTitle`), full contrast for live work, and the muted ink for everything at rest. The
- * title itself always shows.
+ * The title's ink from the row's attention level: full contrast for what needs the person and for
+ * live work, the muted ink for everything at rest. Attention is brightness alone; every title is
+ * regular weight.
  */
 export function titleTone(attention: RowAttention): string {
-  if (boldTitle(attention)) return "font-semibold text-foreground";
+  if (attention.level === "needs-you") return "text-foreground";
   return attention.muted ? "text-muted-foreground" : "text-foreground";
 }

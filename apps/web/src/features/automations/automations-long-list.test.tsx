@@ -5,6 +5,7 @@ import { beforeEach, expect, test } from "vitest";
 import { fakeClient } from "@/test/fake-client.ts";
 import { harness } from "@/test/harness.tsx";
 import { useScrollLayout } from "@/test/scroll-layout.ts";
+import { openPanelSearch } from "@/test/panel-search.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
@@ -89,7 +90,7 @@ test("End reaches the last automation, under In threads, scrolled into view", as
 
 test("searching 2,000 automations finds one far down the list", async () => {
   const list = await open();
-  await userEvent.type(screen.getByRole("searchbox", { name: "Search automations" }), "Bulk 0987");
+  await userEvent.type(await openPanelSearch("Search automations"), "Bulk 0987");
   expect(await list.findByRole("link", { name: /^Bulk 0987/ })).toBeTruthy();
   await waitFor(() => expect(list.getAllByRole("link")).toHaveLength(1));
 });

@@ -11,6 +11,8 @@ import type { PullRequestFixture } from "../catalog/pull-request-details.ts";
 import type { FakeDaemon } from "../daemon.ts";
 import type { ServicesSeed } from "../services-wire.ts";
 import type { SkillSeed } from "../skill-library.ts";
+import { cardDetails } from "./card-details.ts";
+import { variedThread } from "./varied-threads.ts";
 
 /*
  * Lists far longer than a screen, for measuring and testing the app's long lists (Skills,
@@ -154,9 +156,72 @@ export function seedSettledThreads(daemon: FakeDaemon, count: number, workspaceI
   }
 }
 
+/** Varied thread `n` of a long list (`variedThread`), created `agoMs` back with its card details. */
+function createVaried(daemon: FakeDaemon, id: string, n: number, agoMs: number): void {
+  const thread = variedThread(n);
+  daemon.createThread(
+    {
+      id,
+      workspaceId: WorkspaceId.parse(thread.workspaceId),
+      title: thread.title,
+      provider: thread.provider,
+      hasSentMessage: true,
+      ...(thread.account
+        ? {
+            execution: {
+              provider: thread.provider,
+              model: thread.provider === "codex" ? "gpt-5.5" : "claude-opus-5-5",
+              instanceId: thread.account,
+              options: {},
+            },
+          }
+        : {}),
+      details: cardDetails(thread.seed, thread.workspaceId, {
+        host: daemon.hostId,
+        name: daemon.displayName,
+      }),
+    },
+    agoMs,
+  );
+}
+
+/**
+ * `count` varied snoozed threads (`variedThread`), each waking an hour after the one before,
+ * the first in an hour.
+ */
+export function seedSnoozedThreads(daemon: FakeDaemon, now: number, count: number): void {
+  for (let n = 0; n < count; n++) {
+    const id = `thread-long-snoozed-${pad(n + 1)}`;
+    createVaried(daemon, id, n, (n + 1) * minute);
+    daemon.command({
+      id: CommandId.parse(`snooze-${id}`),
+      deviceId: DeviceId.parse("long-lists"),
+      payload: {
+        type: "thread.snooze",
+        threadId: ThreadId.parse(id),
+        until: now + (n + 1) * 60 * minute,
+      },
+    });
+  }
+}
+
+/** `count` varied settled threads (`variedThread`), one a minute apart, newest first. */
+export function seedVariedSettledThreads(daemon: FakeDaemon, count: number): void {
+  for (let n = 0; n < count; n++) {
+    const id = `thread-long-varied-settled-${pad(n + 1)}`;
+    createVaried(daemon, id, n, (n + 1) * minute);
+    daemon.command({
+      id: CommandId.parse(`settle-${id}`),
+      deviceId: DeviceId.parse("long-lists"),
+      payload: { type: "thread.settle", threadId: ThreadId.parse(id) },
+    });
+  }
+}
+
 /**
  * Every long list at once, for `?fakeLists=` in the fake app: pull requests and notifications
- * in place of the seeded ones, issues beside them, the long skills library and settled threads.
+ * in place of the seeded ones, issues beside them, the long skills library, and settled and
+ * snoozed threads.
  * Automations go through `withLongAutomations`, since they arrive with the services seed.
  */
 export function seedLongLists(daemon: FakeDaemon, now: number, count: number): void {
@@ -169,5 +234,6 @@ export function seedLongLists(daemon: FakeDaemon, now: number, count: number): v
     );
   daemon.workspace.inbox.seed(longInbox(now, count));
   daemon.skills.seed(longSkills(count));
-  seedSettledThreads(daemon, count);
+  seedVariedSettledThreads(daemon, count);
+  seedSnoozedThreads(daemon, now, count);
 }

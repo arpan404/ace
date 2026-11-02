@@ -10,6 +10,7 @@ import { SubagentElapsed } from "./subagent-row.tsx";
 import { StaticRow } from "./transcript-row.tsx";
 import { ThreadLink } from "../transitions/thread-link.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { ThreadPreview } from "@/lib/thread-preview.tsx";
 
 /**
  * The conversation an agent started with `thread_start`, as an agent row where it was started:
@@ -37,31 +38,34 @@ export function StartedThreadCard(props: { threadId: string; itemId: string }) {
   const terminal = subagentTerminal(state);
   return (
     <section aria-label={`${label}: ${title}`}>
-      <Link
-        to="/t/$threadId"
-        params={{ threadId: started.threadId }}
-        search={machine}
-        aria-label={`Open ${title}`}
-        className={agentRowStyles.box}
-      >
-        <AgentRowContents
-          mark={{ provider, model }}
-          name={title}
-          meta={thread ? `${label} · ${projectName(thread.workspaceId)}` : label}
-          state={state}
-          stale={!live.fresh && !terminal}
-          elapsed={
-            thread && (
-              <SubagentElapsed
-                startedAt={thread.createdAt}
-                endedAt={thread.updatedAt}
-                running={!terminal}
-                fresh={live.fresh}
-              />
-            )
-          }
-        />
-      </Link>
+      <ThreadPreview threadId={started.threadId}>
+        <Link
+          to="/t/$threadId"
+          params={{ threadId: started.threadId }}
+          search={machine}
+          aria-label={`Open ${title}`}
+          className={agentRowStyles.box}
+        >
+          <AgentRowContents
+            mark={{ provider, model }}
+            name={title}
+            meta={thread ? `${label} · ${projectName(thread.workspaceId)}` : label}
+            state={state}
+            stale={!live.fresh && !terminal}
+            elapsed={
+              thread && (
+                <SubagentElapsed
+                  startedAt={thread.createdAt}
+                  endedAt={thread.updatedAt}
+                  running={!terminal}
+                  fresh={live.fresh}
+                />
+              )
+            }
+            tooltips={!thread}
+          />
+        </Link>
+      </ThreadPreview>
     </section>
   );
 }

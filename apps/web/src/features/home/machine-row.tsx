@@ -20,11 +20,13 @@ export function MachineRow(props: {
   leaving: boolean;
   /**
    * A Threads panel row (`settled` for one in Settled) or a chat in the Chats panel (a chat's
-   * hover actions; `settled` dims it).
+   * hover actions; `settled` dims a chat).
    */
   shape: "task" | "chat";
   lead: RowLead;
   settled?: boolean | undefined;
+  /** What a one-line row ends with (`ThreadRow`'s `end`). */
+  end?: "status" | "work" | undefined;
 }) {
   const ref = machineRow(props.id);
   const machine = useMachines().find((each) => each.id === ref?.hostId);
@@ -43,10 +45,12 @@ export function MachineRow(props: {
         threadId={ref.threadId}
         rowId={props.id}
         settled={props.shape === "task" && props.settled === true}
-        dimmed={props.settled}
+        // Only a settled chat dims: Settled is its own tab, so its rows keep full ink.
+        dimmed={props.shape === "chat" && props.settled === true}
         leaving={props.leaving}
         machine={mark}
         lead={props.lead}
+        end={props.end}
         {...(props.shape === "chat" ? { actions: ChatRowActions, compactActions: true } : {})}
       />
     </MachineScope>

@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { listGroup } from "@/test/list-groups.ts";
+import { openPanelSearch } from "@/test/panel-search.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -118,7 +119,7 @@ test("the list groups upcoming automations, then paused ones, each with when it 
 
 test("searching the list keeps only the automations whose names match", async () => {
   const { sidebar } = await open("/automations/auto-dependency-audit");
-  await userEvent.type(screen.getByRole("searchbox", { name: "Search automations" }), "flaky");
+  await userEvent.type(await openPanelSearch("Search automations"), "flaky");
   await waitFor(() => expect(sidebar.queryByRole("link", { name: /Nightly/ })).toBeNull());
   expect(sidebar.getByRole("link", { name: /Flaky test triage/ })).toBeTruthy();
 });

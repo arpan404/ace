@@ -2,7 +2,7 @@ import { useSidebarLoaded } from "@ace/client-react";
 import { ChatsCircleIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { PanelSearch, PanelTitleRow } from "@/components/ui/panel.tsx";
+import { PanelNoMatch, PanelSearch, PanelTitleRow } from "@/components/ui/panel.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useOrganizer, useOverlaidMachineEntries } from "@/features/organize/index.ts";
@@ -11,7 +11,7 @@ import { useHostIdentity } from "@/lib/host-name.ts";
 import { useMachineEntries } from "@/lib/machine-threads.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
 import { useMachines } from "@/lib/machines.ts";
-import { ChatHits } from "./chat-row.tsx";
+import { FoundHits } from "./found-row.tsx";
 import { ChatsFilter } from "./chats-filter.tsx";
 import { useChatsDevice } from "./device-filter-state.ts";
 import { DraftRows } from "./new-thread/draft-rows.tsx";
@@ -87,9 +87,11 @@ export function ChatsSidebar() {
             }
           />
         ) : searching && !chats.rows.length ? (
-          <p className="px-4 pt-4 text-ui text-subtle-foreground">No chats match.</p>
+          <div className="px-2">
+            <PanelNoMatch>No chats match.</PanelNoMatch>
+          </div>
         ) : (
-          <ChatHits value={chats.hits}>
+          <FoundHits value={chats.hits}>
             <ThreadList
               label="Chats"
               rows={chats.rows}
@@ -97,7 +99,7 @@ export function ChatsSidebar() {
               pinned={chats.pinned}
               onNearEnd={setNear}
             />
-          </ChatHits>
+          </FoundHits>
         )}
       </nav>
     </div>

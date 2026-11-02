@@ -187,8 +187,8 @@
   }
   :root[data-surface="translucent"] .ace-backdrop {
     background: var(--scrim-glass);
-    -webkit-backdrop-filter: blur(var(--backdrop-blur)) saturate(140%);
-    backdrop-filter: blur(var(--backdrop-blur)) saturate(140%);
+    -webkit-backdrop-filter: blur(var(--backdrop-blur));
+    backdrop-filter: blur(var(--backdrop-blur));
   }
 }
 
