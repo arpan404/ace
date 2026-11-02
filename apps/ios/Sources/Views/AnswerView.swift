@@ -37,9 +37,6 @@ struct AnswerRow: View {
                     .messageMenu(menu ? shown : "", title: "Answer", row: row)
             }
             if row.truncated && !live && full == nil { partial }
-            if !between && (row.complete || (row.truncated && !live)) {
-                MessageActions(row: row, copy: shown, label: full == nil && row.truncated ? "Copy preview" : "Copy answer")
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)

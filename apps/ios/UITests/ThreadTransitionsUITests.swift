@@ -10,11 +10,11 @@ import XCTest
     func testForkFromAnAnswerOpensTheForkInTheComposer() {
         let app = launch()
         open("ios-turns", in: app)
-        XCTAssertTrue(waitForAny(prefix: "message.fork.", in: app))
+        // A message's actions are in its long-press menu: nothing sits under it at rest.
+        XCTAssertTrue(waitForAny(prefix: "message.answer.", in: app))
+        openMenu(of: message("message.answer.", in: app), in: app)
         screenshot("message-actions")
-        let first = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "message.fork.")).firstMatch
-        app.bringToMiddle(first)
-        first.tap()
+        app.buttons["Fork from here"].tap()
         XCTAssertTrue(app.staticTexts["composer.fork"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["composer.fork.cancel"].exists)
         screenshot("fork-composer")
@@ -30,11 +30,10 @@ import XCTest
     func testEditForksFromBeforeTheMessageWithItsWordsAndImage() {
         let app = launch()
         open("ios-turns", in: app)
-        XCTAssertTrue(waitForAny(prefix: "message.edit.", in: app))
+        XCTAssertTrue(waitForAny(prefix: "message.user.", in: app))
         // The first message that can be edited carries a picture.
-        let edit = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "message.edit.")).element(boundBy: 0)
-        app.bringToMiddle(edit)
-        edit.tap()
+        openMenu(of: message("message.user.", in: app), in: app)
+        app.buttons["Edit"].tap()
         XCTAssertTrue(app.staticTexts["composer.fork"].waitForExistence(timeout: 15))
         let input = app.textViews["composer.input"]
         XCTAssertTrue((input.value as? String)?.isEmpty == false, "the edited message's words start the fork")
@@ -53,7 +52,7 @@ import XCTest
     func testRenameTurnsAndAttachmentsFromTheHeader() {
         let app = launch()
         open("ios-turns", in: app)
-        XCTAssertTrue(waitForAny(prefix: "message.copy.", in: app))
+        XCTAssertTrue(waitForAny(prefix: "message.", in: app))
         let title = app.buttons["thread.title"]
         XCTAssertTrue(title.waitForExistence(timeout: 20))
         title.tap()
@@ -97,12 +96,15 @@ import XCTest
     func testPiOffersRetryAndRewind() {
         let app = launch()
         open("ios-pi", in: app)
-        XCTAssertTrue(waitForAny(prefix: "message.retry.", in: app))
-        XCTAssertTrue(waitForAny(prefix: "message.rewind.", in: app))
+        XCTAssertTrue(waitForAny(prefix: "message.answer.", in: app))
+        // Retry sits under the last answer, Rewind under an earlier one, both in the long-press menu.
+        let answers = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "message.answer."))
+        openMenu(of: answers.element(boundBy: answers.count - 1), in: app)
+        XCTAssertTrue(app.buttons["Retry"].waitForExistence(timeout: 10))
         screenshot("pi-retry-rewind")
-        let rewind = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "message.rewind.")).firstMatch
-        app.bringToMiddle(rewind)
-        rewind.tap()
+        app.tap()
+        openMenu(of: answers.element(boundBy: 0), in: app)
+        app.buttons["Rewind to here"].tap()
         XCTAssertTrue(app.buttons["rewind.confirm"].waitForExistence(timeout: 10))
         screenshot("rewind-confirm")
     }
@@ -110,7 +112,7 @@ import XCTest
     func testBringBackFromAFork() {
         let app = launch()
         open("ios-fork", in: app)
-        XCTAssertTrue(waitForAny(prefix: "message.copy.", in: app))
+        XCTAssertTrue(waitForAny(prefix: "message.", in: app))
         app.buttons["thread.menu"].tap()
         XCTAssertTrue(app.buttons["Bring back to parent…"].waitForExistence(timeout: 15))
         screenshot("fork-menu")
@@ -122,7 +124,7 @@ import XCTest
     func testMarkdownMathCodeAndDiff() {
         let app = launch()
         open("ios-markdown", in: app)
-        XCTAssertTrue(waitForAny(prefix: "message.copy.", in: app))
+        XCTAssertTrue(waitForAny(prefix: "message.", in: app))
         // markit draws the answer natively: its fenced code as a block with its own Copy, its math
         // typeset as images in the text (no web view), from the first frame of a finished answer.
         XCTAssertTrue(app.buttons["Copy code"].firstMatch.waitForExistence(timeout: 20))
@@ -138,7 +140,16 @@ import XCTest
     }
 
     private func waitForAny(prefix: String, in app: XCUIApplication, timeout: TimeInterval = 90) -> Bool {
-        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix)).firstMatch.waitForExistence(timeout: timeout)
+        message(prefix, in: app).waitForExistence(timeout: timeout)
+    }
+    private func message(_ prefix: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix)).firstMatch
+    }
+    /// A message's long-press menu: Copy, Select text, Share and what can be done from it.
+    private func openMenu(of message: XCUIElement, in app: XCUIApplication) {
+        app.bringToMiddle(message)
+        message.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["Copy"].waitForExistence(timeout: 10))
     }
     private func open(_ id: String, in app: XCUIApplication) {
         app.terminate()

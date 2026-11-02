@@ -24,6 +24,10 @@ private struct MessageMenu: ViewModifier {
         content
             .contextMenu {
                 if !text.isEmpty {
+                    // When it was sent heads the menu: nothing sits under a message at rest.
+                    if let row {
+                        Section(Date(timeIntervalSince1970: row.createdAt / 1000).formatted(date: .abbreviated, time: .shortened)) {}
+                    }
                     Button("Copy", ace: .copy) { UIPasteboard.general.string = text }
                     Button("Select text", ace: .textAlignLeft) { selecting = true }
                     ShareLink(item: text) { Label("Share", ace: .export) }

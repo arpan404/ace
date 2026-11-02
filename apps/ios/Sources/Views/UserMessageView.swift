@@ -15,7 +15,6 @@ struct UserMessageRow: View {
                     .padding(.leading, UserBubble.inset)
             }
             if readable { UserBubble(text: row.text, bubble: row.bubble, id: row.id).messageMenu(copyText, title: "Message", row: row) }
-            MessageActions(row: row, copy: readable ? copyText : nil, label: "Copy message")
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .contain)
