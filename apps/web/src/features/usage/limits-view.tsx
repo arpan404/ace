@@ -157,14 +157,16 @@ const freshMs = staleReadingMs;
  * Every window row keeps an even height. In a wide container it is one 40px line: label (with
  * "Ahead of pace" under it when it is), a bar of at least 96px up to 220px with the even-pace
  * tick, the share left, and when it resets. The label column keeps at least 7rem so "Session
- * (5h)" and "Weekly" never truncate; the bar shrinks first but never away. Below 38rem of
- * container the row stacks: label and percent share the first line, the bar stretches full-width
- * beneath them, and the reset line hides (its words stay spoken on the meter).
+ * (5h)" and "Weekly" never truncate; the bar shrinks first but never away. Below 52rem of
+ * container there is no room for a reset column, so when it resets moves under the share left.
+ * Below 38rem the row stacks: label, share left and reset share the first line, and the bar
+ * stretches full-width beneath them.
  */
 const rowGrid = cn(
   "grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4",
   "sm:@max-[38rem]/limits:h-12 sm:@max-[38rem]/limits:grid-rows-[1fr_auto] sm:@max-[38rem]/limits:gap-y-1.5",
-  "@min-[38rem]/limits:grid-cols-[minmax(7rem,11rem)_minmax(6rem,220px)_5.5rem_minmax(0,1fr)]",
+  "@min-[38rem]/limits:grid-cols-[minmax(7rem,11rem)_minmax(6rem,1fr)_auto]",
+  "@min-[52rem]/limits:grid-cols-[minmax(7rem,11rem)_minmax(6rem,220px)_5.5rem_minmax(0,1fr)]",
 );
 
 const barTone: Record<HeadroomTone, string> = {
@@ -200,6 +202,23 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
   // Nothing used yet: the window is fresh, whenever it would reset.
   const fresh = window.leftPercent === 100;
   const old = now - window.observedAt > freshMs;
+  const resetTone = out
+    ? "text-status-failed"
+    : tone === "low"
+      ? "text-status-needs-you"
+      : "text-subtle-foreground";
+  const resetWords = fresh ? (
+    "Fresh"
+  ) : countdown === null || window.resetsAt === null ? (
+    "Reset not reported"
+  ) : (
+    <Tip label={formatResets(window.resetsAt, now)}>
+      {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
+      <span tabIndex={0} className="rounded-xs focus-ring">
+        {out ? "back in" : "Resets in"} {countdown}
+      </span>
+    </Tip>
+  );
   return (
     <li className={rowGrid}>
       <WindowName window={window} ahead={window.pace === "ahead"} />
@@ -226,36 +245,26 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
           />
         )}
       </div>
-      <p className="text-right whitespace-nowrap tabular-nums sm:@max-[38rem]/limits:col-start-2 sm:@max-[38rem]/limits:row-start-1">
+      <div className="text-right whitespace-nowrap tabular-nums sm:@max-[38rem]/limits:col-start-2 sm:@max-[38rem]/limits:row-start-1">
         <span className={cn("text-md font-semibold", out && "text-status-failed")}>
           {window.leftPercent}%
         </span>
         <span className="text-xs text-subtle-foreground"> left</span>
-      </p>
-      <div className="hidden min-w-0 text-right @min-[38rem]/limits:block">
-        <p
+        {/* No reset column below 52rem: when it resets sits with the share left instead. */}
+        <span
           className={cn(
-            "truncate text-ui tabular-nums",
-            out
-              ? "text-status-failed"
-              : tone === "low"
-                ? "text-status-needs-you"
-                : "text-subtle-foreground",
+            "text-2xs leading-3 @min-[38rem]/limits:block @min-[52rem]/limits:hidden",
+            resetTone,
           )}
         >
-          {fresh ? (
-            "Fresh"
-          ) : countdown === null || window.resetsAt === null ? (
-            "Reset not reported"
-          ) : (
-            <Tip label={formatResets(window.resetsAt, now)}>
-              {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
-              <span tabIndex={0} className="rounded-xs focus-ring">
-                {out ? "back in" : "Resets in"} {countdown}
-              </span>
-            </Tip>
-          )}
-        </p>
+          <span aria-hidden className="text-faint-foreground @min-[38rem]/limits:hidden">
+            {" · "}
+          </span>
+          {resetWords}
+        </span>
+      </div>
+      <div className="hidden min-w-0 text-right @min-[52rem]/limits:block">
+        <p className={cn("truncate text-ui tabular-nums", resetTone)}>{resetWords}</p>
         {old && (
           <p className="truncate text-2xs leading-3 text-faint-foreground">
             As of {formatAgo(window.observedAt, now)}
@@ -276,7 +285,9 @@ function StaleLine(props: { window: AccountWindow; now: number }) {
   return (
     <li className={rowGrid}>
       <WindowName window={window} ahead={false} />
-      <p className="text-ui text-subtle-foreground sm:col-span-2">{words}</p>
+      <p className="text-ui text-subtle-foreground sm:@max-[38rem]/limits:col-span-2 @min-[52rem]/limits:col-span-2">
+        {words}
+      </p>
       <p className="hidden truncate text-right text-ui text-subtle-foreground tabular-nums @min-[38rem]/limits:block">
         {window.resetsAt !== null && `Reset ${formatAgo(window.resetsAt, now)}`}
         <span className="block text-2xs leading-3 text-faint-foreground">
