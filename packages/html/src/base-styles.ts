@@ -8,7 +8,8 @@
  * and `grid`; unprefixed kit classes merged into those rules and broke layouts (a `.bar` toolbar
  * clipped to 6px, a `.row` that wrapped its send button). A `<button>` with a class of the page's
  * own is reset to a neutral box instead of taking the toolbar-button look, so rows, nav items and
- * option cards built from buttons lay out as written.
+ * option cards built from buttons lay out as written. A lone state class (`active`, `selected`, …)
+ * or an emptied `class` keeps the kit look, so a script toggling state doesn't strip it.
  *
  * It sits in the `ace` cascade layer, so any style the page writes itself wins without needing
  * more specificity. It sets no SVG paint, so a chart's own `fill`/`stroke` attributes stand.
@@ -50,8 +51,9 @@ figure{margin-inline:0}figcaption{margin-top:6px;font-size:.8125rem;color:var(--
 :focus-visible{outline:none;box-shadow:var(--ace-focus)}
 
 button{appearance:none;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:inherit;cursor:pointer}
-button:not([class]),button:is(.primary,.ghost,.small,.icon,.danger),.ace-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:4px 12px;border:1px solid var(--ace-edge);border-radius:var(--ace-r);background:var(--ace-surface);color:var(--ace-ink);font:500 .8125rem/1.2 var(--font-sans,system-ui);text-align:center;user-select:none;transition:background-color .15s,border-color .15s,color .15s,transform .1s,box-shadow .15s}
-button:not([class]):hover,.ace-button:hover{background:var(--ace-wash)}
+button:is(:not([class]),[class=""],[class=active],[class=selected],[class=current],[class=on],[class=checked]),button:is(.primary,.ghost,.small,.icon,.danger),.ace-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:4px 12px;border:1px solid var(--ace-edge);border-radius:var(--ace-r);background:var(--ace-surface);color:var(--ace-ink);font:500 .8125rem/1.2 var(--font-sans,system-ui);text-align:center;user-select:none;transition:background-color .15s,border-color .15s,color .15s,transform .1s,box-shadow .15s}
+button:is(:not([class]),[class=""],[class=active],[class=selected],[class=current],[class=on],[class=checked]):hover,.ace-button:hover{background:var(--ace-wash)}
+button:is(.active,.selected,.current,.on,.checked,[aria-pressed=true]):not(.primary,.ghost){border-color:color-mix(in srgb,var(--ace-accent) 60%,transparent);background:color-mix(in srgb,var(--ace-accent) 14%,transparent);color:var(--ace-ink)}
 button:active{transform:scale(.98)}
 button:disabled,button[aria-disabled=true]{opacity:.45;cursor:default;transform:none}
 button.primary{background:var(--ace-accent);border-color:transparent;color:var(--ace-on-accent)}

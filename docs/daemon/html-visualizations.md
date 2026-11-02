@@ -1,9 +1,21 @@
 # HTML visualizations in chat
 
 Agents call `html_render({ title, html, mode?, height? })` to publish a page inline in
-their reply. Render validates first: a page with unsupported features fails with
-`invalid_html`, lists each size, nesting or feature problem in `issues`, and publishes
-nothing, so one call both checks and publishes. HTML in a normal message remains text.
+their reply. Render checks first (`checkHtmlForPublish`): a page with unsupported features
+or a layout that breaks in the chat column fails with `invalid_html`, lists each problem in
+`issues`, and publishes nothing, so one call both checks and publishes. HTML in a normal
+message remains text.
+
+### Layout lint
+
+The same page shows 360 px wide on a phone, about 760 px on a desktop and up to about 1200 px
+in the side panel. `lintHtmlLayout` (`@ace/html`) reads the markup and CSS and refuses what
+the transcript has shown breaking there: viewport units and `height: 100%` on the root (the
+frame grows to fit the page, so they grow it without end), `position: fixed`, fixed widths
+over 360 px outside an `ace-scroll-x` or a `min-width` media query, font sizes under 10 px,
+and SVGs whose smallest label would render under 9 px once scaled to 360 px. It runs only at
+publication: rendering applies the safety validator alone, so pages published before a rule
+existed still display.
 
 The document cap is 16 MiB of UTF-8 (`maxHtmlDocumentBytes`), so a page can carry its
 raster images inline as base64 `data:` URLs, with a 160-character title and an optional
@@ -71,7 +83,7 @@ or inline handler, otherwise `interactive`. The daemon stores the resolved mode 
 item without one gets the same rule from the client. Desktop and web honour the stored mode;
 "Open in window" and downloads keep it. The UI shows no mode label.
 
-`@ace/html` owns the pure validator, the document builder and the two fixed bridge scripts
+`@ace/html` owns the pure validator, the layout lint, the document builder and the two fixed bridge scripts
 (`@ace/html/scripts`). The validator parses with parse5 and rejects authored frames, forms,
 plugins, `<link>`, base URLs, HTTP-equivalent metadata and every external URL in markup or
 CSS. Every display path wraps the page the same way:
@@ -167,10 +179,15 @@ on the daemon's machine.
   fits the content height up to the item's `height` (default 800 px) and scrolls inside beyond
   it. In the side panel the frame fills the panel and the page scrolls inside it.
 - **Style kit.** Before the authored styles, every page gets `baseStyles` (`@ace/html`) in the
-  `ace` cascade layer: native elements (type, buttons, inputs, sliders, tables, details) and a
-  few component classes (`card`, `stat`, `badge`, `callout`, `tabs`, `grid`, …) drawn from the
-  theme variables, so plain markup reads as ace UI. Unlayered authored CSS always wins. The kit
-  sets no SVG paint, so chart attributes stand. The visualize skill lists the classes.
+  `ace` cascade layer: native elements (type, buttons, inputs, sliders, tables, details) and
+  component classes drawn from the theme variables (`ace-rows`, `ace-flow`, `ace-timeline`,
+  `ace-split`, `ace-frame`, `ace-stat`, `ace-badge`, …), so plain markup reads as ace UI.
+  Every kit class starts with `ace-`, so it never merges into a page's own `.row` or `.card`
+  rules. A `<button>` carrying a class of the page's own is reset to a plain box, so rows and
+  option cards built from buttons lay out as written; a bare button, one whose only class is a
+  state (`active`, `selected`, …) and the kit's variants keep the ace button look. Unlayered
+  authored CSS always wins. The kit sets no SVG paint, so chart attributes stand. The
+  visualize skill lists the classes.
 - **Theme.** A page receives the app theme as CSS variables (`themeProperties`): surfaces,
   text tiers, hairlines and control edges, primary, accent (the accent picker) and accent text, status colours (`--success`, `--warning`,
   `--info`, `--destructive`), `--chart-1`…`--chart-6`, radius and fonts. When the theme or mode

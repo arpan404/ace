@@ -121,6 +121,9 @@
       "maximum": 9007199254740991,
       "type": "integer"
     },
+    "waitingSince": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
     "watching": {
       "items": {
         "properties": {
