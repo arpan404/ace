@@ -1,6 +1,7 @@
 import {
   ThreadRunMetadata,
   type Thread,
+  type ThreadStatus,
   type EventPayload,
   type Agent,
   type BackgroundTask,
@@ -139,8 +140,32 @@ export function liveMetadata(
     payload.status.state === "working" &&
     (thread.settledAt !== undefined || thread.autoSettleAt !== undefined);
   const live: Live = { provider: thread.provider, ...thread.live };
+  const changed = applyChange(live, thread, payload, previousAgent, previousTask, command, at);
+  const status =
+    payload.type === "thread.updated" && payload.status ? payload.status : thread.status;
+  const stamped = at !== undefined && stampTreeWait(live, status, at);
+  if (!changed && !stamped && !unsettled) return undefined;
+  return {
+    type: "thread.client.updated",
+    changes: {
+      live,
+      ...(unsettled ? { settledAt: null, settledReason: null, autoSettleAt: null } : {}),
+    },
+  };
+}
+
+/** `live` changed in place by one point change; false when it says nothing new. */
+function applyChange(
+  live: Live,
+  thread: Thread,
+  payload: EventPayload,
+  previousAgent: Agent | undefined,
+  previousTask: BackgroundTask | undefined,
+  command: string | undefined,
+  at: number | undefined,
+): boolean {
   if (payload.type === "thread.updated") {
-    let changed = Boolean(unsettled);
+    let changed = false;
     if (payload.execution) {
       live.provider = payload.execution.provider;
       live.model = boundedLiveModel(payload.execution.model);
@@ -159,9 +184,11 @@ export function liveMetadata(
         changed = true;
       }
     }
-    if (!changed) return undefined;
+    return changed;
   } else if (payload.type === "run.started" && payload.run.agentId === thread.rootAgentId) {
     live.rootRunId = payload.run.id;
+    // Working is timed from the current run, so a run that carries the work on restarts it.
+    if (at !== undefined && live.workingSince !== undefined) live.workingSince = at;
   } else if (payload.type === "run.ended" && payload.runId === live.rootRunId) {
     live.rootRunId = null;
   } else if (payload.type === "agent.created") {
@@ -210,35 +237,55 @@ export function liveMetadata(
     );
   } else if (payload.type === "interaction.opened") {
     const { interaction } = payload;
-    if (interaction.state !== "pending") return undefined;
+    if (interaction.state !== "pending") return false;
     live.asking = withEntry(live.asking, {
       id: interaction.id,
       kind: interaction.request.kind,
     });
   } else if (payload.type === "interaction.closed") {
     const asking = withoutEntry(live.asking, payload.interactionId);
-    if (asking === live.asking) return undefined;
+    if (asking === live.asking) return false;
     put(live, "asking", asking);
   } else if (payload.type === "agent.status") {
     if (payload.agentId === thread.rootAgentId) {
       const facts = rootFacts(live, payload.status, command);
-      if (facts === live) return undefined;
+      if (facts === live) return false;
       put(live, "waitingOn", facts.waitingOn);
       put(live, "step", facts.step);
     } else if (previousAgent) {
       const next = { ...previousAgent, status: payload.status };
       const change = runningAgent(next) - runningAgent(previousAgent);
       const asking = askingThreads(live, previousAgent, next);
-      if (!change && asking === live.askingThreads) return undefined;
+      if (!change && asking === live.askingThreads) return false;
       live.runningSubagentCount = Math.max(0, (live.runningSubagentCount ?? 0) + change);
       put(live, "askingThreads", asking);
-    } else return undefined;
-  } else return undefined;
-  return {
-    type: "thread.client.updated",
-    changes: {
-      live,
-      ...(unsettled ? { settledAt: null, settledReason: null, autoSettleAt: null } : {}),
-    },
-  };
+    } else return false;
+  } else return false;
+  return true;
+}
+
+/**
+ * A working tree whose root does nothing but wait on its subagents: it waits on them, or its own
+ * turn is over while they carry on. Clients read this as Waiting rather than Working.
+ */
+export function treeOnlyWaits(status: ThreadStatus, live: Live | undefined): boolean {
+  if (status.state !== "working") return false;
+  if (live?.waitingOn) return true;
+  const running = live?.runningSubagentCount ?? 0;
+  return running > 0 && status.agents <= running;
+}
+
+/**
+ * Time each shown status from its own start: the wait on subagents from when it began, and the
+ * root's work again from when it went back to work. False when neither moved.
+ */
+function stampTreeWait(live: Live, status: ThreadStatus, at: number): boolean {
+  const waits = treeOnlyWaits(status, live);
+  if (waits === (live.waitingSince !== undefined)) return false;
+  if (waits) live.waitingSince = at;
+  else {
+    delete live.waitingSince;
+    if (status.state === "working") live.workingSince = at;
+  }
+  return true;
 }
