@@ -2,7 +2,7 @@ import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@phosphor-icons/
 import { tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
-import { Suspense, useState, type KeyboardEvent } from "react";
+import { Suspense, type KeyboardEvent } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { panelIconButton, PanelTitle, PanelTitleRow } from "@/components/ui/panel.tsx";
 import { Icon } from "@/components/icon.tsx";
@@ -23,7 +23,7 @@ import { useSidebarDevice } from "./device-filter-state.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
-import { usePanelRows } from "./use-panel-rows.ts";
+import { PanelPagingContext, usePanelRows } from "./use-panel-rows.ts";
 import { ThreadsTabs } from "./threads-tabs.tsx";
 import {
   useOrganizer,
@@ -42,7 +42,8 @@ const StartedTitlePublisher = deferredComponent(() =>
  * Snoozed, Settled), then the open tab's list. The Inbox is one flat list across projects and
  * machines in the order the person would act (pinned, needs you, running, unseen, the rest),
  * with no headings; the filter narrows every tab to a project or a device. 1, 2 and 3 switch
- * tabs from anywhere in the panel. Chats are the Chats panel's. Search (⌘K) opens the palette,
+ * tabs from anywhere in the panel. Snoozed and Settled show 50 threads at a time, with Show
+ * more and Show less at their end. Chats are the Chats panel's. Search (⌘K) opens the palette,
  * which also finds older settled threads.
  */
 export function HomeSidebar() {
@@ -58,8 +59,7 @@ export function HomeSidebar() {
   const loaded = useSidebarLoaded();
   // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
   const skeleton = useHeld(!loaded);
-  const [nearEnd, setNearEnd] = useState(false);
-  const rows = usePanelRows({ list, tab, nearEnd, project, device });
+  const { rows, paging } = usePanelRows({ list, tab, project, device });
   const empty = !tabThreads(list.panel, tab).length;
   // No thread anywhere (not even snoozed or settled): the first-run words, not Inbox zero.
   const none = [list.panel.inbox, list.panel.snoozed, list.panel.settled].every(
@@ -145,13 +145,9 @@ export function HomeSidebar() {
             )}
           </>
         ) : (
-          <ThreadList
-            rows={rows}
-            needsYou={list.needsYou}
-            pinned={list.pinned}
-            onNearEnd={setNearEnd}
-            triage
-          />
+          <PanelPagingContext value={paging}>
+            <ThreadList rows={rows} needsYou={list.needsYou} pinned={list.pinned} triage />
+          </PanelPagingContext>
         )}
       </nav>
     </div>

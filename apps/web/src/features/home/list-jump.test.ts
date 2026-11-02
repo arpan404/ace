@@ -12,7 +12,7 @@ test("numbers go to thread rows as drawn, skipping labels, Unsent, notes and lea
     row({ kind: "thread", id: "gone", place: "active" }, "exit"),
     row({ kind: "thread", id: "t1", place: "active" }),
     row({ kind: "settled", id: "s1" }),
-    row({ kind: "older" }),
+    row({ kind: "more", more: true, less: false }),
   ];
   expect(jumpTargets(rows)).toEqual(["t1", "s1"]);
 });

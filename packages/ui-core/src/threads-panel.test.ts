@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { ThreadListEntry } from "@ace/protocol";
 import { arrange, type HomeSort } from "./arrange.ts";
-import { panelRows, tabThreads } from "./home-rows.ts";
+import { panelPage, panelRows, tabThreads } from "./home-rows.ts";
 import { threadsPanel, standingReader } from "./threads-panel.ts";
 import { Organizer } from "./organizer.ts";
 import { entry } from "./test-entries.fixture.ts";
@@ -142,7 +142,7 @@ test("the project filter narrows every tab", () => {
   expect(tabThreads(built, "settled")).toEqual(["a3"]);
 });
 
-test("each tab's rows are its threads, with no headings; Settled ends by pointing to search", () => {
+test("each tab's rows are its threads, with no headings; Settled offers more the daemon holds", () => {
   const built = panel([
     entry("pin", { state: "done" }, now, { ...seen(now), pinned: true }),
     entry("runs", { state: "working", agents: 1 }, now),
@@ -155,10 +155,36 @@ test("each tab's rows are its threads, with no headings; Settled ends by pointin
     { kind: "thread", id: "runs", place: "active" },
   ]);
   expect(panelRows(built, "snoozed")).toEqual([{ kind: "snoozed", id: "nap" }]);
-  expect(panelRows(built, "settled", { olderInSearch: true })).toEqual([
+  expect(panelRows(built, "settled", { shown: 50, moreOnDaemon: true })).toEqual([
     { kind: "settled", id: "rest" },
-    { kind: "older" },
+    { kind: "more", more: true, less: false },
   ]);
+});
+
+test("Snoozed and Settled show a page at a time, with Show more and Show less", () => {
+  const ids = (prefix: string, count: number) =>
+    Array.from({ length: count }, (_, index) => `${prefix}${index}`);
+  const loaded = { inbox: [], pinned: [], snoozed: ids("nap", 120), settled: ids("rest", 70) };
+  const first = panelRows(loaded, "snoozed", { shown: panelPage });
+  expect(first.filter((row) => row.kind === "snoozed")).toHaveLength(50);
+  expect(first.at(-1)).toEqual({ kind: "more", more: true, less: false });
+  const third = panelRows(loaded, "snoozed", { shown: panelPage * 3 });
+  expect(third.filter((row) => row.kind === "snoozed")).toHaveLength(120);
+  expect(third.at(-1)).toEqual({ kind: "more", more: false, less: true });
+  // Every loaded settled thread showing, yet the daemon holds older ones: still Show more.
+  const settled = panelRows(loaded, "settled", { shown: panelPage * 2, moreOnDaemon: true });
+  expect(settled.filter((row) => row.kind === "settled")).toHaveLength(70);
+  expect(settled.at(-1)).toEqual({ kind: "more", more: true, less: true });
+  // A short list needs neither.
+  const short = { ...loaded, snoozed: ids("nap", 3) };
+  expect(panelRows(short, "snoozed", { shown: panelPage }).map((row) => row.kind)).toEqual([
+    "snoozed",
+    "snoozed",
+    "snoozed",
+  ]);
+  // The Inbox always lists every thread.
+  const inbox = { ...loaded, inbox: ids("work", 200) };
+  expect(panelRows(inbox, "inbox", { shown: panelPage })).toHaveLength(200);
 });
 
 /** Delegated here by an agent on a paired machine, whose thread is its parent. */

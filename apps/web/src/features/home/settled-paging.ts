@@ -1,6 +1,6 @@
 import type { SidebarReader } from "@ace/client";
 import { useClient, useSidebar, useSidebarStore } from "@ace/client-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 
 /** Where Home's own window's next page of settled threads starts, while it holds older ones. */
@@ -42,11 +42,15 @@ export function useSettledPaging(project: string | null, device?: string): Settl
   const fresh: Request = { key, loading: false, error: false, stalled: false };
   const [held, setRequest] = useState<Request>(fresh);
   const request = held.key === key ? held : fresh;
+  // One page at a time: two asks before a render (an effect run twice) would send the same
+  // cursor twice, and the daemon refuses the second as stale.
+  const asking = useRef(false);
   const hasMore = nextAt !== undefined && !request.stalled && (!device || device === own);
   const update = (patch: Partial<Request>) =>
     setRequest((current) => ({ ...(current.key === key ? current : request), ...patch, key }));
   const more = async () => {
-    if (request.loading || !hasMore) return;
+    if (asking.current || request.loading || !hasMore) return;
+    asking.current = true;
     update({ loading: true, error: false });
     const before = store?.ids.length ?? 0;
     try {
@@ -54,6 +58,8 @@ export function useSettledPaging(project: string | null, device?: string): Settl
       update({ loading: false, stalled: (store?.ids.length ?? 0) <= before });
     } catch {
       update({ loading: false, error: true });
+    } finally {
+      asking.current = false;
     }
   };
   return { hasMore, loading: request.loading, error: request.error, nextAt, more };

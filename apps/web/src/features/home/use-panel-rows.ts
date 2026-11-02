@@ -1,47 +1,80 @@
-import { panelRows, type HomeRow, type ThreadsTab } from "@ace/ui-core";
-import { useEffect, useMemo } from "react";
+import { panelPage, panelRows, type HomeRow, type ThreadsTab } from "@ace/ui-core";
+import { createContext, useEffect, useMemo, useState } from "react";
 import type { HomeList } from "./use-home-threads.ts";
 import { useSettledPaging } from "./settled-paging.ts";
 
-/**
- * How many settled threads the Settled tab loads as it scrolls. Past them, older ones are
- * reached through search (⌘K), which asks the daemon.
- */
-export const settledTabLimit = 100;
+/** What Snoozed's and Settled's last row does: show a page more, or back to the first page. */
+export interface PanelPaging {
+  more(): void;
+  less(): void;
+  /** Older settled threads are on their way from the daemon. */
+  loading: boolean;
+  /** The last page of older settled threads failed: Show more retries it. */
+  error: boolean;
+}
+
+const idle: PanelPaging = { more() {}, less() {}, loading: false, error: false };
+export const PanelPagingContext = createContext<PanelPaging>(idle);
+
+type Paged = "snoozed" | "settled";
+const firstPage: Record<Paged, number> = { snoozed: panelPage, settled: panelPage };
 
 /**
- * The rows the Threads panel draws for its open tab: the Inbox with Unsent on top, Snoozed, or
- * Settled ending with a pointer to search while the daemon holds older settled threads back.
+ * The rows the Threads panel draws for its open tab: the Inbox, every thread with Unsent on top;
+ * Snoozed and Settled, a page (`panelPage`) at a time. Show more adds a page, asking the daemon
+ * for older settled threads when Settled has shown all it has loaded; Show less goes back to the
+ * first page. Changing the project or device filter starts both over.
  */
 export function usePanelRows(input: {
   list: HomeList;
   tab: ThreadsTab;
-  /** The end of the list is in view: Settled loads its next page. */
-  nearEnd: boolean;
   project: string | null;
   device: string | undefined;
-}): readonly HomeRow[] {
+}): { rows: readonly HomeRow[]; paging: PanelPaging } {
   const { list, tab } = input;
-  const paging = useSettledPaging(input.project, input.device);
+  const settledPaging = useSettledPaging(input.project, input.device);
+  const key = JSON.stringify([input.project, input.device]);
+  const [held, setShown] = useState({ key, shown: firstPage });
+  const shown = held.key === key ? held.shown : firstPage;
   const settled = list.panel.settled.length;
-  const ask =
-    tab === "settled" &&
-    input.nearEnd &&
-    settled < settledTabLimit &&
-    paging.hasMore &&
-    !paging.loading &&
-    !paging.error;
-  const { more, nextAt } = paging;
+  // Settled shows more than it has loaded: the daemon's next page fills it.
+  const wanted =
+    settled < shown.settled &&
+    settledPaging.hasMore &&
+    !settledPaging.loading &&
+    !settledPaging.error;
+  const { more: loadMore, nextAt } = settledPaging;
   useEffect(() => {
-    if (ask) void more();
-    // `nextAt` moves with each page: while the end stays in view, the next one is asked for.
+    if (wanted) void loadMore();
+    // `nextAt` moves with each page: while Settled still wants more, the next one is asked for.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [ask, nextAt]);
-  // Past the tab's own pages, or when a page can't load, search is the way to older ones.
-  const older = paging.hasMore && (settled >= settledTabLimit || paging.error);
-  return useMemo(
+  }, [wanted, nextAt]);
+  const paged: Paged | undefined = tab === "inbox" ? undefined : tab;
+  const paging = useMemo((): PanelPaging => {
+    const set = (to: (count: number) => number) =>
+      setShown((current) => {
+        const base = current.key === key ? current.shown : firstPage;
+        return paged ? { key, shown: { ...base, [paged]: to(base[paged]) } } : current;
+      });
+    return {
+      more() {
+        // After a failed page, Show more asks again for the page it couldn't load.
+        if (paged === "settled" && settledPaging.error) void loadMore();
+        else set((count) => count + panelPage);
+      },
+      less: () => set(() => panelPage),
+      loading: paged === "settled" && settledPaging.loading,
+      error: paged === "settled" && settledPaging.error,
+    };
+  }, [key, paged, settledPaging.loading, settledPaging.error, loadMore]);
+  const rows = useMemo(
     (): readonly HomeRow[] =>
-      panelRows(list.panel, tab, { includeUnsent: true, olderInSearch: older }),
-    [list.panel, tab, older],
+      panelRows(list.panel, tab, {
+        includeUnsent: true,
+        ...(paged ? { shown: shown[paged] } : {}),
+        moreOnDaemon: settledPaging.hasMore,
+      }),
+    [list.panel, tab, paged, shown, settledPaging.hasMore],
   );
+  return { rows, paging };
 }

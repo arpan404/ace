@@ -1,21 +1,40 @@
 import { chatDayLabels, type HomeRow } from "@ace/ui-core";
+import { use } from "react";
 import { panelLabel, panelLabelGap } from "@/components/ui/panel.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { cn } from "@/lib/cn.ts";
+import { PanelPagingContext } from "./use-panel-rows.ts";
 
 /*
- * The rows of the panel's lists that aren't threads: Settled's last row, which points to search
- * for older settled threads, a list's empty line, and the Chats panel's Active and day labels.
+ * The rows of the panel's lists that aren't threads: Snoozed's and Settled's last row (Show
+ * more, Show less), a list's empty line, and the Chats panel's Active and day labels.
  * A label (`panelLabel`) leaves 20px above it.
  */
 
-/** Settled's foot while the daemon holds older settled threads back: search reaches them. */
-function OlderInSearch() {
+const footButton =
+  "cursor-pointer rounded-md px-1.5 py-0.5 text-meta font-medium text-muted-foreground hover:bg-hover hover:text-foreground focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:hover:bg-transparent";
+
+/** Snoozed's or Settled's foot: Show more (a page more, or a retry), and Show less. */
+function MoreRow(props: { more: boolean; less: boolean }) {
+  const paging = use(PanelPagingContext);
   return (
-    <p className="flex items-center gap-1.5 px-3 py-3 text-meta text-subtle-foreground">
-      Older settled threads are in search
-      <Kbd shortcut="palette" />
-    </p>
+    <div className="flex items-center gap-1 px-1.5 py-2">
+      {props.more && (
+        <button
+          type="button"
+          data-section-toggle=""
+          disabled={paging.loading}
+          onClick={paging.more}
+          className={footButton}
+        >
+          {paging.loading ? "Loading…" : paging.error ? "Couldn't load. Try again" : "Show more"}
+        </button>
+      )}
+      {props.less && (
+        <button type="button" data-section-toggle="" onClick={paging.less} className={footButton}>
+          Show less
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -29,8 +48,8 @@ export function SectionRow(props: { row: HomeRow; first: boolean }) {
           Active
         </div>
       );
-    case "older":
-      return <OlderInSearch />;
+    case "more":
+      return <MoreRow more={row.more} less={row.less} />;
     case "empty":
       return <p className="py-2 pr-2.5 pl-9 text-ui text-subtle-foreground">{row.text}</p>;
     case "day-label":

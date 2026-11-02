@@ -48,16 +48,16 @@ import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import type { DragHost, KeyboardMove } from "./list-drag.ts";
 
 /**
- * A thread row in the Threads panel is three lines in 80px with 4px below it; a chat is one 36px
- * line (`--row-height`) with 2px below it: rows are apart by spacing, not rules. A label carries
- * the 20px gap above it.
+ * An Inbox row is three lines in 80px with 4px below it; a snoozed or settled thread and a chat
+ * are one 36px line (`--row-height`) with 2px below it: rows are apart by spacing, not rules. A
+ * label carries the 20px gap above it.
  */
 const estimates: Record<HomeRow["kind"], number> = {
   unsent: 0,
   thread: 84,
-  snoozed: 84,
-  settled: 84,
-  older: 40,
+  snoozed: 38,
+  settled: 38,
+  more: 40,
   empty: 37,
   "active-label": 49,
   chat: 38,
@@ -69,9 +69,11 @@ function estimateOf(row: HomeRow | undefined): number {
   return estimates[row?.kind ?? "thread"];
 }
 
-/** A row the Threads panel draws as a task: three lines led by its project. */
-const isTask = (row: HomeRow) =>
-  row.kind === "thread" || row.kind === "snoozed" || row.kind === "settled";
+/** An Inbox row: a task, three lines led by its project. */
+const isTask = (row: HomeRow) => row.kind === "thread";
+
+/** A snoozed or settled thread: one line, as a chat is. */
+const isLine = (row: HomeRow) => row.kind === "snoozed" || row.kind === "settled";
 
 /** Keys that move focus between rows: arrows, and j/k as in other lists. */
 const steps: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, j: 1, k: -1 };
@@ -518,13 +520,13 @@ export function ThreadList(props: {
                     />
                   ) : (
                     <>
-                      {isTask(row) && "id" in row && (
+                      {(isTask(row) || isLine(row)) && "id" in row && (
                         <ThreadRow
                           threadId={row.id}
                           settled={row.kind === "settled"}
                           dimmed={row.kind === "settled"}
                           leaving={leaving}
-                          lead="task"
+                          lead={rowLead(row)}
                         />
                       )}
                       {row.kind === "chat" && (
@@ -554,7 +556,7 @@ export function ThreadList(props: {
   );
 }
 
-/** The Threads panel's rows lead with their project, in three lines; a chat's with nothing. */
+/** Inbox rows lead with their project, in three lines; snoozed, settled and chats with nothing. */
 function rowLead(row: HomeRow): RowLead {
   return isTask(row) ? "task" : "none";
 }
