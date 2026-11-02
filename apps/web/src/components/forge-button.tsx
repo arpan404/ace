@@ -6,8 +6,10 @@ import { railDotClass, railPlaceClass } from "./rail-place.ts";
 
 /**
  * Code review in the sidebar's rail. It opens the list last looked at (Inbox, Pull requests or
- * Issues), the current place while one of those pages is open. Its dot is in the warning colour
- * while pull requests wait on the person, else blue while notifications are unread.
+ * Issues), the current place while one of those pages is open. Away from it, its dot is in the
+ * warning colour while pull requests wait on the person, else blue while notifications are
+ * unread; none at all when nothing waits, and none while Code review is open, as Threads' and
+ * Chats' dots.
  */
 export function ForgeButton(props: {
   to: "/pulls" | "/inbox" | "/issues";
@@ -36,7 +38,8 @@ export function ForgeButton(props: {
         className={railPlaceClass}
       >
         <Icon icon={GitPullRequestIcon} size={20} active={props.active} />
-        {(waiting > 0 || unread > 0) && (
+        {/* As Threads' and Chats' dots: only off the place, where it says there is news. */}
+        {!props.active && (waiting > 0 || unread > 0) && (
           <span
             aria-hidden
             data-tone={waiting > 0 ? "needs-you" : "unread"}
