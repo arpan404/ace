@@ -27,7 +27,8 @@ struct InboxView: View {
     @State private var openTab: InboxTab?
     @State private var machineFilter = ""
     @State private var projectFilter = ""
-    @State private var shelves = InboxShelves()
+    /// The Threads tab open: Inbox, Snoozed or Settled.
+    @State private var threadsTab = "inbox"
     @State private var composing = false
     @State private var showingSettings = false
     @State private var pairing = false
@@ -215,7 +216,7 @@ struct InboxView: View {
                    forge: ForgeInboxHooks(openThread: { openThread($0) },
                                           startThread: { startThread() }),
                    machine: $machineFilter, project: $projectFilter, forgeKind: $forgeKind,
-                   shelves: $shelves, reveal: $reveal, actions: actions,
+                   threadsTab: $threadsTab, reveal: $reveal, actions: actions,
                    header: InboxHeaderActions(settings: { settingsStart = []; showingSettings = true },
                                               machines: { settingsStart = [.machines]; showingSettings = true },
                                               pair: pair,

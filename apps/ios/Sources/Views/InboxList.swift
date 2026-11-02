@@ -23,45 +23,43 @@ struct InboxRowActions {
     let select: (InboxKey) -> Void
 }
 
-/// What the list holds, in order: which rows are in which group, and which shelves are open.
-/// Equal, for the animation, when nothing moved or when the whole list was replaced (the first
-/// rows, or the live list taking over from the saved one): those arrive at once, never as a
-/// crossfade of every row over itself.
+/// What the list holds, in order: which rows are in which group of the open tab. Equal, for the
+/// animation, when nothing moved, when the person switched tabs, or when the whole list was
+/// replaced (the first rows, or the live list taking over from the saved one): those arrive at
+/// once, never as a crossfade of every row over itself.
 private struct Membership: Equatable {
     let keys: [String]
     let rows: [[InboxKey]]
-    let shelves: InboxShelves
-    init(sections: [MergedInbox.Section], shelves: InboxShelves) {
+    let tab: String
+    init(sections: [MergedInbox.Section], tab: String) {
         keys = sections.map(\.key)
         rows = sections.map(\.rows)
-        self.shelves = shelves
+        self.tab = tab
     }
     /// More rows than this joining or leaving at once is a replacement, not a move.
     static let animatedChange = 8
     static func == (lhs: Membership, rhs: Membership) -> Bool {
-        if lhs.keys == rhs.keys && lhs.rows == rhs.rows && lhs.shelves == rhs.shelves { return true }
-        if lhs.shelves != rhs.shelves { return false }
+        if lhs.tab != rhs.tab { return true }
+        if lhs.keys == rhs.keys && lhs.rows == rhs.rows { return true }
         let old = Set(lhs.rows.joined()), new = Set(rhs.rows.joined())
         if old.isEmpty || new.isEmpty { return true }
         return old.symmetricDifference(new).count > animatedChange
     }
 }
 
-/// Which folded groups at the end of the list are open.
-struct InboxShelves: Equatable { var snoozed = false; var settled = false }
-
-/// The flat task list (DESIGN.md §3, §8): the shared sections merged by rank with no headings,
-/// rows separated by space rather than rules, a soft rounded fill on the pressed row, then the
-/// Snoozed and Settled shelves. `includes` applies the scope; grouping and wording come from
-/// each machine's runtime.
+/// The flat task list (DESIGN.md §3, §8): the open Threads tab's shared sections merged by rank
+/// with no headings, rows separated by space rather than rules, a soft rounded fill on the
+/// pressed row. `includes` applies the scope; grouping, the tab each section is in and the
+/// wording come from each machine's runtime.
 struct InboxList: View {
     @Bindable var inbox: MachineInbox
     let includes: (InboxKey) -> Bool
     /// Whether the scope takes every thread of a machine, so its unloaded threads still count.
     let whole: (String) -> Bool
-    @Binding var shelves: InboxShelves
-    /// A row to bring into view as soon as it is among the list's own rows (an Undo's), then
-    /// cleared. One still on a shelf waits: the shelf is not where it is coming back to.
+    /// The open Threads tab: "inbox", "snoozed" or "settled".
+    let tab: String
+    /// A row to bring into view as soon as it is among the open tab's rows (an Undo's), then
+    /// cleared. One in another tab waits: that tab is not where it is coming back to.
     @Binding var reveal: InboxKey?
     let actions: InboxRowActions
     /// Opens New thread; nil while every machine is view-only.
@@ -73,7 +71,6 @@ struct InboxList: View {
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.onSidebarGlass) private var onGlass
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
-    private static let shelved = ["snoozed", "settled"]
 
     private var sections: [MergedInbox.Section] {
         inbox.merged.sections.compactMap { $0.scoped(includes, whole: whole) }
@@ -81,6 +78,7 @@ struct InboxList: View {
 
     var body: some View {
         let sections = sections
+        let shown = sections.filter { $0.tab == tab }
         ScrollViewReader { proxy in
             List(selection: selection) {
                 if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) {
@@ -89,26 +87,11 @@ struct InboxList: View {
                         .inboxRowChrome()
                         .selectionDisabled()
                 }
-                let live = sections.filter { !Self.shelved.contains($0.key) }
-                // One flat list in the shared order, as the desktop's Inbox: no headings. Pinned
+                // One flat list in the shared order, as the desktop's tabs: no headings. Pinned
                 // and the rest stay separate sections only so pins can be dragged among themselves.
-                ForEach(live) { section in rows(section) }
-                ForEach(Self.shelved, id: \.self) { key in
-                    if let section = sections.first(where: { $0.key == key }) {
-                        let open = key == "snoozed" ? shelves.snoozed : shelves.settled
-                        InboxShelf(label: section.label, count: section.count, expanded: open) {
-                            withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) {
-                                if key == "snoozed" { shelves.snoozed.toggle() } else { shelves.settled.toggle() }
-                            }
-                        }
-                        .accessibilityIdentifier("inbox.\(key)")
-                        .inboxRowChrome()
-                        .selectionDisabled()
-                        .padding(.top, AceTheme.Spacing.sm)
-                        if open { rows(section) }
-                    }
-                }
-                if !inbox.merged.more.isEmpty {
+                ForEach(shown) { section in rows(section) }
+                // Older settled threads the daemons hold back page in where they belong.
+                if tab == "settled" && !inbox.merged.more.isEmpty {
                     Button { for id in inbox.merged.more { inbox.client(id)?.loadOlderThreads() } } label: {
                         Text("Show older threads").meta()
                             .padding(.horizontal, AceTheme.Spacing.md)
@@ -119,7 +102,11 @@ struct InboxList: View {
                     .inboxRowChrome()
                     .selectionDisabled()
                 }
-                if sections.isEmpty { emptyState.inboxRowChrome().selectionDisabled() }
+                if sections.isEmpty {
+                    emptyState.inboxRowChrome().selectionDisabled()
+                } else if shown.isEmpty, let empty = inbox.merged.tabs.first(where: { $0.id == tab }) {
+                    TabEmpty(tab: empty).inboxRowChrome().selectionDisabled()
+                }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -133,20 +120,24 @@ struct InboxList: View {
             // and move animations, keyed on membership alone, so a row's own text changing never
             // animates the list. Reduce Motion crossfades instead.
             .animation(reduceMotion ? .easeInOut(duration: 0.2) : AceTheme.Motion.standardCurve,
-                       value: Membership(sections: sections, shelves: shelves))
+                       value: Membership(sections: shown, tab: tab))
             .onAppear { if !sections.isEmpty { InboxList.traceRows(sections) } }
             .onChange(of: sections.isEmpty) { _, empty in if !empty { InboxList.traceRows(sections) } }
-            .onChange(of: revealable(sections), initial: true) { _, key in
+            // Each tab opens at its top.
+            .onChange(of: tab) { _, _ in
+                if let first = shown.first(where: { $0.key != "unsent" })?.rows.first { proxy.scrollTo(first, anchor: .top) }
+            }
+            .onChange(of: revealable(shown), initial: true) { _, key in
                 guard let key else { return }
                 reveal = nil
                 withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { proxy.scrollTo(key, anchor: .center) }
             }
         }
     }
-    /// The row to reveal, once it is listed outside the shelves.
-    private func revealable(_ sections: [MergedInbox.Section]) -> InboxKey? {
+    /// The row to reveal, once the open tab lists it.
+    private func revealable(_ shown: [MergedInbox.Section]) -> InboxKey? {
         guard let reveal else { return nil }
-        let listed = sections.contains { !Self.shelved.contains($0.key) && $0.rows.contains(reveal) }
+        let listed = shown.contains { $0.rows.contains(reveal) }
         return listed ? reveal : nil
     }
     /// Marks the first time this process draws inbox rows, for launch timing.
@@ -204,6 +195,27 @@ struct InboxList: View {
             }
             .padding(.top, 120)
         }
+    }
+}
+
+/// An empty tab while other threads exist: its runtime's words ("Inbox zero", "Nothing snoozed"),
+/// quiet and near the top, as the desktop's panel says them.
+private struct TabEmpty: View {
+    let tab: MergedInbox.Tab
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+            Text(tab.empty).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                .foregroundStyle(AceTheme.Colours.foreground)
+            if let line = tab.emptyLine {
+                Text(line).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+            }
+        }
+        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.top, AceTheme.Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("threads.empty.\(tab.id)")
     }
 }
 

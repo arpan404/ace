@@ -66,13 +66,10 @@ enum ThreadColumns {
         return order.indices.contains(next) ? order[next] : nil
     }
 
-    /// The threads in the order the list shows them: its sections, then the Snoozed and Settled
-    /// shelves only while they are open. Unsent rows open the thread they belong to.
-    static func order(_ sections: [MergedInbox.Section], shelves: InboxShelves, thread: (InboxKey) -> InboxKey?) -> [InboxKey] {
-        let shelved = ["snoozed", "settled"]
-        let open = sections.filter { !shelved.contains($0.key) }
-            + (shelves.snoozed ? sections.filter { $0.key == "snoozed" } : [])
-            + (shelves.settled ? sections.filter { $0.key == "settled" } : [])
+    /// The threads in the order the list shows them: the sections of the open Threads tab.
+    /// Unsent rows open the thread they belong to.
+    static func order(_ sections: [MergedInbox.Section], tab: String, thread: (InboxKey) -> InboxKey?) -> [InboxKey] {
+        let open = sections.filter { $0.tab == tab }
         var seen = Set<InboxKey>()
         return open.flatMap { $0.rows.compactMap(thread) }.filter { seen.insert($0).inserted }
     }

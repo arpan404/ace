@@ -240,32 +240,6 @@ struct InboxUnsentRow: View {
     }
 }
 
-/// "Snoozed 2 ›": a folded group at the end of the list, quiet until opened.
-struct InboxShelf: View {
-    let label: String
-    let count: Int
-    let expanded: Bool
-    let toggle: () -> Void
-    var body: some View {
-        Button(action: toggle) {
-            HStack(spacing: AceTheme.Spacing.xs) {
-                Text(label).fontWeight(.medium)
-                Text(count.formatted()).monospacedDigit().foregroundStyle(AceTheme.Colours.subtleForeground)
-                AceIcon(.caretRight, size: 12, weight: .bold, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.faintForeground)
-                    .rotationEffect(.degrees(expanded ? 90 : 0))
-                Spacer(minLength: AceTheme.Spacing.none)
-            }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .frame(minHeight: 40)
-        }
-        .buttonStyle(.row)
-        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-    }
-}
-
 extension View {
     /// Row metadata (`text-meta`): caption size in the given tier, muted by default.
     func meta(_ ink: Color = AceTheme.Colours.mutedForeground) -> some View {
