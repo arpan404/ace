@@ -240,6 +240,24 @@ export function requestScenarios(daemon: FakeDaemon, details: Details): void {
   threeAsks(daemon, details);
 }
 
+/** One approval the agent asks for, with Deny, Always and Allow. */
+const ask = (key: string, title: string, target: Record<string, unknown>) => ({
+  type: "interaction.opened" as const,
+  agent: "root",
+  interaction: key,
+  blocking: true,
+  request: InteractionRequest.parse({
+    kind: "approval",
+    title,
+    target: { tool: "Bash", access: "execute", ...target },
+    options: [
+      { id: "deny", label: "Deny", kind: "deny" },
+      { id: "always", label: "Always", kind: "allow_session" },
+      { id: "allow", label: "Allow", kind: "allow_once" },
+    ],
+  }),
+});
+
 /** ios-three-asks: three approvals waiting at once, so the strip pages them ("1 of 3"). */
 function threeAsks(daemon: FakeDaemon, details: Details): void {
   const id = "ios-three-asks";
@@ -251,22 +269,6 @@ function threeAsks(daemon: FakeDaemon, details: Details): void {
     provider: "claude",
     details: details("fix/relay-ship"),
     access: "ask",
-  });
-  const ask = (key: string, title: string, target: Record<string, unknown>) => ({
-    type: "interaction.opened" as const,
-    agent: "root",
-    interaction: key,
-    blocking: true,
-    request: InteractionRequest.parse({
-      kind: "approval",
-      title,
-      target: { tool: "Bash", access: "execute", ...target },
-      options: [
-        { id: "deny", label: "Deny", kind: "deny" },
-        { id: "always", label: "Always", kind: "allow_session" },
-        { id: "allow", label: "Allow", kind: "allow_once" },
-      ],
-    }),
   });
   daemon.apply(id, [
     facts.rootAgent("claude"),
