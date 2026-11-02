@@ -169,8 +169,12 @@ subscribe(
 )();
 
 // Client work per list update, one entry replaced each time.
-const list: ThreadListEntry[] = entries.map((entry) => ({ ...entry }));
-const unplaced: ThreadListEntry[] = list.map(({ place: _place, ...rest }) => rest);
+const list: ThreadListEntry[] = entries.map((entry) => Object.assign({}, entry));
+const unplaced: ThreadListEntry[] = list.map((entry) => {
+  const copy = Object.assign({}, entry);
+  delete copy.place;
+  return copy;
+});
 const clientAfterMs: number[] = [];
 const clientBeforeMs: number[] = [];
 const oldPath = args.get("old");

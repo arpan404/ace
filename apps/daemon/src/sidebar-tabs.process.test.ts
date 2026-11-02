@@ -90,6 +90,10 @@ function follow(
   };
 }
 
+/** The tabs a held copy lists, exactly as placed. */
+const tabsOf = (held: Map<string, ThreadListEntry>) =>
+  threadTabs([...held.values()], (entry) => entry.place);
+
 const settled = { settledAt: now - 5 * day, settledReason: "manual", readAt: now - 5 * day };
 
 test("a settled thread held at a usage limit or with only a command left running stays in Settled", async () => {
@@ -201,8 +205,6 @@ test("a reconnect from revision N gets only the threads that moved since, and th
   for (const id of resumed.keys()) if (!keep.has(id)) resumed.delete(id);
   for (const entry of Object.values(snapshot.view.threads)) resumed.set(entry.id, entry);
   const fresh = follow(f);
-  const tabsOf = (held: Map<string, ThreadListEntry>) =>
-    threadTabs([...held.values()], (entry) => entry.place);
   expect(tabsOf(resumed)).toEqual(fresh.tabs());
   expect(fresh.tabs().settled).toContain("t-5");
   expect(fresh.tabs().inbox[0]).toBe("t-9");
@@ -248,16 +250,16 @@ test("a sort change re-places the open list, sending only threads whose place ch
 
 test("the list carries the rail dots: reading every listed chat clears Chats, and a settled chat never lights it", async () => {
   const f = await world();
-  const chat = (id: string) => ({
+  const chat = () => ({
     workspaceId: f.thread.workspaceId,
     details: {
       workspace: { id: f.thread.workspaceId, name: "Chat", path: "/chats/a", kind: "chat" },
     },
   });
-  f.add("chat-a", { ...chat("chat-a"), status: { state: "done" } });
-  f.add("chat-b", { ...chat("chat-b"), status: { state: "failed" } });
+  f.add("chat-a", { ...chat(), status: { state: "done" } });
+  f.add("chat-b", { ...chat(), status: { state: "failed" } });
   // Finished before anyone opened it, then settled: Settled draws it quiet.
-  f.add("chat-settled", { ...chat("chat-settled"), settledAt: now - day, settledReason: "manual" });
+  f.add("chat-settled", { ...chat(), settledAt: now - day, settledReason: "manual" });
   f.add("work", { status: { state: "needs_you", interactions: 1 } });
   const list = follow(f);
   const attention = () => {

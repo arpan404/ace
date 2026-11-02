@@ -272,8 +272,8 @@ says what to do next.
   (the whole agent tree counted); finished but unseen; idle. Each band is newest first. There
   are no headings: the row's own status word says why it is where it is, and a heading would
   repeat it. Newest first and Manual (Sort threads) keep the person's order below the pinned
-  threads. Placement reads the row attention (`threadsPanel` in ui-core), so a settled thread
-  whose tree still works or asks is in the Inbox, and a band never disagrees with its row.
+  threads. Placement reads the row attention, so a band never disagrees with its row. The
+  daemon places every thread (see "Placement on the daemon" below).
 - **Snoozed** lists what waits for a time or an event, soonest first; each row says "until …"
   where its status sits. **Settled** lists settled threads at rest, newest first, in muted
   titles; it pages up to 100 as it scrolls, then points to search (⌘K) for older ones.
@@ -303,6 +303,43 @@ says what to do next.
     and the needs-you counts and notifications leave out only snoozes to a time the person
     chose (`isSnoozedToTime`). The rail's Threads dot already counted snoozed threads that need
     the person and still does; a request always shows in the Inbox, whatever the snooze.
+
+## Placement on the daemon
+
+2026-11-01, owner's call after settled threads leaked back into the Inbox. Each client built the
+three tabs from the thread list itself, and its rule pulled a settled thread back whenever it
+wasn't at rest, counting a usage limit or a command left running as work. Clients could also
+drift from one another.
+
+- **The daemon decides.** One pure function, `placeThread` (`@ace/ui-core/thread-place`, which
+  reads the same row attention every row draws), gives each listed thread its tab, Inbox band
+  and rank. The daemon runs it on every thread its windowed list sends and puts the result on
+  the entry (`ThreadListEntry.place`). Clients group and order by the places (`threadTabs`) and
+  merge machines by the same keys; project, device and search filters only narrow them. A
+  client runs the rule itself only for an entry that came without a place (an older daemon, an
+  organize action not yet confirmed, a snooze that ran out on its clock while the daemon was
+  offline), so it can't drift.
+- **Settled stays settled while only held.** A settled thread returns to the Inbox only while it
+  needs the person or its agents work. Held at a usage limit or rate limit, or with only a
+  command it left running, it stays in Settled.
+- **Placement is presentation.** It never changes status, settling, auto-settle, snooze timers,
+  read state or notifications.
+- **Incremental.** A change re-places only the threads it touched, and a thread that moves tabs
+  costs one entry in the patch. A change of `threads.sortBy` or the seen baseline (the daemon's
+  first start, from the Activity read cursor) re-places every open list and sends only threads
+  whose place changed.
+- **Resume.** The window carries the newest row revision it reflects and an epoch (this
+  database's token and the placement settings). A list that subscribes again with `resume` gets
+  only threads changed since, plus the ids to keep; another epoch, a revision ahead of the
+  database, or a kept id the client lacks starts over with the whole window. The client SDK
+  resumes from the list it holds: live before a reconnect, read back from disk, or remembered
+  for a filter. The phone's launch checkpoint keeps the tab lists too.
+- **Rail dots from the daemon.** The window also carries each rail place's totals
+  (`ListAttention`: Threads and Chats, `needsYou` and `unread`), kept as running totals of the
+  threads it sends. Only what a place lists live counts: a settled or snoozed thread at rest
+  draws no unread mark in its list, so it never lights the dot. (The Chats dot stayed blue
+  after every chat was read because a chat settled before anyone opened it still counted.)
+  Clients add other machines' totals by the same rule.
 
 ## Usage in the rail
 

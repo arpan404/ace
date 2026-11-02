@@ -47,7 +47,7 @@ test("reading every listed chat clears the Chats dot", () => {
   const unread = [chat("a"), chat("b", {}, { state: "failed" })];
   expect(dots(unread).chats.tone).toBe("unread");
   // Opening a chat records when it was read on the daemon (`thread.read`), for every device.
-  const read = unread.map((each) => ({ ...each, readAt: now }));
+  const read = unread.map((each) => Object.assign({}, each, { readAt: now }));
   expect(dots(read).chats).toEqual({ tone: undefined, needsYou: 0 });
 });
 

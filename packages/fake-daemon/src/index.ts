@@ -30,6 +30,7 @@ export { refusedDelegation } from "./scenarios/refused-delegation.ts";
 export { interruptedTurn, seedInterruptedTurn } from "./scenarios/interrupted-turn.ts";
 export { limitPausedTurn, seedTurnEndings, stoppedByYou } from "./scenarios/turn-endings.ts";
 export { leftRunning, seedLeftRunning } from "./scenarios/left-running.ts";
+export { seedSettledHeld } from "./scenarios/settled-held.ts";
 export {
   multiDayThread,
   multiDayShape,

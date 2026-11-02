@@ -19,12 +19,17 @@ function panel(
   options: { sortBy?: HomeSort; project?: string | null } = {},
 ) {
   const input = { baseline: 0, now, sortBy: options.sortBy ?? "activity" } as const;
-  const placed = entries.map((each) => ({ ...each, place: placeThread(each, input) }));
+  const placed = entries.map((each) => withPlace(each, input));
   // The project filter narrows what comes in; it never reorders.
   const shown = placed.filter(
     (each) => options.project == null || each.workspaceId === options.project,
   );
   return threadTabs(shown, placeReader({ fallback: input }));
+}
+
+/** The entry as the daemon sends it, with its place. */
+function withPlace(each: ThreadListEntry, input: Parameters<typeof placeThread>[1]) {
+  return Object.assign({}, each, { place: placeThread(each, input) });
 }
 
 /** Settled by the daemon a while ago, read, at rest. */
@@ -126,7 +131,7 @@ test("an unconfirmed copy keeps its tabs but folds the Inbox's live bands into o
     entry("idle", { state: "done" }, now, seen(now)),
     entry("pin", { state: "done" }, now - 2 * day, { ...seen(now), pinned: true }),
     entry("rest", { state: "done" }, now, settledAt(now)),
-  ].map((each) => ({ ...each, place: placeThread(each, input) }));
+  ].map((each) => withPlace(each, input));
   const built = threadTabs(entries, placeReader({ fallback: input, unconfirmed: true }));
   expect(built.inbox).toEqual(["pin", "idle", "asks"]);
   expect(built.settled).toEqual(["rest"]);

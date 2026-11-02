@@ -119,6 +119,8 @@ export function harness(
     options.daemon ??
     new FakeDaemon({
       clock,
+      // As a daemon's first start precedes what it lists: work before this window opened is seen.
+      seenBefore: (options.uiClock ?? (() => Date.now()))(),
       ...(others.length ? { hostId: "this-mac", displayName: "This Mac" } : {}),
       ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
       ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
