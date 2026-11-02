@@ -21,7 +21,7 @@ What each provider reports when a turn ends with a background command still runn
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | Claude Code                                | **Yes.** The call's result says "You will be notified when it completes" and the end arrives as `task_notification`, which starts a new turn (`fixtures/claude/2.1.286/background-shell.jsonl`, seq 19 and 32; [research](../research/providers/claude-code.md) §5). Background commands are capped (30 min default, 2 h max) and the agent is re-invoked at the cap (Bash tool description, CLI 2.1.312). | No                    |
 | Codex                                      | **No.** The terminal's `item/completed` arrives 11 s after `turn/completed` with the old turn id; no turn and no status change follow ([fixtures/codex.md](../research/fixtures/codex.md) question 1; `fixtures/codex/0.159.1/background-shell.jsonl`, t=12290 → 23076 → nothing until 53251).                                                                                                             | No                    |
-| ACP agents (Antigravity, Gemini, registry) | **No.** An ACP agent only works inside a client's `session/prompt`; it has no way to start a turn itself. Antigravity keeps `execute` calls open past `PromptResponse` ([research](../research/providers/antigravity.md), background work).                                                                                                                                                                | No                    |
+| ACP agents (Antigravity, Gemini, registry) | **No.** An ACP agent only works inside a client's `session/prompt`; it has no way to start a turn itself. Antigravity keeps `execute` calls open past `PromptResponse` and closes them during a later prompt ([research](../research/providers/antigravity.md), background work). Still held: see decision 2.                                                                                              | No                    |
 | Cursor SDK                                 | Not applicable: tools that outlive the turn are already ended as `unknown` at once and never held the thread.                                                                                                                                                                                                                                                                                              | No                    |
 | OpenCode                                   | **Unrecorded** ([research](../research/providers/README.md), open question 3).                                                                                                                                                                                                                                                                                                                             | No                    |
 | Pi                                         | Unrecorded: a tool with no terminal result after `agent_settled` is lost evidence, not a known service.                                                                                                                                                                                                                                                                                                    | No                    |
@@ -42,10 +42,28 @@ a TCP port.
    exactly as before ("parent waits for a child's background task after its foreground turn
    ends" still holds). Lost work (`unknown` awaiting proof) keeps its hold.
 
-2. **Provider facts.** The Codex adapter marks terminals still open at `turn/completed` (and
-   output for them after it, and terminals recovered on hydration) `wakesAgent: false`; the ACP
-   adapter marks shells that survive `PromptResponse` the same. Claude, OpenCode and Pi report
-   nothing new: their work keeps holding unless it listens on a port.
+2. **Provider facts, only where ace can vouch for them.** The Codex adapter marks a terminal
+   `wakesAgent: false` only when it saw the terminal start and saw the current turn end live with
+   no output lost on the way (`translate-turn.ts`). Anything ace is unsure of keeps the old hold
+   until Codex reports the terminal ended:
+   - output for a command whose start frame never arrived (`unseenStart`);
+   - turns and terminals replayed or recovered from history (hydration, recovered snapshots,
+     unseen child work);
+   - a turn that ends after Codex output was dropped or its history omitted, until output
+     recovery finishes (`outputLost`).
+
+   Claude, OpenCode, Pi and ACP agents report nothing new: their work keeps holding unless it
+   listens on a port.
+
+   **ACP keeps holding.** ACP agents don't wake the agent either, but ace's ACP session refuses
+   every new prompt while a shell survives a prompt's end (ADR 0044, `ShellSettlement`).
+   Antigravity reports that shell's end only inside a later prompt (`persisted_open_tool_calls`
+   are closed by a `tool_call_update` "which can arrive during a later turn", and its step pump
+   runs only inside `prompt()`; [research](../research/providers/antigravity.md), background
+   work), and ace can't yet tie that late update to the old shell safely. Releasing it would
+   show a done thread that refuses the person's next message, so ACP shells stay a hold. Lifting
+   that needs the adapter to accept a prompt beside a surviving shell and settle it from the
+   later update, recorded against a live Antigravity session.
 
 3. **Host fact: the port probe** (`apps/daemon/src/background-services/`). Claude names each
    background command's output file in the call's result (no structured field carries it), kept
@@ -82,7 +100,8 @@ a TCP port.
 - The Codex `background-shell` expectation now reads done at the turn's end.
 - Automation runs read the same rule for open work (`automation-run-facts.ts`).
 - OpenCode and Pi keep holding until their wake behaviour is recorded; recording it is the
-  follow-up that would let their adapters report `wakesAgent`.
+  follow-up that would let their adapters report `wakesAgent`. ACP keeps holding until its
+  session accepts a prompt beside a surviving shell.
 - Windows has no probe yet: Claude dev servers there keep the thread waiting.
 
 Tests: core `background-release` (released by each fact, a woken test run waits, a stopped turn
@@ -90,4 +109,10 @@ waits, pending work elsewhere wins, restore), daemon `port-watcher` and `probe.p
 server found through its output file, not its neighbour), `control.process` (a delegated child
 with a dev server settles and the parent gets its result, the server still listed),
 `provider-release.process` (warm while it runs, released on settle), Claude
-`background-output`, ui-core `live-status`.
+`background-output`, ui-core `live-status`. Codex `partial-stream` (a seen command released,
+still listed and stoppable, closed by its completion; output with no start stays held),
+`oversized-lines.process` (dropped output stays held until Codex confirms the end),
+`recovery-ordering`, `unseen-history`, `review-translator`, `verifier-translator`,
+`review-session.process` (recovered and output-only shells stay held). ACP
+`verification-session.process` (a surviving Antigravity shell still holds and still refuses a
+new prompt).
