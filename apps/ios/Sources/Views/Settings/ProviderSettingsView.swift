@@ -60,7 +60,7 @@ struct ProviderSettingsView: View {
         }
         .insetGroupedList()
         .followOtherProviders(model, $others)
-        .navigationTitle("Providers").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Providers")
         .readWhenConnected(model) { model.refreshMachine() }.refreshable { model.refreshMachine() }
     }
 }

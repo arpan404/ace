@@ -202,10 +202,10 @@ struct DeviceScreenshotSheet: View {
     var body: some View {
         NavigationStack {
             Image(uiImage: image).resizable().scaledToFit()
-                .clipShape(AceShape.block)
-                .padding(AceTheme.Spacing.xl)
+                .clipShape(AceDesign.Shape.block)
+                .padding(AceDesign.Space.margin)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AceTheme.Colours.background)
+                .background(AceDesign.Surface.background)
                 .navigationTitle("Screenshot").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Close", ace: .x) { dismiss() } }
@@ -225,17 +225,17 @@ struct StreamStatsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             Text(stats?.summary.isEmpty == false ? stats?.summary ?? "" : "H.264")
-                .aceFont(AceTheme.Typography.label, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.foreground)
+                .font(AceDesign.Typeface.body)
+                .foregroundStyle(AceDesign.Ink.primary)
             ForEach(stats?.details ?? ["Waiting for the first picture"], id: \.self) { line in
-                Text(line).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption2)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(line).font(AceDesign.Typeface.code)
+                    .foregroundStyle(AceDesign.Ink.muted)
             }
         }
         .monospacedDigit()
-        .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
+        .padding(.horizontal, AceDesign.Space.row).padding(.vertical, AceDesign.Space.related)
         .aceGlass(in: AceDesign.Shape.container)
-        .padding(AceTheme.Spacing.md)
+        .padding(AceDesign.Space.row)
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("devices.stats")

@@ -86,7 +86,7 @@ struct SourceControlView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .navigationTitle("Source control").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Source control")
         .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(Self.readinessRead(project))]) {
             guard model.connection == "ready" else { return }
             do {

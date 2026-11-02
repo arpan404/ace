@@ -82,7 +82,7 @@ struct AutomationsView: View {
         .sensoryFeedback(.success, trigger: restored)
         .animation(AceDesign.Motion.arriving(reduceMotion), value: page?.person ?? [])
         .animation(AceDesign.Motion.arriving(reduceMotion), value: loading)
-        .navigationTitle("Automations").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Automations")
         // The new automation opens once the editor has gone, so the push never races its dismissal.
         .sheet(isPresented: $creating, onDismiss: {
             if let made { links?.open(made) }

@@ -50,7 +50,7 @@ struct PromptsView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .navigationTitle("Prompts").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Prompts")
         .task(id: model.readGeneration(Self.listRead)) { await read() }.refreshable { await read() }
     }
     private func read() async {

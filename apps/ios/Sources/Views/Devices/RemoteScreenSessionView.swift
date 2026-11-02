@@ -20,18 +20,18 @@ struct RemoteScreenSessionView: View {
 
     var body: some View {
         ZStack {
-            AceTheme.Colours.background.ignoresSafeArea()
+            AceDesign.Surface.background.ignoresSafeArea()
             if state?.lifecycle == "live" {
                 DeviceSurface(next: { screen.live.nextPicture() }, interactive: controlling, label: "\(session?.app ?? "Mac app") window",
                               identifier: "screen.surface", screenSize: { windowSize = $0 }) { from, to in gesture(from.point, to.point) }
                     .aspectRatio(windowSize ?? CGSize(width: 4, height: 3), contentMode: .fit)
-                    .clipShape(AceShape.block)
-                    .padding(AceTheme.Spacing.lg)
+                    .clipShape(AceDesign.Shape.block)
+                    .padding(AceDesign.Space.margin)
             } else {
                 Text(session?.error.isEmpty == false ? session?.error ?? "" : session?.status ?? "The app isn't live.")
-                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).multilineTextAlignment(.center)
-                    .padding(AceTheme.Spacing.xl)
+                    .font(AceDesign.Typeface.title)
+                    .foregroundStyle(AceDesign.Ink.muted).multilineTextAlignment(.center)
+                    .padding(AceDesign.Space.margin)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { strip }
@@ -56,53 +56,53 @@ struct RemoteScreenSessionView: View {
     @ViewBuilder private var strip: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             if typing, controlling {
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     TextField("Type in the app", text: $text).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .submitLabel(.send).onSubmit(type)
                     Button("Send", action: type).disabled(text.isEmpty)
                 }
-                .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                .aceGlass(in: AceShape.capsule)
-                .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.xs)
+                .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.tap)
+                .aceGlass(in: AceDesign.Shape.control)
+                .padding(.horizontal, AceDesign.Space.row).padding(.bottom, AceDesign.Space.tight)
             }
             if let problem = screen.problem {
-                Text(problem).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, AceTheme.Spacing.xl)
+                Text(problem).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, AceDesign.Space.margin)
             }
             if let session, session.waiting {
-                HStack(spacing: AceTheme.Spacing.md) {
-                    Text(session.status).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                        .foregroundStyle(AceTheme.Colours.foreground).lineLimit(3)
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                HStack(spacing: AceDesign.Space.row) {
+                    Text(session.status).font(AceDesign.Typeface.body)
+                        .foregroundStyle(AceDesign.Ink.primary).lineLimit(3)
+                    Spacer(minLength: AceDesign.Space.related)
                     if model.canOperate {
                         Button("Cancel") { Task { await screen.cancelChoice(model, id: sessionId) } }
                             .buttonStyle(.borderless)
-                            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                            .foregroundStyle(AceTheme.Colours.foreground).fontWeight(.semibold)
+                            .font(AceDesign.Typeface.body)
+                            .foregroundStyle(AceDesign.Ink.primary).fontWeight(.semibold)
                             .accessibilityIdentifier("screen.cancelChoice")
                     }
                 }
-                .padding(.horizontal, AceTheme.Spacing.xl).frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.tap)
             } else if let session, session.lifecycle == "live" {
-                HStack(spacing: AceTheme.Spacing.md) {
-                    Text(session.status).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                        .foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                HStack(spacing: AceDesign.Space.row) {
+                    Text(session.status).font(AceDesign.Typeface.body)
+                        .foregroundStyle(AceDesign.Ink.primary).lineLimit(2)
+                    Spacer(minLength: AceDesign.Space.related)
                     if model.canOperate, session.controllable {
                         Button(actionTitle) { Task { await control() } }
                             .buttonStyle(.borderless)
-                            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                            .foregroundStyle(AceTheme.Colours.foreground).fontWeight(.semibold)
+                            .font(AceDesign.Typeface.body)
+                            .foregroundStyle(AceDesign.Ink.primary).fontWeight(.semibold)
                             .disabled(screen.busy)
                             .accessibilityIdentifier("screen.control")
                     }
                 }
-                .padding(.horizontal, AceTheme.Spacing.xl).frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.tap)
                 if let reason = session.watchOnlyReason, !reason.isEmpty {
-                    Text(reason).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, AceTheme.Spacing.xl)
+                    Text(reason).font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, AceDesign.Space.margin)
                         .accessibilityIdentifier("screen.watchOnly")
                 }
             }
@@ -165,7 +165,7 @@ struct RemoteScreenSessionView: View {
     }
     private func gesture(_ start: CGPoint, _ end: CGPoint) {
         var input: [String: Any] = ["kind": "pointer.click", "x": start.x, "y": start.y]
-        if hypot(end.x - start.x, end.y - start.y) > AceTheme.Spacing.sm {
+        if hypot(end.x - start.x, end.y - start.y) > AceDesign.Space.related {
             if drag { input = ["kind": "pointer.drag", "x": start.x, "y": start.y, "toX": end.x, "toY": end.y, "durationMs": 350] }
             else { input = ["kind": "scroll", "x": start.x, "y": start.y, "dx": max(-1000, min(1000, Int(start.x - end.x))), "dy": max(-1000, min(1000, Int(start.y - end.y)))] }
         }
