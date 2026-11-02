@@ -21,6 +21,7 @@ import { ThemeProvider, type Environment } from "@/theme/theme-provider.tsx";
 import { disposePanelServices, loadAuthTerminal } from "@/features/panels/index.ts";
 import { organizerFor } from "@/features/organize/index.ts";
 import { AuthTerminalProvider } from "@/features/sign-in/index.ts";
+import { AceAccountProvider } from "@/features/ace-account/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { createAppRouter } from "./router.ts";
 
@@ -101,9 +102,11 @@ export function App(props: {
         <LayoutProvider storage={props.storage} windowStorage={props.windowStorage}>
           <MachinePoolFactoryProvider value={props.ensureMachines}>
             <MachinePoolProvider value={props.machines}>
-              <AuthTerminalProvider value={AuthTerminal.Component}>
-                <RouterProvider router={router} />
-              </AuthTerminalProvider>
+              <AceAccountProvider>
+                <AuthTerminalProvider value={AuthTerminal.Component}>
+                  <RouterProvider router={router} />
+                </AuthTerminalProvider>
+              </AceAccountProvider>
             </MachinePoolProvider>
           </MachinePoolFactoryProvider>
         </LayoutProvider>
