@@ -4,7 +4,7 @@
  * rows moved it says how the view corrects. `use-feed-scroll.ts` is its I/O shell.
  *
  * - following: pinned to the live end; new content keeps the end in view until the reader
- *   scrolls upward, even by a few pixels.
+ *   scrolls upward, even by a few pixels, on a transcript that overflows.
  * - anchoring: code placed the view (a jump) or the reader opened or closed something: that row
  *   holds still, and following waits until the reader returns to the end themselves.
  * - free: the reader scrolled away; the row at the top of the view holds still while rows above
@@ -27,8 +27,18 @@ export type ScrollMode =
   | { kind: "free" };
 
 export type ScrollEvent =
-  /** A wheel, touch move, key or scrollbar drag, before the scroll it causes. */
-  | { type: "gesture"; upward: boolean; atEnd: boolean; detached: boolean; at: number }
+  /**
+   * A wheel, touch move, key or scrollbar drag, before the scroll it causes. `scrollable`: the
+   * transcript overflows enough that the reader could leave the end at all.
+   */
+  | {
+      type: "gesture";
+      upward: boolean;
+      atEnd: boolean;
+      scrollable: boolean;
+      detached: boolean;
+      at: number;
+    }
   /** A press on the view (a click, a touch starting): no direction, but the reader is there. */
   | { type: "press"; at: number }
   /** A scroll event, from any cause. `upward` is the reader's last direction. */
@@ -69,6 +79,8 @@ export function transition(mode: ScrollMode, event: ScrollEvent): Transition {
   switch (event.type) {
     case "gesture": {
       const cancelAim = aiming(mode, event.at);
+      // Nothing to scroll away from: a nudge on a short transcript never stops following.
+      if (!event.scrollable && !event.detached) return { mode: following, cancelAim };
       if (!event.upward && event.atEnd && !event.detached) return { mode: following, cancelAim };
       if (mode.kind === "following" && !event.upward) return { mode, cancelAim };
       return { mode: free, cancelAim };

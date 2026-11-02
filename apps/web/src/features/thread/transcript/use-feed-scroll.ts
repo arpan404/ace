@@ -17,7 +17,14 @@ import {
   type ScrollEvent,
   type ScrollMode,
 } from "./scroll-mode.ts";
-import { useDockShift, useStayPinned } from "./scroll.ts";
+import { dockedChange, useStayPinned, type ViewportChange } from "./scroll.ts";
+import {
+  atEnd,
+  canLeaveEnd,
+  distanceToEnd,
+  followsDockChange,
+  showsScrollToEnd,
+} from "./scroll-end.ts";
 import { useLayoutServices, type SessionKey } from "@/lib/layout.tsx";
 import {
   createScrollMemory,
@@ -32,8 +39,6 @@ import {
  * decides through the virtualizer, so the virtualizer always knows where the view is.
  */
 
-/** How close to the end still counts as at the end. */
-const nearEdge = 64;
 /** A disclosure in a row: what opening or closing it changes is that row's own height. */
 const disclosure = "button[aria-expanded]:not([aria-haspopup])";
 
@@ -83,8 +88,6 @@ const threadScrollsKey: SessionKey<ScrollMemory> = { name: "thread scrolls" };
 export function useThreadScrolls(): ScrollMemory {
   return useLayoutServices().sessionValue(threadScrollsKey, createScrollMemory);
 }
-
-const distanceToEnd = (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight;
 
 /**
  * How the virtualizer scrolls the viewport: an instant scroll is a plain `scrollTop` write, so
@@ -172,6 +175,10 @@ export function useFeedScroll(options: FeedScrollOptions) {
   const { onDirection } = options;
   const mode = useRef<ScrollMode>(detached ? { kind: "free" } : { kind: "following" });
   const [following, setFollowing] = useState(!detached);
+  // Scroll to end: off following and the view's bottom out of reach of the end.
+  const [away, setAway] = useState(false);
+  // How far the view's bottom was from the end at the last look off following.
+  const lastDistance = useRef(0);
   const held = useRef<Held | undefined>(undefined);
   const top = useRef<TopRow | undefined>(undefined);
   const upward = useRef(false);
@@ -202,6 +209,14 @@ export function useFeedScroll(options: FeedScrollOptions) {
     );
     compensateBy(virtualizer, rule, grewAtTop);
   }, [locate, virtualizer]);
+  /**
+   * Whether Scroll to end shows, by how far the view's bottom really is from the end. Runs on
+   * scrolls, gestures and resizes, never per delta; following reads no layout at all.
+   */
+  const measure = useCallback((el: HTMLElement) => {
+    if (mode.current.kind !== "following") lastDistance.current = distanceToEnd(el);
+    setAway(showsScrollToEnd(mode.current, el));
+  }, []);
   const apply = useCallback(
     (event: ScrollEvent, el: HTMLElement | null) => {
       const step = transition(mode.current, event);
@@ -209,9 +224,11 @@ export function useFeedScroll(options: FeedScrollOptions) {
       // Overriding the jump's index target with where the view is now stops its re-aiming.
       if (step.cancelAim && el) placeAt(virtualizer, el, el.scrollTop);
       setFollowing(step.mode.kind === "following");
+      if (el) measure(el);
+      else if (step.mode.kind === "following") setAway(false);
       compensate();
     },
-    [virtualizer, compensate],
+    [virtualizer, compensate, measure],
   );
   const hold = useCallback(
     (el: HTMLElement, index: number, itemId?: string) => {
@@ -286,8 +303,17 @@ export function useFeedScroll(options: FeedScrollOptions) {
         upward.current = up;
         if (up) glidingUntil.current = 0;
         onDirection(up);
-        const atEnd = distanceToEnd(el) < nearEdge;
-        apply({ type: "gesture", upward: up, atEnd, detached, at: now() }, el);
+        apply(
+          {
+            type: "gesture",
+            upward: up,
+            atEnd: atEnd(el),
+            scrollable: canLeaveEnd(el),
+            detached,
+            at: now(),
+          },
+          el,
+        );
         // Leaving the end holds the row in view at once, before any rows can land.
         latestLook.current(el);
       },
@@ -334,7 +360,8 @@ export function useFeedScroll(options: FeedScrollOptions) {
     placeAt(virtualizer, el, start - at.offset);
     hold(el, at.index);
     compensate();
-  }, [keys, rows, viewport, list, virtualizer, apply, hold, compensate]);
+    measure(el);
+  }, [keys, rows, viewport, list, virtualizer, apply, hold, compensate, measure]);
 
   // Leaving the thread keeps where the reader was, unless they were at the live end.
   const leaving = useRef({ rows, detached, remember: options.remember });
@@ -343,10 +370,10 @@ export function useFeedScroll(options: FeedScrollOptions) {
   });
   useEffect(
     () => () => {
-      const { rows: shown, detached: away, remember } = leaving.current;
+      const { rows: shown, detached: windowed, remember } = leaving.current;
       const at = top.current;
       const row = at && shown[at.index];
-      if (away || mode.current.kind === "following" || !at || !row) return remember(undefined);
+      if (windowed || mode.current.kind === "following" || !at || !row) return remember(undefined);
       remember({
         key: row.key,
         offset: at.offset,
@@ -405,11 +432,24 @@ export function useFeedScroll(options: FeedScrollOptions) {
 
   const isFollowing = useCallback(() => mode.current.kind === "following", []);
   const toEnd = useCallback((el: HTMLElement) => toEndOf(virtualizer, el), [virtualizer]);
-  useStayPinned(viewport, isFollowing, glidingUntil);
-  useDockShift(dock, viewport, isFollowing, toEnd);
+  // A resize moved the end (rows grew, the composer or the dock changed size). Docked content
+  // changing keeps a reader who was at the end there; then the distance is measured again.
+  const resized = useCallback(
+    (el: HTMLElement, change: ViewportChange) => {
+      const resume =
+        dockedChange(change) && followsDockChange(mode.current, lastDistance.current, detached);
+      if (resume) apply({ type: "live" }, el);
+      if ((change.dock || resume) && mode.current.kind === "following") toEnd(el);
+      measure(el);
+    },
+    [apply, toEnd, measure, detached],
+  );
+  useStayPinned(viewport, dock, isFollowing, glidingUntil, resized);
 
   return {
     following,
+    /** Scroll to end shows: off following, and the end out of reach. */
+    away,
     /** The first row in view, as last observed. */
     top,
     /**
@@ -425,7 +465,7 @@ export function useFeedScroll(options: FeedScrollOptions) {
       apply(
         {
           type: "scrolled",
-          atEnd: distanceToEnd(el) < nearEdge,
+          atEnd: atEnd(el),
           upward: upward.current,
           detached,
           gliding: now() < glidingUntil.current,
@@ -444,6 +484,7 @@ export function useFeedScroll(options: FeedScrollOptions) {
       aimAt(virtualizer, el, index, align);
       hold(el, index, itemId);
       compensate();
+      measure(el);
     },
     /** Follow the live end again, gliding there or going at once (or not yet: a window loads). */
     toLive: (go?: "glide" | "now") => {

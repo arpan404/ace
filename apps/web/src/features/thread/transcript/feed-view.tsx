@@ -308,7 +308,7 @@ export function FeedView(props: FeedViewProps) {
   // The floating controls stay mounted through their exit. There is deliberately
   // no "viewing history" bar at the top: older history is one continuous list,
   // and the live pill alone offers the way back to the live end.
-  const livePill = usePresence(!pinned || detached);
+  const livePill = usePresence(scroll.away || detached);
   const fadeTop = useTopFade(viewport);
   // At most four chat visualizations hold a live page at once (each runs its own scripts).
   const [liveFrames] = useState(() => new LiveFrames(4));
