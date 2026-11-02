@@ -286,10 +286,12 @@ export {
 export { rowIndicator, type RowIndicator } from "./row-indicator.ts";
 export {
   rowStatusLook,
+  waitingOnAgentsLabel,
   type RowStatusIconKind,
   type RowStatusLook,
   type RowStatusTone,
 } from "./row-status-display.ts";
+export { hoverStatusLine, type HoverStatusLine } from "./row-hover-status.ts";
 export {
   sanitizeUserText,
   stripAceOriginMarker,

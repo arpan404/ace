@@ -1,6 +1,6 @@
 import type { PendingSend } from "@ace/client";
 import { useConnectionState, useIntent, usePendingSends, useSidebarIds } from "@ace/client-react";
-import { projectBadge, provisionalTitle } from "@ace/ui-core";
+import { provisionalTitle } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 import { useSyncExternalStore } from "react";
@@ -9,8 +9,6 @@ import { useLayout } from "@/lib/layout.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { providerNames } from "@ace/ui-core";
 import { useProjectName } from "@/lib/projects.ts";
-import { ProjectMark } from "@/components/project-mark.tsx";
-import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { cn } from "@/lib/cn.ts";
@@ -121,7 +119,6 @@ function StartedRow(props: { send: PendingSend }) {
         )}
       >
         <span className="flex w-full min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <ProjectMark id={projectId} badge={projectBadge({ id: projectId, name: project })} />
           <span className="min-w-0 flex-1 truncate">{project}</span>
           {failed ? (
             <StatusLabel tone="failed" label={label} mark={false} className="font-normal" />
@@ -131,7 +128,6 @@ function StartedRow(props: { send: PendingSend }) {
         </span>
         <span className="w-full truncate text-base leading-5">{titleOf(send)}</span>
         <span className="flex w-full min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <MachineMark icon={host?.icon} />
           <span className="truncate">{host?.displayName ?? "This machine"}</span>
           {send.payload.type === "thread.create" && (
             <ProviderIcon

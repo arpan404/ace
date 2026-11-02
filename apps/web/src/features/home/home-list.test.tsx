@@ -174,9 +174,10 @@ test("an approval leads the Inbox, which spans projects; a long-settled thread r
   ]);
   expect(top).toContain("Backpressure on broadcast fan-out");
   expect(top).toContain("Dedupe thread events after reconnect");
-  // Each row is marked with its project.
+  // Each row names its project in words, with no mark.
   const refund = card(/^Partial refunds double-count tax/);
-  expect(refund.querySelector("[data-project-mark]")).not.toBeNull();
+  expect(refund.querySelector("[data-project-mark]")).toBeNull();
+  expect(refund.getAttribute("aria-label")).toContain("Project billing-api");
   // Long settled, the Codex bump rests in Settled, never in the Inbox.
   expect(top).not.toContain("Bump Codex app-server to 0.48");
   await openTab("Settled");
@@ -241,11 +242,11 @@ test("in the Inbox an approval, a failure, a working thread, unseen finished wor
   expect(card(/^Tidy the changelog/).getAttribute("aria-label")).toContain("Project relay");
 });
 
-test("finished work not yet opened stays in the Inbox with the blue dot", async () => {
+test("finished work not yet opened stays in the Inbox with its green check", async () => {
   await openHome(newsApp(), "/new");
   await waitFor(() => expect(stops()).toContain("Write the release notes"));
   const notes = card(/^Write the release notes, unread/);
-  expect(notes.querySelector('[data-tone="unread"], [data-tone="done"]')).not.toBeNull();
+  expect(notes.querySelector('[data-icon="done"]')?.getAttribute("data-tone")).toBe("finished");
   await openTab("Settled");
   expect(stops()).not.toContain("Write the release notes");
 });
@@ -309,7 +310,7 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   expect(within(dedupe).getByTitle("fix/replay-dedupe").textContent).toBe("fix/replay-dedupe");
   expect(dedupe.getAttribute("aria-label")).toContain("Claude Code · 2 subagents running");
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toMatch(
-    /\. Waiting for 2 subagents, /,
+    /\. Waiting on 2 agents, Waiting for 2 subagents, /,
   );
   // The branch stays available while diff totals stay out of the sidebar.
   const install = card(/^Rewrite the install page for the daemon/);
@@ -371,12 +372,12 @@ test("a row's name says its status, provider and subagents, branch, pull request
   await openHome(workbenchApp());
   expect(
     card(
-      /^Partial refunds double-count tax\. Waiting for your approval, Claude Code, .*Pull request #77/,
+      /^Partial refunds double-count tax\. Needs approval, Waiting for your approval, Claude Code, .*Pull request #77/,
     ),
   ).toBeTruthy();
   expect(
     card(
-      /^Dedupe thread events after reconnect\. Waiting for 2 subagents, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
+      /^Dedupe thread events after reconnect(, unread)?\. Waiting on 2 agents, Waiting for 2 subagents, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
     ),
   ).toBeTruthy();
   expect(card(/^Backpressure on broadcast fan-out\..*Running on build-box/)).toBeTruthy();

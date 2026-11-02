@@ -91,6 +91,24 @@ test("status marks, the accent and its label stand out in every theme", () => {
     }
 });
 
+test("each thread-row status colour stands out on the sidebar, its hover and the open row, in every theme", () => {
+  const marks = [
+    "--row-status-needs-you",
+    "--row-status-failed",
+    "--row-status-working",
+    "--row-status-waiting",
+    "--row-status-background",
+    "--row-status-finished",
+  ];
+  // The sidebar's panel is a mix of the page and the sidebar colour, so it lies between them.
+  const rows = ["--background", "--sidebar", "--hover", "--active"];
+  for (const id of themeIds)
+    for (const scheme of schemes) {
+      const tokens = themeDeclarations(id, scheme);
+      expect([id, scheme, below(tokens, marks, rows, 3)]).toEqual([id, scheme, []]);
+    }
+});
+
 test("a danger button's label reads at AA on its fill at rest, hovered and pressed, in every theme", () => {
   for (const id of themeIds)
     for (const scheme of schemes) {

@@ -66,6 +66,8 @@ export {
   oneTurnWork,
   runningTests,
   turnStatuses,
+  rowStates,
+  failedJustNow,
   waitingOnSubagents,
   watchingRelay,
 } from "./scenarios/turn-statuses.ts";

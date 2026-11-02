@@ -6,13 +6,8 @@ import { HoverCardContent } from "@/components/ui/hover-card.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
-import {
-  BrowsingMark,
-  ComputerUseMark,
-  ProjectMark,
-  PullRequest,
-  RowStatus,
-} from "./row-parts.tsx";
+import { BrowsingMark, ComputerUseMark, ProjectMark, PullRequest } from "./row-parts.tsx";
+import { HoverStatus } from "./hover-status.tsx";
 import { LinkedPullRequestLink, ThreadHoverPrs } from "./thread-hover-prs.tsx";
 import { onScrollMove, scrolledRecently } from "./scroll-rest.ts";
 
@@ -69,12 +64,14 @@ export function ThreadHoverContent(props: {
       <p className="truncate text-ui leading-5 font-medium text-foreground" title={card.title}>
         {card.title}
       </p>
-      {/* The status in words, by the row's own attention so the two never disagree, then what
-          an agent is driving (a browser, Mac apps); full contrast, as the card is looked at. */}
-      <div data-hover-status className="mt-0.5 flex items-center gap-1.5">
-        <RowStatus card={card} attention={currentAttention(card.attention, true)} />
-        <BrowsingMark threadId={entry.id} />
-        <ComputerUseMark threadId={entry.id} />
+      {/* What the thread waits on, in words, by the row's own attention so the two never
+          disagree, then what an agent is driving (a browser, Mac apps). */}
+      <div data-hover-status className="mt-0.5 flex items-start gap-1.5">
+        <HoverStatus card={card} entry={entry} attention={currentAttention(card.attention, true)} />
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 pt-1">
+          <BrowsingMark threadId={entry.id} />
+          <ComputerUseMark threadId={entry.id} />
+        </span>
       </div>
       <div className="mt-1 text-ui text-muted-foreground">
         <Fact>

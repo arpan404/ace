@@ -1,13 +1,17 @@
-import { createContext, use } from "react";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
-import { rowStatusLook, type RowAttention, type ThreadCard } from "@ace/ui-core";
+import {
+  rowStatusLook,
+  type RowAttention,
+  type RowStatusLook,
+  type ThreadCard,
+} from "@ace/ui-core";
 import { StatusIcon } from "@/components/status-icons.tsx";
 import { formatSpan } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useMachines } from "@/lib/machines.ts";
-import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -95,8 +99,11 @@ export function ComputerUseMark(props: { threadId: string }) {
   );
 }
 
-/** State is also spoken, so the PR's colour is never the only clue. */
-export function PullRequest(props: { card: ThreadCard }) {
+/**
+ * State is also spoken, so the PR's colour is never the only clue. `ink="muted"` (rows) draws it
+ * in the surrounding muted ink; the hover card keeps the state's colour.
+ */
+export function PullRequest(props: { card: ThreadCard; ink?: "state" | "muted" | undefined }) {
   const { pr, prState } = props.card;
   const openPullRequest = useOpenThreadPullRequest(props.card.id);
   if (pr === undefined) return null;
@@ -106,11 +113,14 @@ export function PullRequest(props: { card: ThreadCard }) {
   const label = `${prState ?? "Linked"} pull request #${pr}${more > 0 ? `, ${more} more linked` : ""}`;
   const content = (
     <>
-      <PullRequestGlyph state={prState} size={12} />#{pr}
+      <PullRequestGlyph state={props.ink === "muted" ? undefined : prState} size={12} />#{pr}
       {more > 0 && <span>+{more}</span>}
     </>
   );
-  const tone = cn("inline-flex items-center gap-0.5", prState && pullRequestTone(prState));
+  const tone = cn(
+    "inline-flex items-center gap-0.5",
+    props.ink !== "muted" && prState && pullRequestTone(prState),
+  );
   if (!url)
     return (
       <span role="img" aria-label={label} className={tone}>
@@ -143,12 +153,20 @@ export function PullRequest(props: { card: ThreadCard }) {
   );
 }
 
+/** A row's status icon in its state's colour, silent: the row and its tooltip say the state. */
+export function LookIcon(props: { look: RowStatusLook }) {
+  const { look } = props;
+  if (look.icon === "none") return null;
+  return <StatusIcon kind={look.icon} tone={look.tone} count={look.count} size={16} />;
+}
+
 /**
- * The first line's status: one solid icon and one short word or time (`rowStatusLook`), 14px
- * with a 5px gap, vertically centred. Nothing animates. Needs-you and failed words take the
- * state's colour; elapsed and relative times stay in muted ink. The row's accessible name keeps
- * the full wording (`threadDetails`), so the short visual word never stands alone for
- * assistive tech.
+ * The first line's status, without words (`rowStatusLook`): what needs the person, a fresh
+ * failure and unseen finished work are their 16px icon alone; working, waiting and background
+ * work its icon and elapsed time; a seen failure its quiet icon and age; everything else its age
+ * in muted ink. Each icon is in its state's colour (`StatusIcon`). The
+ * meaning ("Needs approval") is the tooltip and the element's name, and the row's accessible
+ * name leads with it too, so nothing rests on the icon's shape or colour. Nothing animates.
  */
 export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) {
   const { card } = props;
@@ -156,58 +174,21 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
   // A snoozed row says what it waits for where its status sits, unless it needs the person.
   if (card.wake && level !== "needs-you" && level !== "failed") return <RowWake wake={card.wake} />;
   const look = rowStatusLook(props.attention, card);
-  if (look.mode === "elapsed") {
-    return (
-      <span
-        role="img"
-        aria-label={look.full}
-        data-tone={look.tone}
-        className="inline-flex shrink-0 items-center gap-[5px] text-meta whitespace-nowrap"
-      >
-        <span className="inline-flex text-(--tone)">
-          <StatusIcon kind={look.icon === "none" ? "waiting" : look.icon} size={14} />
-        </span>
-        <ActiveElapsed card={card} />
-      </span>
-    );
-  }
-  if (look.mode === "age") {
-    return (
-      <span
-        role="img"
-        aria-label={look.full}
-        data-tone={look.tone}
-        className="inline-flex shrink-0 items-center gap-[5px] text-meta whitespace-nowrap"
-      >
-        {look.icon !== "none" && (
-          <span className="inline-flex text-(--tone)">
-            <StatusIcon kind={look.icon} size={14} />
-          </span>
-        )}
-        <RowTime card={card} />
-      </span>
-    );
-  }
-  // A quiet word (a seen failure, an unconfirmed copy): no icon, no colour, no time.
-  if (look.icon === "none") {
-    return (
-      <span role="img" aria-label={look.full} className="shrink-0 text-meta text-muted-foreground">
-        {look.word}
-      </span>
-    );
-  }
   return (
-    <span
-      role="img"
-      aria-label={look.full}
-      data-tone={look.tone}
-      className="inline-flex shrink-0 items-center gap-[5px] text-meta font-medium whitespace-nowrap text-(--tone-text)"
-    >
-      <span className="inline-flex text-(--tone)">
-        <StatusIcon kind={look.icon} size={14} />
+    <Tip label={look.meaning}>
+      <span
+        role="img"
+        aria-label={look.meaning}
+        data-tone={look.tone}
+        data-status-mode={look.mode}
+        className="inline-flex shrink-0 items-center gap-[5px] text-meta whitespace-nowrap text-muted-foreground"
+      >
+        <LookIcon look={look} />
+        {look.mode === "elapsed" && <ActiveElapsed card={card} />}
+        {look.mode === "age" && <RowTime card={card} />}
+        {look.mode === "word" && <span>{look.word}</span>}
       </span>
-      <span>{look.word}</span>
-    </span>
+    </Tip>
   );
 }
 
@@ -227,7 +208,7 @@ function ActiveElapsed(props: { card: ThreadCard }) {
 }
 
 /** A snoozed row says what it waits for ("until it needs you") where others say their status. */
-function RowWake(props: { wake: string }) {
+export function RowWake(props: { wake: string }) {
   return (
     <span className="inline-flex shrink-0 items-center gap-1 text-meta whitespace-nowrap text-muted-foreground">
       <ClockIcon aria-hidden size={12} />
@@ -251,26 +232,35 @@ function RowTime(props: { card: ThreadCard }) {
 }
 
 /**
- * An Active row's last line: the branch and pull request lead; the provider keeps the trailing
- * slot. With more than one device connected, the machine's icon sits beside the provider's, its
- * name in the tooltip and the row's spoken details.
+ * An Active row's last line, all in muted ink: the branch and pull request lead; the provider
+ * keeps the trailing slot as a grey mark (the hover card names the account). A thread on another
+ * machine shows that machine's icon beside it, its name in the tooltip and the row's spoken
+ * details; one on this machine shows none.
  */
-export function RowContext(props: { card: ThreadCard }) {
+export function RowContext(props: {
+  card: ThreadCard;
+  /** The thread runs on another machine (not this window's own). */
+  remote: boolean;
+}) {
   const { card } = props;
-  const devices = use(ManyDevices);
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
-      {card.branch && <MiddleTruncate text={card.branch.name} className="flex-1 font-mono" />}
+    <div
+      data-row-context=""
+      className="flex h-4 min-w-0 items-center justify-end gap-1.5 text-meta leading-4 text-subtle-foreground"
+    >
+      {card.branch && (
+        <MiddleTruncate text={card.branch.name} className="min-w-0 flex-1 font-mono" />
+      )}
       {card.pr !== undefined && (
         <span className="shrink-0">
-          <PullRequest card={card} />
+          <PullRequest card={card} ink="muted" />
         </span>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
-        {devices && (
-          <Tip label={card.machine ?? "This machine"}>
-            <span className="inline-flex">
-              <MachineMark icon={card.machineIcon} />
+        {props.remote && (
+          <Tip label={card.machine ?? "Another machine"}>
+            <span data-machine-mark="" className="inline-flex">
+              <MachineMark icon={card.machineIcon} primary={false} />
             </span>
           </Tip>
         )}
@@ -281,15 +271,12 @@ export function RowContext(props: { card: ThreadCard }) {
               {card.subagents}
             </span>
           )}
-          {/* A black-and-white mark (OpenAI, OpenCode) takes the row's muted ink; coloured marks
-              keep their own colours. */}
-          <ProviderAccountIcon
+          <ProviderIcon
             provider={card.provider}
             acpAgentId={card.acpAgentId}
-            instance={card.account}
             size={14}
             decorative
-            className="text-subtle-foreground"
+            className="text-muted-foreground"
           />
         </span>
       </span>
@@ -297,25 +284,25 @@ export function RowContext(props: { card: ThreadCard }) {
   );
 }
 
-/**
- * More than one of the person's devices is connected: Active rows show their machine's icon. The
- * list reads the machines once and hands the answer to every row.
- */
-export const ManyDevices = createContext(false);
-
-/** More than one of the person's devices is connected: rows show their machine's icon. */
+/** More than one of the person's devices is connected. */
 export function useManyDevices(): boolean {
   return useMachines().filter((machine) => machine.status === "online").length > 1;
 }
 
 /**
- * The title's ink from the row's attention level: what needs the person or failed unseen is
- * full contrast and medium weight, live work and unread results full contrast, and everything
- * at rest drops to the muted ink. The title itself always shows.
+ * Whether a row's title is semibold: only when the thread needs the person (an approval, a
+ * question, a model to pick). Every other title, open or not, is regular weight.
+ */
+export function boldTitle(attention: RowAttention): boolean {
+  return attention.level === "needs-you";
+}
+
+/**
+ * The title's ink and weight from the row's attention level: semibold for what needs the person
+ * (`boldTitle`), full contrast for live work, and the muted ink for everything at rest. The
+ * title itself always shows.
  */
 export function titleTone(attention: RowAttention): string {
-  const { level } = attention;
-  // Titles always carry weight 500; muted attention changes the ink, never the weight.
-  if (level === "needs-you" || level === "failed") return "font-medium text-foreground";
-  return attention.muted ? "font-medium text-muted-foreground" : "font-medium text-foreground";
+  if (boldTitle(attention)) return "font-semibold text-foreground";
+  return attention.muted ? "text-muted-foreground" : "text-foreground";
 }

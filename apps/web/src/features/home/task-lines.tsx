@@ -2,14 +2,7 @@ import type { RowAttention, ThreadCard } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { PushPinIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import {
-  BrowsingMark,
-  ComputerUseMark,
-  ProjectMark,
-  RowContext,
-  RowStatus,
-  titleTone,
-} from "./row-parts.tsx";
+import { BrowsingMark, ComputerUseMark, RowContext, RowStatus, titleTone } from "./row-parts.tsx";
 
 /**
  * An Active row's height: three lines of 16, 20 and 16px, 4px between each, 10px above and below.
@@ -18,17 +11,18 @@ import {
 export const taskRowHeight = "h-[80px] py-2.5 px-3 items-start";
 
 /**
- * An Active row's three lines: the project and the status (or its age), the title, then the
- * branch, pull request, machine and provider. Under the pointer or keyboard focus the row's
+ * An Active row's three lines: the project's name and the status (an icon, its time, or its
+ * age), the title, then the branch, pull request, another machine and the provider. Under the pointer or keyboard focus the row's
  * actions take the status's place: the status hides where it sits, and the project name stops
  * short of the actions.
  */
 export function TaskLines(props: {
   card: ThreadCard;
   attention: RowAttention;
-  workspaceId: string;
   /** The row's actions are up (pointer, focus, or one of their menus open). */
   actions: boolean;
+  /** The thread runs on another machine: line 3 shows its mark. */
+  remote: boolean;
   /** The title, or the rename field in its place. */
   title: ReactNode;
   /** A settled row: its title drops to the muted ink. */
@@ -43,7 +37,6 @@ export function TaskLines(props: {
           props.actions ? "pr-28" : "group-has-[[data-popup-open]]/row:pr-28",
         )}
       >
-        <ProjectMark id={props.workspaceId} badge={card.badge} />
         <span className="flex min-w-0 flex-1 items-center gap-1">
           <span className="min-w-0 truncate">{card.project}</span>
           {card.flags.pinned && (
@@ -68,13 +61,13 @@ export function TaskLines(props: {
       <div
         className={cn(
           "mt-1 min-w-0 truncate text-md leading-5",
-          props.dimmed ? "font-medium text-muted-foreground" : titleTone(attention),
+          props.dimmed ? "text-muted-foreground" : titleTone(attention),
         )}
       >
         {props.title}
       </div>
       <div className="mt-1">
-        <RowContext card={card} />
+        <RowContext card={card} remote={props.remote} />
       </div>
     </div>
   );

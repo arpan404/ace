@@ -36,7 +36,6 @@ import { machineRow } from "@/lib/machine-threads.ts";
 import { UnsentRows } from "./unsent-rows.tsx";
 import { SectionRow } from "./section-rows.tsx";
 import { ChatRow } from "./chat-row.tsx";
-import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { useHomeSort } from "./use-home-threads.ts";
 import { SnoozeRequestContext } from "./snooze-request.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
@@ -427,138 +426,131 @@ export function ThreadList(props: {
     });
   };
   const movingSet = useMemo(() => new Set(moving), [moving]);
-  const manyDevices = useManyDevices();
   return (
-    <ManyDevices value={manyDevices}>
-      <SnoozeRequestContext value={snoozeRequest}>
-        <JumpKeys targets={jumps} />
+    <SnoozeRequestContext value={snoozeRequest}>
+      <JumpKeys targets={jumps} />
+      <div
+        ref={viewport}
+        {...hold.handlers}
+        onPointerEnter={() => void loadDrag()}
+        onScroll={(event) => props.onScroll?.(event.currentTarget.scrollTop)}
+        data-virtual-viewport=""
+        style={{
+          maskImage:
+            "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",
+        }}
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4"
+      >
         <div
-          ref={viewport}
-          {...hold.handlers}
-          onPointerEnter={() => void loadDrag()}
-          onScroll={(event) => props.onScroll?.(event.currentTarget.scrollTop)}
-          data-virtual-viewport=""
-          style={{
-            maskImage:
-              "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",
+          ref={listRef}
+          role="list"
+          aria-label={props.label ?? "Threads"}
+          // Its letters jump between rows, so the composer's type-to-focus leaves them alone.
+          data-type-ahead=""
+          onKeyDownCapture={onKeyDownCapture}
+          onKeyDown={onKeyDown}
+          onFocus={(event) => {
+            exitFocus.onFocus(event);
+            if (!event.target.matches(rowFocusSelector)) return;
+            lastFocused.current = event.target;
+            roveListFocus(event.currentTarget, event.target);
           }}
-          className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4"
+          onBlur={(event) => {
+            exitFocus.onBlur(event);
+            const next = event.relatedTarget;
+            if (next instanceof Node && event.currentTarget.contains(next)) return;
+            keyboardMove.current?.cancel();
+            keyboardMove.current = undefined;
+          }}
+          onClickCapture={onClickCapture}
+          onPointerDown={onPointerDown}
+          // A row is a link: the browser's own link drag would fight ours.
+          onDragStart={(event) => event.preventDefault()}
+          className={cn("relative w-full", sliding && "fx-list-moving")}
+          style={{ height: listHeight }}
         >
-          <div
-            ref={listRef}
-            role="list"
-            aria-label={props.label ?? "Threads"}
-            // Its letters jump between rows, so the composer's type-to-focus leaves them alone.
-            data-type-ahead=""
-            onKeyDownCapture={onKeyDownCapture}
-            onKeyDown={onKeyDown}
-            onFocus={(event) => {
-              exitFocus.onFocus(event);
-              if (!event.target.matches(rowFocusSelector)) return;
-              lastFocused.current = event.target;
-              roveListFocus(event.currentTarget, event.target);
-            }}
-            onBlur={(event) => {
-              exitFocus.onBlur(event);
-              const next = event.relatedTarget;
-              if (next instanceof Node && event.currentTarget.contains(next)) return;
-              keyboardMove.current?.cancel();
-              keyboardMove.current = undefined;
-            }}
-            onClickCapture={onClickCapture}
-            onPointerDown={onPointerDown}
-            // A row is a link: the browser's own link drag would fight ours.
-            onDragStart={(event) => event.preventDefault()}
-            className={cn("relative w-full", sliding && "fx-list-moving")}
-            style={{ height: listHeight }}
-          >
-            {virtualizer.getVirtualItems().map((item) => {
-              const entry = drawn[item.index];
-              if (!entry) return null;
-              const row = entry.item;
-              const leaving = entry.phase === "exit";
-              const thread = homeRowThread(row);
-              return (
-                <div
-                  key={item.key}
-                  role={leaving || row.kind === "unsent" ? "presentation" : "listitem"}
-                  aria-hidden={leaving || undefined}
-                  inert={leaving}
-                  ref={virtualizer.measureElement}
-                  data-index={item.index}
-                  className={cn(
-                    // Inset from the sidebar's edges, with a small gap between rows: space, not
-                    // rules, separates them.
-                    "absolute inset-x-2 top-0",
-                    isTask(row)
-                      ? "pb-1"
-                      : "id" in row
-                        ? "pb-0.5"
-                        : row.kind !== "unsent" && "pb-px",
-                    // While rows slide past each other each is opaque, and the one moving up
-                    // passes over the others: a swap never shows two rows through each other.
-                    sliding && "bg-sidebar",
-                    sliding && entry.rising && "z-[1]",
+          {virtualizer.getVirtualItems().map((item) => {
+            const entry = drawn[item.index];
+            if (!entry) return null;
+            const row = entry.item;
+            const leaving = entry.phase === "exit";
+            const thread = homeRowThread(row);
+            return (
+              <div
+                key={item.key}
+                role={leaving || row.kind === "unsent" ? "presentation" : "listitem"}
+                aria-hidden={leaving || undefined}
+                inert={leaving}
+                ref={virtualizer.measureElement}
+                data-index={item.index}
+                className={cn(
+                  // Inset from the sidebar's edges, with a small gap between rows: space, not
+                  // rules, separates them.
+                  "absolute inset-x-2 top-0",
+                  isTask(row) ? "pb-1" : "id" in row ? "pb-0.5" : row.kind !== "unsent" && "pb-px",
+                  // While rows slide past each other each is opaque, and the one moving up
+                  // passes over the others: a swap never shows two rows through each other.
+                  sliding && "bg-sidebar",
+                  sliding && entry.rising && "z-[1]",
+                )}
+                style={{
+                  transform: `translateY(${item.start}px)`,
+                  ...(thread && movingSet.has(thread) ? { opacity: 0.4 } : {}),
+                }}
+              >
+                {hints && thread && !leaving && numbers.has(thread) && (
+                  <span
+                    aria-hidden
+                    data-jump-hint=""
+                    className="pointer-events-none absolute top-1.5 -left-1.5 z-[2] grid h-4 min-w-4 place-items-center rounded-xs bg-popover px-0.5 text-2xs font-medium tabular-nums text-muted-foreground shadow-[0_0_0_1px_var(--border)]"
+                  >
+                    {numbers.get(thread)}
+                  </span>
+                )}
+                <div className={rowMotion(entry.phase)}>
+                  {thread && machineRow(thread) ? (
+                    <MachineRow
+                      id={thread}
+                      shape={row.kind === "chat" ? "chat" : "task"}
+                      lead={rowLead(row)}
+                      leaving={leaving}
+                      settled={row.kind === "settled" || (row.kind === "chat" && row.settled)}
+                    />
+                  ) : (
+                    <>
+                      {isTask(row) && "id" in row && (
+                        <ThreadRow
+                          threadId={row.id}
+                          settled={row.kind === "settled"}
+                          dimmed={row.kind === "settled"}
+                          leaving={leaving}
+                          lead="task"
+                        />
+                      )}
+                      {row.kind === "chat" && (
+                        <ChatRow id={row.id} settled={row.settled} leaving={leaving} />
+                      )}
+                    </>
                   )}
-                  style={{
-                    transform: `translateY(${item.start}px)`,
-                    ...(thread && movingSet.has(thread) ? { opacity: 0.4 } : {}),
-                  }}
-                >
-                  {hints && thread && !leaving && numbers.has(thread) && (
-                    <span
-                      aria-hidden
-                      data-jump-hint=""
-                      className="pointer-events-none absolute top-1.5 -left-1.5 z-[2] grid h-4 min-w-4 place-items-center rounded-xs bg-popover px-0.5 text-2xs font-medium tabular-nums text-muted-foreground shadow-[0_0_0_1px_var(--border)]"
-                    >
-                      {numbers.get(thread)}
-                    </span>
+                  {row.kind === "unsent" && <UnsentRows />}
+                  {!thread && row.kind !== "unsent" && (
+                    <SectionRow row={row} first={item.index === 0} />
                   )}
-                  <div className={rowMotion(entry.phase)}>
-                    {thread && machineRow(thread) ? (
-                      <MachineRow
-                        id={thread}
-                        shape={row.kind === "chat" ? "chat" : "task"}
-                        lead={rowLead(row)}
-                        leaving={leaving}
-                        settled={row.kind === "settled" || (row.kind === "chat" && row.settled)}
-                      />
-                    ) : (
-                      <>
-                        {isTask(row) && "id" in row && (
-                          <ThreadRow
-                            threadId={row.id}
-                            settled={row.kind === "settled"}
-                            dimmed={row.kind === "settled"}
-                            leaving={leaving}
-                            lead="task"
-                          />
-                        )}
-                        {row.kind === "chat" && (
-                          <ChatRow id={row.id} settled={row.settled} leaving={leaving} />
-                        )}
-                      </>
-                    )}
-                    {row.kind === "unsent" && <UnsentRows />}
-                    {!thread && row.kind !== "unsent" && (
-                      <SectionRow row={row} first={item.index === 0} />
-                    )}
-                  </div>
                 </div>
-              );
-            })}
-          </div>
-          <span aria-live="polite" className="sr-only">
-            {announcement}
-          </span>
+              </div>
+            );
+          })}
         </div>
-        {picked.length > 0 && (
-          <Suspense fallback={null}>
-            <BulkBar.Component />
-          </Suspense>
-        )}
-      </SnoozeRequestContext>
-    </ManyDevices>
+        <span aria-live="polite" className="sr-only">
+          {announcement}
+        </span>
+      </div>
+      {picked.length > 0 && (
+        <Suspense fallback={null}>
+          <BulkBar.Component />
+        </Suspense>
+      )}
+    </SnoozeRequestContext>
   );
 }
 
