@@ -175,10 +175,25 @@ export function watchingRelay(id = "thread-watching-relay"): Scenario {
   };
 }
 
-/** A root agent waiting on the two subagents it started. */
-export function waitingOnSubagents(id = "thread-waiting-subagents"): Scenario {
+/** The first two subagents a waiting root starts; any more are numbered. */
+const auditors = [
+  ["web", "web-audit", "Audit the web client", "apps/web/src/resume.ts"],
+  ["mobile", "mobile-audit", "Audit the mobile client", "apps/mobile/src/resume.ts"],
+] as const;
+
+/** A root agent waiting on the subagents it started: two unless `count` says otherwise. */
+export function waitingOnSubagents(
+  id = "thread-waiting-subagents",
+  count = 2,
+  title = "Audit resume paths",
+): Scenario {
+  const children = Array.from({ length: count }, (_, index) => {
+    const known = auditors[index];
+    const n = index + 1;
+    return known ?? ([`audit-${n}`, `audit-${n}`, `Audit part ${n}`, `src/part-${n}.ts`] as const);
+  });
   return {
-    thread: { id, workspaceId: "relay", title: "Audit resume paths", provider: "claude" },
+    thread: { id, workspaceId: "relay", title, provider: "claude" },
     steps: [
       {
         kind: "facts",
@@ -187,25 +202,52 @@ export function waitingOnSubagents(id = "thread-waiting-subagents"): Scenario {
           rootAgent("claude", cwd),
           turn("root"),
           message("root", "ask", "user", "Audit every resume path, in parallel."),
-          ...spawn("spawn-web", "web", "web-audit", "Audit the web client"),
+          ...children.flatMap(([child, name, description, file]): Fact[] => [
+            ...spawn(`spawn-${child}`, child, name, description),
+            { type: "activity", agent: child, activity: "tool", detail: `Reading ${file}` },
+          ]),
           {
-            type: "activity",
-            agent: "web",
-            activity: "tool",
-            detail: "Reading apps/web/src/resume.ts",
+            type: "subagents.waiting",
+            agent: "root",
+            item: `spawn-${children.at(-1)?.[0] ?? "web"}`,
+            targets: [],
           },
-          ...spawn("spawn-mobile", "mobile", "mobile-audit", "Audit the mobile client"),
-          {
-            type: "activity",
-            agent: "mobile",
-            activity: "tool",
-            detail: "Reading apps/mobile/src/resume.ts",
-          },
-          { type: "subagents.waiting", agent: "root", item: "spawn-mobile", targets: [] },
         ],
       },
     ],
   };
+}
+
+/** A turn that failed just now, so its row reads as a fresh failure. */
+export function failedJustNow(id = "thread-failed-now"): Scenario {
+  return {
+    thread: { id, workspaceId: "relay", title: "Rebuild the relay index", provider: "codex" },
+    steps: [
+      {
+        kind: "facts",
+        label: "failed",
+        facts: [
+          rootAgent("codex", cwd),
+          turn("root"),
+          message("root", "ask", "user", "Rebuild the relay index."),
+          endTurn("root", "failed", { kind: "provider", message: "The index file is locked." }),
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Thread-row statuses the dev world lacks, beside its requests, model and finished work:
+ * waiting on three agents, a background command, a test run. A fresh failure
+ * (`failedJustNow`) must be played after the client's first launch to read as news.
+ */
+export function rowStates(): Scenario[] {
+  return [
+    waitingOnSubagents("thread-waiting-three", 3, "Audit the three resume paths"),
+    watchingRelay(),
+    runningTests(),
+  ];
 }
 
 /** A root agent in the middle of a test run. */

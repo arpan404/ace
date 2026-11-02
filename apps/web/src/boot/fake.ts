@@ -18,6 +18,9 @@ import {
   seedRealThreadState,
   seedColdStartState,
   turnStatuses,
+  rowStates,
+  failedJustNow,
+  oneTurnWork,
   workbenchServices,
   seedForgeBrowse,
 } from "@ace/fake-daemon";
@@ -75,7 +78,8 @@ export function bootFake(): {
   // `aceFakeWorld = "empty"` (set before boot, as the screens do) starts on a daemon with no
   // threads and no projects: the first run. `?fakeWorld=showcase` is the small, tidy world the
   // marketing screenshots are taken in. `?fakeWorld=thread-activity` adds threads caught
-  // mid-work (watching a command, waiting on subagents, running tests, asking) to the world.
+  // mid-work (watching a command, waiting on subagents, running tests, asking) to the world;
+  // `?fakeWorld=row-states` adds one thread for each thread-row status.
   const world =
     (globalThis as { aceFakeWorld?: string }).aceFakeWorld ??
     new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld");
@@ -84,6 +88,18 @@ export function bootFake(): {
   if (world === "thread-activity")
     for (const scenario of turnStatuses())
       new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
+  // `?fakeWorld=row-states`: every thread-row status at once (waiting on three agents, a
+  // background command, a test run, a fresh failure) beside the dev world's own.
+  if (world === "row-states") {
+    for (const scenario of rowStates())
+      new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
+    // After the client's first launch, so the failure and the finished turn are news rather
+    // than history.
+    setTimeout(() => {
+      for (const scenario of [failedJustNow(), oneTurnWork("thread-finished-now")])
+        new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
+    }, 5_000);
+  }
   // Every thread is stamped back by its age; live ones keep moving while the app is open.
   for (const thread of empty || ["real-thread-state", "cold-start-state"].includes(world ?? "")
     ? []
