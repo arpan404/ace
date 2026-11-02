@@ -10,13 +10,17 @@ struct ProjectMark: View {
     var chat = false
     var look: ProjectMarkLook? = nil
     var quiet = false
-    @ScaledMetric(relativeTo: .caption2) private var height: CGFloat = 16
-    @ScaledMetric(relativeTo: .caption2) private var width: CGFloat = 20
+    @ScaledMetric(relativeTo: .caption2) private var height: CGFloat = AceDesign.Size.icon
+    @ScaledMetric(relativeTo: .caption2) private var width: CGFloat = AceDesign.Size.icon + AceDesign.Space.tight
+    /// The mark's own drawing: glyphs and initials sized to sit inside its 16pt tile.
+    static let glyphSize: CGFloat = 13
+    static let tileGlyphSize: CGFloat = 11
+    static let initialsScale: CGFloat = 0.6
 
     var body: some View {
         Group {
             if chat {
-                AceIcon(.chatCircle, size: 13, weight: .bold, relativeTo: .caption2).foregroundStyle(ink)
+                AceIcon(.chatCircle, size: ProjectMark.glyphSize, weight: .bold, relativeTo: .caption2).foregroundStyle(ink)
             } else if let artwork = look?.artwork, artwork.state != .failed {
                 ProjectArtworkMark(artwork: artwork, quiet: quiet)
             } else {
@@ -27,23 +31,23 @@ struct ProjectMark: View {
         .accessibilityHidden(true)
     }
 
-    private var ink: Color { quiet ? AceTheme.Colours.faintForeground : AceTheme.Colours.mutedForeground }
+    private var ink: Color { quiet ? AceDesign.Ink.faint : AceDesign.Ink.muted }
 
     /// The glyph or initials on the quiet fill, also what a failed image falls back to.
     private var tile: some View {
         Group {
             if let glyph = look?.glyph {
-                AceIcon(glyph, size: 11, weight: .bold, relativeTo: .caption2)
+                AceIcon(glyph, size: ProjectMark.tileGlyphSize, weight: .bold, relativeTo: .caption2)
             } else {
                 Text(initials.uppercased())
-                    .font(.system(size: height * 0.6, weight: .semibold))
+                    .font(.system(size: height * ProjectMark.initialsScale, weight: AceDesign.Typeface.strong))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
         }
         .foregroundStyle(ink)
         .frame(width: width, height: height)
-        .background(AceTheme.Colours.fill, in: AceDesign.Shape.control)
+        .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
     }
 }
 
@@ -57,9 +61,9 @@ private struct ProjectArtworkMark: View {
                 Image(uiImage: image).resizable().scaledToFit()
                     .clipShape(AceDesign.Shape.control)
                     .grayscale(1)
-                    .opacity(quiet ? 0.5 : 1)
+                    .opacity(quiet ? AceDesign.Ink.recede : 1)
             } else {
-                AceDesign.Shape.control.fill(AceTheme.Colours.fill)
+                AceDesign.Shape.control.fill(AceDesign.Surface.fill)
             }
         }
         .onAppear { artwork.load() }
