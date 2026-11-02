@@ -6,7 +6,7 @@ import {
   type ThreadCard,
 } from "@ace/ui-core";
 import { StatusIcon } from "@/components/status-icons.tsx";
-import { AgentCursorIcon } from "@/components/ace-icons.tsx";
+import { AgentCursorIcon, BrowserUseIcon } from "@/components/ace-icons.tsx";
 import { formatElapsed } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
@@ -18,7 +18,7 @@ import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
 import { useThreadComputerUse } from "@/lib/computer-using.ts";
-import { ClockIcon, GlobeSimpleIcon, TreeStructureIcon } from "@phosphor-icons/react";
+import { ClockIcon, TreeStructureIcon } from "@phosphor-icons/react";
 import type { LinkClick } from "@/lib/web-links.ts";
 import { useOpenThreadPullRequest } from "./open-pull-request.ts";
 
@@ -53,7 +53,7 @@ export function threadDetails(card: ThreadCard): string[] {
 
 export { ProjectMark } from "@/components/project-mark.tsx";
 
-/** A quiet globe in the working colour while an agent works in the thread's browser. */
+/** The globe with the agent's pointer, in the working colour, while an agent works in the thread's browser. */
 export function BrowsingMark(props: { threadId: string }) {
   if (!useThreadBrowsing(props.threadId)) return null;
   return (
@@ -64,7 +64,7 @@ export function BrowsingMark(props: { threadId: string }) {
         data-tone="working"
         className="inline-flex shrink-0 text-status-working"
       >
-        <GlobeSimpleIcon aria-hidden size={12} />
+        <BrowserUseIcon aria-hidden size={14} />
       </span>
     </Tip>
   );
@@ -248,6 +248,9 @@ export function RowContext(props: {
         </span>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        {/* What an agent is using for the thread, beside who runs it; the row's actions never cover them. */}
+        <BrowsingMark threadId={card.id} />
+        <ComputerUseMark threadId={card.id} />
         {props.remote && (
           <Tip label={card.machine ?? "Another machine"}>
             <span data-machine-mark="" className="inline-flex">

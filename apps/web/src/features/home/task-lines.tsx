@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { PushPinIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { ProjectMark } from "@/components/project-mark.tsx";
-import { BrowsingMark, ComputerUseMark, RowContext, RowStatus, titleTone } from "./row-parts.tsx";
+import { RowContext, RowStatus, titleTone } from "./row-parts.tsx";
 
 /**
  * An Active row's height: three lines of 16, 20 and 16px, 4px between each, 10px above and below.
@@ -13,7 +13,8 @@ export const taskRowHeight = "h-[80px] py-2.5 px-3 items-start";
 
 /**
  * An Active row's three lines: the project's mark and name and the status (an icon, its time, or its
- * age), the title, then the branch, pull request, another machine and the provider. Under the pointer or keyboard focus the row's
+ * age), the title, then the branch, pull request, browser and computer use, another machine and
+ * the provider. Under the pointer or keyboard focus the row's
  * actions take the status's place: the status hides where it sits, and the project name stops
  * short of the actions.
  */
@@ -48,9 +49,6 @@ export function TaskLines(props: {
           {card.flags.pinned && (
             <PushPinIcon aria-hidden size={11} className="shrink-0 text-subtle-foreground" />
           )}
-          {/* Beside the project name, so the row's actions never push them along on hover. */}
-          <BrowsingMark threadId={card.id} />
-          <ComputerUseMark threadId={card.id} />
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
           <span
