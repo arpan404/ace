@@ -34,6 +34,10 @@ export const StallReport = z.object({
   load: z.optional(z.number().check(z.nonnegative())),
   /** Age of the thread pool probe still unanswered, when there is one. */
   ioWaitMs: z.optional(count()),
+  /** The process's resident memory at the latest update: a stall that allocates shows here. */
+  rssBytes: z.optional(count()),
+  /** What the main thread named as its current operation when the stall was seen. */
+  operation: z.optional(z.string().check(z.maxLength(256))),
   /**
    * The main thread ran JavaScript again while the stall still lasted, so `stack` is where it
    * was stuck. False with an empty stack: it never left native code (SQLite, sync I/O) while
@@ -98,11 +102,13 @@ export function stallFields(report: StallReport): Array<readonly [string, unknow
     ["watchdogLateMs", report.watchdogLateMs ?? null],
     ["load", report.load ?? null],
     ["ioWaitMs", report.ioWaitMs ?? null],
+    ["rssBytes", report.rssBytes ?? null],
   ];
   if (report.kind === "io") return [["kind", "io"], ...context];
   return [
     ["kind", "main"],
     ...context,
+    ["operation", report.operation ?? null],
     ["caught", report.caught],
     ["answerMs", report.answerMs ?? null],
     [

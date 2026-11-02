@@ -7,6 +7,7 @@ import { dirname } from "node:path";
 import * as z from "zod/mini";
 import { createStallDetector } from "./stall-detector.ts";
 import { namesStall, pausedStack, ScriptParsed, type StallReport } from "./stall-report.ts";
+import { readStallOperation } from "./stall-operation.ts";
 
 /**
  * Watches the daemon's main thread from its own thread. While the heartbeat keeps changing it
@@ -19,6 +20,7 @@ const positive = () => z.int().check(z.positive());
 const input = z
   .object({
     heartbeat: z.instanceof(Int32Array),
+    operation: z.optional(z.instanceof(SharedArrayBuffer)),
     pid: positive(),
     reportPath: z.string().check(z.minLength(1)),
     checkMs: positive(),
@@ -64,7 +66,11 @@ function finish(): void {
 }
 function context(now: number) {
   const cpu = process.cpuUsage(healthyCpu);
+  const operation = input.operation ? readStallOperation(input.operation) : undefined;
   return {
+    // Resident memory is the process's, so this thread reads the main thread's growth too.
+    rssBytes: process.memoryUsage.rss(),
+    ...(operation ? { operation: operation.slice(0, 256) } : {}),
     cpuMs: Math.round((cpu.user + cpu.system) / 1_000),
     watchdogLateMs: Math.round(lateMs),
     load: Math.round((loadavg()[0] ?? 0) * 10) / 10,

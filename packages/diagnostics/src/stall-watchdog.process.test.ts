@@ -6,9 +6,9 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { expect, test } from "vitest";
-import { systemLoopClock } from "./loop-monitor.ts";
 import type { StallReport } from "./stall-report.ts";
-import { startStallWatchdog, takePreviousStallReports } from "./stall-watchdog.ts";
+import { createStallOperation, type StallOperation } from "./stall-operation.ts";
+import { startStallWatchdog, systemHeartbeat, takePreviousStallReports } from "./stall-watchdog.ts";
 
 const timing = {
   beatMs: 50,
@@ -20,17 +20,18 @@ const timing = {
   ioThresholdMs: 400,
 };
 
-async function watched(run: () => unknown): Promise<StallReport[]> {
+async function watched(run: () => unknown, operation?: StallOperation): Promise<StallReport[]> {
   const directory = mkdtempSync(join(tmpdir(), "stall-watchdog-"));
   const reports: StallReport[] = [];
   const errors: unknown[] = [];
   const stop = startStallWatchdog({
     directory,
     pid: process.pid,
-    clock: systemLoopClock,
+    clock: systemHeartbeat,
     timing,
     onStall: (report) => reports.push(report),
     onError: (error) => errors.push(error),
+    ...(operation ? { operation } : {}),
   });
   try {
     // Let the worker start and see the heartbeat before the main thread freezes.
@@ -67,6 +68,34 @@ test("a main thread stuck in JavaScript is reported with the function it was stu
   expect(report?.cpuMs).toBeGreaterThan(200);
   expect(report?.stack.map((frame) => frame.fn)).toContain("busyLoopFor");
   expect(report?.stack.map((frame) => frame.fn)).toContain("freezeInJavaScript");
+});
+
+test("a stall inside a named operation reports that operation and the memory it grew to", async () => {
+  const operation = createStallOperation();
+  const held: Buffer[] = [];
+  const reports = await watched(
+    operation.wrap("browser.picture", function freezeWhileAllocating() {
+      // Written with non-zero bytes, so every page is resident before the thread spins.
+      held.push(Buffer.allocUnsafe(256 * 1024 * 1024).fill(1));
+      busyLoopFor(1_500);
+    }),
+    operation,
+  );
+  expect(reports).toHaveLength(1);
+  const [report] = reports;
+  expect(report).toMatchObject({ kind: "main", operation: "browser.picture", ended: true });
+  expect(report?.rssBytes).toBeGreaterThan(256 * 1024 * 1024);
+  held.length = 0;
+});
+
+test("a stall after a named operation finished does not blame that operation", async () => {
+  const operation = createStallOperation();
+  operation.run("updates.check", () => undefined);
+  const reports = await watched(function freezeOutsideOperations() {
+    busyLoopFor(1_500);
+  }, operation);
+  expect(reports).toHaveLength(1);
+  expect(reports[0]?.operation).toBeUndefined();
 });
 
 test("a main thread stuck in one long SQLite statement is reported with the caller of that statement", async () => {
