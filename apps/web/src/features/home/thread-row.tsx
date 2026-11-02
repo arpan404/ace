@@ -18,7 +18,7 @@ import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions, type RowActionsProps } from "./row-actions.tsx";
-import { boldTitle, RowProvider, RowWork, threadDetails } from "./row-parts.tsx";
+import { RowProvider, RowWork, threadDetails } from "./row-parts.tsx";
 import { RowIndicator } from "./row-indicator.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
@@ -174,13 +174,10 @@ export function ThreadRow(props: {
       <span
         className={cn(
           "min-w-0 flex-1 truncate",
-          boldTitle(attention)
-            ? "font-semibold text-foreground"
-            : current
-              ? "text-foreground"
-              : props.dimmed
-                ? "text-subtle-foreground"
-                : "text-foreground",
+          // Attention is brightness alone: what needs the person and the open thread in full ink.
+          attention.level === "needs-you" || current || !props.dimmed
+            ? "text-foreground"
+            : "text-subtle-foreground",
           // Under the pointer or keyboard focus the row's actions take the mark's place: the
           // title stops short of them. An action's menu keeps them up after the pointer leaves.
           actions ? hoverPad : restingPad,

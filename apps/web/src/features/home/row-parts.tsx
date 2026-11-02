@@ -320,19 +320,11 @@ export function useManyDevices(): boolean {
 }
 
 /**
- * Whether a row's title is semibold: only when the thread needs the person (an approval, a
- * question, a model to pick). Every other title, open or not, is regular weight.
- */
-export function boldTitle(attention: RowAttention): boolean {
-  return attention.level === "needs-you";
-}
-
-/**
- * The title's ink and weight from the row's attention level: semibold for what needs the person
- * (`boldTitle`), full contrast for live work, and the muted ink for everything at rest. The
- * title itself always shows.
+ * The title's ink from the row's attention level: full contrast for what needs the person and for
+ * live work, the muted ink for everything at rest. Attention is brightness alone; every title is
+ * regular weight.
  */
 export function titleTone(attention: RowAttention): string {
-  if (boldTitle(attention)) return "font-semibold text-foreground";
+  if (attention.level === "needs-you") return "text-foreground";
   return attention.muted ? "text-muted-foreground" : "text-foreground";
 }
