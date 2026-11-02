@@ -1,7 +1,6 @@
 import { createContext, use } from "react";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
 import { rowStatusLook, type RowAttention, type ThreadCard } from "@ace/ui-core";
-import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { StatusIcon } from "@/components/status-icons.tsx";
 import { formatSpan } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
