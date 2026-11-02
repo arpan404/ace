@@ -10,11 +10,12 @@ function line(
   row: Pick<RowAttentionInput, "tone" | "word"> & Partial<RowAttentionInput>,
   label: string,
   listed?: { status: ThreadStatus; live?: ThreadRunMetadata },
+  waitingOn?: number,
 ) {
   const tone: Tone = row.tone;
   return hoverStatusLine({
     attention: rowAttention({ unread: false, settled: false, ...row }),
-    card: { status: { label, tone } },
+    card: { status: { label, tone, waitingOn } },
     fact: listed && threadLiveFact(listed),
   });
 }
@@ -72,10 +73,12 @@ test("working names the step it is on when the list knows it", () => {
 });
 
 test("a thread waiting on its children counts them", () => {
-  const waits = line({ tone: "waiting", word: "Waiting" }, "Waiting for 2 subagents", {
-    status: { state: "working", agents: 3 },
-    live: { waitingOn: 2 },
-  });
+  const waits = line(
+    { tone: "waiting", word: "Waiting" },
+    "Waiting for 2 subagents",
+    { status: { state: "working", agents: 3 }, live: { waitingOn: 2 } },
+    2,
+  );
   expect(waits).toEqual({ sentence: "Waiting on 2 agents", detail: undefined, ink: "muted" });
 });
 

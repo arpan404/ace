@@ -2,23 +2,24 @@ import type { RowAttention } from "./row-attention.ts";
 import type { Tone } from "./status.ts";
 
 /**
- * The solid status icons on thread rows (approved design
- * `/tmp/sidebar-mocks/status-icons-approved.html`, `solid` variant, viewBox `0 0 16 16`).
- * One component draws them (`apps/web/src/components/status-icons.tsx`); this mapping decides
+ * Which status icon and colour a thread row shows, and its meaning in words. One component
+ * draws the icons (`apps/web/src/components/status-icons.tsx`, Phosphor); this mapping decides
  * which one a row shows, so iOS can reuse it. The existing attention (`rowAttention`) stays the
  * single rule for which state a row is in; only the presentation changes.
  *
- * Rows are quiet: colour only where the person is needed or something failed, and no status
- * words on the row itself. The meaning (`Needs approval`) goes in the tooltip and the row's
- * accessible name.
- * - needs-you: shield (approval), bubble (question), chip (model), else the shield. The icon
- *   alone, in the warning colour.
- * - failed: triangle. The icon alone, in the destructive colour.
- * - working: still quarter-filled circle, grey, then the elapsed time in muted ink.
- * - waiting: hourglass, grey, then the elapsed time.
- * - background: terminal, grey, then the elapsed time.
- * - failed-seen: the triangle in grey, then the age.
- * - done-unread, done-seen, idle: the age alone. An unread result is marked by its bold title.
+ * Each state has its own colour (its `tone`). No status words on the row itself: the meaning
+ * (`Needs approval`) goes in the tooltip and the row's accessible name.
+ * - needs-you: hand (approval, and any other request), question mark (question), sliders
+ *   (model). The icon alone.
+ * - failed: warning circle, alone.
+ * - done-unread: check circle, alone.
+ * - working: dashed circle, then the elapsed time.
+ * - waiting on agents: a dashed circle holding how many it waits on, then the elapsed time.
+ *   Any other wait (a usage limit, the queue, a recovery to review) draws the plain dashed
+ *   circle in the waiting colour.
+ * - background: terminal window, then the elapsed time.
+ * - failed-seen: the warning circle in the quiet idle colour, then the age.
+ * - done-seen, idle: the age alone.
  * - syncing: a quiet word, the one state with no icon or time to stand for it.
  * Nothing animates on rows.
  */
@@ -29,41 +30,45 @@ export type RowStatusIconKind =
   | "model"
   | "failed"
   | "working"
+  | "agents"
   | "waiting"
   | "background"
-  | "done"
-  | "seen";
+  | "done";
 
+/** The colour a row's icon draws in, one per state. */
 export type RowStatusTone =
   | "needs-you"
   | "failed"
   | "working"
   | "waiting"
   | "background"
-  | "unread"
+  | "finished"
   | "idle";
 
-/** The colour a row's icon draws in: only needs-you and failed are coloured. */
-export type RowStatusInk = "warning" | "destructive" | "muted";
-
 export interface RowStatusLook {
-  /** The solid icon a row draws, or `none` for no icon. */
+  /** The icon a row draws, or `none` for no icon. */
   icon: RowStatusIconKind | "none";
-  /** The state's `data-tone`, for the worded form (the hover card). */
+  /** The colour the icon draws in. */
   tone: RowStatusTone;
-  /** The colour the row's icon draws in. */
-  ink: RowStatusInk;
+  /** How many agents the thread waits on, for the `agents` icon. */
+  count: number | undefined;
   /**
    * What the row shows: the icon alone, the icon (if any) and the live elapsed time, the icon
    * (if any) and the age, or a quiet word.
    */
   mode: "icon" | "elapsed" | "age" | "word";
-  /** The short word the hover card shows beside the icon; undefined where it shows a time. */
+  /** The short word for the request ("Approval"); undefined where the row shows a time. */
   word: string | undefined;
   /** The state in a few plain words ("Needs approval"), for the tooltip and the row's name. */
   meaning: string;
   /** The card's own status label (the row's existing wording, unchanged). */
   full: string;
+}
+
+/** "Waiting on 3 agents"; "Waiting on agents" when the count is unknown. */
+export function waitingOnAgentsLabel(count: number | undefined): string {
+  if (!count) return "Waiting on agents";
+  return `Waiting on ${count} ${count === 1 ? "agent" : "agents"}`;
 }
 
 const approval = (label: string): boolean => /approv/i.test(label);
@@ -88,39 +93,43 @@ function needs(old: string, full: string): Needs {
 }
 
 /**
- * Which solid icon, colour and wording a row shows for its attention. Pure: the caller passes
- * the card's status label (for the full wording) and tone (to know a quiet row finished).
+ * Which icon, colour and wording a row shows for its attention. Pure: the caller passes the
+ * card's status label (for the full wording), its tone (to know a quiet row finished) and, while
+ * its tree waits on subagents, how many.
  */
 export function rowStatusLook(
   attention: RowAttention,
-  card: { status: { label: string; tone: Tone } },
+  card: { status: { label: string; tone: Tone; waitingOn?: number | undefined } },
 ): RowStatusLook {
   const full = card.status.label;
+  const look = { count: undefined, full };
   switch (attention.level) {
     case "needs-you":
-      return {
-        ...needs(attention.word ?? "", full),
-        tone: "needs-you",
-        ink: "warning",
-        mode: "icon",
-        full,
-      };
+      return { ...look, ...needs(attention.word ?? "", full), tone: "needs-you", mode: "icon" };
     case "failed":
       return {
+        ...look,
         icon: "failed",
         tone: "failed",
-        ink: "destructive",
         mode: "icon",
         word: "Failed",
         meaning: "Failed",
-        full,
       };
     case "active": {
-      const busy = { ink: "muted", mode: "elapsed", word: undefined, full } as const;
+      const busy = { ...look, mode: "elapsed", word: undefined } as const;
       if (attention.tone === "working")
         return { ...busy, icon: "working", tone: "working", meaning: full };
       if (attention.tone === "background")
         return { ...busy, icon: "background", tone: "background", meaning: full };
+      const agents = card.status.waitingOn;
+      if (agents !== undefined)
+        return {
+          ...busy,
+          icon: "agents",
+          tone: "waiting",
+          count: agents,
+          meaning: waitingOnAgentsLabel(agents),
+        };
       // A plain wait says what it waits for in the card's own words; a recovery keeps its own.
       const old = attention.word ?? "";
       const plain = old === "" || old === "Waiting" || old.startsWith("Limited");
@@ -128,44 +137,40 @@ export function rowStatusLook(
     }
     case "done-unread":
       return {
-        icon: "none",
-        tone: "unread",
-        ink: "muted",
-        mode: "age",
+        ...look,
+        icon: "done",
+        tone: "finished",
+        mode: "icon",
         word: "Done",
-        meaning: "Done",
-        full,
+        meaning: "Finished",
       };
     case "failed-seen":
       return {
+        ...look,
         icon: "failed",
         tone: "idle",
-        ink: "muted",
         mode: "age",
         word: "Failed",
         meaning: "Failed",
-        full,
       };
     case "syncing":
       return {
+        ...look,
         icon: "none",
         tone: "idle",
-        ink: "muted",
         mode: "word",
         word: attention.word,
         meaning: attention.word ?? full,
-        full,
       };
     case "quiet": {
       const finished = card.status.tone === "done" || card.status.label === "Done";
       return {
+        ...look,
         icon: "none",
         tone: "idle",
-        ink: "muted",
         mode: "age",
         word: undefined,
         meaning: finished ? "Done" : full,
-        full,
       };
     }
   }

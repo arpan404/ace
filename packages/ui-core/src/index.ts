@@ -287,8 +287,8 @@ export {
 export { rowIndicator, type RowIndicator } from "./row-indicator.ts";
 export {
   rowStatusLook,
+  waitingOnAgentsLabel,
   type RowStatusIconKind,
-  type RowStatusInk,
   type RowStatusLook,
   type RowStatusTone,
 } from "./row-status-display.ts";

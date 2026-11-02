@@ -159,6 +159,8 @@ export interface ThreadCard {
     mark: ThreadMarkKind;
     compact: string;
     since?: number | undefined;
+    /** While the tree only waits on its subagents: how many it waits on. */
+    waitingOn?: number | undefined;
   };
   provider: ProviderKind;
   /** The ACP registry agent behind an `acp` thread, which picks its mark and name. */
@@ -388,6 +390,7 @@ function currentCard(input: ThreadCardInput): ThreadCard {
       mark: recovery?.mark ?? threadStatusMark(entry.status),
       compact,
       ...(working ? { since } : {}),
+      ...(tree?.kind === "waiting" && !recovery ? { waitingOn: tree.subagents } : {}),
     },
     provider: entry.provider,
     subagents,

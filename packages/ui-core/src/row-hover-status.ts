@@ -1,7 +1,6 @@
-import { pluralCount } from "./counts.ts";
 import type { LiveFact } from "./live-status.ts";
 import type { RowAttention } from "./row-attention.ts";
-import { rowStatusLook } from "./row-status-display.ts";
+import { rowStatusLook, waitingOnAgentsLabel } from "./row-status-display.ts";
 import type { Tone } from "./status.ts";
 
 /*
@@ -26,12 +25,12 @@ const muted = (sentence: string | undefined, detail?: HoverStatusLine["detail"])
 
 /**
  * The hover card's status sentence for a row. `fact` is what the thread list's live hints say
- * beyond the status (`threadLiveFact`): the subagents it waits on, the tests it runs, the
- * command it watches.
+ * beyond the status (`threadLiveFact`): the tests it runs, the command it watches. How many
+ * agents it waits on is the card's own count (`status.waitingOn`), as the row's mark shows.
  */
 export function hoverStatusLine(input: {
   attention: RowAttention;
-  card: { status: { label: string; tone: Tone } };
+  card: { status: { label: string; tone: Tone; waitingOn?: number | undefined } };
   fact: LiveFact | undefined;
 }): HoverStatusLine {
   const { attention, card, fact } = input;
@@ -58,6 +57,8 @@ export function hoverStatusLine(input: {
       };
     }
     case "active":
+      if (card.status.waitingOn !== undefined)
+        return muted(waitingOnAgentsLabel(card.status.waitingOn));
       return active(attention, card.status.label, fact);
     case "done-unread":
       return muted("Finished");
@@ -75,12 +76,6 @@ function active(
   label: string,
   fact: LiveFact | undefined,
 ): HoverStatusLine {
-  if (fact?.kind === "subagents")
-    return muted(
-      fact.count > 0
-        ? `Waiting on ${pluralCount(fact.count, "agent", "agents")}`
-        : "Waiting on agents",
-    );
   if (attention.tone === "working")
     return muted(
       "Working",
