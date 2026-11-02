@@ -1,4 +1,5 @@
 import { deriveAccent } from "./accent-fit.ts";
+import { rowFills } from "./row-fills.ts";
 import { oklchToHex, parseOpaqueColor, readableAcross, rgbToOklch } from "./colour.ts";
 import { ace } from "./sources/ace.ts";
 import { dusk } from "./sources/dusk.ts";
@@ -101,6 +102,8 @@ function palette(source: SchemeSource, scheme: Scheme, material: Material): Pale
   const draft: Palette = {
     glassTint,
     ...source,
+    // Hover and the open row must show on the sidebar's panel, the surface rows sit on.
+    ...rowFills(source),
     s0: source.canvas,
     s1: source.surface,
     s2: source.raised,

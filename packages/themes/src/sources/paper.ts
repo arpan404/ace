@@ -32,7 +32,7 @@ export const paper: ThemeSource = {
     accentText: "#924A00",
     working: "#2A55B0",
     workingText: "#2A55B0",
-    needs: "#B97811",
+    needs: "#AA7701",
     needsText: "#9A5900",
     done: "#2F906E",
     doneText: "#007856",

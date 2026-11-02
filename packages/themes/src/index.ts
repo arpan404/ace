@@ -9,6 +9,7 @@ export * from "./backdrops.ts";
 export * from "./colour.ts";
 export * from "./glass-floor.ts";
 export * from "./palettes.ts";
+export * from "./row-fills.ts";
 export * from "./surfaces.ts";
 export * from "./types.ts";
 export * from "./phone.ts";
