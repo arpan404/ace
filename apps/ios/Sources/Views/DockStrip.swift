@@ -75,8 +75,8 @@ struct DockStrip: View {
         .modifier(StripSurfaceGlass(inBlock: inBlock))
         .contentShape(Rectangle())
         .gesture(swipe)
-        .padding(.horizontal, inBlock ? 0 : ReadingColumn.bar(sizeClass).composer)
-        .padding(.bottom, inBlock ? 0 : AceDesign.Space.tight)
+        .padding(.horizontal, inBlock ? AceTheme.Spacing.none : ReadingColumn.bar(sizeClass).composer)
+        .padding(.bottom, inBlock ? AceTheme.Spacing.none : AceDesign.Space.tight)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(identifier)
     }
@@ -143,7 +143,7 @@ struct DockStrip: View {
 
     /// A pager arrow: a caption glyph in a full tap.
     private func pagerGlyph(_ symbol: String) -> some View {
-        Image(systemName: symbol).font(.caption.weight(AceDesign.Typeface.strong))
+        Image(systemName: symbol).font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
             .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
             .contentShape(Rectangle())
     }
@@ -161,7 +161,7 @@ struct DockStrip: View {
 /// its state's colour (`RowStatusIcon`).
 struct StripLeadMark: View {
     let lead: StripLeadRow
-    static let width: CGFloat = 18
+    static let width = AceDesign.Size.lead
     var body: some View {
         Group {
             if let provider = lead.provider, !provider.isEmpty {
@@ -179,6 +179,6 @@ struct StripLeadMark: View {
 private struct StripSurfaceGlass: ViewModifier {
     let inBlock: Bool
     func body(content: Content) -> some View {
-        if inBlock { content } else { content.aceGlass(in: AceShape.field) }
+        if inBlock { content } else { content.aceGlass(in: AceDesign.Shape.container) }
     }
 }

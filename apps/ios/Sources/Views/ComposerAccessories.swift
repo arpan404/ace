@@ -111,7 +111,7 @@ struct ComposerSettingsSheet: View {
                 HStack(spacing: AceDesign.Space.tight) {
                     if let summary { InsetValue(text: summary) }
                     if summary != nil {
-                        Image(systemName: "chevron.right").font(.footnote.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                        Image(systemName: "chevron.right").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.subtleForeground)
                     }
                 }
             }
@@ -127,7 +127,7 @@ struct ComposerSettingsSheet: View {
                 Section {
                     Button(action: openModel) {
                         InsetRow(systemImage: nil, title: name, subtitle: screen.controls?.providerName.flatMap { $0 == name ? nil : $0 }) {
-                            Image(systemName: "chevron.right").font(.footnote.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                            Image(systemName: "chevron.right").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.subtleForeground)
                         }
                     }
                     .buttonStyle(.plain).insetRowBackground()

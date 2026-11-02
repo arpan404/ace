@@ -62,7 +62,7 @@ struct GlassIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.title3.weight(AceDesign.Typeface.regular))
+                .font(.system(size: AceDesign.Size.barIcon))
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(width: size, height: size)
                 .contentShape(Circle())

@@ -47,7 +47,7 @@ struct ComposerPills: View {
                 LivePillCapsule(pill: pill, open: open)
                     .fixedSize(horizontal: !capped, vertical: false)
                     .layoutPriority(1)
-                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.94)))
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: AceDesign.Motion.arrivalScale)))
             }
             Spacer(minLength: AceTheme.Spacing.none)
         }

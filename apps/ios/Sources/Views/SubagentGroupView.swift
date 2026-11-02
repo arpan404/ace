@@ -65,7 +65,7 @@ struct SubagentGroupView: View {
             let separator = part.offset > 0 ? Text(" · ").foregroundStyle(AceTheme.Colours.subtleForeground) : Text(verbatim: "")
             return line + separator + Text(part.element.text).foregroundStyle(StateStyle.text(part.element.token))
         }
-        .font(.footnote)
+        .font(AceDesign.Typeface.meta)
     }
 }
 

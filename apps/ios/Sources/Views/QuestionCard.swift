@@ -149,7 +149,7 @@ private struct ChoiceRow<Content: View>: View {
             HStack(alignment: .center, spacing: AceDesign.Space.row) {
                 content()
                 Spacer(minLength: AceTheme.Spacing.none)
-                Image(systemName: "checkmark").font(.body.weight(AceDesign.Typeface.strong))
+                Image(systemName: "checkmark").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong))
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .opacity(chosen ? 1 : 0)
                     .accessibilityHidden(true)

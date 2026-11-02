@@ -21,7 +21,7 @@ struct ComposerFloaters: View {
     }
     /// Things arrive; they don't fly: a fade, with a slight scale unless motion is reduced.
     private var arrival: AnyTransition {
-        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.94))
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: AceDesign.Motion.arrivalScale))
     }
 }
 

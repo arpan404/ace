@@ -65,6 +65,8 @@ private func clock(_ at: Double) -> String {
 
 /// Where a row's details open: indented to the title, past the lead and the gap.
 private let detailIndent = AceDesign.Size.lead + AceDesign.Space.related
+/// Sits a lead glyph's centre on its line's first baseline rather than below it.
+private let leadBaseline: CGFloat = 5
 
 /// "Resumed after restart", "Context compacted": a glyph (or the provider's mark), the words and
 /// the time. What ace sent on the person's behalf opens from the row itself, folded until asked.
@@ -136,7 +138,7 @@ struct ErrorLine: View {
                 AceIcon(event.icon == "limit" ? .hourglass : .warningCircle, size: AceDesign.Size.icon, relativeTo: .subheadline)
                     .foregroundStyle(event.icon == "limit" ? AceTheme.Colours.subtleForeground : AceTheme.Status.failed)
                     .frame(minWidth: AceDesign.Size.lead)
-                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + leadBaseline }
                 (Text(event.text).fontWeight(AceDesign.Typeface.regular).foregroundStyle(AceTheme.Colours.foreground)
                  + Text(event.count > 1 ? " ×\(event.count)" : "").foregroundStyle(AceTheme.Colours.subtleForeground)
                  + Text(event.note.isEmpty ? "" : " · \(event.note)").foregroundStyle(AceTheme.Colours.mutedForeground))
@@ -200,7 +202,7 @@ struct NoticeLine: View {
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             AceIcon(event.icon == "info" ? .info : .warning, size: AceDesign.Size.icon, relativeTo: .subheadline)
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + leadBaseline }
             Text(event.text).frame(maxWidth: .infinity, alignment: .leading)
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
@@ -218,7 +220,7 @@ struct QuietText: View {
         let more = text.trimmingCharacters(in: .whitespacesAndNewlines) != first.trimmingCharacters(in: .whitespaces)
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             AceIcon(.info, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
-                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + leadBaseline }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(open ? text : first).lineLimit(open ? nil : 1)
                 if more {

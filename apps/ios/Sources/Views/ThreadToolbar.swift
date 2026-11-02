@@ -114,7 +114,7 @@ struct ThreadToolbar: ToolbarContent {
             Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(AceDesign.Typeface.strong)
                 .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
             if chevron {
-                Image(systemName: "chevron.down").font(.caption2.weight(AceDesign.Typeface.strong))
+                Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
                     .foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
             }
         }

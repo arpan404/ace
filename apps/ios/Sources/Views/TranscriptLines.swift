@@ -15,7 +15,7 @@ struct EndingLine: View {
                 Text(ending.label)
                 Rectangle().fill(AceTheme.Colours.separator).frame(width: AceDesign.Space.group, height: AceTheme.Dimensions.border)
             }
-            .font(.caption2).foregroundStyle(AceTheme.Colours.subtleForeground)
+            .font(AceDesign.Typeface.caption).foregroundStyle(AceTheme.Colours.subtleForeground)
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .ignore).accessibilityLabel(ending.label)
             .accessibilityIdentifier("turn.end")

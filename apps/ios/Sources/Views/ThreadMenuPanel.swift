@@ -150,7 +150,7 @@ struct ThreadMenuPanel: View {
             Label(title, ace: icon)
             Spacer(minLength: AceDesign.Space.related)
             Image(systemName: "chevron.right")
-                .font(.footnote.weight(AceDesign.Typeface.strong))
+                .font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
         }
         .aceFont(AceTheme.Typography.body, relativeTo: .body)

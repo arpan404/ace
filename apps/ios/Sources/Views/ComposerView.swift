@@ -135,7 +135,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
             }
         }
         // In the glass block the block keeps the edges.
-        .padding(.horizontal, inBlock ? 0 : bar.composer).padding(.bottom, inBlock ? 0 : bar.bottom)
+        .padding(.horizontal, inBlock ? AceTheme.Spacing.none : bar.composer).padding(.bottom, inBlock ? AceTheme.Spacing.none : bar.bottom)
         .animation(AceDesign.Motion.arriving(reduceMotion), value: wraps)
         .sensoryFeedback(AceDesign.Haptic.send, trigger: feedback)
         .onChange(of: mention) { _, picked in

@@ -66,7 +66,7 @@ enum InboxRowType {
 struct InboxRowMark: View {
     let look: RowLook
     /// Sits the mark's centre on the title's first line rather than on its baseline.
-    static let baseline: CGFloat = 4
+    nonisolated static let baseline: CGFloat = 4
     var body: some View {
         if let icon = look.icon {
             Group {
