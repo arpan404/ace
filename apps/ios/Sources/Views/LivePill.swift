@@ -11,13 +11,13 @@ struct ComposerFloaters: View {
     let scrollToEnd: () -> Void
     @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        HStack(spacing: AceDesign.Space.related) {
             if let pill { LivePillCapsule(pill: pill, open: open).transition(arrival) }
             if behind { ScrollToEndButton(action: scrollToEnd).transition(arrival) }
         }
         .frame(maxWidth: .infinity)
-        .animation(reduceMotion ? nil : AceTheme.Motion.spring, value: pill)
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: behind)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: pill)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: behind)
     }
     /// Things arrive; they don't fly: a fade, with a slight scale unless motion is reduced.
     private var arrival: AnyTransition {
@@ -47,25 +47,25 @@ struct LivePillCapsule: View {
                     .accessibilityIdentifier("pill.\(segment.kind)")
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.xs)
+        .padding(.horizontal, AceDesign.Space.tight)
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceDesign.Space.row)
         .aceGlass(in: AceShape.capsule, interactive: true)
         .sensoryFeedback(.selection, trigger: tapped)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Live")
         .accessibilityIdentifier("thread.pill")
     }
-    static let height = AceTheme.Dimensions.tapMinimum
+    static let height = AceDesign.Size.tap
     private var divider: some View {
         Rectangle().fill(AceTheme.Colours.separator)
-            .frame(width: AceTheme.Dimensions.border, height: AceTheme.Spacing.lg)
+            .frame(width: AceTheme.Dimensions.border, height: AceDesign.Space.margin)
             .accessibilityHidden(true)
     }
     @ViewBuilder private func part<Words: View>(opens: String, label: String, @ViewBuilder words: () -> Words) -> some View {
         let content = words()
             .lineLimit(1)
-            .padding(.horizontal, AceTheme.Spacing.md - AceTheme.Spacing.xxs)
+            .padding(.horizontal, AceDesign.Space.row - AceTheme.Spacing.xxs)
             // Each part as tall as the pill (taller with large text), never the space around it.
             .frame(minHeight: Self.height)
             .contentShape(Rectangle())
@@ -92,12 +92,12 @@ private struct StatusWords: View {
     let status: PillRow.Status
     var body: some View {
         let needsYou = status.tone == "needs-you"
-        HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+        HStack(spacing: AceDesign.Space.tight + AceTheme.Spacing.xxs) {
             if needsYou { StatusGlyph(.needsYou, tone: .needsYou) }
             else if status.live { StatusGlyph(.working, tone: .working, live: true) }
             words
         }
-        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(.medium)
+        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(AceDesign.Typeface.regular)
         // Needs-you is always strong (DESIGN.md §5): its word in its status colour.
         .foregroundStyle(needsYou ? AceTheme.StatusText.needsYou : AceTheme.Colours.foreground)
     }
@@ -107,7 +107,7 @@ private struct StatusWords: View {
                 Text("\(status.lead) \(Elapsed.words(since: since, now: context.date))").monospacedDigit()
             }
         } else if !status.code.isEmpty {
-            HStack(spacing: AceTheme.Spacing.xs) {
+            HStack(spacing: AceDesign.Space.tight) {
                 Text(status.label)
                 Text(status.code).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote).truncationMode(.middle)
             }
@@ -121,8 +121,8 @@ private struct StatusWords: View {
 private struct SegmentWords: View {
     let segment: PillRow.Segment
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-            if segment.kind == "goal" { AceIcon(.target, size: 13, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground) }
+        HStack(spacing: AceDesign.Space.tight + AceTheme.Spacing.xxs) {
+            if segment.kind == "goal" { AceIcon(.target, size: AceDesign.Size.glyphMeta, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground) }
             Text(segment.label).monospacedDigit()
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
@@ -143,7 +143,7 @@ struct ScrollToEndButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            AceIcon(.caretDown, size: 16, weight: .bold, relativeTo: .body)
+            AceIcon(.caretDown, size: AceDesign.Size.icon, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(width: LivePillCapsule.height, height: LivePillCapsule.height)
                 .contentShape(Circle())

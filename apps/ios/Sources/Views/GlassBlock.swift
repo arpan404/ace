@@ -12,7 +12,7 @@ extension EnvironmentValues {
 struct GlassBlock: ViewModifier {
     let active: Bool
     @Environment(\.horizontalSizeClass) private var sizeClass
-    static let inset = AceTheme.Spacing.xs
+    static let inset = AceDesign.Space.tight
     func body(content: Content) -> some View {
         if active {
             let bar = ReadingColumn.bar(sizeClass)

@@ -44,7 +44,7 @@ private struct MessageMenu: ViewModifier {
                 }
             } preview: {
                 AceMarkdown(text: String(text.prefix(600)), selectable: false)
-                    .padding(AceTheme.Spacing.lg)
+                    .padding(AceDesign.Space.margin)
                     .frame(width: 340, alignment: .topLeading)
                     .frame(maxHeight: 360, alignment: .top)
                     .clipped()
@@ -86,7 +86,7 @@ private struct SelectableText: UIViewRepresentable {
         view.adjustsFontForContentSizeCategory = true
         view.font = UIFont.preferredFont(forTextStyle: .body)
         view.textColor = .label
-        view.textContainerInset = UIEdgeInsets(top: AceTheme.Spacing.lg, left: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.xxl, right: AceTheme.Spacing.lg)
+        view.textContainerInset = UIEdgeInsets(top: AceDesign.Space.margin, left: AceDesign.Space.margin, bottom: AceDesign.Space.group, right: AceDesign.Space.margin)
         view.accessibilityIdentifier = "select.text"
         return view
     }

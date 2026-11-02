@@ -24,22 +24,22 @@ struct DaemonSteps: View {
         let header = steps?.header
         Group {
             if header?.state == "failed" && rows.isEmpty {
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     Text("Couldn't load these steps.")
                     Button("Retry") { links.model.moreSteps(ordinal: ordinal) }.accessibilityIdentifier("steps.retry")
                 }
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
             } else if rows.isEmpty && header?.state != "ready" {
                 StepsSkeleton().onAppear { DisclosureTrace.shared.waiting(blockId) }
             } else if rows.isEmpty {
-                Text("No steps recorded.").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                Text("No steps recorded.").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
             } else {
                 let source = LogSource(thread: thread, fetched: Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { $1 }),
                                        ace: header?.aceSteps, background: header?.background, retried: header?.retried,
                                        thoughts: header?.thoughts, openMessage: openMessage)
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                     StepRail { WorkLogRows(rows: header?.log ?? rows.map { BlockRow.LogRow(kind: "step", id: $0.id) }, source: source) }
                         .onAppear { DisclosureTrace.shared.shown(blockId) }
                     if header?.more == true {
@@ -57,9 +57,9 @@ struct DaemonSteps: View {
 /// Rows standing in for a log's steps while they load.
 private struct StepsSkeleton: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             ForEach([0.62, 0.48, 0.70], id: \.self) { width in
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     AceShape.capsule.frame(width: 14, height: 14)
                     GeometryReader { geometry in
                         AceShape.capsule.frame(width: geometry.size.width * width, height: 12)
@@ -70,7 +70,7 @@ private struct StepsSkeleton: View {
             }
         }
         .foregroundStyle(AceTheme.Colours.fill)
-        .padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs).padding(.leading, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+        .padding(.vertical, AceDesign.Space.tight + AceTheme.Spacing.xxs).padding(.leading, AceDesign.Space.tight + AceTheme.Spacing.xxs)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Loading steps")
         .accessibilityIdentifier("steps.loading")

@@ -125,13 +125,13 @@ private struct LogGroupView: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Button {
                 if !open { DisclosureTrace.shared.asked("group", key: key) }
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { disclosures.set(key, open: !open) }
+                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { disclosures.set(key, open: !open) }
             } label: {
                 if live && running, let active = row.active, let item = source.thread.items[active] {
                     LiveGroupTitle(item: item, step: source.ace[active], count: row.count ?? "", open: open)
                 } else {
                     LogRowBox(open: open) {
-                        AceIcon(Self.icon(row.icon ?? ""), size: 16, relativeTo: .subheadline)
+                        AceIcon(Self.icon(row.icon ?? ""), size: AceDesign.Size.icon, relativeTo: .subheadline)
                     } title: {
                         (Text(row.sentence ?? "") + failedText)
                     }
@@ -205,9 +205,9 @@ private struct LiveGroupTitle: View {
                 }
             }
         } else if item.row.type == "reasoning" {
-            LogRowBox(open: open) { AceIcon(.brain, size: 16, relativeTo: .subheadline) } title: { Text("Thinking…") }
+            LogRowBox(open: open) { AceIcon(.brain, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text("Thinking…") }
         } else {
-            LogRowBox(open: open) { AceIcon(.hammer, size: 16, relativeTo: .subheadline) } title: { Text("Working") }
+            LogRowBox(open: open) { AceIcon(.hammer, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text("Working") }
         }
     }
 }

@@ -10,10 +10,10 @@ struct LogRowBox<Lead: View, Title: View, Meta: View>: View {
     @ViewBuilder var title: () -> Title
     @ViewBuilder var meta: () -> Meta
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        HStack(spacing: AceDesign.Space.related) {
             lead().foregroundStyle(AceTheme.Colours.subtleForeground)
-                .frame(minWidth: AceTheme.Spacing.xl)
-            HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+                .frame(minWidth: AceDesign.Size.lead)
+            HStack(spacing: AceDesign.Space.tight + AceTheme.Spacing.xxs) {
                 title()
                 if let open { DisclosureCaret(open: open) }
             }
@@ -21,10 +21,10 @@ struct LogRowBox<Lead: View, Title: View, Meta: View>: View {
             meta().aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                 .foregroundStyle(AceTheme.Colours.subtleForeground).monospacedDigit()
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .lineLimit(1)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
+        .frame(minHeight: AceDesign.Size.tap - AceDesign.Space.tight)
         .contentShape(Rectangle())
     }
 }
@@ -33,7 +33,7 @@ struct LogRowBox<Lead: View, Title: View, Meta: View>: View {
 struct DisclosureCaret: View {
     let open: Bool
     var body: some View {
-        AceIcon(.caretRight, size: 11, weight: .bold, relativeTo: .caption2)
+        AceIcon(.caretRight, size: AceDesign.Size.glyphSmall, relativeTo: .caption2)
             .foregroundStyle(AceTheme.Colours.decoration)
             .rotationEffect(.degrees(open ? 90 : 0))
             .accessibilityHidden(true)
@@ -55,7 +55,7 @@ extension LogRowBox where Lead == EmptyView, Meta == EmptyView {
 
 /// Where a row's details open: indented to the title, past the lead and the gap.
 extension View {
-    func rowDetailIndent() -> some View { padding(.leading, AceTheme.Spacing.xl + AceTheme.Spacing.sm) }
+    func rowDetailIndent() -> some View { padding(.leading, AceDesign.Size.lead + AceDesign.Space.related) }
 }
 
 /// Steps on a thin rail: an opened group, an opened "Worked for". Each finished step sits on the
@@ -71,12 +71,12 @@ struct StepRail<Content: View>: View {
                 Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Dimensions.border)
                     .accessibilityHidden(true)
             }
-            .padding(.leading, AceTheme.Spacing.sm - AceTheme.Spacing.xxs)
+            .padding(.leading, AceDesign.Space.related - AceTheme.Spacing.xxs)
             .environment(\.onRail, true)
             .transition(.opacity)
     }
     /// From the rail's line to the rows on it.
-    static var inset: CGFloat { AceTheme.Spacing.lg + AceTheme.Spacing.xxs }
+    static var inset: CGFloat { AceDesign.Space.margin + AceTheme.Spacing.xxs }
 }
 
 enum RailState { case done, running, failed }
@@ -92,10 +92,10 @@ private struct RailMarkModifier: ViewModifier {
     func body(content: Content) -> some View {
         if onRail {
             content.overlay(alignment: .topLeading) {
-                mark.frame(width: AceTheme.Spacing.md, height: AceTheme.Spacing.md)
+                mark.frame(width: AceDesign.Space.row, height: AceDesign.Space.row)
                     .background(AceTheme.Colours.background, in: Circle())
-                    .offset(x: -StepRail<EmptyView>.inset - AceTheme.Spacing.md / 2,
-                            y: (AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs - AceTheme.Spacing.md) / 2)
+                    .offset(x: -StepRail<EmptyView>.inset - AceDesign.Space.row / 2,
+                            y: (AceDesign.Size.tap - AceDesign.Space.tight - AceDesign.Space.row) / 2)
                     .accessibilityHidden(true)
             }
         } else {
@@ -104,8 +104,8 @@ private struct RailMarkModifier: ViewModifier {
     }
     @ViewBuilder private var mark: some View {
         switch state {
-        case .done: AceIcon(.check, size: 10, weight: .bold, relativeTo: .caption2).foregroundStyle(AceTheme.Colours.subtleForeground)
-        case .failed: AceIcon(.x, size: 10, weight: .bold, relativeTo: .caption2).foregroundStyle(AceTheme.StatusText.failed)
+        case .done: AceIcon(.check, size: AceDesign.Size.glyphSmall, relativeTo: .caption2).foregroundStyle(AceTheme.Colours.subtleForeground)
+        case .failed: AceIcon(.x, size: AceDesign.Size.glyphSmall, relativeTo: .caption2).foregroundStyle(AceTheme.StatusText.failed)
         case .running: Circle().fill(AceTheme.Colours.mutedForeground).frame(width: 6, height: 6)
         }
     }

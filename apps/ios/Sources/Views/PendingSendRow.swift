@@ -26,10 +26,10 @@ struct PendingSendRow: View {
                            staleLock: row.fenced == true)
                 .sheet(item: $editor) { MessageEditSheet(editor: $0) }
         } else {
-            VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+            VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
                 UserBubble(text: row.text, id: row.id)
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    AceIcon(.clock, size: 12, relativeTo: .caption)
+                HStack(spacing: AceDesign.Space.tight) {
+                    AceIcon(.clock, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
                     Text(row.label ?? "Sending…")
                 }
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -66,10 +66,10 @@ struct NotSentMessage: View {
     @State private var recovered = 0
     @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
-        VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
             if !text.isEmpty { UserBubble(text: text) }
             if attachments > 0 {
-                Label { Text(attachments == 1 ? "1 file" : "\(attachments) files") } icon: { AceIcon(.paperclip, size: 12, relativeTo: .caption) }
+                Label { Text(attachments == 1 ? "1 file" : "\(attachments) files") } icon: { AceIcon(.paperclip, size: AceDesign.Size.glyphSmall, relativeTo: .caption) }
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
             }
@@ -77,7 +77,7 @@ struct NotSentMessage: View {
             if canAct || !detail.isEmpty || staleLock {
                 HStack(spacing: AceTheme.Spacing.none) {
                     if !detail.isEmpty {
-                        Button(details ? "Hide details" : "Details") { withAnimation(reduceMotion ? nil : .smooth) { details.toggle() } }
+                        Button(details ? "Hide details" : "Details") { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { details.toggle() } }
                             .buttonStyle(StripTextButtonStyle())
                             .accessibilityIdentifier("notSent.details")
                     }
@@ -99,7 +99,7 @@ struct NotSentMessage: View {
                     if staleLock { ClearStaleLockWord() }
                 }
                 .disabled(busy)
-                .padding(.trailing, -AceTheme.Spacing.sm)
+                .padding(.trailing, -AceDesign.Space.related)
             }
             if details {
                 Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption)

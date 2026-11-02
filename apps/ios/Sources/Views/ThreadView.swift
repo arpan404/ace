@@ -133,7 +133,7 @@ struct ThreadView: View {
                 if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
                     StateLabel(status: status)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.sm)
+                        .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
                         .background(AceTheme.Colours.background)
                 }
             }
@@ -255,7 +255,7 @@ struct ThreadView: View {
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
                     Text(verbatim: "\(thread.items.count) items · \(model.connection)").aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                        .padding(AceTheme.Spacing.xs).background(.thinMaterial, in: AceShape.capsule).allowsHitTesting(false)
+                        .padding(AceDesign.Space.tight).background(.thinMaterial, in: AceShape.capsule).allowsHitTesting(false)
                         .accessibilityLabel("Loaded transcript").accessibilityValue(String(thread.items.count))
                         .accessibilityIdentifier("spike.loaded")
                 }
@@ -281,7 +281,7 @@ struct ThreadView: View {
             // Whether a request takes the pill's place is the bridge's (`livePill`).
             // Scroll to end floats over the transcript; the live pill sits by the model, lower down.
             ComposerFloaters(pill: nil, behind: behind, open: openPill) { jumps += 1 }
-                .padding(.bottom, AceTheme.Spacing.sm)
+                .padding(.bottom, AceDesign.Space.related)
             VStack(spacing: AceTheme.Spacing.none) {
                 // Just above the strip: the model on the left, the live pill ("1m 34s · waiting on
                 // 3 agents") to its right.
@@ -325,7 +325,7 @@ struct ThreadView: View {
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 if archived {
                     ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
-                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
+                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
                 } else if model.canOperate {
                     ComposerView(controls: screen.controls, stopping: screen.stopping,
                                  placeholder: screen.fork != nil ? "Message the fork" : asking == nil ? placeholder : "Reply…",
@@ -348,7 +348,7 @@ struct ThreadView: View {
                                  recall: { older in await model.sentText(thread.id, older: older) },
                                  files: screen.attachments.count + screen.annotations.count,
                                  draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
-                                 suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),
+                                 suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
                                  run: runComposerAction, focusRequest: composerFocus) {
                         if let fork = screen.fork {
                             ForkStrip(fork: fork) { model.closeFork() }
@@ -381,18 +381,18 @@ struct ThreadView: View {
                     }
                 } else {
                     ViewOnlyNote.thread
-                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
+                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.row, leading: AceDesign.Space.margin, bottom: AceDesign.Space.row, trailing: AceDesign.Space.margin)))
                 }
                 }
                 .modifier(GlassBlock(active: hasStrip))
             }
             .composerGlassGroup()
         }
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.queue?.strip)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: request?.id)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.queue?.strip)
         // The fork strip rises out of the composer as it opens, or fades under Reduce Motion.
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.fork?.key)
-        .animation(reduceMotion ? .easeInOut(duration: AceTheme.Motion.fast) : .smooth, value: screen.work)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.fork?.key)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.work)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
@@ -456,7 +456,7 @@ struct ThreadView: View {
                              closable: shown.flatMap { $0.pinned ? nil : $0.key })
     }
     private func panel(_ op: [String: Any]) {
-        withAnimation(reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring) { model.panel(thread.id, op) }
+        withAnimation(AceDesign.Motion.arriving(reduceMotion)) { model.panel(thread.id, op) }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
     private var browserFollow: Int? {
@@ -494,8 +494,8 @@ private struct FloatingBar<Bar: View>: ViewModifier {
 /// The page colour from the composer's lower edge on down, behind the keyboard's translucent
 /// edge and the home indicator. The composer itself stays glass over the transcript.
 private struct BarFloor: View {
-    private let below = AceTheme.Dimensions.touchTarget * 8
-    private let fade = AceTheme.Spacing.lg
+    private let below = AceDesign.Size.tap * 8
+    private let fade = AceDesign.Space.margin
     var body: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background], startPoint: .top, endPoint: .bottom)

@@ -46,7 +46,7 @@ struct RequestHeader: View {
     var detail = ""
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(.semibold)
+            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(AceDesign.Typeface.strong)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
@@ -94,12 +94,12 @@ struct PlanReviewCard: View {
     @State private var reviewing = false
     var body: some View {
         let plan = interaction.plan
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: AceTheme.Spacing.xs) { line(plan); Spacer(minLength: AceTheme.Spacing.sm); buttons }
+                HStack(spacing: AceDesign.Space.tight) { line(plan); Spacer(minLength: AceDesign.Space.related); buttons }
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                     line(plan)
-                    HStack(spacing: AceTheme.Spacing.xs) { Spacer(minLength: AceTheme.Spacing.none); buttons }
+                    HStack(spacing: AceDesign.Space.tight) { Spacer(minLength: AceTheme.Spacing.none); buttons }
                 }
             }
             RequestFooter(submission: submission, canAct: canAct)
@@ -114,7 +114,7 @@ struct PlanReviewCard: View {
     }
     private func line(_ plan: PlanRequest?) -> some View {
         Text(plan?.line ?? plan?.title ?? "Plan ready")
-            .aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(.medium)
+            .aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(AceDesign.Typeface.regular)
             .foregroundStyle(AceTheme.Colours.foreground)
             .lineLimit(1).truncationMode(.tail)
             .accessibilityIdentifier("plan.line")
@@ -147,7 +147,7 @@ struct PlanReviewSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+                VStack(alignment: .leading, spacing: AceDesign.Space.row) {
                     if let plan, !plan.summary.isEmpty {
                         Text(plan.summary).aceFont(AceTheme.Typography.body, relativeTo: .body)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -164,8 +164,8 @@ struct PlanReviewSheet: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, AceTheme.Spacing.xl)
-                .padding(.vertical, AceTheme.Spacing.md)
+                .padding(.horizontal, AceDesign.Space.margin)
+                .padding(.vertical, AceDesign.Space.row)
                 .accessibilityIdentifier("plan.body")
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { actions }
@@ -182,14 +182,14 @@ struct PlanReviewSheet: View {
         .presentationDragIndicator(.visible)
     }
     private var actions: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             if revising {
                 TextField("What should change?", text: $feedback, axis: .vertical)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(2...5)
-                    .padding(.vertical, AceTheme.Spacing.sm).frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .padding(.vertical, AceDesign.Space.related).frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("plan.feedback")
             }
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 Spacer(minLength: AceTheme.Spacing.none)
                 CardButton(title: revising ? "Cancel" : "Request changes") { revising.toggle() }
                     .accessibilityIdentifier("plan.revise")
@@ -206,8 +206,8 @@ struct PlanReviewSheet: View {
             .disabled(submission != nil || !canAct)
             RequestFooter(submission: submission, canAct: canAct)
         }
-        .padding(.horizontal, AceTheme.Spacing.xl)
-        .padding(.vertical, AceTheme.Spacing.md)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .padding(.vertical, AceDesign.Space.row)
         .background(.bar)
     }
 }
@@ -222,7 +222,7 @@ struct FormRequestCard: View {
     @State private var values: [String: String] = [:]
     var body: some View {
         let form = interaction.form
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.row) {
             RequestHeader(title: form?.title ?? "", detail: form?.server ?? "")
             if let form, form.message != form.title, !form.message.isEmpty {
                 Text(form.message).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -256,7 +256,7 @@ struct FormRequestCard: View {
         let value = Binding(get: { values[field.key] ?? field.initial }, set: { values[field.key] = $0 })
         GroupedRow(first: first) {
             if field.choices.isEmpty {
-                HStack(spacing: AceTheme.Spacing.md) {
+                HStack(spacing: AceDesign.Space.row) {
                     Text(field.title).lineLimit(1).layoutPriority(1)
                     TextField(field.title, text: value, prompt: Text(prompt(field)).foregroundStyle(AceTheme.Colours.subtleForeground))
                         .keyboardType(field.type == "string" ? .default : field.type == "integer" ? .numberPad : .decimalPad)
@@ -270,12 +270,12 @@ struct FormRequestCard: View {
                         ForEach(field.choices) { choice in Text(choice.label).tag(choice.value) }
                     }
                 } label: {
-                    HStack(spacing: AceTheme.Spacing.md) {
+                    HStack(spacing: AceDesign.Space.row) {
                         Text(field.title).lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)
-                        Spacer(minLength: AceTheme.Spacing.sm)
+                        Spacer(minLength: AceDesign.Space.related)
                         GroupedValue(text: field.choices.first { $0.value == value.wrappedValue }?.label ?? (field.required ? "Choose" : "Optional"))
                     }
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+                    .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
                 }
                 .accessibilityLabel(field.title)
                 .accessibilityValue(field.choices.first { $0.value == value.wrappedValue }?.label ?? "Not chosen")
@@ -310,7 +310,7 @@ struct RequestActions<Content: View>: View {
     @ViewBuilder var content: () -> Content
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: AceTheme.Spacing.xs) { Spacer(minLength: AceTheme.Spacing.none); content() }
+            HStack(spacing: AceDesign.Space.tight) { Spacer(minLength: AceTheme.Spacing.none); content() }
             VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) { content() }.frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
@@ -326,7 +326,7 @@ struct BrowserHelpCard: View {
     var openBrowser: (() -> Void)?
     let answer: ([String: Any]) -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.row) {
             RequestHeader(title: interaction.help?.title ?? "", detail: "Browser")
             if let detail = interaction.help?.detail, !detail.isEmpty {
                 Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)

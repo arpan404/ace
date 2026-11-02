@@ -7,7 +7,7 @@ struct DrawerButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            AceIcon(.sidebarSimple, size: AceTheme.Spacing.xxl)
+            AceIcon(.sidebarSimple, size: AceDesign.Space.group)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .contentShape(Rectangle())
         }
@@ -98,7 +98,7 @@ struct DrawerCloser: View {
                 .onTapGesture(perform: close)
                 .gesture(
                     // Measured in the window: the page under the finger moves with it.
-                    DragGesture(minimumDistance: AceTheme.Spacing.sm, coordinateSpace: .global)
+                    DragGesture(minimumDistance: AceDesign.Space.related, coordinateSpace: .global)
                         .updating($dragging) { _, state, _ in state = true }
                         .onChanged { value in
                             if hold.progress == nil { hold.begin(from: ThreadDrawer.resting(stop, full: full), full: full) }

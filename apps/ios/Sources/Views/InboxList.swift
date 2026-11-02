@@ -94,7 +94,7 @@ struct InboxList: View {
                 if tab == "settled" && !inbox.merged.more.isEmpty {
                     Button { for id in inbox.merged.more { inbox.client(id)?.loadOlderThreads() } } label: {
                         Text("Show older threads").meta()
-                            .padding(.horizontal, AceTheme.Spacing.md)
+                            .padding(.horizontal, AceDesign.Space.row)
                             .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
                     }
                     .buttonStyle(.row)
@@ -115,11 +115,11 @@ struct InboxList: View {
             // Select mode is the system's own: a check circle on each row, two-finger drag and
             // (on iPad) Shift or Command with the pointer or arrows to pick several.
             .environment(\.editMode, .constant(selection == nil ? .inactive : .active))
-            .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
+            .contentMargins(.vertical, AceDesign.Space.tight, for: .scrollContent)
             // Rows joining, leaving or moving between groups take the list's own insert, remove
             // and move animations, keyed on membership alone, so a row's own text changing never
             // animates the list. Reduce Motion crossfades instead.
-            .animation(reduceMotion ? .easeInOut(duration: 0.2) : AceTheme.Motion.standardCurve,
+            .animation(AceDesign.Motion.arriving(reduceMotion),
                        value: Membership(sections: shown, tab: tab))
             .onAppear { if !sections.isEmpty { InboxList.traceRows(sections) } }
             .onChange(of: sections.isEmpty) { _, empty in if !empty { InboxList.traceRows(sections) } }
@@ -130,7 +130,7 @@ struct InboxList: View {
             .onChange(of: revealable(shown), initial: true) { _, key in
                 guard let key else { return }
                 reveal = nil
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { proxy.scrollTo(key, anchor: .center) }
+                withAnimation(reduceMotion ? nil : AceDesign.Motion.arrive) { proxy.scrollTo(key, anchor: .center) }
             }
         }
     }
@@ -178,14 +178,14 @@ struct InboxList: View {
 
     @ViewBuilder private var emptyState: some View {
         if inbox.sessions.isEmpty, let pair {
-            NoComputerPaired(pair: pair).padding(.top, AceTheme.Spacing.xxxl * 2)
+            NoComputerPaired(pair: pair).padding(.top, AceDesign.Space.section * 2)
         } else if !inbox.anyLoaded || !inbox.allReady {
             if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
                 EmptyState(icon: .wifiSlash, title: inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine",
                            line: "Your threads appear once it's back.") {
                     Button("Retry") { for session in inbox.sessions { session.client.retry() } }
                 }
-                .padding(.top, AceTheme.Spacing.xxxl * 2)
+                .padding(.top, AceDesign.Space.section * 2)
             } else {
                 SkeletonRows(label: "Loading threads")
             }
@@ -193,7 +193,7 @@ struct InboxList: View {
             EmptyState(icon: .tray, title: "No threads yet") {
                 if let compose { Button("New thread", action: compose).accessibilityIdentifier("inbox.empty.compose") }
             }
-            .padding(.top, AceTheme.Spacing.xxxl * 2)
+            .padding(.top, AceDesign.Space.section * 2)
         }
     }
 }
@@ -205,7 +205,7 @@ private struct TabEmpty: View {
     var body: some View {
         EmptyState(systemImage: tab.id == "snoozed" ? "moon.zzz" : tab.id == "settled" ? "checkmark.circle" : "tray",
                    title: tab.empty, line: tab.emptyLine)
-            .padding(.top, AceTheme.Spacing.xxxl * 2)
+            .padding(.top, AceDesign.Space.section * 2)
             .accessibilityIdentifier("threads.empty.\(tab.id)")
     }
 }
@@ -222,8 +222,8 @@ private struct InboxRowChrome: ViewModifier {
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     func body(content: Content) -> some View {
         content
-            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: AceTheme.Spacing.sm,
-                                      bottom: AceTheme.Spacing.xxs, trailing: AceTheme.Spacing.sm))
+            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: AceDesign.Space.related,
+                                      bottom: AceTheme.Spacing.xxs, trailing: AceDesign.Space.related))
             .listRowBackground(surface)
             .listRowSeparator(.hidden)
     }

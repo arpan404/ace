@@ -11,20 +11,20 @@ struct BackgroundLine: View {
     @State private var stopping = false
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
+            HStack(spacing: AceDesign.Space.related + AceTheme.Spacing.xxs) {
                 // The strip's own terminal glyph, quiet here.
                 RowStatusIcon(kind: "background", tone: "idle")
-                    .frame(minWidth: AceTheme.Spacing.xl).accessibilityHidden(true)
+                    .frame(minWidth: AceDesign.Size.lead).accessibilityHidden(true)
                 Text(line.label).lineLimit(1)
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Spacer(minLength: AceDesign.Space.related)
                 if line.running, line.stoppable, !stripTasks.contains(line.taskId), let stopBackground {
                     Button {
                         stopping = true
                         stopBackground(line.taskId)
                     } label: {
-                        AceIcon(.stop, size: 14, relativeTo: .footnote)
+                        AceIcon(.stop, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
-                            .frame(width: AceTheme.Dimensions.tapMinimum, height: AceTheme.Dimensions.tapMinimum)
+                            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -33,21 +33,21 @@ struct BackgroundLine: View {
                     .accessibilityIdentifier("background.stop.\(line.taskId)")
                 }
             }
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 // The command, drawn as the work log's target chips are.
                 Text(line.command).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .lineLimit(1).truncationMode(.tail)
-                    .padding(.horizontal, AceTheme.Spacing.xs + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.xxs)
+                    .padding(.horizontal, AceDesign.Space.tight + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.xxs)
                     .background(AceTheme.Colours.fill, in: AceShape.capsule)
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Spacer(minLength: AceDesign.Space.related)
                 age.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.subtleForeground).monospacedDigit()
             }
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+        .frame(minHeight: AceDesign.Size.tap, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("background.\(line.taskId)")
     }
@@ -88,12 +88,12 @@ struct BackgroundStep: View {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                     let listed = row.listed ?? []
                     if listed.isEmpty {
-                        LogRowBox { AceIcon(.terminal, size: 16, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
+                        LogRowBox { AceIcon(.terminal, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
                     } else {
                         Button {
-                            withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { source.thread.disclosures.toggle(key) }
+                            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { source.thread.disclosures.toggle(key) }
                         } label: {
-                            LogRowBox(open: open) { AceIcon(.terminal, size: 16, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
+                            LogRowBox(open: open) { AceIcon(.terminal, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
                         }
                         .buttonStyle(.plain)
                         .accessibilityValue(open ? "Expanded" : "Collapsed")

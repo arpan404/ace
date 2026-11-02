@@ -171,7 +171,7 @@ struct InboxView: View {
         // Beside an open thread, or over it as the drawer, the toast sits under the list it acted
         // on, clear of the composer and the list's foot.
         .overlay(alignment: toastBesideList ? .bottomLeading : .bottom) { toast }
-        .animation(reduceMotion ? nil : AceTheme.Motion.spring, value: organize.undo?.serial)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: organize.undo?.serial)
     }
 
     private var sheets: some View {
@@ -374,33 +374,33 @@ struct InboxView: View {
 
     @ViewBuilder private var toast: some View {
         if let undo = organize.undo, openTab == nil || toastBesideList {
-            HStack(spacing: AceTheme.Spacing.md) {
+            HStack(spacing: AceDesign.Space.row) {
                 Text(undo.text).lineLimit(1)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("inbox.toast")
                 // While an Undo waits on a machine there is nothing to press; it says so.
                 if !undo.busy {
                     Button("Undo") {
                         Task { if await organize.takeBack(undo, in: inbox) { reveal = undo.keys.first } }
                     }
-                    .fontWeight(.semibold)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .fontWeight(AceDesign.Typeface.strong)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier(undo.identifier)
                 }
             }
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             .foregroundStyle(AceTheme.Colours.foreground)
-            .padding(.leading, AceTheme.Spacing.xl).padding(.trailing, AceTheme.Spacing.lg)
+            .padding(.leading, AceDesign.Space.margin).padding(.trailing, AceDesign.Space.margin)
             .aceGlass(in: AceShape.capsule)
             // Clear of the tab bar, or of the sidebar's Threads and Pull requests beside a page.
-            .padding(.leading, toastBesideList ? AceTheme.Spacing.xl : AceTheme.Spacing.none)
-            .padding(.bottom, toastBesideList ? AceTheme.Dimensions.touchTarget * 2 + AceTheme.Spacing.xxl : 76)
+            .padding(.leading, toastBesideList ? AceDesign.Space.margin : AceTheme.Spacing.none)
+            .padding(.bottom, toastBesideList ? AceDesign.Size.tap * 2 + AceDesign.Space.group : 76)
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .task(id: undo) {
                 // An Undo still waiting stays until its machines answer.
                 guard !undo.busy else { return }
                 try? await Task.sleep(for: .seconds(5))
-                if organize.undo == undo { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { organize.undo = nil } }
+                if organize.undo == undo { withAnimation(AceDesign.Motion.leaving(reduceMotion)) { organize.undo = nil } }
             }
         }
     }
@@ -412,7 +412,7 @@ struct InboxView: View {
         guard let client = inbox.client(key.machineId), !listed || client.inbox[key.id] != nil else { return }
         // Shown from anywhere (a notification, a transfer, a row), the thread shows with its
         // drawer in. Already showing, it is not opened again: that would restart its session.
-        withAnimation(reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring) { threadsDrawer.close() }
+        withAnimation(AceDesign.Motion.leaving(reduceMotion)) { threadsDrawer.close() }
         // A chat opens on the Chats tab, in the same thread view.
         if client.inbox[key.id]?.chat == true {
             tab = .chats

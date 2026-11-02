@@ -48,7 +48,7 @@ struct DockStrip: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            HStack(alignment: .center, spacing: AceTheme.Spacing.sm) {
+            HStack(alignment: .center, spacing: AceDesign.Space.related) {
                 StripLeadMark(lead: line.lead)
                 sentence
                 if let pager, pager.total > 1 { pagerView(pager) }
@@ -60,15 +60,15 @@ struct DockStrip: View {
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .lineLimit(2)
-                    .padding(.leading, StripLeadMark.width + AceTheme.Spacing.sm)
+                    .padding(.leading, StripLeadMark.width + AceDesign.Space.related)
                     .accessibilityIdentifier("strip.detail")
             }
             if !inline {
                 words(ordered).frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.lg)
-        .padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .padding(.vertical, AceDesign.Space.related + AceTheme.Spacing.xxs)
         .frame(maxWidth: .infinity, alignment: .leading)
         // The top section of the composer's glass block (`GlassBlock`); standing alone (a
         // subagent's view), its own glass.
@@ -76,14 +76,14 @@ struct DockStrip: View {
         .contentShape(Rectangle())
         .gesture(swipe)
         .padding(.horizontal, inBlock ? 0 : ReadingColumn.bar(sizeClass).composer)
-        .padding(.bottom, inBlock ? 0 : AceTheme.Spacing.xs)
+        .padding(.bottom, inBlock ? 0 : AceDesign.Space.tight)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(identifier)
     }
 
     private var sentence: some View {
         Text(line.sentence)
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.medium)
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
             .foregroundStyle(AceTheme.Colours.foreground)
             .lineLimit(2)
             .monospacedDigit()
@@ -94,7 +94,7 @@ struct DockStrip: View {
 
     private var payload: some View {
         Button {
-            if let openPayload { openPayload() } else { withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) { expanded.toggle() } }
+            if let openPayload { openPayload() } else { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { expanded.toggle() } }
         } label: {
             Text(line.payload)
                 .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
@@ -106,7 +106,7 @@ struct DockStrip: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.leading, StripLeadMark.width + AceTheme.Spacing.sm)
+        .padding(.leading, StripLeadMark.width + AceDesign.Space.related)
         .accessibilityLabel(line.payload)
         .accessibilityHint(expanded ? "Shows one line" : "Shows it all")
         .accessibilityIdentifier("strip.payload")
@@ -143,8 +143,8 @@ struct DockStrip: View {
 
     /// A pager arrow: a caption glyph in a full tap.
     private func pagerGlyph(_ symbol: String) -> some View {
-        Image(systemName: symbol).font(.caption.weight(.semibold))
-            .frame(width: AceTheme.Dimensions.tapMinimum, height: AceTheme.Dimensions.tapMinimum)
+        Image(systemName: symbol).font(.caption.weight(AceDesign.Typeface.strong))
+            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
             .contentShape(Rectangle())
     }
 
@@ -165,7 +165,7 @@ struct StripLeadMark: View {
     var body: some View {
         Group {
             if let provider = lead.provider, !provider.isEmpty {
-                ProviderMark(provider: provider, size: 16)
+                ProviderMark(provider: provider, size: AceDesign.Size.icon)
             } else if let icon = lead.icon {
                 RowStatusIcon(kind: icon, tone: lead.tone ?? "idle")
             }

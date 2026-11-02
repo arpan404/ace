@@ -23,9 +23,9 @@ struct ThreadsTabsBar: View {
         .padding(AceTheme.Spacing.xxs)
         .aceGlass(in: AceShape.capsule, interactive: true)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, AceTheme.Spacing.gutter)
-        .padding(.top, AceTheme.Spacing.xs)
-        .padding(.bottom, AceTheme.Spacing.sm)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .padding(.top, AceDesign.Space.tight)
+        .padding(.bottom, AceDesign.Space.related)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Threads")
     }
@@ -35,7 +35,7 @@ struct ThreadsTabsBar: View {
         let lit = tab.id == "inbox" && dot && !chosen
         let total = count(tab.id)
         return Button {
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { selection = tab.id }
+            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { selection = tab.id }
         } label: {
             HStack(spacing: 5) {
                 Text(tab.label).lineLimit(1)
@@ -52,8 +52,8 @@ struct ThreadsTabsBar: View {
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             .fontWeight(chosen ? .semibold : .medium)
             .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .frame(minHeight: AceTheme.Dimensions.tapMinimum)
+            .padding(.horizontal, AceDesign.Space.row)
+            .frame(minHeight: AceDesign.Size.tap)
             .background {
                 if chosen {
                     AceShape.capsule.fill(AceTheme.Colours.foreground.opacity(0.12))

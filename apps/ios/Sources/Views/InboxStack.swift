@@ -139,7 +139,7 @@ struct InboxStack<Destination: View, Side: View>: View {
                     }
                 }
                 // The list and search everything crossfade; nothing slides.
-                .animation(reduceMotion ? .easeInOut(duration: 0.15) : AceTheme.Motion.standardCurve, value: searching)
+                .animation(AceDesign.Motion.arriving(reduceMotion), value: searching)
                 // Inbox, Snoozed and Settled under the title, pinned as rows pass beneath them.
                 .inboxTopBar { if !searching { tabsBar } }
             }
@@ -230,8 +230,8 @@ struct InboxStack<Destination: View, Side: View>: View {
         open()
     }
     /// Select mode, search and scope changes: the system's smooth curve, a fade under Reduce Motion.
-    private var listMotion: Animation { reduceMotion ? .easeInOut(duration: 0.2) : .smooth }
-    private var drawerMotion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring }
+    private var listMotion: Animation { AceDesign.Motion.arriving(reduceMotion) }
+    private var drawerMotion: Animation { AceDesign.Motion.arriving(reduceMotion) }
 
     private var filters: InboxFilters { InboxFilters(inbox: inbox, machine: $machine, project: $project) }
 
@@ -287,13 +287,13 @@ struct InboxStack<Destination: View, Side: View>: View {
         }
         ToolbarItem(placement: .principal) {
             Text(selection.isEmpty ? "Select threads" : "\(selection.count) selected")
-                .aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
+                .aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(AceDesign.Typeface.strong)
                 .monospacedDigit()
                 .accessibilityIdentifier("select.count")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button("Done") { withAnimation(listMotion) { selecting = false; selection = [] } }
-                .fontWeight(.semibold)
+                .fontWeight(AceDesign.Typeface.strong)
                 .keyboardShortcut(.escape, modifiers: [])
                 .accessibilityIdentifier("select.done")
         }
@@ -345,9 +345,9 @@ struct InboxStack<Destination: View, Side: View>: View {
     /// The drawer's own header: the title and its menu, then Select, Settings and Search on one
     /// glass capsule, each a full touch target.
     private var drawerHeader: some View {
-        HStack(alignment: .center, spacing: AceTheme.Spacing.sm) {
+        HStack(alignment: .center, spacing: AceDesign.Space.related) {
             title
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             HStack(spacing: AceTheme.Spacing.none) {
                 if inbox.sessions.contains(where: { $0.client.canOperate }) {
                     headerButton("checkmark.circle", label: "Select", identifier: "inbox.select") { startSelecting() }
@@ -359,16 +359,16 @@ struct InboxStack<Destination: View, Side: View>: View {
             }
             .aceGlass(in: AceShape.capsule, interactive: true)
         }
-        .padding(.horizontal, AceTheme.Spacing.gutter)
-        .padding(.top, AceTheme.Spacing.md)
-        .padding(.bottom, AceTheme.Spacing.sm)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .padding(.top, AceDesign.Space.row)
+        .padding(.bottom, AceDesign.Space.related)
     }
     private func headerButton(_ symbol: String, label: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 19, weight: .medium))
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -29,7 +29,7 @@ struct AnswerRow: View {
     var body: some View {
         // Text left incomplete by a turn that stopped no longer streams.
         let live = streaming && !row.complete
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             if !shown.isEmpty {
                 let menu = !between && !live
                 AceMarkdown(text: shown, streaming: live, selectable: !menu, resolveImage: images(of: row.id))
@@ -50,14 +50,14 @@ struct AnswerRow: View {
         return { reference in await readImage(itemId, reference) }
     }
     @ViewBuilder private var partial: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             if let problem {
                 Text(problem)
-                HStack(spacing: AceTheme.Spacing.md) {
+                HStack(spacing: AceDesign.Space.row) {
                     if readMessage != nil { Button("Try again") { Task { await load() } } }
                     if let openMessage { Button("Read full message") { openMessage(row) } }
                 }
-                .fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+                .fontWeight(AceDesign.Typeface.regular).foregroundStyle(AceTheme.Colours.foreground)
             } else if readMessage != nil {
                 Text("Loading full answer…").accessibilityAddTraits(.updatesFrequently)
             } else if let openMessage {

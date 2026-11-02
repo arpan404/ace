@@ -104,7 +104,7 @@ private struct ChatsList: View {
         let labels = inbox.mergedChats.menuLabels.isEmpty ? inbox.merged.menuLabels : inbox.mergedChats.menuLabels
         Button { actions.open(key) } label: { ChatRow(row: row) }
             .buttonStyle(.row)
-            .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.sm, bottom: 0, trailing: AceTheme.Spacing.sm))
+            .listRowInsets(EdgeInsets(top: 0, leading: AceDesign.Space.related, bottom: 0, trailing: AceDesign.Space.related))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
             .contextMenu {
@@ -161,19 +161,19 @@ private struct ChatRow: View {
     let row: ThreadRow
     var body: some View {
         let look = row.look
-        HStack(spacing: AceTheme.Spacing.md) {
+        HStack(spacing: AceDesign.Space.row) {
             Text(row.title)
                 .aceFont(InboxRowType.title, relativeTo: .body)
                 .fontWeight(look?.strong == true ? .semibold : .regular)
                 .foregroundStyle(look?.settled == true ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
                 .lineLimit(1)
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             if let icon = look?.icon, icon != "none", look?.settled != true {
                 RowStatusIcon(kind: icon, tone: look?.iconTone ?? "idle", count: look?.count)
             }
         }
         .padding(.horizontal, AceTheme.Spacing.rowInner)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(look?.meaning.map { "\(row.title). \($0)" } ?? row.title)

@@ -5,9 +5,9 @@ struct ComposerDock<Leading: View, Content: View>: View {
     @ViewBuilder var leading: () -> Leading
     @ViewBuilder var content: () -> Content
     var body: some View {
-        HStack(alignment: .bottom, spacing: AceTheme.Spacing.sm) {
+        HStack(alignment: .bottom, spacing: AceDesign.Space.related) {
             leading()
-                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .tint(AceTheme.Colours.foreground)
                 .buttonStyle(.plain)
@@ -23,7 +23,7 @@ struct ComposerSurface<Content: View>: View {
     @ViewBuilder var content: () -> Content
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none, content: content)
-            .padding(.vertical, AceTheme.Spacing.sm)
+            .padding(.vertical, AceDesign.Space.related)
             .composerGlass(in: AceShape.field)
     }
 }
@@ -38,7 +38,7 @@ struct ComposerActionButton: View {
     let label: String
     var glyph: AceIcon.Name = .arrowUp
     /// The tap area's side; the round sits a little inside it.
-    var size: CGFloat = AceTheme.Dimensions.touchTarget
+    var size: CGFloat = AceDesign.Size.tap
     let action: () -> Void
     var body: some View {
         Button(action: action) {
@@ -46,12 +46,12 @@ struct ComposerActionButton: View {
                 if saving { ProgressView().tint(AceTheme.Colours.onAccent) }
                 else if stopping {
                     AceShape.stopGlyph
-                        .frame(width: AceTheme.Spacing.sm + AceTheme.Spacing.xxs, height: AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
+                        .frame(width: AceDesign.Space.related + AceTheme.Spacing.xxs, height: AceDesign.Space.related + AceTheme.Spacing.xxs)
                 } else {
-                    AceIcon(glyph, size: 16, weight: .bold, relativeTo: .body)
+                    AceIcon(glyph, size: AceDesign.Size.icon, relativeTo: .body)
                 }
             }
-            .frame(width: size - AceTheme.Spacing.sm, height: size - AceTheme.Spacing.sm)
+            .frame(width: size - AceDesign.Space.related, height: size - AceDesign.Space.related)
             .foregroundStyle(foreground)
             .background(background, in: Circle())
             .frame(width: size, height: size)

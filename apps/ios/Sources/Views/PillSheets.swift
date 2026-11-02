@@ -17,7 +17,7 @@ struct GoalSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+                VStack(alignment: .leading, spacing: AceDesign.Space.row) {
                     Text(goal.objective)
                         .aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .foregroundStyle(AceTheme.Colours.foreground)
@@ -33,7 +33,7 @@ struct GoalSheet: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, AceTheme.Spacing.xl).padding(.top, AceTheme.Spacing.sm)
+                .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.related)
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { actions }
             .background(AceTheme.Colours.background)
@@ -58,19 +58,19 @@ struct GoalSheet: View {
     }
     @ViewBuilder private var actions: some View {
         if canOperate, goal.canPause || goal.canResume || goal.canClear {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            VStack(alignment: .leading, spacing: AceDesign.Space.related) {
                 if let problem {
                     Text(problem).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.StatusText.failed)
                         .accessibilityIdentifier("goal.problem")
                 }
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     if goal.canPause { action(pending == "pause" ? "Pausing…" : "Pause goal", id: "goal.pause", primary: true) { send("pause") } }
                     if goal.canResume { action(pending == "resume" ? "Resuming…" : "Resume goal", id: "goal.resume", primary: true) { send("resume") } }
                     if goal.canClear { action(pending == "clear" ? "Clearing…" : "Clear goal", id: "goal.clear", primary: false) { confirmingClear = true } }
                 }
             }
-            .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.md)
+            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.row)
         }
     }
     private func send(_ name: String) {
@@ -83,7 +83,7 @@ struct GoalSheet: View {
     }
     @ViewBuilder private func action(_ title: String, id: String, primary: Bool, run: @escaping () -> Void) -> some View {
         let button = Button(action: run) {
-            Text(title).fontWeight(.medium).frame(maxWidth: .infinity)
+            Text(title).fontWeight(AceDesign.Typeface.regular).frame(maxWidth: .infinity)
                 .foregroundStyle(primary ? AceTheme.Colours.onAccent : AceTheme.Colours.foreground)
         }
         .controlSize(.large)
@@ -114,7 +114,7 @@ struct QueueSheet: View {
             ScrollView {
                 QueueList(queue: queue, canAct: canAct, canSteer: canSteer, edit: edit, act: act, showMore: showMore,
                           words: words, saveWords: saveWords)
-                    .padding(.horizontal, AceTheme.Spacing.xl).padding(.top, AceTheme.Spacing.sm)
+                    .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.related)
             }
             .background(AceTheme.Colours.background)
             .navigationTitle("Queued")

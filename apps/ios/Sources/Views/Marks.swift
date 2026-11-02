@@ -75,7 +75,7 @@ struct ProviderMark: View {
                         .offset(x: 4, y: 3)
                 }
             }
-            .padding(.trailing, account == nil ? 0 : AceTheme.Spacing.xs)
+            .padding(.trailing, account == nil ? 0 : AceDesign.Space.tight)
             .accessibilityHidden(true)
     }
 

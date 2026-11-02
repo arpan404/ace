@@ -56,13 +56,13 @@ extension View {
 struct GlassIconButton: View {
     let systemImage: String
     let label: String
-    var size: CGFloat = AceTheme.Dimensions.touchTarget
+    var size: CGFloat = AceDesign.Size.tap
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.title3.weight(.medium))
+                .font(.title3.weight(AceDesign.Typeface.regular))
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(width: size, height: size)
                 .contentShape(Circle())
@@ -84,11 +84,11 @@ struct PillButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .aceFont(AceTheme.Typography.label, relativeTo: .body)
-            .fontWeight(.semibold)
+            .fontWeight(AceDesign.Typeface.strong)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .foregroundStyle(foreground)
-            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             .background(background, in: AceShape.capsule)
             .opacity(enabled ? (configuration.isPressed ? 0.7 : 1) : AceTheme.Opacity.disabled(scheme))
             .contentShape(AceShape.capsule)

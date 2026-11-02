@@ -12,7 +12,7 @@ struct FullMessageView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+                VStack(alignment: .leading, spacing: AceDesign.Space.row) {
                     // The row's own text shows at once; the whole text replaces it when it arrives.
                     AceMarkdown(text: text ?? item.text, streaming: text == nil && !item.complete,
                                 tone: item.type == "reasoning" ? .muted : .body).onAppear { DisclosureTrace.shared.shown(item.id) }
@@ -23,7 +23,7 @@ struct FullMessageView: View {
                     }
                     ServiceProblem(message: problem)
                     if problem != nil { Button("Retry") { Task { await read() } } }
-                }.padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg).frame(maxWidth: .infinity, alignment: .leading)
+                }.padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.margin).frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle(item.type == "reasoning" ? "Thought" : "Message").navigationBarTitleDisplayMode(.inline)
             .escapeCloses { dismiss() }

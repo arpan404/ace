@@ -99,12 +99,12 @@ private struct ComposerMediaThumb: View {
                         .foregroundStyle(Color.white)
                         .shadow(color: .black.opacity(0.6), radius: 2)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .padding(AceTheme.Spacing.xs)
+                        .padding(AceDesign.Space.tight)
                 }
                 if file.state == "uploading" {
                     ProgressView(value: file.progress).progressViewStyle(.linear)
                         .tint(AceTheme.Colours.foreground)
-                        .padding(.horizontal, AceTheme.Spacing.xs).padding(.bottom, AceTheme.Spacing.xs)
+                        .padding(.horizontal, AceDesign.Space.tight).padding(.bottom, AceDesign.Space.tight)
                         .accessibilityHidden(true)
                 }
             }
@@ -119,7 +119,7 @@ private struct ComposerMediaThumb: View {
         .accessibilityIdentifier("composer.media")
         .overlay(alignment: .topTrailing) {
             Button(action: remove) {
-                AceIcon(.x, size: 10, weight: .bold, relativeTo: .caption2)
+                AceIcon(.x, size: AceDesign.Size.glyphSmall, relativeTo: .caption2)
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .frame(width: 18, height: 18)
                     .background(AceTheme.Colours.background.opacity(0.8), in: Circle())

@@ -29,14 +29,14 @@ struct ComposerPills: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             // On the glass block's top edge: inset to its inner edge, close above it.
             .padding(.horizontal, ReadingColumn.bar(sizeClass).composer + GlassBlock.inset)
-            .padding(.bottom, AceTheme.Spacing.xs)
-            .animation(reduceMotion ? nil : AceTheme.Motion.spring, value: pill)
+            .padding(.bottom, AceDesign.Space.tight)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: pill)
         }
     }
 
     private func row(capped: Bool, named: Bool = true) -> some View {
         let cap = capped && width > 0 ? width * (pill == nil ? 0.6 : 0.4) : CGFloat.infinity
-        return HStack(spacing: AceTheme.Spacing.sm) {
+        return HStack(spacing: AceDesign.Space.related) {
             if let model {
                 CappedWidth(max: cap) {
                     ThreadModelPill(screen: model, named: named, openModel: openModel, openTune: openTune, openSettings: openSettings)
@@ -72,9 +72,9 @@ struct ThreadModelPill: View {
         let note = screen.controls?.note.flatMap { $0.isEmpty ? nil : $0 }
         let queued = screen.controls?.switching == "queued" || note != nil
         Button(action: openModel) {
-            HStack(spacing: AceTheme.Spacing.xs) {
+            HStack(spacing: AceDesign.Space.tight) {
                 if let provider = screen.controls?.provider, !provider.isEmpty {
-                    ProviderMark(provider: provider, size: 14)
+                    ProviderMark(provider: provider, size: AceDesign.Size.icon)
                 }
                 if named {
                     Text(name).lineLimit(1).truncationMode(.middle)
@@ -85,12 +85,12 @@ struct ThreadModelPill: View {
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                         .layoutPriority(1)
                 }
-                AceIcon(queued ? .clock : .caretDown, size: 11, relativeTo: .caption)
+                AceIcon(queued ? .clock : .caretDown, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
                     .layoutPriority(1)
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
-            .padding(.horizontal, AceTheme.Spacing.md)
+            .padding(.horizontal, AceDesign.Space.row)
             .frame(minHeight: LivePillCapsule.height)
             .contentShape(AceShape.capsule)
         }

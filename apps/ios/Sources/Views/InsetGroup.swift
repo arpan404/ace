@@ -9,7 +9,7 @@ extension View {
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
             .modifier(InsetRowDensity())
-            .listSectionSpacing(AceTheme.Spacing.sm)
+            .listSectionSpacing(AceDesign.Space.related)
     }
     /// Rows pass under the bottom search field behind a firm edge, so none reads through it.
     @ViewBuilder func searchBarEdge() -> some View {
@@ -72,14 +72,14 @@ struct InsetRow<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.md + AceTheme.Spacing.xxs) {
+        HStack(spacing: AceDesign.Space.row + AceTheme.Spacing.xxs) {
             switch glyph {
             case .symbol(let name)?:
                 Image(systemName: name).font(.system(size: 19, weight: .regular))
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .frame(width: 24).accessibilityHidden(true)
             case .ace(let name)?:
-                AceIcon(name, size: 19).foregroundStyle(AceTheme.Colours.foreground).frame(width: 24)
+                AceIcon(name, size: AceDesign.Size.barIcon).foregroundStyle(AceTheme.Colours.foreground).frame(width: 24)
             case nil:
                 EmptyView()
             }
@@ -90,7 +90,7 @@ struct InsetRow<Trailing: View>: View {
                         .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
                 }
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             trailing()
         }
         .contentShape(Rectangle())

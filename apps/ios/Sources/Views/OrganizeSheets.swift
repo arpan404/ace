@@ -44,9 +44,9 @@ struct MoveThreadSheet: View {
                                         Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                                             .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
                                     }
-                                    .padding(.horizontal, AceTheme.Spacing.md)
-                                    .padding(.vertical, AceTheme.Spacing.sm)
-                                    .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+                                    .padding(.horizontal, AceDesign.Space.row)
+                                    .padding(.vertical, AceDesign.Space.related)
+                                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.row)

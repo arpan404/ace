@@ -12,26 +12,26 @@ struct InboxPlaces: View {
 
     var body: some View {
         if sizeClass == .regular {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 GlassSwitch(selection: $tab, choices: [
                     .init(value: .threads, title: "Threads", identifier: "sidebar.threads"),
                     .init(value: .chats, title: "Chats", identifier: "sidebar.chats"),
                     .init(value: .spade, title: "Spade", identifier: "sidebar.spade"),
                 ])
-                if let compose { ComposeCircle(action: compose, size: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs) }
+                if let compose { ComposeCircle(action: compose, size: AceDesign.Size.tap + AceDesign.Space.tight) }
             }
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .padding(.vertical, AceTheme.Spacing.sm)
+            .padding(.horizontal, AceDesign.Space.row)
+            .padding(.vertical, AceDesign.Space.related)
         } else {
             // A compact window's drawer and full list wear the same bar the window shows with
             // nothing open: Threads and Pulls with their icons, New thread on its own circle.
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 PlacesTabBar(tab: $tab)
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Spacer(minLength: AceDesign.Space.related)
                 if let compose { ComposeCircle(action: compose, size: PlacesTabBar.height) }
             }
-            .padding(.horizontal, AceTheme.Spacing.lg)
-            .padding(.bottom, AceTheme.Spacing.xs)
+            .padding(.horizontal, AceDesign.Space.margin)
+            .padding(.bottom, AceDesign.Space.tight)
         }
     }
 }
@@ -58,7 +58,7 @@ private struct PlacesTabBar: View {
     private func item(_ value: InboxTab, title: String, icon: Image, identifier: String) -> some View {
         let chosen = tab == value
         return Button {
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { tab = value }
+            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { tab = value }
         } label: {
             VStack(spacing: 2) {
                 icon.font(.system(size: 20, weight: .medium)).frame(height: 24)
@@ -89,7 +89,7 @@ private struct ComposeCircle: View {
     let size: CGFloat
     var body: some View {
         Button(action: action) {
-            AceIcon(.notePencil, size: 22)
+            AceIcon(.notePencil, size: AceDesign.Size.barIcon)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(width: size, height: size)
                 .contentShape(Circle())
@@ -118,7 +118,7 @@ extension View {
                 VStack(spacing: AceTheme.Spacing.none) {
                     LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background],
                                    startPoint: .top, endPoint: .bottom)
-                        .frame(height: AceTheme.Spacing.xl)
+                        .frame(height: AceDesign.Size.barIcon)
                     AceTheme.Colours.background
                 }
                 .padding(.top, -AceTheme.Spacing.xl)

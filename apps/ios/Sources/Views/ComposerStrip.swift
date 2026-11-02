@@ -12,9 +12,9 @@ struct StripSurface<Content: View>: View {
         let shape = AceShape.group
         ScrollView {
             content()
-                .padding(.horizontal, AceTheme.Spacing.lg)
-                .padding(.top, AceTheme.Spacing.md + AceTheme.Spacing.xxs)
-                .padding(.bottom, AceTheme.Spacing.sm)
+                .padding(.horizontal, AceDesign.Space.margin)
+                .padding(.top, AceDesign.Space.row + AceTheme.Spacing.xxs)
+                .padding(.bottom, AceDesign.Space.related)
         }
         .scrollBounceBehavior(.basedOnSize)
         .scrollIndicators(.hidden)
@@ -23,7 +23,7 @@ struct StripSurface<Content: View>: View {
         .concentricContainer()
         .background(GroupedSurface.colour, in: shape)
         .padding(.horizontal, ReadingColumn.bar(sizeClass).composer)
-        .padding(.bottom, AceTheme.Spacing.sm)
+        .padding(.bottom, AceDesign.Space.related)
     }
 }
 
@@ -52,7 +52,7 @@ struct GroupedRow<Content: View>: View {
         content()
             .aceFont(AceTheme.Typography.body, relativeTo: .body)
             .foregroundStyle(AceTheme.Colours.foreground)
-            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
             .overlay(alignment: .top) {
                 if !first { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border).accessibilityHidden(true) }
             }
@@ -64,9 +64,9 @@ struct GroupedRow<Content: View>: View {
 struct GroupedValue: View {
     let text: String
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
+        HStack(spacing: AceDesign.Space.tight) {
             Text(text).lineLimit(1).foregroundStyle(AceTheme.Colours.mutedForeground)
-            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+            Image(systemName: "chevron.right").font(.footnote.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.subtleForeground)
                 .accessibilityHidden(true)
         }
     }
@@ -82,9 +82,9 @@ struct StripTextButtonStyle: ButtonStyle {
         configuration.label
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(prominent ? .semibold : .medium)
             .foregroundStyle(configuration.isPressed || prominent ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.sm)
+            .padding(.horizontal, AceDesign.Space.related)
             // 44pt: the smallest comfortable tap.
-            .frame(minHeight: AceTheme.Dimensions.tapMinimum)
+            .frame(minHeight: AceDesign.Size.tap)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
             // Disabled reads as disabled (DESIGN.md §5): dimmed, not hidden.

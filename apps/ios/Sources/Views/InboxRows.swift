@@ -21,17 +21,17 @@ struct InboxThreadRow: View {
 
     var body: some View {
         let look = look
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.md) {
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.row) {
             InboxRowMark(look: look).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             VStack(alignment: .leading, spacing: AceTheme.density(densityId).inboxLineGap) {
-                HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+                HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
                     Text(row.title)
                         .aceFont(InboxRowType.title, relativeTo: .body)
                         // Semibold only while the thread needs the person, as on the desktop.
                         .fontWeight(look.strong == true ? .semibold : .regular)
                         .foregroundStyle(look.settled ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                         .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                    Spacer(minLength: AceDesign.Space.related)
                     InboxRowAge(row: row, look: look)
                 }
                 InboxRowLine(row: row, look: look, snoozed: snoozed, machine: machine, project: project)
@@ -147,7 +147,7 @@ struct InboxRowLine: View {
         // Older bridges without the shared look keep their word.
         let word = snoozed && look.level != "needs-you" ? row.snoozedUntil.map(Self.wake) : look.icon == nil ? look.word : nil
         let named = !row.project.isEmpty
-        HStack(alignment: .center, spacing: AceTheme.Spacing.xs) {
+        HStack(alignment: .center, spacing: AceDesign.Space.tight) {
             if named {
                 Text(row.project).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
             }
@@ -157,7 +157,7 @@ struct InboxRowLine: View {
                     .lineLimit(1)
                     .layoutPriority(1)
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             InboxRowMarks(row: row, look: look, machine: machine).fixedSize().layoutPriority(2)
         }
         .aceFont(InboxRowType.line, relativeTo: .subheadline)
@@ -178,22 +178,22 @@ struct InboxRowMarks: View {
     let look: RowLook
     let machine: MachineMark?
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        HStack(spacing: AceDesign.Space.related) {
             if let machine {
-                AceIcon(machine.glyph, size: 14, relativeTo: .subheadline)
+                AceIcon(machine.glyph, size: AceDesign.Size.glyphMeta, relativeTo: .subheadline)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(machine.name)
             }
             if look.subagents > 0 {
                 HStack(spacing: AceTheme.Spacing.xxs) {
-                    AceIcon(.treeStructure, size: 12, relativeTo: .subheadline)
+                    AceIcon(.treeStructure, size: AceDesign.Size.glyphSmall, relativeTo: .subheadline)
                     Text(look.subagents.formatted()).monospacedDigit()
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(look.subagents) agents")
             }
             // The provider in its own colours at 80% (a one-colour mark in the foreground ink).
-            ProviderMark(provider: row.provider, size: 15, quiet: look.settled)
+            ProviderMark(provider: row.provider, size: AceDesign.Size.icon, quiet: look.settled)
                 .foregroundStyle(look.settled ? AceTheme.Colours.faintForeground : AceTheme.Colours.foreground)
                 .opacity(look.settled ? 1 : 0.8)
         }
@@ -209,7 +209,7 @@ struct InboxUnsentRow: View {
     let thread: ThreadRow?
     var body: some View {
         let tone = AceTone(entry.token ?? "neutral")
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.md) {
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.row) {
             Group {
                 if tone == .needsYou { Circle().fill(tone.mark).frame(width: 8, height: 8) } else { Color.clear.frame(width: 8, height: 8) }
             }

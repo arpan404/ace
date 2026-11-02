@@ -40,10 +40,10 @@ struct InboxSelectionBar: View {
                 Task { await organize.askDelete(keys, in: inbox); finish() }
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.sm)
+        .padding(.horizontal, AceDesign.Space.related)
         .aceGlass(in: AceShape.capsule)
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.bottom, AceTheme.Spacing.sm)
+        .padding(.horizontal, AceDesign.Space.row)
+        .padding(.bottom, AceDesign.Space.related)
     }
 
     private func run(_ action: BulkAction, _ keys: [InboxKey]) {
@@ -54,11 +54,11 @@ struct InboxSelectionBar: View {
     private func word(_ title: String, id: String, enabled: Bool, danger: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.medium)
+                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
                 // The system's destructive red, as menus and alerts draw Delete.
                 .foregroundStyle(danger ? Color(uiColor: .systemRed) : AceTheme.Colours.foreground)
                 .lineLimit(1).minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

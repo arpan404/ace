@@ -6,7 +6,7 @@ struct ForkStrip: View {
     let fork: ForkDraftRow
     let cancel: () -> Void
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             (Text(fork.sending ? "Starting the fork from " : "Forking from ")
                 + Text(fork.from).foregroundStyle(AceTheme.Colours.foreground))
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -21,7 +21,7 @@ struct ForkStrip: View {
                     .accessibilityIdentifier("composer.fork.cancel")
             }
         }
-        .padding(.leading, AceTheme.Spacing.lg).padding(.trailing, AceTheme.Spacing.xs)
-        .padding(.top, AceTheme.Spacing.xs)
+        .padding(.leading, AceDesign.Space.margin).padding(.trailing, AceDesign.Space.tight)
+        .padding(.top, AceDesign.Space.tight)
     }
 }

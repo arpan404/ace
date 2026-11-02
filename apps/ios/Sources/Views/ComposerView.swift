@@ -73,7 +73,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
             if let notice {
                 Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.bottom, AceTheme.Spacing.xs)
+                    .padding(.horizontal, AceDesign.Space.margin).padding(.bottom, AceDesign.Space.tight)
             }
             top()
             ComposerDock { leading(pick) } content: {
@@ -88,8 +88,8 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                             action
                         }
                     }
-                    .padding(.horizontal, big ? AceTheme.Spacing.none : AceTheme.Spacing.xs)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs)
+                    .padding(.horizontal, big ? AceTheme.Spacing.none : AceDesign.Space.tight)
+                    .frame(minHeight: AceDesign.Size.tap + AceDesign.Space.tight)
                     if big {
                         HStack(spacing: AceTheme.Spacing.none) {
                             Group {
@@ -106,7 +106,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                             .frame(maxWidth: .infinity, alignment: .leading)
                             action.fixedSize().layoutPriority(1)
                         }
-                        .padding(.horizontal, AceTheme.Spacing.xs)
+                        .padding(.horizontal, AceDesign.Space.tight)
                         .padding(.bottom, AceTheme.Spacing.xxs)
                         // The row keeps its height when a tall request and the keyboard leave little room.
                         .fixedSize(horizontal: false, vertical: true)
@@ -130,13 +130,13 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                     feedback += 1
                     return true
                 }
-                .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: dropping)
-                .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: big)
+                .animation(AceDesign.Motion.arriving(reduceMotion), value: dropping)
+                .animation(AceDesign.Motion.arriving(reduceMotion), value: big)
             }
         }
         // In the glass block the block keeps the edges.
         .padding(.horizontal, inBlock ? 0 : bar.composer).padding(.bottom, inBlock ? 0 : bar.bottom)
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: wraps)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: wraps)
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
         .onChange(of: mention) { _, picked in
             guard let picked else { return }
@@ -159,7 +159,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         .onDisappear { draft.flush() }
     }
     private var expandedOptions: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
+        HStack(spacing: AceDesign.Space.tight) {
             access()
             model()
         }
@@ -200,15 +200,15 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                 if draft.text.isEmpty {
                     Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
-                        .padding(.top, AceTheme.Spacing.md)
+                        .padding(.top, AceDesign.Space.row)
                         .allowsHitTesting(false).accessibilityHidden(true)
                 }
             }
             .accessibilityLabel(placeholder)
-            .padding(.horizontal, big ? AceTheme.Spacing.lg : AceTheme.Spacing.xs)
+            .padding(.horizontal, big ? AceDesign.Space.margin : AceDesign.Space.tight)
     }
     private var action: some View {
-        ComposerActionButton(stopping: stops, saving: draft.saving, disabled: disabled, label: label, glyph: glyph, size: ComposerControlRow.height + AceTheme.Spacing.xs) {
+        ComposerActionButton(stopping: stops, saving: draft.saving, disabled: disabled, label: label, glyph: glyph, size: ComposerControlRow.height + AceDesign.Space.tight) {
             feedback += 1
             if stops { stop() } else { submit(alternate: false) }
         }

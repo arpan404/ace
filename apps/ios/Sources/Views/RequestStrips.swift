@@ -95,8 +95,8 @@ private struct RequestSheet: View {
             NavigationStack {
                 ScrollView {
                     RequestCard(request: request, model: model, maxHeight: .infinity, questionDraft: $questionDraft, openBrowser: openBrowser)
-                        .padding(.horizontal, AceTheme.Spacing.xl)
-                        .padding(.vertical, AceTheme.Spacing.md)
+                        .padding(.horizontal, AceDesign.Space.margin)
+                        .padding(.vertical, AceDesign.Space.row)
                 }
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)

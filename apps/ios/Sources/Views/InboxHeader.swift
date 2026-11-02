@@ -96,7 +96,7 @@ struct InboxTitle: View {
         Group {
             if let shown {
                 Button(action: openMachines) {
-                    HStack(spacing: AceTheme.Spacing.sm) {
+                    HStack(spacing: AceDesign.Space.related) {
                         if shown.trying { ProgressView().controlSize(.small) } else { Image(systemName: "wifi.slash") }
                         Text([scope, shown.text].compactMap { $0 }.joined(separator: " · ")).lineLimit(1)
                     }

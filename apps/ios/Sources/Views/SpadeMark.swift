@@ -103,7 +103,7 @@ private struct SpadeGlyph: View {
 /// The Spade tab before Spade launches: its mark and one quiet sentence, centred.
 struct SpadeSoonScreen: View {
     var body: some View {
-        VStack(spacing: AceTheme.Spacing.lg) {
+        VStack(spacing: AceDesign.Space.margin) {
             SpadeMark(size: 56).foregroundStyle(AceTheme.Colours.foreground)
             Text("Spade is coming soon.")
                 .aceFont(AceTheme.Typography.body, relativeTo: .body)
