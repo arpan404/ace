@@ -33,7 +33,7 @@ ace never copies another product's look. It is recognisably itself: grey ink, on
 
   | State                                 | Dark      | Light     | Icon                                  |
   | ------------------------------------- | --------- | --------- | ------------------------------------- |
-  | Needs you (model, approval, question) | #EDB250   | #AD7200   | sliders · raised hand · question mark |
+  | Needs you (model, approval, question) | #EDB250   | #AD7200   | sparkle · raised hand · question mark |
   | Failed                                | #F47670   | #C93A33   | warning circle                        |
   | Working                               | #7E9FD6   | #3D63A6   | dashed circle (still)                 |
   | Waiting on agents                     | #A08FD4   | #6A55A8   | dashed circle with the count          |

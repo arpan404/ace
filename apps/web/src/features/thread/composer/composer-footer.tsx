@@ -42,7 +42,8 @@ export const ComposerFooter = memo(function ComposerFooter(props: {
         event.preventDefault();
         props.onFocusInput();
       }}
-      className="mb-1.5 flex h-11 min-w-0 items-center justify-between gap-0.5 px-2"
+      // A size container: narrow, the controls keep only their icons (`@max-md/composer-footer`).
+      className="@container/composer-footer mb-1.5 flex h-11 min-w-0 items-center justify-between gap-0.5 px-2"
     >
       <div data-slot="composer-add" className="flex shrink-0 items-center">
         <AddButton
