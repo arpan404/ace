@@ -211,7 +211,9 @@ test("a stored Surfaces choice carries over to the slider: Solid is 0, Transluce
   expect(stored({ theme: "midnight" })).toBe(defaultAppearance.translucency);
   // Once the slider has been set, its value wins over a leftover Surfaces field.
   expect(stored({ surface: "solid", translucency: 60 })).toBe(60);
-  expect(stored({ translucency: 130 })).toBe(130);
+  // Values saved past 100% (from when the slider ran higher) read as 100%.
+  expect(stored({ translucency: 130 })).toBe(100);
+  expect(stored({ translucency: 150 })).toBe(100);
   expect(stored({ translucency: 250 })).toBe(defaultAppearance.translucency);
 });
 

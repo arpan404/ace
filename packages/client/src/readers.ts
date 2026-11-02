@@ -6,7 +6,6 @@ export type ThreadKey =
   | "error"
   | "thread"
   | "queue"
-  | "offshift"
   | "order"
   | "cursor"
   | "history"
@@ -38,8 +37,6 @@ export interface ThreadReader {
   readonly unconfirmed?: boolean;
   readonly thread: ThreadView["thread"] | undefined;
   readonly queue: ThreadView["queue"] | undefined;
-  /** The latest-updated Offshift run's card; select with `offshift`. */
-  readonly offshift?: ThreadView["offshift"];
   /** The root agent's context meter; select with `context:<rootAgentId>`. */
   readonly context: ContextMeter | undefined;
   readonly order: readonly string[];

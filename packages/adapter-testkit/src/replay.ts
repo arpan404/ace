@@ -118,6 +118,7 @@ export function replayFixture(options: ReplayOptions): ReplayResult {
     notice: 0,
     compaction: 0,
     artifact: 0,
+    unknown: 0,
   };
   const interactions: ReplayFinal["interactions"] = {
     pending: 0,

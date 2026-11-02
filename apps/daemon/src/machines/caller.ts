@@ -1,6 +1,7 @@
 import {
   MachineCommandJobsResult,
   MachineDelegateResult,
+  MachineDescription,
   MachineMessageResult,
   MachineSessionResult,
   MachineStatusResult,
@@ -113,6 +114,7 @@ export class MachineCaller {
     const origin = await this.origin(caller.threadId);
     // The pairing the child is delegated through: once it is gone, the child can't be reached.
     const device = this.deps.directory.device(machine);
+    if (request.accountId) await this.takesAccounts(machine, origin, signal);
     const call = {
       op: "delegate" as const,
       requestId: request.requestId,
@@ -121,6 +123,7 @@ export class MachineCaller {
       role: request.role,
       provider: request.provider,
       ...(request.model ? { model: request.model } : {}),
+      ...(request.accountId ? { account: request.accountId } : {}),
     };
     let answer: { threadId: ThreadId; title: string; queued?: boolean | undefined } | undefined;
     // The target keys creation by requestId, so one retry after a dropped connection is safe.
@@ -151,9 +154,47 @@ export class MachineCaller {
     });
     return answer.threadId;
   }
+  /**
+   * A machine on a build from before accounts crossed machines would run the child on its own
+   * default account, so naming one there is refused here with what to do instead.
+   */
+  private async takesAccounts(machine: string, origin: MachineCallOrigin, signal: AbortSignal) {
+    let description: MachineDescription;
+    try {
+      description = MachineDescription.parse(
+        await this.deps.directory.call(
+          machine,
+          origin,
+          { op: "describe" },
+          {
+            timeoutMs: 15_000,
+            signal,
+          },
+        ),
+      );
+    } catch (error) {
+      signal.throwIfAborted();
+      throw this.deps.directory.controlError(machine, error);
+    }
+    if (description.delegateAccounts) return;
+    const detail = `${description.name} runs an older ace that can't choose an account. Update ace there, or omit accountId to use its default account.`;
+    throw new AgentControlError("not_supported", detail, undefined, detail);
+  }
+  /**
+   * Stops the child (ADR 0052): final and bounded. The children's ledger sends the cancel to its
+   * machine, again with backoff until that machine reports it ended, then calls it stopped here
+   * whether or not it confirmed.
+   */
   async cancel(id: ThreadId): Promise<AgentControlResult> {
     const child = this.deps.children.child(id);
     if (!child) return { ok: false, code: "not_found" };
+    this.deps.children.stop(id);
+    return { ok: true };
+  }
+  /** One cancel for the child, sent to its machine; the stop decides whether to send another. */
+  async sendCancel(id: ThreadId): Promise<void> {
+    const child = this.deps.children.child(id);
+    if (!child) return;
     try {
       await this.deps.directory.call(
         child.machine,
@@ -164,7 +205,6 @@ export class MachineCaller {
     } catch (error) {
       throw this.deps.directory.controlError(child.machine, error);
     }
-    return { ok: true };
   }
   /**
    * Follow-up work for a child there. The target keys the message by requestId, so a retry after

@@ -1,3 +1,4 @@
+import { retiredWorkflowKeys } from "./retired-workflow-migration.ts";
 import { cursorConfiguration } from "./cursor-configuration.ts";
 import { guardSecrets, MAX_CLIENT_BYTES, MAX_DOCUMENT_BYTES, SettingsError } from "./validation.ts";
 import { parseDocument, type ScalarRange } from "./jsonc.ts";
@@ -87,6 +88,11 @@ export function decode(text: string): DecodedDocument {
   const result = SettingsDocument.safeParse(data);
   if (!result.success)
     throw new SettingsError("validation", "Settings document has invalid known values");
+  const retiredWorkflow = retiredWorkflowKeys(result.data.settings);
+  if (retiredWorkflow.length) {
+    for (const key of retiredWorkflow) text = edit(text, ["settings", key], undefined);
+    return { ...decode(text), migrated: true };
+  }
   for (const key of ["clients.theme", "clients.keybindings"] as const) {
     if (Object.hasOwn(result.data.settings, key)) validateValue(key, result.data.settings[key]);
   }

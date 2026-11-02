@@ -92,7 +92,7 @@ export interface AgentSheet {
 
 const taskTokens: Record<BackgroundTask["status"], StatusToken> = {
   running: "working",
-  unknown: "waiting",
+  unknown: "neutral",
   completed: "done",
   failed: "failed",
   stopped: "neutral",
@@ -166,9 +166,9 @@ function descendantCounts(
   return result;
 }
 
-/** Tasks' order: running and lost-track work, then failures, then the rest. */
+/** Tasks' order: running work, then failures, then the rest. */
 const taskRank = (task: BackgroundTask) =>
-  task.status === "running" || task.status === "unknown" ? 2 : task.status === "failed" ? 1 : 0;
+  task.status === "running" ? 2 : task.status === "failed" ? 1 : 0;
 
 const troubled = (agent: Agent) =>
   agent.status.state === "failed" || agent.status.state === "unresponsive";

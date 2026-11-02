@@ -5,6 +5,7 @@ import type {
   DelegationRecord,
   HostId,
   ProviderKind,
+  RemoteContact,
   Thread,
   ThreadId,
   ThreadStatus,
@@ -46,8 +47,14 @@ export class DelegationFacts {
       /** The child as its machine reads it, the same state `agents_status` reports. */
       state: WatchedState;
       outcome: DelegationOutcome | null;
+      /** This machine can't vouch for it: lost contact, or stopped without confirmation. */
+      contact?: RemoteContact | undefined;
     },
-    hold: "start" | "end" | undefined,
+    /**
+     * `start` opens the parent's hold on it, `end` ends it with its outcome, and `lost` ends it
+     * as lost track (`unknown`), which never holds the parent; a report reopens it with `start`.
+     */
+    hold: "start" | "end" | "lost" | undefined,
   ): void {
     const state = this.repo.requireState(child.parentId);
     const agent = state.indexes.agentKeysById[child.parentAgentId];
@@ -70,7 +77,15 @@ export class DelegationFacts {
       machine: child.machine,
       name: child.name,
       ...(child.hostId ? { hostId: child.hostId } : {}),
+      ...(child.contact ? { contact: child.contact } : {}),
     };
+    // Lost contact is not running, waiting or done; its agent rests, and its words say why.
+    const external: ThreadStatus =
+      child.contact === "lost"
+        ? { state: "done" }
+        : settled
+          ? remoteChildStatus(outcomeState(child.outcome), child.status, false)
+          : remoteChildStatus(child.state, child.status, asksHere);
     this.repo.apply(
       child.parentId,
       [
@@ -90,9 +105,7 @@ export class DelegationFacts {
           type: "agent.external",
           agent: summary,
           threadId: child.id,
-          status: settled
-            ? remoteChildStatus(outcomeState(child.outcome), child.status, false)
-            : remoteChildStatus(child.state, child.status, asksHere),
+          status: external,
         },
         {
           type: "item.upsert",
@@ -128,24 +141,26 @@ export class DelegationFacts {
                 stoppable: true,
               },
             ]
-          : hold === "end"
-            ? [
-                {
-                  type: "background.ended" as const,
-                  task,
-                  status:
-                    child.outcome?.outcome === "completed"
-                      ? ("completed" as const)
-                      : child.outcome?.outcome === "cancelled"
-                        ? ("stopped" as const)
-                        : ("failed" as const),
-                },
-              ]
-            : []),
+          : hold === "lost" && held?.status === "running"
+            ? [{ type: "background.ended" as const, task, status: "unknown" as const }]
+            : hold === "end"
+              ? [
+                  {
+                    type: "background.ended" as const,
+                    task,
+                    status:
+                      child.outcome?.outcome === "completed"
+                        ? ("completed" as const)
+                        : child.outcome?.outcome === "cancelled"
+                          ? ("stopped" as const)
+                          : ("failed" as const),
+                  },
+                ]
+              : []),
       ],
       now,
     );
-    if (hold === "end") this.wake(child.parentId);
+    if (hold === "end" || hold === "lost") this.wake(child.parentId);
   }
   /** One stable parent item follows each independently owned child thread. */
   delegationStarted(record: DelegationRecord, child: Thread) {

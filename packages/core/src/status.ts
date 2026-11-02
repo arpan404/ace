@@ -382,8 +382,11 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
   // Edit or Remove. Nothing is waiting to send by itself: the thread reads as failed, and the
   // retained input still keeps it from reading done.
   if (state.queueHeld && state.queueSources.provider === 0) return { state: "failed" };
+  // Input a Stop kept for the person's Resume sends nothing by itself: it is at rest, not
+  // waiting (ADR 0052, "Stop and proof of life"). The thread's attention asks for the Resume.
+  const restingQueue = state.queueStopped === true && state.queueSources.provider === 0;
   if (
-    state.queueCount > 0 ||
+    (state.queueCount > 0 && !restingQueue) ||
     records.some(
       (record) =>
         record.externalStatus?.state === "waiting" && record.externalStatus.on === "queue",

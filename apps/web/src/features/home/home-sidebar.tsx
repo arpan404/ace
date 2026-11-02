@@ -1,10 +1,9 @@
 import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@phosphor-icons/react";
 import { tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { Suspense, useState, type KeyboardEvent } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { cn } from "@/lib/cn.ts";
 import { panelIconButton, PanelTitle, PanelTitleRow } from "@/components/ui/panel.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { PaletteButton } from "@/features/shell/index.ts";
@@ -38,12 +37,13 @@ const StartedTitlePublisher = deferredComponent(() =>
 );
 
 /**
- * The Threads panel, under the window's top bar (ADR 0107): its title row ("Threads", the
- * Everywhere filter, Search, New thread), the tabs (Inbox, Snoozed, Settled), then the open
- * tab's list. The Inbox is one flat list across projects and machines in the order the person
- * would act (pinned, needs you, running, unseen, the rest), with no headings; the filter narrows
- * every tab to a project or a device. 1, 2 and 3 switch tabs from anywhere in the panel. Chats
- * are the Chats panel's. Search (⌘K) opens the palette, which also finds older settled threads.
+ * The Threads panel, under the window's top bar (ADR 0107): its title row ("Threads", Search),
+ * the filter row under it (the project and device filter, then New thread), the tabs (Inbox,
+ * Snoozed, Settled), then the open tab's list. The Inbox is one flat list across projects and
+ * machines in the order the person would act (pinned, needs you, running, unseen, the rest),
+ * with no headings; the filter narrows every tab to a project or a device. 1, 2 and 3 switch
+ * tabs from anywhere in the panel. Chats are the Chats panel's. Search (⌘K) opens the palette,
+ * which also finds older settled threads.
  */
 export function HomeSidebar() {
   // Other machines' threads join the list, each row marked with its machine.
@@ -76,10 +76,12 @@ export function HomeSidebar() {
     <div className="relative flex min-h-0 flex-1 flex-col">
       <PanelTitleRow className="@container/thread-filters">
         <PanelTitle>Threads</PanelTitle>
-        <ProjectFilter />
         <PaletteButton />
-        <NewThreadButton />
       </PanelTitleRow>
+      <div className="flex h-8 shrink-0 items-center gap-1 pr-2.5 pl-2">
+        <ProjectFilter />
+        <NewThreadButton />
+      </div>
       <nav
         aria-label="Threads"
         className="relative flex min-h-0 flex-1 flex-col [&_[data-virtual-viewport]]:pb-[52px]"
@@ -193,24 +195,19 @@ function AddProjectAction() {
 }
 
 /**
- * New thread, the pencil at the title row's end after Search. With one project it opens New
+ * New thread, the pencil at the filter row's end. With one project it opens New
  * thread there; with several it asks which (Shift skips the question: the current project).
  */
 function NewThreadButton() {
   const entry = useNewThreadEntry();
   const { only } = entry;
-  const here = useRouterState({ select: (state) => state.location.pathname === "/new" });
   return (
     <Tip label="New thread" shortcut="newThread">
       <Link
         to="/new"
         {...(only ? { search: { project: only } } : {})}
         aria-label="New thread"
-        aria-current={here ? "page" : undefined}
-        className={cn(
-          panelIconButton,
-          "aria-[current=page]:bg-active aria-[current=page]:text-foreground",
-        )}
+        className={panelIconButton}
         onClick={(event) => {
           if (event.shiftKey) {
             event.preventDefault();

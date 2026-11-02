@@ -38,6 +38,8 @@ import { MessageRejections, messageKey } from "./target-rejections.ts";
 import { queuedStatus, queuedStep, unlaunchedResult } from "../agent-control/child-status.ts";
 import { accountModelName } from "../agent-control/models.ts";
 import { AgentControlError } from "../agent-control/failure.ts";
+import type { NamedAccount } from "../agent-control/account-names.ts";
+import { checkAccountModel, machineAccount } from "./target-accounts.ts";
 
 export interface TargetThreadDeps {
   store: Store;
@@ -45,6 +47,10 @@ export interface TargetThreadDeps {
   /** This machine's model catalog, which a loosely written model name is matched against. */
   models?(): import("@ace/models").ModelCatalogApi | undefined;
   journal(): DelegationJournal | undefined;
+  /** This machine's accounts, which an account another machine names is matched against. */
+  accounts?(): readonly NamedAccount[];
+  /** This machine's name, for refusals the calling agent reads. */
+  hostName?(): Promise<string>;
   now(): number;
   /** This machine's running-children limit, read live; undefined is no limit. */
   limit(): number | undefined;
@@ -258,7 +264,7 @@ export class TargetThreads {
    * prepared first, so what can never run (no such project, provider or model) is refused at
    * once; its task then starts, or waits for a slot like a local child (ADR 0099).
    */
-  delegate(device: Device, origin: MachineCallOrigin, call: Delegate) {
+  async delegate(device: Device, origin: MachineCallOrigin, call: Delegate) {
     const engine = this.deps.engine();
     if (!engine) throw new TargetRefusal("unavailable", "Agents are starting on this machine.");
     const key = createHash("sha256")
@@ -274,8 +280,26 @@ export class TargetThreads {
         ...(this.launches.queued(threadId) ? { queued: true } : {}),
       };
     const workspaceId = this.project(call.project);
-    const model = call.model ? this.modelNamed(call.provider, call.model) : undefined;
+    const accountId = call.account ? await this.account(call.provider, call.account) : undefined;
+    const model = call.model ? this.modelNamed(call.provider, call.model, accountId) : undefined;
+    if (accountId && model)
+      await checkAccountModel({
+        catalog: this.deps.models?.(),
+        provider: call.provider,
+        account: accountId,
+        model,
+        host: await this.host(),
+        schedule: this.deps.schedule,
+      });
     const { store } = this.deps;
+    // A retry that raced this one past the receipt check above gets the same thread.
+    const raced = store.getThread(threadId);
+    if (raced && this.owner(threadId)?.device_id === device.id)
+      return {
+        threadId,
+        title: raced.title,
+        ...(this.launches.queued(threadId) ? { queued: true } : {}),
+      };
     return store.atomic(() => {
       const command = Command.parse({
         id: `machine-prepare:${key}`,
@@ -286,6 +310,7 @@ export class TargetThreads {
           workspaceId,
           provider: call.provider,
           ...(model ? { model } : {}),
+          ...(accountId ? { accountId } : {}),
           mode: "local",
           title: clip(call.role, 256) || "Task",
         },
@@ -317,12 +342,47 @@ export class TargetThreads {
       };
     });
   }
+  /** The accounts a delegate here may name, ids and labels only. ACP logins aren't chosen so. */
+  accounts(): import("@ace/protocol").MachineAccount[] {
+    return (this.deps.accounts?.() ?? [])
+      .filter((account) => account.provider !== "acp")
+      .slice(0, 64)
+      .map((account) => {
+        const entry: import("@ace/protocol").MachineAccount = {
+          provider: account.provider,
+          id: account.id.slice(0, 256),
+        };
+        const label = account.label.trim().slice(0, 256);
+        if (label && label !== account.id) entry.label = label;
+        return entry;
+      });
+  }
+  private async host(): Promise<string> {
+    return (await this.deps.hostName?.())?.trim() || "This machine";
+  }
+  /** The account the other machine named, as one of this machine's own account ids. */
+  private async account(provider: import("@ace/protocol").ProviderKind, name: string) {
+    if (provider === "acp")
+      throw new TargetRefusal(
+        "invalid",
+        "An ACP agent on another machine runs on its own login there; omit accountId.",
+      );
+    return machineAccount(this.deps.accounts?.() ?? [], provider, name, await this.host());
+  }
   /** A model the other machine named loosely ("opus 5.5"), as this machine's catalog id. */
-  private modelNamed(provider: import("@ace/protocol").ProviderKind, name: string): string {
+  private modelNamed(
+    provider: import("@ace/protocol").ProviderKind,
+    name: string,
+    account?: string,
+  ): string {
     const catalog = this.deps.models?.();
     if (!catalog) return name;
     try {
-      return accountModelName(catalog, { provider }, name);
+      return accountModelName(
+        catalog,
+        { provider, ...(account ? { instance: account } : {}) },
+        name,
+      );
     } catch (error) {
       if (error instanceof AgentControlError)
         throw new TargetRefusal("invalid", error.publicDetail ?? error.message);
@@ -339,9 +399,14 @@ export class TargetThreads {
       deviceId: device.id,
       payload: { type: "thread.interrupt", threadId, cascade: true },
     });
-    const result = this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      engine.internalHandler.handle(command, commandContext(this.deps.store)),
-    );
+    // The parent's cancel is final, as for a child delegated here locally (ADR 0052): what it
+    // queued (a first message that was never sent, say) is retired, not held for a person here
+    // to resume, so the child settles and its parent stops waiting on it.
+    const result = this.deps.store.recordCommand(command.id, command.deviceId, () => {
+      engine.discardRecovery(threadId);
+      engine.cancelDelegatedInputs(threadId);
+      return engine.internalHandler.handle(command, commandContext(this.deps.store));
+    });
     return { ok: result.ok };
   }
   /**

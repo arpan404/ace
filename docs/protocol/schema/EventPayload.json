@@ -509,10 +509,21 @@
       "type": "object"
     },
     {
-      "$ref": "https://ace.local/protocol/v1/QueueUpdated.json"
+      "properties": {
+        "raw": {},
+        "type": {
+          "const": "unknown",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "raw"
+      ],
+      "type": "object"
     },
     {
-      "$ref": "https://ace.local/protocol/v1/OffshiftUpdated.json"
+      "$ref": "https://ace.local/protocol/v1/QueueUpdated.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/ContextMeterUpdated.json"

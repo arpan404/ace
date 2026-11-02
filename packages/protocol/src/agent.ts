@@ -24,12 +24,24 @@ export const AgentOrigin = z.enum([
 ]);
 export type AgentOrigin = z.infer<typeof AgentOrigin>;
 
+/**
+ * How this machine stands with a child on another machine (ADR 0052, "Stop and proof of life"):
+ * - `lost`: its machine stopped reporting it past its lease. It is not running, waiting or done,
+ *   and it no longer holds its parent; it resumes if it reports again.
+ * - `unconfirmed`: stopped here after every cancel went out, but its machine never confirmed it
+ *   ended. Final: a later report records its real end and never makes it live again.
+ * Optional and additive: builds that predate it ignore it.
+ */
+export const RemoteContact = z.enum(["lost", "unconfirmed"]);
+export type RemoteContact = z.infer<typeof RemoteContact>;
+
 /** The paired machine a delegated child runs on, when that is not this one (ADR 0078). */
 export const AgentMachine = z.object({
   machine: z.string().min(1).max(64),
   name: z.string().min(1).max(256),
   /** That machine's host id when known, so a window paired with it opens the child there. */
   hostId: HostId.optional(),
+  contact: RemoteContact.optional(),
 });
 export type AgentMachine = z.infer<typeof AgentMachine>;
 

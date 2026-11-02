@@ -108,8 +108,8 @@ export interface AgentForest {
  */
 export const forestBounds = { depth: 6, threads: 16 } as const;
 
-const runningTask = (task: BackgroundTask) =>
-  !task.internal && (task.status === "running" || task.status === "unknown");
+/** Lost-track tasks (`unknown`) have no proof of life and hold nothing (ADR 0052). */
+const runningTask = (task: BackgroundTask) => !task.internal && task.status === "running";
 
 /**
  * The delegated threads to load, breadth first from `root`: never one already reached (a cycle

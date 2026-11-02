@@ -1,0 +1,46 @@
+/*
+ * The Threads panel's floating tabs (threads-tabs.tsx). The pill itself is the shared floating
+ * material (`.ace-floating`): translucent over the scrolling rows, the opaque surface under
+ * Solid or reduced transparency. What this file owns is the tab system on top of it: the
+ * sliding selection thumb, the tab colour/press transitions and the mount entrance.
+ *
+ * Geometry the thumb relies on: 4px pill padding, 4px gaps, 28px buttons, so one step is 2rem.
+ * Keep them in step with the `p-1 gap-1 size-7` classes in the component.
+ */
+@layer components {
+  /* The pill fades and rises in on first mount. Under reduced motion it simply appears. */
+  .threads-tabs-mount {
+    animation: threads-tabs-in 160ms var(--ease-out) both;
+  }
+  :root[data-reduce-motion] .threads-tabs-mount {
+    animation: none;
+  }
+
+  /* The one selection indicator, sliding behind the buttons on transform only. */
+  .threads-tabs-thumb {
+    transform: translateX(calc(var(--i, 0) * 2rem));
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+  :root[data-reduce-motion] .threads-tabs-thumb {
+    transition: none;
+  }
+
+  /*
+   * A tab: its background answers hover in the fast token, its icon crossfades to the
+   * selection a touch slower, and a press shrinks it (motion.css drops the shrink under
+   * reduced motion). Focus is the standard inset ring, keyboard only.
+   */
+  .threads-tabs-tab {
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      color 150ms var(--ease-out),
+      transform var(--motion-fast) var(--ease-out);
+  }
+}
+
+@keyframes threads-tabs-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}

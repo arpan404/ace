@@ -38,6 +38,7 @@ import {
 } from "./child-views.ts";
 import { statusBatches, unsettledPage } from "./child-paging.ts";
 import { LostChildren } from "./child-lost.ts";
+import { ChildLiveness, type ChildLivenessDeps } from "./child-liveness.ts";
 
 export interface ChildrenDeps {
   store: Store;
@@ -52,6 +53,11 @@ export interface ChildrenDeps {
     ids: readonly ThreadId[],
   ): Promise<MachineThreadView[]>;
   resend: ChildMessagesDeps["resend"];
+  /** Sends one cancel for the child to its machine; the stop sends it again until confirmed. */
+  cancel(machine: string, parentThreadId: ThreadId, id: ThreadId): Promise<void>;
+  /** Test overrides for the stop's attempts and the lease; the defaults are ADR 0052's. */
+  stopPlan?: ChildLivenessDeps["stopPlan"];
+  leaseMs?: number | undefined;
   mirror: RequestMirror;
   label(machine: string): string;
   /** The machine's host id when known, so the parent's row can name where the child lives. */
@@ -97,6 +103,7 @@ export class MachineChildren implements RemoteChildren {
   private results: ChildResults;
   private messages: ChildMessages;
   private lost: LostChildren;
+  private liveness: ChildLiveness;
   constructor(deps: ChildrenDeps) {
     this.deps = deps;
     this.ledger = new ChildLedger(deps.store);
@@ -107,6 +114,13 @@ export class MachineChildren implements RemoteChildren {
       ...deps,
       ledger: this.ledger,
       results: this.results,
+      emit: (ids) => this.emit(ids),
+    });
+    this.liveness = new ChildLiveness({
+      ...deps,
+      ledger: this.ledger,
+      results: this.results,
+      cancel: (row) => deps.cancel(row.machine, row.parent_thread, row.id),
       emit: (ids) => this.emit(ids),
     });
     this.messages = new ChildMessages({
@@ -126,6 +140,7 @@ export class MachineChildren implements RemoteChildren {
   }
   close() {
     this.closed = true;
+    this.liveness.close();
     this.cancelTimer?.();
     this.cancelTimer = undefined;
   }
@@ -195,6 +210,16 @@ export class MachineChildren implements RemoteChildren {
       );
     });
     this.arm();
+  }
+  /**
+   * Stops the child (ADR 0052): the cancel goes to its machine and again with backoff until its
+   * machine reports it ended; past the last attempt it is stopped here, saying its machine never
+   * confirmed. False when there is nothing left to stop.
+   */
+  stop(id: ThreadId): boolean {
+    const stopping = this.liveness.stop(id);
+    if (stopping) this.arm();
+    return stopping;
   }
   /**
    * Every unsettled child delegated from this thread or below it, for a cascading stop: read by
@@ -271,6 +296,8 @@ export class MachineChildren implements RemoteChildren {
     this.deps.store.atomic(() => {
       // Its last view showed it finished; until a poll reads it again it shows as working.
       this.ledger.markReopened(id);
+      // New work the parent sent: a stop before it no longer applies.
+      this.ledger.clearStop(id);
       this.deps.engine()?.machineChild(
         {
           id,
@@ -391,6 +418,9 @@ export class MachineChildren implements RemoteChildren {
           }
         }),
       ]);
+      // Stops due, then the lease: replies read above have already renewed what reported.
+      this.liveness.tick();
+      this.liveness.lapse();
       for (const row of this.ledger.undelivered()) this.results.queueResult(row, savedView(row));
       this.results.drain();
     } finally {
@@ -449,6 +479,13 @@ export class MachineChildren implements RemoteChildren {
       this.ledger.hasMessages(row.id)
     )
       return;
+    // Stopped here without confirmation: its real end is recorded, but it never comes back.
+    if (row.stopped_unconfirmed === 1)
+      return this.liveness.late(
+        row,
+        view,
+        settledStates.has(view.state) && view.requests.length === 0,
+      );
     const outcome = recheckOutcome(savedView(row), view);
     if (outcome === "ignore") return;
     if (outcome === "reopen") this.reopenSettled(row);
@@ -457,15 +494,23 @@ export class MachineChildren implements RemoteChildren {
   }
   /** Applies a status reply read under `polled`; one from before newer work is dropped. */
   private update(polled: ChildRow, view: MachineThreadView) {
-    const row = this.ledger.row(polled.id);
-    if (!row || row.generation !== polled.generation || this.ledger.hasMessages(row.id)) return;
+    const current = this.ledger.row(polled.id);
+    if (!current || current.generation !== polled.generation) return;
     // A reply read before its pairing went is never applied to a lost or abandoned child.
-    if (row.lost_at !== null) return;
+    if (current.lost_at !== null) return;
+    // Any reply is proof of life, even one that changes nothing else.
+    const row = this.liveness.seen(current);
+    if (this.ledger.hasMessages(row.id)) return;
     this.unreachable.delete(row.id);
     if (view.notice) this.results.notice(row, view.notice);
     const settled = settledStates.has(view.state) && view.requests.length === 0;
     const text = JSON.stringify(view);
     const name = this.deps.label(row.machine);
+    // Being stopped: its requests are no longer the person's to answer, and only its end counts.
+    if (this.liveness.stopping(row) && !settled) {
+      if (text !== row.view) this.ledger.writeView(row.id, text, false, this.deps.now());
+      return;
+    }
     this.deps.mirror.sync(`child:${row.id}`, row.parent_thread, row.machine, name, view.requests, {
       agent: childAgentKey(row.id),
     });

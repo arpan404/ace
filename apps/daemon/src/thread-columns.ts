@@ -54,7 +54,6 @@ const columns = {
         titleSource: thread.titleSource,
         queue: thread.queue,
         goal: thread.goal,
-        run: thread.run,
       }),
   },
   capabilities: {

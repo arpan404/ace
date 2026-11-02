@@ -1,3 +1,4 @@
+import { decodeStoredPayload } from "./stored-decode.ts";
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 import { Event, ItemId, ThreadId } from "@ace/protocol";
@@ -130,19 +131,17 @@ export class SearchReplay {
         if (oversized) throw new Error("search_replay_identity_limit");
         payload = JSON.parse(String(this.payload.get(row.seq)?.payload));
       }
-      const event = (
+      const searchItem =
         typeof payload === "object" &&
         payload !== null &&
         "type" in payload &&
-        payload.type === "search.item"
-          ? SearchReplayEvent
-          : Event
-      ).parse({
+        payload.type === "search.item";
+      const event = (searchItem ? SearchReplayEvent : Event).parse({
         seq: row.seq,
         id: row.id,
         threadId: row.thread_id,
         at: row.at,
-        payload,
+        payload: searchItem ? payload : decodeStoredPayload(payload),
       });
       const size = Buffer.byteLength(JSON.stringify(event)) + 1;
       if (bytes + size > q.maxBytes) throw new Error("search_replay_page_limit");

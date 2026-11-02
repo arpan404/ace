@@ -1,12 +1,11 @@
 import { createContext, use } from "react";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
-import { type RowAttention, type ThreadCard } from "@ace/ui-core";
+import { rowStatusLook, type RowAttention, type ThreadCard } from "@ace/ui-core";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
-import { threadGlyph } from "@ace/ui-core";
+import { StatusIcon } from "@/components/status-icons.tsx";
 import { formatSpan } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
-import { StatusLabel } from "@/components/status-label.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useMachines } from "@/lib/machines.ts";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
@@ -146,48 +145,70 @@ export function PullRequest(props: { card: ThreadCard }) {
 }
 
 /**
- * The first line's status, as loud as the row's attention (`rowAttention`, with the open
- * thread's `currentAttention`):
- * - what asks the person to act or look: a glyph and a word in the status colour;
- * - live work, waiting or background, open or not: its glyph (none for waiting), word and
- *   elapsed time, muted unless open;
- * - a failure already seen: a quiet word; a thread at rest: only its age;
- * - a snoozed thread: what it waits for, unless it needs the person.
+ * The first line's status: one solid icon and one short word or time (`rowStatusLook`), 14px
+ * with a 5px gap, vertically centred. Nothing animates. Needs-you and failed words take the
+ * state's colour; elapsed and relative times stay in muted ink. The row's accessible name keeps
+ * the full wording (`threadDetails`), so the short visual word never stands alone for
+ * assistive tech.
  */
 export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) {
   const { card } = props;
-  const { level, word, tone, muted } = props.attention;
+  const { level } = props.attention;
   // A snoozed row says what it waits for where its status sits, unless it needs the person.
   if (card.wake && level !== "needs-you" && level !== "failed") return <RowWake wake={card.wake} />;
-  if (word === undefined) return <RowTime card={card} />;
-  // An unconfirmed copy says only that it is syncing: no glyph, no colour, no time.
-  if (level === "failed-seen" || level === "syncing")
-    return <span className="shrink-0 text-meta text-muted-foreground">{word}</span>;
-  // The glyph beside the word: the colour is never the only clue. Waiting is only words.
-  const mark =
-    tone === "waiting" ? null : (
-      <StatusGlyph state={threadGlyph({ tone, mark: card.status.mark })} tone={tone} size={12} />
-    );
-  // Active rows always keep their time beside the word, open or not: the open row is not the
-  // only one that says how long it has been at it. "Limited HH:MM" already names its time.
-  const elapsed =
-    level === "active" && !word.startsWith("Limited") ? <ActiveElapsed card={card} /> : null;
-  // Waiting never takes the status colour, even on the open row.
-  if (muted || tone === "waiting")
+  const look = rowStatusLook(props.attention, card);
+  if (look.mode === "elapsed") {
     return (
       <span
-        data-tone={tone}
-        className="inline-flex shrink-0 items-center gap-1 text-meta whitespace-nowrap text-muted-foreground"
+        role="img"
+        aria-label={look.full}
+        data-tone={look.tone}
+        className="inline-flex shrink-0 items-center gap-[5px] text-meta whitespace-nowrap"
       >
-        {mark}
-        <span>{word}</span>
-        {elapsed}
+        <span className="inline-flex text-(--tone)">
+          <StatusIcon kind={look.icon === "none" ? "waiting" : look.icon} size={14} />
+        </span>
+        <ActiveElapsed card={card} />
       </span>
     );
+  }
+  if (look.mode === "age") {
+    return (
+      <span
+        role="img"
+        aria-label={look.full}
+        data-tone={look.tone}
+        className="inline-flex shrink-0 items-center gap-[5px] text-meta whitespace-nowrap"
+      >
+        {look.icon !== "none" && (
+          <span className="inline-flex text-(--tone)">
+            <StatusIcon kind={look.icon} size={14} />
+          </span>
+        )}
+        <RowTime card={card} />
+      </span>
+    );
+  }
+  // A quiet word (a seen failure, an unconfirmed copy): no icon, no colour, no time.
+  if (look.icon === "none") {
+    return (
+      <span role="img" aria-label={look.full} className="shrink-0 text-meta text-muted-foreground">
+        {look.word}
+      </span>
+    );
+  }
   return (
-    <StatusLabel tone={tone} label={word} mark={mark} className="gap-1 text-meta font-medium">
-      {elapsed}
-    </StatusLabel>
+    <span
+      role="img"
+      aria-label={look.full}
+      data-tone={look.tone}
+      className="inline-flex shrink-0 items-center gap-[5px] text-meta font-medium whitespace-nowrap text-(--tone-text)"
+    >
+      <span className="inline-flex text-(--tone)">
+        <StatusIcon kind={look.icon} size={14} />
+      </span>
+      <span>{look.word}</span>
+    </span>
   );
 }
 
@@ -201,9 +222,9 @@ function ActiveElapsed(props: { card: ThreadCard }) {
   const fresh = useLiveConnection().fresh;
   const now = useSeconds(fresh && since !== undefined);
   if (fresh && since !== undefined) {
-    return <span className="tabular-nums">{formatSpan(since, now)}</span>;
+    return <span className="text-muted-foreground tabular-nums">{formatSpan(since, now)}</span>;
   }
-  return <span className="tabular-nums">{props.card.age}</span>;
+  return <span className="text-muted-foreground tabular-nums">{props.card.age}</span>;
 }
 
 /** A snoozed row says what it waits for ("until it needs you") where others say their status. */
@@ -231,7 +252,7 @@ function RowTime(props: { card: ThreadCard }) {
 }
 
 /**
- * An Active row's last line: where a settled tree's run stopped, then the branch and pull request lead; the provider keeps the trailing
+ * An Active row's last line: the branch and pull request lead; the provider keeps the trailing
  * slot. With more than one device connected, the machine's icon sits beside the provider's, its
  * name in the tooltip and the row's spoken details.
  */
@@ -240,7 +261,6 @@ export function RowContext(props: { card: ThreadCard }) {
   const devices = use(ManyDevices);
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
-      {card.run && <RunMark run={card.run} />}
       {card.branch && <MiddleTruncate text={card.branch.name} className="flex-1 font-mono" />}
       {card.pr !== undefined && (
         <span className="shrink-0">
@@ -275,27 +295,6 @@ export function RowContext(props: { card: ThreadCard }) {
         </span>
       </span>
     </div>
-  );
-}
-
-/**
- * Where a settled thread's Offshift run stopped: its phase word, after a paused ring in the
- * waiting colour when a blocker holds it. Only a settled tree has one (`ThreadCard.run`).
- */
-function RunMark(props: { run: NonNullable<ThreadCard["run"]> }) {
-  const { run } = props;
-  return (
-    <Tip label={run.label}>
-      <span
-        role="img"
-        aria-label={run.label}
-        data-run={run.blocked ? "blocked" : "open"}
-        className="inline-flex shrink-0 items-center gap-1 text-muted-foreground"
-      >
-        {run.blocked && <StatusGlyph state="paused" tone="waiting" size={12} />}
-        {run.phase}
-      </span>
-    </Tip>
   );
 }
 

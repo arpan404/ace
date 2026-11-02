@@ -27,6 +27,7 @@ export * from "./accounts.ts";
 export * from "./antigravity-sign-in.ts";
 export * from "./account-threads.ts";
 export * from "./agents.ts";
+export * from "./remote-contact.ts";
 export * from "./agent-tally.ts";
 export * from "./agent-forest.ts";
 export * from "./summary-now.ts";
@@ -133,8 +134,6 @@ export * from "./queued-input.ts";
 export * from "./queued-steer.ts";
 export * from "./snooze.ts";
 export * from "./live-status.ts";
-export * from "./offshift.ts";
-export * from "./offshift-controls.ts";
 export { newestAgentPage, opensAgentPage } from "./agent-page.ts";
 export * from "./status.ts";
 export * from "./storage.ts";
@@ -286,6 +285,12 @@ export {
   type RowAttentionInput,
 } from "./row-attention.ts";
 export { rowIndicator, type RowIndicator } from "./row-indicator.ts";
+export {
+  rowStatusLook,
+  type RowStatusIconKind,
+  type RowStatusLook,
+  type RowStatusTone,
+} from "./row-status-display.ts";
 export {
   sanitizeUserText,
   stripAceOriginMarker,

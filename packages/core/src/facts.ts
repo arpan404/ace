@@ -224,6 +224,11 @@ export type Fact =
        * the person's Try again, Edit or Remove, not for the agent. Engine source only.
        */
       held?: boolean;
+      /**
+       * The engine's queue is paused by a Stop: its retained input sends only when the person
+       * resumes it, so nothing is waiting to send by itself (ADR 0052). Engine source only.
+       */
+      stopped?: boolean;
     }
   | { type: "tick" };
 

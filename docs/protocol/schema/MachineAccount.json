@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineAccount.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "provider": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider",
+    "id"
+  ],
+  "type": "object"
+}

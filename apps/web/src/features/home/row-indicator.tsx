@@ -1,24 +1,25 @@
-import { rowIndicator, type RowAttention } from "@ace/ui-core";
-import { cn } from "@/lib/cn.ts";
+import { rowIndicator, rowStatusLook, type RowAttention, type ThreadCard } from "@ace/ui-core";
+import { StatusIcon } from "@/components/status-icons.tsx";
 
 /**
- * A sidebar row's one mark at its right edge (`rowIndicator`): a dot for what asks the person to
- * look (needs you, a fresh failure, unread finished work), a ring that breathes a few times
- * while the thread's tree still works or waits. The row's spoken name already says its status,
- * so the mark itself is silent.
+ * A sidebar row's one mark at its right edge: the same solid icon its three-line row shows
+ * (`rowStatusLook`), still and silent. Only what asks the person to look (a request, a fresh
+ * failure, unread finished work) or still works or waits shows one; a thread at rest, a seen
+ * failure and an unconfirmed copy show nothing, as `rowIndicator` says. The row's spoken name
+ * already says its status, so the mark itself is silent.
  */
-export function RowIndicator(props: { attention: RowAttention }) {
-  const mark = rowIndicator(props.attention);
-  if (!mark) return null;
+export function RowIndicator(props: { attention: RowAttention; card: ThreadCard }) {
+  if (!rowIndicator(props.attention)) return null;
+  const look = rowStatusLook(props.attention, props.card);
+  if (look.icon === "none") return null;
   return (
     <span
       aria-hidden
-      data-indicator={mark.kind}
-      data-tone={mark.tone}
-      className={cn(
-        "size-2 shrink-0 rounded-full",
-        mark.kind === "live" ? "fx-live-dot shadow-[inset_0_0_0_1.5px_var(--tone)]" : "bg-(--tone)",
-      )}
-    />
+      data-icon={look.icon}
+      data-tone={look.tone}
+      className="inline-flex text-(--tone)"
+    >
+      <StatusIcon kind={look.icon} size={14} />
+    </span>
   );
 }

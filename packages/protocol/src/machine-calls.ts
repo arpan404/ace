@@ -37,6 +37,19 @@ const OfferedGroups = OfferedGroupNames.transform((names) =>
 export const MachineProject = z.object({ workspaceId: WorkspaceId, name: z.string().max(256) });
 export type MachineProject = z.infer<typeof MachineProject>;
 
+/**
+ * One of a machine's own accounts, as `delegate` there takes it in `accountId`: its id and the
+ * label the person gave it. Never a credential (ADR 0002). The provider is any string, so a
+ * provider this build doesn't know yet is kept rather than failing the whole list.
+ */
+export const MachineAccount = z.object({
+  provider: z.string().min(1).max(64),
+  id: z.string().min(1).max(256),
+  label: z.string().max(256).optional(),
+});
+export type MachineAccount = z.infer<typeof MachineAccount>;
+const MachineAccounts = z.array(MachineAccount).max(64);
+
 /** What a target says about itself to one paired device. */
 export const MachineDescription = z.object({
   hostId: HostId,
@@ -50,6 +63,13 @@ export const MachineDescription = z.object({
   providers: z.array(ProviderKind).max(16),
   /** This device may move projects and threads here (ADR 0101). */
   transfers: z.boolean().optional(),
+  /**
+   * `delegate` here takes `account` and runs the child on it. Absent on builds from before
+   * that, which refuse the field: a caller checks this before naming an account.
+   */
+  delegateAccounts: z.boolean().optional(),
+  /** Its accounts per provider, for `delegate` with `accountId` there. */
+  accounts: MachineAccounts.optional(),
 });
 export type MachineDescription = z.infer<typeof MachineDescription>;
 
@@ -66,6 +86,8 @@ export const MachineSummary = z.object({
   providers: z.array(ProviderKind).max(16).optional(),
   /** Agents here may `transfer` projects and threads to it (ADR 0101). */
   transfers: z.boolean().optional(),
+  /** Its accounts, for `delegate` with `machine` and `accountId`; absent on older builds. */
+  accounts: MachineAccounts.optional(),
   /** What to do next when the machine can't be used right now. */
   next: z.string().max(256).optional(),
 });
@@ -114,6 +136,11 @@ export const MachineCall = z.discriminatedUnion("op", [
     role: z.string().min(1).max(1024),
     provider: ProviderKind,
     model: z.string().min(1).max(256).optional(),
+    /**
+     * One of the target's own accounts for `provider`, by id or by label (any case). Absent is
+     * the target's default. Only the name crosses machines, never a credential (ADR 0002).
+     */
+    account: z.string().min(1).max(256).optional(),
   }),
   z.strictObject({ op: z.literal("status"), threadIds: z.array(ThreadId).min(1).max(16) }),
   z.strictObject({ op: z.literal("cancel"), threadId: ThreadId }),

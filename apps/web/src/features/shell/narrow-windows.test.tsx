@@ -372,6 +372,11 @@ test("Search in the sheet opens the launcher in the sheet's place", async () => 
   // On a phone the header's way to the list is "Back to threads" (#126).
   await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
+  // Row 1 is the title row again: Threads, then Search. Row 2 holds the All projects filter.
+  expect(within(sheet).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  expect(
+    within(sheet).getByRole("button", { name: "Project filter: All projects" }).textContent,
+  ).toBe("All projects");
   await userEvent.click(within(sheet).getByRole("button", { name: "Search" }));
   expect(await screen.findByRole("dialog", { name: "Command palette" })).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());

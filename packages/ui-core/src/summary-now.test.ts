@@ -53,9 +53,14 @@ test("Now never says done while a delegated grandchild still works", () => {
   ]);
   const line = now(works);
   expect(line.say).toBe("Working");
+  expect(line.speak).toBe("working");
   expect(line.sub).toBe("3 agents working");
   works.set("t3", work([agent("t3", "root", idle), agent("t3", "c", idle, "root")]));
-  expect(now(works).say).toBe("Done in 1m");
+  const doneLine = now(works);
+  expect(doneLine.say).toBe("Done · 1m");
+  expect(doneLine.lead).toBe("Done");
+  expect(doneLine.span).toBe("1m");
+  expect(doneLine.speak).toBe("done in 1 minute");
 });
 
 test("Now never says done while a delegated thread's facts are unconfirmed", () => {
@@ -63,12 +68,16 @@ test("Now never says done while a delegated thread's facts are unconfirmed", () 
     ["t1", work([agent("t1", "root", idle), agent("t1", "a", idle, "root", "t2")])],
     ["t2", work([agent("t2", "root", idle), agent("t2", "b", idle, "root")], { facts: "syncing" })],
   ]);
-  expect(now(works).say).toBe("Syncing");
+  const syncing = now(works);
+  expect(syncing.say).toBe("Syncing");
+  expect(syncing.speak).toBe("syncing");
   // Still loading (no facts yet) is as unconfirmed as syncing.
   works.delete("t2");
   expect(now(works).say).toBe("Syncing");
   works.set("t2", work([agent("t2", "root", idle), agent("t2", "b", idle, "root")]));
-  expect(now(works).say).toBe("Done in 1m");
+  const doneLine = now(works);
+  expect(doneLine.say).toBe("Done · 1m");
+  expect(doneLine.speak).toBe("done in 1 minute");
 });
 
 test("a second root agent still working keeps Now from saying done", () => {
@@ -87,4 +96,21 @@ test("Now never says done while a delegated thread couldn't be loaded", () => {
 test("Now never says done when the viewed thread's own subscription failed, even with done kept", () => {
   const works = new Map([["t1", work([], { facts: "not_loaded" })]]);
   expect(now(works).say).toBe("Syncing");
+});
+
+test("a working thread reads its time after a middle dot, with the full phrase for assistive tech", () => {
+  const line = nowLine({
+    status: { state: "working", agents: 1 },
+    tally: { working: 2, done: 0, syncing: 0, commands: 1 },
+    live: true,
+    confirmed: true,
+    turn: { startedAt: 0 },
+    prs: [],
+    now: 17 * 60_000,
+  });
+  expect(line.say).toBe("Working · 17m");
+  expect(line.lead).toBe("Working");
+  expect(line.span).toBe("17m");
+  expect(line.speak).toBe("working for 17 minutes");
+  expect(line.sub).toBe("2 agents working · 1 command running");
 });

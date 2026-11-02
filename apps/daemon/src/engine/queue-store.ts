@@ -108,6 +108,11 @@ export class QueueStore {
     const row = this.sql("SELECT paused, reason FROM engine_queue WHERE thread_id=?").get(id);
     return row?.paused === 1 && (row.reason === "not_sent" || row.reason === "model_unavailable");
   }
+  /** Paused by a Stop: what it retains waits for the person's Resume. */
+  stoppedByPerson(id: ThreadId): boolean {
+    const row = this.sql("SELECT paused, reason FROM engine_queue WHERE thread_id=?").get(id);
+    return row?.paused === 1 && row.reason === "stopped";
+  }
   get(id: ThreadId): RecoveryRecord {
     const row = this.sql("SELECT * FROM engine_queue WHERE thread_id=?").get(id);
     if (!row) throw new Error("Missing queue metadata");

@@ -38,7 +38,6 @@ struct ThreadView: View {
     @State private var showTerminal = false
     @State private var showBrowser = false
     @State private var showLogs = false
-    @State private var showOffshift = false
     @State private var showSearch = false
     @State private var showQueue = false
     /// Where the iPad's side panel goes; `.none` keeps every tool over the thread, as on a phone.
@@ -196,13 +195,6 @@ struct ThreadView: View {
             }
             .sheet(isPresented: $showTune) {
                 if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
-            }
-            .sheet(isPresented: $showOffshift) {
-                NavigationStack {
-                    OffshiftRunView(screen: thread.screen)
-                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showOffshift = false } } }
-                }
-                .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .transferSheet(model: model, kind: "thread")
@@ -418,7 +410,6 @@ struct ThreadView: View {
         case .tools: showTools = true
         case .agents: showAgents = true
         case .logs: showLogs = true
-        case .offshift: showOffshift = true
         }
     }
     /// The panel's keys while it has room beside this thread.

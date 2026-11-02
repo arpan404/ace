@@ -164,6 +164,13 @@ export const keymap = {
     scope: "home",
     fixed: true,
   },
+  // The Threads panel's tabs, from anywhere in the app (the panel's own 1/2/3 stay as well).
+  // ⌃1–3 on Apple platforms; off them ⌃ is Ctrl too, so Alt+Shift there (as other shortcuts add
+  // a modifier where ⌃ and ⌘ would merge). Nothing else in the keymap answers these chords.
+  showInbox: { keys: "ctrl+1", nonApple: "alt+shift+1", label: "Show Inbox" },
+  showSnoozed: { keys: "ctrl+2", nonApple: "alt+shift+2", label: "Show Snoozed" },
+  showSettled: { keys: "ctrl+3", nonApple: "alt+shift+3", label: "Show Settled" },
+  nextThreadsTab: { keys: "alt+shift+t", label: "Next threads tab" },
   "home.move": {
     keys: "space",
     label: "Move the focused thread (↑ ↓ to choose, Space to drop)",

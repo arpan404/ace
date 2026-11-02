@@ -31,10 +31,11 @@ import { AddProjectItem, ManageProjectItems } from "@/features/projects/index.ts
 const all = "\u0000all";
 
 /**
- * The Threads panel's filter, beside its title: "Everywhere" with a small caret, which opens the
- * project and device filter (it narrows all three tabs to one project or device, offers actions
- * for each project and ends with Add project). While a filter is on, the project's name (else
- * the device's) takes Everywhere's place, a device adding its mark. Every project the daemon
+ * The Threads panel's filter, in its own row under the title: "All projects" with a small
+ * caret opens the project and device filter (it narrows all three tabs to one project or
+ * device, offers actions for each project and ends with Add project). A project shows its mark
+ * and name; a device shows its glyph and name; both show the mark and name, then ` · `, then
+ * the glyph and name, truncated with the full text in the tooltip. Every project the daemon
  * lists is here, with or without threads, beside any project only threads still mention.
  */
 export function ProjectFilter() {
@@ -42,13 +43,15 @@ export function ProjectFilter() {
   const { project } = useOrganizerState();
   const deviceId = useSidebarDevice();
   const device = useMachines().find((machine) => machine.id === deviceId);
-  const characters = Array.from(device?.name ?? "");
-  const deviceName =
-    characters.length > 15 ? `${characters.slice(0, 15).join("").trimEnd()}…` : device?.name;
   const withThreads = useProjects();
   const directory = useProjectDirectory();
   const { name } = directory;
-  const label = project === null ? "All projects" : name(project);
+  const projectName = project === null ? null : name(project);
+  const label = projectName ?? "All projects";
+  const fullTitle =
+    projectName && device
+      ? `${projectName} · ${device.name}`
+      : (projectName ?? device?.name ?? "All projects");
   const total = withThreads.reduce((sum, p) => sum + p.threads, 0);
   const rows = useMemo(() => {
     const counts = new Map(withThreads.map((p) => [p.id, p.threads]));
@@ -61,46 +64,58 @@ export function ProjectFilter() {
   }, [withThreads, directory, name]);
 
   return (
-    <Menu>
-      <Tip label={device ? `${label} on ${device.name}` : "Filter threads"}>
-        <MenuTrigger
-          aria-label={`Project filter: ${label}${device ? `, Device: ${device.name}` : ""}`}
-          className="group/filter inline-flex h-7 min-w-0 max-w-full items-center gap-1 rounded-md px-2 text-meta font-medium text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-hover hover:text-foreground aria-expanded:bg-active aria-expanded:text-foreground"
-        >
-          {device && <MachineMark icon={device.icon} primary={device.primary} />}
-          <span
-            className="min-w-0 truncate"
-            data-selected-device-name={project === null && device ? "" : undefined}
+    <span className="flex min-w-0 flex-1">
+      <Menu>
+        <Tip label={fullTitle}>
+          <MenuTrigger
+            aria-label={`Project filter: ${label}${device ? `, Device: ${device.name}` : ""}`}
+            className="group/filter flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-md font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground aria-expanded:bg-active aria-expanded:text-foreground"
           >
-            {project !== null ? label : device ? deviceName : "Everywhere"}
-          </span>
-          <CaretDownIcon aria-hidden size={10} className="shrink-0" />
-        </MenuTrigger>
-      </Tip>
-      <MenuContent align="end" className="max-h-[60vh] min-w-64 overflow-y-auto">
-        <DeviceFilter />
-        <MenuRadioGroup
-          value={project ?? all}
-          onValueChange={(value) =>
-            organizer.setProject(typeof value === "string" && value !== all ? value : null)
-          }
-        >
-          <ProjectItem value={all} label="All projects" count={total} />
-          {rows.length > 0 && <MenuSeparator />}
-          {rows.map((row) => (
-            <ProjectItem
-              key={row.id}
-              value={row.id}
-              label={row.label}
-              count={row.threads}
-              registered={directory.projects.some((p) => p.id === row.id)}
-            />
-          ))}
-        </MenuRadioGroup>
-        <MenuSeparator />
-        <AddProjectItem />
-      </MenuContent>
-    </Menu>
+            <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+              {project !== null && (
+                <ProjectMark
+                  id={project}
+                  badge={projectBadge({ id: project, name: projectName ?? project })}
+                />
+              )}
+              {project !== null && <span className="min-w-0 truncate">{projectName}</span>}
+              {project !== null && device && (
+                <span aria-hidden className="shrink-0">
+                  ·
+                </span>
+              )}
+              {device && <MachineMark icon={device.icon} primary={device.primary} size={16} />}
+              {device && <span className="min-w-0 truncate">{device.name}</span>}
+              {project === null && !device && <span className="truncate">All projects</span>}
+            </span>
+            <CaretDownIcon aria-hidden size={12} className="shrink-0 text-muted-foreground" />
+          </MenuTrigger>
+        </Tip>
+        <MenuContent align="end" className="max-h-[60vh] min-w-64 overflow-y-auto">
+          <DeviceFilter />
+          <MenuRadioGroup
+            value={project ?? all}
+            onValueChange={(value) =>
+              organizer.setProject(typeof value === "string" && value !== all ? value : null)
+            }
+          >
+            <ProjectItem value={all} label="All projects" count={total} />
+            {rows.length > 0 && <MenuSeparator />}
+            {rows.map((row) => (
+              <ProjectItem
+                key={row.id}
+                value={row.id}
+                label={row.label}
+                count={row.threads}
+                registered={directory.projects.some((p) => p.id === row.id)}
+              />
+            ))}
+          </MenuRadioGroup>
+          <MenuSeparator />
+          <AddProjectItem />
+        </MenuContent>
+      </Menu>
+    </span>
   );
 }
 

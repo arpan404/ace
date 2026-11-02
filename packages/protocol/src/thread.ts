@@ -1,5 +1,4 @@
 import { QueueState } from "./queue.ts";
-import { OffshiftRunMark } from "./offshift.ts";
 import { ProviderGoal } from "./goal.ts";
 import { AgentError } from "./agent.ts";
 import { ThreadStatus } from "./thread-status.ts";
@@ -89,8 +88,6 @@ export const Thread = z.object({
   workspaceId: WorkspaceId,
   title: z.string(),
   queue: QueueState.optional(),
-  /** Where the thread's most recently updated Offshift run stands, while it has one. */
-  run: OffshiftRunMark.optional(),
   /** The provider-native goal the thread is pursuing, while one is set. */
   goal: ProviderGoal.optional(),
   titleSource: z.enum(["provisional", "provider", "generated", "person", "agent"]).optional(),

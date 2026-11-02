@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { DeviceId, InteractionId, ThreadId, Timestamp } from "./ids.ts";
-import { OffshiftPhase } from "./offshift.ts";
 
 const boundedId = z.string().min(1).max(200);
 export const NotificationStatus = z.enum([
@@ -28,10 +27,6 @@ export const Notification = z.object({
   message: z.string().max(300).optional(),
   /** A `catch_up` alert's threads, longest-waiting first. */
   threadIds: z.array(ThreadId.and(boundedId)).min(1).max(100).optional(),
-  /** A finished notice for a tree that settled with an Offshift run open, blocked or delivered. */
-  run: z
-    .object({ outcome: z.enum(["stopped", "blocked", "delivered"]), phase: OffshiftPhase })
-    .optional(),
 });
 export type Notification = z.infer<typeof Notification>;
 export const WebPushSubscription = z.object({

@@ -113,6 +113,11 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--accent": fill,
     "--hover": p.hover,
     "--active": p.active,
+    // The Threads pill's selection thumb sits on translucent glass over rows, where the
+    // rail's `--active` almost vanishes: a stronger foreground wash, 8% in light, 14% dark.
+    "--pill-thumb": light
+      ? "color-mix(in oklab, var(--foreground) 8%, transparent)"
+      : "color-mix(in oklab, var(--foreground) 14%, transparent)",
     "--border": p.border,
     "--border-soft": `color-mix(in srgb, ${p.border} 70%, transparent)`,
     "--border-strong": p.borderStrong,
