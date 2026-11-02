@@ -15,8 +15,10 @@ import type { Tone } from "./status.ts";
  * - done-unread: check circle, alone.
  * - working: dashed circle, then the elapsed time.
  * - waiting on agents: a dashed circle holding how many it waits on, then the elapsed time.
- *   Any other wait (a usage limit, the queue, a recovery to review) draws the plain dashed
- *   circle in the waiting colour.
+ *   Any other wait (the queue, a recovery to review) draws a countdown clock in the waiting
+ *   colour, then the elapsed time.
+ * - limited (held at a usage limit): a gauge, alone. No timer: nothing is happening, and when
+ *   it lifts is in the tooltip ("Limited 14:02").
  * - background: terminal window, then the elapsed time.
  * - failed-seen: the warning circle in the quiet idle colour, then the age.
  * - done-seen, idle: the age alone.
@@ -33,6 +35,7 @@ export type RowStatusIconKind =
   | "agents"
   | "waiting"
   | "background"
+  | "limited"
   | "done";
 
 /** The colour a row's icon draws in, one per state. */
@@ -42,6 +45,7 @@ export type RowStatusTone =
   | "working"
   | "waiting"
   | "background"
+  | "limited"
   | "finished"
   | "idle";
 
@@ -130,9 +134,19 @@ export function rowStatusLook(
           count: agents,
           meaning: waitingOnAgentsLabel(agents),
         };
-      // A plain wait says what it waits for in the card's own words; a recovery keeps its own.
       const old = attention.word ?? "";
-      const plain = old === "" || old === "Waiting" || old.startsWith("Limited");
+      // Held at a usage limit: its own mark and no running time; the tooltip says when it lifts.
+      if (old.startsWith("Limited") || full.startsWith("Limited"))
+        return {
+          ...look,
+          icon: "limited",
+          tone: "limited",
+          mode: "icon",
+          word: "Limited",
+          meaning: full,
+        };
+      // A plain wait says what it waits for in the card's own words; a recovery keeps its own.
+      const plain = old === "" || old === "Waiting";
       return { ...busy, icon: "waiting", tone: "waiting", meaning: plain ? full : old };
     }
     case "done-unread":

@@ -109,7 +109,7 @@ function MachineDrafts(props: {
                   <ProviderIcon
                     provider={row.provider}
                     size={14}
-                    className="ml-auto"
+                    className="ml-auto text-foreground opacity-80"
                     decorative
                   />
                 )}

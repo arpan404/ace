@@ -385,17 +385,13 @@ test("composition pins the complete batch before asynchronous mention preparatio
   result.release();
   expect(await f.service.uploads.collect()).toBe(1);
 });
-test("lease admission stays bounded and explicit release permits new consumption", async () => {
+test("lease admission has no cap: a thread holds past 256 and each lease still reads the file", async () => {
   const f = await fixture();
   await storeBytes(f.service, png, "phone.png");
   const leases = [];
   try {
-    for (let i = 0; i < 128; i++)
+    for (let i = 0; i < 256; i++)
       leases.push(await f.service.uploads.acquire("device", thread, [hash(png)]));
-    await expect(f.service.uploads.acquire("device", thread, [hash(png)])).rejects.toMatchObject({
-      code: "busy",
-    });
-    leases.pop()?.release();
     const next = await f.service.uploads.acquire("device", thread, [hash(png)]);
     expect(await readFile(next.blobs[0]?.path ?? "missing")).toEqual(png);
     next.release();

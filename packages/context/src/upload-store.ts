@@ -610,7 +610,7 @@ export class UploadStore {
         );
         return { attachment: Attachment.parse({ ...blob, name }), path: this.path(hash) };
       });
-      return this.leases.acquire(blobs);
+      return this.leases.acquire(thread, blobs);
     });
   }
   async acquireMessage(

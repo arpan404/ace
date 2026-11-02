@@ -139,10 +139,8 @@ export class ThreadActor {
     this.steerYield = undefined;
   }
   retainInput(id: number, release: () => void, runId: string | undefined): void {
-    if (this.inputLeases.size >= 256) {
-      release();
-      throw new Error("Input lease capacity exceeded");
-    }
+    // A redelivered intent replaces its earlier lease; the earlier one is released, never lost.
+    this.releaseInput(id);
     this.inputLeases.set(id, { release, runId });
   }
   releaseInput(id: number): void {
@@ -153,7 +151,15 @@ export class ThreadActor {
   releaseInputs(): void {
     for (const id of this.inputLeases.keys()) this.releaseInput(id);
   }
-  observeInputs(events: EventPayload[]): void {
+  /**
+   * Every fold reaches here, including ones applied around the actor (a Stop, a settle, a
+   * liveness check). A provider process that exited reads nothing more, so its inputs end too.
+   */
+  observeInputs(facts: readonly Fact[], events: EventPayload[]): void {
+    if (this.inputLeases.size && facts.some((fact) => fact.type === "process.exited")) {
+      this.releaseInputs();
+      return;
+    }
     for (const event of events) {
       if (
         event.type === "run.started" &&

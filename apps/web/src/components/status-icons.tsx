@@ -1,6 +1,8 @@
 import {
   CheckCircleIcon,
   CircleDashedIcon,
+  ClockCountdownIcon,
+  GaugeIcon,
   HandPalmIcon,
   QuestionIcon,
   SlidersHorizontalIcon,
@@ -26,8 +28,10 @@ const glyphs: Record<Exclude<RowStatusIconKind, "agents">, { icon: Icon; weight:
   question: { icon: QuestionIcon, weight: "fill" },
   failed: { icon: WarningCircleIcon, weight: "fill" },
   working: { icon: CircleDashedIcon, weight: "bold" },
-  // Any wait that isn't on agents (a usage limit, the queue): the plain dashed circle.
-  waiting: { icon: CircleDashedIcon, weight: "bold" },
+  // Any other wait (the queue, a recovery to review): a countdown clock.
+  waiting: { icon: ClockCountdownIcon, weight: "fill" },
+  // Held at a usage limit: a gauge at its end, with no running time.
+  limited: { icon: GaugeIcon, weight: "fill" },
   background: { icon: TerminalWindowIcon, weight: "fill" },
   done: { icon: CheckCircleIcon, weight: "fill" },
 };
@@ -39,6 +43,7 @@ const tones: Record<RowStatusTone, string> = {
   working: "text-(--row-status-working)",
   waiting: "text-(--row-status-waiting)",
   background: "text-(--row-status-background)",
+  limited: "text-muted-foreground",
   finished: "text-(--row-status-finished)",
   idle: "text-muted-foreground",
 };

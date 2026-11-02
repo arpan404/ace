@@ -389,7 +389,7 @@ export class Engine {
         )
       )
         this.meters.observe(state, events, at, this.repo.session(state.threadId).instanceId);
-      this.actors.get(state.threadId)?.observeInputs(events);
+      this.actors.get(state.threadId)?.observeInputs(facts, events);
       this.recovery.observe(state, facts, events, at);
     };
     const handler = engineHandler(
