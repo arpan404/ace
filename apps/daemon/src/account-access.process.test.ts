@@ -14,6 +14,8 @@ import { machineAccount } from "./account-access/machine-account.ts";
 import { CODE_LOCK_MS } from "./account-access/machine-code-policy.ts";
 import { StoredSession } from "./account-access/session-file.ts";
 import { startFakeAccountBackend } from "./account-backend-test-support.ts";
+import { fixture, token } from "./socket-test-support.ts";
+import { accessRequest } from "./client-access.ts";
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -257,4 +259,45 @@ it("ace sign-in from this machine finishes in the browser, and signing out ends 
   await restarted.signOut();
   expect(backend.live(stored.token)).toBe(false);
   expect(restarted.status().signedIn).toBe(false);
+});
+
+it("the host signs the machine in and sets its code over the local API; others are refused", async () => {
+  const backend = await startFakeAccountBackend(Date.now);
+  cleanup.push(() => backend.close());
+  let account: ReturnType<typeof machineAccount> | undefined;
+  const f = await fixture({}, (store, home) => {
+    account = machineAccount({
+      dataDir: home,
+      codes: store.machineCodes,
+      fetch: globalThis.fetch,
+      now: Date.now,
+      randomBytes,
+      delay: () => () => {},
+    });
+    return { machineAccount: account };
+  });
+  cleanup.push(async () => {
+    await account?.close();
+    await f.close();
+  });
+  const local = (path: string, method: string, body?: unknown, bearer = token) =>
+    accessRequest(f.server.httpUrl, path, { method, token: bearer, ...(body ? { body } : {}) });
+  await expect(
+    local("/v1/ace-account", "PUT", { origin: backend.origin, token: "b".repeat(43) }),
+  ).rejects.toThrow();
+  expect(
+    await local("/v1/ace-account", "PUT", { origin: backend.origin, token: backend.token }),
+  ).toMatchObject({ signedIn: true, account: { id: "user_a" } });
+  await expect(local("/v1/machine-code", "PUT", { code: "12" })).rejects.toThrow();
+  expect(await local("/v1/machine-code", "PUT", { code: "2468" })).toMatchObject({
+    machineCode: { set: true },
+  });
+  // Remote status names the account; the code itself never appears.
+  const status = JSON.stringify(await local("/v1/status", "GET"));
+  expect(status).toContain('"account":{"id":"user_a"');
+  expect(status).not.toContain("2468");
+  expect(status).not.toContain(backend.token);
+  await expect(local("/v1/machine-code", "DELETE", undefined, "0".repeat(64))).rejects.toThrow();
+  expect(await local("/v1/machine-code", "DELETE")).toMatchObject({ machineCode: { set: false } });
+  expect(await local("/v1/ace-account", "DELETE")).toMatchObject({ signedIn: false });
 });
