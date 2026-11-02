@@ -26,6 +26,7 @@ const wheel = (upward: boolean, at = 100, atEnd = false): ScrollEvent => ({
   type: "gesture",
   upward,
   atEnd,
+  scrollable: true,
   detached: false,
   at,
 });
