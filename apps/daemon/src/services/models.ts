@@ -5,7 +5,7 @@ import { daemonCursorInstance } from "./cursor-instance.ts";
 import { logError, logFields } from "@ace/diagnostics";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
 import { cursorSdkCatalogInstance, registerCursorSdkCatalog } from "./cursor-activation.ts";
-import { createInstance, instanceEnv } from "@ace/accounts";
+import { cursorCatalogEnvironment } from "../cursor-catalog-env.ts";
 import { cursorHosts } from "./cursor-hosts.ts";
 import {
   openDaemonModels,
@@ -49,26 +49,15 @@ export async function startModels(context: ServiceContext): Promise<void> {
       ...options.modelDiscovery,
       cursorSlots: cursorHosts(context),
       cursorEnv: options.engine?.cursor?.env ?? process.env,
-      cursorEnvironment(instance) {
-        if (!instance.homeDir) throw new Error("SDK model catalog needs an instance home");
-        const selected =
-          services.accountRegistry?.get(instance.id)?.instance ??
-          createInstance({
-            id: instance.id,
-            provider: "cursor",
-            label: instance.id,
-            homeDir: instance.homeDir,
-          });
-        if (selected.homeDir !== instance.homeDir || selected.provider !== "cursor")
-          throw new Error("SDK catalog instance does not match accounts");
-        if (services.cursorAccounts?.isFenced(selected.id))
-          throw Object.assign(new Error("Sign in to Cursor"), { code: "not_configured" });
-        return instanceEnv(
-          selected,
-          { ...(options.engine?.cursor?.env ?? process.env), ...instance.env },
-          "cursor-sdk",
-        );
-      },
+      cursorEnvironment: (instance) =>
+        cursorCatalogEnvironment(
+          {
+            registry: services.accountRegistry,
+            launchEnv: options.engine?.cursor?.env ?? process.env,
+            isFenced: (id) => services.cursorAccounts?.isFenced(id) ?? false,
+          },
+          instance,
+        ),
     },
     () => context.services.providerConfigurations?.current() ?? [],
     (provider, instance, error, source, diagnostic) =>
