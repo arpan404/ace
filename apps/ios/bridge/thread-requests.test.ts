@@ -237,3 +237,43 @@ test("a browser request says Done for the tab the agent waits on", async () => {
     outcome: "done",
   });
 });
+
+test("each request carries its strip line: who asks, by provider mark, and the one line under it", async () => {
+  open(
+    connect(
+      asking("strip-run", {
+        kind: "approval",
+        title: "Run bun run test",
+        target: { tool: "Bash", command: "bun run test", access: "execute" },
+        options: [
+          { id: "allow", label: "Allow", kind: "allow_once" },
+          { id: "deny", label: "Deny", kind: "deny" },
+        ],
+      }),
+    ),
+    "strip-run",
+  );
+  const approval = await card("approval");
+  expect(approval.strip).toEqual({
+    lead: { provider: "claude" },
+    sentence: "Claude Code wants to run a command",
+    payload: "bun run test",
+    detail: "",
+  });
+  reset();
+  open(
+    connect(
+      asking("strip-plan", {
+        kind: "plan_review",
+        title: "Kill-all filters",
+        markdown: "1. Record start times\n2. Add filters\n3. Skip reused PIDs",
+      }),
+    ),
+    "strip-plan",
+  );
+  const plan = await card("plan_review");
+  expect(plan.strip).toMatchObject({
+    lead: { provider: "claude" },
+    sentence: "Plan ready · Kill-all filters · 3 steps",
+  });
+});

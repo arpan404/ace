@@ -1,7 +1,15 @@
 import type { ChangeTap, ThreadSource } from "@ace/client";
 import type { CommandPayload, GoalChange, ProviderGoal, ThreadId } from "@ace/protocol";
-import { goalResumable, goalTitle, goalUsage, readTurnActivity } from "@ace/ui-core";
-import { livePill } from "@ace/ui-core/mobile";
+import {
+  backgroundCommand,
+  goalResumable,
+  goalTitle,
+  goalUsage,
+  ledgerOf,
+  readStoppedTurn,
+  readTurnActivity,
+} from "@ace/ui-core";
+import { leftRunningStripLine, livePill } from "@ace/ui-core/mobile";
 import { preview } from "./presentation.ts";
 
 /*
@@ -86,6 +94,37 @@ export class PillFollower {
     return this.#store.thread?.capabilities?.goals === true;
   }
 
+  /**
+   * Commands a stopped or finished turn left running, as the strip above the composer says them
+   * with one Stop for all (`leftRunningStripLine`); null while anything else carries on.
+   */
+  #leftRunning(rootId: string) {
+    const store = this.#store;
+    const stopped = readStoppedTurn(store, rootId);
+    for (const key of stopped.watch) this.#watch.add(key);
+    const running: { taskId: string; command: string }[] = [];
+    for (const [itemId, taskId] of ledgerOf(store).background) {
+      this.#watch.add(`task:${taskId}`);
+      const task = store.task(taskId);
+      if (!task || task.internal || task.status !== "running" || !task.stoppable) continue;
+      running.push({ taskId, command: backgroundCommand(task, store.item(itemId)) });
+    }
+    const strip = leftRunningStripLine({
+      over: stopped.stopped || store.thread?.status.state === "done",
+      subagents: store.thread?.live?.runningSubagentCount ?? 0,
+      commands: running.map((entry) => entry.command),
+    });
+    if (!strip) return null;
+    return {
+      strip: {
+        ...strip,
+        sentence: preview(strip.sentence, 256),
+        payload: preview(strip.payload, 512),
+      },
+      taskIds: running.map((entry) => entry.taskId),
+    };
+  }
+
   #emit(): void {
     this.#put("pill", () => {
       const thread = this.#store.thread;
@@ -123,6 +162,7 @@ export class PillFollower {
             }
           : null,
         goal: goalRow(thread?.goal, this.editable),
+        leftRunning: this.#leftRunning(rootId),
       };
     });
   }
