@@ -69,7 +69,7 @@ struct SettingsScopeSection: View {
         } footer: {
             // The line is reserved while the plan is first read, so nothing moves when it arrives.
             Text(footer ?? " ").contentTransition(.opacity)
-                .animation(.smooth, value: footer)
+                .smoothChange(footer)
                 .accessibilityIdentifier("settings.scope.targets")
         }
         .insetRowBackground()

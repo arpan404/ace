@@ -39,42 +39,42 @@ struct BadgeFields: View {
     @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         Section {
-            HStack(spacing: AceTheme.Spacing.md) {
-                AccountBadgeMark(look: look, size: 44)
-                    .animation(reduceMotion ? .easeInOut(duration: 0.15) : .snappy, value: look)
+            HStack(spacing: AceDesign.Space.row) {
+                AccountBadgeMark(look: look, size: AceDesign.Size.tap)
+                    .animation(AceDesign.Motion.arriving(reduceMotion), value: look)
                 TextField("Letters", text: $draft.letters)
                     .textInputAutocapitalization(.characters).autocorrectionDisabled()
                     .accessibilityLabel("Badge letters")
                     .onChange(of: draft.letters) { if !draft.letters.isEmpty { draft.icon = nil } }
             }
-            .padding(.vertical, AceTheme.Spacing.xs)
+            .padding(.vertical, AceDesign.Space.tight)
             if let problem {
-                Text(problem).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                Text(problem).font(AceDesign.Typeface.meta)
                     .foregroundStyle(AceTheme.StatusText.failed)
                     .transition(.opacity)
             }
         } header: { InsetHeader("Badge") } footer: { Text("Up to two letters, or an icon. Leave it blank to use the name's first letter.") }
         Section {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: AceTheme.Spacing.xs), count: 6), spacing: AceTheme.Spacing.xs) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: AceDesign.Space.tight), count: 6), spacing: AceDesign.Space.tight) {
                 choice(selected: draft.icon == nil, label: "Use letters") {
-                    Text("Aa").font(.system(size: 15, weight: .semibold, design: .rounded))
+                    Text("Aa").font(AceDesign.Typeface.body.weight(AceDesign.Typeface.strong)).fontDesign(.rounded)
                 } action: { draft.icon = nil }
                 ForEach(AccountBadgeStyle.icons, id: \.id) { icon in
                     choice(selected: draft.icon == icon.id, label: "Use \(icon.label.lowercased()) badge") {
-                        Image(systemName: icon.symbol).font(.system(size: 16, weight: .semibold))
+                        Image(systemName: icon.symbol).font(AceDesign.Typeface.body.weight(AceDesign.Typeface.strong))
                     } action: { draft.icon = icon.id; draft.letters = "" }
                 }
             }
-            .padding(.vertical, AceTheme.Spacing.xs)
+            .padding(.vertical, AceDesign.Space.tight)
         } header: { InsetHeader("Icon") }
         Section {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 ForEach(AccountBadgeStyle.colours, id: \.self) { colour in
                     Button { draft.colour = colour } label: {
-                        Circle().fill(AccountBadgeStyle.fill(colour)).frame(width: 30, height: 30)
-                            .overlay { Circle().strokeBorder(AceTheme.Colours.background, lineWidth: draft.colour == colour ? 3 : 0) }
-                            .overlay { Circle().strokeBorder(AceTheme.Colours.foreground.opacity(draft.colour == colour ? 0.9 : 0), lineWidth: 1.5).padding(-3) }
-                            .frame(maxWidth: .infinity, minHeight: 44)
+                        Circle().fill(AccountBadgeStyle.fill(colour)).frame(width: AceDesign.Size.swatch, height: AceDesign.Size.swatch)
+                            .padding(AceDesign.Space.tight)
+                            .overlay { Circle().strokeBorder(AceDesign.Ink.accent, lineWidth: AceDesign.Size.ring).opacity(draft.colour == colour ? 1 : 0) }
+                            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -82,7 +82,7 @@ struct BadgeFields: View {
                     .accessibilityAddTraits(draft.colour == colour ? .isSelected : [])
                 }
             }
-            .animation(.smooth(duration: 0.2), value: draft.colour)
+            .smoothChange(draft.colour)
         } header: { InsetHeader("Colour") }
         .sensoryFeedback(.selection, trigger: draft)
         .task(id: PreviewKey(name: name, draft: draft)) { await preview() }
@@ -91,21 +91,21 @@ struct BadgeFields: View {
     private func choice<Glyph: View>(selected: Bool, label: String, @ViewBuilder glyph: () -> Glyph, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             glyph()
-                .foregroundStyle(selected ? AceTheme.Colours.onAccent : AceTheme.Colours.foreground)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(Capsule().fill(selected ? AceTheme.Colours.accent : Color.clear))
+                .foregroundStyle(selected ? AceDesign.Ink.onAccent : AceDesign.Ink.primary)
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
+                .background(Capsule().fill(selected ? AceDesign.Ink.accent : Color.clear))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .animation(.smooth(duration: 0.2), value: selected)
+        .smoothChange(selected)
     }
     private func preview() async {
         var payload = draft.payload
         payload["type"] = "accounts.screen.badge"; payload["label"] = name
         guard let answer = try? await model.manage(payload, as: BadgeAnswer.self), let badge = answer.badge else { return }
-        withAnimation(.smooth(duration: 0.2)) { look = badge.look; problem = badge.problem }
+        withAnimation(AceDesign.Motion.arriving(reduceMotion)) { look = badge.look; problem = badge.problem }
     }
 }
 

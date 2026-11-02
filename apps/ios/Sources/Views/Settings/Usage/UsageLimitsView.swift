@@ -8,15 +8,15 @@ struct UsageLimitsView: View {
     /// Redeems one banked reset and answers with what happened.
     let redeem: (UsageLimitsReply.Account, String) async throws -> String
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxxl) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.section) {
             ForEach(limits.providers, id: \.key) { provider in
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                    HStack(spacing: AceTheme.Spacing.sm) {
-                        ProviderMark(provider: provider.provider, size: 16)
-                        Text(provider.providerLabel).aceFont(AceTheme.Typography.title, relativeTo: .headline)
-                            .foregroundStyle(AceTheme.Colours.foreground)
+                    HStack(spacing: AceDesign.Space.related) {
+                        ProviderMark(provider: provider.provider, size: AceDesign.Size.icon)
+                        Text(provider.providerLabel).font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong))
+                            .foregroundStyle(AceDesign.Ink.primary)
                     }
-                    .padding(.bottom, AceTheme.Spacing.md)
+                    .padding(.bottom, AceDesign.Space.row)
                     .accessibilityAddTraits(.isHeader)
                     ForEach(provider.accounts, id: \.key) { account in
                         Hairline()
@@ -25,12 +25,12 @@ struct UsageLimitsView: View {
                 }
             }
             if !limits.quiet.isEmpty || !limits.unsure.isEmpty {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+                VStack(alignment: .leading, spacing: AceDesign.Space.related) {
                     if !limits.quiet.isEmpty { Text("No limits reported · \(limits.quiet.joined(separator: ", "))") }
                     ForEach(limits.unsure, id: \.self) { Text($0) }
                 }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
+                .font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.subtle)
             }
         }
     }
@@ -40,36 +40,36 @@ private struct UsageLimitAccount: View {
     let account: UsageLimitsReply.Account
     let redeem: (UsageLimitsReply.Account, String) async throws -> String
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.row) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(account.label).aceFont(InsetStyle.label, relativeTo: .body)
-                    .fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground)
+                Text(account.label).font(AceDesign.Typeface.body)
+                    .fontWeight(.semibold).foregroundStyle(AceDesign.Ink.primary)
                 // The plan beside the machine it was read on, as the web lists it: "Pro · Studio".
                 let plan = account.plan.map { String($0.prefix(1)).uppercased() + String($0.dropFirst()) }
                 let detail = [plan, account.machine].compactMap { $0 }
                 if !detail.isEmpty {
                     Text(detail.joined(separator: " · "))
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground)
+                        .font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.subtle)
                 }
             }
             ForEach(account.windows, id: \.id) { window in
                 UsageLimitWindow(window: window)
             }
             if let signIn = account.signIn {
-                Text(signIn).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(signIn).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
             }
             if account.noSessionWindow {
                 Text("No session (5h) limit reported for this account")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.subtle)
             }
             if let banked = account.bankedResets.map(Int.init), banked > 0 {
                 UsageBankedResets(account: account, count: banked, redeem: redeem)
             }
         }
-        .padding(.vertical, AceTheme.Spacing.lg)
+        .padding(.vertical, AceDesign.Space.margin)
     }
 }
 
@@ -77,19 +77,19 @@ private struct UsageLimitWindow: View {
     let window: UsageLimitsReply.Window
     private var out: Bool { !window.stale && window.leftPercent == 0 }
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             HStack(alignment: .firstTextBaseline) {
-                Text(window.label).aceFont(InsetStyle.value, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Text(window.label).font(AceDesign.Typeface.body)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                Spacer(minLength: AceDesign.Space.related)
                 if window.stale {
-                    Text("—").font(.system(size: 19, weight: .semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                    Text("—").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong)).foregroundStyle(AceDesign.Ink.subtle)
                 } else {
-                    HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.xs) {
-                        Text("\(Int(window.leftPercent))%").font(.system(size: 19, weight: .semibold)).monospacedDigit()
-                            .foregroundStyle(out ? AceTheme.StatusText.failed : AceTheme.Colours.foreground)
-                        Text("left").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(AceTheme.Colours.subtleForeground)
+                    HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.tight) {
+                        Text("\(Int(window.leftPercent))%").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong)).monospacedDigit()
+                            .foregroundStyle(out ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
+                        Text("left").font(AceDesign.Typeface.meta)
+                            .foregroundStyle(AceDesign.Ink.subtle)
                     }
                 }
             }
@@ -98,33 +98,37 @@ private struct UsageLimitWindow: View {
                 if let pace = window.pace, !window.stale {
                     StateLabel(status: StatusDisplay(label: pace.label, token: pace.token))
                 }
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Spacer(minLength: AceDesign.Space.related)
                 VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) {
                     Text(resetWords).monospacedDigit()
-                        .foregroundStyle(out ? AceTheme.StatusText.failed : AceTheme.Colours.subtleForeground)
+                        .foregroundStyle(out ? AceTheme.StatusText.failed : AceDesign.Ink.subtle)
                     if window.stale || window.old {
                         Text("\(window.stale ? "Read" : "As of") \(relative(window.observedAt))")
-                            .foregroundStyle(AceTheme.Colours.subtleForeground)
+                            .foregroundStyle(AceDesign.Ink.subtle)
                     }
                 }
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+            .font(AceDesign.Typeface.meta)
         }
         .accessibilityElement(children: .combine)
     }
+    /// The meter's drawing: a thin bar, and the dash a stale reading draws instead.
+    private static let meterHeight: CGFloat = 3
+    private static let staleLine: CGFloat = 2
+    private static let staleDash: [CGFloat] = [3, 3]
     /// What is left as a hairline meter; a stale reading is a dashed line with no figure.
     @ViewBuilder private var meter: some View {
         if window.stale {
-            Line().stroke(AceTheme.Colours.separator, style: StrokeStyle(lineWidth: 2, dash: [3, 3])).frame(height: 2)
+            Line().stroke(AceTheme.Colours.separator, style: StrokeStyle(lineWidth: Self.staleLine, dash: Self.staleDash)).frame(height: Self.staleLine)
         } else {
             GeometryReader { box in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(out ? AceTheme.StatusText.failed.opacity(0.5) : AceTheme.Colours.separator)
-                    Capsule().fill(AceTheme.Colours.foreground)
+                    Capsule().fill(out ? AceTheme.StatusText.failed.opacity(AceDesign.Ink.recede) : AceTheme.Colours.separator)
+                    Capsule().fill(AceDesign.Ink.primary)
                         .frame(width: box.size.width * min(1, max(0, window.leftPercent / 100)))
                 }
             }
-            .frame(height: 3)
+            .frame(height: Self.meterHeight)
         }
     }
     private var resetWords: String {
@@ -153,16 +157,16 @@ private struct UsageBankedResets: View {
     @State private var notice: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-            Text(words).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
+            Text(words).font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.muted)
             if account.provider == "claude", let url = URL(string: "https://claude.ai/settings/usage") {
                 Link("Use reset in Claude", destination: url)
-                    .aceFont(AceTheme.Typography.label, relativeTo: .footnote)
+                    .font(AceDesign.Typeface.body)
             } else if account.provider == "codex", account.instanceId != nil {
                 Button(pending ? "Applying…" : attempt == nil ? "Use reset" : "Retry reset") { confirming = true }
-                    .aceFont(AceTheme.Typography.label, relativeTo: .footnote)
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
+                    .font(AceDesign.Typeface.body)
+                    .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceDesign.Ink.accent)
                     .disabled(pending)
                     .confirmationDialog("Use one banked reset?", isPresented: $confirming, titleVisibility: .visible) {
                         Button("Use reset") { Task { await use() } }
@@ -172,8 +176,8 @@ private struct UsageBankedResets: View {
                     }
             }
             if let notice {
-                Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(notice).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
                     .accessibilityAddTraits(.updatesFrequently)
             }
         }

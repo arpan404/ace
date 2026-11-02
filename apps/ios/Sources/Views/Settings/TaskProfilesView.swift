@@ -39,7 +39,7 @@ private struct TaskProfileEditor: View {
         Form {
             Section { TextField("Profile name", text: $profile.name) }.insetRowBackground()
             Section {
-                TextEditor(text: $profile.instructions).frame(minHeight: AceTheme.Dimensions.touchTarget * 5)
+                TextEditor(text: $profile.instructions).frame(minHeight: AceDesign.Size.tap * 5)
                     .scrollContentBackground(.hidden).accessibilityLabel("Profile instructions")
             } header: { InsetHeader("Instructions") } footer: {
                 Text("Included in the first message of new tasks that use this profile. Existing conversations keep their original instructions.")
@@ -50,7 +50,7 @@ private struct TaskProfileEditor: View {
                 Button("Save profile") {
                     do { try store.save(profile); dismiss() } catch { problem = error.localizedDescription }
                 }
-                .foregroundStyle(AceTheme.Colours.foreground)
+                .foregroundStyle(AceDesign.Ink.primary)
                 .disabled(profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("profile.save")
             }

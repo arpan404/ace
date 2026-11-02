@@ -25,10 +25,10 @@ struct CustomAccentPicker: View {
     var body: some View {
         ColorPicker("Custom", selection: $picked, supportsOpacity: false)
             .labelsHidden()
-            .frame(width: 28, height: 28)
-            .padding(AceTheme.Spacing.xs)
-            .overlay { Circle().strokeBorder(AceTheme.Colours.accent, lineWidth: 2).opacity(chosen ? 1 : 0).allowsHitTesting(false) }
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(width: AceDesign.Size.swatch, height: AceDesign.Size.swatch)
+            .padding(AceDesign.Space.tight)
+            .overlay { Circle().strokeBorder(AceDesign.Ink.accent, lineWidth: AceDesign.Size.ring).opacity(chosen ? 1 : 0).allowsHitTesting(false) }
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             .contentShape(Rectangle())
             .disabled(runtime == nil)
             .accessibilityLabel("Custom")

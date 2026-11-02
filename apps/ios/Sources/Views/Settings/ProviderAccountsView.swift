@@ -71,7 +71,7 @@ struct ProviderAccountsView: View {
                     ForEach(screen.accounts) { account in section(account, screen: screen) }
                     if model.canOperate {
                         Section {
-                            Button("Add account") { adding = true }.frame(minHeight: 44)
+                            Button("Add account") { adding = true }.frame(minHeight: AceDesign.Size.tap)
                         } footer: {
                             let lines = [screen.accounts.isEmpty ? "No accounts yet." : nil, screen.apiKey].compactMap { $0 }
                             if !lines.isEmpty { Text(lines.joined(separator: " ")) }
@@ -90,7 +90,7 @@ struct ProviderAccountsView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen)
         .disabled(busy)
         .navigationTitle("\(name) accounts").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model) { await read() }.refreshable { await read() }
@@ -115,26 +115,26 @@ struct ProviderAccountsView: View {
         }
     }
     private var placeholder: some View {
-        HStack(spacing: AceTheme.Spacing.md) { Circle().frame(width: 26, height: 26); Text("Account name"); Spacer(); Text("Signed in") }
+        HStack(spacing: AceDesign.Space.row) { Circle().frame(width: AceDesign.Size.avatar, height: AceDesign.Size.avatar); Text("Account name"); Spacer(); Text("Signed in") }
     }
     @ViewBuilder private func section(_ account: AccountRowData, screen: AccountsScreenData) -> some View {
         Section {
-            HStack(spacing: AceTheme.Spacing.md) {
+            HStack(spacing: AceDesign.Space.row) {
                 AccountBadgeMark(look: account.badge)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                    Text(account.label).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+                    Text(account.label).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
                     let detail = [account.isDefault ? "Default" : nil, account.method, account.signedInAs].compactMap { $0 }.joined(separator: " · ")
                     if !detail.isEmpty {
-                        Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                        Text(detail).font(AceDesign.Typeface.meta)
+                            .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                     }
                 }
-                Spacer(minLength: AceTheme.Spacing.sm)
-                Text(account.state).aceFont(InsetStyle.value, relativeTo: .body)
-                    .foregroundStyle(account.tone == "problem" ? AceTheme.StatusText.failed : account.needsSignIn ? AceTheme.StatusText.needsYou : AceTheme.Colours.mutedForeground)
+                Spacer(minLength: AceDesign.Space.related)
+                Text(account.state).font(AceDesign.Typeface.body)
+                    .foregroundStyle(account.tone == "problem" ? AceTheme.StatusText.failed : account.needsSignIn ? AceTheme.StatusText.needsYou : AceDesign.Ink.muted)
                     .lineLimit(1)
             }
-            .padding(.vertical, AceTheme.Spacing.xs)
+            .padding(.vertical, AceDesign.Space.tight)
             .accessibilityElement(children: .combine)
             if model.canOperate {
                 signInButton(account, ways: screen.reauth)

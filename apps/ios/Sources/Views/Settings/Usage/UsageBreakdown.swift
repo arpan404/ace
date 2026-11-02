@@ -3,6 +3,7 @@ import SwiftUI
 /// Usage per model or per day, largest first, each line's share drawn as a hairline bar in the
 /// provider's hue. On Cost, models ace has no price for fold into one quiet line at the end.
 struct UsageBreakdown: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     private enum Group: Hashable { case model, day }
     let view: UsageMetricView
     @State private var group = Group.model
@@ -19,23 +20,20 @@ struct UsageBreakdown: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             HStack(alignment: .center) {
                 UsageSectionHeading(title: "Breakdown")
-                Spacer(minLength: AceTheme.Spacing.md)
+                Spacer(minLength: AceDesign.Space.row)
                 Picker("Break down by", selection: $group) {
                     Text("Model").tag(Group.model)
                     Text("Day").tag(Group.day)
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
-                .padding(.bottom, AceTheme.Spacing.sm)
+                .padding(.bottom, AceDesign.Space.related)
                 .accessibilityIdentifier("usage.breakdown")
             }
             if lines.isEmpty {
                 Hairline()
-                Text("No usage in this range")
-                    .aceFont(InsetStyle.value, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, AceTheme.Spacing.xl)
+                EmptyState(systemImage: "chart.bar", title: "No usage in this range")
+                    .padding(.vertical, AceDesign.Space.group)
             }
             ForEach(Array(lines.enumerated()), id: \.element.key) { index, line in
                 Hairline()
@@ -44,13 +42,13 @@ struct UsageBreakdown: View {
             if group == .model, let unpriced = view.unpriced {
                 Hairline()
                 Button {
-                    withAnimation(AceTheme.Motion.standardCurve) { showUnpriced.toggle() }
+                    withAnimation(AceDesign.Motion.arriving(reduceMotion)) { showUnpriced.toggle() }
                 } label: {
                     Text("\(showUnpriced ? "Hide" : "Show") \(unpriced.label)")
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, AceTheme.Spacing.md)
+                        .padding(.vertical, AceDesign.Space.row)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -63,37 +61,40 @@ struct UsageBreakdown: View {
 private struct UsageBreakdownRow: View {
     let rank: Int
     let line: UsageMetricView.Line
+    /// Room for a two-digit rank, and the share bar's hairline thickness: the row's own drawing.
+    private static let rankWidth: CGFloat = 18
+    private static let barHeight: CGFloat = 2
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             Text("\(rank)").monospacedDigit()
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .frame(minWidth: 18, alignment: .leading)
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    if let provider = line.provider { ProviderMark(provider: provider, size: 15) }
-                    Text(line.name).aceFont(InsetStyle.label, relativeTo: .body)
-                        .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1).truncationMode(.middle)
-                    Spacer(minLength: AceTheme.Spacing.sm)
-                    Text(line.figure).aceFont(InsetStyle.label, relativeTo: .body).monospacedDigit()
-                        .foregroundStyle(line.figure == "Unpriced" ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
+                .font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.subtle)
+                .frame(minWidth: Self.rankWidth, alignment: .leading)
+            VStack(alignment: .leading, spacing: AceDesign.Space.related) {
+                HStack(spacing: AceDesign.Space.related) {
+                    if let provider = line.provider { ProviderMark(provider: provider, size: AceDesign.Size.icon) }
+                    Text(line.name).font(AceDesign.Typeface.body)
+                        .foregroundStyle(AceDesign.Ink.primary).lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: AceDesign.Space.related)
+                    Text(line.figure).font(AceDesign.Typeface.body).monospacedDigit()
+                        .foregroundStyle(line.figure == "Unpriced" ? AceDesign.Ink.subtle : AceDesign.Ink.primary)
                 }
                 GeometryReader { box in
                     Capsule().fill(UsageColour.of(line.hue, ink: line.ink))
-                        .frame(width: max(2, box.size.width * min(1, line.fraction)))
+                        .frame(width: max(Self.barHeight, box.size.width * min(1, line.fraction)))
                 }
-                .frame(height: 2)
+                .frame(height: Self.barHeight)
                 .accessibilityHidden(true)
                 HStack {
                     Text(line.share).monospacedDigit()
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                    Spacer(minLength: AceDesign.Space.related)
                     Text(line.other).monospacedDigit()
                 }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
+                .font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.subtle)
             }
         }
-        .padding(.vertical, AceTheme.Spacing.md)
+        .padding(.vertical, AceDesign.Space.row)
         .accessibilityElement(children: .combine)
     }
 }

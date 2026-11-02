@@ -34,20 +34,20 @@ struct UsageView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xl) {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
                 controls
                 Group {
                     if tab == .limits { limitsPage } else { spendPage }
                 }
-                .padding(.top, AceTheme.Spacing.sm)
+                .padding(.top, AceDesign.Space.related)
             }
-            .padding(.horizontal, AceTheme.Spacing.gutter)
-            .padding(.top, AceTheme.Spacing.sm)
-            .padding(.bottom, AceTheme.Spacing.xxxl)
-            .frame(maxWidth: 720)
+            .padding(.horizontal, AceDesign.Space.margin)
+            .padding(.top, AceDesign.Space.related)
+            .padding(.bottom, AceDesign.Space.section)
+            .frame(maxWidth: AceDesign.Size.readable)
             .frame(maxWidth: .infinity)
         }
-        .background(AceTheme.Colours.background)
+        .background(AceDesign.Surface.background)
         .nativeTitle("Usage")
         .task(id: readKey) { await read(fresh: false) }
         // Pull to refresh does what the Refresh button does.
@@ -74,7 +74,7 @@ struct UsageView: View {
     }
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.row) {
             Picker("View", selection: $tab) {
                 Text("Cost").tag(Tab.cost)
                 Text("Tokens").tag(Tab.tokens)
@@ -89,17 +89,17 @@ struct UsageView: View {
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("usage.range")
             }
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 if inbox.sessions.count > 1 { machineMenu }
                 if tab != .limits, let providers = report?.providers, providers.count > 1 || provider != nil {
                     providerMenu(providers)
                 }
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Spacer(minLength: AceDesign.Space.related)
                 Button { Task { await refresh() } } label: {
                     Text(refreshing ? "Refreshing…" : "Refresh")
-                        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                        .padding(.horizontal, AceTheme.Spacing.xs)
-                        .frame(minHeight: 44).contentShape(Rectangle())
+                        .font(AceDesign.Typeface.body)
+                        .padding(.horizontal, AceDesign.Space.tight)
+                        .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
                 }
                 .disabled(refreshing)
                 .accessibilityHint("Asks each machine for current limits and reads usage again")
@@ -117,12 +117,12 @@ struct UsageView: View {
         let words = coverage.map { $0.line ?? "" }
             ?? (scoped.count > 1 ? "Reading \(scoped.count) machines" : "Reading \(inbox.name(scoped.first?.hostId ?? scope))")
         return Text(words)
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .foregroundStyle(coverage?.complete == false ? AceTheme.Colours.foreground : AceTheme.Colours.subtleForeground)
+            .font(AceDesign.Typeface.meta)
+            .foregroundStyle(coverage?.complete == false ? AceDesign.Ink.primary : AceDesign.Ink.subtle)
             .lineLimit(2)
-            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.slimControl, alignment: .leading)
             .contentTransition(.opacity)
-            .animation(reduceMotion ? nil : .default, value: words)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: words)
             .accessibilityIdentifier("usage.coverage")
     }
 
@@ -197,7 +197,7 @@ struct UsageView: View {
 
     private func empty(_ title: String, systemImage: String, detail: String? = nil) -> some View {
         EmptyState(systemImage: systemImage, title: title, line: detail)
-            .frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
+            .frame(maxWidth: .infinity).padding(.top, AceDesign.Space.section)
     }
 
     private func loading(_ label: String) -> some View {
@@ -260,13 +260,13 @@ struct UsageView: View {
 private struct UsageCapsule: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+            .font(AceDesign.Typeface.body)
             .lineLimit(1)
-            .foregroundStyle(AceTheme.Colours.foreground)
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .frame(minHeight: 32)
-            .background(.fill.tertiary, in: Capsule())
-            .padding(.vertical, 6)
+            .foregroundStyle(AceDesign.Ink.primary)
+            .padding(.horizontal, AceDesign.Space.row)
+            .frame(minHeight: AceDesign.Size.slimControl)
+            .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
+            .padding(.vertical, (AceDesign.Size.tap - AceDesign.Size.slimControl) / 2)
             .contentShape(Rectangle())
     }
 }

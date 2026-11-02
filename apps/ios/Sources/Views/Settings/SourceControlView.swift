@@ -80,7 +80,7 @@ struct SourceControlView: View {
                         Text(status.transportInstructions).textSelection(.enabled)
                     }
                 } header: { InsetHeader("Repository transport") }
-                if busy, status == nil { ProgressView("Checking source control…") }
+                if busy, status == nil { SkeletonRows(count: 2, label: "Checking source control").listRowInsets(EdgeInsets()) }
                 ServiceProblem(message: problem)
             }
             .insetRowBackground()

@@ -40,11 +40,11 @@ struct MarkitNoticesView: View {
     private func page(_ notice: Notice) -> some View {
         ScrollView {
             Text((try? String(contentsOf: notice.url, encoding: .utf8)) ?? "This notice couldn't be read.")
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.muted)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(AceTheme.Spacing.xl)
+                .padding(AceDesign.Space.margin)
         }
         .navigationTitle(notice.name).navigationBarTitleDisplayMode(.inline)
     }
