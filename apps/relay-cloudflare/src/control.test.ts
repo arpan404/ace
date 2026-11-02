@@ -3,7 +3,7 @@ import { NoiseXX, keyPair } from "@ace/secure-channel";
 import { CONTROL_PROLOGUE, ControlMessage, RelayRoutes } from "@ace/relay/wire";
 import { hostId } from "@ace/secure-channel";
 import { openControl, sealControl } from "./control.ts";
-import { Attachment, routeFacts } from "./attachment.ts";
+import { Attachment, hostAccount, routeFacts } from "./attachment.ts";
 
 function registration() {
   const daemonKeys = keyPair();
@@ -50,7 +50,7 @@ it("a registration session saved between messages stays in step with the daemon'
   expect(() => openControl(opened.next, reject)).toThrow();
 });
 
-it("attachments read after hibernation restore routes that pair the waiting client with its ticket", () => {
+it("attachments read after hibernation restore the host's account and routes that pair the waiting client", () => {
   const { id } = registration();
   const ticket = "b".repeat(64);
   const attachments = [
@@ -58,12 +58,14 @@ it("attachments read after hibernation restore routes that pair the waiting clie
       kind: "host",
       id: "h",
       hostId: id,
+      account: "user_a",
       send: { key: new Uint8Array(32), nonce: 3n },
       receive: { key: new Uint8Array(32), nonce: 0n },
     },
     { kind: "waiting", id: "c", ticket, owner: "h", expires: 500 },
     { kind: "stream", id: "s1", peer: "s2" },
   ].map((value) => Attachment.parse(structuredClone(value)));
+  expect(hostAccount(attachments, id)).toBe("user_a");
   const routes = new RelayRoutes({ ticketTimeoutMs: 100 });
   const { hosts, pending } = routeFacts(attachments);
   expect(routes.restore(hosts, pending)).toEqual([]);

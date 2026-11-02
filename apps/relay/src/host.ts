@@ -15,9 +15,10 @@ import {
 } from "./handshake.ts";
 import { ControlMessage, HostOptionsSchema } from "./config.ts";
 import { ClientSlots } from "./admission.ts";
+import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { systemClock, delay } from "./clock.ts";
 import type { Clock } from "./clock.ts";
-import { RelayRefusedError, refusalCloseCodes } from "./refusal.ts";
+import { RelayRefusedError } from "./refusal.ts";
 import type { z } from "zod";
 const noop = () => {};
 export type HostRelayConnection = {
@@ -36,11 +37,11 @@ export async function connectHostToRelay(options: {
   random?: () => number;
   limits?: Partial<z.infer<typeof HostOptionsSchema>>;
   /**
-   * A fresh machine grant (ADR 0111) for each `/host` attempt, offered as a subprotocol. ace's
-   * hosted relay needs one; a self-hosted relay ignores it. A rejection counts as a failed
-   * attempt and is retried with backoff.
+   * ace's hosted relay admits a host only with an account `machine` grant (ADR 0111). `grant`
+   * is called before every registration, since grants live five minutes. `name` and
+   * `platform` label the machine in the account's machine list.
    */
-  grant?: () => Promise<string>;
+  account?: { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string };
   /** The relay refused a host that had registered before; the connection has stopped. */
   onRefused?: (error: RelayRefusedError) => void;
 }): Promise<HostRelayConnection> {
@@ -139,16 +140,20 @@ export async function connectHostToRelay(options: {
       let socket: WebSocket | undefined;
       let expire: () => void = noop;
       try {
-        const grant = options.grant ? await options.grant() : undefined;
-        if (controller.signal.aborted) break;
+        const account = options.account;
+        const grant = account ? await account.grant(controller.signal) : undefined;
         const connection = await dial(
           // The id only selects where a relay routes this host (a Durable Object); the
           // handshake below still proves it.
-          relayAddress(options.relayUrl, "/host", { hostId: id }),
+          relayAddress(options.relayUrl, "/host", {
+            hostId: id,
+            ...(account?.name ? { name: account.name } : {}),
+            ...(account?.platform ? { platform: account.platform } : {}),
+          }),
           controller.signal,
           clock,
           limits.handshakeTimeoutMs,
-          grant,
+          grant ? [GRANT_SUBPROTOCOL_PREFIX + grant] : [],
         );
         socket = connection.socket;
         watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
@@ -156,7 +161,9 @@ export async function connectHostToRelay(options: {
         const owned = socket;
         socket.once("close", (code, reason) => {
           sockets.delete(owned);
-          if (refusalCloseCodes.has(code)) refuse(new RelayRefusedError(code, reason.toString()));
+          // 1008: the relay refused this host. 4001: a newer registration replaced this one.
+          if (code === 1008) refuse(new RelayRefusedError(code, reason.toString()));
+          else if (code === 4001) cancel();
         });
         expire = clock.schedule(limits.handshakeTimeoutMs, () => owned.terminate());
         const transport = await initiateHandshake(socket, connection.reader, {
@@ -210,7 +217,8 @@ export async function connectHostToRelay(options: {
           transport.destroy();
         }
       } catch (error) {
-        // Re-register with fresh ephemerals after network or relay failure.
+        // Re-register with fresh ephemerals (and a fresh grant) after a network or relay
+        // failure; a refusal stops instead.
         if (error instanceof RelayRefusedError) refuse(error);
       } finally {
         expire();

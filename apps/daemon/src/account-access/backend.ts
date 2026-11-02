@@ -1,5 +1,4 @@
 import { GrantKeySet } from "@ace/account-grant";
-import { AceGrantResponse, type AceGrantRequest } from "@ace/protocol/ace-account";
 
 /** Why the account backend did not answer: 401 means the session is gone. */
 export class AccountBackendError extends Error {
@@ -14,8 +13,8 @@ export class AccountBackendError extends Error {
 const responseLimit = 64 * 1024;
 
 /**
- * The account backend calls the daemon makes besides sign-in (ADR 0111): published grant keys
- * and machine grants. Sign-in itself goes through `@ace/client/ace-account`.
+ * The account backend's published grant keys (ADR 0111). Everything else (sign-in, grants) goes
+ * through `@ace/client/ace-account`, which leaves keys out to keep Ed25519 from web bundles.
  */
 export function accountBackend(options: { fetch: typeof fetch }) {
   async function call(url: string, init: RequestInit, signal: AbortSignal): Promise<unknown> {
@@ -51,24 +50,6 @@ export function accountBackend(options: { fetch: typeof fetch }) {
   return {
     async keys(origin: string, signal: AbortSignal): Promise<GrantKeySet> {
       return GrantKeySet.parse(await call(`${origin}/v1/keys`, { method: "GET" }, signal));
-    },
-    async grant(
-      origin: string,
-      token: string,
-      request: AceGrantRequest,
-      signal: AbortSignal,
-    ): Promise<AceGrantResponse> {
-      return AceGrantResponse.parse(
-        await call(
-          `${origin}/v1/grants`,
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify(request),
-          },
-          signal,
-        ),
-      );
     },
   };
 }

@@ -57,7 +57,11 @@ async function signedInDaemon() {
     hostId: "host-1",
     headSeq: () => 0,
     account,
-    grant: () => account.machineGrant(hostId(keys.publicKey)),
+    relayAccount: {
+      grant: (signal) => account.machineGrant(hostId(keys.publicKey), signal),
+      name: "Office Mac",
+      platform: "darwin",
+    },
   });
   cleanup.push(() => host.close());
 
@@ -300,4 +304,12 @@ it("the host signs the machine in and sets its code over the local API; others a
   await expect(local("/v1/machine-code", "DELETE", undefined, "0".repeat(64))).rejects.toThrow();
   expect(await local("/v1/machine-code", "DELETE")).toMatchObject({ machineCode: { set: false } });
   expect(await local("/v1/ace-account", "DELETE")).toMatchObject({ signedIn: false });
+});
+
+it("a session the backend no longer knows signs the machine out when it asks for a grant", async () => {
+  const daemon = await signedInDaemon();
+  daemon.backend.revoke(daemon.backend.token);
+  await expect(daemon.account.machineGrant(daemon.host.hostId)).rejects.toThrow();
+  expect(daemon.account.status().signedIn).toBe(false);
+  expect(refusal((await daemon.open()).first)).toBe("unauthorized");
 });

@@ -360,9 +360,11 @@ it("a host and a client offering account grants still pair through a self-hosted
   const host = await connectHostToRelay({
     relayUrl: relay.url,
     hostKeys: keyPair(),
-    grant: async () => {
-      grants.push(`machine.${grants.length}`);
-      return grants.at(-1) ?? "";
+    account: {
+      grant: async () => {
+        grants.push(`machine.${grants.length}`);
+        return grants.at(-1) ?? "";
+      },
     },
     onClientChannel: (channel) => waiter.resolve(channel),
   });
@@ -402,7 +404,7 @@ it("a host the relay refuses stops with the refusal instead of reconnecting", as
   const attempt = connectHostToRelay({
     relayUrl: `ws://127.0.0.1:${port}`,
     hostKeys: keyPair(),
-    grant: async () => "stale-grant",
+    account: { grant: async () => "stale-grant" },
     limits: { retryInitialMs: 10, retryMaxMs: 20 },
     onClientChannel: () => {},
   });
@@ -412,12 +414,12 @@ it("a host the relay refuses stops with the refusal instead of reconnecting", as
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(offered).toEqual(["ace.grant.stale-grant"]);
 
-  // A relay answering the upgrade itself with 401 is a refusal too.
+  // A relay answering the upgrade with 403 (a grant for another host) refuses too.
   let upgrades = 0;
   const http = createServer();
   http.on("upgrade", (_request, socket) => {
     upgrades++;
-    socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
   });
   await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
   cleanups.push(() => new Promise<void>((resolve) => http.close(() => resolve())));
@@ -432,4 +434,30 @@ it("a host the relay refuses stops with the refusal instead of reconnecting", as
   ).rejects.toBeInstanceOf(RelayRefusedError);
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(upgrades).toBe(1);
+
+  // A 401 (missing or expired grant) is not a refusal: the host fetches a fresh grant and retries.
+  let unauthorized = 0;
+  const expired = createServer();
+  expired.on("upgrade", (_request, socket) => {
+    unauthorized++;
+    socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+  });
+  await new Promise<void>((resolve) => expired.listen(0, "127.0.0.1", resolve));
+  cleanups.push(() => new Promise<void>((resolve) => expired.close(() => resolve())));
+  const { port: expiredPort } = z.object({ port: z.number() }).parse(expired.address());
+  let grants = 0;
+  const stop = new AbortController();
+  const retrying = connectHostToRelay({
+    relayUrl: `ws://127.0.0.1:${expiredPort}`,
+    hostKeys: keyPair(),
+    signal: stop.signal,
+    account: { grant: async () => `grant-${++grants}` },
+    limits: { retryInitialMs: 10, retryMaxMs: 20 },
+    onClientChannel: () => {},
+  }).catch((error: unknown) => error);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  stop.abort();
+  expect(await retrying).not.toBeInstanceOf(RelayRefusedError);
+  expect(unauthorized).toBeGreaterThan(1);
+  expect(grants).toBeGreaterThanOrEqual(unauthorized);
 });

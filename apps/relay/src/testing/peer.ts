@@ -64,8 +64,8 @@ export function peer(socket: WebSocket) {
     },
   };
 }
-export async function openPeer(url: string) {
-  const socket = new WebSocket(url, {
+export async function openPeer(url: string, protocols: string[] = []) {
+  const socket = new WebSocket(url, protocols, {
     maxPayload: 65535,
     perMessageDeflate: false,
     autoPong: false,

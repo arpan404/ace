@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
+import type { ClientOptions } from "ws";
 import { systemClock } from "./clock.ts";
 import { upgradeRefusal } from "./refusal.ts";
 import type { Clock } from "./clock.ts";
@@ -125,23 +125,25 @@ export function relayAddress(base: string, path: string, query?: Record<string, 
   url.hash = "";
   return url.toString();
 }
-/**
- * Open a relay socket. A `grant` (ADR 0111) is offered as the `ace.grant.<token>` subprotocol,
- * which ace's hosted relay checks and echoes; a self-hosted relay echoes it unchecked.
- */
 export async function dial(
   url: string,
   signal?: AbortSignal,
   clock: Clock = systemClock(),
   timeoutMs = 10000,
-  grant?: string,
+  protocols: string[] = [],
 ): Promise<{ socket: WebSocket; reader: FrameReader }> {
-  const socket = new WebSocket(url, grant ? [`${GRANT_SUBPROTOCOL_PREFIX}${grant}`] : [], {
+  const options: ClientOptions & { closeTimeout: number } = {
     maxPayload: FRAME_LIMIT,
     perMessageDeflate: false,
     maxFragments: 256,
     maxBufferedChunks: 256,
-  });
+    // After the close handshake, stop waiting for the relay to end TCP. A Durable Object keeps a
+    // closed hibernatable socket's connection open until the object sleeps (about ten seconds
+    // under workerd), which would delay every refusal by that long. ws 8.21 reads this option;
+    // its type definitions don't list it yet.
+    closeTimeout: 1000,
+  };
+  const socket = new WebSocket(url, protocols, options);
   const reader = new FrameReader(socket);
   const abort = () => socket.terminate();
   signal?.addEventListener("abort", abort, { once: true });

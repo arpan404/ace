@@ -12,6 +12,7 @@ import { startRelayTransport } from "./services/transports.ts";
 import type { ServerOptions } from "./server-options.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import { relayRoute } from "./relay-route.ts";
+import { computerName } from "./computer-name.ts";
 import { RelayRefusedError } from "@ace/relay";
 import {
   RelayNeedsAccount,
@@ -110,6 +111,12 @@ export function remoteRuntime(
     await retire();
     await apply(preferences);
   };
+  // How this machine is labelled in the account's machine list, as host.identity names it.
+  const machineName = async () => {
+    const saved = await options.settings?.get("host.displayName").catch(() => undefined);
+    if (typeof saved?.value === "string" && saved.value) return saved.value;
+    return options.hostName ?? (await computerName().catch(() => undefined));
+  };
   const apply = async (next: Preferences) => {
     if (closed) return;
     const config = options.remoteConfig;
@@ -152,7 +159,12 @@ export function remoteRuntime(
     let relayAccess: ReturnType<typeof hostedRelayAccess> | undefined;
     try {
       relayAccess =
-        hosted && relayKeys ? hostedRelayAccess(options.machineAccount, relayKeys) : undefined;
+        hosted && relayKeys
+          ? hostedRelayAccess(options.machineAccount, relayKeys, {
+              name: await machineName(),
+              platform: options.platform ?? process.platform,
+            })
+          : undefined;
     } catch (failure) {
       // Signed out: a relay registered under the old session stops; direct access stays.
       active = "";
@@ -214,7 +226,7 @@ export function remoteRuntime(
       if (relayOptions)
         // `options` itself, not a copy: its service getters must stay live for relay channels.
         relay = await startRelayTransport(options, auth, relayOptions, {
-          ...(relayAccess ? { grant: relayAccess.grant } : {}),
+          ...(relayAccess ? { account: relayAccess.account } : {}),
           onRefused: () => {
             error = hosted ? relayRefusedMachine : "The relay refused this machine.";
             options.log?.(new Error(error));

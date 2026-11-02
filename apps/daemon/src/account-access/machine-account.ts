@@ -189,16 +189,23 @@ export function machineAccount(options: {
       return this.status();
     },
     /** A fresh machine grant for ace's relay `/host`. Throws while signed out. */
-    async machineGrant(hostId: string): Promise<string> {
+    async machineGrant(hostId: string, signal?: AbortSignal): Promise<string> {
       const current = active();
       if (!current) throw new Error("Sign in to ace on this machine to use ace's relay.");
-      const grant = await backend.grant(
-        current.origin,
-        current.token,
-        { kind: "machine", subject: hostId },
-        AbortSignal.timeout(10_000),
-      );
-      return grant.token;
+      const timeout = AbortSignal.timeout(10_000);
+      try {
+        const grant = await client(current.origin).grant(
+          current.token,
+          { kind: "machine", subject: hostId },
+          signal ? AbortSignal.any([signal, timeout]) : timeout,
+        );
+        return grant.token;
+      } catch (error) {
+        // The backend no longer knows this session: the machine is signed out.
+        if (error instanceof AceAccountError && error.status === 401 && session === current)
+          await adopt(undefined);
+        throw error;
+      }
     },
     /** Admit a hello's device grant, asking for the machine code when one is set. */
     async admitDevice(hello: {

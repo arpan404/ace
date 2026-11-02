@@ -9,9 +9,27 @@
     "bindings": [{ "name": "RELAY", "class_name": "RelayObject" }],
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayObject"] }],
+  // Accounts, pending sign-ins and the machine directory (ADR 0111). Replace database_id with
+  // the id `wrangler d1 create ace-accounts` prints; see docs/relay/accounts.md.
+  "d1_databases": [
+    {
+      "binding": "ACCOUNTS",
+      "database_name": "ace-accounts",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
   "ratelimits": [
     { "name": "UPGRADES", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } },
+    {
+      "name": "ACCOUNT_REQUESTS",
+      "namespace_id": "1002",
+      "simple": { "limit": 120, "period": 60 },
+    },
   ],
-  // Request logs would record join tickets in URLs.
+  // Expired sign-ins and sessions are also dropped whenever a sign-in starts.
+  "triggers": { "crons": ["17 * * * *"] },
+  // Request logs would record join tickets in URLs. Account secrets, grants and tokens are
+  // never logged either.
   "observability": { "enabled": false },
 }

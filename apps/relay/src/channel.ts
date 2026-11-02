@@ -245,7 +245,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
           jsonBytes = inflated;
         }
         const message = incoming.parse(
-          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(jsonBytes)),
+          JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(jsonBytes)),
         );
         onReceive?.(message);
         return message;

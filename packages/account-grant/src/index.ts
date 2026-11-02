@@ -84,7 +84,9 @@ export function verifyGrant(
   const bytes = decodeBase64url(body);
   let claims: GrantClaims;
   try {
-    claims = GrantClaims.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
+    claims = GrantClaims.parse(
+      JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)),
+    );
   } catch {
     throw new GrantError("Malformed grant");
   }

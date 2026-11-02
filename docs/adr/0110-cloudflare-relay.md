@@ -71,9 +71,10 @@ ace runs the relay at a public `wss://` address. It is a forwarder only:
 
 ### D1
 
-The relay itself needs no database. D1 holds ace's account and device-directory data when the
-WorkOS account backend ([PR #1412](https://github.com/arpan404/ace/pull/1412), ADR 0100 on that
-branch) moves off its Node store. That port is separate work, after #1412 lands.
+The relay itself needs no routing database. D1 holds ace's account data (sessions, pending
+logins) and the machine directory for the WorkOS account backend
+([ADR 0100](0100-ace-account-backend.md), [ADR 0111](0111-account-machine-access.md)), which
+runs in this Worker; see [accounts](../relay/accounts.md).
 
 ## Rejected
 

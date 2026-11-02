@@ -9,10 +9,13 @@ import {
   Ticket,
 } from "@ace/relay/wire";
 import type { RouteAction } from "@ace/relay/wire";
-import { Attachment, nextExpiry, routeFacts } from "./attachment.ts";
+import { Attachment, hostAccount, nextExpiry, routeFacts } from "./attachment.ts";
+import { ACCOUNT_HEADER, PROTOCOL_HEADER } from "./admission.ts";
+import { machineStore } from "./account/machines.ts";
 import { openControl, sealControl } from "./control.ts";
 import { FrameBudget } from "./frame-budget.ts";
 import type { Env } from "./env.ts";
+import { refuseUpgrade, upgraded } from "./upgrade.ts";
 
 const limits = LimitsSchema.parse({});
 const tag = (id: string) => `socket:${id}`;
@@ -22,7 +25,14 @@ function randomTicket(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-type Handshake = { state: NoiseXX; replied: boolean; timer: ReturnType<typeof setTimeout> };
+type Handshake = {
+  state: NoiseXX;
+  replied: boolean;
+  timer: ReturnType<typeof setTimeout>;
+  /** What the daemon calls itself, for the account's machine list. */
+  name: string;
+  platform: string;
+};
 
 /**
  * One daemon's relay: its control socket, the clients waiting for it and their paired streams.
@@ -38,18 +48,17 @@ export class RelayObject extends DurableObject<Env> {
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     const id = crypto.randomUUID();
     const routes = this.#routing();
-    this.ctx.acceptWebSocket(server, [tag(id)]);
-    this.#sockets.set(id, server);
     const now = Date.now();
+    // The Worker verified the grant and set these; /join carries none.
+    const account = request.headers.get(ACCOUNT_HEADER);
+    const protocol = request.headers.get(PROTOCOL_HEADER) ?? undefined;
+    const hostId = HostId.parse(url.searchParams.get("hostId"));
     if (url.pathname === "/host") {
-      this.#save(server, {
-        kind: "handshake",
-        id,
-        hostId: HostId.parse(url.searchParams.get("hostId")),
-      });
+      if (!account) return refuseUpgrade(1008, "Account required", protocol);
+      const server = this.#accept(id);
+      this.#save(server.socket, { kind: "handshake", id, hostId, account });
       this.#handshakes.set(id, {
         state: new NoiseXX({
           initiator: false,
@@ -59,16 +68,27 @@ export class RelayObject extends DurableObject<Env> {
         }),
         replied: false,
         timer: setTimeout(
-          () => this.#close(server, 1011, "Handshake timeout"),
+          () => this.#close(server.socket, 1011, "Handshake timeout"),
           limits.handshakeTimeoutMs,
         ),
+        name: url.searchParams.get("name") ?? "",
+        platform: url.searchParams.get("platform") ?? "",
       });
-    } else if (url.pathname === "/client") {
+      return upgraded(server.client, protocol);
+    }
+    if (url.pathname === "/client") {
+      if (!account) return refuseUpgrade(1008, "Account required", protocol);
+      const owner = hostAccount(this.#allAttachments(), hostId);
+      if (owner !== undefined && owner !== account)
+        return refuseUpgrade(1008, "Not your machine", protocol);
       const ticket = randomTicket();
-      const actions = routes.request(id, HostId.parse(url.searchParams.get("hostId")), ticket, now);
+      const actions = routes.request(id, hostId, ticket, now);
+      const refusal = this.#refusal(actions, id, protocol);
+      if (refusal) return refusal;
+      const server = this.#accept(id);
       const offer = actions.find((action) => action.type === "offer");
       if (offer)
-        this.#save(server, {
+        this.#save(server.socket, {
           kind: "waiting",
           id,
           ticket,
@@ -77,10 +97,33 @@ export class RelayObject extends DurableObject<Env> {
         });
       this.#apply(actions);
       if (offer) await this.#scheduleExpiry();
-    } else if (url.pathname === "/join") {
-      this.#apply(routes.join(id, Ticket.parse(url.searchParams.get("ticket")), now));
-    } else this.#close(server, 1008, "Unknown endpoint");
-    return new Response(null, { status: 101, webSocket: client });
+      return upgraded(server.client, protocol);
+    }
+    if (url.pathname === "/join") {
+      const actions = routes.join(id, Ticket.parse(url.searchParams.get("ticket")), now);
+      const refusal = this.#refusal(actions, id);
+      if (refusal) return refusal;
+      const server = this.#accept(id);
+      this.#apply(actions);
+      return upgraded(server.client);
+    }
+    return refuseUpgrade(1008, "Unknown endpoint");
+  }
+
+  /** A hibernatable server socket for an upgrade the relay keeps. */
+  #accept(id: string): { client: WebSocket; socket: WebSocket } {
+    const [client, socket] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
+    this.ctx.acceptWebSocket(socket, [tag(id)]);
+    this.#sockets.set(id, socket);
+    return { client, socket };
+  }
+
+  /** Routing that refuses the upgrading socket itself: apply the rest, refuse without hibernation. */
+  #refusal(actions: readonly RouteAction[], id: string, protocol?: string): Response | undefined {
+    const own = actions.find((action) => action.type === "close" && action.socket === id);
+    if (own?.type !== "close") return undefined;
+    this.#apply(actions.filter((action) => action !== own));
+    return refuseUpgrade(own.code, own.reason, protocol);
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -115,7 +158,12 @@ export class RelayObject extends DurableObject<Env> {
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
+    const attachment = this.#read(ws);
     this.#release(ws);
+    if (attachment?.kind === "host")
+      await machineStore(this.env.ACCOUNTS)
+        .seen(attachment.hostId, attachment.account, Date.now())
+        .catch(() => {});
   }
 
   override async webSocketError(ws: WebSocket): Promise<void> {
@@ -128,7 +176,11 @@ export class RelayObject extends DurableObject<Env> {
   }
 
   /** Noise XX responder for a daemon's registration, one message per event. */
-  #handshake(ws: WebSocket, attachment: Attachment & { kind: "handshake" }, frame: Uint8Array) {
+  async #handshake(
+    ws: WebSocket,
+    attachment: Attachment & { kind: "handshake" },
+    frame: Uint8Array,
+  ): Promise<void> {
     const pending = this.#handshakes.get(attachment.id);
     if (!pending) return this.#close(ws, 1011, "Handshake lost");
     try {
@@ -154,12 +206,29 @@ export class RelayObject extends DurableObject<Env> {
         kind: "host",
         id: attachment.id,
         hostId: proven,
+        account: attachment.account,
         send: transport.send.snapshot(),
         receive: transport.receive.snapshot(),
       });
       this.#apply(this.#routing().register(attachment.id, proven));
     } finally {
       transport.destroy();
+    }
+    // Two proofs bind the machine to the account: the grant (the session) and the handshake
+    // (the key). Without its directory entry the account's devices can't find it, so a failed
+    // write ends the registration and the daemon retries.
+    try {
+      await machineStore(this.env.ACCOUNTS).register(
+        {
+          hostId: attachment.hostId,
+          accountId: attachment.account,
+          name: pending.name,
+          platform: pending.platform,
+        },
+        Date.now(),
+      );
+    } catch {
+      this.#close(ws, 1011, "Directory unavailable");
     }
   }
 

@@ -92,6 +92,8 @@ export async function startFakeAccountBackend(now: () => number) {
     grantRequests,
     /** Whether a session token is still live at the backend. */
     live: (session: string) => sessions.has(session),
+    /** The account signed this session out elsewhere (or deleted it). */
+    revoke: (session: string) => sessions.delete(session),
     /** The person finished every pending sign-in in their browser. */
     completeLogins() {
       for (const pending of logins.values()) pending.complete = true;

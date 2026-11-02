@@ -20,8 +20,10 @@ export async function startFilesRelay(
     headSeq(): number;
     /** Admits devices on this machine's ace account (ADR 0111). */
     account?: MachineAccount | undefined;
-    /** A fresh machine grant per registration, for ace's hosted relay. */
-    grant?: (() => Promise<string>) | undefined;
+    /** Machine grants and labels for ace's hosted relay (ADR 0111). */
+    relayAccount?:
+      | { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string }
+      | undefined;
     onRefused?: ((error: RelayRefusedError) => void) | undefined;
   },
 ) {
@@ -42,7 +44,7 @@ export async function startFilesRelay(
       relayUrl: options.url,
       hostKeys: options.keys,
       signal: controller.signal,
-      ...(options.grant ? { grant: options.grant } : {}),
+      ...(options.relayAccount ? { account: options.relayAccount } : {}),
       ...(options.onRefused ? { onRefused: options.onRefused } : {}),
       async onClientChannel(channel) {
         const hello = await channel.receive();

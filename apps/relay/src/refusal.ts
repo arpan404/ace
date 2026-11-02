@@ -1,7 +1,8 @@
 /**
- * The relay refused this peer (close 1008 or 4001, or an HTTP 401/403 upgrade answer): ace's
- * hosted relay without a valid grant, or a host id the relay does not admit. Retrying the same
- * credentials cannot succeed, so callers stop and say why instead of reconnecting.
+ * The relay refused this host for good: close 1008 after the upgrade, or HTTP 403 before it
+ * (ace's hosted relay: a machine grant for another host id). A 401 (missing or expired grant)
+ * or 503 is not a refusal; the host fetches a fresh grant and retries with backoff. Callers stop
+ * and say why instead of reconnecting.
  */
 export class RelayRefusedError extends Error {
   override name = "RelayRefusedError";
@@ -12,14 +13,12 @@ export class RelayRefusedError extends Error {
   }
 }
 
-export const refusalCloseCodes: ReadonlySet<number> = new Set([1008, 4001]);
-
 /** The refusal an upgrade error stands for, when ws reports the relay's HTTP answer. */
 export function upgradeRefusal(error: unknown): RelayRefusedError | undefined {
   const status = /Unexpected server response: (\d{3})/.exec(
     error instanceof Error ? error.message : "",
   )?.[1];
-  return status === "401" || status === "403"
-    ? new RelayRefusedError(Number(status), "The relay refused this connection")
+  return status === "403"
+    ? new RelayRefusedError(403, "The relay refused this machine")
     : undefined;
 }

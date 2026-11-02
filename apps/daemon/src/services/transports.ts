@@ -13,7 +13,7 @@ export async function startRelayTransport(
   auth: RemoteAuth,
   relay = options.relay,
   access: {
-    grant?: () => Promise<string>;
+    account?: { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string };
     onRefused?: (error: import("@ace/relay").RelayRefusedError) => void;
   } = {},
 ) {
@@ -59,7 +59,7 @@ export async function startRelayTransport(
     store: options.store,
     auth,
     account: options.machineAccount,
-    grant: access.grant,
+    relayAccount: access.account,
     onRefused: access.onRefused,
     devices: options.store.devices,
     hostId: options.hostId,
