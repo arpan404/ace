@@ -208,8 +208,13 @@ struct ThreadFocus: Equatable {
         if let item { payload["itemId"] = item }
         if let turn { payload["ordinal"] = turn }
         if let anchorItemId { payload["anchorItemId"] = anchorItemId }
-        // A page's rows land together once the bridge says the read settled.
-        if operation != "live" { model.holdReading() }
+        // A page's rows land together once the bridge says the read settled. Holding or
+        // following an open, current window only changes which end it trims and moves no rows,
+        // so the reader turning at the end never holds back the rows streaming in. A stale
+        // window's hold is a reconnect rebuild, whose rows do land together.
+        let turnsOnly = thread != nil && !isStale && (operation == "hold" || operation == "follow")
+        let movesRows = operation != "live" && !turnsOnly
+        if movesRows { model.holdReading() }
         request = Task {
             defer { if generation == version { loading = false } }
             do {
