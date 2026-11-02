@@ -29,7 +29,10 @@ export function registerHandlers(options: {
   rendererUrl: string;
   isAppWindow(contents: WebContents): boolean;
   handlers: Handlers;
+  /** Names each request's synchronous work for the freeze watchdog. */
+  mark?: <T>(name: string, work: () => T) => T;
 }): () => void {
+  const mark = options.mark ?? (<T>(_name: string, work: () => T) => work());
   const trusted = (event: IpcMainInvokeEvent) =>
     options.isAppWindow(event.sender) &&
     event.senderFrame !== null &&
@@ -42,7 +45,9 @@ export function registerHandlers(options: {
       if (!trusted(event)) throw new Error("Untrusted sender");
       const request = (spec.request as z.ZodType).parse(payload);
       const handler = options.handlers[name] as (request: unknown, sender: WebContents) => unknown;
-      return (spec.result as z.ZodType).parse(await handler(request, event.sender));
+      const pending = mark(`ipc ${name}`, () => handler(request, event.sender));
+      const result = await pending;
+      return mark(`ipc ${name} result`, () => (spec.result as z.ZodType).parse(result));
     });
   }
   return () => {

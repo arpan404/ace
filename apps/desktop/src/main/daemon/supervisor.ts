@@ -457,6 +457,7 @@ export class DaemonSupervisor {
         return ok;
       },
       timers: this.ports.timers,
+      now: () => this.ports.now(),
       log: (level, message, data) => {
         if (!this.stale(generation)) this.ports.log(level, message, data);
       },

@@ -33,6 +33,8 @@ export interface BackgroundOptions {
   log(message: string): void;
   /** Whether the desktop shows tray icons (`linuxTrayHost`); absent where it always does. */
   trayHost?: (() => Promise<boolean>) | undefined;
+  /** Names main-thread work for the freeze watchdog (`StallOperation.run`). */
+  mark?: <T>(name: string, work: () => T) => T;
 }
 
 /** How long Quit waits for the daemon link to close before it moves on. */
@@ -233,6 +235,7 @@ export class Background {
       // A locked screen draws no frames, so a view opened then never shows a picture.
       drawable: () => !locked(),
       ...(video ? { video } : {}),
+      ...(this.options.mark ? { mark: this.options.mark } : {}),
     });
     const connection = new BackendConnection(
       backend,

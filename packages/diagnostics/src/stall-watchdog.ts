@@ -1,8 +1,21 @@
 import { Worker } from "node:worker_threads";
 import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { LoopClock } from "./loop-monitor.ts";
 import { StallReport } from "./stall-report.ts";
+import type { StallOperation } from "./stall-operation.ts";
+
+/** A repeating timer; the watchdog only needs it to beat the heartbeat. */
+export interface HeartbeatClock {
+  every(milliseconds: number, tick: () => void): () => void;
+}
+/** Real time. The heartbeat timer never keeps the process alive. */
+export const systemHeartbeat: HeartbeatClock = {
+  every(milliseconds, tick) {
+    const timer = setInterval(tick, milliseconds);
+    timer.unref();
+    return () => clearInterval(timer);
+  },
+};
 
 export interface StallWatchdogTiming {
   /** How often the main thread beats. Cheap: one atomic add. */
@@ -36,12 +49,17 @@ export interface StallWatchdogOptions {
   /** Where an unfinished stall is written while it lasts; the next start reads it back. */
   directory: string;
   pid: number;
-  clock: LoopClock;
+  clock: HeartbeatClock;
   timing?: Partial<StallWatchdogTiming>;
   /** A stall the main thread came back from, with where it was stuck. */
   onStall(report: StallReport): void;
   onError(error: unknown): void;
   spawn?: StallWorkerFactory;
+  /**
+   * Names what the main thread is doing (`createStallOperation`), so a report says which
+   * operation froze it even when no JavaScript stack can be read.
+   */
+  operation?: StallOperation;
 }
 
 const reportName = /^stall-(\d+)\.json(\.partial)?$/;
@@ -60,6 +78,7 @@ export function startStallWatchdog(options: StallWatchdogOptions): () => Promise
   const worker = spawn(new URL("./stall-watchdog-worker.ts", import.meta.url), {
     ...timing,
     heartbeat,
+    ...(options.operation ? { operation: options.operation.buffer } : {}),
     pid: options.pid,
     reportPath: join(options.directory, `stall-${options.pid}.json`),
   });
