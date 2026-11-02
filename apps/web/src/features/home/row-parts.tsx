@@ -6,7 +6,8 @@ import {
   type ThreadCard,
 } from "@ace/ui-core";
 import { StatusIcon } from "@/components/status-icons.tsx";
-import { formatSpan } from "@ace/ui-core";
+import { AgentCursorIcon } from "@/components/ace-icons.tsx";
+import { formatElapsed } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
@@ -17,12 +18,7 @@ import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
 import { useThreadComputerUse } from "@/lib/computer-using.ts";
-import {
-  ClockIcon,
-  CursorClickIcon,
-  GlobeSimpleIcon,
-  TreeStructureIcon,
-} from "@phosphor-icons/react";
+import { ClockIcon, GlobeSimpleIcon, TreeStructureIcon } from "@phosphor-icons/react";
 import type { LinkClick } from "@/lib/web-links.ts";
 import { useOpenThreadPullRequest } from "./open-pull-request.ts";
 
@@ -80,20 +76,15 @@ function appList(apps: readonly string[]): string {
   return `${apps.slice(0, 2).join(", ")} and ${apps.length - 2} more`;
 }
 
-/** A quiet cursor in the working colour while an agent uses Mac apps for the thread. */
+/** The agent cursor (the Pebble, as drawn over apps and pages) while an agent uses Mac apps for the thread. */
 export function ComputerUseMark(props: { threadId: string }) {
   const apps = useThreadComputerUse(props.threadId);
   if (!apps.length) return null;
   const label = `An agent is using ${appList(apps)}`;
   return (
     <Tip label={label}>
-      <span
-        role="img"
-        aria-label={label}
-        data-tone="working"
-        className="inline-flex shrink-0 text-status-working"
-      >
-        <CursorClickIcon aria-hidden size={12} />
+      <span role="img" aria-label={label} data-tone="working" className="inline-flex shrink-0">
+        <AgentCursorIcon aria-hidden size={13} />
       </span>
     </Tip>
   );
@@ -202,7 +193,7 @@ function ActiveElapsed(props: { card: ThreadCard }) {
   const fresh = useLiveConnection().fresh;
   const now = useSeconds(fresh && since !== undefined);
   if (fresh && since !== undefined) {
-    return <span className="text-muted-foreground tabular-nums">{formatSpan(since, now)}</span>;
+    return <span className="text-muted-foreground tabular-nums">{formatElapsed(now - since)}</span>;
   }
   return <span className="text-muted-foreground tabular-nums">{props.card.age}</span>;
 }
@@ -225,7 +216,7 @@ function RowTime(props: { card: ThreadCard }) {
   return (
     <span className="shrink-0 text-meta text-muted-foreground tabular-nums">
       {ongoing && card.status.since !== undefined && fresh
-        ? formatSpan(card.status.since, now)
+        ? formatElapsed(now - card.status.since)
         : card.age}
     </span>
   );
@@ -276,7 +267,7 @@ export function RowContext(props: {
             acpAgentId={card.acpAgentId}
             size={14}
             decorative
-            className="text-muted-foreground"
+            className="text-foreground opacity-80"
           />
         </span>
       </span>
