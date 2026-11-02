@@ -27,7 +27,7 @@ struct ReasoningRow: View {
                     if let thread { thread.disclosures.toggle(key) } else { localOpen.toggle() }
                 }
             } label: {
-                LogRowBox(open: open) { AceIcon(.brain, size: 16, relativeTo: .subheadline) } title: { Text(label).shimmer(!done) }
+                LogRowBox(open: open) { AceIcon(.brain, size: 16, relativeTo: .subheadline) } title: { Text(label) }
             }
             .buttonStyle(.plain)
             // Still thinking with no words yet: a header with nothing to open.

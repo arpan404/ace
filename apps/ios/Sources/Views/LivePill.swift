@@ -95,7 +95,7 @@ private struct StatusWords: View {
         HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
             if needsYou { StatusGlyph(.needsYou, tone: .needsYou) }
             else if status.live { StatusGlyph(.working, tone: .working, live: true) }
-            words.shimmer(status.live)
+            words
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(.medium)
         // Needs-you is always strong (DESIGN.md §5): its word in its status colour.
@@ -123,7 +123,7 @@ private struct SegmentWords: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
             if segment.kind == "goal" { AceIcon(.target, size: 13, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground) }
-            Text(segment.label).monospacedDigit().shimmer(segment.live)
+            Text(segment.label).monospacedDigit()
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
         .foregroundStyle(AceTheme.Colours.mutedForeground)

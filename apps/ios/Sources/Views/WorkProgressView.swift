@@ -133,7 +133,7 @@ private struct LogGroupView: View {
                     LogRowBox(open: open) {
                         AceIcon(Self.icon(row.icon ?? ""), size: 16, relativeTo: .subheadline)
                     } title: {
-                        (Text(row.sentence ?? "") + failedText).shimmer(running && live)
+                        (Text(row.sentence ?? "") + failedText)
                     }
                 }
             }
@@ -197,7 +197,7 @@ private struct LiveGroupTitle: View {
                 } else {
                     HStack(spacing: AceTheme.Spacing.none) {
                         Text([step.verb, step.target].filter { !$0.isEmpty }.joined(separator: " "))
-                            .truncationMode(.middle).shimmer(!step.settled)
+                            .truncationMode(.middle)
                         if !count.isEmpty {
                             Text(" · \(count)").foregroundStyle(AceTheme.Colours.subtleForeground).layoutPriority(1)
                         }
@@ -205,9 +205,9 @@ private struct LiveGroupTitle: View {
                 }
             }
         } else if item.row.type == "reasoning" {
-            LogRowBox(open: open) { AceIcon(.brain, size: 16, relativeTo: .subheadline) } title: { Text("Thinking…").shimmer(true) }
+            LogRowBox(open: open) { AceIcon(.brain, size: 16, relativeTo: .subheadline) } title: { Text("Thinking…") }
         } else {
-            LogRowBox(open: open) { AceIcon(.hammer, size: 16, relativeTo: .subheadline) } title: { Text("Working").shimmer(true) }
+            LogRowBox(open: open) { AceIcon(.hammer, size: 16, relativeTo: .subheadline) } title: { Text("Working") }
         }
     }
 }

@@ -36,7 +36,6 @@ struct AnswerRow: View {
                     .fileLinks(fileLinks, itemId: row.id)
                     .messageMenu(menu ? shown : "", title: "Answer", row: row)
             }
-            if live { StreamingCaret() }
             if row.truncated && !live && full == nil { partial }
             if !between && (row.complete || (row.truncated && !live)) {
                 MessageActions(row: row, copy: shown, label: full == nil && row.truncated ? "Copy preview" : "Copy answer")
@@ -84,19 +83,3 @@ struct AnswerRow: View {
     }
 }
 
-/// The caret after text still arriving: a soft pulse, still under Reduce Motion.
-struct StreamingCaret: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
-    @State private var dim = false
-    var body: some View {
-        AceShape.capsule.fill(AceTheme.Colours.mutedForeground)
-            .frame(width: 3, height: AceTheme.Typography.body.size)
-            .opacity(dim ? 0.3 : 1)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { dim = true }
-            }
-            .accessibilityElement()
-            .accessibilityLabel("Streaming")
-    }
-}

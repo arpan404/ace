@@ -139,7 +139,7 @@ struct AgentRow: View {
                         HStack(spacing: AceTheme.Spacing.sm) {
                             Text(entry.detail).lineLimit(1)
                                 .foregroundStyle(entry.detailKind == "failed" ? StateStyle.text("failed") : AceTheme.Colours.mutedForeground)
-                                .shimmer(entry.detailKind == "live")
+                                
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if entry.detailKind == "human", opens {
                                 Text("Review").fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)

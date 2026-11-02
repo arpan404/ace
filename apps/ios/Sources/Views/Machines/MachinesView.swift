@@ -94,14 +94,10 @@ struct MachineRow: View {
 struct ConnectionDot: View {
     let token: String
     let trying: Bool
-    @Environment(\.aceReduceMotion) private var reduceMotion
-    @State private var dim = false
     var body: some View {
         Circle().fill(colour).frame(width: 8, height: 8)
-            .opacity(trying && dim ? 0.35 : 1)
-            .animation(trying && !reduceMotion ? .easeInOut(duration: AceTheme.Motion.statusPulse / 2).repeatForever(autoreverses: true) : nil, value: dim)
-            .onAppear { dim = trying && !reduceMotion }
-            .onChange(of: trying) { _, now in dim = now && !reduceMotion }
+            // Still while it tries: the row's words say it is reconnecting.
+            .opacity(trying ? 0.5 : 1)
             .accessibilityHidden(true)
     }
     private var colour: Color {

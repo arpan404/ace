@@ -89,24 +89,13 @@ struct InboxRowMark: View {
     }
 }
 
-/// Animate only the mark, leaving the row's layout and text untouched. Stop offscreen, while
-/// the app is inactive, and for Reduce Motion.
+/// Live work's mark on rows from older bridges: an open ring, still (nothing animates on rows).
 private struct InboxWorkingRing: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var visible = false
-    @State private var turning = false
-    private var moving: Bool { visible && !reduceMotion && scenePhase == .active }
-
     var body: some View {
         Circle().trim(from: 0.12, to: 0.88)
             .stroke(AceTheme.Colours.mutedForeground, lineWidth: 1.6)
-            .rotationEffect(.degrees(turning ? 270 : -90))
+            .rotationEffect(.degrees(-90))
             .frame(width: 9, height: 9)
-            .animation(moving ? .linear(duration: AceTheme.Motion.statusPulse).repeatForever(autoreverses: false) : nil, value: turning)
-            .onAppear { visible = true }
-            .onDisappear { visible = false }
-            .onChange(of: moving) { _, now in turning = now }
     }
 }
 
