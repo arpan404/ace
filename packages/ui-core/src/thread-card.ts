@@ -256,6 +256,8 @@ function compactStatus(
     if (fact.request === "approval") return "Approve";
     return fact.request === "plan_review" ? "Needs you" : "Answer";
   }
+  if (fact?.kind === "limited" && fact.resumesAt !== undefined && fact.resumesAt > now)
+    return `Resumes ${formatShortClock(fact.resumesAt, locale)}`;
   if (fact?.kind === "limited" && fact.until !== undefined && fact.until > now)
     return `Limited ${formatShortClock(fact.until, locale)}`;
   if (entry.status.state === "waiting") return "Waiting";

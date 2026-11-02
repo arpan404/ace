@@ -344,6 +344,7 @@ export {
 } from "./jump-controller.ts";
 export * from "./person-message.ts";
 export * from "./held-turn.ts";
+export * from "./limit-switch.ts";
 export { continueMessage } from "@ace/core";
 export * from "./bubble-segments.ts";
 export * from "./bubble-content.ts";

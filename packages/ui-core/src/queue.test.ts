@@ -47,7 +47,7 @@ test("a timer to resume at reset says when, and can be called off", () => {
   );
   expect(notice?.kind).toBe("resuming");
   expect(notice?.detail).toContain("5:30 PM");
-  expect(ids(notice)).toEqual(["resume_now", "hold"]);
+  expect(ids(notice)).toEqual(["resume_now", "cancel_resume"]);
 });
 
 test("a snooze, a restart, an uncertain delivery and a manual pause each explain themselves", () => {

@@ -7,7 +7,7 @@ import type {
 } from "@ace/protocol";
 import { providerNames } from "./providers.ts";
 import { unavailableModelNotice } from "./model-availability.ts";
-import type { ExecutionSelection } from "@ace/protocol";
+import type { ExecutionSelection, SwitchSelection } from "@ace/protocol";
 import type { LimitContext } from "./limits.ts";
 import { describeWake } from "./snooze.ts";
 import { formatCountdown } from "./time.ts";
@@ -27,6 +27,10 @@ export type QueueAction =
       label: string;
       /** The account it moves to, when one is named. */ instanceId?: string;
     }
+  /** Drop a chosen resume at reset: the thread goes back to waiting on its limit. */
+  | { id: "cancel_resume"; label: string }
+  /** Carry the held turn on at `selection` (another account, model or provider) now. */
+  | { id: "switch"; label: string; selection: SwitchSelection }
   | { id: "resume"; label: string }
   /** Carry the stopped turn on: one "Continue where you left off." in the person's words. */
   | { id: "continue"; label: string }
@@ -102,7 +106,7 @@ export function queueNotice(
       detail: `Queued messages send ${describeWake(resumeAt, now, locale)}.`,
       actions: [
         { id: "resume_now", label: "Continue now" },
-        { id: "hold", label: "Don't resume" },
+        { id: "cancel_resume", label: "Cancel" },
       ],
     };
   if (reason === "snooze")
