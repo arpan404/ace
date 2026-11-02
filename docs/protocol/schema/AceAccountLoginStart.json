@@ -1,0 +1,10 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceAccountLoginStart.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "origin": {
+      "$ref": "https://ace.local/protocol/v1/AceAccountOrigin.json"
+    }
+  },
+  "type": "object"
+}

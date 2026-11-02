@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DeviceId } from "./ids.ts";
+import { MachineAccountStatus } from "./machine-access.ts";
 
 /**
  * `desktop` and `user-browser` are local-only credentials the daemon mints for its own desktop app
@@ -100,5 +101,7 @@ export const RemoteAccessStatus = z.object({
       hostId: z.string().min(1).max(256),
     })
     .optional(),
+  /** This machine's ace account and machine code (ADR 0111). Absent from older daemons. */
+  account: MachineAccountStatus.optional(),
 });
 export type RemoteAccessStatus = z.infer<typeof RemoteAccessStatus>;

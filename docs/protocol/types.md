@@ -884,6 +884,40 @@ Example:
 }
 ```
 
+## AceAccountHandover
+
+[JSON Schema](schema/AceAccountHandover.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| origin | yes | [AceAccountOrigin.json](schema/AceAccountOrigin.json) |  |
+| token | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+
+Example:
+
+```json
+{
+  "origin": "https://backend.example.com",
+  "token": "MQ059JShe5ydBbKDwxIs0NHSDx3E29A-QbaKaBxL0I7"
+}
+```
+
+## AceAccountLoginStart
+
+[JSON Schema](schema/AceAccountLoginStart.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| origin | no | [AceAccountOrigin.json](schema/AceAccountOrigin.json) |  |
+
+Example:
+
+```json
+{
+  "origin": "https://backend.example.com"
+}
+```
+
 ## AceAccountOrigin
 
 [JSON Schema](schema/AceAccountOrigin.json), input validation.
@@ -9746,7 +9780,7 @@ Example:
 
 ### hello
 
-Semantic rule: Exactly one of token and ticket is required.
+Semantic rule: Exactly one of token, ticket and grant is required; machineCode only with grant.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -9756,6 +9790,8 @@ Semantic rule: Exactly one of token and ticket is required.
 | deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
 | token | no | string |  |
 | ticket | no | string |  |
+| grant | no | string | {"minLength":1,"maxLength":2048} |
+| machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
 | compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
 
@@ -9765,9 +9801,8 @@ Example:
 {
   "compression": [],
   "deviceId": "example",
+  "grant": "example",
   "protocolVersion": 1,
-  "ticket": "example",
-  "trims": [],
   "type": "hello"
 }
 ```
@@ -17309,6 +17344,32 @@ Example:
 }
 ```
 
+## MachineAccountStatus
+
+[JSON Schema](schema/MachineAccountStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| signedIn | yes | boolean |  |
+| origin | no | string | {"maxLength":2048} |
+| account | no | [AceAccount.json](schema/AceAccount.json) |  |
+| expiresAt | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| login | no | object | {"properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},"expiresAt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["url","expiresAt"]} |
+| machineCode | yes | object | {"properties":{"set":{"type":"boolean"},"lockedUntil":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["set"]} |
+
+Example:
+
+```json
+{
+  "machineCode": {
+    "lockedUntil": 4,
+    "set": false
+  },
+  "origin": "example",
+  "signedIn": true
+}
+```
+
 ## MachineAgentAccess
 
 [JSON Schema](schema/MachineAgentAccess.json), input validation.
@@ -17613,6 +17674,46 @@ Example:
 
 ```json
 "screen"
+```
+
+## MachineCode
+
+[JSON Schema](schema/MachineCode.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
+```
+
+## MachineCodeChange
+
+[JSON Schema](schema/MachineCodeChange.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | [MachineCode.json](schema/MachineCode.json) |  |
+
+Example:
+
+```json
+{
+  "code": "example"
+}
+```
+
+## MachineCodeRefusal
+
+[JSON Schema](schema/MachineCodeRefusal.json), input validation.
+
+Type: ["machine_code_required","machine_code_wrong","machine_code_locked"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"machine_code_locked"
 ```
 
 ## MachineCommandJobsResult
@@ -24256,6 +24357,7 @@ Example:
 | relayOverride | yes | boolean |  |
 | error | no | string | {"maxLength":256} |
 | relay | no | object | {"properties":{"url":{"type":"string","maxLength":2048},"fingerprint":{"type":"string","pattern":"^[A-Z2-7]{52}$"},"hostId":{"type":"string","minLength":1,"maxLength":256}},"required":["url","fingerprint","hostId"]} |
+| account | no | [MachineAccountStatus.json](schema/MachineAccountStatus.json) |  |
 
 Example:
 

@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceAccountHandover.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "origin": {
+      "$ref": "https://ace.local/protocol/v1/AceAccountOrigin.json"
+    },
+    "token": {
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "origin",
+    "token"
+  ],
+  "type": "object"
+}

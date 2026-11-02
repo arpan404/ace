@@ -3253,7 +3253,7 @@ Example:
 
 ### hello
 
-Semantic rule: Exactly one of token and ticket is required.
+Semantic rule: Exactly one of token, ticket and grant is required; machineCode only with grant.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -3263,6 +3263,8 @@ Semantic rule: Exactly one of token and ticket is required.
 | deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
 | token | no | string |  |
 | ticket | no | string |  |
+| grant | no | string | {"minLength":1,"maxLength":2048} |
+| machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
 | compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
 
@@ -3270,11 +3272,9 @@ Example:
 
 ```json
 {
-  "channel": "screen",
-  "compression": [],
   "deviceId": "example",
+  "grant": "example",
   "protocolVersion": 1,
-  "ticket": "example",
   "type": "hello"
 }
 ```
