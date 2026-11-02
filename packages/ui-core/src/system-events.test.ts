@@ -91,6 +91,16 @@ test("ace's restart and limit resumes read as one quiet divider", () => {
   expect(noticeInput(notice(restart))).toBe("restart");
 });
 
+test("a limit resume that switched from the strip names where the work carried on, in one line", () => {
+  const resumed = message("Continue where you left off.", {
+    synthetic: true,
+    origin: { kind: "limit_resume", to: { provider: "claude", model: "claude-opus-4-1" } },
+  });
+  const line = inputLine(systemInput(resumed)!);
+  expect(line?.text).toMatch(/^Continued on Claude Code · .+ after the usage limit$/);
+  expect(line?.provider).toBe("claude");
+});
+
 test("a restart written as a notice and echoed as input shows once", () => {
   const items = [notice(restart), message(restart)];
   const order = items.map((item) => item.id);

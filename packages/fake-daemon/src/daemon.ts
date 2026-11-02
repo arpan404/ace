@@ -1169,6 +1169,44 @@ export class FakeDaemon implements Host {
         result.ok &&
         host &&
         payload.type === "thread.limit" &&
+        payload.action === "switch" &&
+        payload.selection
+      ) {
+        const at = this.options.clock();
+        const selection = { ...payload.selection, options: payload.selection.options ?? {} };
+        this.append(
+          host,
+          [
+            {
+              type: "thread.updated",
+              provider: selection.provider,
+              execution: selection,
+              switch: {
+                selection,
+                state: "applied",
+                lossy: selection.provider !== host.view.thread.provider,
+                at,
+              },
+            },
+            {
+              type: "thread.client.updated",
+              changes: {
+                live: {
+                  ...host.view.thread.live,
+                  provider: selection.provider,
+                  ...(selection.model ? { model: selection.model } : {}),
+                  ...(selection.instanceId ? { account: selection.instanceId } : {}),
+                },
+              },
+            },
+          ],
+          at,
+        );
+      }
+      if (
+        result.ok &&
+        host &&
+        payload.type === "thread.limit" &&
         payload.action === "migrate_now"
       ) {
         const account = payload.instanceId ?? this.migrationTarget(host);

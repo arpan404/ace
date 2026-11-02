@@ -16,6 +16,24 @@ import { useLayout } from "@/lib/layout.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissSend } from "./dismissed-sends.ts";
 
+/**
+ * One queue-wide action as its daemon command, fenced to the queue revision read just before;
+ * rejects when the daemon refuses it.
+ */
+export async function sendQueueAction(
+  client: ReturnType<typeof useClient>,
+  threadId: string,
+  action: QueueAction,
+): Promise<void> {
+  const { queue } = await client.request({
+    type: "queue.get",
+    threadId: ThreadId.parse(threadId),
+    limit: 1,
+  });
+  const payload = queueActionPayload(action, ThreadId.parse(threadId), queue);
+  if (payload) await runCommand(client, payload, crypto.randomUUID());
+}
+
 /** The text of a queued message, as the person wrote it. */
 export const queuedText = (message: Pick<QueuedMessage, "input">) =>
   tokensFromInput(message.input).text;
@@ -255,16 +273,7 @@ export function useQueue(threadId: string): QueueControls {
       if (action.id === "choose_model" || inFlight.current.has("queue")) return;
       inFlight.current.add("queue");
       setActing(true);
-      void (async () => {
-        const { queue } = await client.request({
-          type: "queue.get",
-          threadId: ThreadId.parse(threadId),
-          limit: 1,
-        });
-        const payload = queueActionPayload(action, ThreadId.parse(threadId), queue);
-        if (!payload) return;
-        await runCommand(client, payload, crypto.randomUUID());
-      })()
+      void sendQueueAction(client, threadId, action)
         .catch((error: unknown) => {
           toast.error({ title: "Couldn't do that", description: failureMessage(error) });
           refresh();

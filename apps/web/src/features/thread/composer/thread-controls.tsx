@@ -51,6 +51,7 @@ import { useComposerCompact } from "./composer-compact.ts";
 import { chipControl } from "./composer-styles.ts";
 import { selectionIdentity, type PendingTurn } from "./execution.ts";
 import { useModelSwitch } from "./use-model-switch.ts";
+import { useCarryOn } from "./use-carry-on.ts";
 import { readDraft } from "./draft-store.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
@@ -153,6 +154,11 @@ export function ThreadModelControl(props: {
     threadId: ThreadId.parse(props.thread.id),
   });
   const moving = useModelSwitch(props.thread, meta, choices);
+  // Held by a usage limit, a pick with room carries the held work on there at once.
+  const { carryOn } = useCarryOn(props.thread.id);
+  const limitHeld =
+    meta?.status.state === "limited" || (meta?.queue?.paused === true && meta.queue.reason === "limit");
+  const carries = (choice: ModelChoice) => limitHeld && !choice.exhausted;
   const online = useConnectionState() === "ready";
   const { selection, unavailable } = useThreadModelAvailability(props.thread.id);
   const current = currentModelChoice(choices, selection);
@@ -218,6 +224,14 @@ export function ThreadModelControl(props: {
   const switchTo = (choice: ModelChoice) => {
     setAsking(undefined);
     props.continued?.onChange(undefined);
+    if (carries(choice)) {
+      const provider = providerNames[choice.provider];
+      return carryOn({
+        name: choice.account ? `${provider} · ${accountDisplayName(choice.account)}` : provider,
+        model: choice.model,
+        selection: choiceSelection(choice),
+      });
+    }
     // The chip and its Tune pane switch to the new model at once; a refused switch takes the
     // choice back. Effort and speed picked for the old model stay held until the switch lands,
     // then they're checked against the new model.
@@ -345,7 +359,8 @@ export function ThreadModelControl(props: {
               return false;
             }
             switchTo(choice);
-            return true;
+            // Carried on from a limit: nothing waits to tune, the strip says where it went.
+            return !carries(choice);
           },
           onAccount: (id) => {
             const choice = choices.find((candidate) => candidate.id === id);

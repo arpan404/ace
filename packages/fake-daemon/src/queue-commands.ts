@@ -2,12 +2,13 @@ import { accountName, providerDisplayName } from "@ace/ui-core";
 import { blockedUntil } from "@ace/accounts/availability";
 import type { AccountSummary } from "@ace/protocol/accounts";
 import type { Fact } from "@ace/core";
-import { QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
+import { CommandId, QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
 import {
   admissionFacts,
   inputText,
   releaseHold,
   splitSteerSelection,
+  startTurn,
   steerOrStart,
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
@@ -50,6 +51,10 @@ export function isQueueCommand(payload: CommandPayload): payload is QueueCommand
 }
 
 const fail = (error: string): ThreadCommandOutcome => ({ ok: false, error });
+
+/** ace's input when a turn resumes after a usage limit, as the daemon words it. */
+const limitResumeText =
+  "ace is resuming after a provider usage limit. Continue the interrupted task from native history.";
 
 function hold(host: ThreadHost, reason: FakeQueuedHold, resumeAt: number | null) {
   host.queue.paused = true;
@@ -167,6 +172,43 @@ export function queueCommand(
           return fail("reset_time_unknown");
         hold(host, payload.action === "resume_at_reset" ? "limit" : "snooze", reset);
         return { ok: true, facts: [] };
+      }
+      if (payload.action === "cancel_resume") {
+        // As the daemon: back to the plain limit, nothing sent at the reset.
+        if (!host.queue.paused || host.queue.reason !== "limit" || host.queue.resumeAt === null)
+          return fail("no_scheduled_resume");
+        hold(host, "limit", null);
+        return { ok: true, facts: [] };
+      }
+      if (payload.action === "switch") {
+        const to = payload.selection;
+        const root = host.state.rootKey;
+        if (!to) return fail("switch_selection_required");
+        // The daemon publishes the switch; the held turn carries on there with ace's continue.
+        const resumed: Fact[] =
+          root === undefined
+            ? []
+            : [
+                {
+                  type: "item.upsert",
+                  agent: root,
+                  item: `input:${commandId}`,
+                  draft: {
+                    type: "message",
+                    role: "user",
+                    complete: true,
+                    synthetic: true,
+                    parts: [{ type: "text", text: limitResumeText }],
+                    origin: {
+                      kind: "limit_resume",
+                      commandId: CommandId.parse(commandId),
+                      to: { provider: to.provider, ...(to.model ? { model: to.model } : {}) },
+                    },
+                  },
+                },
+                ...startTurn(host, commandId, limitResumeText),
+              ];
+        return { ok: true, facts: [...releaseHold(host), ...resumed] };
       }
       if (payload.action === "migrate_now") {
         const root = host.state.rootKey;

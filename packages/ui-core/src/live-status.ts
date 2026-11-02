@@ -1,6 +1,6 @@
 import { pluralCount } from "./counts.ts";
 import { treeOnlyWaits } from "@ace/projection";
-import type { QueueState, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
+import type { QueueSnapshot, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
 import { agentName } from "./agents.ts";
 import { describeWake } from "./snooze.ts";
 import type { Tone } from "./status.ts";
@@ -130,7 +130,7 @@ export function liveStatusText(status: LiveStatus): string {
 export function threadLiveFact(thread: {
   status: ThreadStatus;
   live?: ThreadRunMetadata | undefined;
-  queue?: Pick<QueueState, "paused" | "reason" | "resumeAt"> | undefined;
+  queue?: Pick<QueueSnapshot, "paused" | "reason" | "resumeAt"> | undefined;
 }): LiveFact | undefined {
   const { status, live, queue } = thread;
   switch (status.state) {

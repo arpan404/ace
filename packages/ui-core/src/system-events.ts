@@ -241,8 +241,17 @@ export function inputLine(input: SystemInput): EventLine | undefined {
       return input.origin?.afterExit
         ? { icon: "resume", text: "Resumed after the agent stopped" }
         : { icon: "restart", text: "Resumed after restart" };
-    case "limit_resume":
-      return { icon: "resume", text: "Resumed after the usage limit" };
+    case "limit_resume": {
+      // Switched from the limit strip: the one line says where the work carried on.
+      const to = input.origin?.to;
+      return to
+        ? {
+            icon: "switch",
+            text: `Continued on ${selectionLabel(to)} after the usage limit`,
+            provider: to.provider,
+          }
+        : { icon: "resume", text: "Resumed after the usage limit" };
+    }
     case "background_completion": {
       const title = backgroundTitle(input.text);
       return {

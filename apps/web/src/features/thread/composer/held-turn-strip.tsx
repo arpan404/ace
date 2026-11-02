@@ -2,16 +2,19 @@ import type { ThreadReader } from "@ace/client";
 import { useThread, useThreadMeta } from "@ace/client-react";
 import type { AgentError } from "@ace/protocol";
 import {
+  carryingTurn,
   describeProviderError,
   heldTurn,
-  heldTurnLink,
   providerNames,
+  scheduledLead,
   type HeldTurn,
 } from "@ace/ui-core";
 import { useCallback, type ReactNode } from "react";
 import { useNow } from "@/lib/time.ts";
+import { LimitSwitchMenu } from "./limit-switch-menu.tsx";
 import type { HeldQueue } from "./queue-notice.tsx";
 import { useActiveRootRun } from "./stop-state.ts";
+import { useCarryOn } from "./use-carry-on.ts";
 import { useChosenModel } from "./use-model-switch.ts";
 import type { QueueControls } from "./use-queue.ts";
 
@@ -50,6 +53,8 @@ export function useHeldTurn(threadId: string, held: HeldQueue | undefined): Held
         })
       : undefined;
   const who = provider ? providerNames[provider] : "The provider";
+  const { carrying } = useCarryOn(threadId);
+  if (carrying) return carryingTurn(carrying.name);
   const explicitlyHeld = held && !["limited", "resuming", "snoozed"].includes(held.notice.kind);
   return leaving || explicitlyHeld ? undefined : heldTurn(held?.notice, view, who, now);
 }
@@ -65,63 +70,102 @@ export function useLeavesLimit(threadId: string): boolean {
   return chosen ? !chosen.exhausted : queued;
 }
 
+const textButton =
+  "h-7 shrink-0 rounded-md px-2 font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring disabled:opacity-50";
+
+/** The strip's sentence, the time in the foreground ink. */
+function Sentence(props: { turn: HeldTurn }) {
+  const { turn } = props;
+  const time = (text: string) => (
+    <span className="font-medium text-foreground tabular-nums">{text}</span>
+  );
+  if (turn.scheduled && turn.until)
+    return (
+      <>
+        {scheduledLead(turn)}
+        {time(turn.until)} when {turn.who} resets
+        {turn.left && <span className="tabular-nums"> · in {turn.left}</span>}
+      </>
+    );
+  return (
+    <>
+      {turn.lead}
+      {turn.until && <> until {time(turn.until)}</>}
+    </>
+  );
+}
+
 /**
  * The limit as the composer's top strip: one sentence and the ways on, as words. "Codex is out
- * of usage until 1:14 AM · Switch · Resume at reset · Continue". Switch opens the picker for
- * another account, model or provider. Continue
- * sends "Continue where you left off." as the person's message.
+ * of usage until 1:14 AM · Switch · Resume at reset · Continue". Switch lists the accounts and
+ * providers with room; picking one carries the held work on there at once. Once the person chose
+ * to resume at reset: "Resumes at 1:14 AM when Codex resets · in 1h 28m · Switch · Cancel", where
+ * Cancel goes back to the limit. While a switch lands: "Continuing on Claude Code · work".
  */
 export function HeldTurnStrip(props: {
   threadId: string;
   turn: HeldTurn;
   queue: QueueControls;
   indicators: ReactNode;
+  /** Opens the full model picker. */
   onSwitch(): void;
 }) {
-  const { turn } = props;
+  const { turn, queue } = props;
+  const { carryOn } = useCarryOn(props.threadId);
+  const moving = turn.kind === "moving";
   return (
     <section
-      aria-label={turn.lead}
+      aria-label={turn.scheduled ? "Scheduled resume" : turn.lead}
       // The sentence is never cut: when the strip is too narrow for it and the actions on one
       // line, the actions move to a second line, still at the right.
       className="flex min-h-9 min-w-0 flex-wrap items-center gap-x-1 py-1 pr-1 pl-2.5 text-xs"
     >
-      <p className="min-w-[14rem] flex-1 py-1 text-muted-foreground">
-        {turn.lead}
-        {turn.until && (
-          <>
-            {heldTurnLink(turn)}
-            <span className="font-medium text-foreground tabular-nums">{turn.until}</span>
-          </>
-        )}
+      <p role={moving ? "status" : undefined} className="min-w-[14rem] flex-1 py-1 text-muted-foreground">
+        <Sentence turn={turn} />
       </p>
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {props.indicators}
-        <button
-          type="button"
-          onClick={props.onSwitch}
-          className="h-7 shrink-0 rounded-md px-2 font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring"
-        >
-          Switch
-        </button>
-        {turn.atReset && (
+        {!moving && (
+          <LimitSwitchMenu
+            threadId={props.threadId}
+            disabled={queue.acting}
+            onPick={carryOn}
+            onOtherModels={props.onSwitch}
+          />
+        )}
+        {turn.cancel ? (
           <button
             type="button"
-            disabled={props.queue.acting}
-            onClick={() => turn.atReset && props.queue.act(turn.atReset)}
-            className="h-7 shrink-0 rounded-md px-2 font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring disabled:opacity-50"
+            disabled={queue.acting}
+            onClick={() => turn.cancel && queue.act(turn.cancel)}
+            className={textButton}
           >
-            Resume at reset
+            Cancel
           </button>
+        ) : (
+          !moving && (
+            <>
+              {turn.atReset && (
+                <button
+                  type="button"
+                  disabled={queue.acting}
+                  onClick={() => turn.atReset && queue.act(turn.atReset)}
+                  className={textButton}
+                >
+                  Resume at reset
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={queue.acting}
+                onClick={() => queue.act(turn.carryOn)}
+                className="h-7 shrink-0 rounded-md px-2 font-semibold text-foreground transition-colors duration-(--motion-fast) hover:bg-accent focus-ring disabled:opacity-50"
+              >
+                Continue
+              </button>
+            </>
+          )
         )}
-        <button
-          type="button"
-          disabled={props.queue.acting}
-          onClick={() => props.queue.act(turn.carryOn)}
-          className="h-7 shrink-0 rounded-md px-2 font-semibold text-foreground transition-colors duration-(--motion-fast) hover:bg-accent focus-ring disabled:opacity-50"
-        >
-          Continue
-        </button>
       </div>
     </section>
   );

@@ -11,7 +11,8 @@ import { formatCountdown } from "./time.ts";
  */
 
 export interface HeldTurn {
-  kind: "limited" | "resuming" | "snoozed" | "limit_failed";
+  /** `moving`: the person switched from the strip and the held work is on its way there. */
+  kind: "limited" | "resuming" | "snoozed" | "limit_failed" | "moving";
   /** "Codex is out of usage", "Claude is rate limited". */
   lead: string;
   /** When it lifts, as a clock time ("1:14 AM", "tomorrow 1:14 AM"), when known. */
@@ -73,6 +74,24 @@ export function heldTurn(
     who,
     atReset: undefined,
     carryOn: { id: "continue", label: "Continue" },
+  };
+}
+
+/**
+ * The strip while the person's switch from it lands: "Continuing on Claude Code · work", with
+ * nothing to press. It gives way once the turn runs there.
+ */
+export function carryingTurn(where: string): HeldTurn {
+  return {
+    kind: "moving",
+    lead: `Continuing on ${where}`,
+    until: undefined,
+    scheduled: false,
+    left: undefined,
+    cancel: undefined,
+    who: where,
+    atReset: undefined,
+    carryOn: { id: "resume_now", label: "Continue" },
   };
 }
 
