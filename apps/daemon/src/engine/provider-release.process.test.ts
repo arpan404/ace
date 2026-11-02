@@ -165,3 +165,35 @@ test("a live subagent keeps the provider alive however long the root has been id
   expect(h.closes()).toEqual([]);
   expect(await h.states(id)).toEqual(["busy"]);
 });
+
+const leftRunning: Fact = {
+  type: "background.started",
+  agent: "root",
+  task: "shell",
+  kind: "shell",
+  title: "bun run dev",
+  stoppable: true,
+  wakesAgent: false,
+};
+
+test("a done thread keeps its provider while a command it left running still runs", async () => {
+  const frames = scriptFrames();
+  const h = await setup([{ on: "send", frames: [frames.frame(start, leftRunning, end)] }], frames);
+  const id = await h.create();
+  expect(h.store.getThread(id)?.status.state).toBe("done");
+  h.clock.advance(h.clock.now() + 10 * idleMs);
+  await h.engine.flush();
+  expect(h.closes()).toEqual([]);
+  expect(h.engine.hasSession(id)).toBe(true);
+});
+
+test("settling a done thread releases the commands it left running with its provider", async () => {
+  const frames = scriptFrames();
+  const h = await setup([{ on: "send", frames: [frames.frame(start, leftRunning, end)] }], frames);
+  const id = await h.create();
+  h.settle(id);
+  await h.engine.flush();
+  h.clock.advance(h.clock.now());
+  await h.engine.flush();
+  expect(h.engine.hasSession(id)).toBe(false);
+});

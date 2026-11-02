@@ -244,7 +244,7 @@ export function listenBackground(
 ): void {
   const task = get(state.tasks, fact.task);
   if (task?.status !== "running") return;
-  const ports = [...new Set(fact.ports)].sort((a, b) => a - b);
+  const ports = [...new Set(fact.ports)].toSorted((a, b) => a - b);
   const known = task.listening ?? [];
   if (ports.length === known.length && ports.every((port, i) => port === known[i])) return;
   if (ports.length) task.listening = ports;

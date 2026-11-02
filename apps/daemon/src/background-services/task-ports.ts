@@ -38,7 +38,7 @@ export function taskPorts(
   };
   const ports = new Set<number>();
   for (const listener of listeners) if (owned(listener.pid)) ports.add(listener.port);
-  return [...ports].sort((a, b) => a - b);
+  return [...ports].toSorted((a, b) => a - b);
 }
 
 /** Whether a probe's answer differs from what was last reported. */
