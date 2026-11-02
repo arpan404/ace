@@ -11,7 +11,7 @@ import { cursorCatalogEnvironment } from "./cursor-catalog-env.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
 /**
