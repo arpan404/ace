@@ -105,14 +105,14 @@ export class BlobLeases {
     const alive = this.options.ownerAlive;
     if (alive) {
       const gone = new Map<string, boolean>();
-      for (const lease of [...this.held.values()]) {
+      for (const lease of this.held.values()) {
         let dead = gone.get(lease.owner);
         if (dead === undefined) gone.set(lease.owner, (dead = !alive(lease.owner)));
         if (dead) lease.release();
       }
     }
     const cutoff = this.options.now() - this.options.staleMs;
-    for (const lease of [...this.held.values()]) {
+    for (const lease of this.held.values()) {
       if (!full() || lease.at > cutoff) return;
       // Room for this owner comes from its own leases; room in total from anyone's.
       if (this.held.size >= this.options.total || lease.owner === owner) lease.release();
