@@ -12,9 +12,10 @@ import { useBackgroundShells } from "@/features/panels/index.ts";
 const noShells: readonly BackgroundTask[] = [];
 
 /**
- * The background commands a stopped turn left running: the root agent was interrupted, no
- * subagent still runs, yet commands it started do. Empty otherwise, so a turn that ended on its
- * own and left a dev server watching never reads as stopped.
+ * The background commands a finished turn left running: the root agent was interrupted, or the
+ * thread is done (a dev server the agent left for the person, ADR 0109), no subagent still runs,
+ * yet commands it started do. Empty while the thread still waits on them: that strip is the
+ * turn's own wait.
  */
 export function useStoppedCommands(threadId: string): readonly BackgroundTask[] {
   const meta = useThreadMeta(threadId);
@@ -33,7 +34,8 @@ export function useStoppedCommands(threadId: string): readonly BackgroundTask[] 
   const stopped = useWatched(threadId, keys, read, Object.is) ?? false;
   const running = useBackgroundShells(threadId).filter((task) => task.status === "running");
   const subagents = meta?.live?.runningSubagentCount ?? 0;
-  return stopped && subagents === 0 && running.length ? running : noShells;
+  const done = meta?.status.state === "done";
+  return (stopped || done) && subagents === 0 && running.length ? running : noShells;
 }
 
 /** "Esc again to stop · 4 subagents": the first Esc's answer, until the second or a moment. */
