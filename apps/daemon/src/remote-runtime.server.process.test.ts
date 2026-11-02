@@ -107,7 +107,7 @@ async function runtime(
         },
       },
     },
-    makeAccount ? (store, home) => ({ machineAccount: makeAccount(store, home) }) : undefined,
+    makeAccount ? (store, root) => ({ machineAccount: makeAccount(store, root) }) : undefined,
   );
   const client = await f.connect();
   await client.next();
