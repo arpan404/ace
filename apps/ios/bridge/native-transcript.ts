@@ -1,7 +1,13 @@
 import type { ClientCore, Lease, ThreadSource } from "@ace/client";
 import { inRootLane } from "@ace/projection";
 import { ItemId, ThreadId } from "@ace/protocol";
-import { JumpController, jumpedSource, type JumpSnapshot, type WindowBounds } from "@ace/ui-core";
+import {
+  JumpController,
+  jumpedSource,
+  windowBounds,
+  type JumpSnapshot,
+  type WindowBounds,
+} from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
 import { followThread } from "./patches.ts";
@@ -21,11 +27,14 @@ import { followBlocks } from "./thread-blocks.ts";
  */
 
 /**
- * The phone's window: a few hundred rows (dozens of screens), as the web's agent transcript
- * holds. Every frame that moves the window re-lays out the rows it holds, so the bound is the
- * cost of each page on the main thread and of the memory the rows keep.
+ * The phone's window holds what the web's does (ADR 0056: a few thousand items). History the
+ * reader has paged in stays loaded while they read back and forth; a smaller bound evicted the
+ * newer end after two pages back, so every return toward the end read it again, and every
+ * trip back up read the older pages again. Swift lays out only the rows on screen (a lazy
+ * stack), and a page sends only the rows it added, so the bound costs memory, not main-thread
+ * time per page.
  */
-export const phoneWindow: WindowBounds = { capacity: 400, weight: 2 * 1024 * 1024 };
+export const phoneWindow: WindowBounds = windowBounds;
 
 export const NativeTranscriptRequest = z
   .object({

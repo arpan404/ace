@@ -4,18 +4,27 @@ import WebKit
 
 /// Published media as the bridge answers `native.media`: a sandboxed page or an image's pixels.
 enum PublishedMedia {
-    case page(String)
+    case page(CanvasPage)
     case picture(UIImage)
 }
 
 private struct PublishedMediaReply: Decodable { let kind: String; let document: String?; let data: String? }
 
 /// Reads one thread's published media through the owning connection, keeping what it read so a
-/// row that scrolls back into view draws at once instead of fetching again.
+/// row that scrolls back into view draws at once instead of fetching again, and its pages'
+/// heights and loaded views (`canvases`) so a page comes back at its height without loading.
 @MainActor final class PublishedMediaSource {
     let model: ClientModel
     let threadId: String
+    /// Pixels may be large, so the system may drop them under memory pressure.
     private let cache = NSCache<NSString, Box>()
+    /// Pages are a few kilobytes of HTML: kept in order and dropped oldest first, never at the
+    /// system's whim, so a page read once is never fetched again while the thread is open.
+    private var pages: [NSString: CanvasPage] = [:]
+    private var pageOrder: [NSString] = []
+    private static let maxPages = 64
+    /// Enough loaded pages that reading back over a long thread's charts never loads one again.
+    let canvases = ViewShelf<WKWebView>(maxKept: 16)
     private final class Box { let media: PublishedMedia; init(_ media: PublishedMedia) { self.media = media } }
 
     init(model: ClientModel, threadId: String) {
@@ -25,18 +34,46 @@ private struct PublishedMediaReply: Decodable { let kind: String; let document: 
     }
 
     func cached(_ itemId: String, scheme: ColorScheme) -> PublishedMedia? {
-        cache.object(forKey: key(itemId, scheme))?.media
+        let key = key(itemId, scheme)
+        if let page = pages[key] { return .page(page) }
+        return cache.object(forKey: key)?.media
     }
+
+    /// Reads in flight, shared by every row that asks, and never cancelled with a row: a row
+    /// flung past before its media arrives still leaves it here for when it comes back.
+    private var reading: [NSString: Task<PublishedMedia, Error>] = [:]
 
     func load(_ itemId: String, scheme: ColorScheme) async throws -> PublishedMedia {
         if let hit = cached(itemId, scheme: scheme) { return hit }
+        let key = key(itemId, scheme)
+        if let pending = reading[key] { return try await pending.value }
+        let read = Task<PublishedMedia, Error> { @MainActor in
+            defer { reading[key] = nil }
+            return try await fetch(itemId, scheme: scheme)
+        }
+        reading[key] = read
+        return try await read.value
+    }
+
+    /// Measurement only: what was fetched before, so a second fetch of it is counted.
+    private var fetched: Set<NSString> = []
+
+    private func fetch(_ itemId: String, scheme: ColorScheme) async throws -> PublishedMedia {
+        PerfProbe.add("media.fetches", 1)
+        if PerfProbe.enabled, !fetched.insert(key(itemId, scheme)).inserted { PerfProbe.add("media.refetches", 1) }
         let reply = try await model.service(["type": "native.media", "threadId": threadId, "itemId": itemId, "scheme": scheme == .dark ? "dark" : "light"], as: PublishedMediaReply.self)
         let media: PublishedMedia
-        if reply.kind == "html", let html = reply.document { media = .page(html) }
+        if reply.kind == "html", let html = reply.document { media = .page(CanvasPage(document: html)) }
         else if let encoded = reply.data, let data = Data(base64Encoded: encoded), let image = UIImage(data: data) {
             media = .picture(await image.byPreparingForDisplay() ?? image)
         } else { throw ServiceFailure(message: "The attachment couldn't be decoded.") }
-        cache.setObject(Box(media), forKey: key(itemId, scheme))
+        let key = key(itemId, scheme)
+        if case .page(let page) = media {
+            if pages.updateValue(page, forKey: key) == nil { pageOrder.append(key) }
+            while pageOrder.count > Self.maxPages { pages[pageOrder.removeFirst()] = nil }
+        } else {
+            cache.setObject(Box(media), forKey: key)
+        }
         return media
     }
 
@@ -79,6 +116,10 @@ struct PublishedMediaRow: View {
     @State private var media: PublishedMedia?
     @State private var failed = false
 
+    /// What the row draws: what it loaded, or what the thread already holds, so a row coming back
+    /// into view draws its media in its first layout rather than a placeholder.
+    private var shown: PublishedMedia? { media ?? source?.cached(row.id, scheme: scheme) }
+
     var body: some View {
         Group {
             if source == nil || failed {
@@ -92,7 +133,7 @@ struct PublishedMediaRow: View {
         .accessibilityIdentifier("media.\(row.id)")
         .task(id: scheme) {
             guard let source else { return }
-            if let hit = source.cached(row.id, scheme: scheme) { media = hit; return }
+            if source.cached(row.id, scheme: scheme) != nil { return }
             do { media = try await source.load(row.id, scheme: scheme); failed = false }
             catch { if !Task.isCancelled { failed = true } }
         }
@@ -100,7 +141,7 @@ struct PublishedMediaRow: View {
 
     private var picture: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
-            if case .picture(let image) = media {
+            if case .picture(let image) = shown {
                 Button(action: open) {
                     Image(uiImage: image)
                         .resizable()
@@ -140,11 +181,12 @@ struct PublishedMediaRow: View {
             .padding((AceTheme.Dimensions.touchTarget - Self.expandSize) / 2)
             .contentShape(Rectangle())
             .accessibilityLabel("Open \(row.text) full screen")
-            if case .page(let document) = media {
-                InlineCanvas(document: document, title: row.text)
+            if case .page(let page) = shown {
+                InlineCanvas(page: page, itemId: row.id, title: row.text, shelf: source?.canvases)
             } else {
                 AceShape.block.fill(AceTheme.Colours.fill)
-                    .frame(maxWidth: .infinity).frame(height: Self.placeholderHeight)
+                    // A page read before keeps its place while it is fetched again.
+                    .frame(maxWidth: .infinity).frame(height: source?.canvases.height(row.id) ?? InlineCanvas.placeholderHeight)
                     .accessibilityLabel("Loading \(row.text)")
             }
         }
@@ -153,75 +195,5 @@ struct PublishedMediaRow: View {
 
     private static let maxImageHeight: CGFloat = 420
     private static let expandSize: CGFloat = 32
-    private static let placeholderHeight: CGFloat = 160
-}
-
-/// A page inline in the transcript: as tall as its content, which the trusted outer document
-/// reports through its title (the authored page, in its own opaque-origin frame, cannot set it).
-/// The transcript scrolls, not the page; it keeps its own taps and gestures.
-private struct InlineCanvas: View {
-    let document: String
-    let title: String
-    @State private var height: CGFloat = 160
-    var body: some View {
-        MeasuredCanvas(document: document, height: $height)
-            .frame(maxWidth: .infinity)
-            .frame(height: height)
-            .accessibilityLabel(title)
-    }
-}
-
-private struct MeasuredCanvas: UIViewRepresentable {
-    let document: String
-    @Binding var height: CGFloat
-    func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
-        let view = WKWebView(frame: .zero, configuration: configuration)
-        view.navigationDelegate = context.coordinator
-        view.isOpaque = false
-        view.backgroundColor = .clear
-        view.scrollView.backgroundColor = .clear
-        view.scrollView.isScrollEnabled = false
-        view.scrollView.contentInsetAdjustmentBehavior = .never
-        view.accessibilityIdentifier = "canvas.inline"
-        context.coordinator.watch(view)
-        return view
-    }
-    func updateUIView(_ view: WKWebView, context: Context) {
-        context.coordinator.height = $height
-        guard context.coordinator.loadedDocument != document else { return }
-        context.coordinator.loadedDocument = document
-        view.loadHTMLString(document, baseURL: nil)
-    }
-    static func dismantleUIView(_ view: WKWebView, coordinator: Coordinator) { coordinator.stop() }
-    func makeCoordinator() -> Coordinator { Coordinator(height: $height) }
-
-    @MainActor final class Coordinator: NSObject, WKNavigationDelegate {
-        var loadedDocument = ""
-        var height: Binding<CGFloat>
-        private var observation: NSKeyValueObservation?
-        init(height: Binding<CGFloat>) { self.height = height }
-        func watch(_ view: WKWebView) {
-            observation = view.observe(\.title, options: [.new]) { [weak self] view, _ in
-                MainActor.assumeIsolated {
-                    guard let self, let reported = pageHeight(view.title ?? "") else { return }
-                    if abs(self.height.wrappedValue - reported) >= 1 { self.height.wrappedValue = reported }
-                }
-            }
-        }
-        func stop() { observation?.invalidate(); observation = nil }
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            let scheme = navigationAction.request.url?.scheme
-            decisionHandler(scheme == "about" || scheme == "data" ? .allow : .cancel)
-        }
-    }
-}
-
-/// The height the outer document puts in its title, `ace.html.height:<1–10000>`.
-nonisolated func pageHeight(_ title: String) -> CGFloat? {
-    guard title.hasPrefix("ace.html.height:"), let value = Int(title.dropFirst("ace.html.height:".count)),
-          (1...10_000).contains(value) else { return nil }
-    return CGFloat(value)
+    private static let placeholderHeight = InlineCanvas.placeholderHeight
 }

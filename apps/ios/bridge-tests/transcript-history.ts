@@ -247,6 +247,7 @@ async function olderPagesTask(): Promise<Record<string, unknown>> {
     return {
       pages: counts.length,
       counts,
+      bound: WINDOW_ITEM_BOUND,
       withinPageDupes,
       overlapConsistent,
       prependedAreOlder,
