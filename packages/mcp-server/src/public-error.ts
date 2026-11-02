@@ -21,6 +21,7 @@ export const PublicToolCode = z.enum([
   "invalid_html",
   "invalid_image",
   "image_unavailable",
+  "image_not_saved",
   "invalid_data",
   "execution_failed",
   "provider_unavailable",
@@ -184,6 +185,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   image_unavailable: {
     message: "The image file could not be read",
     hint: "Pass the path of a regular file, not a symbolic link, at most 8 MiB. A relative path starts at your working directory.",
+  },
+  image_not_saved: {
+    message: "The image could not be saved to this thread",
+    hint: "detail says why, in words to pass on. A full or busy attachment store clears as turns finish or older attachments are removed; retry once after that, otherwise tell the person.",
   },
   invalid_data: {
     message: "Invalid tool or backend data",

@@ -77,7 +77,10 @@ export async function toolAttachment(
     if (committed.kind !== "attachment") throw new Error("Tool image commit refused");
     return committed.attachment;
   } catch (error) {
-    await context.uploads.handle(device, { op: "upload.cancel", uploadId: begin.uploadId });
+    // A failed commit has already removed its upload; the cancel's own refusal would hide why.
+    await context.uploads
+      .handle(device, { op: "upload.cancel", uploadId: begin.uploadId })
+      .catch(() => undefined);
     throw error;
   }
 }
