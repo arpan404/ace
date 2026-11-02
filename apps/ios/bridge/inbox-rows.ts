@@ -9,6 +9,7 @@ import {
 } from "@ace/ui-core";
 import {
   chatMenu,
+  chatSections,
   inboxGroup,
   isChatThread,
   inboxGroupRank,
@@ -114,5 +115,28 @@ export function inboxLayout(
     /** The words for each row's `menu` ids, and the block each belongs to. */
     menuLabels: threadMenuLabels,
     menuSections: menuSections,
+  };
+}
+
+/** The Chats tab's sections (`chatSections`), in the inbox layout's shape so Swift merges them alike. */
+export function chatsLayout(
+  chats: readonly InboxThread[],
+  now: number,
+  baseline: number,
+  query: string,
+) {
+  return {
+    type: "chats.sections",
+    sections: chatSections(chats, { now, baseline, query }).map((section) => ({
+      key: section.key,
+      label: section.label,
+      ids: section.keys,
+      ranks: section.ranks,
+      order: section.order,
+      settled: section.settled,
+    })),
+    more: false,
+    snooze: [],
+    query,
   };
 }

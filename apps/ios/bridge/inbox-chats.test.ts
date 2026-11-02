@@ -8,6 +8,7 @@ await vi.hoisted(async () => {
 
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
+import { inboxCheckpoint } from "./inbox-checkpoint.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 /*
@@ -103,4 +104,25 @@ test("a chat's row offers Rename, Pin, Move to project and Delete; a project thr
   await until(() => menu("trip") !== undefined, "the chat row");
   expect(menu("trip")).toEqual(["rename", "pin", "move", "delete"]);
   expect(menu("fix")).toBeNull();
+});
+
+test("the launch copy keeps chats in their own list, out of Threads", async () => {
+  const { client } = await following((daemon) => {
+    thread(daemon, "fix", "Fix the build", false);
+    thread(daemon, "trip", "Three days in Lisbon", true);
+  });
+  const store = client.threads().store;
+  await until(() => store.ids.length === 2, "both threads");
+  const patches = inboxCheckpoint(store, {
+    machineId: "mac",
+    now: 5_000_000,
+    baseline: 0,
+    accounts: [],
+  });
+  const ids = (type: string) =>
+    patches
+      .filter((patch) => patch.type === type)
+      .flatMap((patch) => (patch as unknown as Layout).sections.flatMap((section) => section.ids));
+  expect(ids("inbox.sections")).toEqual(["fix"]);
+  expect(ids("chats.sections")).toEqual(["trip"]);
 });

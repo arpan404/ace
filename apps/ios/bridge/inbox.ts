@@ -7,7 +7,6 @@ import {
 } from "@ace/client";
 import { settledTotal, type HomeSort } from "@ace/ui-core";
 import {
-  chatSections,
   inboxNextChange,
   isChatThread,
   snoozePresets,
@@ -20,7 +19,7 @@ import { z } from "zod";
 import { host } from "./host.ts";
 import { preview } from "./presentation.ts";
 import { followAccounts } from "./inbox-accounts.ts";
-import { inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
+import { chatsLayout, inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
 import { followCheckpoint, inboxCheckpoint } from "./inbox-checkpoint.ts";
 import { followInboxSort } from "./inbox-sort.ts";
 import { dispatchCommand } from "./commands.ts";
@@ -339,24 +338,6 @@ export function followInbox(
     dismissed,
     chatQuery: narrowChats,
   });
-}
-
-/** The Chats tab's sections (`chatSections`), in the inbox layout's shape so Swift merges them alike. */
-function chatsLayout(chats: readonly InboxThread[], now: number, baseline: number, query: string) {
-  return {
-    type: "chats.sections",
-    sections: chatSections(chats, { now, baseline, query }).map((section) => ({
-      key: section.key,
-      label: section.label,
-      ids: section.keys,
-      ranks: section.ranks,
-      order: section.order,
-      settled: section.settled,
-    })),
-    more: false,
-    snooze: [],
-    query,
-  };
 }
 
 function pendingRow(send: PendingSend, connection: string) {
