@@ -90,12 +90,17 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .inboxFootBar {
                     if holds { InboxPlaces(tab: $tab, compose: inDrawer && inbox.canStartThreads ? forge.startThread : nil) }
                 }
-                // The bar's own title stays for Back buttons and VoiceOver; the leading title draws it.
-                .navigationTitle(pulls ? "Pull requests" : "Threads")
-                .navigationBarTitleDisplayMode(.inline)
-                // The leading heading draws the title; the bar's own centred one would take the
-                // middle and leave the heading and its buttons half the width each.
-                .toolbar(removing: .title)
+                // The system's large title, collapsing as rows scroll under it; the scope (machine
+                // and project, or what is wrong with the connection) under it and its pickers in
+                // the title's own menu.
+                .nativeTitle(pulls ? "Pull requests" : "Threads", subtitle: pulls ? nil : scopeLine) {
+                    if !pulls {
+                        filters
+                        if InboxConnectionProblem.of(inbox) != nil {
+                            Button("Machines", ace: .laptop, action: header.machines)
+                        }
+                    }
+                }
                 .toolbar { toolbar(holdsTabs: holds, composeInBar: holds && !inDrawer) }
                 // As a compact window's drawer the list is too narrow for the system's bar, which
                 // folds the title and its buttons into one ⋯: the list draws its own header, and
@@ -293,21 +298,22 @@ struct InboxStack<Destination: View, Side: View>: View {
         }
     }
     @ToolbarContentBuilder private func listToolbar(holdsTabs: Bool, composeInBar: Bool) -> some ToolbarContent {
-        // The title, its menu and the scope or connection problem under it, with no glass. The
-        // Pulls tab's title is its list's own, which knows its projects.
-        if !pulls {
-            if #available(iOS 26, *) {
-                ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .topBarLeading) { title }
-            }
-        }
         // Select, Settings and Search share one glass capsule, so the bar never runs out of room
         // and folds them, the title too, into an overflow ⋯ (a drawer, large text).
         ToolbarItemGroup(placement: .topBarTrailing) {
-            if !pulls, inbox.sessions.contains(where: { $0.client.canOperate }) {
-                Button { startSelecting() } label: { Image(systemName: "checkmark.circle") }
-                    .accessibilityLabel("Select").accessibilityIdentifier("inbox.select")
+            // What the list shows (machine, project) and Select, in one menu: the large title's own
+            // menu only opens once it has collapsed.
+            if !pulls {
+                Menu {
+                    filters
+                    if inbox.sessions.contains(where: { $0.client.canOperate }) {
+                        Section {
+                            Button("Select threads", ace: .checkCircle) { startSelecting() }
+                                .accessibilityIdentifier("inbox.select")
+                        }
+                    }
+                } label: { Image(systemName: "line.3.horizontal.decrease.circle") }
+                    .accessibilityLabel("Filter and select").accessibilityIdentifier("inbox.filter")
             }
             settings
             Button { withAnimation(listMotion) { searching = true } } label: { Image(systemName: "magnifyingglass") }
@@ -322,6 +328,10 @@ struct InboxStack<Destination: View, Side: View>: View {
     private func forgePage(_ route: ForgeRoute) -> some View {
         ForgePage(inbox: inbox, route: route, open: { path.append(.forge($0)) }, openThread: forge.openThread,
                   startThread: inbox.canStartThreads ? forge.startThread : nil)
+    }
+    /// Under the large title: what is wrong with the connection, else the scope the list shows.
+    private var scopeLine: String {
+        InboxConnectionProblem.of(inbox)?.text ?? filters.subtitle
     }
     private var title: some View {
         InboxHeading(title: "Threads", scope: filters.subtitle, problem: InboxConnectionProblem.of(inbox),

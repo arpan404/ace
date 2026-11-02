@@ -48,7 +48,7 @@ struct UsageView: View {
             .frame(maxWidth: .infinity)
         }
         .background(AceTheme.Colours.background)
-        .navigationTitle("Usage").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Usage")
         .task(id: readKey) { await read(fresh: false) }
         // Pull to refresh does what the Refresh button does.
         .refreshable { await refresh() }

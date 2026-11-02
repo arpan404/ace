@@ -51,7 +51,7 @@ struct MachinesView: View {
             }
         }
         .insetGroupedList()
-        .navigationTitle("Machines").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Machines")
         .toolbar {
             if machines != nil {
                 ToolbarItem(placement: .topBarTrailing) {

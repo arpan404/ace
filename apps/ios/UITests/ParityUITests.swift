@@ -7,9 +7,9 @@ import XCTest
         let app = launch()
         let start = app.newThreadButton
         XCTAssertTrue(start.waitForExistence(timeout: 30))
-        let filter = app.buttons["inbox.projects"]
+        let filter = app.buttons["inbox.filter"]
         XCTAssertTrue(filter.exists)
-        // The project chip sits under the header; New thread is the tab bar's round trailing button.
+        // The filter sits in the header; New thread is the tab bar's round trailing button.
         XCTAssertLessThan(filter.frame.maxY, app.frame.midY)
         XCTAssertGreaterThan(start.frame.minY, app.frame.midY)
         XCTAssertGreaterThan(start.frame.midX, app.frame.midX)

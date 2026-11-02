@@ -132,3 +132,37 @@ enum StatusSymbol {
     /// Words that ask for the person are loud; work in progress recedes.
     static func isLoud(_ token: String) -> Bool { token == "needsYou" || token == "failed" }
 }
+
+/// A section root's native title (DESIGN.md: the system's own): a large title that collapses as
+/// the list scrolls, the scope under it (iOS 26's subtitle) and, where the scope can change, the
+/// system's title menu holding the pickers.
+struct NativeTitle<Menu: View>: ViewModifier {
+    let title: String
+    let subtitle: String?
+    /// Whether the title opens a menu: one machine with one project needs none.
+    var hasMenu = true
+    @ViewBuilder let menu: () -> Menu
+    func body(content: Content) -> some View {
+        let titled = content
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.large)
+        let menued = Group {
+            if hasMenu { titled.toolbarTitleMenu { menu() } } else { titled }
+        }
+        if #available(iOS 26, *), let subtitle, !subtitle.isEmpty {
+            menued.navigationSubtitle(subtitle)
+        } else {
+            menued
+        }
+    }
+}
+
+extension View {
+    func nativeTitle<Menu: View>(_ title: String, subtitle: String? = nil, hasMenu: Bool = true,
+                                 @ViewBuilder menu: @escaping () -> Menu) -> some View {
+        modifier(NativeTitle(title: title, subtitle: subtitle, hasMenu: hasMenu, menu: menu))
+    }
+    func nativeTitle(_ title: String, subtitle: String? = nil) -> some View {
+        modifier(NativeTitle(title: title, subtitle: subtitle, hasMenu: false) { EmptyView() })
+    }
+}

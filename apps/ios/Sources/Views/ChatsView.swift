@@ -25,9 +25,14 @@ struct ChatsStack<Destination: View>: View {
     var body: some View {
         NavigationStack(path: $path) {
             ChatsList(inbox: inbox, device: device, searching: !query.trimmingCharacters(in: .whitespaces).isEmpty, actions: actions)
-                .navigationTitle("Chats")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar(removing: .title)
+                // The system's large title; with several machines the device under it and its
+                // picker in the title's menu.
+                .nativeTitle("Chats", subtitle: scopeLine, hasMenu: inbox.showsMachineNames) {
+                    Picker("Device", selection: $device) {
+                        Text("All devices").tag("")
+                        ForEach(inbox.sessions) { session in Text(inbox.name(session.hostId)).tag(session.hostId) }
+                    }
+                }
                 .toolbar { toolbar }
                 .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: Text("Search chats"))
                 .onChange(of: query) { _, now in for session in inbox.sessions { session.client.searchChats(now) } }
@@ -37,15 +42,9 @@ struct ChatsStack<Destination: View>: View {
         }
     }
 
+    /// One button: New chat. More (and Settings in it) is the Threads header's.
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        if #available(iOS 26, *) {
-            ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
-        } else {
-            ToolbarItem(placement: .topBarLeading) { title }
-        }
         ToolbarItemGroup(placement: .topBarTrailing) {
-            Button(action: actions.settings) { Image(systemName: "gearshape") }
-                .accessibilityLabel("Settings").accessibilityIdentifier("chats.settings")
             if inbox.canStartThreads {
                 Button(action: actions.newChat) { Image(systemName: "square.and.pencil") }
                     .accessibilityLabel("New chat").accessibilityIdentifier("chats.new")
@@ -53,20 +52,11 @@ struct ChatsStack<Destination: View>: View {
         }
     }
 
-    /// "Chats", and with more than one machine the device the list shows, chosen from its menu.
-    private var title: some View {
-        InboxHeading(title: "Chats", scope: inbox.showsMachineNames ? (device.isEmpty ? "All devices" : inbox.name(device)) : nil,
-                     problem: InboxConnectionProblem.of(inbox), openMachines: actions.machines, identifier: "chats.devices") {
-            if inbox.showsMachineNames {
-                Picker("Device", selection: $device) {
-                    Text("All devices").tag("")
-                    ForEach(inbox.sessions) { session in Text(inbox.name(session.hostId)).tag(session.hostId) }
-                }
-            }
-        }
-        .fixedSize()
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-        .modifier(HeaderLead())
+    /// Under the title: what is wrong with the connection, else the device shown (several only).
+    private var scopeLine: String? {
+        if let problem = InboxConnectionProblem.of(inbox) { return problem.text }
+        guard inbox.showsMachineNames else { return nil }
+        return device.isEmpty ? "All devices" : inbox.name(device)
     }
 }
 

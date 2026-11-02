@@ -74,7 +74,7 @@ struct ProjectsView: View {
         }
         .insetGroupedList()
         .searchable(text: $query, prompt: "Search projects")
-        .navigationTitle("Projects").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Projects")
         .toolbar {
             if model.canOperate {
                 ToolbarItem(placement: .topBarTrailing) {
