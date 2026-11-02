@@ -219,6 +219,18 @@ test("a recovery the person must act on outranks the settled status word", () =>
   expect(inboxStatus(stuck, now)).toEqual({ label: "Not sent", token: "failed" });
 });
 
+test("a thread the person stopped sits in Done, asking nothing, with or without messages it kept", () => {
+  for (const pendingCount of [0, 2]) {
+    const stopped = on(
+      "mac",
+      entry("stopped", { state: "done" }, now, {
+        queue: { revision: 1, paused: true, reason: "stopped", resumeAt: null, pendingCount },
+      }),
+    );
+    expect(sections([stopped])).toEqual({ Done: ["mac/stopped"] });
+  }
+});
+
 test("limited reads in the waiting colour, unresponsive keeps its own, new claims nothing", () => {
   expect(mobileStatus({ state: "limited" })).toEqual({ label: "Limited", token: "waiting" });
   expect(mobileStatus({ state: "unresponsive" })).toEqual({

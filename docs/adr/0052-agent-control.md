@@ -154,7 +154,7 @@ Constants:
   a message that was never sent settles.
 - **Queue kept by a Stop** (`core/status.ts`, `queue.changed.stopped`). Input a Stop kept for the
   person's Resume sends nothing by itself: the thread reads at rest, not `waiting{queue}`. Its
-  attention still asks for the Resume.
+  attention still asks for the Resume (superseded: a Stop asks nothing, see the amendment below).
 - **Provider sessions** (`engine/delivery.ts`, `engine/sessions.ts`). The provider's interrupt
   has `INTERRUPT_GRACE_MS` to answer. Past it, a whole-thread Stop closes the session, whose
   adapter sends SIGTERM then SIGKILL to the process group. A close that fails or doesn't answer
@@ -197,3 +197,42 @@ resumed, late report, restart, a live sibling keeps the parent open, a wait rele
 stopped), `machines/machine-stop` (two real daemons: a held child cancelled from its parent
 settles on both), `engine/stop-escalation` (a hung interrupt; a hung interrupt and close),
 `machines/command-stop` (a shell ignoring SIGTERM is killed), core `adapter-contracts`.
+
+## Amendment 2026-11-01: the person's Stop is done, and already read
+
+After a Stop the thread read done in core, but every other surface still treated the Stop as
+something to act on: an "Agent stopped · Continue" pill over the composer (and the same strip on
+iOS), `needs_you` in the phone's Inbox, a held queue that kept the thread out of auto-settle, an
+unread Done mark for a turn the person had just ended themselves, and `needs-human` from
+`thread wait --tree`. The owner: "if user interrupts, we must not auto continue when restarting, or
+even show 'agent paused' / a Continue pill. Interrupted is marked as done, which is already read
+by the user."
+
+### Rule
+
+- **Only the person's own Stop is final.** It is the queue hold with reason `stopped` (a Stop of
+  the whole thread, `agent_cancel`, kill-all). A restart, a crash or a provider that died hold with
+  reason `restart` and keep ADR 0098's recovery: continue by itself when safe, else a Continue pill.
+- **Done.** Core already reads a Stop's thread at rest (`status.ts`), with or without messages it
+  kept. Unchanged.
+- **Asks nothing.** `threadAttention` (projection) no longer returns `stopped`. So the thread is no
+  attention anywhere: not `needs_you` in the phone's Inbox, not held out of auto-settle or the
+  Settled list, not `needs-human` in a CLI tree or a delegation's work outcome, and a parent's
+  `wait` sees a stopped child as done. Automation runs keep their own reading of a Stop (needs the
+  person, or failed when their own cancellation made it): `automation-run-rules.ts` reads the
+  queue's reason directly.
+- **Already read.** `isUnread` (ui-core) answers false while a Stop's hold stands
+  (`stoppedByPerson`), on every device's cursor; the person's own Mark unread still wins.
+- **No Continue.** `stopTitle` names only a restart or a provider exit, so the pill never shows for
+  a Stop; `queueNotice` says nothing for a Stop, except, when the Stop kept queued messages, "Queued
+  messages wait" with Send now (`queue.resume`) in the queue's strip. The transcript keeps its quiet
+  "Interrupted by you" break, and the next message starts a new turn (the 2026-10-18 rule in ADR
+  0053).
+- **Across restarts.** Unchanged from ADR 0053 ("A Stop is final across restarts"): capture,
+  provider-exit holds and startup skip a `stopped` hold, so nothing resumes or re-prompts the turn,
+  and the hold, and with it every rule above, survives the restart.
+
+Tests: `engine/restart-resume.process.test.ts` (a stopped turn stays done, asks nothing and sends
+nothing after a crash and after a graceful restart; a crash's own interruption still continues),
+`cli-attention.process.test.ts`, `engine/io-lifecycle.process.test.ts`, ui-core `thread-card`,
+`mobile-inbox` and `queue` tests, web `interrupted-turn.test.tsx`.

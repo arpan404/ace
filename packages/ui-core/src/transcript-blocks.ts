@@ -918,7 +918,8 @@ export function buildBlocks(source: BlockSource): Block[] {
       continue;
     }
     // A turn still held at a limit has no end yet: its time stops at the last thing it said.
-    const endedAt = lastFacts?.endedAt ?? (turn.paused ? lastSaid(source, blocks, turn) : undefined);
+    const endedAt =
+      lastFacts?.endedAt ?? (turn.paused ? lastSaid(source, blocks, turn) : undefined);
     if (turn.openWork && endedAt !== undefined) turn.openWork.until = endedAt;
     if (facts && endedAt !== undefined && startedAt !== undefined) {
       const ends = [...turn.runs].flatMap((id) => source.run?.(id)?.endedAt ?? []);
@@ -1103,7 +1104,11 @@ function endBlock(
 }
 
 /** When a turn last said or did something in view: the newest of its items. */
-function lastSaid(source: BlockSource, blocks: readonly Block[], turn: TurnMark): number | undefined {
+function lastSaid(
+  source: BlockSource,
+  blocks: readonly Block[],
+  turn: TurnMark,
+): number | undefined {
   let at: number | undefined;
   for (const index of turn.blocks) {
     const block = blocks[index];

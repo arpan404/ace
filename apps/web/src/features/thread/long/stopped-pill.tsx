@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useClient, useThread } from "@ace/client-react";
-import { ThreadId, type CommandPayload } from "@ace/protocol";
-import { continueMessage, stopTitle } from "@ace/ui-core";
+import { ThreadId } from "@ace/protocol";
+import { stopTitle } from "@ace/ui-core";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { PauseBarsIcon, ResumeIcon } from "@/components/ace-icons.tsx";
 import { useState } from "react";
@@ -11,24 +11,25 @@ import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
 import { useActiveRootRun } from "../composer/stop-state.ts";
 import { floatingControl, floatingHover, floatingMotion } from "./floating.ts";
 
-/** Why the turn stopped, when it stopped and nothing has run since. */
+/**
+ * Why ace or the provider cut the turn short, when nothing has run since. The person's own Stop
+ * has no pill: their turn is done, and their next message starts a new one.
+ */
 const stopOf = (reader: ThreadReader) => {
   const queue = reader.queue;
   const label = stopTitle(queue, reader.thread?.provider);
   if (!label || !queue) return undefined;
-  // A restart and a provider that died both leave a continuation to resume; a Stop leaves none.
-  return { resumes: queue.reason === "restart", exited: queue.exited === true, label };
+  return { exited: queue.exited === true, label };
 };
 type Stop = NonNullable<ReturnType<typeof stopOf>>;
 const sameStop = (a: Stop | undefined, b: Stop | undefined) =>
-  a === b ||
-  (!!a && !!b && a.resumes === b.resumes && a.exited === b.exited && a.label === b.label);
+  a === b || (!!a && !!b && a.exited === b.exited && a.label === b.label);
 
 /**
  * A stopped turn as a pill in the Scroll to end spot, never an item in the queue's strip:
  * "Stopped by a restart · Continue", or "Cursor stopped unexpectedly · Continue" when the
  * provider's process died. Continue sends one continuation; a message the person sends instead
- * simply starts the next turn. Nothing continues by itself, and the pill leaves as soon
+ * simply starts the next turn. The person's own Stop shows none. Nothing continues by itself, and the pill leaves as soon
  * as a turn runs. With Scroll to end showing too, it sits just above it.
  */
 export function StoppedPill(props: { threadId: string; raised: boolean }) {
@@ -38,24 +39,19 @@ export function StoppedPill(props: { threadId: string; raised: boolean }) {
   const running = !!useActiveRootRun(props.threadId);
   const [sending, setSending] = useState(false);
   if (!stop || running) return null;
-  const { label, resumes } = stop;
-  const Glyph = resumes && !stop.exited ? ArrowClockwiseIcon : PauseBarsIcon;
+  const { label } = stop;
+  const Glyph = stop.exited ? PauseBarsIcon : ArrowClockwiseIcon;
   const go = () => {
     setSending(true);
     void (async () => {
       const threadId = ThreadId.parse(props.threadId);
       const { queue } = await client.request({ type: "queue.get", threadId, limit: 1 });
-      // A restart left a native continuation to resume (the daemon sends it in the person's
-      // words); a Stop left none, so Continue is simply their next message.
-      const payload: CommandPayload = resumes
-        ? { type: "thread.resume", threadId, expectedRevision: queue.revision }
-        : {
-            type: "thread.send",
-            threadId,
-            input: [{ type: "text", text: continueMessage }],
-            delivery: "queue",
-          };
-      await runCommand(client, payload, crypto.randomUUID());
+      // A restart left a native continuation to resume; the daemon sends it in the person's words.
+      await runCommand(
+        client,
+        { type: "thread.resume", threadId, expectedRevision: queue.revision },
+        crypto.randomUUID(),
+      );
     })()
       .catch((error: unknown) =>
         toast.error({ title: "Couldn't continue", description: failureMessage(error) }),

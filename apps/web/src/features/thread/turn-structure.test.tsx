@@ -1,10 +1,4 @@
-import {
-  delegatedDocs,
-  delegatedDocsIds,
-  facts,
-  workbench,
-  type Scenario,
-} from "@ace/fake-daemon";
+import { delegatedDocs, delegatedDocsIds, facts, workbench, type Scenario } from "@ace/fake-daemon";
 import { configure, act, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
