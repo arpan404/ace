@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct ThreadView: View {
-    @Environment(\.dismiss) private var dismiss
+    /// Going back a page, read where it is used: the body never depends on `dismiss`.
+    @State private var back = DismissBox()
     /// Closes the thread open beside the list, which has no page under it to go back to.
     @Environment(\.closeOpenThread) private var closeOpenThread
     @Environment(\.threadDrawerOpen) private var drawerOpen
@@ -96,6 +97,7 @@ struct ThreadView: View {
         GeometryReader { geometry in
             content(pageWidth: geometry.size.width)
         }
+        .background { DismissCapture(box: back) }
     }
 
     private func content(pageWidth: CGFloat) -> some View {
@@ -106,6 +108,7 @@ struct ThreadView: View {
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
+            .markdownShelf(threadId: thread.id)
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
@@ -359,7 +362,7 @@ struct ThreadView: View {
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
     private func leave() {
-        if let close = closeOpenThread, close.id == thread.id { close.close() } else { dismiss() }
+        if let close = closeOpenThread, close.id == thread.id { close.close() } else { back.dismiss?() }
     }
     /// A pill part opens what it names.
     private func openPill(_ opens: String) {
@@ -471,5 +474,22 @@ private struct BarFloor: View {
         .offset(y: below)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// The page's current dismiss action, kept out of the thread page's body. Read there, every new
+/// `DismissAction` (the navigation container hands out another whenever it updates, which with an
+/// accessibility client attached is every frame) re-evaluated the page, its feed and every row.
+@MainActor final class DismissBox {
+    var dismiss: DismissAction?
+}
+
+/// Reads `dismiss` into the page's box; only this empty view updates when it changes.
+private struct DismissCapture: View {
+    let box: DismissBox
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        let _ = box.dismiss = dismiss
+        Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
     }
 }
