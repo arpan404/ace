@@ -129,8 +129,8 @@
       "sha256": "c0a123582525b3e143a9ea154adab22e94392c430c06c9a2e26f26510c31de76"
     },
     "schema/AceAccount.json": {
-      "bytes": 597,
-      "sha256": "5fe04a25c21d022d0beef7566b06a3ede71f5dfe43bf51710a1cbba84729d067"
+      "bytes": 484,
+      "sha256": "f6e7e3a97d9061231184d95037561c8569fde538f5ff55157e63442fb230c0c6"
     },
     "schema/AceAccountGrant.json": {
       "bytes": 519,
@@ -145,8 +145,8 @@
       "sha256": "0477de6c25b543c205a8a8bd3f806d4207fefe99065791fca490df79b7c1b483"
     },
     "schema/AceAccountOrigin.json": {
-      "bytes": 351,
-      "sha256": "2e7a00fab5a5f11df17662f0d82de9a66c4e1a6087b5d5eb482560b039bb0b71"
+      "bytes": 464,
+      "sha256": "54290abfc9c14e60c80f81f9b39d9f799e3c11308797921f897fa2c163458b36"
     },
     "schema/AceAccountSession.json": {
       "bytes": 423,
@@ -4757,10 +4757,10 @@
       "sha256": "5689abd9740d125fc925f514b8ad6da3bf4252fdd3934fbe5031dc92265ef181"
     },
     "types.md": {
-      "bytes": 967623,
-      "sha256": "f755505c736002632f19d9b43e1570f4d0a4818e470e58955f80da1587d58d5e"
+      "bytes": 967128,
+      "sha256": "6b81f1274e3037129a6888d2e20b50051618f1a8789d45089d849d90178dc888"
     }
   },
-  "input": "b4a03d38312fb4830d5b4f503e403129f66d47b4a0783d09836bc139dd7db0f5",
+  "input": "346879248f28c2614e06d798bedc1a57934484c4329a0ca59a4ffd45e5e0a93b",
   "version": 1
 }

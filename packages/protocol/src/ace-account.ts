@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const AceAccountOrigin = z
   .string()
+  // The pattern carries the shape into the JSON schema; the refinement checks it is an origin.
+  .regex(/^(?:https:\/\/[^\s/?#@]+|http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?)$/)
   .refine((value) => {
     try {
       const url = new URL(value);
@@ -23,7 +25,11 @@ export const AceAccountOrigin = z
 /** An ace identity, independent of provider accounts and paired-machine authority. */
 export const AceAccount = z.object({
   id: z.string().min(1).max(256),
-  email: z.email().max(320),
+  /** As WorkOS reports it; only its shape is checked. */
+  email: z
+    .string()
+    .max(320)
+    .regex(/^[^\s@]+@[^\s@]+$/),
   name: z.string().max(256),
 });
 export type AceAccount = z.infer<typeof AceAccount>;

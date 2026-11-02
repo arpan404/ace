@@ -3,9 +3,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "email": {
-      "format": "email",
       "maxLength": 320,
-      "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+      "pattern": "^[^\\s@]+@[^\\s@]+$",
       "type": "string"
     },
     "id": {

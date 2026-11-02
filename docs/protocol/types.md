@@ -847,14 +847,14 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | id | yes | string | {"minLength":1,"maxLength":256} |
-| email | yes | string | {"maxLength":320,"format":"email","pattern":"^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"} |
+| email | yes | string | {"maxLength":320,"pattern":"^[^\\s@]+@[^\\s@]+$"} |
 | name | yes | string | {"maxLength":256} |
 
 Example:
 
 ```json
 {
-  "email": "qxitqSV+4Z.Ghou4.u.DZYz-rvvbnG.RKs.XzIK.9PDdlLXkg.qe-MALRFGHP.G+CuSiI.KT7COlI43.xTr80@vX.pCDkT4.Hf6qOcjD.wnpttAwg0.nZO-qn4G-6t.GuIuOPrR4Ra.t.2aHrSSk.o.g7CHXjL1lct.lCE0BMb.ddDmALVzabSL",
+  "email": "q]hRb^;>}qE@*Q[cq",
   "id": "example",
   "name": "example"
 }
@@ -875,12 +875,12 @@ Example:
 ```json
 {
   "account": {
-    "email": "TtkMuyew.b4hYD.sWnEh5.9ZG5u.y@YRM0J9.BSZbnwIN.fDe3C2xG.cnk2X7.T8.IetoanO.T3k8.rHoh",
+    "email": "^<aU2@hMeJHqQD",
     "id": "example",
     "name": "example"
   },
-  "expiresAt": 10,
-  "token": "w9CbBjbewoyKYN3I0CQyO4DDiHmqg6kySK_Pp8-HZVf"
+  "expiresAt": 1,
+  "token": "rVlEg3Y7YF4tExoYeRM1J_BsSZboxIOgpDf4C3yGdho"
 }
 ```
 
@@ -946,11 +946,11 @@ Example:
 ```json
 {
   "account": {
-    "email": "Um.XcUfx'TqOo.9d.g9lADJYfL@LG1.vUhyo4I28c.ohKmtpad",
+    "email": "09MIm}e@f",
     "id": "example",
     "name": "example"
   },
-  "expiresAt": 7
+  "expiresAt": 3
 }
 ```
 
@@ -1043,12 +1043,12 @@ Example:
 {
   "session": {
     "account": {
-      "email": "gP.kxuqa.jFoJ8IS.HkPC5f.ED2v+sqs.88h-pjb2.x.rdIMdF89uc.e-SK.syr6kRveI6v@WhAC2ji.kFCd0.tlUT1.pPMM8HJZ.V8mI.vo39t.XJXezRc.0vx.HjVrkbx",
+      "email": ",O6JThc^GU@)[.w,;",
       "id": "example",
       "name": "example"
     },
-    "expiresAt": 4,
-    "token": "6CnMjRq-0eSFcWNY-oXbqfj5KtxPq25eefB2pMIck97"
+    "expiresAt": 6,
+    "token": "jOC3etED1t_qpqs76g-nib0Ew0qcILcF67sbVd-RK-q"
   },
   "status": "complete"
 }
