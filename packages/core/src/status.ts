@@ -6,7 +6,7 @@ import { emit } from "./emit.ts";
 import { announceAgentBranch } from "./tree.ts";
 import { isActionableInteraction } from "./human.ts";
 import { liveToolKeys, pendingInteractionKeys, runningTaskKeys } from "./indexes.ts";
-import { statusInputs, suppressesActiveSilence } from "./status-inputs.ts";
+import { statusInputs, suppressesActiveSilence, taskHoldsThread } from "./status-inputs.ts";
 export { isLiveTool } from "./status-inputs.ts";
 
 export function isSettled(status: AgentStatus): boolean {
@@ -52,7 +52,7 @@ function completionRelevance(
     ...pendingInteractionKeys(state).map((key) => lookup(state.interactions, key)!.agentId),
     ...runningTaskKeys(state)
       .map((key) => lookup(state.tasks, key)!)
-      .filter((task) => !task.ambient)
+      .filter((task) => taskHoldsThread(state, task))
       .map((task) => task.agentId),
   ]),
 ) {
@@ -359,7 +359,12 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
       return { state: "waiting", on: reason };
     }
   }
-  if (runningTaskKeys(state).some((key) => lookup(state.tasks, key)?.ambient === false))
+  if (
+    runningTaskKeys(state).some((key) => {
+      const task = lookup(state.tasks, key);
+      return task !== undefined && taskHoldsThread(state, task);
+    })
+  )
     return { state: "waiting", on: "background_task" };
   if (
     records.some(

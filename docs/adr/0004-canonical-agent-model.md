@@ -35,3 +35,9 @@ The first recorded fixtures ([summary](../research/fixtures/README.md)) confirme
 - dismissed and cancelled interactions.
 
 They also settled one rule: an interrupt only makes an agent `interrupted` once nothing it started is still running. Anything still running becomes a background task.
+
+## Amendment, 2026-11-01
+
+[ADR 0109](0109-background-work-left-running.md): after a turn that finished on its own,
+background work holds the thread only while the agent may come back for it. Work the provider
+never wakes the agent for, or that listens on a port, is shown as left running on a done thread.

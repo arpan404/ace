@@ -110,6 +110,46 @@ test("parent waits for a child's background task after its foreground turn ends"
   expect(wakes(h.events, parent.threadId)).toHaveLength(1);
 });
 
+test("a child that leaves a dev server running settles at its reply and the parent gets the result, the server still listed", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const edge = h.delegate(parent, "dev-server");
+  await h.engine.flush();
+  await h.emit(edge.childId, {
+    type: "background.started",
+    agent: "root",
+    task: "dev",
+    kind: "shell",
+    title: "bun run dev",
+    stoppable: true,
+    outputPath: "/tmp/tasks/dev.output",
+  });
+  await h.complete(edge.childId, "The app runs at http://localhost:5173");
+  // The provider would wake the agent when the command ends: until it is known to be a
+  // service, the child waits on it.
+  h.clock.advance(1050);
+  await h.engine.flush();
+  expect(h.store.getThread(edge.childId)?.status).toEqual({
+    state: "waiting",
+    on: "background_task",
+  });
+  expect(wakes(h.events, parent.threadId)).toHaveLength(0);
+
+  const ports = h.engine.backgroundPorts();
+  const [dev] = ports.candidates(edge.childId);
+  expect(dev).toMatchObject({ outputPath: "/tmp/tasks/dev.output", turnFinished: true });
+  ports.report(edge.childId, dev!.taskId, [5173]);
+  h.clock.advance(1100);
+  await h.engine.flush();
+  expect(h.store.getThread(edge.childId)?.status.state).toBe("done");
+  expect(wakes(h.events, parent.threadId)).toHaveLength(1);
+  expect(h.inputs.get(parent.threadId)?.join("\n")).toContain("http://localhost:5173");
+  expect(h.store.snapshotThread(edge.childId).backgroundTasks[dev!.taskId]).toMatchObject({
+    status: "running",
+    listening: [5173],
+  });
+});
+
 test("interrupt cancels descendants, prevents prepared children launching, and suppresses wakes", async () => {
   const h = setup();
   const parent = await h.parent();

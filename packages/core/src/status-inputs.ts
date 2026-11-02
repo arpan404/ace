@@ -2,6 +2,8 @@ import type { Item } from "@ace/protocol";
 import { lookup, type ThreadState } from "./state.ts";
 import { liveToolKeys, pendingInteractionKeys, runningTaskKeys } from "./indexes.ts";
 import { subtreeSignalReader, transportSignalAt } from "./liveness.ts";
+import { holdsThread } from "./background-hold.ts";
+import type { BackgroundTask } from "@ace/protocol";
 
 type ToolItem = Extract<Item, { type: "tool_call" }>;
 
@@ -13,6 +15,25 @@ function byAgent<T extends { agentId: string }>(values: T[]): Map<string, T[]> {
     grouped.set(value.agentId, group);
   }
   return grouped;
+}
+
+/**
+ * Whether `task`'s agent finished its last turn on its own: no turn runs, and the last one
+ * completed rather than being stopped or failing (ADR 0109).
+ */
+export function ownerTurnFinished(
+  state: ThreadState,
+  task: Pick<BackgroundTask, "agentId">,
+): boolean {
+  const key = lookup(state.indexes.agentKeysById, task.agentId);
+  const record = key === undefined ? undefined : lookup(state.agents, key);
+  if (!record || record.activeRun || !record.lastRun) return false;
+  return lookup(state.runs, record.lastRun)?.state === "completed";
+}
+
+/** `holdsThread` (ADR 0109) for a live task in `state`. */
+export function taskHoldsThread(state: ThreadState, task: BackgroundTask): boolean {
+  return holdsThread(task, ownerTurnFinished(state, task));
 }
 
 export function isLiveTool(item: Item): item is ToolItem {
@@ -35,7 +56,7 @@ export function statusInputs(state: ThreadState) {
   const tasksByAgent = byAgent(
     runningTaskKeys(state).flatMap((key) => {
       const task = lookup(state.tasks, key);
-      return task && !task.ambient ? [task] : [];
+      return task && taskHoldsThread(state, task) ? [task] : [];
     }),
   );
   const toolsByAgent = byAgent(

@@ -71,8 +71,10 @@ const allowed: Record<Fact["type"], string[]> = {
     "internal",
     "stoppable",
     "outputPath",
+    "wakesAgent",
     "raw",
   ],
+  "background.listening": ["task", "ports"],
   "background.ended": ["task", "status", "uncertain"],
   "agent.disconnected": ["agent"],
   "agent.reconnected": ["agent"],
@@ -329,8 +331,11 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         optionalBoolean(fact.ambient) &&
         (fact.internal === undefined || fact.internal === true) &&
         optionalString(fact.outputPath) &&
+        (fact.wakesAgent === undefined || fact.wakesAgent === false) &&
         (fact.raw === undefined || validData(raw, fact.raw))
       );
+    case "background.listening":
+      return BackgroundTask.shape.listening.unwrap().safeParse(fact.ports).success;
     case "background.ended":
       return (
         oneOf(fact.status, ["completed", "failed", "stopped", "unknown"]) &&

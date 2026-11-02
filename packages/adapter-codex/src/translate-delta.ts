@@ -54,6 +54,7 @@ export function translateDelta(
           text: "",
         },
         turn: str(p["turnId"], agent.turn),
+        unseenStart: true,
       };
       agent.open.set(item, open);
       agent.items.add(item);

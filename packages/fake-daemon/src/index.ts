@@ -28,6 +28,7 @@ export { restartedSubagents, summaryFleet } from "./scenarios/summary-fleet.ts";
 export { childActions, childActionsIds, sessionLimitText } from "./scenarios/child-actions.ts";
 export { refusedDelegation } from "./scenarios/refused-delegation.ts";
 export { interruptedTurn, seedInterruptedTurn } from "./scenarios/interrupted-turn.ts";
+export { leftRunning, seedLeftRunning } from "./scenarios/left-running.ts";
 export {
   multiDayThread,
   multiDayShape,

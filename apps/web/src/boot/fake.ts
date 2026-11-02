@@ -13,6 +13,7 @@ import {
   hostFolders,
   refusedDelegation,
   seedInterruptedTurn,
+  seedLeftRunning,
   seedPanels,
   seedRealCatalogs,
   seedRealThreadState,
@@ -153,6 +154,8 @@ export function bootFake(): {
     new ScenarioPlayer(daemon, refusedDelegation(), { agoMs: 0 }).runUntilBlocked();
   // `?fakeWorld=interrupted-turn`: an OpenCode turn a restart interrupted, held for Resume.
   if (world === "interrupted-turn") seedInterruptedTurn(daemon);
+  // `?fakeWorld=left-running`: a done thread whose turn left a dev server running.
+  if (world === "left-running") seedLeftRunning(daemon);
   // `?fakeWorld=child-question`: a Claude thread whose delegated Codex child asks the person.
   if (world === "child-question")
     for (const scenario of delegatedQuestion())

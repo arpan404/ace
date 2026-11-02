@@ -42,6 +42,13 @@ export function completeTurn(
         title: str(open.data["command"]),
         item: itemId,
         stoppable: true,
+        // Codex never starts a turn when a terminal exits after its turn ended (recorded in
+        // fixtures/codex/0.159.1/background-shell.jsonl): the agent won't come back for it. Only
+        // a live end of the current turn, for a command whose start was seen, with no output
+        // lost on the way, says so; anything ace can't vouch for stays held (ADR 0109).
+        ...(actionable && current && !open.unseenStart && !ctx.outputLost
+          ? { wakesAgent: false as const }
+          : {}),
         raw: raw("commandExecution", open.data),
       });
     } else {

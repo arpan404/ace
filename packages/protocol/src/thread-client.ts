@@ -201,9 +201,9 @@ export const ThreadRunMetadata = z.object({
   /** Background work running of its own: ace's bookkeeping and stand-ins for subagents left out. */
   backgroundTaskCount: z.number().int().nonnegative().optional(),
   /**
-   * Background shells still running that hold the thread open (ambient helpers and ace's own
-   * bookkeeping left out), oldest first, at most the newest 8: what "Running in background
-   * bun run dev:relay" names. Other background work is only counted, in `backgroundTaskCount`.
+   * Background shells still running, holding the thread open or left running by a done turn
+   * (ADR 0109; ambient helpers and ace's own bookkeeping left out), oldest first, at most the
+   * newest 8: what "Running in background bun run dev:relay" names. Other background work is only counted, in `backgroundTaskCount`.
    */
   watching: z
     .array(z.object({ id: BackgroundTaskId, title: z.string().max(256) }))

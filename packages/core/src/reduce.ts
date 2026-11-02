@@ -7,7 +7,13 @@ import { recomputeStatuses } from "./status.ts";
 import { reconcileItem } from "./reconciled-item.ts";
 import { appendItem, upsertItem } from "./items.ts";
 import { startTurn, endTurn } from "./runs.ts";
-import { openInteraction, closeInteraction, startBackground, endBackground } from "./entities.ts";
+import {
+  openInteraction,
+  closeInteraction,
+  startBackground,
+  endBackground,
+  listenBackground,
+} from "./entities.ts";
 import { exitProcess } from "./cleanup.ts";
 import { validateFact } from "./validate.ts";
 import { flushNotices, rejectFact } from "./diagnostics.ts";
@@ -218,6 +224,9 @@ function fold(
       break;
     case "background.started":
       startBackground(state, fact, ctx, events);
+      break;
+    case "background.listening":
+      listenBackground(state, fact, events);
       break;
     case "background.ended":
       endBackground(state, fact, ctx, events);

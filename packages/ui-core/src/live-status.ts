@@ -26,6 +26,11 @@ export type LiveFact =
    * is work the thread holds for but doesn't list.
    */
   | { kind: "watching"; count: number; title: string | undefined }
+  /**
+   * The thread is done and background commands it left running still run (a dev server, ADR
+   * 0109); `title` is the command of a single one.
+   */
+  | { kind: "left-running"; count: number; title: string | undefined }
   | { kind: "tests" };
 
 export interface LiveStatus {
@@ -86,6 +91,14 @@ export function describeLive(fact: LiveFact, now: number, locale?: string): Live
             code: undefined,
             tone: "background",
           };
+    case "left-running":
+      return fact.count === 1 && fact.title
+        ? { label: "Done · still running", code: fact.title, tone: "done" }
+        : {
+            label: `Done · ${pluralCount(fact.count, "command", "commands")} still running`,
+            code: undefined,
+            tone: "done",
+          };
     case "tests":
       return { label: "Running tests…", code: undefined, tone: "working" };
   }
@@ -126,6 +139,16 @@ export function threadLiveFact(thread: {
         kind: "watching",
         count,
         title: count === 1 && watching.length === 1 ? watching[0]?.title : undefined,
+      };
+    }
+    case "done": {
+      // Commands it left running are a quiet fact beside Done, never hidden (ADR 0109).
+      const watching = live?.watching ?? [];
+      if (!watching.length) return undefined;
+      return {
+        kind: "left-running",
+        count: watching.length,
+        title: watching.length === 1 ? watching[0]?.title : undefined,
       };
     }
     default:

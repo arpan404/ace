@@ -53,8 +53,9 @@ export function WaitingStrip(props: {
 }
 
 /**
- * The background commands a stopped turn left running, said as a finished turn's are: the run
- * already reads stopped in the transcript, so the strip only says what still runs.
+ * The background commands a stopped or done turn left running: the transcript already says how
+ * the turn ended, so the strip only says what still runs and where it listens ("Running
+ * `bun run dev` · :5173"), with its Stop (ADR 0109).
  */
 export function StoppedStrip(props: {
   threadId: string;
@@ -72,16 +73,26 @@ export function StoppedStrip(props: {
     shells: true,
     taskIds,
   };
-  return <CommandsStrip threadId={props.threadId} wait={wait} indicators={props.indicators} />;
+  const ports = [...new Set(commands.flatMap((task) => task.listening ?? []))];
+  return (
+    <CommandsStrip
+      threadId={props.threadId}
+      wait={wait}
+      detail={ports.length ? ports.map((port) => `:${port}`).join(", ") : undefined}
+      indicators={props.indicators}
+    />
+  );
 }
 
 /** "Running 2 commands" or "Running `bun run dev`", with one Stop for all of them. */
 function CommandsStrip(props: {
   threadId: string;
   wait: Extract<TurnWait, { kind: "background" }>;
+  /** Said after the words: the ports the commands listen on. */
+  detail?: string | undefined;
   indicators: ReactNode;
 }) {
-  const words = waitWords(props.wait);
+  const words = { ...waitWords(props.wait), ...(props.detail ? { detail: props.detail } : {}) };
   return (
     <div
       role="status"

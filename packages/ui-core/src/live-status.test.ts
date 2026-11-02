@@ -1,6 +1,13 @@
 import { ThreadRunMetadata, type ThreadStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { listTreeFacts, treeInBackground, treeWorking } from "./live-status.ts";
+import {
+  describeLive,
+  listTreeFacts,
+  liveStatusText,
+  threadLiveFact,
+  treeInBackground,
+  treeWorking,
+} from "./live-status.ts";
 
 const listed = (status: ThreadStatus, live?: Record<string, unknown>) =>
   treeWorking(listTreeFacts({ status, live: live && ThreadRunMetadata.parse(live) }));
@@ -55,4 +62,26 @@ test("a finished turn whose subagents still run is never done", () => {
   expect(treeWorking({ needsYou: false, root: "idle", subagents: 0, backgroundCommands: 0 })).toBe(
     false,
   );
+});
+
+test("a done thread names the commands it left running beside Done, and is not working", () => {
+  const status: ThreadStatus = { state: "done" };
+  const say = (watching: { id: string; title: string }[]) => {
+    const fact = threadLiveFact({ status, live: ThreadRunMetadata.parse({ watching }) });
+    return fact && liveStatusText(describeLive(fact, 0));
+  };
+  expect(say([{ id: "dev", title: "bun run dev" }])).toBe("Done · still running bun run dev");
+  expect(
+    say([
+      { id: "dev", title: "bun run dev" },
+      { id: "api", title: "bun run api" },
+    ]),
+  ).toBe("Done · 2 commands still running");
+  expect(say([])).toBeUndefined();
+  const facts = listTreeFacts({
+    status,
+    live: ThreadRunMetadata.parse({ watching: [{ id: "dev", title: "bun run dev" }] }),
+  });
+  expect(treeWorking(facts)).toBe(false);
+  expect(treeInBackground(facts)).toBe(false);
 });
