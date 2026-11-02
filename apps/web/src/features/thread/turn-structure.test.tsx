@@ -1,4 +1,11 @@
-import { delegatedDocs, delegatedDocsIds, facts, workbench, type Scenario } from "@ace/fake-daemon";
+import {
+  delegatedDocs,
+  delegatedDocsIds,
+  facts,
+  limitPausedTurn,
+  workbench,
+  type Scenario,
+} from "@ace/fake-daemon";
 import { configure, act, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
@@ -291,60 +298,12 @@ test("the subagent card deduplicates a launch and its spawn call and opens the c
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
 });
 
-/** A turn that read a file, said what it found, then went on until a usage limit held it. */
-function limitedTurn(): Scenario {
-  return {
-    thread: {
-      id: "thread-limit-flags",
-      workspaceId: "ace",
-      title: "Remove the legacy feature-flag reader",
-      provider: "codex",
-      live: { account: "codex-team" },
-    },
-    steps: [
-      {
-        kind: "facts",
-        facts: [
-          rootAgent("codex"),
-          turn("root"),
-          message("root", "ask", "user", "Remove the legacy feature-flag reader"),
-          tool("root", "read", {
-            kind: "file.read",
-            title: "Read src/flags/reader.ts",
-            detail: { kind: "file.read", path: "src/flags/reader.ts" },
-          }),
-          toolDone("root", "read"),
-          message("root", "found", "assistant", "Three modules still import the legacy reader."),
-          tool("root", "grep", {
-            kind: "shell",
-            title: "rg legacyFlags",
-            detail: { kind: "shell", command: "rg legacyFlags" },
-          }),
-          toolDone("root", "grep"),
-        ],
-      },
-      {
-        kind: "facts",
-        label: "limited",
-        facts: [
-          {
-            type: "retry",
-            agent: "root",
-            on: "rate_limit",
-            message: "You've hit your usage limit for this window.",
-          },
-        ],
-      },
-    ],
-  };
-}
-
 const said = "Three modules still import the legacy reader.";
 
 test("a usage-limit pause reads as a complete turn: its Worked for head, its last message in full, and the resume is a new turn below", async () => {
   const app = harness();
-  app.play(limitedTurn()).runUntilBlocked();
-  await app.open("/t/thread-limit-flags");
+  app.play(limitPausedTurn()).runUntilBlocked();
+  await app.open("/t/thread-limit-paused");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const head = await within(feed).findByRole("button", { name: /^Worked for/ });
   const answer = within(feed).getByText(said);
@@ -357,7 +316,7 @@ test("a usage-limit pause reads as a complete turn: its Worked for head, its las
   expect(within(feed).queryByText(/usage limit/)).toBeNull();
   expect(screen.queryByRole("status", { name: /^Paused/ })).toBeNull();
 
-  act(() => app.daemon.apply("thread-limit-flags", resumeAfterLimit));
+  act(() => app.daemon.apply("thread-limit-paused", resumeAfterLimit));
   const resumed = await within(feed).findByText("Picking the flag removal back up.");
   // The paused turn keeps its head and answer; the resumed work is its own turn after them.
   const kept = within(feed).getByRole("button", { name: /^Worked for/ });
@@ -374,9 +333,9 @@ const resumeAfterLimit = [
 
 test("a paused turn in history reads the same complete turn after a reload", async () => {
   const app = harness();
-  app.play(limitedTurn()).runUntilBlocked();
-  app.daemon.apply("thread-limit-flags", resumeAfterLimit);
-  await app.open("/t/thread-limit-flags");
+  app.play(limitPausedTurn()).runUntilBlocked();
+  app.daemon.apply("thread-limit-paused", resumeAfterLimit);
+  await app.open("/t/thread-limit-paused");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const head = await within(feed).findByRole("button", { name: /^Worked for/ });
   const answer = within(feed).getByText(said);

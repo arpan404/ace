@@ -13,6 +13,7 @@ import {
   hostFolders,
   refusedDelegation,
   seedInterruptedTurn,
+  seedTurnEndings,
   seedLeftRunning,
   seedPanels,
   seedRealCatalogs,
@@ -154,6 +155,8 @@ export function bootFake(): {
     new ScenarioPlayer(daemon, refusedDelegation(), { agoMs: 0 }).runUntilBlocked();
   // `?fakeWorld=interrupted-turn`: an OpenCode turn a restart interrupted, held for Resume.
   if (world === "interrupted-turn") seedInterruptedTurn(daemon);
+  // `?fakeWorld=turn-endings`: a turn a usage limit paused, and one the person stopped.
+  if (world === "turn-endings") seedTurnEndings(daemon);
   // `?fakeWorld=left-running`: a done thread whose turn left a dev server running.
   if (world === "left-running") seedLeftRunning(daemon);
   // `?fakeWorld=child-question`: a Claude thread whose delegated Codex child asks the person.
