@@ -214,7 +214,19 @@ struct InboxLayout: Codable, Sendable, Equatable {
         var total: Int? = nil
         /// Chats only: the section's rows are settled and draw dimmed.
         var settled: Bool? = nil
+        /// The Threads tab that lists it ("inbox", "snoozed", "settled"); nil from older bridges,
+        /// whose sections all show in the Inbox.
+        var tab: String? = nil
         var id: String { key }
+    }
+    /// One of the Threads tabs (Inbox, Snoozed, Settled), in order: its words, its count, what it says
+    /// while empty, and (the Inbox's) the threads that need the person, for its dot.
+    struct Tab: Codable, Sendable, Identifiable, Equatable {
+        let id: String; let label: String; let empty: String
+        /// Whether its count shows after the word (Inbox, Snoozed).
+        var counted: Bool? = nil
+        var emptyLine: String? = nil
+        var needsYou: [String]? = nil
     }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
     /// A choice of the machine's Sort threads setting, worded by the shared rules.
@@ -230,6 +242,8 @@ struct InboxLayout: Codable, Sendable, Equatable {
     /// The words for each row's `menu` ids (`threadMenuLabels`).
     var menuLabels: [String: String]? = nil
     var menuSections: [String: String]? = nil
+    /// The Threads tabs; nil from older bridges and the Chats layout.
+    var tabs: [Tab]? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
 }
 

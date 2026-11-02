@@ -10,6 +10,8 @@ struct InboxKey: Hashable, Sendable { let machineId: String; let id: String }
 struct MergedInbox: Equatable {
     struct Section: Identifiable, Equatable {
         let key: String; let label: String; let rows: [InboxKey]
+        /// The Threads tab that lists it, as its machines' runtimes say.
+        var tab = "inbox"
         /// Per machine, the threads its runtime counts in this section but hasn't loaded yet
         /// (older settled pages the daemon holds back).
         var unloaded: [String: Int] = [:]
@@ -21,13 +23,21 @@ struct MergedInbox: Equatable {
             let kept = rows.filter(includes)
             let counted = unloaded.filter { whole($0.key) }
             if kept.isEmpty && counted.isEmpty { return nil }
-            return Section(key: key, label: label, rows: kept, unloaded: counted)
+            return Section(key: key, label: label, rows: kept, tab: tab, unloaded: counted)
         }
 
         /// What the section's heading shows: its rows plus every thread it counts but hasn't loaded.
         var count: Int { rows.count + unloaded.values.reduce(0, +) }
     }
+    /// One Threads tab across every machine: the first machine's words, and every machine's
+    /// threads that need the person.
+    struct Tab: Identifiable, Equatable {
+        let id: String; let label: String; var counted = false; let empty: String; let emptyLine: String?
+        let needsYou: [InboxKey]
+    }
     let sections: [Section]
+    /// Inbox, Snoozed and Settled, in the runtimes' order; empty until a machine sends them.
+    var tabs: [Tab] = []
     /// Machines with older threads beyond their loaded window.
     let more: [String]
     let snooze: [InboxLayout.SnoozeOption]
@@ -38,12 +48,13 @@ struct MergedInbox: Equatable {
     static let empty = MergedInbox(sections: [], more: [], snooze: [])
 
     static func merge(_ parts: [(machineId: String, layout: InboxLayout)]) -> MergedInbox {
-        struct Group { var order: Int; var first: Int; var label: String; var rows: [(rank: String, key: InboxKey)]; var unloaded: [String: Int] = [:] }
+        struct Group { var order: Int; var first: Int; var label: String; var tab: String; var rows: [(rank: String, key: InboxKey)]; var unloaded: [String: Int] = [:] }
         var groups: [String: Group] = [:]
         var seen = 0
         for (machine, part) in parts.enumerated() {
             for (position, section) in part.layout.sections.enumerated() {
-                var group = groups[section.key] ?? Group(order: section.order ?? position, first: seen, label: section.label, rows: [])
+                var group = groups[section.key] ?? Group(order: section.order ?? position, first: seen, label: section.label,
+                                                           tab: section.tab ?? "inbox", rows: [])
                 seen += 1
                 for (index, id) in section.ids.enumerated() {
                     // A runtime without ranks keeps its own order after every ranked row.
@@ -61,9 +72,23 @@ struct MergedInbox: Equatable {
             // UTF-16 code-unit order is JavaScript's `<`, which the shared ranks are built for.
             Section(key: key, label: group.label,
                     rows: group.rows.sorted { $0.rank.utf16.lexicographicallyPrecedes($1.rank.utf16) }.map(\.key),
-                    unloaded: group.unloaded)
+                    tab: group.tab, unloaded: group.unloaded)
         }
-        return MergedInbox(sections: sections, more: parts.filter { $0.layout.more }.map(\.machineId),
+        var tabs: [Tab] = []
+        for part in parts {
+            for tab in part.layout.tabs ?? [] {
+                let asks = (tab.needsYou ?? []).map { InboxKey(machineId: part.machineId, id: $0) }
+                if let at = tabs.firstIndex(where: { $0.id == tab.id }) {
+                    let known = tabs[at]
+                    tabs[at] = Tab(id: known.id, label: known.label, counted: known.counted, empty: known.empty,
+                                   emptyLine: known.emptyLine, needsYou: known.needsYou + asks)
+                } else {
+                    tabs.append(Tab(id: tab.id, label: tab.label, counted: tab.counted ?? false, empty: tab.empty,
+                                    emptyLine: tab.emptyLine, needsYou: asks))
+                }
+            }
+        }
+        return MergedInbox(sections: sections, tabs: tabs, more: parts.filter { $0.layout.more }.map(\.machineId),
                            snooze: parts.first { !$0.layout.snooze.isEmpty }?.layout.snooze ?? [],
                            menuLabels: parts.lazy.compactMap(\.layout.menuLabels).first ?? [:],
                            menuSections: parts.lazy.compactMap(\.layout.menuSections).first ?? [:])

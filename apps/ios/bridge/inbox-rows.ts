@@ -118,13 +118,15 @@ export function inboxLayout(
       order: inboxGroupRank(section.key),
     })),
     /**
-     * Inbox, Snoozed and Settled in order (the sections say which rows each lists): what an
-     * empty one says, and the Inbox threads that need the person, which light its dot. The app
+     * Inbox, Snoozed and Settled in order (the sections say which rows each lists): whether
+     * its count shows, what an empty one says, and the Inbox threads that need the person, which light its dot. The app
      * keeps those its filter shows.
      */
     tabs: threadsTabs.map(({ id, label }) => ({
       id,
       label,
+      // Inbox and Snoozed show a quiet count after the word (DESIGN.md); Settled has none.
+      counted: id !== "settled",
       empty: emptyTabTitle(id, undefined, false),
       emptyLine: id === "inbox" ? emptyInboxLine : null,
       needsYou: id === "inbox" ? needsYou : [],

@@ -107,7 +107,7 @@ async function following(seed: (daemon: FakeDaemon) => void) {
 
 type Layout = {
   sections: { key: string; tab: string; ids: string[] }[];
-  tabs: { id: string; label: string; empty: string; needsYou: string[] }[];
+  tabs: { id: string; label: string; counted: boolean; empty: string; needsYou: string[] }[];
 };
 const layout = (sink: RecordingSink) => sink.read("inbox:sections") as Layout | undefined;
 /** The thread ids each tab lists, section by section in order, as the phone draws them. */
@@ -140,10 +140,17 @@ test("each tab lists its own threads: live and pinned in Inbox, snoozed with its
   expect(row(sink, "nap")?.snoozedUntil).toBe(wakesAt);
   expect(row(sink, "done")?.look.settled).toBe(true);
   expect(row(sink, "live")?.look.settled).toBe(false);
-  expect(layout(sink)?.tabs.map(({ id, label, needsYou }) => ({ id, label, needsYou }))).toEqual([
-    { id: "inbox", label: "Inbox", needsYou: [] },
-    { id: "snoozed", label: "Snoozed", needsYou: [] },
-    { id: "settled", label: "Settled", needsYou: [] },
+  expect(
+    layout(sink)?.tabs.map(({ id, label, counted, needsYou }) => ({
+      id,
+      label,
+      counted,
+      needsYou,
+    })),
+  ).toEqual([
+    { id: "inbox", label: "Inbox", counted: true, needsYou: [] },
+    { id: "snoozed", label: "Snoozed", counted: true, needsYou: [] },
+    { id: "settled", label: "Settled", counted: false, needsYou: [] },
   ]);
 });
 

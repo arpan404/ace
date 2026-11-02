@@ -33,7 +33,8 @@ struct InboxStack<Destination: View, Side: View>: View {
     /// Pull requests, Issues or Notifications on the Pulls tab; the inbox's, so a command can
     /// open Issues from the Threads tab.
     @Binding var forgeKind: ForgeKind
-    @Binding var shelves: InboxShelves
+    /// The Threads tab open: Inbox, Snoozed or Settled (`ThreadsTabsBar`).
+    @Binding var threadsTab: String
     /// A row to scroll to once it is in the list (`InboxList.reveal`).
     @Binding var reveal: InboxKey?
     let actions: InboxRowActions
@@ -120,7 +121,7 @@ struct InboxStack<Destination: View, Side: View>: View {
                 // The list stays mounted under the results, so it keeps its place while the
                 // person searches and is back where it was when they cancel.
                 ZStack {
-                    InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, reveal: $reveal, actions: picking, compose: nil,
+                    InboxList(inbox: inbox, includes: includes, whole: whole, tab: threadsTab, reveal: $reveal, actions: picking, compose: nil,
                               pair: header.pair, selection: selecting ? $selection : nil)
                         .refreshable { await refresh() }
                         .opacity(searching ? 0 : 1)
@@ -134,6 +135,8 @@ struct InboxStack<Destination: View, Side: View>: View {
                 }
                 // The list and search everything crossfade; nothing slides.
                 .animation(reduceMotion ? .easeInOut(duration: 0.15) : AceTheme.Motion.standardCurve, value: searching)
+                // Inbox, Snoozed and Settled under the title, pinned as rows pass beneath them.
+                .inboxTopBar { if !searching { tabsBar } }
             }
         }
         .modifier(InboxSearchField(query: $query, searching: $searching,
@@ -164,12 +167,21 @@ struct InboxStack<Destination: View, Side: View>: View {
             selecting = true
         }
     }
-    /// Every thread the list shows outside its folded shelves, for Select all.
+    /// Every thread the open tab shows, for Select all.
     private var selectable: [InboxKey] {
-        inbox.merged.sections.filter { $0.key != "unsent" }.flatMap { section -> [InboxKey] in
-            if section.key == "snoozed" && !shelves.snoozed { return [] }
-            if section.key == "settled" && !shelves.settled { return [] }
-            return section.rows.filter(includes)
+        inbox.merged.sections.filter { $0.key != "unsent" && $0.tab == threadsTab }.flatMap { $0.rows.filter(includes) }
+    }
+    /// The Threads tabs, once a runtime sends them. The Inbox's dot follows the scope: only a
+    /// request the list would show lights it.
+    @ViewBuilder private var tabsBar: some View {
+        let tabs = inbox.merged.tabs
+        if !tabs.isEmpty {
+            let dot = tabs.first { $0.id == "inbox" }?.needsYou.contains(where: includes) ?? false
+            ThreadsTabsBar(tabs: tabs, selection: $threadsTab, dot: dot) { id in
+                inbox.merged.sections.filter { $0.tab == id && $0.key != "unsent" }
+                    .compactMap { $0.scoped(includes, whole: whole)?.count }.reduce(0, +)
+            }
+            .modifier(HeaderLead())
         }
     }
     /// What search everything's rows open.
@@ -244,8 +256,8 @@ struct InboxStack<Destination: View, Side: View>: View {
     }
     private func step(_ step: Int) {
         let order = ThreadColumns.order(inbox.merged.sections.map { section in
-            MergedInbox.Section(key: section.key, label: section.label, rows: section.rows.filter(includes))
-        }, shelves: shelves) { key in
+            MergedInbox.Section(key: section.key, label: section.label, rows: section.rows.filter(includes), tab: section.tab)
+        }, tab: threadsTab) { key in
             inbox.pending(key).map { InboxKey(machineId: key.machineId, id: $0.threadId) } ?? key
         }
         if let key = ThreadColumns.neighbour(of: ThreadColumns.selection(path), in: order, step: step) { actions.open(key) }
