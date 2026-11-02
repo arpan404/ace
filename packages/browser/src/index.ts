@@ -31,6 +31,7 @@ export type { ScreenshotGeometry } from "./screenshot-geometry.ts";
 
 export { Recording as BrowserRecording } from "./recording.ts";
 export { ChromeBackend, type ChromeBackendOptions } from "./headless.ts";
+export type { PagePreviewRequest, PagePreviewShot } from "./page-preview.ts";
 export type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 export type { CdpIntercept, CdpSend } from "./cdp-connection.ts";
 export { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";

@@ -12,6 +12,7 @@ import { DesktopLoss } from "./desktop-loss.ts";
 import { RecoveryRetry } from "./recovery-retry.ts";
 import { detectFfmpeg } from "./discovery.ts";
 import { ownedHeadless } from "./owned-backend.ts";
+import type { PagePreviewRequest, PagePreviewShot } from "./page-preview.ts";
 import { BrowserProfiles } from "./profiles.ts";
 import { TabBudget } from "./tab-budget.ts";
 import { forkTabRecords, type BrowserTabRecord } from "./tab-store.ts";
@@ -102,6 +103,13 @@ export class BrowserService {
    */
   videoEncoder(): VideoHost | undefined {
     return this.acquisition.videoEncoder();
+  }
+  /**
+   * Lays a self-contained page out at each width in a hidden Chrome of ace's and captures it
+   * (html_preview). Nothing is shown to the person and no thread browser is touched.
+   */
+  previewPage(request: PagePreviewRequest): Promise<PagePreviewShot[]> {
+    return this.acquisition.previewer().capture(request);
   }
   private policyScopes = new Map<string, AbortController>();
   private navigationClock: import("./navigation.ts").NavigationClock;

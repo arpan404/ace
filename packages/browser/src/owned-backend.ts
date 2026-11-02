@@ -6,6 +6,7 @@ import { chromiumProcessKiller } from "./chromium-process.ts";
 import type { Schedule } from "./cdp-connection.ts";
 import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 import { ChromeBackend } from "./headless.ts";
+import { PagePreviewer } from "./page-preview.ts";
 import { spawnProcess } from "./io.ts";
 import { guardChromium } from "./process-guardian.ts";
 import { linuxLaunchDiagnosis, smallSharedMemory } from "./launch-diagnosis.ts";
@@ -127,11 +128,7 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
     options.onError?.(error);
     return error;
   };
-  let owned: ChromeBackend | undefined;
-  const backend =
-    options.headlessBackend ??
-    (owned = new ChromeBackend({
-      executable: () => {
+  const executable = (): Promise<string> => {
         if (options.executablePath) return Promise.resolve(options.executablePath);
         // Chrome for Testing has no Windows ARM64 build: use the installed Chrome or Edge, and
         // without one that ace can drive, the x64 build under Windows' emulation.
@@ -169,11 +166,19 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
           throw error;
         });
         return acquiring;
-      },
-      stagingDir: (profileDir) => join(dirname(profileDir), `${basename(profileDir)}-downloads`),
+  };
+  const stagingDir = (profileDir: string) =>
+    join(dirname(profileDir), `${basename(profileDir)}-downloads`);
+  const cleanup = { ...defaults.cleanup, ...options.cleanup };
+  let owned: ChromeBackend | undefined;
+  const backend =
+    options.headlessBackend ??
+    (owned = new ChromeBackend({
+      executable,
+      stagingDir,
       platform: process.platform,
       launch,
-      cleanup: { ...defaults.cleanup, ...options.cleanup },
+      cleanup,
       encoder: {
         profileDir: join(options.dataDir, "browser", "encoder"),
         idleMs: options.videoEncoderIdleMs ?? 30_000,
@@ -186,8 +191,22 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
             (await import("./gpu-scale.ts")).windowsDeviceScale(gpu, launch.deviceScaleFactor),
         }),
     }));
+  let previewer: PagePreviewer | undefined;
   return {
     backend,
+    /**
+     * Page previews for agents (html_preview): ace's Chrome on a profile of its own at device
+     * scale 1, whichever backend threads browse with, stopped a minute after the last preview.
+     */
+    previewer: () =>
+      (previewer ??= new PagePreviewer({
+        executable,
+        profileDir: join(options.dataDir, "browser", "preview"),
+        stagingDir: stagingDir(join(options.dataDir, "browser", "preview")),
+        platform: process.platform,
+        launch: { ...launch, deviceScaleFactor: 1, idleMs: 60_000 },
+        cleanup,
+      })),
     /** Video for a backend without an encoder of its own ("Use my Chrome"). */
     videoEncoder: () => owned?.encoder(),
     subscribe: (listener: (value: BrowserDownloadProgress) => void) => {
@@ -203,7 +222,7 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
     },
     /** Stops ace's browsers; called after every session has closed. */
     close: async () => {
-      await owned?.close();
+      await Promise.allSettled([owned?.close(), previewer?.close()]);
     },
   };
 }
