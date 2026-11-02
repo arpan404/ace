@@ -1,16 +1,27 @@
 import { PlusIcon } from "@phosphor-icons/react";
 import { Link, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { PanelRowBody, panelRow, PanelSearch, PanelSection } from "@/components/ui/panel.tsx";
+import { panelLabel, PanelRowBody, panelRow, PanelSearch } from "@/components/ui/panel.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { ViewSidebarError, useViewListKeys } from "@/components/ui/view-row.tsx";
+import { VirtualList, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
+import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import { localTimeZone } from "@/features/automation-schedule/index.ts";
 import { sidebarGroups, type SidebarRow } from "@ace/ui-core/automations";
 import { useAutomationLists } from "@/features/automation-data/index.ts";
+
+/** One row of the panel's list: a section's label, or an automation under it. */
+type ListRow = { kind: "label"; label: string; first: boolean } | { kind: "row"; row: SidebarRow };
+
+const rowKey = (entry: ListRow) =>
+  entry.kind === "label" ? `label:${entry.label}` : `${entry.row.owner ?? ""}:${entry.row.id}`;
+
+/** A label is a 28px line with the gap above it; a row is one `--row-height` line and 1px. */
+const estimateOf = (entry: ListRow) => (entry.kind === "row" ? 37 : entry.first ? 32 : 48);
 
 /**
  * Automations' panel: its title, "Search automations" once there is one, New automation, then
@@ -21,9 +32,22 @@ export function AutomationsSidebar() {
   const list = useAutomationLists();
   const selected = useParams({ strict: false }).automationId;
   const now = useNow();
-  const keys = useViewListKeys<HTMLElement>();
   const [query, setQuery] = useState("");
   const groups = list.data ? sidebarGroups(list.data, now, localTimeZone(), query) : undefined;
+  const rows: ListRow[] = [];
+  for (const group of groups ?? []) {
+    rows.push({ kind: "label", label: group.label, first: !rows.length });
+    for (const row of group.rows) rows.push({ kind: "row", row });
+  }
+  const handle = useRef<VirtualRowsHandle>(null);
+  const keys = useViewListKeys<HTMLElement>({
+    count: rows.length,
+    titleAt: (index) => {
+      const entry = rows[index];
+      return entry?.kind === "row" ? entry.row.title : undefined;
+    },
+    reveal: (index) => handle.current?.scrollToIndex(index, "auto"),
+  });
   const any = !!list.data && list.data.person.length + list.data.threads.length > 0;
   return (
     <ViewSidebar
@@ -68,15 +92,24 @@ export function AutomationsSidebar() {
         />
       ) : (
         <nav {...keys} aria-label="Automation list">
-          {groups.map((group) => (
-            <PanelSection key={group.label} label={group.label}>
-              {group.rows.map((row) => (
-                <li key={`${row.owner ?? ""}:${row.id}`}>
-                  <AutomationRow row={row} selected={selected === row.id} />
-                </li>
-              ))}
-            </PanelSection>
-          ))}
+          <VirtualList
+            label="Automations"
+            items={rows}
+            handle={handle}
+            rowKey={rowKey}
+            estimate={estimateOf}
+            render={(entry) =>
+              entry.kind === "label" ? (
+                <h3 className={cn(panelLabel, "box-content", entry.first ? "pt-1" : "pt-5")}>
+                  {entry.label}
+                </h3>
+              ) : (
+                <div className="pb-px">
+                  <AutomationRow row={entry.row} selected={selected === entry.row.id} />
+                </div>
+              )
+            }
+          />
         </nav>
       )}
     </ViewSidebar>

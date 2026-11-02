@@ -13,17 +13,15 @@ import type { ForgeIssueRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { Screen } from "@/features/shell/index.ts";
-import { cn } from "@/lib/cn.ts";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
+import { ForgeList } from "./forge-list.tsx";
 import { IssueRow } from "./issue-row.tsx";
 import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { ListFrame } from "./list-frame.tsx";
 import { useGroupCounts, useIssuePages } from "./lists.ts";
 import { projectSection, useProjectChoice, type ProjectChoice } from "./project-choice.ts";
-import { GroupHeader } from "./row-parts.tsx";
 
 const groupIcons = {
   assigned: UserIcon,
@@ -127,7 +125,6 @@ export function IssuesPage(props: {
   const list = useIssuePages(project, query, pages);
   const totals = useGroupCounts(project, { by: "issue-people", query }).data;
   const linked = useLinkedThreads().issues;
-  const keys = useViewListKeys<HTMLElement>();
   const groups = groupIssues(list.rows, list.first?.viewer);
   const counts = list.first?.counts;
   const navigate = useNavigate();
@@ -198,49 +195,31 @@ export function IssuesPage(props: {
       ) : !list.rows.length ? (
         <EmptyState title="No issues match" />
       ) : (
-        <nav
-          aria-label="Issues"
-          aria-busy={list.stale}
-          {...keys}
-          className={cn(
-            "pb-6",
-            list.stale && "opacity-60 transition-opacity duration-(--motion-fast)",
+        <ForgeList
+          label="Issues"
+          stale={list.stale}
+          groups={groups.map((group) => ({
+            id: group.id,
+            label: group.label,
+            icon: groupIcons[group.id as keyof typeof groupIcons] ?? UsersIcon,
+            count: totals?.[group.id],
+            headed: group.id !== "all",
+            rows: group.rows,
+          }))}
+          rowKey={(row) => String(row.ref.number)}
+          rowTitle={(row) => row.title}
+          estimate={61}
+          renderRow={(row, _group, last) => (
+            <IssueRow
+              project={project}
+              back={listAddress}
+              row={row}
+              thread={linked.get(workKey(row.ref.repository, row.ref.number))}
+              last={last}
+            />
           )}
-        >
-          {groups.map((group) => (
-            <section key={group.id} aria-label={group.label}>
-              {group.id !== "all" && (
-                <GroupHeader
-                  icon={groupIcons[group.id as keyof typeof groupIcons] ?? UsersIcon}
-                  label={group.label}
-                  count={totals?.[group.id]}
-                />
-              )}
-              <ul>
-                {group.rows.map((row) => (
-                  <IssueRow
-                    key={row.ref.number}
-                    project={project}
-                    back={listAddress}
-                    row={row}
-                    thread={linked.get(workKey(row.ref.repository, row.ref.number))}
-                  />
-                ))}
-              </ul>
-            </section>
-          ))}
-          {list.more && (
-            <div className="px-(--forge-gutter) pt-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setPaging({ key: listKey, pages: pages + 1 })}
-              >
-                Show more
-              </Button>
-            </div>
-          )}
-        </nav>
+          onMore={list.more ? () => setPaging({ key: listKey, pages: pages + 1 }) : undefined}
+        />
       )}
     </ListFrame>
   );

@@ -3,7 +3,9 @@ import { historySections, projectBadge, type HistoryItem } from "@ace/ui-core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchField } from "@/components/search-field.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { useOrganizerState } from "@/features/organize/index.ts";
+import { useViewListKeys } from "@/components/ui/view-row.tsx";
+import { VirtualList, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
+import { useOrganizerState, useWindowThreads } from "@/features/organize/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { useHeld } from "@/lib/held.ts";
@@ -15,6 +17,17 @@ import { settledFoot, useSettledPaging } from "./settled-paging.ts";
 import { useSidebarDevice } from "./device-filter-state.ts";
 import { useHomeList, useProjects, useSettledEntries } from "./use-home-threads.ts";
 import { useSettledSearch } from "./use-panel-search.ts";
+
+/** One row of History's list: a section's heading, or a settled thread under it. */
+type HistoryEntry =
+  | { kind: "label"; label: string; group: string; first: boolean }
+  | { kind: "thread"; item: HistoryItem };
+
+/**
+ * A heading is 16px of words with 2px below and 12px above (24px between sections); a thread is
+ * two lines in 8px of padding.
+ */
+const estimateOf = (entry: HistoryEntry) => (entry.kind === "thread" ? 58 : entry.first ? 30 : 42);
 
 /** The full pages' one gutter (DESIGN.md §3, Full pages): 16px in a narrow column, 32px beside it. */
 const gutter = "[--forge-gutter:1rem] sm:[--forge-gutter:2rem]";
@@ -43,6 +56,31 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
     () => historySections(items, { project: props.project ?? null, now }),
     [items, props.project, now],
   );
+  const entries = useMemo(() => {
+    const rows: HistoryEntry[] = [];
+    for (const section of sections) {
+      rows.push({
+        kind: "label",
+        label: section.label,
+        group: section.group,
+        first: !rows.length,
+      });
+      for (const item of section.items) rows.push({ kind: "thread", item });
+    }
+    return rows;
+  }, [sections]);
+  const threads = useWindowThreads();
+  const handle = useRef<VirtualRowsHandle>(null);
+  const keys = useViewListKeys<HTMLDivElement>({
+    count: entries.length,
+    titleAt: (index) => {
+      const entry = entries[index];
+      if (entry?.kind !== "thread") return undefined;
+      const { id } = entry.item;
+      return threads.entry(id)?.title ?? search.hits.get(id)?.threadTitle ?? "";
+    },
+    reveal: (index) => handle.current?.scrollToIndex(index, "auto"),
+  });
   const end = useRef<HTMLDivElement>(null);
   const { more } = paging;
   // The list's end in sight asks for the next page. Each page passes through loading, so the
@@ -82,23 +120,35 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
                   : "No settled threads yet."}
             </p>
           ) : (
-            sections.map((section) => (
-              <section key={section.group} aria-label={section.label}>
-                <h3 className="mt-3 mb-0.5 text-xs font-medium text-subtle-foreground">
-                  {section.label}
-                </h3>
-                <ul className="flex flex-col">
-                  {section.items.map((item) => (
+            <div {...keys}>
+              <VirtualList
+                label="Settled threads"
+                items={entries}
+                handle={handle}
+                rowKey={(entry) =>
+                  entry.kind === "label" ? `label:${entry.group}` : entry.item.id
+                }
+                estimate={estimateOf}
+                render={(entry) =>
+                  entry.kind === "label" ? (
+                    <h3
+                      className={cn(
+                        "pb-0.5 text-xs font-medium text-subtle-foreground",
+                        entry.first ? "pt-3" : "pt-6",
+                      )}
+                    >
+                      {entry.label}
+                    </h3>
+                  ) : (
                     <HistoryRow
-                      key={item.id}
-                      id={item.id}
-                      at={item.at}
-                      hit={search.hits.get(item.id)}
+                      id={entry.item.id}
+                      at={entry.item.at}
+                      hit={search.hits.get(entry.item.id)}
                     />
-                  ))}
-                </ul>
-              </section>
-            ))
+                  )
+                }
+              />
+            </div>
           )}
           <div ref={end} className="h-px" />
           {foot === "loading" && (
