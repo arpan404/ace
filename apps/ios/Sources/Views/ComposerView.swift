@@ -62,6 +62,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     /// Big: the web's layout, with the controls row under the message.
     private var big: Bool { card || !empty }
     private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
+    @Environment(\.inGlassBlock) private var inBlock
     var body: some View {
         let bar = ReadingColumn.bar(sizeClass)
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
@@ -133,7 +134,8 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                 .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: big)
             }
         }
-        .padding(.horizontal, bar.composer).padding(.bottom, bar.bottom)
+        // In the glass block the block keeps the edges.
+        .padding(.horizontal, inBlock ? 0 : bar.composer).padding(.bottom, inBlock ? 0 : bar.bottom)
         .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: wraps)
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
         .onChange(of: mention) { _, picked in

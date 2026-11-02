@@ -26,9 +26,13 @@ private struct SurfaceGlass<S: Shape>: ViewModifier {
     let composer: Bool
     let interactive: Bool
     @Environment(\.aceSolidSurfaces) private var solid
+    @Environment(\.inGlassBlock) private var inBlock
 
     func body(content: Content) -> some View {
-        if solid {
+        if inBlock {
+            // Inside the composer's glass block: a quiet fill, never glass on glass.
+            content.background(AceTheme.Colours.fill, in: shape)
+        } else if solid {
             content.background(AceTheme.Colours.card, in: shape)
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         } else if #available(iOS 26, *) {

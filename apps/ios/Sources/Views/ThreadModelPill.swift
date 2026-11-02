@@ -27,8 +27,9 @@ struct ComposerPills: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            .padding(.horizontal, ReadingColumn.bar(sizeClass).composer)
-            .padding(.bottom, AceTheme.Spacing.sm)
+            // On the glass block's top edge: inset to its inner edge, close above it.
+            .padding(.horizontal, ReadingColumn.bar(sizeClass).composer + GlassBlock.inset)
+            .padding(.bottom, AceTheme.Spacing.xs)
             .animation(reduceMotion ? nil : AceTheme.Motion.spring, value: pill)
         }
     }

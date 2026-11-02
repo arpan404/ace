@@ -263,6 +263,14 @@ struct ThreadView: View {
     /// surface just above the composer, which holds the oldest open request (a question
     /// too, the composer staying under it). While a request needs the person the pill steps
     /// aside. Nothing sits below the composer.
+    /// Whether a strip shows above the composer, by the same order the strip's own chain reads.
+    private var hasStrip: Bool {
+        !thread.approvals.isEmpty
+            || (screen.queue?.strip).map { HoldStripState.of(strip: $0, canOperate: model.canOperate, archived: archived).visible } == true
+            || screen.queue?.notSent != nil || screen.leftRunning != nil
+            || model.transfers.thread(thread.id)?.line != nil || screen.work != nil
+    }
+
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
         VStack(spacing: AceTheme.Spacing.none) {
@@ -276,7 +284,9 @@ struct ThreadView: View {
                 ComposerPills(model: model.canOperate && !archived && screen.controls != nil ? screen : nil,
                               pill: screen.pill, open: openPill,
                               openModel: { showModels = true }, openTune: { showTune = true }, openSettings: { showSettings = true })
-                // The one strip, right on the composer (`DockStrip`): what needs the person first.
+                // The one strip and the composer as one glass block (`GlassBlock`): the strip is
+                // the block's top section, what needs the person first.
+                VStack(spacing: AceTheme.Spacing.none) {
                 Group {
                     if !thread.approvals.isEmpty {
                         RequestStrip(requests: thread.approvals, model: model, questionDraft: $questionDraft, openBrowser: { open(.browser) })
@@ -369,6 +379,8 @@ struct ThreadView: View {
                     ViewOnlyNote.thread
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
                 }
+                }
+                .modifier(GlassBlock(active: hasStrip))
             }
             .composerGlassGroup()
         }

@@ -39,6 +39,7 @@ struct DockStrip: View {
     @State private var expanded = false
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.aceReduceMotion) private var reduceMotion
+    @Environment(\.inGlassBlock) private var inBlock
 
     /// Details first, then the answers in the bridge's order.
     private var ordered: [DockAction] { actions.filter(\.aside) + actions.filter { !$0.aside } }
@@ -69,11 +70,13 @@ struct DockStrip: View {
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .aceGlass(in: AceShape.field)
-        .contentShape(AceShape.field)
+        // The top section of the composer's glass block (`GlassBlock`); standing alone (a
+        // subagent's view), its own glass.
+        .modifier(StripSurfaceGlass(inBlock: inBlock))
+        .contentShape(Rectangle())
         .gesture(swipe)
-        .padding(.horizontal, ReadingColumn.bar(sizeClass).composer)
-        .padding(.bottom, AceTheme.Spacing.xs)
+        .padding(.horizontal, inBlock ? 0 : ReadingColumn.bar(sizeClass).composer)
+        .padding(.bottom, inBlock ? 0 : AceTheme.Spacing.xs)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(identifier)
     }
@@ -162,5 +165,13 @@ struct StripLeadMark: View {
         }
         .frame(width: Self.width)
         .accessibilityHidden(true)
+    }
+}
+
+/// A strip's own glass when it stands alone; inside the block it draws nothing of its own.
+private struct StripSurfaceGlass: ViewModifier {
+    let inBlock: Bool
+    func body(content: Content) -> some View {
+        if inBlock { content } else { content.aceGlass(in: AceShape.field) }
     }
 }
