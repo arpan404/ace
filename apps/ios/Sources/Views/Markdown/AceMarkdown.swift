@@ -34,6 +34,8 @@ struct AceMarkdown: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.transcriptScale) private var scale
     @Environment(\.aceReduceMotion) private var reduceMotion
+    /// The thread's kept renderings: finished text reuses one instead of building it again.
+    @Environment(\.markdownShelf) private var shelf
     @State private var pace = StreamPace()
     /// What the pace last drew while streaming; nil once the text is finished.
     @State private var paced: String?
@@ -43,18 +45,7 @@ struct AceMarkdown: View {
     static let collapse = MarkitCodeCollapse(collapseAbove: 22, visibleLines: 20)
 
     var body: some View {
-        let open = openURL
-        let route = route
-        MarkitInline(markdown: streaming ? (paced ?? text) : text, finalized: !streaming, flavor: flavor,
-                     theme: AceMarkdownTheme.current(scale: scale, tone: tone),
-                     isTextSelectable: selectable, codeCollapse: Self.collapse,
-                     onLink: { url in
-                         if let route { if let target = route.link(url) { open(target) } } else { open(url) }
-                     },
-                     onReference: { reference in
-                         if let route { if let target = route.reference(reference) { open(target) } } else { open(Self.url(for: reference)) }
-                     },
-                     resolveImage: resolveImage, onTask: onTask, renderDiagram: renderDiagram)
+        rendered
             .frame(maxWidth: .infinity, alignment: .leading)
             .onChange(of: text, initial: true) { _, latest in
                 guard streaming else { return }
@@ -74,6 +65,28 @@ struct AceMarkdown: View {
                 take(pace.due(now: Self.now(), late: 0))
             }
             .onDisappear { stop() }
+    }
+
+    @ViewBuilder private var rendered: some View {
+        let open = openURL
+        let route = route
+        let theme = AceMarkdownTheme.current(scale: scale, tone: tone)
+        let onLink: (URL) -> Void = { url in
+            if let route { if let target = route.link(url) { open(target) } } else { open(url) }
+        }
+        let onReference: (MarkitReference) -> Void = { reference in
+            if let route { if let target = route.reference(reference) { open(target) } } else { open(Self.url(for: reference)) }
+        }
+        if !streaming, let shelf {
+            ShelvedMarkdown(text: text, flavor: flavor, theme: theme, selectable: selectable,
+                            codeCollapse: Self.collapse, onLink: onLink, onReference: onReference,
+                            resolveImage: resolveImage, onTask: onTask, renderDiagram: renderDiagram, shelf: shelf)
+        } else {
+            MarkitInline(markdown: streaming ? (paced ?? text) : text, finalized: !streaming, flavor: flavor,
+                         theme: theme, isTextSelectable: selectable, codeCollapse: Self.collapse,
+                         onLink: onLink, onReference: onReference,
+                         resolveImage: resolveImage, onTask: onTask, renderDiagram: renderDiagram)
+        }
     }
 
     /// A file reference opens as the link it would be written as (`fileLinks` asks the thread); a

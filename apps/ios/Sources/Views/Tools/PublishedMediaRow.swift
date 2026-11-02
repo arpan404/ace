@@ -17,7 +17,7 @@ private struct PublishedMediaReply: Decodable { let kind: String; let document: 
     let model: ClientModel
     let threadId: String
     private let cache = NSCache<NSString, Box>()
-    let canvases = CanvasShelf<WKWebView>()
+    let canvases = ViewShelf<WKWebView>()
     private final class Box { let media: PublishedMedia; init(_ media: PublishedMedia) { self.media = media } }
 
     init(model: ClientModel, threadId: String) {

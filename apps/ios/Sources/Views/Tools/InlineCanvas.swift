@@ -1,4 +1,3 @@
-import CryptoKit
 import SwiftUI
 import UIKit
 import WebKit
@@ -10,48 +9,8 @@ struct CanvasPage: Equatable {
     let id: String
     init(document: String) {
         self.document = document
-        id = SHA256.hash(data: Data(document.utf8)).map { String(format: "%02x", $0) }.joined()
+        id = contentKey(document)
     }
-}
-
-/// What one thread keeps of the pages it has drawn, so a page scrolled back into view comes back
-/// at once at the height it had: each page's last measured height, and the last few loaded views
-/// off screen, ready to put back without loading again. A view on screen is never on the shelf.
-/// Generic over the view so its keeping and eviction can be tested without WebKit.
-@MainActor final class CanvasShelf<Kept: AnyObject> {
-    private var heights: [String: CGFloat] = [:]
-    private var heightOrder: [String] = []
-    private var kept: [(id: String, view: Kept)] = []
-    let maxHeights: Int
-    let maxKept: Int
-
-    init(maxHeights: Int = 256, maxKept: Int = 6) {
-        self.maxHeights = maxHeights
-        self.maxKept = maxKept
-    }
-
-    /// The height page `id` last measured, if it has been drawn.
-    func height(_ id: String) -> CGFloat? { heights[id] }
-
-    func remember(height: CGFloat, for id: String) {
-        if heights.updateValue(height, forKey: id) == nil { heightOrder.append(id) }
-        while heightOrder.count > maxHeights { heights[heightOrder.removeFirst()] = nil }
-    }
-
-    /// Takes page `id`'s loaded view off the shelf, for a row coming on screen.
-    func take(_ id: String) -> Kept? {
-        guard let index = kept.firstIndex(where: { $0.id == id }) else { return nil }
-        return kept.remove(at: index).view
-    }
-
-    /// Puts a view that went off screen on the shelf; past the limit the longest kept goes.
-    func put(_ view: Kept, for id: String) {
-        kept.removeAll { $0.id == id }
-        kept.append((id, view))
-        if kept.count > maxKept { kept.removeFirst(kept.count - maxKept) }
-    }
-
-    var keptCount: Int { kept.count }
 }
 
 /// A page inline in the transcript: as tall as its content, which the trusted outer document
@@ -61,7 +20,7 @@ struct CanvasPage: Equatable {
 struct InlineCanvas: View {
     let page: CanvasPage
     let title: String
-    let shelf: CanvasShelf<WKWebView>?
+    let shelf: ViewShelf<WKWebView>?
     @State private var reported: CGFloat?
 
     static let placeholderHeight: CGFloat = 160
@@ -80,7 +39,7 @@ struct InlineCanvas: View {
 
 private struct MeasuredCanvas: UIViewRepresentable {
     let page: CanvasPage
-    let shelf: CanvasShelf<WKWebView>?
+    let shelf: ViewShelf<WKWebView>?
     let onHeight: (CGFloat) -> Void
 
     func makeUIView(context: Context) -> UIView {
@@ -128,12 +87,12 @@ private struct MeasuredCanvas: UIViewRepresentable {
     }
 
     @MainActor final class Coordinator: NSObject, WKNavigationDelegate {
-        let shelf: CanvasShelf<WKWebView>?
+        let shelf: ViewShelf<WKWebView>?
         var onHeight: (CGFloat) -> Void
         private(set) var pageId: String?
         private weak var view: WKWebView?
         private var observation: NSKeyValueObservation?
-        init(shelf: CanvasShelf<WKWebView>?, onHeight: @escaping (CGFloat) -> Void) {
+        init(shelf: ViewShelf<WKWebView>?, onHeight: @escaping (CGFloat) -> Void) {
             self.shelf = shelf
             self.onHeight = onHeight
         }
@@ -152,7 +111,7 @@ private struct MeasuredCanvas: UIViewRepresentable {
             }
         }
         /// The row went off screen (or shows another page): its view goes back on the shelf.
-        func release(to shelf: CanvasShelf<WKWebView>?) {
+        func release(to shelf: ViewShelf<WKWebView>?) {
             observation?.invalidate(); observation = nil
             guard let view, let pageId else { return }
             view.removeFromSuperview()
