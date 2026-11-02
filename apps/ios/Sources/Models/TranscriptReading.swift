@@ -255,6 +255,7 @@ struct ThreadFocus: Equatable {
 
     private func open(model: ClientModel, live: ThreadModel) -> ThreadModel {
         Self.epochs += 1
+        PerfProbe.add("reading.windows", 1)
         let next = ThreadModel(id: live.id)
         next.epoch = -Self.epochs
         next.disclosures = live.disclosures

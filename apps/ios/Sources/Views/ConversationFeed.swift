@@ -127,9 +127,10 @@ struct ConversationFeed: View {
                     ForEach(TranscriptFeedRow.rows(shown)) { row in
                         TranscriptFeedRowView(row: row, thread: shown, links: links).id(row.id)
                             .disabled(historyStale)
-                            .onAppear { ThreadOpenTrace.shared.painted(thread.id) }
+                            .onAppear { ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1) }
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("transcript.viewport")) } action: { frame in
                                 anchor.frames[row.id] = frame
+                                anchor.measured(row.id, height: frame.height)
                                 extent.measure(row.id, height: Double(frame.height))
                                 // Post-gesture shell: refresh the capture from settled
                                 // frames before any drift correction, so a stale
@@ -619,6 +620,7 @@ struct ConversationFeed: View {
     }
     private func applyLayoutRevision() {
         let next = currentRevision()
+        if next != extent.revision { anchor.layoutChanged() }
         extent.applyRevision(next)
         if viewport.layoutChanged(to: next), pinned, !intent.active {
             // Following stays pinned through rotation/split/text-size changes.

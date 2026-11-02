@@ -16,9 +16,16 @@ import QuartzCore
     /// of scrolling cost without a five-second window mixing in idle time.
     private var lostTotal = 0.0
 
+    /// Main-thread time spent between waking and sleeping again, since launch.
+    private var busy: CFRunLoopObserver?
+    private var wokeAt: CFTimeInterval?
+    private var busyTotal = 0.0
+    private var busyPublished: CFTimeInterval = 0
+
     func run(_ on: Bool) {
         guard on != (link != nil) else { return }
         if on {
+            watchBusy()
             let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
             link.add(to: .main, forMode: .common)
             self.link = link
@@ -41,6 +48,12 @@ import QuartzCore
             worst = max(worst, gap)
         }
         last = now
+        // Published from the frame callback, never the run-loop observer: a record there would
+        // wake the run loop it measures.
+        if now - busyPublished >= 0.25 {
+            busyPublished = now
+            PerfProbe.record(["main.busyMsTotal": String(format: "%.0f", busyTotal * 1000)])
+        }
         if now - started >= 5 { report(at: now) }
     }
     private func report(at now: CFTimeInterval) {
@@ -57,6 +70,24 @@ import QuartzCore
                 """)
         }
         reset(at: now)
+    }
+    /// Counts how long the main run loop works between waits, so a test can read the main
+    /// thread's busy share over a stretch of scrolling.
+    private func watchBusy() {
+        guard busy == nil else { return }
+        let activities = CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
+        let observer = CFRunLoopObserverCreateWithHandler(nil, activities, true, 0) { [weak self] _, activity in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let now = CACurrentMediaTime()
+                if activity == .afterWaiting { self.wokeAt = now; return }
+                guard let woke = self.wokeAt else { return }
+                self.wokeAt = nil
+                self.busyTotal += now - woke
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        busy = observer
     }
     private func reset(at now: CFTimeInterval) { started = now; frames = 0; late = 0; lost = 0; worst = 0 }
 }
