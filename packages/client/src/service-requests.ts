@@ -58,31 +58,33 @@ type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storag
                     ? Replies<"notification.feed.result">
                     : Q["type"] extends "host.identity"
                       ? Replies<"host.identity.result">
-                      : Q["type"] extends "activity.reads" | "activity.markRead"
-                        ? Replies<"activity.reads.result">
-                        : Q["type"] extends "entities.page"
-                          ? Replies<"entities.page">
-                          : Q["type"] extends "queue.get"
-                            ? Extract<Reply, { type: "queue.result" }>
-                            : Q["type"] extends "permissions.capabilities"
-                              ? Replies<"permissions.capabilities.result">
-                              : Q["type"] extends "providers.request"
-                                ? Replies<"providers.result">
-                                : Q["type"] extends "repositories.request"
-                                  ? Replies<"repositories.result">
-                                  : Q["type"] extends "source-control.request"
-                                    ? Replies<"source-control.result">
-                                    : Q["type"] extends "projects.request"
-                                      ? Replies<"projects.result">
-                                      : Q["type"] extends "accounts.login" | "accounts.logout"
-                                        ? Replies<"accounts.auth">
-                                        : Q["type"] extends
-                                              | "accounts.add"
-                                              | "accounts.rename"
-                                              | "accounts.remove"
-                                              | "accounts.setDefault"
-                                          ? Replies<"accounts.changed">
-                                          : ExistingServiceResponse<Q>;
+                      : Q["type"] extends `machine.code.${string}`
+                        ? Replies<"machine.code.result">
+                        : Q["type"] extends "activity.reads" | "activity.markRead"
+                          ? Replies<"activity.reads.result">
+                          : Q["type"] extends "entities.page"
+                            ? Replies<"entities.page">
+                            : Q["type"] extends "queue.get"
+                              ? Extract<Reply, { type: "queue.result" }>
+                              : Q["type"] extends "permissions.capabilities"
+                                ? Replies<"permissions.capabilities.result">
+                                : Q["type"] extends "providers.request"
+                                  ? Replies<"providers.result">
+                                  : Q["type"] extends "repositories.request"
+                                    ? Replies<"repositories.result">
+                                    : Q["type"] extends "source-control.request"
+                                      ? Replies<"source-control.result">
+                                      : Q["type"] extends "projects.request"
+                                        ? Replies<"projects.result">
+                                        : Q["type"] extends "accounts.login" | "accounts.logout"
+                                          ? Replies<"accounts.auth">
+                                          : Q["type"] extends
+                                                | "accounts.add"
+                                                | "accounts.rename"
+                                                | "accounts.remove"
+                                                | "accounts.setDefault"
+                                            ? Replies<"accounts.changed">
+                                            : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
@@ -181,6 +183,9 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "prompts.request": ["prompts.result"],
   "skills.request": ["skills.result"],
   "host.identity": ["host.identity.result"],
+  "machine.code.status": ["machine.code.result"],
+  "machine.code.set": ["machine.code.result"],
+  "machine.code.clear": ["machine.code.result"],
   "lockedUse.subscribe": ["lockedUse.status"],
   "lockedUse.unsubscribe": ["lockedUse.result"],
   "lockedUse.install": ["lockedUse.result"],
