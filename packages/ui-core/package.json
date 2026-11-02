@@ -6,6 +6,7 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
+    "./providers": "./src/providers.ts",
     "./provider-icons": "./src/provider-icons.ts",
     "./step-labels": "./src/tool-labels.ts",
     "./ace-tools": "./src/ace-tool-rows.ts",
