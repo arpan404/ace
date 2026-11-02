@@ -90,13 +90,9 @@ struct InboxList: View {
                         .selectionDisabled()
                 }
                 let live = sections.filter { !Self.shelved.contains($0.key) }
-                ForEach(live) { section in
-                    // One section sorted by hand or by creation needs no heading: the title says it.
-                    if live.count > 1 || section.key != "threads" {
-                        InboxSectionHeading(label: section.label).inboxRowChrome().selectionDisabled()
-                    }
-                    rows(section)
-                }
+                // One flat list in the shared order, as the desktop's Inbox: no headings. Pinned
+                // and the rest stay separate sections only so pins can be dragged among themselves.
+                ForEach(live) { section in rows(section) }
                 ForEach(Self.shelved, id: \.self) { key in
                     if let section = sections.first(where: { $0.key == key }) {
                         let open = key == "snoozed" ? shelves.snoozed : shelves.settled
@@ -241,21 +237,6 @@ extension View {
     /// The task list's row chrome: inset 8pt from the screen edge, 4pt between rows, the list's
     /// surface behind, and no rules (DESIGN.md: nothing in the task list is ruled).
     func inboxRowChrome() -> some View { modifier(InboxRowChrome()) }
-}
-
-/// A section's name over its rows: Needs you, Working, Done.
-struct InboxSectionHeading: View {
-    let label: String
-    var body: some View {
-        Text(label)
-            .aceFont(AceTheme.TypeStyle(size: 13, lineHeight: 17, weight: 600, tracking: 0), relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .padding(.top, AceTheme.Spacing.lg)
-            .padding(.bottom, AceTheme.Spacing.xxs)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityAddTraits(.isHeader)
-    }
 }
 
 private struct InboxRowChrome: ViewModifier {

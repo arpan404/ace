@@ -266,3 +266,20 @@ test("the phone's inbox leaves out threads a paired machine's agents delegated t
   ]);
   expect(result).toEqual({ Working: ["mac/mine"] });
 });
+
+test("with a baseline the inbox reads in the desktop's order: needs you, running, unseen results, then the rest", () => {
+  const threads = [
+    // Finished long ago and opened since: at rest.
+    on("m", entry("read", { state: "done" }, now - 2 * 10_000, { readAt: now })),
+    // Finished earlier, not opened yet: leads the threads at rest, though older.
+    on("m", entry("unseen", { state: "done" }, now - 5 * 10_000)),
+    // A failure already seen rests with the idle threads; it no longer asks.
+    on("m", entry("seen-failure", { state: "failed" }, now - 10_000, { readAt: now })),
+    on("m", entry("busy", { state: "working", agents: 1 }, now - 10 * 10_000)),
+    on("m", entry("asks", { state: "needs_you", interactions: 1 }, now - 20 * 10_000)),
+  ];
+  const ordered = inboxSections(threads, [], now, { baseline: 0 }).flatMap((section) =>
+    section.keys.map((key) => key.slice(2)),
+  );
+  expect(ordered).toEqual(["asks", "busy", "unseen", "seen-failure", "read"]);
+});

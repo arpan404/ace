@@ -35,7 +35,7 @@ export function inboxCheckpoint(
     context.now,
     (store.homeWindow ?? store.window)?.before != null,
     // Saved in the order the phone shows, so the next launch draws it the same way.
-    { sortBy: context.sortBy },
+    { sortBy: context.sortBy, baseline: context.baseline },
   );
   // Chats keep their own tab's list, so the next launch draws them there too.
   const chats = chatsLayout(held.filter(isChatThread), context.now, context.baseline, "");

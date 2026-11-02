@@ -10,6 +10,7 @@ import {
   type HomeSort,
 } from "./arrange.ts";
 import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
+import { inboxBand, standingReader } from "./threads-panel.ts";
 import {
   mobileThreadStatus,
   syncingStatus,
@@ -102,6 +103,13 @@ export interface InboxSectionOptions {
    * stays where it is while its state changes. Snoozed and Settled stay apart either way.
    */
   sortBy?: HomeSort | undefined;
+  /**
+   * Order the live threads as the desktop's Inbox does (`inboxBand`): what needs the person
+   * (a request or a failure not yet seen), then what runs, then finished work not yet seen,
+   * then the rest. Results that finished before `baseline` count as seen. Without it the
+   * groups follow the daemon's status alone.
+   */
+  baseline?: number | undefined;
 }
 
 /** The groups that sorting by creation or by hand folds into one Threads list. */
@@ -298,6 +306,9 @@ export function inboxGroupRank(key: InboxGroupKey): number {
   return groupRanks[key];
 }
 
+/** The live groups the desktop's bands reorder; pinned, syncing, snoozed and settled stay. */
+const bandedGroups: ReadonlySet<InboxGroupKey> = new Set(["needs-you", "working", "done"]);
+
 const byRank = (a: { rank: string }, b: { rank: string }) =>
   a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0;
 
@@ -314,9 +325,20 @@ export function inboxSections(
 ): InboxSection[] {
   const groups = new Map<InboxGroupKey, { key: string; rank: string }[]>();
   const sortBy = options.sortBy ?? "activity";
+  const standing =
+    options.baseline === undefined
+      ? undefined
+      : standingReader({ baseline: options.baseline, now });
   for (const thread of threads) {
     let group = inboxGroup(thread, now);
     if (!group) continue;
+    // The desktop's bands: a seen failure rests with the idle threads, unseen results lead them.
+    let lead = "";
+    if (standing && thread.entry.pinned !== true && bandedGroups.has(group)) {
+      const band = inboxBand(standing(thread.entry), false);
+      group = band === "needs-you" ? "needs-you" : band === "running" ? "working" : "done";
+      if (group === "done") lead = band === "unseen" ? "0" : "1";
+    }
     let rank: string;
     // A pinned thread stays in Pinned whatever its state, as on Home; its row still says it.
     if (thread.entry.pinned === true) {
@@ -325,7 +347,7 @@ export function inboxSections(
     } else if (sortBy !== "activity" && listedGroups.has(group)) {
       group = "threads";
       rank = inboxListRank(thread, sortBy);
-    } else rank = inboxRank(thread, group);
+    } else rank = lead + inboxRank(thread, group);
     const row = { key: thread.key, rank };
     const list = groups.get(group);
     if (list) list.push(row);

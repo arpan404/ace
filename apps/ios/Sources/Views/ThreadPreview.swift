@@ -20,12 +20,23 @@ struct ThreadPreview: View {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(row.title).aceFont(InboxRowType.title, relativeTo: .body).fontWeight(.medium)
                     .foregroundStyle(AceTheme.Colours.foreground).lineLimit(3)
-                // The row's own status, so the preview and the row never word it differently.
-                StateLabel(status: row.status).aceFont(InboxRowType.line, relativeTo: .subheadline)
+                // The row's icon and what it means (`rowStatusLook`), as the desktop's hover card
+                // leads with it; older bridges keep the status word.
+                if let meaning = look.meaning, let icon = look.icon {
+                    HStack(spacing: AceTheme.Spacing.xs) {
+                        if icon != "none" { RowStatusIcon(kind: icon, tone: look.iconTone ?? "idle", count: look.count) }
+                        Text(meaning).foregroundStyle(look.iconTone == "needs-you" ? AceTheme.RowStatus.needsYou
+                                                      : look.iconTone == "failed" ? AceTheme.RowStatus.failed
+                                                      : AceTheme.Colours.mutedForeground)
+                    }
+                    .aceFont(InboxRowType.line, relativeTo: .subheadline)
+                } else {
+                    StateLabel(status: row.status).aceFont(InboxRowType.line, relativeTo: .subheadline)
+                }
             }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                 if !row.project.isEmpty {
-                    fact { ProjectMark(initials: row.badge ?? "", chat: row.chat == true, look: project) } text: { row.project }
+                    fact { AceIcon(.folder, size: 14, relativeTo: .subheadline) } text: { row.project }
                 }
                 if let machine, !row.machine.isEmpty {
                     fact { AceIcon(machine.glyph, size: 14, relativeTo: .subheadline) } text: { row.machine }

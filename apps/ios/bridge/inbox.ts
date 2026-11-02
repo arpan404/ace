@@ -204,6 +204,8 @@ export function followInbox(
         {
           settledTotal: store.unconfirmed === true ? undefined : settledTotal(store.homeWindow),
           sortBy: sort.current(),
+          // Ordered as the desktop's Inbox: needs you, running, unseen, then the rest.
+          baseline,
         },
       );
     });

@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// One thread in the inbox: two lines beside one small status mark. The title and its age, then
-/// the project's mark and name and what the thread wants or is doing, with the machine (only
-/// when several are paired), running subagents and the provider at the end. Only a thread that
-/// needs the person, or failed, takes colour. Branch and pull request live in the thread itself.
+/// One thread in the inbox, as the desktop row reads: its status icon in its state's colour (no
+/// status words), the title with the running time of live work or the age at rest, then the
+/// project's name, with the machine (only when several are paired), running subagents and the
+/// provider at the end. The state's meaning (`rowStatusLook`) is in the row's spoken name.
+/// Branch and pull request live in the thread itself.
 struct InboxThreadRow: View {
     @Environment(\.aceDensityId) private var densityId
     let row: ThreadRow
@@ -40,6 +41,14 @@ struct InboxThreadRow: View {
         .padding(.vertical, AceTheme.density(densityId).inboxRowPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+        // The title, then what the icon means ("Needs approval"), as the desktop row names itself.
+        .accessibilityLabel(spoken(look))
+    }
+
+    private func spoken(_ look: RowLook) -> String {
+        let meaning = look.meaning ?? look.word
+        return [row.title, meaning, row.project.isEmpty ? nil : row.project]
+            .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", ")
     }
 }
 
@@ -101,8 +110,9 @@ private struct InboxWorkingRing: View {
     }
 }
 
-/// The age on the title's line: how long live work has run, to the second ("1m 34s") as the
-/// desktop row counts it, else how long since it moved.
+/// The time on the title's line, as the shared look says (`rowStatusLook`'s mode): how long live
+/// work has run, to the second ("1m 34s"); the age of a row at rest; a quiet word while syncing;
+/// nothing where the icon says it alone (a request, a fresh failure, an unseen result).
 struct InboxRowAge: View {
     let row: ThreadRow
     let look: RowLook
@@ -111,6 +121,10 @@ struct InboxRowAge: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 label(ActivityTime.running(since: Date(timeIntervalSince1970: since / 1000), now: context.date))
             }
+        } else if look.mode == "icon" {
+            EmptyView()
+        } else if look.mode == "word", let word = look.word {
+            label(word)
         } else {
             TimelineView(.everyMinute) { context in label(text(at: context.date)) }
         }
@@ -130,10 +144,10 @@ struct InboxRowAge: View {
     }
 }
 
-/// The line under the title: the project's mark and name, then the status word (in colour only
-/// when the thread needs the person or failed). At the end, never wrapping: the machine's mark,
-/// running subagents and the provider's mark. When space runs short the project name gives way
-/// first.
+/// The line under the title: the project's name, and for a snoozed row when it wakes, as the
+/// desktop row says it where its status sits. No status words: the icon says it. At the end,
+/// never wrapping: the machine's mark, running subagents and the provider's mark. When space
+/// runs short the project name gives way first.
 struct InboxRowLine: View {
     let row: ThreadRow
     let look: RowLook
@@ -141,18 +155,16 @@ struct InboxRowLine: View {
     let machine: MachineMark?
     let project: ProjectMarkLook?
     var body: some View {
-        let word = snoozed && !look.loud ? row.snoozedUntil.map(Self.wake) : look.word
-        let loud = look.level == "needs-you" || AceTone(look.tone) == .failed
+        // Older bridges without the shared look keep their word.
+        let word = snoozed && look.level != "needs-you" ? row.snoozedUntil.map(Self.wake) : look.icon == nil ? look.word : nil
         let named = !row.project.isEmpty
         HStack(alignment: .center, spacing: AceTheme.Spacing.xs) {
             if named {
-                ProjectMark(initials: row.badge ?? "", chat: row.chat == true, look: project, quiet: look.settled)
                 Text(row.project).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
             }
             if let word {
                 Text((named ? "· " : "") + word)
-                    .fontWeight(loud ? .medium : .regular)
-                    .foregroundStyle(loud ? AceTone(look.tone).text : AceTheme.Colours.mutedForeground)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .lineLimit(1)
                     .layoutPriority(1)
             }
