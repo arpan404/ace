@@ -172,7 +172,7 @@ private struct ChatRow: View {
                 RowStatusIcon(kind: icon, tone: look?.iconTone ?? "idle", count: look?.count)
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.rowInner)
         .frame(minHeight: AceTheme.Dimensions.touchTarget)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)

@@ -20,10 +20,10 @@ struct ThreadsTabsBar: View {
         HStack(spacing: AceTheme.Spacing.none) {
             ForEach(tabs) { tab in item(tab) }
         }
-        .padding(3)
+        .padding(AceTheme.Spacing.xxs)
         .aceGlass(in: AceShape.capsule, interactive: true)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.gutter)
         .padding(.top, AceTheme.Spacing.xs)
         .padding(.bottom, AceTheme.Spacing.sm)
         .accessibilityElement(children: .contain)

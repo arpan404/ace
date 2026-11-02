@@ -109,3 +109,13 @@ extension AceTheme.Dimensions {
     /// far even where they draw smaller.
     static let tapMinimum: CGFloat = 44
 }
+
+extension AceTheme.Spacing {
+    /// One text edge for every list and page: 16pt from the screen's side (inbox, chats, pull
+    /// requests, More and Settings alike).
+    static let gutter: CGFloat = lg
+    /// Inside a list row, past the row's own 8pt inset from the edge (`inboxRowChrome`): together
+    /// they put its text on the gutter.
+    static let rowInner: CGFloat = gutter - sm
+}
+

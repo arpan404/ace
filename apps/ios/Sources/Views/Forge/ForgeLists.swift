@@ -97,7 +97,7 @@ struct ForgeListFrame<Rows: View>: View {
                     .forgeRowChrome()
             } else {
                 if let failure {
-                    Text(failure).meta().padding(.horizontal, AceTheme.Spacing.md).forgeRowChrome()
+                    Text(failure).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
                 }
                 rows()
                 if hasMore {
@@ -106,7 +106,7 @@ struct ForgeListFrame<Rows: View>: View {
                             Text("Show more").meta()
                             if loading { ProgressView().controlSize(.mini) }
                         }
-                        .padding(.horizontal, AceTheme.Spacing.md)
+                        .padding(.horizontal, AceTheme.Spacing.rowInner)
                         .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
                     }
                     .buttonStyle(.row)

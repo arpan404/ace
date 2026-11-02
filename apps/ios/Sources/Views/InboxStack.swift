@@ -358,7 +358,7 @@ struct InboxStack<Destination: View, Side: View>: View {
             }
             .aceGlass(in: AceShape.capsule, interactive: true)
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.gutter)
         .padding(.top, AceTheme.Spacing.md)
         .padding(.bottom, AceTheme.Spacing.sm)
     }

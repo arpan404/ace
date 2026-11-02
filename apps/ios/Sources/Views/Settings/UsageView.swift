@@ -41,7 +41,7 @@ struct UsageView: View {
                 }
                 .padding(.top, AceTheme.Spacing.sm)
             }
-            .padding(.horizontal, AceTheme.Spacing.xl)
+            .padding(.horizontal, AceTheme.Spacing.gutter)
             .padding(.top, AceTheme.Spacing.sm)
             .padding(.bottom, AceTheme.Spacing.xxxl)
             .frame(maxWidth: 720)

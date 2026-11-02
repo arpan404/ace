@@ -86,7 +86,7 @@ private struct ForgeRowLayout<Glyph: View, Line: View, Marks: View>: View {
                 .aceFont(InboxRowType.line, relativeTo: .subheadline)
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.rowInner)
         .padding(.vertical, AceTheme.Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)

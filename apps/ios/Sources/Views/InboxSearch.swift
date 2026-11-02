@@ -286,7 +286,7 @@ struct InboxSearchList: View {
             Spacer(minLength: AceTheme.Spacing.sm)
             if let detail { Text(detail).meta(AceTheme.Colours.subtleForeground) }
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.rowInner)
         .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
         .contentShape(Rectangle())
     }
@@ -309,7 +309,7 @@ private struct MessageHitLabel: View {
             }
             Text(hit.excerpt).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.rowInner)
         .padding(.vertical, AceTheme.Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)

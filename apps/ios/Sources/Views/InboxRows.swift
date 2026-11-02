@@ -37,7 +37,7 @@ struct InboxThreadRow: View {
                 InboxRowLine(row: row, look: look, snoozed: snoozed, machine: machine, project: project)
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.rowInner)
         .padding(.vertical, AceTheme.density(densityId).inboxRowPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
@@ -223,7 +223,7 @@ struct InboxUnsentRow: View {
                     .aceFont(InboxRowType.line, relativeTo: .subheadline).lineLimit(1)
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.rowInner)
         .padding(.vertical, AceTheme.density(densityId).inboxRowPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)

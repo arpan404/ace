@@ -51,10 +51,10 @@ struct ForgeNotificationsList: View {
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .accessibilityIdentifier("forge.inbox.again")
                 }
-                .padding(.horizontal, AceTheme.Spacing.md)
+                .padding(.horizontal, AceTheme.Spacing.rowInner)
                 .forgeRowChrome()
             } else if let message {
-                Text(message).meta(AceTone.failed.text).padding(.horizontal, AceTheme.Spacing.md).forgeRowChrome()
+                Text(message).meta(AceTone.failed.text).padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
             }
             ForEach(rows) { row in
                 Button { tap(row) } label: { ForgeNotificationRow(row: row) }
@@ -132,7 +132,7 @@ struct ForgeNotificationRow: View {
             Spacer(minLength: AceTheme.Spacing.sm)
             if let at = row.updatedAt { ForgeAge(at: at).meta() }
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.rowInner)
         .padding(.vertical, AceTheme.Spacing.sm)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
