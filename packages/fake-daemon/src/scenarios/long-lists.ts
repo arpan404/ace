@@ -154,9 +154,41 @@ export function seedSettledThreads(daemon: FakeDaemon, count: number, workspaceI
   }
 }
 
+/** `count` snoozed threads, each waking an hour after the one before, the first in an hour. */
+export function seedSnoozedThreads(
+  daemon: FakeDaemon,
+  now: number,
+  count: number,
+  workspaceId = "ace",
+): void {
+  for (let n = 0; n < count; n++) {
+    const id = `thread-long-snoozed-${pad(n + 1)}`;
+    daemon.createThread(
+      {
+        id,
+        workspaceId: WorkspaceId.parse(workspaceId),
+        title: `Snoozed for later ${pad(n + 1)}`,
+        provider: "claude",
+        hasSentMessage: true,
+      },
+      (n + 1) * minute,
+    );
+    daemon.command({
+      id: CommandId.parse(`snooze-${id}`),
+      deviceId: DeviceId.parse("long-lists"),
+      payload: {
+        type: "thread.snooze",
+        threadId: ThreadId.parse(id),
+        until: now + (n + 1) * 60 * minute,
+      },
+    });
+  }
+}
+
 /**
  * Every long list at once, for `?fakeLists=` in the fake app: pull requests and notifications
- * in place of the seeded ones, issues beside them, the long skills library and settled threads.
+ * in place of the seeded ones, issues beside them, the long skills library, and settled and
+ * snoozed threads.
  * Automations go through `withLongAutomations`, since they arrive with the services seed.
  */
 export function seedLongLists(daemon: FakeDaemon, now: number, count: number): void {
@@ -170,4 +202,5 @@ export function seedLongLists(daemon: FakeDaemon, now: number, count: number): v
   daemon.workspace.inbox.seed(longInbox(now, count));
   daemon.skills.seed(longSkills(count));
   seedSettledThreads(daemon, count);
+  seedSnoozedThreads(daemon, now, count);
 }

@@ -19,7 +19,7 @@ import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions, type RowActionsProps } from "./row-actions.tsx";
-import { boldTitle, threadDetails } from "./row-parts.tsx";
+import { boldTitle, RowWake, threadDetails } from "./row-parts.tsx";
 import { RowIndicator } from "./row-indicator.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
@@ -189,7 +189,12 @@ export function ThreadRow(props: {
       </span>
       {!actions && !renaming && (
         <span className="flex shrink-0 items-center group-has-[[data-popup-open]]/row:hidden">
-          <RowIndicator attention={attention} card={card} />
+          {/* A snoozed row says when it wakes, unless it needs the person, as a task row's status does. */}
+          {card.wake && attention.level !== "needs-you" && attention.level !== "failed" ? (
+            <RowWake wake={card.wake} />
+          ) : (
+            <RowIndicator attention={attention} card={card} />
+          )}
         </span>
       )}
     </>
