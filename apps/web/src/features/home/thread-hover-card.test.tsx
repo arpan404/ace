@@ -84,7 +84,7 @@ test("a row draws its provider mark with no account bubble; the hover card names
   expect(tip.textContent).toContain("Work");
 });
 
-test("the hover card says in words that a thread waits for approval, in amber, with no chip", async () => {
+test("the hover card says in words that a thread waits for approval, led by the amber hand", async () => {
   const app = harness();
   app.daemon.createThread({
     id: "hover-asks",
@@ -112,7 +112,10 @@ test("the hover card says in words that a thread waits for approval, in amber, w
   const sentence = within(tip).getByText("Waiting for approval", { exact: true });
   expect(sentence.closest("[data-ink]")?.getAttribute("data-ink")).toBe("warning");
   expect(within(tip).queryByText("Approval", { exact: true })).toBeNull();
-  expect(tip.querySelector("[data-hover-status] [data-icon]")).toBeNull();
+  // The row's own icon leads the line, in the same colour; no word chip.
+  const icon = tip.querySelector("[data-hover-status] [data-icon]");
+  expect(icon?.getAttribute("data-icon")).toBe("approve");
+  expect(icon?.getAttribute("data-tone")).toBe("needs-you");
 });
 
 test("the hover card of a failed thread says Failed in red", async () => {

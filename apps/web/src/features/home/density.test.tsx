@@ -7,10 +7,10 @@ import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { createIdleTask } from "@/test/tasks.ts";
 import { rowText } from "@/test/row-text.ts";
 
-/** The ink of a row's status icon, found by its meaning: `warning`, `destructive` or `muted`. */
-const inkOf = (row: HTMLElement, meaning: string) =>
-  within(row).getByRole("img", { name: meaning }).querySelector<HTMLElement>("[data-ink]")?.dataset
-    .ink;
+/** The colour (tone) of a row's status icon, found by the status's meaning. */
+const toneOf = (row: HTMLElement, meaning: string) =>
+  within(row).getByRole("img", { name: meaning }).querySelector<HTMLElement>("[data-icon]")?.dataset
+    .tone;
 
 /** One of the panel's tabs (Inbox, Snoozed or Settled), found by its name and count. */
 const tab = (nav: ReturnType<typeof within>, name: string) => nav.findByRole("tab", { name });
@@ -215,7 +215,7 @@ test("snoozed tasks leave the Inbox for Snoozed, and a snoozed task that asks fo
   expect(nav.queryByRole("link", { name: /^First task/ })).toBeNull();
   // The request leaves Snoozed for the Inbox, its icon in the needs-you colour.
   const last = await nav.findByRole("link", { name: /^Last task/ });
-  await waitFor(() => expect(inkOf(last, "Needs approval")).toBe("warning"));
+  await waitFor(() => expect(toneOf(last, "Needs approval")).toBe("needs-you"));
   await userEvent.click(snoozed);
   expect(await nav.findByRole("link", { name: /^First task/ })).toBeTruthy();
   expect(nav.queryByRole("link", { name: /^Last task/ })).toBeNull();
@@ -292,11 +292,11 @@ test("an Unsent-only list supports forward and backward navigation", async () =>
 });
 
 test.each([
-  ["not_sent", "Not sent", "warning"],
-  ["uncertain", "Review a message", "muted"],
+  ["not_sent", "Not sent", "needs-you"],
+  ["uncertain", "Review a message", "waiting"],
 ] as const)(
   "renewed %s queue recovery shows in the Inbox saying %s while the Snoozed tab stays closed",
-  async (reason, label, ink) => {
+  async (reason, label, tone) => {
     const now = 100_000;
     const app = harness({ clock: () => now, uiClock: () => now });
     for (const [id, title] of [
@@ -320,9 +320,9 @@ test.each([
     );
     app.daemon.holdQueue("recovery", reason);
     const name = new RegExp(`^Recover the saved message.*${label}`);
-    // The row's icon says it, named for it: Not sent in the needs-you colour, a review in grey.
+    // The row's icon says it, named for it: Not sent in the needs-you colour, a review in the waiting colour.
     const row = await nav.findByRole("link", { name });
-    expect(inkOf(row, label)).toBe(ink);
+    expect(toneOf(row, label)).toBe(tone);
     const remaining = await tab(nav, "Snoozed, 1");
     expect(remaining.getAttribute("aria-selected")).toBe("false");
     expect(nav.queryByRole("link", { name: /^Review this later/ })).toBeNull();

@@ -153,28 +153,18 @@ export function PullRequest(props: { card: ThreadCard; ink?: "state" | "muted" |
   );
 }
 
-/** The icon's colour on a row: only what needs the person or failed is coloured. */
-const inkClass = {
-  warning: "text-(--tone)",
-  destructive: "text-(--tone)",
-  muted: "text-muted-foreground",
-} as const;
-
-/** A row's solid status icon in its ink, silent: the row and its tooltip say the state. */
-function LookIcon(props: { look: RowStatusLook }) {
+/** A row's status icon in its state's colour, silent: the row and its tooltip say the state. */
+export function LookIcon(props: { look: RowStatusLook }) {
   const { look } = props;
   if (look.icon === "none") return null;
-  return (
-    <span data-ink={look.ink} className={cn("inline-flex", inkClass[look.ink])}>
-      <StatusIcon kind={look.icon} size={14} />
-    </span>
-  );
+  return <StatusIcon kind={look.icon} tone={look.tone} count={look.count} size={16} />;
 }
 
 /**
- * The first line's status, without words (`rowStatusLook`): what needs the person or failed is
- * its solid 14px icon alone, in the warning or destructive colour; working, waiting and
- * background work its grey icon and elapsed time; everything else its age in muted ink. The
+ * The first line's status, without words (`rowStatusLook`): what needs the person, a fresh
+ * failure and unseen finished work are their 16px icon alone; working, waiting and background
+ * work its icon and elapsed time; a seen failure its quiet icon and age; everything else its age
+ * in muted ink. Each icon is in its state's colour (`StatusIcon`). The
  * meaning ("Needs approval") is the tooltip and the element's name, and the row's accessible
  * name leads with it too, so nothing rests on the icon's shape or colour. Nothing animates.
  */

@@ -88,32 +88,34 @@ async function setup() {
   /** A row's status mark by its meaning ("Has a question"); rows show no status words. */
   const status = (title: string, meaning: string) =>
     within(link(title)).queryByRole("img", { name: meaning });
-  /** The ink a row's status icon draws in: `warning`, `destructive` or `muted`. */
-  const ink = (title: string, meaning: string) =>
-    status(title, meaning)?.querySelector<HTMLElement>("[data-ink]")?.dataset.ink;
+  /** The colour (tone) a row's status icon draws in. */
+  const tone = (title: string, meaning: string) =>
+    status(title, meaning)?.querySelector<HTMLElement>("[data-icon]")?.dataset.tone;
   const visit = async (path: string) => act(() => history.push(path));
   // A row's status gives way to its actions under the pointer: open it, then move the pointer on.
   const open = async (title: string) => {
     await userEvent.click(link(title));
     await userEvent.unhover(link(title));
   };
-  return { app, link, row, word, status, ink, visit, open };
+  return { app, link, row, word, status, tone, visit, open };
 }
 
-test("a done thread is unread until it is opened, then rests quiet with only its age", async () => {
+test("a done thread shows Finished until it is opened, then rests quiet with only its age", async () => {
   const { link, row, word, status, visit, open } = await setup();
   const title = "Ship the release notes";
   await waitFor(() => expect(row(title)).toEqual({ level: "done-unread", muted: false }));
-  // No word and no coloured icon: its age, with Done as the mark's name.
+  // No word: its icon alone, named Finished, in the finished colour.
   expect(word(title, "Done")).toBeNull();
-  expect(status(title, "Done")).toBeTruthy();
-  expect(status(title, "Done")?.querySelector("[data-icon]")).toBeNull();
+  expect(status(title, "Finished")?.querySelector('[data-tone="finished"]')).toBeTruthy();
+  expect(link(title).getAttribute("aria-label")).toContain("Finished");
   expect(link(title).getAttribute("aria-label")).toContain(", unread");
   await open(title);
   await waitFor(() => expect(link(title).getAttribute("aria-current")).toBe("page"));
   await visit("/new");
   await waitFor(() => expect(row(title)).toEqual({ level: "quiet", muted: true }));
   expect(link(title).getAttribute("aria-label")).not.toContain(", unread");
+  // At rest it is named Done, with no icon.
+  expect(status(title, "Done")?.querySelector("[data-icon]")).toBeNull();
   // The title still shows; a quiet relative time takes the status word's place.
   expect(within(link(title)).getByText(title)).toBeTruthy();
   expect(within(link(title)).getByText(/^(now|\d+[smhd])$/)).toBeTruthy();
@@ -131,7 +133,7 @@ test("new activity after reading makes the row unread again", async () => {
 });
 
 test("a thread that needs you keeps its amber icon after it is opened", async () => {
-  const { row, word, status, ink, link, visit, open } = await setup();
+  const { row, word, status, tone, link, visit, open } = await setup();
   const title = "Approval sheet loses its state on rotate";
   expect(row(title)).toEqual({ level: "needs-you", muted: false });
   await open(title);
@@ -140,21 +142,21 @@ test("a thread that needs you keeps its amber icon after it is opened", async ()
   expect(row(title)).toEqual({ level: "needs-you", muted: false });
   expect(word(title, "Question")).toBeNull();
   expect(status(title, "Has a question")?.querySelector('[data-icon="question"]')).toBeTruthy();
-  expect(ink(title, "Has a question")).toBe("warning");
+  expect(tone(title, "Has a question")).toBe("needs-you");
   expect(link(title).getAttribute("aria-label")).toContain("Has a question");
   expect(link(title).getAttribute("aria-label")).toContain("Waiting for your answer");
 });
 
 test("a failure draws its icon in red until seen, then in grey beside its age", async () => {
-  const { link, row, word, ink, visit, open } = await setup();
+  const { link, row, word, tone, visit, open } = await setup();
   const title = "Migrate the billing table";
   await waitFor(() => expect(row(title)).toEqual({ level: "failed", muted: false }));
   expect(word(title, "Failed")).toBeNull();
-  expect(ink(title, "Failed")).toBe("destructive");
+  expect(tone(title, "Failed")).toBe("failed");
   await open(title);
   await visit("/new");
   await waitFor(() => expect(row(title)).toEqual({ level: "failed-seen", muted: true }));
-  expect(ink(title, "Failed")).toBe("muted");
+  expect(tone(title, "Failed")).toBe("idle");
   expect(link(title).getAttribute("aria-label")).toContain("Failed");
 });
 
@@ -200,7 +202,7 @@ test("a waiting approval draws its amber icon with no word, on its row only, and
   );
   const asks = () => list.getByRole("link", { name: /^Publish the release/ });
   const mark = () => within(asks()).queryByRole("img", { name: "Needs approval" });
-  await waitFor(() => expect(mark()?.querySelector('[data-ink="warning"]')).toBeTruthy());
+  await waitFor(() => expect(mark()?.querySelector('[data-tone="needs-you"]')).toBeTruthy());
   expect(within(asks()).queryByText("Approval", { exact: true })).toBeNull();
   expect(asks().querySelector('[data-icon="approve"]')).toBeTruthy();
   expect(asks().getAttribute("aria-label")).toContain("Waiting for your approval");
@@ -239,7 +241,7 @@ test("an unsent thread draws its amber icon named Not sent and a stopped one res
   const unsent = await list.findByRole("link", { name: /^Check the saved message/ });
   expect(unsent.getAttribute("aria-label")).toContain("Not sent");
   const mark = within(unsent).getByRole("img", { name: "Not sent" });
-  expect(mark.querySelector('[data-ink="warning"]')).toBeTruthy();
+  expect(mark.querySelector('[data-tone="needs-you"]')).toBeTruthy();
   expect(within(unsent).queryByText("Not sent", { exact: true })).toBeNull();
   expect(within(stopped).queryByText(/Stopped|Agent stopped/)).toBeNull();
   // Queue paused is waiting, muted and still: its hourglass, no animation.

@@ -90,7 +90,7 @@ test("Settle and Unsettle on a settled row's hover actions move it between Settl
  * link. `statusVisible` reads the status cluster's hidden state from the DOM, not its classes:
  * hovered or keyboard-focused, the actions take the status's place and the status hides.
  */
-const hasStatus = (title: RegExp) => card(title).querySelector('[data-icon="waiting"]') !== null;
+const hasStatus = (title: RegExp) => card(title).querySelector('[data-icon="agents"]') !== null;
 const statusVisible = (title: RegExp) => {
   const wrap = card(title).querySelector("[data-row-status]");
   if (!(wrap instanceof HTMLElement)) throw new Error("no status");

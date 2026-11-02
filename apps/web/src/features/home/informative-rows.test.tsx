@@ -31,10 +31,10 @@ function task(app: ReturnType<typeof harness>, id: string, title: string) {
 }
 const rows = async () => within(await screen.findByRole("list", { name: "Threads" }));
 
-/** The ink of a row's status icon, found by its meaning (`warning`: what waits on you). */
-const inkOf = (row: HTMLElement, meaning: string) =>
-  within(row).queryByRole("img", { name: meaning })?.querySelector<HTMLElement>("[data-ink]")
-    ?.dataset.ink;
+/** The colour (tone) of a row's status icon, found by the status's meaning. */
+const toneOf = (row: HTMLElement, meaning: string) =>
+  within(row).queryByRole("img", { name: meaning })?.querySelector<HTMLElement>("[data-icon]")
+    ?.dataset.tone;
 
 /** A thread's row in Active, which leads with what waits on the person. */
 async function activeRow(title: string) {
@@ -55,7 +55,7 @@ test("a plan review draws its amber icon with no word and explains the request t
   ]);
   await app.open("/new");
   const row = await activeRow("Review reconnect recovery");
-  await waitFor(() => expect(inkOf(row, "Needs a review")).toBe("warning"));
+  await waitFor(() => expect(toneOf(row, "Needs a review")).toBe("needs-you"));
   expect(within(row).queryByText("Review", { exact: true })).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your review");
 });
@@ -66,17 +66,17 @@ test("a question draws its amber icon named Has a question and keeps the full ex
   app.play(example).runUntilBlocked();
   await app.open("/new");
   const row = await activeRow(example.thread.title);
-  await waitFor(() => expect(inkOf(row, "Has a question")).toBe("warning"));
+  await waitFor(() => expect(toneOf(row, "Has a question")).toBe("needs-you"));
   expect(within(row).queryByText("Question", { exact: true })).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
 });
 
 test.each([
-  [waitingOnSubagents, "waiting", "Waiting for 2 subagents", "Waiting on 2 agents"],
+  [waitingOnSubagents, "agents", "Waiting for 2 subagents", "Waiting on 2 agents"],
   [watchingRelay, "background", "Running in background bun run dev:relay", "Running in background"],
   [runningTests, "working", "Working · running tests", "Working"],
 ])(
-  "a live Active row shows its time with a grey icon, the full wording in its name and hover card: %s",
+  "a live Active row shows its time with its icon, the full wording in its name and hover card: %s",
   async (scenario, icon, full, sentence) => {
     const app = harness();
     const example = scenario();
@@ -87,7 +87,10 @@ test.each([
     ).findByRole("link", { name: new RegExp(`^${example.thread.title}`) });
     expect(rowText(row)).toContain(example.thread.title);
     expect(row.querySelector(`[data-icon="${icon}"]`)).toBeTruthy();
-    expect(row.querySelector("[data-ink]")?.getAttribute("data-ink")).toBe("muted");
+    // Each live state draws in its own colour.
+    expect(row.querySelector(`[data-icon="${icon}"]`)?.getAttribute("data-tone")).toBe(
+      icon === "agents" ? "waiting" : icon,
+    );
     expect(row.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
     // The short status word is gone; the time takes its place beside the icon.
     for (const gone of ["Waiting", "Background · 1", "Working"])
@@ -96,9 +99,9 @@ test.each([
     await userEvent.hover(row);
     const card = await screen.findByLabelText(/^Details for /);
     expect(card.textContent).toContain(example.thread.title);
-    // The card says it in words, with no icon chip.
+    // The card says it in words, led by the row's own icon.
     expect(within(card).getByText(sentence, { exact: true })).toBeTruthy();
-    expect(card.querySelector("[data-hover-status] [data-icon]")).toBeNull();
+    expect(card.querySelector(`[data-hover-status] [data-icon="${icon}"]`)).toBeTruthy();
   },
 );
 
@@ -169,10 +172,10 @@ test("agents running beside a human request remain counted until they finish", a
     expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running"),
   );
   // A waiting approval draws its icon in the needs-you (warning) colour.
-  expect(inkOf(row, "Needs approval")).toBe("warning");
+  expect(toneOf(row, "Needs approval")).toBe("needs-you");
   app.daemon.apply("build", [facts.endTurn("web")]);
   await waitFor(() => expect(row.getAttribute("aria-label")).not.toContain("subagent running"));
-  expect(inkOf(row, "Needs approval")).toBe("warning");
+  expect(toneOf(row, "Needs approval")).toBe("needs-you");
 });
 
 test("renaming an empty draft cannot turn it into a task", async () => {

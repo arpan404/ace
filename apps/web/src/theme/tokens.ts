@@ -70,6 +70,30 @@ function neutralRamp(p: Palette): Record<`--neutral-${number}`, string> {
   return Object.fromEntries(rampSteps.map((step, index) => [`--neutral-${index + 1}`, p[step]]));
 }
 
+/**
+ * Thread-row status icons, one colour per state, the same in every theme of a scheme. Each is a
+ * mark (an icon, no words), so it needs 3:1 against the sidebar's surfaces, the panel, hover and
+ * the open row's fill included (readability.test.ts).
+ */
+const rowStatus: Record<Scheme, Record<`--row-status-${string}`, string>> = {
+  dark: {
+    "--row-status-needs-you": "#F5B544",
+    "--row-status-failed": "#FF6B6B",
+    "--row-status-working": "#6EA8FE",
+    "--row-status-waiting": "#B197FC",
+    "--row-status-background": "#8C95A3",
+    "--row-status-finished": "#4ADE80",
+  },
+  light: {
+    "--row-status-needs-you": "#B7790A",
+    "--row-status-failed": "#D23B3B",
+    "--row-status-working": "#2F6FE0",
+    "--row-status-waiting": "#7354D6",
+    "--row-status-background": "#6B7380",
+    "--row-status-finished": "#16934A",
+  },
+};
+
 export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTranslucency) {
   const light = scheme === "light";
   const sx = p.syntax;
@@ -167,6 +191,7 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--status-done-text": p.doneText,
     "--status-waiting": status.waiting,
     "--status-unresponsive": status.unresponsive,
+    ...rowStatus[scheme],
 
     // Diffs and code.
     "--diff-add": p.diffAdd,

@@ -242,11 +242,11 @@ test("in the Inbox an approval, a failure, a working thread, unseen finished wor
   expect(card(/^Tidy the changelog/).getAttribute("aria-label")).toContain("Project relay");
 });
 
-test("finished work not yet opened stays in the Inbox with the blue dot", async () => {
+test("finished work not yet opened stays in the Inbox with its green check", async () => {
   await openHome(newsApp(), "/new");
   await waitFor(() => expect(stops()).toContain("Write the release notes"));
   const notes = card(/^Write the release notes, unread/);
-  expect(notes.querySelector('[data-tone="unread"], [data-tone="done"]')).not.toBeNull();
+  expect(notes.querySelector('[data-icon="done"]')?.getAttribute("data-tone")).toBe("finished");
   await openTab("Settled");
   expect(stops()).not.toContain("Write the release notes");
 });
@@ -310,7 +310,7 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   expect(within(dedupe).getByTitle("fix/replay-dedupe").textContent).toBe("fix/replay-dedupe");
   expect(dedupe.getAttribute("aria-label")).toContain("Claude Code · 2 subagents running");
   expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toMatch(
-    /\. Waiting for 2 subagents, /,
+    /\. Waiting on 2 agents, Waiting for 2 subagents, /,
   );
   // The branch stays available while diff totals stay out of the sidebar.
   const install = card(/^Rewrite the install page for the daemon/);
@@ -377,7 +377,7 @@ test("a row's name says its status, provider and subagents, branch, pull request
   ).toBeTruthy();
   expect(
     card(
-      /^Dedupe thread events after reconnect\. Waiting for 2 subagents, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
+      /^Dedupe thread events after reconnect(, unread)?\. Waiting on 2 agents, Waiting for 2 subagents, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
     ),
   ).toBeTruthy();
   expect(card(/^Backpressure on broadcast fan-out\..*Running on build-box/)).toBeTruthy();
