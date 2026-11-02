@@ -134,7 +134,7 @@ struct UsageView: View {
             }
         } label: {
             Text(scope.isEmpty ? "All machines" : inbox.name(scope))
-                .usageAceDesign.Shape.control
+                .usageCapsule()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Machine")
@@ -153,7 +153,7 @@ struct UsageView: View {
             }
         } label: {
             Text(providers.first { $0.id == provider }?.name ?? "All providers")
-                .usageAceDesign.Shape.control
+                .usageCapsule()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Provider")
@@ -272,7 +272,7 @@ private struct UsageCapsule: ViewModifier {
 }
 
 private extension View {
-    func usageAceDesign.Shape.control -> some View { modifier(UsageAceDesign.Shape.control) }
+    func usageCapsule() -> some View { modifier(UsageCapsule()) }
 }
 
 /// The last combined answers this run drew, by scope, so reopening Usage or switching back to a

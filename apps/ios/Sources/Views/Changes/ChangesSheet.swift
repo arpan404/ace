@@ -352,7 +352,7 @@ struct FileStatusMark: View {
         AceShape.glyph.stroke(colour, lineWidth: AceDesign.Size.glyphStroke)
             .frame(width: AceDesign.Size.fileMark, height: AceDesign.Size.fileMark)
             .overlay {
-                if status == "modified" { Circle().fill(colour).frame(width: AceDesign.Size.dot, height: AceDesign.Size.dot) }
+                if status == "modified" { Circle().fill(colour).frame(width: AceDesign.Size.dotTiny, height: AceDesign.Size.dotTiny) }
                 else { Image(systemName: symbol).font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong)).foregroundStyle(colour) }
             }
             .accessibilityLabel(status.capitalized)

@@ -114,7 +114,7 @@ struct ForgeNotificationRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: AceTheme.Spacing.sm) {
             Circle().fill(row.unread ? AceTheme.Colours.accent : .clear)
-                .frame(width: AceDesign.Size.dot, height: AceDesign.Size.dot).padding(.top, AceDesign.Space.related)
+                .frame(width: AceDesign.Size.dotTiny, height: AceDesign.Size.dotTiny).padding(.top, AceDesign.Space.related)
                 .accessibilityHidden(true)
             glyph.padding(.top, AceTheme.Spacing.xxs)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
