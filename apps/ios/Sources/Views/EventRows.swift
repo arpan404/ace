@@ -173,20 +173,21 @@ struct RefusalLine: View {
     }
 }
 
-/// "Not sent · the reason", where the daemon put its notice: just after the message.
+/// "Not sent · the reason", where the daemon put its notice: just after the message. A quiet
+/// line with the strip's own mark; the strip above the composer is where it is acted on.
 struct NotSentLine: View {
     let reason: String
     /// A stale Git lock stopped it: Clear stale lock follows, as a word.
     var fenced = false
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xs) {
-            AceIcon(.warning, size: 12, relativeTo: .caption)
-            Text("Not sent").fontWeight(.medium)
+            RowStatusIcon(kind: "approve", tone: "idle").scaleEffect(0.8)
+            Text("Not sent")
             if !reason.isEmpty { Text("· \(reason)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2) }
             if fenced { ClearStaleLockWord() }
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-        .foregroundStyle(AceTheme.StatusText.failed)
+        .foregroundStyle(AceTheme.Colours.mutedForeground)
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .combine)
     }

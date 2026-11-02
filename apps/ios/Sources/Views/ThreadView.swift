@@ -247,6 +247,7 @@ struct ThreadView: View {
                 if let picked, picked.scope == thread.id { mention = picked.mention }
             }
             .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
+            .environment(\.stripTasks, Set(screen.leftRunning?.taskIds ?? []))
             #if ACE_FIXTURE
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {

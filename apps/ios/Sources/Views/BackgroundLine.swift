@@ -1,20 +1,23 @@
 import SwiftUI
 
 /// A command the agent left running, where it started in the work log: "Running in background"
-/// with Stop at the right, the command in mono under it with how long it has run. The line
-/// changes when the daemon reports the task ended, not when Stop is pressed.
+/// with Stop at the right, the command in mono under it with how long it has run. While the strip
+/// above the composer offers Stop for it, the line is quiet and has none (one place per state).
+/// The line changes when the daemon reports the task ended, not when Stop is pressed.
 struct BackgroundLine: View {
     let line: BlockRow.Background
     @Environment(\.stopBackground) private var stopBackground
+    @Environment(\.stripTasks) private var stripTasks
     @State private var stopping = false
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
-                AceIcon(.terminal, size: 16, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
+                // The strip's own terminal glyph, quiet here.
+                RowStatusIcon(kind: "background", tone: "idle")
                     .frame(minWidth: AceTheme.Spacing.xl).accessibilityHidden(true)
                 Text(line.label).lineLimit(1)
                 Spacer(minLength: AceTheme.Spacing.sm)
-                if line.running, line.stoppable, let stopBackground {
+                if line.running, line.stoppable, !stripTasks.contains(line.taskId), let stopBackground {
                     Button {
                         stopping = true
                         stopBackground(line.taskId)
@@ -120,4 +123,6 @@ struct BackgroundStep: View {
 extension EnvironmentValues {
     /// Stops a background task by id; nil where the person can't act.
     @Entry var stopBackground: ((String) -> Void)? = nil
+    /// Background tasks the strip above the composer offers Stop for.
+    @Entry var stripTasks: Set<String> = []
 }
