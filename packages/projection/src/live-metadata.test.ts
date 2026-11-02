@@ -1,4 +1,4 @@
-import { BackgroundTask, Event, EventPayload, Interaction, Thread } from "@ace/protocol";
+import { Agent, BackgroundTask, Event, EventPayload, Interaction, Thread } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { isTestCommand, liveMetadata, updateThread } from "./index.ts";
 
@@ -172,4 +172,43 @@ test("test runs are recognised however they are started, and other commands are 
     expect([command, isTestCommand(command)]).toEqual([command, true]);
   for (const command of ["bun run build", "test -f package.json", "cat tests/setup.ts", "ls test"])
     expect([command, isTestCommand(command)]).toEqual([command, false]);
+});
+
+test("a root whose turn ended while its subagents carry on starts its wait then, and drops it once they end", () => {
+  const target = thread();
+  let seq = 0;
+  const at = (raw: unknown, time: number, previous?: Agent) => {
+    const payload = EventPayload.parse(raw);
+    const change = liveMetadata(target, payload, previous, undefined, undefined, time);
+    for (const next of change ? [payload, change] : [payload])
+      updateThread(
+        target,
+        Event.parse({ seq: ++seq, id: `e${seq}`, threadId: target.id, at: time, payload: next }),
+      );
+  };
+  at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 1000);
+  const child = Agent.parse({
+    id: "child",
+    threadId: "thread-1",
+    parentId: "root",
+    origin: "provider_subagent",
+    native: { provider: "claude", nativeId: "child" },
+    fidelity: "full",
+    cwd: "/repo",
+    status: { state: "working", activity: "tool" },
+    createdAt: 0,
+  });
+  at({ type: "thread.updated", status: { state: "working", agents: 2 } }, 2000);
+  at({ type: "agent.created", agent: child }, 2000);
+  expect(target.live?.waitingSince).toBeUndefined();
+  // The root's own turn ends: only the subagent still works.
+  at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 3000);
+  expect(target.live).toMatchObject({ workingSince: 1000, waitingSince: 3000 });
+  at({ type: "agent.status", agentId: "child", status: { state: "idle" } }, 4000, child);
+  expect(target.live?.waitingSince).toBeUndefined();
+  expect(target.live?.workingSince).toBe(4000);
+  // The thread finishing clears both.
+  at({ type: "thread.updated", status: { state: "done" } }, 5000);
+  expect(target.live?.workingSince).toBeUndefined();
+  expect(target.live?.waitingSince).toBeUndefined();
 });

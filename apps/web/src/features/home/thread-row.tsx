@@ -84,6 +84,8 @@ export function ThreadRow(props: {
   lead: RowLead;
   /** The hover actions, when not a task's own (a chat's: `ChatRowActions`). */
   actions?: ComponentType<RowActionsProps> | undefined;
+  /** One ⋯ menu (a chat's): the title only stops short of it, not of three actions. */
+  compactActions?: boolean | undefined;
   /** At rest: the title in muted ink (full ink while open), as a settled row's. */
   dimmed?: boolean | undefined;
 }) {
@@ -135,6 +137,14 @@ export function ThreadRow(props: {
   ) : (
     card.title
   );
+  // Under the pointer or keyboard focus the row's actions take the mark's place: the title
+  // stops short of them. A chat's one ⋯ needs only its own width; three actions take more.
+  // An action's menu keeps them up after the pointer leaves.
+  const hoverPad = props.compactActions === true ? "pr-8" : "pr-28";
+  const restingPad =
+    props.compactActions === true
+      ? "group-has-[[data-popup-open]]/row:pr-8"
+      : "group-has-[[data-popup-open]]/row:pr-28";
   const body = task ? (
     <TaskLines
       card={card}
@@ -160,7 +170,7 @@ export function ThreadRow(props: {
                 : "text-foreground",
           // Under the pointer or keyboard focus the row's actions take the mark's place: the
           // title stops short of them. An action's menu keeps them up after the pointer leaves.
-          actions ? "pr-28" : "group-has-[[data-popup-open]]/row:pr-28",
+          actions ? hoverPad : restingPad,
         )}
       >
         {title}

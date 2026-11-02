@@ -184,8 +184,13 @@ export type ThreadDetails = z.infer<typeof ThreadDetails>;
 export const ThreadRunMetadata = z.object({
   /** Active root run, independent of retained transcript items; null after it ends. */
   rootRunId: RunId.nullable().optional(),
-  /** Start of the current working stretch; streaming activity does not reset it. */
+  /**
+   * Start of the current Working stretch; streaming activity does not reset it. It restarts when
+   * the root goes back to work after waiting on its subagents.
+   */
   workingSince: Timestamp.optional(),
+  /** Start of the current wait on subagents, while the root does nothing but wait on them. */
+  waitingSince: Timestamp.optional(),
   provider: ProviderKind.optional(),
   model: z.string().max(256).optional(),
   account: z.string().max(256).optional(),
