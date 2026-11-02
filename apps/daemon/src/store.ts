@@ -975,6 +975,17 @@ export class Store {
   ) {
     return this.sidebarReads.sidebarPage(options, before, reuse);
   }
+  /** The row revision a listed entry was read at (`sidebarPage`). */
+  sidebarRowRevision(entry: import("@ace/protocol").ThreadListEntry): number | undefined {
+    return this.sidebarReads.rowRevision(entry);
+  }
+  /**
+   * This database's own token, made once: row revisions from another database (a restore, a
+   * reset) never pass for this one's.
+   */
+  sidebarToken(): string {
+    return String(this.statement("SELECT token FROM sidebar_epoch WHERE id = 1").get()?.token);
+  }
   /** Store owns all SQLite savepoints; SidebarReads owns only its page caches. */
   private sidebarSnapshot<T>(read: () => T): T {
     const name = `sidebar_read_${++this.sidebarSnapshotSeq}`;

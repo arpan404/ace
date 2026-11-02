@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { ThreadListEntry, ThreadStatus } from "@ace/protocol";
 import { chatList, chatRows, isChatEntry, placeSignals, withChatHits } from "./chat-list.ts";
-import { standingReader } from "./threads-panel.ts";
+import { standingReader } from "./thread-standing.ts";
 import { entry } from "./test-entries.fixture.ts";
 
 const local = (month: number, date: number, hour = 12) =>

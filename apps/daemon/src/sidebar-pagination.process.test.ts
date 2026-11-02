@@ -139,7 +139,8 @@ test("SQL classification and ordering match shared pagination for filters, pins,
     expect(actual.threads.map((entry) => entry.id)).toEqual(
       expected.threads.map((entry) => entry.id),
     );
-    expect(actual.window).toEqual(expected.window);
+    // The daemon adds the row revision the window reflects (for resume); the rest is shared.
+    expect(actual.window).toEqual({ ...expected.window, revision: expect.any(Number) });
   }
 });
 
@@ -162,7 +163,7 @@ test("a settled thread that comes to need the person is listed with the work in 
   expect(page.window.total).toBe(56);
   const shared = sidebarPage(f.store.listThreads(), options);
   expect(ids).toEqual(shared.threads.map((entry) => entry.id));
-  expect(page.window).toEqual(shared.window);
+  expect(page.window).toEqual({ ...shared.window, revision: expect.any(Number) });
 });
 
 test("settling active work prunes the older edge of the loaded window and stable cursors do not repeat ties", async () => {
