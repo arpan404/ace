@@ -1,6 +1,4 @@
 import type { MachineIcon } from "@ace/protocol";
-import { projectBadge } from "@ace/ui-core";
-import { ProjectMark } from "@/components/project-mark.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Link } from "@tanstack/react-router";
@@ -100,19 +98,21 @@ function MachineDrafts(props: {
               className="flex h-20 min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-md px-2.5 py-3 text-ui focus-ring-inset"
             >
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <ProjectMark
-                  id={row.project}
-                  badge={projectBadge({ id: row.project, name: directory.name(row.project) })}
-                />
                 <span className="min-w-0 flex-1 truncate">{directory.name(row.project)}</span>
                 <span>Draft</span>
               </span>
               <span className="truncate text-base leading-5 text-foreground">{row.title}</span>
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <MachineMark icon={props.icon} primary={!props.remote} />
+                {props.remote && <MachineMark icon={props.icon} primary={false} />}
                 <span className="min-w-0 truncate">{props.name}</span>
                 {row.provider && (
-                  <ProviderIcon provider={row.provider} size={14} className="ml-auto" decorative />
+                  <ProviderIcon
+                    provider={row.provider}
+                    variant="mono"
+                    size={14}
+                    className="ml-auto"
+                    decorative
+                  />
                 )}
               </span>
             </Link>

@@ -1,9 +1,10 @@
 import type { Fact } from "@ace/core";
-import { screen, within, waitFor } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { createIdleTask } from "@/test/tasks.ts";
 import { act } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 function turnFacts(turn: string): Fact[] {
   return [
@@ -42,7 +43,7 @@ function turnFacts(turn: string): Fact[] {
   ];
 }
 
-test("a working row shows its time with the working icon and no animated element", async () => {
+test("a working row shows its time beside a grey working icon and no animated element", async () => {
   const app = harness();
   createIdleTask(app.daemon, {
     id: "working",
@@ -65,12 +66,16 @@ test("a working row shows its time with the working icon and no animated element
   await app.open("/new");
   const list = within(await screen.findByRole("navigation", { name: "Threads" }));
   const row = await list.findByRole("link", { name: /^Rewrite the install page/ });
-  expect(row.querySelector('[data-icon="working"]')).toBeTruthy();
+  const mark = within(row).getByRole("img", { name: "Working" });
+  expect(mark.querySelector('[data-icon="working"]')).toBeTruthy();
+  // The grey icon beside the elapsed time.
+  expect(mark.querySelector("[data-ink]")?.getAttribute("data-ink")).toBe("muted");
+  expect(within(mark).getByText(/^\d+[smh]( \d+m)?$/)).toBeTruthy();
   expect(row.querySelector("[data-live], .fx-live-dot, [data-state], .spin-ring")).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Working");
 });
 
-test("a needs-approval row shows Approval with the approve icon", async () => {
+test("a needs-approval row shows its amber icon with no word; its name says Needs approval", async () => {
   const app = harness();
   createIdleTask(app.daemon, {
     id: "asks",
@@ -97,12 +102,20 @@ test("a needs-approval row shows Approval with the approve icon", async () => {
     ]),
   );
   const row = await list.findByRole("link", { name: /^Publish the release/ });
-  await waitFor(() => expect(within(row).getByText("Approval", { exact: true })).toBeTruthy());
-  expect(row.querySelector('[data-icon="approve"]')).toBeTruthy();
-  expect(row.getAttribute("aria-label")).toContain("Waiting for your approval");
+  const mark = await within(row).findByRole("img", { name: "Needs approval" });
+  expect(mark.querySelector('[data-icon="approve"]')).toBeTruthy();
+  expect(mark.querySelector("[data-ink]")?.getAttribute("data-ink")).toBe("warning");
+  expect(within(row).queryByText(/Approval|Approve/)).toBeNull();
+  // The full meaning: first in the row's name, then the card's own wording.
+  expect(row.getAttribute("aria-label")).toMatch(
+    /^Publish the release\. Needs approval, Waiting for your approval, /,
+  );
+  // The pointer gets the same meaning as a tooltip.
+  await userEvent.hover(mark);
+  expect(await screen.findByRole("tooltip")).toHaveProperty("textContent", "Needs approval");
 });
 
-test("a done-but-unseen row shows Done with the done icon", async () => {
+test("a done-but-unseen row shows only its age, with Done as its name", async () => {
   let at = Date.now() + 60_000;
   const app = harness({ clock: () => (at = Math.max(at + 1, Date.now() + 60_000)) });
   app.daemon.createThread({
@@ -115,7 +128,9 @@ test("a done-but-unseen row shows Done with the done icon", async () => {
   await app.open("/new");
   const list = within(await screen.findByRole("navigation", { name: "Threads" }));
   const row = await list.findByRole("link", { name: /^Ship the release notes/ });
-  await waitFor(() => expect(within(row).getByText("Done", { exact: true })).toBeTruthy());
-  expect(row.querySelector('[data-icon="done"]')).toBeTruthy();
-  expect(row.getAttribute("aria-label")).toContain("Done");
+  const mark = await within(row).findByRole("img", { name: "Done" });
+  expect(mark.querySelector("[data-icon]")).toBeNull();
+  expect(within(mark).getByText(/^(now|\d+[smhd])$/)).toBeTruthy();
+  expect(within(row).queryByText("Done", { exact: true })).toBeNull();
+  expect(row.getAttribute("aria-label")).toContain(", unread");
 });

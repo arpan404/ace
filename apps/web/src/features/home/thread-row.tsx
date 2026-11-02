@@ -1,4 +1,4 @@
-import { currentAttention } from "@ace/ui-core";
+import { currentAttention, rowStatusLook } from "@ace/ui-core";
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
 import type { MachineIcon } from "@ace/protocol";
@@ -18,7 +18,7 @@ import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions, type RowActionsProps } from "./row-actions.tsx";
-import { threadDetails } from "./row-parts.tsx";
+import { boldTitle, threadDetails } from "./row-parts.tsx";
 import { RowIndicator } from "./row-indicator.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
@@ -112,9 +112,13 @@ export function ThreadRow(props: {
   // Read under its own machine's client, the card would call that machine "this machine".
   const card = machine ? { ...titled, machine: machine.name, machineIcon: machine.icon } : titled;
   const handle = card.flags.pinned && !renaming;
-  const details = threadDetails(card);
   // The open thread reads at full contrast; every other row is as loud as its attention level.
   const attention = currentAttention(card.attention, current);
+  // The row shows no status words, so its name leads with the state's meaning ("Needs
+  // approval"), then the card's own wording and the rest of its details.
+  const { meaning } = rowStatusLook(attention, card);
+  const details = threadDetails(card);
+  const spoken = details[0] === meaning ? details : [meaning, ...details];
   const instance =
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??
@@ -135,7 +139,7 @@ export function ThreadRow(props: {
     <TaskLines
       card={card}
       attention={attention}
-      workspaceId={entry.workspaceId}
+      remote={machine !== undefined || !data.machinePrimary}
       actions={actions}
       title={title}
       dimmed={props.dimmed === true && !current}
@@ -147,11 +151,13 @@ export function ThreadRow(props: {
       <span
         className={cn(
           "min-w-0 flex-1 truncate",
-          current
-            ? "font-medium text-foreground"
-            : props.dimmed
-              ? "text-subtle-foreground"
-              : "text-foreground",
+          boldTitle(attention)
+            ? "font-semibold text-foreground"
+            : current
+              ? "text-foreground"
+              : props.dimmed
+                ? "text-subtle-foreground"
+                : "text-foreground",
           // Under the pointer or keyboard focus the row's actions take the mark's place: the
           // title stops short of them. An action's menu keeps them up after the pointer leaves.
           actions ? "pr-28" : "group-has-[[data-popup-open]]/row:pr-28",
@@ -196,7 +202,7 @@ export function ThreadRow(props: {
             ) : (
               <Link
                 {...threadOn(machine?.id, entry.id)}
-                aria-label={`${card.title}${card.announceUnread ? ", unread" : ""}${selected ? ", selected" : ""}. ${details.join(", ")}`}
+                aria-label={`${card.title}${card.announceUnread ? ", unread" : ""}${selected ? ", selected" : ""}. ${spoken.join(", ")}`}
                 data-row-focus=""
                 draggable={false}
                 className={cn(

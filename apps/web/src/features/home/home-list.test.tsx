@@ -174,9 +174,10 @@ test("an approval leads the Inbox, which spans projects; a long-settled thread r
   ]);
   expect(top).toContain("Backpressure on broadcast fan-out");
   expect(top).toContain("Dedupe thread events after reconnect");
-  // Each row is marked with its project.
+  // Each row names its project in words, with no mark.
   const refund = card(/^Partial refunds double-count tax/);
-  expect(refund.querySelector("[data-project-mark]")).not.toBeNull();
+  expect(refund.querySelector("[data-project-mark]")).toBeNull();
+  expect(refund.getAttribute("aria-label")).toContain("Project billing-api");
   // Long settled, the Codex bump rests in Settled, never in the Inbox.
   expect(top).not.toContain("Bump Codex app-server to 0.48");
   await openTab("Settled");
@@ -371,7 +372,7 @@ test("a row's name says its status, provider and subagents, branch, pull request
   await openHome(workbenchApp());
   expect(
     card(
-      /^Partial refunds double-count tax\. Waiting for your approval, Claude Code, .*Pull request #77/,
+      /^Partial refunds double-count tax\. Needs approval, Waiting for your approval, Claude Code, .*Pull request #77/,
     ),
   ).toBeTruthy();
   expect(

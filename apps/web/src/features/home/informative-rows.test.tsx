@@ -31,16 +31,17 @@ function task(app: ReturnType<typeof harness>, id: string, title: string) {
 }
 const rows = async () => within(await screen.findByRole("list", { name: "Threads" }));
 
-/** The colour a row's status word takes (`needs-you`: the warning colour of what waits on you). */
-const toneOf = (row: HTMLElement, word: string) =>
-  within(row).getByText(word, { exact: true }).closest<HTMLElement>("[data-tone]")?.dataset.tone;
+/** The ink of a row's status icon, found by its meaning (`warning`: what waits on you). */
+const inkOf = (row: HTMLElement, meaning: string) =>
+  within(row).queryByRole("img", { name: meaning })?.querySelector<HTMLElement>("[data-ink]")
+    ?.dataset.ink;
 
 /** A thread's row in Active, which leads with what waits on the person. */
 async function activeRow(title: string) {
   return (await rows()).findByRole("link", { name: new RegExp(`^${title}`) });
 }
 
-test("a plan review says Review in the needs-you colour and explains the request to screen readers", async () => {
+test("a plan review draws its amber icon with no word and explains the request to screen readers", async () => {
   const app = harness();
   task(app, "plan", "Review reconnect recovery");
   app.daemon.apply("plan", [
@@ -54,28 +55,29 @@ test("a plan review says Review in the needs-you colour and explains the request
   ]);
   await app.open("/new");
   const row = await activeRow("Review reconnect recovery");
-  await waitFor(() => expect(within(row).getByText("Review", { exact: true })).toBeTruthy());
-  expect(toneOf(row, "Review")).toBe("needs-you");
+  await waitFor(() => expect(inkOf(row, "Needs a review")).toBe("warning"));
+  expect(within(row).queryByText("Review", { exact: true })).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your review");
 });
 
-test("a question says Question in the needs-you colour and keeps the full explanation for screen readers", async () => {
+test("a question draws its amber icon named Has a question and keeps the full explanation for screen readers", async () => {
   const app = harness();
   const example = askingQuestion();
   app.play(example).runUntilBlocked();
   await app.open("/new");
   const row = await activeRow(example.thread.title);
-  await waitFor(() => expect(toneOf(row, "Question")).toBe("needs-you"));
+  await waitFor(() => expect(inkOf(row, "Has a question")).toBe("warning"));
+  expect(within(row).queryByText("Question", { exact: true })).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
 });
 
 test.each([
-  [waitingOnSubagents, "waiting", "Waiting for 2 subagents"],
-  [watchingRelay, "background", "Running in background bun run dev:relay"],
-  [runningTests, "working", "Working · running tests"],
+  [waitingOnSubagents, "waiting", "Waiting for 2 subagents", "Waiting on 2 agents"],
+  [watchingRelay, "background", "Running in background bun run dev:relay", "Running in background"],
+  [runningTests, "working", "Working · running tests", "Working"],
 ])(
-  "a live Active row shows its time with a still icon, the full wording in its name and hover card: %s",
-  async (scenario, icon, full) => {
+  "a live Active row shows its time with a grey icon, the full wording in its name and hover card: %s",
+  async (scenario, icon, full, sentence) => {
     const app = harness();
     const example = scenario();
     app.play(example).runUntilBlocked();
@@ -85,6 +87,7 @@ test.each([
     ).findByRole("link", { name: new RegExp(`^${example.thread.title}`) });
     expect(rowText(row)).toContain(example.thread.title);
     expect(row.querySelector(`[data-icon="${icon}"]`)).toBeTruthy();
+    expect(row.querySelector("[data-ink]")?.getAttribute("data-ink")).toBe("muted");
     expect(row.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
     // The short status word is gone; the time takes its place beside the icon.
     for (const gone of ["Waiting", "Background · 1", "Working"])
@@ -93,7 +96,9 @@ test.each([
     await userEvent.hover(row);
     const card = await screen.findByLabelText(/^Details for /);
     expect(card.textContent).toContain(example.thread.title);
-    expect(card.querySelector(`[data-icon="${icon}"]`)).toBeTruthy();
+    // The card says it in words, with no icon chip.
+    expect(within(card).getByText(sentence, { exact: true })).toBeTruthy();
+    expect(card.querySelector("[data-hover-status] [data-icon]")).toBeNull();
   },
 );
 
@@ -163,11 +168,11 @@ test("agents running beside a human request remain counted until they finish", a
   await waitFor(() =>
     expect(row.getAttribute("aria-label")).toContain("Codex · 1 subagent running"),
   );
-  // A waiting approval reads Approval, in the needs-you (warning) colour.
-  expect(toneOf(row, "Approval")).toBe("needs-you");
+  // A waiting approval draws its icon in the needs-you (warning) colour.
+  expect(inkOf(row, "Needs approval")).toBe("warning");
   app.daemon.apply("build", [facts.endTurn("web")]);
   await waitFor(() => expect(row.getAttribute("aria-label")).not.toContain("subagent running"));
-  expect(toneOf(row, "Approval")).toBe("needs-you");
+  expect(inkOf(row, "Needs approval")).toBe("warning");
 });
 
 test("renaming an empty draft cannot turn it into a task", async () => {
@@ -191,7 +196,7 @@ test("renaming an empty draft cannot turn it into a task", async () => {
 });
 
 test.each([false, true])(
-  "an Active row shows its device's icon, never its name, while two devices are connected (remote=%s)",
+  "an Active row shows a device icon only for another machine, never its name (remote=%s)",
   async (remote) => {
     const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
     app.daemon.services.settings.seed({
@@ -226,10 +231,11 @@ test.each([false, true])(
     ).findByRole("link", { name: new RegExp(`^${scenario.thread.title}`) });
     const name = remote ? "Build server" : "Workshop Mac";
     if (!row.parentElement) throw new Error("No row container");
-    // Two devices are connected: the row draws the machine's icon, its name only in the tooltip.
-    await waitFor(() =>
-      expect(within(row).getByRole("img", { name: /machine icon$/ })).toBeTruthy(),
-    );
+    // Another machine's thread draws that machine's icon, its name only in the tooltip; one on
+    // this machine draws none.
+    await waitFor(() => expect(row.getAttribute("aria-label")).toContain(`Running on ${name}`));
+    if (remote) expect(within(row).getByRole("img", { name: /machine icon$/ })).toBeTruthy();
+    else expect(within(row).queryByRole("img", { name: /machine icon$/ })).toBeNull();
     expect(within(row).queryByText(name, { exact: true })).toBeNull();
     expect(row.textContent).not.toContain("Stale server");
     expect(row.getAttribute("aria-label")).toContain(`Running on ${name}`);
