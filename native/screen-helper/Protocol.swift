@@ -150,12 +150,12 @@ func permissions() -> [String: Bool] { ["screenRecording": CGPreflightScreenCapt
     let pane: String
     switch permission {
     case "screenRecording":
-        if CGPreflightScreenCaptureAccess() { return }
-        _ = CGRequestScreenCaptureAccess()
+        if !CGPreflightScreenCaptureAccess() { _ = CGRequestScreenCaptureAccess() }
         pane = "Privacy_ScreenCapture"
     case "accessibility":
-        if AXIsProcessTrusted() { return }
-        _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        if !AXIsProcessTrusted() {
+            _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        }
         pane = "Privacy_Accessibility"
     default: throw HelperError("Unknown permission", code: "bounds")
     }
