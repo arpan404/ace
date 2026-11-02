@@ -73,7 +73,6 @@ private struct PausedWork: View {
         let key = "paused:\(row.items.first ?? "")"
         let open = thread.disclosures.isOpen(key)
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Hairline()
             Button { thread.disclosures.toggle(key) } label: { LogRowBox(open: open) { Text(ending.label) } }
                 .buttonStyle(.plain).accessibilityValue(open ? "Expanded" : "Collapsed")
             if open, let log = row.log {

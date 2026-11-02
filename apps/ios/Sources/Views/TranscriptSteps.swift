@@ -276,7 +276,8 @@ struct WorkBlockView: View {
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
             .accessibilityHint(expanded ? "Hides the steps" : "Shows the steps")
             .accessibilityIdentifier("work.toggle")
-            Hairline().padding(.top, AceDesign.Space.tight)
+            // Space, not a rule, sets the work apart from the answer (design language §3).
+            Color.clear.frame(height: AceDesign.Space.tight).accessibilityHidden(true)
             if expanded {
                 Group {
                     if let ordinal = row.ordinal, let steps {
