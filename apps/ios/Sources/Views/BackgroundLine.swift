@@ -24,7 +24,7 @@ struct BackgroundLine: View {
                     } label: {
                         AceIcon(.stop, size: 14, relativeTo: .footnote)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
-                            .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.md, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.md)
+                            .frame(width: AceTheme.Dimensions.tapMinimum, height: AceTheme.Dimensions.tapMinimum)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

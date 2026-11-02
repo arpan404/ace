@@ -103,3 +103,9 @@ private extension ConcentricRectangle {
         ConcentricRectangle(corners: .concentric(minimum: .fixed(minimum)), isUniform: true)
     }
 }
+
+extension AceTheme.Dimensions {
+    /// The smallest a tap may land on (HIG): words, glyph buttons and pills reach at least this
+    /// far even where they draw smaller.
+    static let tapMinimum: CGFloat = 44
+}

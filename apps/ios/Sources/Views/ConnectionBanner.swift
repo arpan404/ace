@@ -10,7 +10,10 @@ struct InboxConnectionBanner: View {
             if waiting { ProgressView().controlSize(.mini) } else { AceIcon(.wifiSlash, size: 14, relativeTo: .caption) }
             Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             Spacer(minLength: AceTheme.Spacing.sm)
-            if !waiting { Button("Retry", action: retry).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).buttonStyle(.borderless) }
+            if !waiting {
+                Button("Retry", action: retry).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).buttonStyle(.borderless)
+                    .frame(minHeight: AceTheme.Dimensions.tapMinimum).contentShape(Rectangle())
+            }
         }
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .accessibilityElement(children: .combine)

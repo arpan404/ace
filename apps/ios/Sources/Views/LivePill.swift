@@ -56,7 +56,7 @@ struct LivePillCapsule: View {
         .accessibilityLabel("Live")
         .accessibilityIdentifier("thread.pill")
     }
-    static let height = AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm
+    static let height = AceTheme.Dimensions.tapMinimum
     private var divider: some View {
         Rectangle().fill(AceTheme.Colours.separator)
             .frame(width: AceTheme.Dimensions.border, height: AceTheme.Spacing.lg)

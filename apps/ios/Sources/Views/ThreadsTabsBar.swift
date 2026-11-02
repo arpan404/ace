@@ -52,8 +52,8 @@ struct ThreadsTabsBar: View {
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             .fontWeight(chosen ? .semibold : .medium)
             .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 32)
+            .padding(.horizontal, AceTheme.Spacing.md)
+            .frame(minHeight: AceTheme.Dimensions.tapMinimum)
             .background {
                 if chosen {
                     AceShape.capsule.fill(AceTheme.Colours.foreground.opacity(0.12))

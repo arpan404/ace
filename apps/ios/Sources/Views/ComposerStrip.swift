@@ -84,7 +84,7 @@ struct StripTextButtonStyle: ButtonStyle {
             .foregroundStyle(configuration.isPressed || prominent ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceTheme.Spacing.sm)
             // 44pt: the smallest comfortable tap.
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
+            .frame(minHeight: AceTheme.Dimensions.tapMinimum)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
             // Disabled reads as disabled (DESIGN.md §5): dimmed, not hidden.

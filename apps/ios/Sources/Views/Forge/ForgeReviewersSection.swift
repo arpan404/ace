@@ -51,7 +51,7 @@ struct ForgeReviewersSection: View {
                     if row.canRerequest { Button("Re-request review", ace: .arrowClockwise) { ask(row, kind: "reviewers.request") } }
                     if row.canRemove { Button("Remove request", ace: .x) { ask(row, kind: "reviewers.remove") } }
                     if row.canDismiss, let id = row.reviewId { Button("Dismiss review", ace: .prohibit) { dismiss(row, reviewId: id) } }
-                } label: { Image(ace: .dotsThree).frame(width: 32, height: 32).contentShape(Rectangle()) }
+                } label: { Image(ace: .dotsThree).frame(width: AceTheme.Dimensions.tapMinimum, height: AceTheme.Dimensions.tapMinimum).contentShape(Rectangle()) }
                     .disabled(!desk.ready)
                     .accessibilityLabel("Actions for \(row.label)")
                     .accessibilityIdentifier("forge.reviewer.\(row.name)")

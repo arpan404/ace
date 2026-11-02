@@ -162,7 +162,7 @@ struct ForgeHome: View {
             ])
             if kind == .pulls, session?.client.canOperate == true, chosen != nil {
                 Button { creating = true } label: {
-                    Image(ace: .plus).frame(width: 36, height: 36).contentShape(Rectangle())
+                    Image(ace: .plus).frame(width: AceTheme.Dimensions.tapMinimum, height: AceTheme.Dimensions.tapMinimum).contentShape(Rectangle())
                 }
                 .accessibilityLabel("New pull request")
                 .accessibilityIdentifier("forge.newpr")

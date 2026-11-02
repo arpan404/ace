@@ -93,7 +93,7 @@ struct ForgeCommentView: View {
                 Button("Delete", ace: .trash, role: .destructive) { deleting = true }
             }
         } label: {
-            Image(ace: .dotsThree).frame(width: 32, height: 28).contentShape(Rectangle())
+            Image(ace: .dotsThree).frame(width: AceTheme.Dimensions.tapMinimum, height: AceTheme.Dimensions.tapMinimum).contentShape(Rectangle())
         }
         .disabled(!actions.desk.ready)
         .accessibilityLabel("Actions for \(comment.author)'s comment")
@@ -156,7 +156,9 @@ struct ForgeReactionsRow: View {
                         .padding(.horizontal, AceTheme.Spacing.sm)
                         .frame(minHeight: 28)
                         .background(reaction.viewer ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
-                        .overlay(AceShape.capsule.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+                        // A full tap's reach around the drawn pill.
+                        .padding(.vertical, (AceTheme.Dimensions.tapMinimum - 28) / 2)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .disabled(!desk.ready)
@@ -171,7 +173,7 @@ struct ForgeReactionsRow: View {
                 } label: {
                     AceIcon(.smileySticker, size: 16, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
-                        .frame(width: 32, height: 28).contentShape(Rectangle())
+                        .frame(width: AceTheme.Dimensions.tapMinimum, height: AceTheme.Dimensions.tapMinimum).contentShape(Rectangle())
                 }
                 .disabled(!desk.ready)
                 .accessibilityLabel("Add reaction")

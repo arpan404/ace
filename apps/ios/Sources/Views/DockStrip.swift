@@ -126,19 +126,26 @@ struct DockStrip: View {
 
     private func pagerView(_ pager: DockPager) -> some View {
         HStack(spacing: AceTheme.Spacing.none) {
-            Button { pager.move(-1) } label: { Image(systemName: "chevron.left").font(.caption.weight(.semibold)) }
+            Button { pager.move(-1) } label: { pagerGlyph("chevron.left") }
                 .disabled(pager.index == 0)
                 .accessibilityLabel("Previous request")
             Text("\(pager.index + 1) of \(pager.total)")
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
                 .accessibilityIdentifier("strip.pager")
-            Button { pager.move(1) } label: { Image(systemName: "chevron.right").font(.caption.weight(.semibold)) }
+            Button { pager.move(1) } label: { pagerGlyph("chevron.right") }
                 .disabled(pager.index >= pager.total - 1)
                 .accessibilityLabel("Next request")
         }
         .buttonStyle(.plain)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .fixedSize()
+    }
+
+    /// A pager arrow: a caption glyph in a full tap.
+    private func pagerGlyph(_ symbol: String) -> some View {
+        Image(systemName: symbol).font(.caption.weight(.semibold))
+            .frame(width: AceTheme.Dimensions.tapMinimum, height: AceTheme.Dimensions.tapMinimum)
+            .contentShape(Rectangle())
     }
 
     /// A sideways swipe moves between the open requests.

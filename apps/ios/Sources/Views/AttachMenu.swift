@@ -189,7 +189,10 @@ struct AttachmentChip: View {
                 else if file.state == "uploading" { ProgressView(value: file.progress).progressViewStyle(.linear) }
                 else { Text(ByteCountFormatter.string(fromByteCount: Int64(file.bytes), countStyle: .file)).monospacedDigit() }
             }
-            Button(action: remove) { AceIcon(.xCircle, size: 16, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.decoration) }
+            Button(action: remove) {
+                AceIcon(.xCircle, size: 16, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.decoration)
+                    .frame(width: AceTheme.Dimensions.tapMinimum, height: AceTheme.Dimensions.tapMinimum).contentShape(Rectangle())
+            }
                 .buttonStyle(.plain).accessibilityLabel("Remove \(file.name)")
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
