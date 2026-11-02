@@ -2,7 +2,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Fragment,
   useImperativeHandle,
-  type AriaRole,
   useLayoutEffect,
   useRef,
   useState,
@@ -46,13 +45,18 @@ export interface VirtualRowsProps<T> {
   /** Rows mounted beyond each edge of the viewport. Small by default: each costs a render. */
   overscan?: number;
   handle?: Ref<VirtualRowsHandle>;
-  /** The rows as a list for assistive tech: its name, and each row's role (a listitem by default). */
-  list?: { label: string; rowRole?(item: T, index: number): AriaRole };
+  /** The rows as a list for assistive tech, named `label`: each row is one of its listitems. */
+  list?: { label: string };
   /**
    * Mount every row while there are at most this many (no measuring), only those near the
    * viewport past it. The rows stay the same elements either way, so focus survives the change.
    */
   virtualAbove?: number;
+  /**
+   * Render rows that scroll in inside the scroll event (the default), or with the next frame:
+   * then a fast scroll that mounts a few heavy rows a frame never holds the frame up.
+   */
+  renderInScrollEvent?: boolean;
 }
 
 export function VirtualRows<T>(props: VirtualRowsProps<T>) {
@@ -102,6 +106,7 @@ export function VirtualRows<T>(props: VirtualRowsProps<T>) {
       return item === undefined ? 0 : estimate(item, index);
     },
     overscan: props.overscan ?? 8,
+    useFlushSync: props.renderInScrollEvent ?? true,
     scrollMargin: margin,
     getItemKey: (index) => {
       const item = items[index];
@@ -141,7 +146,7 @@ export function VirtualRows<T>(props: VirtualRowsProps<T>) {
           <div
             key={row.key}
             data-index={row.index}
-            role={list && (list.rowRole?.(item, row.index) ?? "listitem")}
+            role={list && "listitem"}
             ref={all ? undefined : virtualizer.measureElement}
           >
             {render(item, row.index)}
@@ -172,18 +177,16 @@ export function LongRows<T>(props: VirtualRowsProps<T> & { virtualAbove: number 
  * with its `data-index`, so keyboard focus (`useViewListKeys`) finds rows the same way whether
  * or not they are all mounted, and `handle` brings any row into view.
  */
-export function VirtualList<T>(
-  props: Omit<VirtualRowsProps<T>, "list"> & {
-    label: string;
-    rowRole?(item: T, index: number): AriaRole;
-  },
-) {
-  const { label, rowRole, virtualAbove = 100, ...rows } = props;
+export function VirtualList<T>(props: Omit<VirtualRowsProps<T>, "list"> & { label: string }) {
+  const { label, virtualAbove = 100, ...rows } = props;
   return (
     <VirtualRows
+      // Rows of these lists are links with hover actions: heavier than a diff's line, so a fast
+      // scroll draws them a frame later rather than dropping frames, as the transcript does.
+      renderInScrollEvent={false}
       {...rows}
       virtualAbove={virtualAbove}
-      list={{ label, ...(rowRole ? { rowRole } : {}) }}
+      list={{ label }}
     />
   );
 }
