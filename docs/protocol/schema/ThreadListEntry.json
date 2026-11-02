@@ -152,6 +152,9 @@
     "pinned": {
       "type": "boolean"
     },
+    "place": {
+      "$ref": "https://ace.local/protocol/v1/ListedThreadPlace.json"
+    },
     "prSettled": {
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991,

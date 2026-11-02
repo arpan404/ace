@@ -32,6 +32,16 @@
       },
       "type": "array"
     },
+    "epoch": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "revision": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "total": {
       "maximum": 9007199254740991,
       "minimum": 0,
