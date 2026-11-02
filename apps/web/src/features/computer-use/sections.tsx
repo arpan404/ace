@@ -98,7 +98,7 @@ const permissionNames = {
 } as const;
 
 /**
- * macOS grants to ace screen helper, each with Request (macOS asks, or opens its settings).
+ * macOS grants to ace screen helper, each with status and an action opening System Settings.
  * When they can't be read (computer use off, the helper refusing, the channel down) both say
  * Unavailable, with why and what to do next, instead of checking forever (QA-16).
  */
@@ -142,22 +142,28 @@ export function Permissions(props: { use: ComputerUse }) {
             title={permissionNames[key].title}
             description={permissionNames[key].what}
             density="compact"
-            inline
           >
-            {granted !== true && granted !== false && (
-              <StatusLabel
-                tone="idle"
-                label={reading.state === "checking" ? "Checking" : "Unavailable"}
-              />
-            )}
-            {granted === false && (
+            <StatusLabel
+              tone={granted === true ? "done" : "idle"}
+              label={
+                granted === true
+                  ? "Granted"
+                  : granted === false
+                    ? "Not granted"
+                    : reading.state === "checking"
+                      ? "Checking"
+                      : "Unavailable"
+              }
+            />
+            {typeof granted === "boolean" && (
               <Button
                 size="sm"
                 variant="secondary"
                 disabled={!snapshot.connected || use.pending}
+                aria-label={`${granted ? "Revoke" : "Grant"} ${permissionNames[key].title} access`}
                 onClick={() => void use.requestPermission(key)}
               >
-                Grant access
+                {granted ? "Revoke access…" : "Grant access"}
               </Button>
             )}
           </SettingRow>
@@ -168,9 +174,10 @@ export function Permissions(props: { use: ComputerUse }) {
           <span className="font-medium text-foreground">{reading.reason}.</span> {reading.next}{" "}
           {recheck}
         </SettingNote>
-      ) : reading.state === "known" &&
-        (!reading.permissions.screenRecording || !reading.permissions.accessibility) ? (
-        <SettingNote>Granted it in System Settings? {recheck}</SettingNote>
+      ) : reading.state === "known" ? (
+        <SettingNote>
+          Grant or revoke access for Ace Screen Helper in System Settings. {recheck}
+        </SettingNote>
       ) : null}
     </>
   );
