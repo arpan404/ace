@@ -46,7 +46,7 @@ test("an inline visualization keeps one width while its frame eases to a taller 
         const frame = document.getElementById("frame");
         if (frame instanceof HTMLIFrameElement) frame.src = source;
       },
-      inlineVisualizationUrl(page, {}, "static"),
+      inlineVisualizationUrl(page, {}, "static", 2),
     );
     await expect.poll(() => tab.frames().length, { timeout: 15_000 }).toBe(3);
     const outer = tab.frames().find((frame) => frame.parentFrame() === tab.mainFrame());

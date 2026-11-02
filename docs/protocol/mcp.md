@@ -8,7 +8,7 @@ Built-in definitions come from `@ace/mcp-server`. The local /mcp endpoint uses s
 
 ## html_render
 
-Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first and follow it. invalid_html lists every problem; nothing is published.
+Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first and follow it. invalid_html lists every safety or layout problem; nothing is published.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 
@@ -45,6 +45,32 @@ Example:
 ```json
 {
   "itemId": "example"
+}
+```
+
+## html_preview
+
+See a page as html_render would show it, at 360 px and 760 px, with layout problems listed. Publishes nothing.
+
+Required capability: none beyond session authentication. Timeout: 45000 ms.
+
+Returns MCP content: text and images, no structured result.
+
+## html_preview.input
+
+[JSON Schema](schema/html_preview.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| html | yes | string | {"minLength":1,"maxLength":16777216,"description":"A self-contained HTML document: inline CSS, JS, SVG and data: images; no network."} |
+| mode | no | [HtmlMode.json](schema/HtmlMode.json) | {"description":"interactive runs scripts in a sandbox; static strips them. Default: inferred."} |
+| scheme | no | [HtmlColorScheme.json](schema/HtmlColorScheme.json) | {"description":"The app theme to draw it in. Default: dark."} |
+
+Example:
+
+```json
+{
+  "html": "example"
 }
 ```
 

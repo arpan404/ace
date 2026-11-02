@@ -60,6 +60,7 @@ const describe: Record<string, Record<string, string>> = {
   },
   Show: {
     html_render: "Show a chart, diagram or interactive page in the thread.",
+    html_preview: "See a page at phone and desktop width before showing it.",
     image_show: "Show an image in the thread.",
     notify: "Send you a notification.",
   },

@@ -8,6 +8,9 @@
     "height": {
       "$ref": "https://ace.local/protocol/v1/HtmlHeight.json"
     },
+    "kit": {
+      "$ref": "https://ace.local/protocol/v1/HtmlStyleKit.json"
+    },
     "mode": {
       "$ref": "https://ace.local/protocol/v1/HtmlMode.json"
     },

@@ -65,7 +65,7 @@ const synonymGroups: readonly string[] = [
   "note remember memory knowledge fact",
   "schedule cron recur automation daily weekly periodic timer every",
   "pr pull github",
-  "chart diagram graph mockup visualize render html",
+  "chart diagram graph mockup visualize render html preview",
   "ask question human person user",
   "cancel stop kill abort halt",
   "find search locate query",

@@ -173,6 +173,7 @@ async function run(mode: "protected" | "control") {
     page,
     { colorScheme: "dark", foreground: "rgb(240,240,240)" },
     "interactive",
+    2,
   );
   const index = "<!doctype html><html><head></head><body></body></html>";
   const policy = packagedPolicy({ index, daemonOrigins: [], dynamicDaemons: false });

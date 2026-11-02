@@ -4,8 +4,13 @@
   "additionalProperties": false,
   "properties": {
     "html": {
-      "maxLength": 16777217,
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/HtmlDocument.json"
+    },
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/HtmlMode.json"
+    },
+    "scheme": {
+      "$ref": "https://ace.local/protocol/v1/HtmlColorScheme.json"
     }
   },
   "required": [

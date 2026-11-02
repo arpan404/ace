@@ -104,19 +104,18 @@ export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] 
     ...metaToolCatalog,
   ].map((tool): ToolEntry => {
     const input = `${tool.name}.input`;
-    const output = `${tool.name}.output`;
-    entries.push(
-      { name: input, schema: tool.input },
-      { name: output, schema: tool.output, io: "output" },
-    );
-    return {
+    entries.push({ name: input, schema: tool.input });
+    const entry = {
       name: tool.name,
       description: tool.description,
       capability: tool.capability,
       timeoutMs: tool.timeoutMs,
       input,
-      output,
     };
+    if (!("output" in tool)) return entry;
+    const output = `${tool.name}.output`;
+    entries.push({ name: output, schema: tool.output, io: "output" });
+    return Object.assign(entry, { output });
   });
   return { entries: entries.toSorted((a, b) => a.name.localeCompare(b.name, "en")), tools };
 }

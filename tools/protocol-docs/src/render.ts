@@ -154,7 +154,8 @@ export function renderReference(
   let mcp = `# MCP tools\n\n${notice}\nBuilt-in definitions come from \`@ace/mcp-server\`. The local /mcp endpoint uses session-scoped credentials and capability filtering. Discovery exposes only registered tools allowed for that session. Dynamic browser/preview toolkits depend on installed host adapters and are not fabricated here. Inputs use input validation; structured results use output validation, including populated defaults. Standard MCP call failures use isError and text content.\n`;
   for (const tool of tools) {
     mcp += `\n## ${tool.name}\n\n${tool.description}\n\nRequired capability: ${tool.capability ?? "none beyond session authentication"}. Timeout: ${tool.timeoutMs} ms.\n`;
-    for (const name of [tool.input, tool.output]) {
+    if (!tool.output) mcp += "\nReturns MCP content: text and images, no structured result.\n";
+    for (const name of tool.output ? [tool.input, tool.output] : [tool.input]) {
       assigned.add(name);
       const entry = entries.find((item) => item.name === name);
       if (!entry) throw new Error(`Missing tool schema ${name}`);

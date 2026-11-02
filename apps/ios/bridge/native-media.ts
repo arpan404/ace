@@ -59,6 +59,7 @@ export async function readNativeMedia(
         html,
         theme,
         resolveHtmlMode(html, item.visualization.mode),
+        item.visualization.kit,
       ).replace(
         "<head>",
         '<head><meta name="viewport" content="width=device-width, initial-scale=1">',

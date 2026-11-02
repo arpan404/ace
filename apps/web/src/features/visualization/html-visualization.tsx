@@ -67,7 +67,7 @@ export function HtmlVisualizationView(props: {
     [html, visualization.mode],
   );
   const title = visualization.title;
-  const actions = usePageActions({ html, title, theme, mode });
+  const actions = usePageActions({ html, title, theme, mode, kit: visualization.kit });
   const panel = useWorkspaceActions(props.threadId);
   const available =
     typeof HTMLIFrameElement !== "undefined" && "sandbox" in HTMLIFrameElement.prototype;
@@ -113,6 +113,7 @@ export function HtmlVisualizationView(props: {
           <HtmlFrame
             html={html}
             mode={mode}
+            kit={visualization.kit}
             title={title}
             theme={theme}
             initialHeight={initialHeight}

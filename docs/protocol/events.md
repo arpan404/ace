@@ -63,14 +63,10 @@ Example:
   "changes": {
     "deletedAt": 4,
     "live": {
-      "contextMeter": {
-        "at": 6,
-        "limit": null,
-        "used": 6
-      },
+      "backgroundTaskCount": 6,
       "rootRunId": null,
-      "runningSubagentCount": 3,
-      "watching": []
+      "subagentCount": 3,
+      "waitingOn": 7
     },
     "movedFrom": {
       "links": {

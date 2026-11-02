@@ -1,13 +1,25 @@
 # HTML visualizations in chat
 
 Agents call `html_render({ title, html, mode?, height? })` to publish a page inline in
-their reply. Render validates first: a page with unsupported features fails with
-`invalid_html`, lists each size, nesting or feature problem in `issues`, and publishes
-nothing, so one call both checks and publishes. HTML in a normal message remains text.
+their reply. Render checks first (`checkHtmlForPublish`): a page with unsupported features
+or a layout that breaks in the chat column fails with `invalid_html`, lists each problem in
+`issues`, and publishes nothing, so one call both checks and publishes. HTML in a normal
+message remains text.
+
+### Layout lint
+
+The same page shows 360 px wide on a phone, about 760 px on a desktop and up to about 1200 px
+in the side panel. `lintHtmlLayout` (`@ace/html`) reads the markup and CSS and refuses what
+the transcript has shown breaking there: viewport units and `height: 100%` on the root (the
+frame grows to fit the page, so they grow it without end), `position: fixed`, fixed widths
+over 360 px outside an `ace-scroll-x` or a `min-width` media query, font sizes under 10 px,
+and SVGs whose smallest label would render under 9 px once scaled to 360 px. It runs only at
+publication: rendering applies the safety validator alone, so pages published before a rule
+existed still display.
 
 The document cap is 16 MiB of UTF-8 (`maxHtmlDocumentBytes`), so a page can carry its
 raster images inline as base64 `data:` URLs, with a 160-character title and an optional
-80–2000 px height cap. Only `html_render` (20 MiB, for JSON escaping) and `image_show`
+80–2000 px height cap. Only `html_render` and `html_preview` (20 MiB, for JSON escaping) and `image_show`
 receive a larger MCP input budget; the HTTP and stdio request envelopes admit the
 largest of them, and every other tool keeps its own budget (64 KiB unless it declares more).
 
@@ -18,6 +30,34 @@ attachment for the life of the thread, including after daemon restart. The
 attachment endpoint serves the bytes as plain text. No executable HTML endpoint,
 preview-gateway link, provider credential or daemon token enters the document.
 Remote and relay clients fetch through their owning connection's attachment API.
+
+## Previewing before publishing
+
+`html_preview({ html, mode?, scheme? })` lets an agent look at a page before it publishes
+it. A safety problem (`validateHtml`) fails with the same `invalid_html` error as
+`html_render`. Layout-lint problems (`lintHtmlLayout`), which `html_render` refuses, do not stop
+a preview: they are listed under the report beside the pictures that show them. It lays the
+page out in the transcript's own document (`inlineVisualizationUrl` with the current
+`styleKitVersion`: style kit, sandboxed out-of-process frame, CSP) at 360 px and 760 px, the phone and the desktop message column. The theme comes
+from `@ace/design-tokens` for `scheme` (default `dark`), with the thread background behind the
+frame. Nothing is stored, posted or shown to the person, and no provider quota is spent.
+
+- **Engine.** `BrowserService.previewPage` drives a Chrome of ace's on its own profile
+  (`<dataDir>/browser/preview`) at device scale 1, whichever backend threads browse with. It
+  starts on the first preview and stops a minute after the last. Each preview gets a
+  throwaway browser context and one hidden tab, and every network request is failed.
+- **Settling.** It waits for load and `document.fonts.ready`, emulates reduced motion (the
+  kit's entry animation does not run), finishes finite authored animations, then waits two
+  frames before measuring and capturing.
+- **Result.** One terse line per width, then the two images (PNG, JPEG above 900 KiB). Each
+  image is the full content height, cut at 2000 px. The line gives the content height, whether
+  the page overflows sideways and which outermost elements reach past the edge, boxes hiding
+  content with `overflow: hidden`, and visible text drawn under 11 px after every scale
+  (SVG `<text>` through its viewBox): a count and the three smallest.
+
+`previewMeasure` (the in-page measurement) and `previewReport` (facts to text) live in
+`@ace/html/src/preview.ts`. A warm preview takes about half a second; the first one starts the
+browser (about a second). The tool's timeout is 45 s, for a first use that downloads Chromium.
 
 ## Posted images
 
@@ -71,10 +111,13 @@ or inline handler, otherwise `interactive`. The daemon stores the resolved mode 
 item without one gets the same rule from the client. Desktop and web honour the stored mode;
 "Open in window" and downloads keep it. The UI shows no mode label.
 
-`@ace/html` owns the pure validator, the document builder and the two fixed bridge scripts
+`@ace/html` owns the pure validator, the layout lint, the document builder and the two fixed bridge scripts
 (`@ace/html/scripts`). The validator parses with parse5 and rejects authored frames, forms,
 plugins, `<link>`, base URLs, HTTP-equivalent metadata and every external URL in markup or
-CSS. Every display path wraps the page the same way:
+CSS. In CSS it allows only in-page `url(#id)` references (SVG markers, gradients, clip paths)
+and inline `data:` URLs (images, fonts, masks), which the page's CSP already admits; `@import`,
+files and web addresses in `url()`, `src()` and `image-set()` are refused. Every display path
+wraps the page the same way:
 
 - **Outer document.** A trusted document with `frame-src 'none'` holds the page in a
   `sandbox="allow-scripts"` `srcdoc` frame, so the page cannot navigate its frame elsewhere.
@@ -167,10 +210,15 @@ on the daemon's machine.
   fits the content height up to the item's `height` (default 800 px) and scrolls inside beyond
   it. In the side panel the frame fills the panel and the page scrolls inside it.
 - **Style kit.** Before the authored styles, every page gets `baseStyles` (`@ace/html`) in the
-  `ace` cascade layer: native elements (type, buttons, inputs, sliders, tables, details) and a
-  few component classes (`card`, `stat`, `badge`, `callout`, `tabs`, `grid`, …) drawn from the
-  theme variables, so plain markup reads as ace UI. Unlayered authored CSS always wins. The kit
-  sets no SVG paint, so chart attributes stand. The visualize skill lists the classes.
+  `ace` cascade layer: native elements (type, buttons, inputs, sliders, tables, details) and
+  component classes drawn from the theme variables (`ace-rows`, `ace-flow`, `ace-timeline`,
+  `ace-split`, `ace-frame`, `ace-stat`, `ace-badge`, …), so plain markup reads as ace UI.
+  Every kit class starts with `ace-`, so it never merges into a page's own `.row` or `.card`
+  rules. A `<button>` carrying a class of the page's own is reset to a plain box, so rows and
+  option cards built from buttons lay out as written; a bare button, one whose only class is a
+  state (`active`, `selected`, …) and the kit's variants keep the ace button look. Unlayered
+  authored CSS always wins. The kit sets no SVG paint, so chart attributes stand. The
+  visualize skill lists the classes.
 - **Theme.** A page receives the app theme as CSS variables (`themeProperties`): surfaces,
   text tiers, hairlines and control edges, primary, accent (the accent picker) and accent text, status colours (`--success`, `--warning`,
   `--info`, `--destructive`), `--chart-1`…`--chart-6`, radius and fonts. When the theme or mode

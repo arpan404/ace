@@ -39,6 +39,7 @@
     "@ace/commands": "workspace:*",
     "@ace/context": "workspace:*",
     "@ace/core": "workspace:*",
+    "@ace/design-tokens": "workspace:*",
     "@ace/devices": "workspace:*",
     "@ace/diagnostics": "workspace:*",
     "@ace/engine-api": "workspace:*",

@@ -2663,7 +2663,6 @@ Example:
   },
   "id": "example",
   "nativeId": "example",
-  "raw": [],
   "runId": "example",
   "type": "html",
   "visualization": {
@@ -2675,6 +2674,7 @@ Example:
       "name": "example",
       "sha256": "7807e661d601c92e7220473793283ed54640bd53a0ffb9691fb5a3beb0068864"
     },
+    "kit": 8,
     "title": "example"
   }
 }
@@ -9938,13 +9938,136 @@ Example:
 
 ```json
 {
-  "seq": 5,
+  "seq": 8,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "seq": 5,
-    "threads": {}
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "entitiesBefore": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "kind": "thread",
+    "queue": {
+      "paused": false,
+      "reason": null,
+      "resumeAt": 8,
+      "revision": 8
+    },
+    "runs": {},
+    "seq": 8,
+    "thread": {
+      "acpAgentId": "example",
+      "activitySeq": 1,
+      "archivedAt": 9,
+      "continuation": {
+        "actionId": "thread.continue_new",
+        "reason": "cursor_cli_retired",
+        "state": "read_only"
+      },
+      "createdAt": 6,
+      "delegatedBy": "example",
+      "delegatedFrom": {
+        "hostId": "example",
+        "threadId": "example",
+        "threadTitle": "example"
+      },
+      "details": {
+        "continuedFrom": {
+          "at": 1,
+          "hostId": "example",
+          "name": "example",
+          "threadId": "example"
+        },
+        "continuedOn": {
+          "at": 6,
+          "hostId": "example",
+          "name": "example",
+          "threadId": "example"
+        },
+        "head": null,
+        "linkedPr": null,
+        "linkedPrs": [],
+        "mode": "local",
+        "workspace": {
+          "id": "example",
+          "kind": "chat",
+          "name": "example",
+          "path": "example"
+        },
+        "workspaceChange": {
+          "at": 3,
+          "commandId": "example",
+          "state": "failed"
+        },
+        "worktree": "example",
+        "worktreeCreation": {
+          "actions": [],
+          "attempt": 2,
+          "cleanupComplete": true,
+          "commandId": "example",
+          "details": [],
+          "elapsedMs": 1,
+          "error": "example",
+          "percent": 2,
+          "startedAt": 6,
+          "state": "done",
+          "step": "fetching",
+          "steps": []
+        },
+        "worktreeSetup": {
+          "at": 4,
+          "details": [],
+          "reason": "read_only",
+          "state": "failed"
+        }
+      },
+      "execution": {
+        "options": {},
+        "provider": "claude"
+      },
+      "goal": {
+        "checks": 2,
+        "lastReason": "example",
+        "objective": "example",
+        "status": "usage_limited",
+        "tokensUsed": 5
+      },
+      "id": "example",
+      "movedFrom": {
+        "links": {
+          "linkedIssues": [],
+          "linkedPr": null
+        },
+        "workspaceId": "example"
+      },
+      "permission": {
+        "effective": "auto-review",
+        "override": "auto-review",
+        "pending": false
+      },
+      "provider": "codex",
+      "queuedLaunch": {
+        "queuePosition": 8,
+        "slotLimit": 9,
+        "text": "example"
+      },
+      "settleWhenDone": true,
+      "settledReason": "pr_merged",
+      "snoozeWake": {
+        "on": "needs_you"
+      },
+      "status": {
+        "state": "limited"
+      },
+      "title": "example",
+      "titleSource": "provisional",
+      "updatedAt": 8,
+      "workspaceId": "example"
+    },
+    "usage": {}
   }
 }
 ```
@@ -14531,6 +14654,18 @@ Example:
 "win32"
 ```
 
+## HtmlColorScheme
+
+[JSON Schema](schema/HtmlColorScheme.json), input validation.
+
+Type: ["dark","light"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"dark"
+```
+
 ## HtmlDiagnostics
 
 [JSON Schema](schema/HtmlDiagnostics.json), input validation.
@@ -14613,7 +14748,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| html | yes | string | {"maxLength":16777217} |
+| html | yes | [HtmlDocument.json](schema/HtmlDocument.json) |  |
+| mode | no | [HtmlMode.json](schema/HtmlMode.json) |  |
+| scheme | no | [HtmlColorScheme.json](schema/HtmlColorScheme.json) |  |
 
 Example:
 
@@ -14643,6 +14780,18 @@ Example:
 }
 ```
 
+## HtmlStyleKit
+
+[JSON Schema](schema/HtmlStyleKit.json), input validation.
+
+Type: integer. See JSON Schema for constraints.
+
+Example:
+
+```json
+6
+```
+
 ## HtmlVisualization
 
 [JSON Schema](schema/HtmlVisualization.json), input validation.
@@ -14653,6 +14802,7 @@ Example:
 | document | yes | [Attachment.json](schema/Attachment.json) |  |
 | height | no | [HtmlHeight.json](schema/HtmlHeight.json) |  |
 | mode | no | [HtmlMode.json](schema/HtmlMode.json) |  |
+| kit | no | [HtmlStyleKit.json](schema/HtmlStyleKit.json) |  |
 
 Example:
 
@@ -14664,6 +14814,7 @@ Example:
     "name": "example",
     "sha256": "d5598bcb7e64166d03a9fc59bdbe6e10caae488f758594526226696890d3bb62"
   },
+  "kit": 5,
   "mode": "interactive",
   "title": "example"
 }
@@ -15618,6 +15769,7 @@ Example:
       "sha256": "60f651bd39d3cf4327862709bbe7735751a9111073b4f7c8742af294ee8755b3"
     },
     "height": 87,
+    "kit": 6,
     "title": "example"
   }
 }
@@ -30012,21 +30164,29 @@ Example:
   "runs": {},
   "seq": 1,
   "thread": {
+    "acpAgentId": "example",
+    "acpSupport": {
+      "capabilities": {
+        "imageInput": true,
+        "planMode": true,
+        "resume": true
+      },
+      "coverage": "generic",
+      "mcp": "stdio",
+      "modeSelection": false,
+      "modelSelection": true,
+      "raw": {
+        "json": "example",
+        "truncated": false
+      },
+      "visibility": "limited"
+    },
     "activityAt": 1,
+    "archivedAt": 2,
     "autoSettle": false,
     "autoSettleAt": 5,
-    "continuation": {
-      "actionId": "thread.continue_new",
-      "reason": "cursor_cli_retired",
-      "state": "read_only"
-    },
-    "createdAt": 3,
-    "delegatedBy": "example",
-    "delegatedFrom": {
-      "hostId": "example",
-      "hostName": "example",
-      "threadId": "example"
-    },
+    "backend": "cursor-sdk",
+    "createdAt": 7,
     "deletedAt": 6,
     "details": {
       "ahead": 8,
@@ -30060,50 +30220,82 @@ Example:
         "state": "failed"
       }
     },
-    "goal": {
-      "checks": 7,
-      "lastReason": "example",
-      "objective": "example",
-      "setAt": 9,
-      "status": "usage_limited",
-      "timeUsedSeconds": 2
+    "effectiveCapabilities": {
+      "approvals": "interactive",
+      "backgroundTaskControl": false,
+      "backgroundVisibility": "none",
+      "fork": true,
+      "forkPoints": [],
+      "goals": true,
+      "imageInput": false,
+      "interruptCascades": true,
+      "permissionModes": [],
+      "permissions": {
+        "modes": [],
+        "nativeAutoReview": true,
+        "toolGate": false
+      },
+      "planMode": true,
+      "resume": true,
+      "rewindFiles": true,
+      "steer": false,
+      "steeringMode": "native",
+      "subagentTranscripts": false,
+      "tokenUsage": false
+    },
+    "execution": {
+      "provider": "claude"
     },
     "id": "example",
+    "imported": {
+      "importedAt": 9,
+      "instanceId": "example",
+      "native": {
+        "acpAgentId": "example",
+        "aliases": [],
+        "installationId": "example",
+        "provider": "antigravity"
+      },
+      "sourceId": "example"
+    },
     "installationId": "example",
     "listOrder": 6,
     "live": {
-      "model": "example",
-      "subagentCount": 0,
-      "watching": []
+      "account": "example",
+      "backgroundTaskCount": 6,
+      "options": {},
+      "provider": "antigravity",
+      "step": "tests"
     },
-    "movedFrom": {
-      "links": {
-        "linkedPr": {
-          "number": 4,
-          "state": "open"
-        },
-        "repository": {
-          "forge": "github",
-          "host": "qFcSEoxC",
-          "name": "PTnm5xN4xqc",
-          "owner": "i2s/tTTYElo./8fnG_b/tp4cL4tEmo/gP/FLLNzcfxLa"
-        }
-      },
-      "workspaceId": "example"
+    "permission": {
+      "custom": "example",
+      "effective": "full-access",
+      "override": "full-access",
+      "pending": true
     },
-    "provider": "antigravity",
+    "provider": "acp",
+    "queue": {
+      "paused": false,
+      "reason": "limit",
+      "resumeAt": 1,
+      "revision": 0
+    },
+    "queuedLaunch": {
+      "text": "example"
+    },
     "rootAgentId": "example",
     "settleWhenDone": true,
     "settledAt": 7,
     "status": {
-      "interactions": 5,
-      "state": "needs_you"
+      "state": "failed"
     },
     "title": "example",
-    "updatedAt": 9,
+    "titleSource": "generated",
+    "updatedAt": 5,
     "workspaceId": "example"
   },
-  "usage": {}
+  "usage": {},
+  "usageSnapshots": {}
 }
 ```
 
@@ -31316,15 +31508,16 @@ Example:
     "listOrder": 5,
     "live": {
       "askingThreads": [],
+      "backgroundTaskCount": 1,
       "contextMeter": {
-        "at": 1,
-        "limit": 9,
-        "used": 3
+        "at": 5,
+        "limit": null,
+        "used": 9
       },
       "model": "example",
-      "options": {},
-      "waitingOn": 5,
-      "watching": [],
+      "provider": "cursor",
+      "runningSubagentCount": 3,
+      "step": "tests",
       "workingSince": 5
     },
     "pinned": true,
@@ -32018,6 +32211,7 @@ Example:
 | --- | --- | --- | --- |
 | rootRunId | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/RunId.json"},{"type":"null"}]} |
 | workingSince | no | [Timestamp.json](schema/Timestamp.json) |  |
+| waitingSince | no | [Timestamp.json](schema/Timestamp.json) |  |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | model | no | string | {"maxLength":256} |
 | account | no | string | {"maxLength":256} |
@@ -32036,9 +32230,10 @@ Example:
 
 ```json
 {
-  "account": "example",
-  "backgroundTaskCount": 2,
-  "subagentCount": 1
+  "model": "example",
+  "options": {},
+  "runningSubagentCount": 2,
+  "subagentCount": 9
 }
 ```
 
@@ -32437,11 +32632,11 @@ Example:
     "installationId": "example",
     "listOrder": 3,
     "live": {
+      "account": "example",
+      "asking": [],
       "askingThreads": [],
-      "options": {},
-      "provider": "cursor",
       "rootRunId": null,
-      "waitingOn": 8
+      "waitingSince": 5
     },
     "prSettled": 3,
     "provider": "cursor",

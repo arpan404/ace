@@ -12,7 +12,9 @@ export const HtmlHeight = z.number().int().min(80).max(2000);
  */
 export const HtmlMode = z.enum(["interactive", "static"]);
 export type HtmlMode = z.infer<typeof HtmlMode>;
-export const HtmlPreviewInput = z.strictObject({ html: z.string().max(maxHtmlDocumentBytes + 1) });
+/** A version of the style kit every page is rendered with (`@ace/html` `styleKitVersion`). */
+export const HtmlStyleKit = z.number().int().min(1).max(1000);
+export type HtmlStyleKit = z.infer<typeof HtmlStyleKit>;
 export const HtmlRenderInput = z.strictObject({
   title: z.string().min(1).max(160).regex(/\S/),
   html: HtmlDocument,
@@ -20,6 +22,16 @@ export const HtmlRenderInput = z.strictObject({
   mode: HtmlMode.optional(),
 });
 export type HtmlRenderInput = z.infer<typeof HtmlRenderInput>;
+/** The app theme a preview is drawn in. */
+export const HtmlColorScheme = z.enum(["dark", "light"]);
+export type HtmlColorScheme = z.infer<typeof HtmlColorScheme>;
+/** A page to lay out and look at before publishing it; nothing is stored or shown. */
+export const HtmlPreviewInput = z.strictObject({
+  html: HtmlDocument,
+  mode: HtmlMode.optional(),
+  scheme: HtmlColorScheme.optional(),
+});
+export type HtmlPreviewInput = z.infer<typeof HtmlPreviewInput>;
 export const HtmlDiagnostics = z.object({
   valid: z.boolean(),
   bytes: z.number().int().nonnegative(),
@@ -33,6 +45,11 @@ export const HtmlVisualization = z.object({
   height: HtmlHeight.optional(),
   /** Resolved and stored at publication; when absent, clients infer it by the same rule. */
   mode: HtmlMode.optional(),
+  /**
+   * The style kit the page was written against, stored at publication. Absent on pages from
+   * before the kit was versioned: they render with the first kit, whose classes are unprefixed.
+   */
+  kit: HtmlStyleKit.optional(),
 });
 export type HtmlVisualization = z.infer<typeof HtmlVisualization>;
 export const HtmlHeightMessage = z.strictObject({

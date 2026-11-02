@@ -174,8 +174,8 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     hint: "Nothing ran. Fix each field named in issues, keep the other arguments, and call again.",
   },
   invalid_html: {
-    message: "The page has unsupported content and was not published",
-    hint: "Fix each problem in issues, then call html_render again with the corrected page.",
+    message: "The page has unsupported content; nothing was published or rendered",
+    hint: "Fix each problem in issues, then call the tool again with the corrected page.",
   },
   invalid_image: {
     message: "The bytes are not a PNG, JPEG, WebP or GIF image and were not shown",

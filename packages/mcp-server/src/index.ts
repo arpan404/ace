@@ -79,7 +79,14 @@ export { mcpStatusGroups, type GroupOffReasons, type StatusReader } from "./stat
 export { withinJsonBudget } from "./json-budget.ts";
 export { maxRequestBodyBytes } from "./result-budgets.ts";
 
-export { htmlToolkit, htmlToolCatalog, type HtmlPublicationPort } from "./html-tools.ts";
+export {
+  htmlToolkit,
+  htmlPreviewToolkit,
+  htmlToolCatalog,
+  type HtmlPublicationPort,
+  type HtmlPreviewPort,
+  type HtmlPreviewResult,
+} from "./html-tools.ts";
 export { imageToolkit, imageToolCatalog, type ImagePublicationPort } from "./image-tools.ts";
 
 export {

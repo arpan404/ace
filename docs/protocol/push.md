@@ -32,10 +32,10 @@ Example:
       "activitySeq": 8,
       "hasSentMessage": false,
       "live": {
-        "askingThreads": [],
-        "backgroundTaskCount": 1,
-        "options": {},
-        "provider": "antigravity"
+        "account": "example",
+        "asking": [],
+        "runningSubagentCount": 1,
+        "waitingSince": 6
       },
       "readAt": 0,
       "settleWhenDone": true,
@@ -3151,9 +3151,149 @@ Example:
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "contextMeters": {},
+    "interactions": {},
+    "itemOrder": [],
+    "itemSeqs": {},
+    "items": {},
+    "kind": "thread",
+    "runs": {},
     "seq": 3,
-    "threads": {}
+    "thread": {
+      "archivedAt": 8,
+      "capabilitiesRef": "example",
+      "createdAt": 0,
+      "delegatedBy": "example",
+      "delegatedFrom": {
+        "hostId": "example",
+        "hostName": "example",
+        "threadId": "example"
+      },
+      "deletedAt": 3,
+      "details": {
+        "ahead": 2,
+        "baseBranch": "example",
+        "continuedOn": {
+          "at": 8,
+          "hostId": "example",
+          "name": "example",
+          "threadId": "example"
+        },
+        "machine": {
+          "host": "example",
+          "icon": {
+            "color": "default",
+            "kind": "terminal"
+          },
+          "name": "example"
+        },
+        "repository": {
+          "forge": "gitlab",
+          "host": "yRBh3",
+          "name": "YK",
+          "owner": "Fd/pKJZpgb/zydbBchNwv/PxworE6pAI5/L37rPtzTiF/Jn7.0/Oito8X"
+        },
+        "workspace": {
+          "icon": null,
+          "id": "example",
+          "name": "example",
+          "path": "example"
+        },
+        "worktreeMissing": true,
+        "worktreeSetup": {
+          "at": 0,
+          "details": [],
+          "reason": "read_only",
+          "state": "failed"
+        }
+      },
+      "effectiveCapabilities": {
+        "approvals": "interactive",
+        "attachmentInput": {
+          "documents": [],
+          "embeddedContext": false,
+          "format": "opencode",
+          "maxInlineBytes": 2
+        },
+        "backgroundTaskControl": false,
+        "backgroundVisibility": "full",
+        "childControls": "native",
+        "fork": true,
+        "forkSubagents": true,
+        "imageInput": false,
+        "interruptCascades": false,
+        "launchOptions": [],
+        "planMode": false,
+        "resume": true,
+        "rewindFiles": false,
+        "sessionOptions": false,
+        "steer": true,
+        "steerTiming": "immediate",
+        "subagentTranscripts": false,
+        "tokenUsage": false
+      },
+      "id": "example",
+      "instanceId": "example",
+      "live": {
+        "askingThreads": [],
+        "contextMeter": {
+          "at": 0,
+          "limit": 4,
+          "used": 1
+        },
+        "model": "example",
+        "options": {},
+        "waitingOn": 1,
+        "waitingSince": 8,
+        "workingSince": 3
+      },
+      "permission": {
+        "effective": "read-only",
+        "override": null,
+        "pending": false
+      },
+      "pinOrder": 7,
+      "provider": "codex",
+      "queue": {
+        "exited": true,
+        "paused": true,
+        "reason": "limit",
+        "resumeAt": 0,
+        "revision": 1
+      },
+      "queuedLaunch": {
+        "text": "example"
+      },
+      "readAt": 5,
+      "settledAt": 2,
+      "snoozeWake": {
+        "on": "needs_you"
+      },
+      "snoozedUntil": 9,
+      "startedBy": "example",
+      "status": {
+        "interactions": 3,
+        "state": "needs_you"
+      },
+      "switch": {
+        "at": 6,
+        "lossy": false,
+        "recommendation": "delegate",
+        "selection": {
+          "model": "example",
+          "provider": "pi"
+        },
+        "state": "queued"
+      },
+      "title": "example",
+      "updatedAt": 6,
+      "workspaceId": "example"
+    },
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```
