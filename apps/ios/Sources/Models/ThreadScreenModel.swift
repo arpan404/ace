@@ -95,6 +95,7 @@ import Observation
         stopRequest = shown.stopRequest
         steps = shown.steps
         pill = shown.pill
+        leftRunning = shown.leftRunning
         goal = shown.goal
         openGroups = shown.openGroups
         tune = shown.tune
@@ -129,6 +130,7 @@ import Observation
         stopRequest = incoming.stopRequest
         steps = incoming.steps
         pill = incoming.pill
+        leftRunning = incoming.leftRunning
         goal = incoming.goal
         tune = incoming.tune
         access = incoming.access

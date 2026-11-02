@@ -9,6 +9,8 @@ struct DockAction: Identifiable {
     var enabled = true
     /// The accessibility identifier; `strip.<id>` when not given.
     var identifier: String? = nil
+    /// A way to more (Details): always a word on the sentence's line, never a capsule.
+    var aside = false
     let run: () -> Void
 }
 
@@ -37,7 +39,8 @@ struct DockStrip: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.aceReduceMotion) private var reduceMotion
 
-    private var inline: Bool { actions.count < 3 }
+    private var answers: [DockAction] { actions.filter { !$0.aside } }
+    private var inline: Bool { answers.count < 3 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
@@ -52,7 +55,7 @@ struct DockStrip: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier(sentenceIdentifier)
                 if let pager, pager.total > 1 { pagerView(pager) }
-                if inline { words }
+                if inline { words(actions) } else { words(actions.filter(\.aside)) }
             }
             if !line.payload.isEmpty { payload }
             if !line.detail.isEmpty {
@@ -97,9 +100,9 @@ struct DockStrip: View {
         .accessibilityIdentifier("strip.payload")
     }
 
-    private var words: some View {
+    private func words(_ shown: [DockAction]) -> some View {
         HStack(spacing: AceTheme.Spacing.none) {
-            ForEach(actions) { action in
+            ForEach(shown) { action in
                 Button(action.label, action: action.run)
                     .buttonStyle(StripTextButtonStyle(prominent: action.primary))
                     .disabled(!action.enabled)
@@ -111,7 +114,7 @@ struct DockStrip: View {
 
     private var capsules: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            ForEach(actions) { action in
+            ForEach(answers) { action in
                 Button(action.label, action: action.run)
                     .buttonStyle(DockCapsuleStyle(primary: action.primary, destructive: action.destructive))
                     .disabled(!action.enabled)

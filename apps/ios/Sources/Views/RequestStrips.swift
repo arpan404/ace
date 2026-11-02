@@ -60,7 +60,7 @@ struct RequestStrip: View {
             }
             // The reason and any other option are the sheet's.
             let more = !(request.reason ?? "").isEmpty || !(request.description.isEmpty) || !request.remaining.isEmpty
-            return (more ? [DockAction(id: "details", label: "Details", identifier: "approval.details", run: review)] : []) + words
+            return (more ? [DockAction(id: "details", label: "Details", identifier: "approval.details", aside: true, run: review)] : []) + words
         case "plan_review":
             return [DockAction(id: "review", label: "Review", identifier: "plan.review", run: review),
                     DockAction(id: "approve", label: "Approve", primary: true, enabled: open, identifier: "plan.approve") {
