@@ -44,7 +44,9 @@ struct ThreadMcpView: View {
                             .disabled(name.isEmpty || address.isEmpty || busy)
                     }
                 }
-            } else if problem == nil { ProgressView("Reading servers…") }
+            } else if problem == nil {
+                SkeletonRows(count: 3, label: "Reading servers").listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
+            }
         }
         .navigationTitle("MCP servers").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model) { await read() }.refreshable { await read() }

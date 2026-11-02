@@ -171,14 +171,14 @@ struct PublishedMediaRow: View {
         VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
             // A small glass circle, so it reads as a button without competing with the page.
             Button(action: open) {
-                AceIcon(.arrowsOutSimple, size: 16, relativeTo: .body)
+                AceIcon(.arrowsOutSimple, size: AceDesign.Size.icon, relativeTo: .body)
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .frame(width: Self.expandSize, height: Self.expandSize)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .aceGlass(in: Circle(), interactive: true)
-            .padding((AceTheme.Dimensions.touchTarget - Self.expandSize) / 2)
+            .padding((AceDesign.Size.tap - Self.expandSize) / 2)
             .contentShape(Rectangle())
             .accessibilityLabel("Open \(row.text) full screen")
             if case .page(let page) = shown {
@@ -194,6 +194,6 @@ struct PublishedMediaRow: View {
     }
 
     private static let maxImageHeight: CGFloat = 420
-    private static let expandSize: CGFloat = 32
+    private static let expandSize = AceDesign.Size.pill
     private static let placeholderHeight = InlineCanvas.placeholderHeight
 }

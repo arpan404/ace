@@ -72,7 +72,7 @@ struct FileScreen: View {
                 Button("Keep editing", role: .cancel) {}
             }
             .overlay(alignment: .bottom) { mentionLines }
-            .animation(reduceMotion ? .easeInOut(duration: 0.15) : .smooth(duration: 0.25), value: selectedLines)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: selectedLines)
             .sensoryFeedback(.success, trigger: mentioned)
             .modifier(FileActionPrompts(actions: actions))
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
@@ -111,7 +111,7 @@ struct FileScreen: View {
                         Text(size(content.size)).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
                     }
-                    .padding(AceTheme.Spacing.xl)
+                    .padding(AceDesign.Space.margin)
                 }
             default:
                 textBody(content)
@@ -131,7 +131,7 @@ struct FileScreen: View {
             EmptyState(systemImage: "doc.text", title: "Empty file", line: "\(name) has no content.")
         } else if markdownPreview {
             ScrollView {
-                AceMarkdown(text: text).padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg)
+                AceMarkdown(text: text).padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.margin)
             }
             .accessibilityIdentifier("preview.markdown")
         } else {
@@ -155,7 +155,7 @@ struct FileScreen: View {
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .monospacedDigit()
                     .padding(.horizontal, AceTheme.Spacing.lg)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .contentShape(AceShape.capsule)
             }
             .buttonStyle(.plain)

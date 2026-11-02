@@ -31,13 +31,13 @@ struct ForgeEditor: View {
             ForEach(suggestions, id: \.self) { item in
                 Button { pick(item) } label: {
                     HStack(spacing: AceTheme.Spacing.sm) {
-                        Text(item.label).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+                        Text(item.label).foregroundStyle(AceTheme.Colours.foreground)
                         Text(item.detail).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
                         Spacer(minLength: AceTheme.Spacing.none)
                     }
                     .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                     .padding(.horizontal, AceTheme.Spacing.md)
-                    .frame(minHeight: 40)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.row)

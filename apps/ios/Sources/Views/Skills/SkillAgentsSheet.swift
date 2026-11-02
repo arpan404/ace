@@ -46,12 +46,13 @@ struct SkillAgentsSheet: View {
 
 /// One switch per agent, its mark beside its name. Locked agents stay on.
 struct SkillAgentToggles: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @Binding var agents: [SkillAgentChoice]
     var body: some View {
         ForEach($agents) { $agent in
-            Toggle(isOn: $agent.on.animation(.smooth)) {
+            Toggle(isOn: $agent.on.animation(AceDesign.Motion.arriving(reduceMotion))) {
                 HStack(spacing: AceTheme.Spacing.md) {
-                    ProviderMark(provider: agent.id, size: 19)
+                    ProviderMark(provider: agent.id, size: AceDesign.Size.barIcon)
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                         Text(agent.name).aceFont(InsetStyle.label, relativeTo: .body)
                         if agent.locked && agent.on {
@@ -62,7 +63,7 @@ struct SkillAgentToggles: View {
                 }
             }
             .disabled(agent.locked && agent.on)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            .frame(minHeight: AceDesign.Size.tap)
             .accessibilityIdentifier("skill.agent.\(agent.id)")
         }
     }

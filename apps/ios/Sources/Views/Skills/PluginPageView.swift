@@ -4,6 +4,7 @@ import SwiftUI
 /// plugin), what it ships, and updating or removing it. A switch shows its new state at once;
 /// the machine's answer settles it once every change in flight has landed.
 struct PluginPageView: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let components: [PluginComponentRow]
     @State private var plugin: PluginAgents
@@ -39,7 +40,7 @@ struct PluginPageView: View {
                 ForEach(plugin.agents) { agent in
                     Toggle(isOn: Binding(get: { agent.on }, set: { setAgent(agent.id, on: $0) })) {
                         HStack(spacing: AceTheme.Spacing.md) {
-                            ProviderMark(provider: agent.id, size: 19)
+                            ProviderMark(provider: agent.id, size: AceDesign.Size.barIcon)
                             Text(agent.name).aceFont(InsetStyle.label, relativeTo: .body)
                         }
                     }
@@ -50,7 +51,7 @@ struct PluginPageView: View {
                 Text(plugin.enabled ? "Each agent switched on here can load everything \(plugin.name) ships." : "Switched off: no agent loads it until it is enabled again.")
             }
             .insetRowBackground()
-            .opacity(plugin.enabled ? 1 : 0.6)
+            .opacity(plugin.enabled ? 1 : AceDesign.Ink.dimmedOpacity)
             if !components.isEmpty {
                 Section {
                     ForEach(components) { component in
@@ -74,8 +75,8 @@ struct PluginPageView: View {
             }
         }
         .insetGroupedList()
-        .animation(.smooth, value: plugin)
-        .animation(.smooth, value: problem)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: plugin)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: problem)
         .sensoryFeedback(.selection, trigger: toggled)
         .navigationTitle(plugin.name).navigationBarTitleDisplayMode(.inline)
         .sheet(item: $review) { PluginReviewView(model: model, request: $0) }

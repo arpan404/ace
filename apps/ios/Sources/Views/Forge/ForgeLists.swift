@@ -87,13 +87,13 @@ struct ForgeListFrame<Rows: View>: View {
                 EmptyState(icon: nil, title: "Couldn't load from GitHub", line: failure, failed: true) {
                     Button("Try again") { Task { await refresh() } }
                 }
-                .padding(.top, 100)
+                .padding(.top, AceDesign.Space.pageState)
                 .forgeRowChrome()
             } else if !loaded {
                 SkeletonRows(count: 6).forgeRowChrome()
             } else if empty {
                 EmptyState(icon: icon, title: emptyTitle) { EmptyView() }
-                    .padding(.top, 100)
+                    .padding(.top, AceDesign.Space.pageState)
                     .forgeRowChrome()
             } else {
                 if let failure {
@@ -107,7 +107,7 @@ struct ForgeListFrame<Rows: View>: View {
                             if loading { ProgressView().controlSize(.mini) }
                         }
                         .padding(.horizontal, AceTheme.Spacing.rowInner)
-                        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                     }
                     .buttonStyle(.row)
                     .disabled(loading)
@@ -121,8 +121,8 @@ struct ForgeListFrame<Rows: View>: View {
         .background(surface)
         .environment(\.defaultMinListRowHeight, 0)
         .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
-        .opacity(stale ? 0.6 : 1)
-        .animation(.easeOut(duration: 0.15), value: stale)
+        .opacity(stale ? AceDesign.Ink.settledOpacity : 1)
+        .animation(AceMotion.smooth, value: stale)
         .refreshable { await refresh() }
     }
 }

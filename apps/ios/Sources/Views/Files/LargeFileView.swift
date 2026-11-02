@@ -34,7 +34,7 @@ struct LargeFileView: View {
                 ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                     HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.md) {
                         Text("\(index + 1)").foregroundStyle(AceTheme.Colours.decoration)
-                            .frame(minWidth: 44, alignment: .trailing)
+                            .frame(minWidth: FileDiffStyle.gutter, alignment: .trailing)
                         Text(line.isEmpty ? " " : line).foregroundStyle(AceTheme.Colours.foreground)
                             .lineLimit(wrap ? nil : 1).fixedSize(horizontal: !wrap, vertical: true)
                     }
@@ -73,12 +73,12 @@ struct LargeFileView: View {
         if let failure {
             Text(failure).foregroundStyle(AceTheme.StatusText.failed).padding(AceTheme.Spacing.lg)
         } else if loading {
-            ProgressView().frame(maxWidth: .infinity, minHeight: 44)
+            ProgressView().frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowLine)
         } else if !done {
             Button {
                 Task { await more() }
             } label: {
-                Text("Show more · \(percent)% read").fontWeight(.medium).frame(maxWidth: .infinity, minHeight: 44)
+                Text("Show more · \(percent)% read").frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowLine)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("file.large.more")

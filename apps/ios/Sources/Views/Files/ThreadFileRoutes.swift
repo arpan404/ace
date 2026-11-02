@@ -47,7 +47,7 @@ struct ThreadFileRoutes: ViewModifier {
                         ProgressView().controlSize(.small)
                         Text("Opening \(opening)").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     }
-                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 36)
+                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
                     .floatingGlass()
                     .padding(.top, AceTheme.Spacing.sm)
                     .accessibilityIdentifier("files.opening")

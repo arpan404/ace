@@ -19,7 +19,7 @@ struct PanelTabStrip: View {
         let ordered = order.compactMap { byKey[$0] }
         return ordered.count == view.tabs.count ? ordered : view.tabs
     }
-    private var motion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring }
+    private var motion: Animation { AceDesign.Motion.arriving(reduceMotion) }
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.none) {
@@ -49,7 +49,7 @@ struct PanelTabStrip: View {
             openMenu
             tabMenu
         }
-        .frame(height: AceTheme.Dimensions.touchTarget)
+        .frame(height: AceDesign.Size.tap)
         // The order the bridge settled replaces the one shown while dragging.
         .onChange(of: view.tabs.map(\.key)) { _, _ in if drag.dragging == nil { drag.order = nil } }
         .accessibilityElement(children: .contain)
@@ -65,8 +65,8 @@ struct PanelTabStrip: View {
                 }
             }
         } label: {
-            AceIcon(.plus, size: 16).foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+            AceIcon(.plus, size: AceDesign.Size.icon).foregroundStyle(AceTheme.Colours.foreground)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("Open a tool")
@@ -86,8 +86,8 @@ struct PanelTabStrip: View {
             }
         } label: {
             // A caret, not ⋯: the screen below has its own ⋯ in its bar.
-            AceIcon(.caretDown, size: 14).foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+            AceIcon(.caretDown, size: AceDesign.Size.metaIcon).foregroundStyle(AceTheme.Colours.foreground)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("Tab options")
@@ -139,7 +139,6 @@ private struct PanelTabItem: View {
             Button(action: activate) {
                 Text(tab.title)
                     .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
-                    .fontWeight(shown ? .medium : .regular)
                     .foregroundStyle(shown ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                     .lineLimit(1)
                     .padding(.leading, AceTheme.Spacing.md)
@@ -153,8 +152,8 @@ private struct PanelTabItem: View {
             .accessibilityIdentifier("panel.tab.\(tab.kind)")
             if !tab.pinned {
                 Button(action: close) {
-                    AceIcon(.x, size: 12).foregroundStyle(AceTheme.Colours.subtleForeground)
-                        .frame(width: 28, height: 28)
+                    AceIcon(.x, size: AceDesign.Size.caret).foregroundStyle(AceTheme.Colours.subtleForeground)
+                        .frame(width: AceDesign.Size.pill, height: AceDesign.Size.pill)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -163,12 +162,12 @@ private struct PanelTabItem: View {
                 .accessibilityIdentifier("panel.tab.\(tab.kind).close")
             }
         }
-        .frame(height: 32)
-        .background { if shown { Capsule().fill(AceTheme.Colours.fill) } }
-        .contentShape(Capsule())
-        .opacity(dragging ? 0.4 : 1)
+        .frame(height: AceDesign.Size.pill)
+        .background { if shown { AceDesign.Shape.control.fill(AceTheme.Colours.fill) } }
+        .contentShape(AceDesign.Shape.control)
+        .opacity(dragging ? AceDesign.Ink.dimmedOpacity : 1)
         // A 44-point target: the strip's full height.
-        .frame(height: AceTheme.Dimensions.touchTarget)
+        .frame(height: AceDesign.Size.tap)
         .contentShape(Rectangle())
         .hoverEffect(.highlight)
     }

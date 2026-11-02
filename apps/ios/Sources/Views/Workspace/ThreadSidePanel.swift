@@ -74,7 +74,7 @@ private struct PanelSide: View {
     private var view: PanelView? { model.panels.views[threadId] }
     /// The thread the panel's screens read: the one the client shows, once it is this one.
     private var thread: ThreadModel? { model.thread.flatMap { $0.id == threadId ? $0 : nil } }
-    private var motion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring }
+    private var motion: Animation { AceDesign.Motion.arriving(reduceMotion) }
     private var showing: PanelView? {
         guard let view, view.open, view.shown != nil, let room, thread != nil,
               PanelPlace.of(regular: sizeClass == .regular, width: room.window, limits: view.limits) == .beside else { return nil }
@@ -156,12 +156,12 @@ private struct PanelColumn<Panel: View>: View {
         Rectangle().fill(AceTheme.Colours.separator)
             .frame(width: AceTheme.Dimensions.border)
             .overlay {
-                Capsule().fill(held ? AceTheme.Colours.mutedForeground : AceTheme.Colours.decoration)
-                    .frame(width: 4, height: 36)
+                AceDesign.Shape.control.fill(held ? AceTheme.Colours.mutedForeground : AceTheme.Colours.decoration)
+                    .frame(width: AceDesign.Size.handleWidth, height: AceDesign.Size.handleHeight)
             }
             .frame(maxHeight: .infinity)
             .overlay {
-                Color.clear.frame(width: 24).contentShape(Rectangle())
+                Color.clear.frame(width: AceDesign.Size.dragEdge).contentShape(Rectangle())
                     .gesture(
                         DragGesture(minimumDistance: 2, coordinateSpace: .global)
                             .updating($pull) { value, pull, _ in pull = -value.translation.width }

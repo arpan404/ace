@@ -20,7 +20,7 @@ struct ForgeCompareBar: View {
             Spacer(minLength: AceTheme.Spacing.sm)
             Button("Change", action: change)
                 .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                .frame(minHeight: 44)
+                .frame(minHeight: AceDesign.Size.tap)
                 .accessibilityLabel("Change which commits are shown")
                 .accessibilityIdentifier("forge.files.change")
         }
@@ -58,9 +58,9 @@ struct ForgeRangeSheet: View {
                     EmptyState(icon: nil, title: "Couldn't load the commits", line: failure, failed: true) {
                         Button("Try again") { Task { await load() } }
                     }
-                    .padding(.top, 80)
+                    .padding(.top, AceDesign.Space.partState)
                 } else {
-                    ProgressView().padding(.top, 80).frame(maxWidth: .infinity)
+                    SkeletonRows(count: 3, label: "Loading commits")
                 }
             }
             .animation(AceMotion.smooth, value: list == nil)

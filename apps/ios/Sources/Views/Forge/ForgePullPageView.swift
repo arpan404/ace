@@ -51,7 +51,7 @@ struct ForgePullPageView: View {
                 EmptyState(icon: nil, title: "Couldn't load this pull request", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.pageState)
             } else {
                 SkeletonPage()
             }
@@ -145,7 +145,7 @@ struct ForgePullPageView: View {
     private func header(_ page: ForgePullPage) -> some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             HStack(spacing: AceTheme.Spacing.sm) {
-                ForgePullGlyph(state: page.state, merged: page.merged, size: 16)
+                ForgePullGlyph(state: page.state, merged: page.merged, size: AceDesign.Size.icon)
                 Text(page.state.word).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                     .foregroundStyle(AceTone(page.state.tone).text)
                 Text("\(page.repository.owner)/\(page.repository.name)").meta()
@@ -190,7 +190,7 @@ struct ForgePullPageView: View {
                             if writing { ProgressView().controlSize(.small) }
                             Text(action.label).fontWeight(.semibold)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                     }
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
@@ -204,7 +204,7 @@ struct ForgePullPageView: View {
                                 ForEach(page.methods, id: \.self) { Text($0.label).tag($0.method) }
                             }
                         } label: {
-                            Image(ace: .caretDown).frame(width: 44, height: 44)
+                            Image(ace: .caretDown).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                                 .aceGlass(in: AceShape.capsule, interactive: true)
                                 .contentShape(AceShape.capsule)
                         }
@@ -215,7 +215,7 @@ struct ForgePullPageView: View {
             } else if !page.primary.isEmpty {
                 Text(page.primary).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                     .accessibilityIdentifier("forge.pull.primary")
             }
             if let secondary = page.secondary {

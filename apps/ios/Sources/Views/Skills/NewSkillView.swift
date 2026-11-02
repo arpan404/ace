@@ -4,6 +4,9 @@ import SwiftUI
 /// agents see it and when it runs. The name is checked as it is typed, against the same rules
 /// and list the web's form uses (`bridge/skill-library.ts`); the machine has the last word.
 struct NewSkillView: View {
+    /// Content geometry: the placeholder starts where the editor's text does, past its line numbers.
+    private static let pastGutter: CGFloat = 52
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let project: NativeProject?
     let created: (SkillRoute) -> Void
@@ -55,18 +58,17 @@ struct NewSkillView: View {
                 Section {
                     SourceTextView(document: SourceDocument(key: "new", text: "", language: nil, marks: [:]),
                                    wrap: true, editable: !creating, line: nil, handle: handle, dirty: { bodyDirty = $0 })
-                        .frame(height: 220)
+                        .frame(height: AceDesign.Size.editorHeight)
                         .overlay(alignment: .topLeading) {
                             if !bodyDirty {
                                 Text("Steps, rules and examples the agent follows")
                                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                                     .foregroundStyle(AceTheme.Colours.subtleForeground)
-                                    .padding(.leading, 52).padding(.top, AceTheme.Spacing.sm)
+                                    .padding(.leading, Self.pastGutter).padding(.top, AceTheme.Spacing.sm)
                                     .allowsHitTesting(false).transition(.opacity)
                             }
                         }
                         .clipShape(AceShape.group)
-                        .overlay(AceShape.group.stroke(AceTheme.Colours.fill, lineWidth: 1.5))
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                         .accessibilityIdentifier("skill.new.body")
@@ -96,8 +98,8 @@ struct NewSkillView: View {
             }
             .insetRowBackground()
             .insetGroupedList()
-            .animation(.smooth, value: agents)
-            .animation(.smooth, value: problem)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: agents)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: problem)
             .sensoryFeedback(.selection, trigger: agents)
             .sensoryFeedback(.selection, trigger: scope)
             .navigationTitle("New skill").navigationBarTitleDisplayMode(.inline)

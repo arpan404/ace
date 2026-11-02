@@ -32,14 +32,14 @@ struct ForgeTimelineView: View {
                     EmptyState(icon: nil, title: "Couldn't load the timeline", line: failure, failed: true) {
                         Button("Try again") { Task { await load() } }
                     }
-                    .padding(.top, 120)
+                    .padding(.top, AceDesign.Space.pageState)
                 } else {
                     SkeletonPage()
                 }
             }
             .defaultScrollAnchor(.bottom)
             .onChange(of: timeline?.rows.last?.id) { _, last in
-                if let last { withAnimation(.smooth) { proxy.scrollTo(last, anchor: .bottom) } }
+                if let last { withAnimation(AceMotion.smooth) { proxy.scrollTo(last, anchor: .bottom) } }
             }
         }
         .background(AceTheme.Colours.background)
@@ -119,7 +119,7 @@ struct ForgeTimelineView: View {
                 .fontWeight(.semibold)
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
                 .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
-                .frame(minHeight: 44)
+                .frame(minHeight: AceDesign.Size.tap)
                 .disabled(box.off != nil || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !desk.ready)
                 .accessibilityIdentifier("forge.timeline.comment")
         }
@@ -168,7 +168,7 @@ struct ForgeTimelineRowView: View {
             line(actor: actor, text: text, tone: tone, at: at)
         case .commit(_, let sha, let title, let author, let at):
             HStack(spacing: AceTheme.Spacing.sm) {
-                AceIcon(.gitBranch, size: 14, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
+                AceIcon(.gitBranch, size: AceDesign.Size.metaIcon, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
                 Text(title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
                 Spacer(minLength: AceTheme.Spacing.sm)
                 Text(sha).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
@@ -191,7 +191,7 @@ struct ForgeTimelineRowView: View {
 
     private func line(actor: String, text: String, tone: String?, at: Double?) -> some View {
         HStack(spacing: AceTheme.Spacing.xs) {
-            Text(actor).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+            Text(actor).foregroundStyle(AceTheme.Colours.foreground)
             Text(text).foregroundStyle(tone.map { AceTone($0).text } ?? AceTheme.Colours.mutedForeground).lineLimit(2)
             Spacer(minLength: AceTheme.Spacing.sm)
             if let at { ForgeAge(at: at) }

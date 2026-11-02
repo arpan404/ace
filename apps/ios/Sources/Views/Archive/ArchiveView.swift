@@ -81,10 +81,11 @@ private struct ArchiveRows: View {
     }
     @ViewBuilder private func footer(empty: Bool) -> some View {
         if archive.loading || (!archive.list.loaded && client.connection == "ready") {
-            HStack { Spacer(); ProgressView().accessibilityLabel("Loading archived threads"); Spacer() }
+            if empty { SkeletonRows(label: "Loading archived threads") }
+            else { HStack { Spacer(); ProgressView().accessibilityLabel("Loading older threads"); Spacer() } }
         } else if archive.list.failed {
             Button("Retry loading older threads") { client.loadMoreArchived() }
-                .frame(minHeight: AceTheme.Dimensions.touchTarget).accessibilityIdentifier("archive.retry")
+                .frame(minHeight: AceDesign.Size.tap).accessibilityIdentifier("archive.retry")
         } else if !archive.list.loaded {
             EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "Archived threads load once it's connected.")
         } else if empty {
@@ -92,7 +93,7 @@ private struct ArchiveRows: View {
         } else if archive.canLoadMore {
             Button("Show older archived threads") { client.loadMoreArchived() }
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget).accessibilityIdentifier("archive.more")
+                .frame(minHeight: AceDesign.Size.tap).accessibilityIdentifier("archive.more")
         }
     }
 }
@@ -110,7 +111,7 @@ struct ArchivedNote: View {
             if canOperate {
                 Button("Unarchive") { working = true; Task { _ = await unarchive(); working = false } }
                     .buttonStyle(.bordered).buttonBorderShape(.capsule).disabled(working)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("thread.unarchive")
             }
         }

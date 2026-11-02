@@ -51,7 +51,7 @@ struct FilesScreen: View {
             if query.trimmingCharacters(in: .whitespaces).isEmpty { treeRows } else { searchRows }
         }
         .listStyle(.plain)
-        .environment(\.defaultMinListRowHeight, 42)
+        .environment(\.defaultMinListRowHeight, AceDesign.Size.rowLine)
         .scrollContentBackground(.hidden)
         .background(AceTheme.Colours.background)
         .searchable(text: $query, prompt: "Search files")
@@ -94,7 +94,7 @@ struct FilesScreen: View {
             ForEach(visible) { row in
                 Button { tap(row) } label: { FileTreeRowView(row: row, open: open.contains(row.path)) }
                     .buttonStyle(.plain)
-                    .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xl))
+                    .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
                     .listRowBackground(AceTheme.Colours.background)
                     .contextMenu { rowMenu(path: row.path, folder: row.folder) }
                     .swipeActions(edge: .trailing) {
@@ -157,13 +157,14 @@ struct FilesScreen: View {
             ForEach(shown.rows) { row in
                 Button { pick(row) } label: { FileSearchRowView(row: row) }
                     .buttonStyle(.plain)
-                    .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xl))
+                    .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
                     .listRowBackground(AceTheme.Colours.background)
                     .contextMenu { rowMenu(path: row.path, folder: row.isFolder) }
                     .accessibilityIdentifier("search.\(row.path)")
             }
         } else {
-            HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+            SkeletonRows(count: 3, label: "Searching files").listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                .listRowInsets(EdgeInsets())
         }
     }
 
@@ -295,21 +296,21 @@ struct FilesScreen: View {
     }
 }
 
-/// A 42pt tree row: indent, disclosure for a folder, its symbol, the name, and the change letter.
+/// A one-line tree row: indent, disclosure for a folder, its symbol, the name, and the change letter.
 struct FileTreeRowView: View {
     let row: FileTreeRow
     let open: Bool
     @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            Color.clear.frame(width: CGFloat(row.depth) * 18, height: 1)
+            Color.clear.frame(width: CGFloat(row.depth) * AceDesign.Space.treeLevel, height: AceDesign.Size.hairline)
             Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
                 .rotationEffect(.degrees(open ? 90 : 0))
-                .animation(reduceMotion ? nil : .easeOut(duration: AceTheme.Motion.standard), value: open)
+                .animation(AceDesign.Motion.arriving(reduceMotion), value: open)
                 .foregroundStyle(AceTheme.Colours.decoration)
-                .frame(width: 10).opacity(row.folder ? 1 : 0)
+                .frame(width: AceDesign.Size.caret).opacity(row.folder ? 1 : 0)
             Image(systemName: row.folder ? "folder" : "doc")
-                .font(.subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: 22)
+                .font(.subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: AceDesign.Size.rowGlyph)
             Text(row.name).aceFont(AceTheme.Typography.body, relativeTo: .body)
                 .foregroundStyle(row.mark == "D" ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                 .strikethrough(row.mark == "D", color: AceTheme.Colours.mutedForeground)
@@ -321,7 +322,7 @@ struct FileTreeRowView: View {
                     .accessibilityLabel(row.markLabel ?? mark)
             }
         }
-        .frame(minHeight: 42).contentShape(Rectangle())
+        .frame(minHeight: AceDesign.Size.rowLine).contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityValue(row.folder ? (open ? "Open" : "Closed") : "")
     }
@@ -333,7 +334,7 @@ struct FileSearchRowView: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
             Image(systemName: row.isFolder ? "folder" : "doc")
-                .font(.subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: 22)
+                .font(.subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: AceDesign.Size.rowGlyph)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 Text(name).aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(1)
                 if !row.folder.isEmpty {
@@ -343,7 +344,7 @@ struct FileSearchRowView: View {
             }
             Spacer(minLength: AceTheme.Spacing.none)
         }
-        .frame(minHeight: 52).contentShape(Rectangle())
+        .frame(minHeight: AceDesign.Size.rowDetail).contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
     /// The name, muted, with the matched characters in ink.

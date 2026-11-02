@@ -1,8 +1,9 @@
 import SwiftUI
 
 @MainActor enum NewThreadStyle {
-    static let hero = AceTheme.TypeStyle(size: 28, lineHeight: 34, weight: 500, tracking: -0.56)
-    static let chip = AceTheme.TypeStyle(size: 14.5, lineHeight: 19, weight: 500, tracking: 0)
+    /// The question the sheet asks is the place's name; the chips under it are row text.
+    static let hero = AceTheme.Typography.largeTitle
+    static let chip = AceTheme.Typography.label
     /// The quiet ⌄ after the hero question that says it opens a picker.
     static var disclosure: Text {
         Text(" \(Image(systemName: "chevron.down"))").font(.title3.weight(.semibold)).foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -50,15 +51,15 @@ struct NewThreadWorktreeChips: View {
         .scrollClipDisabled()
     }
     private func chip(_ title: String, systemImage: String?) -> some View {
-        HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+        HStack(spacing: AceDesign.Space.tight) {
             if let systemImage { Image(systemName: systemImage).imageScale(.small) }
             Text(title).lineLimit(1)
             Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.mutedForeground)
         }
         .aceFont(NewThreadStyle.chip, relativeTo: .subheadline)
         .foregroundStyle(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs)
-        .frame(minHeight: AceTheme.Dimensions.tapMinimum)
+        .padding(.horizontal, AceDesign.Space.row)
+        .frame(minHeight: AceDesign.Size.tap)
         .background(AceTheme.Colours.fill, in: AceShape.capsule)
         .contentShape(AceShape.capsule)
     }
@@ -136,7 +137,8 @@ struct NewThreadComposer: View {
                                 submit: { if blocker == nil && !sending { send() } }, card: true, focused: focused,
                                 onFocus: { focus, duration in
                                     if !focus { suggester.close() } else { suggester.readAhead() }
-                                    withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus }
+                                    // Moves with the keyboard, so it takes the keyboard's own duration.
+                                    withAnimation(reduceMotion ? AceDesign.Motion.reduced : .spring(duration: duration, bounce: 0)) { focused = focus }
                                 },
                                 identifier: "newThread.message", focusOnAppear: true,
                                 onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: (draft.picks ?? ComposerPicks()).held) }, place: place)

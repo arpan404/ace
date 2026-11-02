@@ -110,13 +110,9 @@ import UIKit
         return theme
     }
 
+    /// Two weights only: anything heavier than regular is semibold.
     private static func weight(_ value: CGFloat) -> UIFont.Weight {
-        switch value {
-        case 500: .medium
-        case 600: .semibold
-        case 700: .bold
-        default: .regular
-        }
+        value >= 600 ? .semibold : .regular
     }
 
     /// A palette pair as one colour that follows the appearance. UIKit resolves it on render

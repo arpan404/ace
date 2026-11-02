@@ -73,13 +73,13 @@ struct TerminalView: View {
                     Button("New terminal") { Task { await create() } }.disabled(!model.canOperate || busy)
                 }
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.rowLine)
                 .transition(.opacity)
             }
             keys
         }
-        .animation(reduceMotion ? .easeInOut(duration: AceTheme.Motion.fast) : .smooth(duration: AceTheme.Motion.standard), value: finding)
-        .animation(.easeInOut(duration: AceTheme.Motion.standard), value: output.exited)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: finding)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: output.exited)
         .background(AceTheme.Colours.background)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
@@ -127,15 +127,15 @@ struct TerminalView: View {
                     onReturn: { type([modifiers.apply(key: "Enter")]) },
                     onKey: { type([$0]) }
                 )
-                .frame(height: AceTheme.Dimensions.touchTarget)
+                .frame(height: AceDesign.Size.tap)
                 Button("Interrupt") { type([.key("c", ctrl: true)]) }
-                    .fontWeight(.medium).frame(minHeight: 44)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("terminal.interrupt")
             }
             .padding(.horizontal, AceTheme.Spacing.lg)
         }
         .disabled(!canType)
-        .opacity(canType ? 1 : 0.5)
+        .opacity(canType ? 1 : AceDesign.Ink.dimmedOpacity)
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
