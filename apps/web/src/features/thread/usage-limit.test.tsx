@@ -120,7 +120,10 @@ test("on a limited thread, the model chip opens on the list and another provider
   expect(screen.queryByRole("alertdialog")).toBeNull();
   await waitFor(() => expect(sent).toEqual(["limit:switch:claude"]));
   const feed = screen.getByRole("feed", { name: "Transcript" });
-  expect(await within(feed).findByRole("note", { name: /^Context handoff: .+ → / })).toBeTruthy();
+  const handoff = await within(feed).findByRole("note", { name: /^Context handoff: .+ → / });
+  // The handoff opens the resumed turn: its working line reads under it.
+  const working = await within(feed).findByText(/^Working/);
+  expect(handoff.compareDocumentPosition(working) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 test("Resume at reset says when it resumes with Cancel, and Cancel goes back to the limit", async () => {

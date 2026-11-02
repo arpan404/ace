@@ -1050,7 +1050,9 @@ export class FakeDaemon implements Host {
       return { commandId, ok: false, error: "thread_not_found" };
     const outcome = decide(host);
     if (!outcome.ok) return { commandId, ok: false, error: outcome.error };
-    this.apply(threadId, outcome.facts);
+    const later = outcome.after ?? [];
+    this.apply(threadId, outcome.facts, later.length);
+    later.forEach((facts, step) => this.apply(threadId, facts, later.length - 1 - step));
     return { commandId, ok: true };
   }
   /**

@@ -911,7 +911,10 @@ export function buildBlocks(source: BlockSource): Block[] {
       // ask, where its "Worked for" head stands once it settles (DESIGN.md §8).
       if (newest === turn) {
         const live: Block = { kind: "live", key: `live:${turn.key}`, askId: turn.askId };
-        const first = turn.blocks.size ? Math.min(...turn.blocks) : undefined;
+        // ace's own inputs that open a turn with no ask of the person's (a context handoff
+        // before a resume) read as its ask: the line goes under them.
+        const own = [...turn.blocks].toSorted((a, b) => a - b);
+        const first = own.find((index) => blocks[index]?.kind !== "event");
         if (first === undefined) place(turn.lastBlock, live);
         else before.set(first, [live, ...(before.get(first) ?? [])]);
       }

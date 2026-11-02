@@ -8,7 +8,6 @@ import {
   inputText,
   releaseHold,
   splitSteerSelection,
-  startTurn,
   steerOrStart,
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
@@ -192,6 +191,18 @@ export function queueCommand(
           ...(host.view.thread.live?.model ? { model: host.view.thread.live.model } : {}),
         };
         const toSide = { provider: to.provider, ...(to.model ? { model: to.model } : {}) };
+        // A turn the limit held mid-run ended there, as the daemon's provider reports it.
+        const paused: Fact[] =
+          root !== undefined && host.state.agents[root]?.activeRun
+            ? [
+                {
+                  type: "turn.ended",
+                  agent: root,
+                  outcome: "failed",
+                  error: { kind: "quota", message: "Usage limit reached" },
+                },
+              ]
+            : [];
         const handoff: Fact[] =
           root === undefined || to.provider === from.provider
             ? []
@@ -226,7 +237,13 @@ export function queueCommand(
           root === undefined
             ? []
             : [
-                ...handoff,
+                // As the daemon: the resumed run is ace's, started after the limit.
+                {
+                  type: "turn.started",
+                  agent: root,
+                  nativeTurnId: `turn-${commandId}`,
+                  trigger: "limit_resume",
+                },
                 {
                   type: "item.upsert",
                   agent: root,
@@ -240,9 +257,10 @@ export function queueCommand(
                     origin: { kind: "limit_resume", commandId: CommandId.parse(commandId) },
                   },
                 },
-                ...startTurn(host, commandId, limitResumeText),
               ];
-        return { ok: true, facts: [...releaseHold(host), ...resumed] };
+        // The paused turn's end, then the switch's commit with its handoff, then the turn once
+        // its session opens: each a moment after the one before, as in the daemon.
+        return { ok: true, facts: [...paused, ...releaseHold(host)], after: [handoff, resumed] };
       }
       if (payload.action === "migrate_now") {
         const root = host.state.rootKey;
