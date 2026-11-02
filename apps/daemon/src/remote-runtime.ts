@@ -216,7 +216,7 @@ export function remoteRuntime(
         relay = await startRelayTransport(options, auth, relayOptions, {
           ...(relayAccess ? { grant: relayAccess.grant } : {}),
           onRefused: () => {
-            error = relayRefusedMachine;
+            error = hosted ? relayRefusedMachine : "The relay refused this machine.";
             options.log?.(new Error(error));
             void serialize(async () => {
               active = "";
@@ -234,7 +234,10 @@ export function remoteRuntime(
     } catch (failure) {
       // A relay outage must leave the direct pairing and conversation listener available.
       if (!connection) await retire();
-      if (failure instanceof RelayRefusedError) throw new RelayNeedsAccount(relayRefusedMachine);
+      // ace's relay refuses a machine whose account it can't confirm; a self-hosted relay's own
+      // refusal (an allowlist) keeps the ordinary retry below.
+      if (failure instanceof RelayRefusedError && hosted)
+        throw new RelayNeedsAccount(relayRefusedMachine);
       throw new SettingsError(
         "io",
         "Couldn't start remote access. Check the selected network or relay address and try again.",

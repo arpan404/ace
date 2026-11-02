@@ -1,10 +1,9 @@
 import { afterEach, expect, it } from "vitest";
-import { createServer, type IncomingMessage } from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GRANT_LIFETIME_MS, grantPublicKey, signGrant } from "@ace/account-grant";
+import { GRANT_LIFETIME_MS, signGrant } from "@ace/account-grant";
 import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
 import { hostId, keyPair } from "@ace/secure-channel";
 import { DeviceId, type ServerMessage } from "@ace/protocol";
@@ -13,64 +12,20 @@ import { RemoteAuth } from "./remote-auth.ts";
 import { startFilesRelay } from "./files-relay.ts";
 import { machineAccount } from "./account-access/machine-account.ts";
 import { CODE_LOCK_MS } from "./account-access/machine-code-policy.ts";
+import { StoredSession } from "./account-access/session-file.ts";
+import { startFakeAccountBackend } from "./account-backend-test-support.ts";
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
 
-const signingKey = { id: "k1", privateKey: new Uint8Array(randomBytes(32)) };
-const sessions: Record<string, { id: string; email: string; name: string }> = {
-  ["a".repeat(43)]: { id: "user_a", email: "a@example.com", name: "A" },
-};
-
-/** A local stand-in for ace's account backend: keys, session checks and machine grants. */
-async function fakeBackend(now: () => number) {
-  const grantRequests: unknown[] = [];
-  const bearer = (request: IncomingMessage) =>
-    sessions[request.headers.authorization?.replace(/^Bearer /, "") ?? ""];
-  const server = createServer((request, response) => {
-    const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("end", () => {
-      const reply = (status: number, body: unknown) => {
-        response.writeHead(status, { "Content-Type": "application/json" });
-        response.end(JSON.stringify(body));
-      };
-      const account = bearer(request);
-      if (request.url === "/v1/keys") return reply(200, { keys: [grantPublicKey(signingKey)] });
-      if (!account) return reply(401, { error: "unauthorized" });
-      if (request.url === "/v1/account/session")
-        return reply(200, { account, expiresAt: now() + 86_400_000 });
-      if (request.url === "/v1/grants" && request.method === "POST") {
-        const body = JSON.parse(Buffer.concat(chunks).toString()) as {
-          kind: "machine";
-          subject: string;
-        };
-        grantRequests.push(body);
-        const exp = now() + GRANT_LIFETIME_MS;
-        return reply(200, {
-          token: signGrant(
-            { kind: body.kind, account: account.id, subject: body.subject, iat: now(), exp },
-            signingKey,
-          ),
-          expiresAt: exp,
-        });
-      }
-      reply(404, {});
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("No backend address");
-  return { origin: `http://127.0.0.1:${address.port}`, grantRequests };
-}
-
 async function signedInDaemon() {
   let offset = 0;
   const now = () => Date.now() + offset;
-  const backend = await fakeBackend(now);
+  const backend = await startFakeAccountBackend(now);
+  cleanup.push(() => backend.close());
+  const signingKey = backend.signingKey;
   const root = await mkdtemp(join(tmpdir(), "ace-account-access-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const store = new Store(join(root, "store.sqlite"));
@@ -88,7 +43,7 @@ async function signedInDaemon() {
     },
   });
   cleanup.push(() => account.close());
-  await account.handover(backend.origin, "a".repeat(43));
+  await account.handover(backend.origin, backend.token);
   const relay = await startRelay();
   cleanup.push(() => relay.close());
   const keys = keyPair();
@@ -257,4 +212,49 @@ it("signing the machine out closes account channels and refuses new grants", asy
   await closes(client);
   expect(refusal((await daemon.open()).first)).toBe("unauthorized");
   await expect(stat(join(daemon.root, "ace-account.json"))).rejects.toThrow();
+});
+
+it("ace sign-in from this machine finishes in the browser, and signing out ends it at the backend", async () => {
+  const backend = await startFakeAccountBackend(Date.now);
+  cleanup.push(() => backend.close());
+  const root = await mkdtemp(join(tmpdir(), "ace-account-login-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const store = new Store(join(root, "store.sqlite"));
+  cleanup.push(() => store.close());
+  const options = {
+    dataDir: root,
+    codes: store.machineCodes,
+    fetch: globalThis.fetch,
+    now: Date.now,
+    randomBytes,
+    // Poll the sign-in quickly rather than every two seconds.
+    delay: (run: () => void) => {
+      const timer = setTimeout(run, 10);
+      return () => clearTimeout(timer);
+    },
+  };
+  const account = machineAccount({ ...options, defaultOrigin: backend.origin });
+  cleanup.push(() => account.close());
+  const started = await account.startLogin();
+  expect(started).toMatchObject({
+    signedIn: false,
+    login: { url: expect.stringContaining("id=") },
+  });
+  backend.completeLogins();
+  await expect.poll(() => account.status().signedIn).toBe(true);
+  expect(account.status()).toMatchObject({ account: { email: "a@example.com" } });
+  expect(account.status().login).toBeUndefined();
+
+  // The session survives a restart, and signing out ends the session sign-in created.
+  const restarted = machineAccount(options);
+  cleanup.push(() => restarted.close());
+  await restarted.load();
+  expect(restarted.status()).toMatchObject({ signedIn: true, origin: backend.origin });
+  const stored = StoredSession.parse(
+    JSON.parse(await readFile(join(root, "ace-account.json"), "utf8")),
+  );
+  expect(backend.live(stored.token)).toBe(true);
+  await restarted.signOut();
+  expect(backend.live(stored.token)).toBe(false);
+  expect(restarted.status().signedIn).toBe(false);
 });
