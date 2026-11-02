@@ -230,6 +230,14 @@ struct ThreadFocus: Equatable {
         cancel(model: model)
         read("live", model: model, live: thread)
     }
+    /// Back to the live end (Scroll to end, a send). A window joined to the live tail keeps the
+    /// history read into it and follows the end, as the web's does; discarding it would read
+    /// those pages again on the next read back. A window apart from the tail has a gap before
+    /// the end, so it goes.
+    func toEnd(model: ClientModel, thread live: ThreadModel) {
+        if thread != nil, joined, !loading { read("follow", model: model, live: live) }
+        else { self.live(model: model, thread: live) }
+    }
     /// Open a window around `item` (a search hit) and bring it into view.
     func jump(to item: String, model: ClientModel, live: ThreadModel) {
         cancel(model: model)

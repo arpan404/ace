@@ -205,7 +205,7 @@ struct ConversationFeed: View {
         // top. They repeat the thread menu's Turns list, never the only way.
         .background { TurnKeys { stepTurn($0, proxy: proxy) } }
         .accessibilityIdentifier("transcript")
-        .accessibilityValue(ready ? (historyStale ? "Cached history" : reading.paged ? "Reading history" : "Ready") : "Loading")
+        .accessibilityValue(ready ? (historyStale ? "Cached history" : reading.paged && !pinned ? "Reading history" : "Ready") : "Loading")
         .onScrollPhaseChange { old, phase in
             switch phase {
             case .tracking:
@@ -278,7 +278,7 @@ struct ConversationFeed: View {
 
     private func observeReading<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
         content.onChange(of: acceptedSend) { _, _ in
-            reading.live(model: model, thread: thread)
+            reading.toEnd(model: model, thread: thread)
             setFollowing(true)
             toEnd(proxy)
         }
@@ -448,9 +448,11 @@ struct ConversationFeed: View {
             model.readingMoved = nil
             model.onReadingNeedsFresh = nil
         }
-        .onChange(of: !following || reading.thread != nil, initial: true) { _, away in if behind != away { behind = away } }
+        // Away from the end, or reading a window apart from it: following a joined window is at
+        // the end, so Scroll to end isn't offered there.
+        .onChange(of: !pinned, initial: true) { _, away in if behind != away { behind = away } }
         .onChange(of: jumps) { _, _ in
-            reading.live(model: model, thread: thread)
+            reading.toEnd(model: model, thread: thread)
             setFollowing(true)
             toEnd(proxy)
         }
@@ -467,12 +469,21 @@ struct ConversationFeed: View {
         withAnimation(motion) { toEnd(proxy) }
     }
     private func toEnd(_ proxy: ScrollViewProxy) {
-        guard !settle.isRunning else { return }
+        // Before the rows land there is no end to reach: a settle started on the placeholder
+        // would hold the budget the first real scroll to the end needs.
+        guard ready, !settle.isRunning else { return }
         proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
         let intent = intent
         guard !UIAccessibility.isVoiceOverRunning else { return }
+        // An animated scroll the settle waits on is one still moving the rows: a scroll with
+        // nowhere to go can leave the phase reading "animating" with nothing in flight.
+        var lastY = intent.metrics.y
         settle.run(gap: { pinned && !intent.active && !keyboardMoving ? intent.metrics.toEnd : nil },
-                   wait: { intent.animating }) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
+                   wait: {
+                       let moving = intent.animating && intent.metrics.y != lastY
+                       lastY = intent.metrics.y
+                       return moving
+                   }) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
     }
     /// The previous or next turn from the one at the top of the screen: its ask scrolls to the
     /// top. Past the rows held, an earlier turn pages older history in; after the last, the end.
@@ -484,7 +495,7 @@ struct ConversationFeed: View {
         setFollowing(false)
         if direction > 0 {
             if let next = starts.first(where: { $0 > first }) { withAnimation { proxy.scrollTo(rows[next].id, anchor: .top) }; return }
-            reading.live(model: model, thread: thread); setFollowing(true); toEnd(proxy)
+            reading.toEnd(model: model, thread: thread); setFollowing(true); toEnd(proxy)
             return
         }
         let here = starts.last { $0 <= first }
