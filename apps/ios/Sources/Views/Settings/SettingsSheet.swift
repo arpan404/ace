@@ -57,7 +57,7 @@ struct SettingsSheet: View {
         NavigationStack(path: $path) {
             List {
                 Section {
-                    if places != nil { link(.pulls, "Pull requests", "arrow.triangle.pull", id: "more.pulls") }
+                    if places != nil { link(.pulls, "Pull requests", "arrow.triangle.branch", id: "more.pulls") }
                     link(.settings, "Settings", "gearshape", id: "more.settings")
                 }
                 .insetRowBackground()
@@ -128,7 +128,9 @@ struct SettingsSheet: View {
                                            startThread: { start() }),
                   openMachines: { path.append(.machines) })
             .searchable(text: $forgeQuery, prompt: Text(forgeKind == .pulls ? "Search pull requests" : forgeKind == .issues ? "Search issues" : "Search notifications"))
+            // The list draws its own title and project menu; the bar's stays for Back and VoiceOver.
             .navigationTitle("Pull requests").navigationBarTitleDisplayMode(.inline)
+            .toolbar(removing: .title)
             .modifier(ProjectDefaultsHook(inbox: inbox))
     }
     private func leave(to key: InboxKey) {
