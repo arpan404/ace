@@ -9568,7 +9568,7 @@ Example:
 
 ```json
 {
-  "afterSeq": 7,
+  "paced": false,
   "scope": {
     "kind": "threads",
     "window": {
@@ -9955,136 +9955,13 @@ Example:
 
 ```json
 {
-  "seq": 8,
+  "seq": 7,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "entitiesBefore": {},
-    "interactions": {},
-    "itemOrder": [],
-    "items": {},
-    "kind": "thread",
-    "queue": {
-      "paused": false,
-      "reason": null,
-      "resumeAt": 8,
-      "revision": 8
-    },
-    "runs": {},
-    "seq": 8,
-    "thread": {
-      "acpAgentId": "example",
-      "activitySeq": 1,
-      "archivedAt": 9,
-      "continuation": {
-        "actionId": "thread.continue_new",
-        "reason": "cursor_cli_retired",
-        "state": "read_only"
-      },
-      "createdAt": 6,
-      "delegatedBy": "example",
-      "delegatedFrom": {
-        "hostId": "example",
-        "threadId": "example",
-        "threadTitle": "example"
-      },
-      "details": {
-        "continuedFrom": {
-          "at": 1,
-          "hostId": "example",
-          "name": "example",
-          "threadId": "example"
-        },
-        "continuedOn": {
-          "at": 6,
-          "hostId": "example",
-          "name": "example",
-          "threadId": "example"
-        },
-        "head": null,
-        "linkedPr": null,
-        "linkedPrs": [],
-        "mode": "local",
-        "workspace": {
-          "id": "example",
-          "kind": "chat",
-          "name": "example",
-          "path": "example"
-        },
-        "workspaceChange": {
-          "at": 3,
-          "commandId": "example",
-          "state": "failed"
-        },
-        "worktree": "example",
-        "worktreeCreation": {
-          "actions": [],
-          "attempt": 2,
-          "cleanupComplete": true,
-          "commandId": "example",
-          "details": [],
-          "elapsedMs": 1,
-          "error": "example",
-          "percent": 2,
-          "startedAt": 6,
-          "state": "done",
-          "step": "fetching",
-          "steps": []
-        },
-        "worktreeSetup": {
-          "at": 4,
-          "details": [],
-          "reason": "read_only",
-          "state": "failed"
-        }
-      },
-      "execution": {
-        "options": {},
-        "provider": "claude"
-      },
-      "goal": {
-        "checks": 2,
-        "lastReason": "example",
-        "objective": "example",
-        "status": "usage_limited",
-        "tokensUsed": 5
-      },
-      "id": "example",
-      "movedFrom": {
-        "links": {
-          "linkedIssues": [],
-          "linkedPr": null
-        },
-        "workspaceId": "example"
-      },
-      "permission": {
-        "effective": "auto-review",
-        "override": "auto-review",
-        "pending": false
-      },
-      "provider": "codex",
-      "queuedLaunch": {
-        "queuePosition": 8,
-        "slotLimit": 9,
-        "text": "example"
-      },
-      "settleWhenDone": true,
-      "settledReason": "pr_merged",
-      "snoozeWake": {
-        "on": "needs_you"
-      },
-      "status": {
-        "state": "limited"
-      },
-      "title": "example",
-      "titleSource": "provisional",
-      "updatedAt": 8,
-      "workspaceId": "example"
-    },
-    "usage": {}
+    "kind": "threads",
+    "seq": 7,
+    "threads": {}
   }
 }
 ```
@@ -15003,6 +14880,18 @@ Example:
 }
 ```
 
+## InboxBand
+
+[JSON Schema](schema/InboxBand.json), input validation.
+
+Type: ["pinned","needs-you","running","unseen","idle","listed"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"listed"
+```
+
 ## IncomingTransfer
 
 [JSON Schema](schema/IncomingTransfer.json), input validation.
@@ -16531,6 +16420,47 @@ Example:
   "state": "merged",
   "updatedAt": 3,
   "url": "https://example.invalid/"
+}
+```
+
+## ListAttention
+
+[JSON Schema](schema/ListAttention.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threads | yes | [PlaceAttention.json](schema/PlaceAttention.json) |  |
+| chats | yes | [PlaceAttention.json](schema/PlaceAttention.json) |  |
+
+Example:
+
+```json
+{
+  "chats": {
+    "needsYou": 7,
+    "unread": 3
+  },
+  "threads": {
+    "needsYou": 3,
+    "unread": 2
+  }
+}
+```
+
+## ListedThreadPlace
+
+[JSON Schema](schema/ListedThreadPlace.json), input validation.
+
+Type: intersection. See JSON Schema for constraints.
+
+Example:
+
+```json
+{
+  "rank": [
+    7
+  ],
+  "tab": "inbox"
 }
 ```
 
@@ -19949,6 +19879,24 @@ Example:
   "rollbackConversation": true,
   "supported": false,
   "version": "example"
+}
+```
+
+## PlaceAttention
+
+[JSON Schema](schema/PlaceAttention.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| needsYou | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| unread | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "needsYou": 7,
+  "unread": 5
 }
 ```
 
@@ -30324,6 +30272,7 @@ Example:
 | kind | yes | `"threads"` |  |
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threads | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadListEntry.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
+| keep | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
 
 Example:
 
@@ -31029,7 +30978,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | kind | yes | `"threads"` |  |
-| window | no | object | {"properties":{"limit":{"type":"integer","minimum":1,"maximum":20},"project":{"type":"string","minLength":1},"archived":{"type":"boolean"}},"required":["limit"]} |
+| window | no | object | {"properties":{"limit":{"type":"integer","minimum":1,"maximum":20},"project":{"type":"string","minLength":1},"archived":{"type":"boolean"},"resume":{"$ref":"https://ace.local/protocol/v1/ThreadListResume.json"}},"required":["limit"]} |
 
 Example:
 
@@ -31825,6 +31774,7 @@ Example:
 | queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
+| place | no | [ListedThreadPlace.json](schema/ListedThreadPlace.json) |  |
 
 Example:
 
@@ -31985,6 +31935,24 @@ Example:
 }
 ```
 
+## ThreadListResume
+
+[JSON Schema](schema/ThreadListResume.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| revision | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| epoch | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "epoch": "example",
+  "revision": 0
+}
+```
+
 ## ThreadListView
 
 [JSON Schema](schema/ThreadListView.json), input validation.
@@ -31995,6 +31963,7 @@ Example:
 | kind | yes | `"threads"` |  |
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threads | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadListEntry.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
+| keep | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
 
 Example:
 
@@ -32015,6 +31984,9 @@ Example:
 | before | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ThreadListCursor.json"},{"type":"null"}]} |
 | total | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | counts | yes | array | {"items":{"type":"object","properties":{"id":{"type":"string"},"threads":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threads"]}} |
+| revision | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| epoch | no | string | {"minLength":1,"maxLength":256} |
+| attention | no | [ListAttention.json](schema/ListAttention.json) |  |
 
 Example:
 
@@ -32025,6 +31997,8 @@ Example:
     "id": "example"
   },
   "counts": [],
+  "epoch": "example",
+  "revision": 8,
   "total": 4
 }
 ```
@@ -32098,6 +32072,28 @@ Example:
 {
   "prSettled": 5,
   "readAt": 0
+}
+```
+
+## ThreadPlace
+
+[JSON Schema](schema/ThreadPlace.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| tab | yes | [ThreadTab.json](schema/ThreadTab.json) |  |
+| band | no | [InboxBand.json](schema/InboxBand.json) |  |
+| rank | yes | array | {"minItems":1,"maxItems":4,"items":{"type":"number"}} |
+
+Example:
+
+```json
+{
+  "band": "unseen",
+  "rank": [
+    5
+  ],
+  "tab": "snoozed"
 }
 ```
 
@@ -32529,6 +32525,18 @@ Example:
   },
   "state": "applied"
 }
+```
+
+## ThreadTab
+
+[JSON Schema](schema/ThreadTab.json), input validation.
+
+Type: ["inbox","snoozed","settled"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"settled"
 ```
 
 ## ThreadTransitionView

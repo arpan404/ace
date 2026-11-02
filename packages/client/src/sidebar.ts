@@ -1,11 +1,17 @@
 import { applyDelivery } from "@ace/projection";
-import type { ClientMessage, ServerMessage, ThreadListView, ThreadListEntry } from "@ace/protocol";
+import type {
+  ClientMessage,
+  ServerMessage,
+  ThreadListResume,
+  ThreadListView,
+  ThreadListEntry,
+} from "@ace/protocol";
 import type { Mirrorable, SidebarExport, SidebarSource } from "./api.ts";
 import type { SidebarKey, SidebarReader } from "./readers.ts";
 import { Notifications, type ChangeTap, type Selection } from "./observable.ts";
 import { parseSidebarRecord, sidebarRecord, type SidebarHalf } from "./read-records.ts";
 import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
-import { FilterMemory, type ProvisionalSource } from "./sidebar-memory.ts";
+import { FilterMemory, resumeOf, type ProvisionalSource } from "./sidebar-memory.ts";
 import { ClientError, type Limits } from "./types.ts";
 
 export type { SidebarReader } from "./readers.ts";
@@ -114,6 +120,10 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   #memory = new FilterMemory();
   /** Halves painted from memory until their subscription's snapshot lands. */
   #provisional = new Map<SidebarHalf, ProvisionalSource>();
+  /** Where a Home list painted from memory can resume from. */
+  #rememberedResume: ThreadListResume | undefined;
+  /** The last resume kept ids this list no longer held: the next subscription starts over. */
+  #fresh = false;
   #home: ThreadListView | undefined;
   #archive: ThreadListView | undefined;
   #archiveWire: string | undefined;
@@ -178,6 +188,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   /** Paint a half from memory, unconfirmed, until its subscription's snapshot lands. */
   #adopt(half: SidebarHalf): void {
     const held = this.#memory.provisional(half, this.#filter.project);
+    if (half === "home") this.#rememberedResume = held?.resume;
     if (!held) return;
     if (half === "archive") this.#archive = held.view;
     else this.#home = held.view;
@@ -270,18 +281,37 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       },
     };
   }
+  /**
+   * Where the Home list can resume from: the list it holds for this filter (live before a
+   * reconnect, read back from disk, or remembered), never one derived from another filter's.
+   */
+  #resume(): ThreadListResume | undefined {
+    if (this.#fresh) {
+      this.#fresh = false;
+      return undefined;
+    }
+    const source = this.#provisional.get("home");
+    if (source === "derived") return undefined;
+    return source === "remembered" ? this.#rememberedResume : resumeOf(this.#home);
+  }
   #subscribe(): void {
     this.#homeSnapshotAllowed = true;
     this.#wire = this.#id();
     this.#await([this.#wire]);
+    const resume = this.#resume();
     this.#send({
       type: "subscribe",
       subscriptionId: this.#wire,
       scope: {
         kind: "threads",
-        window: { limit: 20, ...(this.#filter.project ? { project: this.#filter.project } : {}) },
+        window: {
+          limit: 20,
+          ...(this.#filter.project ? { project: this.#filter.project } : {}),
+          // Older daemons ignore it and send the whole window.
+          ...(resume ? { resume } : {}),
+        },
       },
-      // No cursor: a windowed list always starts from a fresh window.
+      // No cursor: a windowed list starts from a fresh window, or resumes the one it holds.
     });
     if (this.#filter.archived) this.#subscribeArchive();
   }
@@ -352,15 +382,22 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       if (!(archived ? this.#archiveSnapshotAllowed : this.#homeSnapshotAllowed)) return;
       if (archived) this.#archiveSnapshotAllowed = false;
       else this.#homeSnapshotAllowed = false;
-      const ids = Object.keys(message.view.threads);
+      const view = this.#resumed(message.view, archived ? this.#archive : this.#home);
+      if (!view) {
+        // It kept a thread this list no longer holds: start over with the whole window.
+        this.#fresh = true;
+        this.#resync();
+        return;
+      }
+      const ids = Object.keys(view.threads);
       if (ids.length > this.#limits.entities) {
         this.#send({ type: "unsubscribe", subscriptionId: message.subscriptionId });
         this.reject(message.subscriptionId, new ClientError("limit"));
         return;
       }
       this.#failure = undefined;
-      if (message.subscriptionId === this.#archiveWire) this.#archive = message.view;
-      else this.#home = message.view;
+      if (message.subscriptionId === this.#archiveWire) this.#archive = view;
+      else this.#home = view;
       this.#confirm([archived ? "archive" : "home"], false);
       this.#provisional.delete(archived ? "archive" : "home");
       this.#pending.delete(message.subscriptionId);
@@ -405,6 +442,33 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     }
     if (keys.length) keys.push("threads");
     this.#notifications.emit(keys);
+  }
+  /**
+   * A snapshot as this list holds it: a resumed one keeps the threads it names from `held`,
+   * placed as they were, and adds the ones that changed. Undefined when a kept one isn't held.
+   */
+  #resumed(view: ThreadListView, held: ThreadListView | undefined): ThreadListView | undefined {
+    const { keep, ...rest } = view;
+    if (!keep) return view;
+    const threads: Record<string, ThreadListEntry> = {};
+    for (const id of keep) {
+      const entry = held && Object.hasOwn(held.threads, id) ? held.threads[id] : undefined;
+      if (!entry) return undefined;
+      Object.defineProperty(threads, id, {
+        value: entry,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    for (const [id, entry] of Object.entries(view.threads))
+      Object.defineProperty(threads, id, {
+        value: entry,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    return { ...rest, threads };
   }
   #resync(): void {
     if (this.#wire) this.#send({ type: "unsubscribe", subscriptionId: this.#wire });

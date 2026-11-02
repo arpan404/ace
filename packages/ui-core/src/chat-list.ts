@@ -1,8 +1,8 @@
 import type { ThreadListEntry } from "@ace/protocol";
 import { isDraft, isRemoteChild, isRemoved, pinOrderOf } from "./arrange.ts";
 import type { ChatDay, HomeRow } from "./home-rows.ts";
-import { atRest, atWork, needsPerson, type Standing } from "./threads-panel.ts";
-import { activityOf, isSettled } from "./thread-state.ts";
+import { atWork, chatActive, needsPerson, type Standing } from "./thread-standing.ts";
+import { activityOf } from "./thread-state.ts";
 
 /*
  * The Chats panel (ADR 0099, ADR 0107), as the Threads panel: Active on top, every unsettled chat
@@ -77,7 +77,7 @@ export function chatList(input: ChatListInput): ChatList {
     const stands = input.standing(entry);
     if (entry.status.state === "needs_you") needsYou.push(entry.id);
     // Settled yet its tree still works or asks: Active, never dimmed.
-    if (isSettled(entry) && atRest(stands)) rest.push(entry);
+    if (!chatActive(entry, stands)) rest.push(entry);
     else if (entry.pinned === true) pinned.push(entry);
     else groups[needsPerson(stands) ? 0 : atWork(stands) ? 1 : 2].push(entry);
   }
@@ -135,38 +135,4 @@ export function chatRows(list: ChatList): HomeRow[] {
     rows.push(row(item.id));
   }
   return rows;
-}
-
-/** What a rail place's dot says: something waits on the person, or news not yet seen. */
-export type PlaceTone = "needs-you" | "unread";
-
-export interface PlaceSignal {
-  tone: PlaceTone | undefined;
-  /** How many of the place's threads need the person. */
-  needsYou: number;
-}
-
-export interface PlaceSignals {
-  threads: PlaceSignal;
-  chats: PlaceSignal;
-}
-
-/**
- * Each rail place's dot from its own threads: Chats from chats, Threads from every other thread.
- * A request asks loudest; failures and finished work not yet opened show the unread dot.
- */
-export function placeSignals(input: Omit<ChatListInput, "now">): PlaceSignals {
-  const threads: PlaceSignal = { tone: undefined, needsYou: 0 };
-  const chats: PlaceSignal = { tone: undefined, needsYou: 0 };
-  for (const entry of input.entries) {
-    if (isRemoved(entry) || isDraft(entry) || isRemoteChild(entry)) continue;
-    const level = input.standing(entry).level;
-    const place = input.isChat(entry) ? chats : threads;
-    if (level === "needs-you") {
-      place.needsYou += 1;
-      place.tone = "needs-you";
-    } else if ((level === "failed" || level === "done-unread") && place.tone === undefined)
-      place.tone = "unread";
-  }
-  return { threads, chats };
 }

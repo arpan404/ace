@@ -1,4 +1,5 @@
 import type { SidebarReader } from "@ace/client";
+import { placeReader } from "@ace/ui-core";
 import type { InboxThread } from "@ace/ui-core/mobile";
 import { inboxLayout, inboxRow, type InboxClock, type RowContext } from "./inbox-rows.ts";
 
@@ -19,9 +20,19 @@ export function inboxCheckpoint(
   context: RowContext,
 ): Record<string, unknown>[] {
   const held: InboxThread[] = [];
+  const place = placeReader({
+    fallback: { baseline: context.baseline, now: context.now, sortBy: context.sortBy },
+  });
   for (const id of store.ids) {
     const entry = store.thread(id);
-    if (entry) held.push({ key: id, machineId: context.machineId, entry, unconfirmed: true });
+    if (entry)
+      held.push({
+        key: id,
+        machineId: context.machineId,
+        entry,
+        unconfirmed: true,
+        place: place(entry),
+      });
   }
   const layout = inboxLayout(
     held,

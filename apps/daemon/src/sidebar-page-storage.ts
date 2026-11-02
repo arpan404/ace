@@ -77,12 +77,18 @@ export function sidebarPageStorage(
     return { total: totalCount, counts: projectCounts };
   });
   const last = page.at(-1);
+  // Read in the same snapshot as the rows: every row here has this revision or an older one.
+  const revision = Number(
+    statement("SELECT COALESCE(MAX(revision), 0) AS newest FROM sidebar_thread_revisions").get()
+      ?.newest ?? 0,
+  );
   return {
     threads: [...active, ...page],
     window: {
       before: rows.length > options.limit && last ? sidebarCursor(last, options.archived) : null,
       total,
       counts,
+      revision,
     },
   };
 }

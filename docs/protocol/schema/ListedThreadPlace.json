@@ -1,0 +1,6 @@
+{
+  "$id": "https://ace.local/protocol/v1/ListedThreadPlace.json",
+  "$ref": "https://ace.local/protocol/v1/ThreadPlace.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-ace-constraint": "A place that does not parse is accepted and decoded as absent."
+}

@@ -4,6 +4,7 @@ import { createThreadListView, isSidebarEvent } from "@ace/projection";
 import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
 import type { Store } from "./store.ts";
 import { sidebarSubscription } from "./sidebar-subscription.ts";
+import { SidebarPlacement } from "./sidebar-placement.ts";
 const windows = new WeakMap<() => void, ReturnType<typeof sidebarSubscription>>();
 export function pageSubscription(
   stop: () => void,
@@ -27,7 +28,21 @@ export type SubscriptionStore = Pick<
   | "sidebarPage"
   | "readEvents"
 > &
-  Partial<Pick<Store, "replaySafe">>;
+  Partial<Pick<Store, "replaySafe" | "sidebarRowRevision" | "sidebarToken">>;
+
+const fallbackPlacements = new WeakMap<object, SidebarPlacement>();
+/**
+ * Placement for a store run without the daemon's services (tests, tools): the default sort, no
+ * seen baseline. The daemon passes its own (`services.sidebarPlacement`).
+ */
+export function storePlacement(store: SubscriptionStore, now: () => number): SidebarPlacement {
+  let placement = fallbackPlacements.get(store);
+  if (!placement) {
+    placement = new SidebarPlacement(store.sidebarToken?.() ?? "store", now);
+    fallbackPlacements.set(store, placement);
+  }
+  return placement;
+}
 
 /**
  * Replay is split into frames of about this many event bytes, well below the client's 2 MiB
@@ -64,9 +79,16 @@ export function subscribe(
   schedule: DeliveryRuntime["delay"] = systemDeliveryRuntime.delay,
   paced = false,
   encoder = new WireEncoder(),
+  placement?: SidebarPlacement,
 ): () => void {
   if (scope.kind === "threads" && scope.window) {
-    const window = sidebarSubscription(store, id, scope.window, send);
+    const window = sidebarSubscription(
+      store,
+      id,
+      scope.window,
+      send,
+      placement ?? storePlacement(store, Date.now),
+    );
     const stop = () => window.stop();
     windows.set(stop, window);
     if (paced) send({ type: "subscription.ready", subscriptionId: id, seq: store.headSeq() });

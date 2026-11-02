@@ -7,6 +7,7 @@ import {
   type ThreadMenuId,
   type HomeSort,
 } from "@ace/ui-core";
+import type { ListAttention } from "@ace/protocol";
 import {
   inboxGroup,
   inboxGroupRank,
@@ -81,17 +82,46 @@ const menuSections = Object.fromEntries(
   (Object.keys(threadMenuLabels) as ThreadMenuId[]).map((id) => [id, threadMenuSection(id)]),
 );
 
+/** Which of the Threads panel's tabs each section belongs to. */
+const sectionTabs: Record<string, "inbox" | "snoozed" | "settled" | undefined> = {
+  pinned: "inbox",
+  "needs-you": "inbox",
+  working: "inbox",
+  syncing: "inbox",
+  threads: "inbox",
+  done: "inbox",
+  snoozed: "snoozed",
+  settled: "settled",
+};
+
+/** The three tabs' threads in order, as the daemon placed them: what web and desktop list. */
+function tabsOf(sections: readonly { key: string; keys: readonly string[] }[]) {
+  const tabs = { inbox: [] as string[], snoozed: [] as string[], settled: [] as string[] };
+  for (const section of sections) {
+    const tab = sectionTabs[section.key];
+    if (tab) tabs[tab].push(...section.keys);
+  }
+  return tabs;
+}
+
 /** The shared grouping as ordered sections, each row with its rank for merging machines. */
 export function inboxLayout(
   threads: readonly InboxThread[],
   unsent: readonly InboxUnsent[],
   now: number,
   more: boolean,
-  options: InboxSectionOptions = {},
+  options: InboxSectionOptions & {
+    /** The machine's rail dots for Threads and Chats, as its daemon sent them. */
+    attention?: ListAttention | undefined;
+  } = {},
 ) {
+  const sections = inboxSections(threads, unsent, now, options);
   return {
     type: "inbox.sections",
-    sections: inboxSections(threads, unsent, now, options).map((section) => ({
+    // The tabs, kept in the launch checkpoint too, so its first frame lists them as placed.
+    tabs: tabsOf(sections),
+    ...(options.attention ? { attention: options.attention } : {}),
+    sections: sections.map((section) => ({
       key: section.key,
       label: section.label,
       ids: section.keys,

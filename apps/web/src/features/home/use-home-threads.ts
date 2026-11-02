@@ -6,14 +6,15 @@ import { useNow } from "@/lib/time.ts";
 import {
   activityOf,
   archivedOrder,
-  arrange,
+  placeReader,
   projectCounts,
   standingReader,
   threadMatches,
-  threadsPanel,
+  threadTabs,
   type HomeSort,
   type ProjectCount,
   type Standing,
+  type ThreadPlace,
   type ThreadsPanel,
 } from "@ace/ui-core";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
@@ -32,8 +33,8 @@ export function useHomeSort(): HomeSort {
 }
 
 /**
- * Home's threads in the Threads panel's three places (`threadsPanel`): the Inbox, band by band,
- * with its pinned threads leading; Snoozed; and Settled.
+ * Home's threads in the Threads panel's three places, as the daemon placed them (`threadTabs`):
+ * the Inbox, band by band, with its pinned threads leading; Snoozed; and Settled.
  */
 export interface HomeList {
   pinned: string[];
@@ -46,7 +47,6 @@ export interface HomeList {
   needsYou: string[];
   panel: ThreadsPanel;
 }
-const syncing = (): Standing => ({ level: "syncing", done: false });
 const noPanel: ThreadsPanel = { inbox: [], pinned: [], snoozed: [], settled: [] };
 const empty: HomeList = {
   pinned: [],
@@ -93,6 +93,23 @@ const listEqual = (a: HomeList, b: HomeList) =>
   arrayEqual(a.needsYou, b.needsYou) &&
   arrayEqual(a.panel.inbox, b.panel.inbox);
 
+/**
+ * Each entry's place: the daemon's, else the shared rule on this clock (an older daemon, or an
+ * organize action not yet confirmed). A new catalog, baseline, sort or minute starts over.
+ */
+export function usePlaceOf(
+  now: number,
+  unconfirmed: boolean,
+): (entry: ThreadListEntry) => ThreadPlace | undefined {
+  const models = useModelCatalog();
+  const sortBy = useHomeSort();
+  const { baseline } = useOrganizer().getState();
+  return useMemo(
+    () => placeReader({ fallback: { baseline, now, models, sortBy }, unconfirmed }),
+    [models, baseline, now, sortBy, unconfirmed],
+  );
+}
+
 /** Each entry's standing on this clock (`standingReader`): a new catalog, baseline or minute starts over. */
 export function useStandingOf(now: number): (entry: ThreadListEntry) => Standing {
   const models = useModelCatalog();
@@ -101,8 +118,8 @@ export function useStandingOf(now: number): (entry: ThreadListEntry) => Standing
 }
 
 /**
- * Home order (`arrange`) across every project and device the filter lets through, and the
- * Threads panel's places over it. Chats (ADR 0099) are the Chats panel's: they stay out of the
+ * The daemon's tabs (`threadTabs`) across every project and device the filter lets through.
+ * Filters only narrow what comes in; the order is the daemon's. Chats (ADR 0099) are the Chats panel's: they stay out of the
  * Threads panel and History, as the Chats panel holds its own. `query` narrows it to the threads whose
  * title, project, branch or pull request match. Only ids are selected, so a status change re-renders its own row and moves rows only
  * when the order changes. `others` are other machines' threads under their machine row ids
@@ -113,10 +130,10 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
   const ownDevice = usePrimaryMachine().id;
   const keys = useEveryEntryKey();
   const state = useOrganizerState();
-  const sortBy = useHomeSort();
   const now = useNow();
   const read = useEntries();
-  const standingOf = useStandingOf(now);
+  const placed = usePlaceOf(now, false);
+  const syncing = usePlaceOf(now, true);
   const projectName = useProjectName();
   const isChatThread = useIsChatThread();
   const select = useCallback(
@@ -126,20 +143,17 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
       const onDevice = device
         ? all.filter((entry) => (machineRow(entry.id)?.hostId ?? ownDevice) === device)
         : all;
-      const work = onDevice.filter((entry) => !isChatThread(entry));
+      const project = state.project;
+      const work = onDevice.filter(
+        (entry) => !isChatThread(entry) && (project === null || entry.workspaceId === project),
+      );
       const entries =
         query.trim().length > 0
           ? work.filter((entry) => threadMatches(entry, query, projectName(entry.workspaceId)))
           : work;
-      const arrangement = arrange(entries, { ...state, sortBy }, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
-      const panel = threadsPanel({
-        arrangement,
-        entry: (id) => byId.get(id),
-        // A saved list's statuses may be stale: it claims nothing (as its rows say Syncing).
-        standing: reader.unconfirmed ? syncing : standingOf,
-        sortBy,
-      });
+      // A saved list's statuses may be stale: its live bands claim nothing (its rows say Syncing).
+      const panel = threadTabs(entries, reader.unconfirmed ? syncing : placed);
       const pinned = new Set(panel.pinned);
       const listed = panel.inbox.filter((id) => !pinned.has(id));
       const needsYou = reader.unconfirmed
@@ -154,19 +168,7 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
         panel,
       };
     },
-    [
-      state,
-      sortBy,
-      now,
-      read,
-      others,
-      device,
-      ownDevice,
-      query,
-      projectName,
-      standingOf,
-      isChatThread,
-    ],
+    [state, read, others, device, ownDevice, query, projectName, placed, syncing, isChatThread],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }
