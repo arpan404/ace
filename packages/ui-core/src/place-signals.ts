@@ -43,8 +43,12 @@ export function placeAttention(input: PlaceAttentionInput): PlaceAttentions {
   let totals = noAttention;
   for (const entry of input.entries) {
     const place = input.place(entry);
-    if (place?.tab !== "inbox") continue;
-    totals = withSignal(totals, threadSignal(place, input.standing(entry), input.isChat(entry)), 1);
+    if (!place) continue;
+    totals = withSignal(
+      totals,
+      threadSignal(entry, place, input.standing(entry), input.isChat(entry)),
+      1,
+    );
   }
   return totals;
 }

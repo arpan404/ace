@@ -94,7 +94,7 @@ export class PlacedEntries {
       const { place: _old, ...rest } = entry;
       placed = {
         entry: Object.freeze(found ? { ...rest, place: found.place } : rest),
-        signal: found && threadSignal(found.place, found.standing, isChatEntry(entry)),
+        signal: found && threadSignal(entry, found.place, found.standing, isChatEntry(entry)),
       };
       this.known.set(entry, placed);
     }

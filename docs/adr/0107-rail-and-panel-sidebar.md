@@ -326,8 +326,8 @@ drift from one another.
   read state or notifications.
 - **Incremental.** A change re-places only the threads it touched, and a thread that moves tabs
   costs one entry in the patch. A change of `threads.sortBy` or the seen baseline (the daemon's
-  first start, from the Activity read cursor) re-places every open list and sends only threads
-  whose place changed.
+  Activity read cursor's `before`, followed live, so "Mark all read" applies at once as it would
+  after a restart) re-places every open list and sends only threads whose place changed.
 - **Resume.** The window carries the newest row revision it reflects and an epoch (this
   database's token and the placement settings). A list that subscribes again with `resume` gets
   only threads changed since, plus the ids to keep; another epoch, a revision ahead of the
@@ -336,8 +336,9 @@ drift from one another.
   for a filter. The phone's launch checkpoint keeps the tab lists too.
 - **Rail dots from the daemon.** The window also carries each rail place's totals
   (`ListAttention`: Threads and Chats, `needsYou` and `unread`), kept as running totals of the
-  threads it sends. Only what a place lists live counts: a settled or snoozed thread at rest
-  draws no unread mark in its list, so it never lights the dot. (The Chats dot stayed blue
+  threads it sends. Only what a place lists live counts, by the rule its own list reads:
+  Threads counts its Inbox, Chats its active chats (unsettled ones, snoozed or not). A settled
+  thread at rest draws no unread mark in its list, so it never lights the dot. (The Chats dot stayed blue
   after every chat was read because a chat settled before anyone opened it still counted.)
   Clients add other machines' totals by the same rule.
 

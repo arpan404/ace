@@ -18,6 +18,7 @@ import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
 import {
   atRest,
   atWork,
+  chatActive,
   needsPerson,
   standingOf,
   type Standing,
@@ -217,17 +218,22 @@ export interface ThreadSignal {
 }
 
 /**
- * A thread's part in its rail place's dot. Only what the place lists live counts: a thread in
- * its Inbox (snoozed threads that need the person are there too). A settled or snoozed thread at
- * rest draws no unread mark in its list, so it never lights the dot either. A request asks
- * loudest; a failure or finished work not yet opened is news.
+ * A thread's part in its rail place's dot. Only what the place lists live counts, by the rule
+ * that place's list reads: for Threads its Inbox (snoozed threads that need the person are there
+ * too); for Chats its active chats (`chatActive`: unsettled ones, snoozed or not). A thread
+ * settled and at rest draws no unread mark in its list, so it never lights the dot either. A
+ * request asks loudest; a failure or finished work not yet opened is news.
  */
 export function threadSignal(
+  entry: ThreadListEntry,
   place: ThreadPlace | undefined,
   standing: Standing,
   chat: boolean,
 ): ThreadSignal | undefined {
-  if (place?.tab !== "inbox") return undefined;
+  // Listed at all (not archived, a draft or a remote child), then live where its place lists it:
+  // Chats keeps snoozed chats among its active ones, Threads keeps them in Snoozed.
+  if (!place) return undefined;
+  if (chat ? !chatActive(entry, standing) : place.tab !== "inbox") return undefined;
   const needsYou = standing.level === "needs-you";
   const unread = standing.level === "failed" || standing.level === "done-unread";
   if (!needsYou && !unread) return undefined;
@@ -285,7 +291,11 @@ export function placeWindow(
     const { place: _old, ...rest } = entry;
     const found = placeWithStanding(entry, input);
     if (!found) return rest;
-    attention = withSignal(attention, threadSignal(found.place, found.standing, isChat(entry)), 1);
+    attention = withSignal(
+      attention,
+      threadSignal(entry, found.place, found.standing, isChat(entry)),
+      1,
+    );
     return { ...rest, place: found.place };
   });
   return { threads, attention };

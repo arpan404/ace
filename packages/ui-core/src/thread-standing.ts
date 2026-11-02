@@ -1,6 +1,7 @@
 import type { CatalogModel, ThreadListEntry } from "@ace/protocol";
 import type { AttentionLevel } from "./row-attention.ts";
 import { threadCard } from "./thread-card.ts";
+import { isSettled } from "./thread-state.ts";
 
 /*
  * How a listed thread stands, read from the row attention every row draws (`threadCard` →
@@ -74,4 +75,13 @@ export function atWork(standing: Standing): boolean {
  */
 export function atRest(standing: Standing): boolean {
   return standing.level !== "needs-you" && (!atWork(standing) || standing.held);
+}
+
+/**
+ * A chat the Chats panel lists among its active chats (ADR 0099): every one it lists that isn't
+ * settled and at rest, snoozed or not (it has no Snoozed place). Its list and its rail dot read
+ * this one rule.
+ */
+export function chatActive(entry: ThreadListEntry, standing: Standing): boolean {
+  return !(isSettled(entry) && atRest(standing));
 }

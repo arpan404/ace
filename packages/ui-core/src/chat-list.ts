@@ -1,8 +1,8 @@
 import type { ThreadListEntry } from "@ace/protocol";
 import { isDraft, isRemoteChild, isRemoved, pinOrderOf } from "./arrange.ts";
 import type { ChatDay, HomeRow } from "./home-rows.ts";
-import { atRest, atWork, needsPerson, type Standing } from "./thread-standing.ts";
-import { activityOf, isSettled } from "./thread-state.ts";
+import { atWork, chatActive, needsPerson, type Standing } from "./thread-standing.ts";
+import { activityOf } from "./thread-state.ts";
 
 /*
  * The Chats panel (ADR 0099, ADR 0107), as the Threads panel: Active on top, every unsettled chat
@@ -77,7 +77,7 @@ export function chatList(input: ChatListInput): ChatList {
     const stands = input.standing(entry);
     if (entry.status.state === "needs_you") needsYou.push(entry.id);
     // Settled yet its tree still works or asks: Active, never dimmed.
-    if (isSettled(entry) && atRest(stands)) rest.push(entry);
+    if (!chatActive(entry, stands)) rest.push(entry);
     else if (entry.pinned === true) pinned.push(entry);
     else groups[needsPerson(stands) ? 0 : atWork(stands) ? 1 : 2].push(entry);
   }

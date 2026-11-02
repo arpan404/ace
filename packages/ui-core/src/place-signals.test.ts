@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { ThreadListEntry, ThreadStatus } from "@ace/protocol";
-import { isChatEntry } from "./chat-list.ts";
+import { chatList, isChatEntry } from "./chat-list.ts";
 import { placeAttention, placeSignals } from "./place-signals.ts";
 import { placeReader } from "./thread-place.ts";
 import { standingReader } from "./thread-standing.ts";
@@ -51,12 +51,16 @@ test("reading every listed chat clears the Chats dot", () => {
   expect(dots(read).chats).toEqual({ tone: undefined, needsYou: 0 });
 });
 
-test("a settled, snoozed, archived or delegated chat never lights the Chats dot", () => {
+test("a settled, archived or delegated chat never lights the Chats dot", () => {
   const signals = dots([
     // Finished unread, then settled before anyone opened it: Settled draws it quiet.
     chat("settled", { settledAt: now - day, settledReason: "manual" }),
     chat("auto", { settledAt: now - day, settledReason: "inactivity" }),
-    chat("snoozed", { snoozedUntil: now + day }),
+    chat("settled-snoozed", {
+      settledAt: now - day,
+      settledReason: "manual",
+      snoozedUntil: now + day,
+    }),
     chat("archived", { archivedAt: now - day }),
     chat("delegated", {
       hasSentMessage: true,
@@ -64,6 +68,19 @@ test("a settled, snoozed, archived or delegated chat never lights the Chats dot"
     }),
   ]);
   expect(signals.chats).toEqual({ tone: undefined, needsYou: 0 });
+});
+
+test("a snoozed chat the Chats panel still lists among its active chats lights the dot with its news", () => {
+  const listed = [chat("snoozed", { snoozedUntil: now + day })];
+  // The Chats panel keeps an unsettled chat in Active whatever its snooze, unread mark and all.
+  const shown = chatList({
+    entries: listed,
+    isChat: isChatEntry,
+    standing: standingReader({ baseline: 0, now }),
+    now,
+  });
+  expect(shown.active).toEqual(["snoozed"]);
+  expect(dots(listed).chats).toEqual({ tone: "unread", needsYou: 0 });
 });
 
 test("a settled chat that comes to need the person lights the dot, as it returns to its list", () => {

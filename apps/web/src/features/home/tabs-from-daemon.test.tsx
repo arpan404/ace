@@ -43,7 +43,10 @@ test("the Inbox shows the daemon's order even where this window's own rule would
   const app = await openHome();
   // The daemon places by creation; this window's sort setting says live activity.
   const place = app.daemon.placeInput.bind(app.daemon);
-  app.daemon.placeInput = () => ({ ...place(), sortBy: "created" });
+  app.daemon.placeInput = () => {
+    const input = place();
+    return input && { ...input, sortBy: "created" };
+  };
   // Working would lift First to the top by activity; by creation the newer Second leads.
   app.daemon.apply("first", works);
   await app.open("/");
