@@ -13,6 +13,7 @@ import { Attachment, nextExpiry, routeFacts } from "./attachment.ts";
 import { openControl, sealControl } from "./control.ts";
 import { FrameBudget } from "./frame-budget.ts";
 import type { Env } from "./env.ts";
+import { refuseUpgrade, upgraded } from "./upgrade.ts";
 
 const limits = LimitsSchema.parse({});
 const tag = (id: string) => `socket:${id}`;
@@ -38,14 +39,12 @@ export class RelayObject extends DurableObject<Env> {
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     const id = crypto.randomUUID();
     const routes = this.#routing();
-    this.ctx.acceptWebSocket(server, [tag(id)]);
-    this.#sockets.set(id, server);
     const now = Date.now();
     if (url.pathname === "/host") {
-      this.#save(server, {
+      const server = this.#accept(id);
+      this.#save(server.socket, {
         kind: "handshake",
         id,
         hostId: HostId.parse(url.searchParams.get("hostId")),
@@ -59,16 +58,21 @@ export class RelayObject extends DurableObject<Env> {
         }),
         replied: false,
         timer: setTimeout(
-          () => this.#close(server, 1011, "Handshake timeout"),
+          () => this.#close(server.socket, 1011, "Handshake timeout"),
           limits.handshakeTimeoutMs,
         ),
       });
-    } else if (url.pathname === "/client") {
+      return upgraded(server.client);
+    }
+    if (url.pathname === "/client") {
       const ticket = randomTicket();
       const actions = routes.request(id, HostId.parse(url.searchParams.get("hostId")), ticket, now);
+      const refusal = this.#refusal(actions, id);
+      if (refusal) return refusal;
+      const server = this.#accept(id);
       const offer = actions.find((action) => action.type === "offer");
       if (offer)
-        this.#save(server, {
+        this.#save(server.socket, {
           kind: "waiting",
           id,
           ticket,
@@ -77,10 +81,33 @@ export class RelayObject extends DurableObject<Env> {
         });
       this.#apply(actions);
       if (offer) await this.#scheduleExpiry();
-    } else if (url.pathname === "/join") {
-      this.#apply(routes.join(id, Ticket.parse(url.searchParams.get("ticket")), now));
-    } else this.#close(server, 1008, "Unknown endpoint");
-    return new Response(null, { status: 101, webSocket: client });
+      return upgraded(server.client);
+    }
+    if (url.pathname === "/join") {
+      const actions = routes.join(id, Ticket.parse(url.searchParams.get("ticket")), now);
+      const refusal = this.#refusal(actions, id);
+      if (refusal) return refusal;
+      const server = this.#accept(id);
+      this.#apply(actions);
+      return upgraded(server.client);
+    }
+    return refuseUpgrade(1008, "Unknown endpoint");
+  }
+
+  /** A hibernatable server socket for an upgrade the relay keeps. */
+  #accept(id: string): { client: WebSocket; socket: WebSocket } {
+    const [client, socket] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
+    this.ctx.acceptWebSocket(socket, [tag(id)]);
+    this.#sockets.set(id, socket);
+    return { client, socket };
+  }
+
+  /** Routing that refuses the upgrading socket itself: apply the rest, refuse without hibernation. */
+  #refusal(actions: readonly RouteAction[], id: string): Response | undefined {
+    const own = actions.find((action) => action.type === "close" && action.socket === id);
+    if (own?.type !== "close") return undefined;
+    this.#apply(actions.filter((action) => action !== own));
+    return refuseUpgrade(own.code, own.reason);
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {

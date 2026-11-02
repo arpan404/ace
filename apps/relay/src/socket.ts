@@ -134,6 +134,10 @@ export async function dial(
     perMessageDeflate: false,
     maxFragments: 256,
     maxBufferedChunks: 256,
+    // After the close handshake, stop waiting for the relay to end TCP. A Durable Object keeps a
+    // closed hibernatable socket's connection open until the object sleeps (about ten seconds
+    // under workerd), which would delay every refusal by that long.
+    closeTimeout: 1000,
   });
   const reader = new FrameReader(socket);
   const abort = () => socket.terminate();
