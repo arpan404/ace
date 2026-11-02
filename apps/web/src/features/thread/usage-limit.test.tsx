@@ -69,24 +69,58 @@ test("at its limit, the thread says when its account resets; Switch to an accoun
   expect(header.queryByText("Limited")).toBeNull();
   expect(header.queryByRole("status")).toBeNull();
 
-  // Switch lists the accounts with room first, with how much is left.
+  // Switch opens the model picker straight on its list, on the account with room; the
+  // exhausted account keeps its tab, greyed with its reset.
   await userEvent.click(within(notice).getByRole("button", { name: "Switch" }));
-  const room = await screen.findByRole("list", { name: "Accounts with room" });
-  const [first] = within(room).getAllByRole("button");
-  expect(first?.textContent).toContain("Codex · Personal62% left");
-  if (!first) throw new Error("No account with room");
+  const popover = await screen.findByRole("dialog", { name: "Model and effort" });
+  const models = await within(popover).findByRole("listbox", { name: "Models" });
+  const rail = within(popover).getByRole("tablist", { name: "Model sources" });
+  expect(within(rail).getByRole("tab", { selected: true, name: /Personal/ })).toBeTruthy();
+  expect(within(rail).getByRole("tab", { name: /Team/ })).toBeTruthy();
 
   // One pick: the held turn carries on there, with no Continue and no message from the person.
-  await userEvent.click(first);
+  const [model] = within(models).getAllByRole("option");
+  if (!model) throw new Error("No model on Personal");
+  await userEvent.click(model);
   await waitFor(() => expect(sent).toEqual(["limit:switch:codex-personal"]));
   await waitFor(() =>
     expect(screen.queryByRole("region", { name: "Codex is out of usage" })).toBeNull(),
   );
-  const feed = screen.getByRole("feed", { name: "Transcript" });
-  expect(
-    await within(feed).findByText(/^Continued on Codex · .+ after the usage limit$/),
-  ).toBeTruthy();
+  expect(screen.queryByRole("dialog", { name: "Model and effort" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+});
+
+test("on a limited thread, the model chip opens on the list and another provider carries on with the usual handoff row", async () => {
+  const app = harness();
+  report(app, "codex-team", { five_hour: [100, 87 * minute] });
+  app.play(accountLimit("thread-capped", "Split the CI matrix by package")).runThrough("limited");
+  const sent: string[] = [];
+  const command = app.daemon.command.bind(app.daemon);
+  app.daemon.command = (value) => {
+    const p = value.payload;
+    if (p.type === "thread.switch") sent.push("switch");
+    if (p.type === "thread.limit") sent.push(`limit:${p.action}:${p.selection?.provider ?? ""}`);
+    return command(value);
+  };
+  await app.open("/t/thread-capped");
+  await screen.findByRole("region", { name: "Codex is out of usage" });
+
+  // The chip goes to the list, not the effort slider.
+  await userEvent.click(await screen.findByRole("button", { name: /^Model: / }));
+  const popover = await screen.findByRole("dialog", { name: "Model and effort" });
+  await within(popover).findByRole("listbox", { name: "Models" });
+  await userEvent.type(within(popover).getByRole("combobox", { name: "Search models" }), "Opus");
+  const opus = within(popover)
+    .getAllByRole("option")
+    .find((option) => option.getAttribute("aria-label")?.includes("Claude Code"));
+  if (!opus) throw new Error("No Claude model with room");
+  await userEvent.click(opus);
+
+  // No confirmation for another provider: it carries on, and the transcript shows the handoff.
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await waitFor(() => expect(sent).toEqual(["limit:switch:claude"]));
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  expect(await within(feed).findByRole("note", { name: /^Context handoff: .+ → / })).toBeTruthy();
 });
 
 test("Resume at reset says when it resumes with Cancel, and Cancel goes back to the limit", async () => {

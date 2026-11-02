@@ -152,7 +152,7 @@ export function ModelControl(props: {
           <DeferredModelPopover.Component
             view={view}
             actions={props.actions}
-            initialPane={requested && !tuneRequested ? "picker" : "tune"}
+            initialPane={(requested || view.listFirst) && !tuneRequested ? "picker" : "tune"}
             onClose={() => changeOpen(false)}
           />
         </Suspense>

@@ -159,7 +159,11 @@ export function ThreadModelControl(props: {
   const limitHeld =
     meta?.status.state === "limited" ||
     (meta?.queue?.paused === true && meta.queue.reason === "limit");
-  const carries = (choice: ModelChoice) => limitHeld && !choice.exhausted;
+  // Held by a usage limit, a model with room that the thread can move to in place carries the
+  // held work on there in one pick: no confirmation, whatever the fork preference says; another
+  // provider gets the usual context handoff.
+  const carries = (choice: ModelChoice) =>
+    limitHeld && !choice.exhausted && !!meta && threadSwitchRoute(meta, choice) === "in_place";
   const online = useConnectionState() === "ready";
   const { selection, unavailable } = useThreadModelAvailability(props.thread.id);
   const current = currentModelChoice(choices, selection);
@@ -288,6 +292,8 @@ export function ThreadModelControl(props: {
   const view: ModelControlView = {
     unavailable: unavailable && unavailableModelNotice(unavailable),
     pickerRequest: props.pickerRequest,
+    // Held by a limit, the chip's job is another model: it opens on the list, not effort.
+    listFirst: limitHeld,
     tuneRequest: props.tuneRequest,
     provider: target?.provider,
     label: target?.model,
@@ -347,6 +353,10 @@ export function ThreadModelControl(props: {
             const from = continuedTo ?? moving.chosen ?? current;
             const choice = choiceForModel(choices, key, instance ?? from?.accountId);
             if (!choice || choice.id === from?.id) return true;
+            if (carries(choice)) {
+              switchTo(choice);
+              return false;
+            }
             const route = routeOf(choice);
             if (route === "unsupported") return false;
             // Back to what the thread runs on: the new thread is no longer wanted.
@@ -360,13 +370,13 @@ export function ThreadModelControl(props: {
               return false;
             }
             switchTo(choice);
-            // Carried on from a limit: nothing waits to tune, the strip says where it went.
-            return !carries(choice);
+            return true;
           },
           onAccount: (id) => {
             const choice = choices.find((candidate) => candidate.id === id);
             if (!choice) return;
             if (continuedTo && choice.id === current?.id) props.continued?.onChange(undefined);
+            else if (carries(choice)) switchTo(choice);
             else if (routeOf(choice) === "new_thread") setAsking({ choice, route: "new_thread" });
             else switchTo(choice);
           },

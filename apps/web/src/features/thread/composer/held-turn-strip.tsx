@@ -11,7 +11,6 @@ import {
 } from "@ace/ui-core";
 import { useCallback, type ReactNode } from "react";
 import { useNow } from "@/lib/time.ts";
-import { LimitSwitchMenu } from "./limit-switch-menu.tsx";
 import type { HeldQueue } from "./queue-notice.tsx";
 import { useActiveRootRun } from "./stop-state.ts";
 import { useCarryOn } from "./use-carry-on.ts";
@@ -104,8 +103,8 @@ function Sentence(props: { turn: HeldTurn }) {
 
 /**
  * The limit as the composer's top strip: one sentence and the ways on, as words. "Codex is out
- * of usage until 1:14 AM · Switch · Resume at reset · Continue". Switch lists the accounts and
- * providers with room; picking one carries the held work on there at once. Once the person chose
+ * of usage until 1:14 AM · Switch · Resume at reset · Continue". Switch opens the model picker
+ * on an account with room; a pick there carries the held work on at once. Once the person chose
  * to resume at reset: "Resumes at 1:14 AM when Codex resets · in 1h 28m · Switch · Cancel", where
  * Cancel goes back to the limit. While a switch lands: "Continuing on Claude Code · work".
  */
@@ -114,11 +113,10 @@ export function HeldTurnStrip(props: {
   turn: HeldTurn;
   queue: QueueControls;
   indicators: ReactNode;
-  /** Opens the full model picker. */
+  /** Opens the model picker on its list; a pick carries the held work on there. */
   onSwitch(): void;
 }) {
   const { turn, queue } = props;
-  const { carryOn } = useCarryOn(props.threadId);
   const moving = turn.kind === "moving";
   return (
     <section
@@ -136,12 +134,14 @@ export function HeldTurnStrip(props: {
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {props.indicators}
         {!moving && (
-          <LimitSwitchMenu
-            threadId={props.threadId}
+          <button
+            type="button"
             disabled={queue.acting}
-            onPick={carryOn}
-            onOtherModels={props.onSwitch}
-          />
+            onClick={props.onSwitch}
+            className={textButton}
+          >
+            Switch
+          </button>
         )}
         {turn.cancel ? (
           <button

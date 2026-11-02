@@ -374,16 +374,17 @@ Decisions:
   [ADR 0051](0051-thread-forks-and-turn-boundary-switches.md)), then send the held turn's
   continuation, ahead of queued messages. The person never presses Continue. A replay after a
   restart finds the selection already applied and doesn't switch again; the continuation keeps the
-  existing exactly-once rules. The continuation's transcript item carries `origin.to`, so the
-  transcript draws one line: "Continued on Claude Code · Opus 5.5 after the usage limit" (a
-  cross-provider switch also keeps its context-handoff divider).
-- **The strip's Switch lists places with room** (`@ace/ui-core` `limitDestinations`): one row per
-  other account or provider not at its limit, on the same model where it runs (else that
-  account's default), with how much is left. Other accounts of the same provider come first (the
-  session carries over), then other providers ("context handoff"), each by most room left. Picking
-  a row sends `switch`; the strip says "Continuing on Claude Code · work" until the turn runs.
-  "Other models" opens the full picker; while the thread is held by a limit, a pick there with
-  room carries on the same way (another provider still asks first).
+  existing exactly-once rules. The transcript shows the move the way any switch does: another
+  provider gets the usual "Context handoff" row, then ace's "Resumed after the usage limit" line.
+- **Switch opens the normal model picker, on its list.** The strip's Switch, and the composer's
+  model chip on a limited thread, open the picker straight on the models (no effort step first).
+  When the thread's account is at its limit, the picker opens on an account with room (the same
+  provider's next one first, `@ace/ui-core` `startingTab`), never on an all-greyed list; the
+  exhausted account keeps its rail tab, greyed with its reset. A pick of any model with room that
+  the thread can move to in place sends `switch` at once, with no confirmation for another
+  provider and whatever the fork preference says; the strip says "Continuing on Claude Code ·
+  Personal" until the turn runs. A first version listed destinations in a menu of its own; the
+  owner rejected it for the existing picker.
 - **`thread.limit` `cancel_resume`.** It drops a chosen resume at reset and leaves the thread held
   by its limit exactly as the `manual` policy would: the reset only clears the limit, nothing is
   sent. A new hold token fences a deadline already firing. Refused with `no_scheduled_resume` when

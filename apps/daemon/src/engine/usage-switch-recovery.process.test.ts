@@ -208,11 +208,18 @@ test("switching from the limit to another provider carries the held turn on ther
   expect(sent[0]?.text).toContain("Continue where you left off.");
   expect(h.store.getThread(id)).toMatchObject({ provider: "claude", status: { state: "done" } });
   expect(h.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
-  // The transcript's line names where the work carried on.
-  const resumed = Object.values(h.store.snapshotThread(id).items).find(
-    (item) => item.type === "message" && item.origin?.kind === "limit_resume",
+  // The transcript shows the move as the usual context handoff row, codex → claude.
+  const handoffs = Object.values(h.store.snapshotThread(id).items).filter(
+    (item) => item.type === "message" && item.origin?.kind === "handoff",
   );
-  expect(resumed).toMatchObject({ origin: { to: { provider: "claude" } } });
+  expect(handoffs).toEqual([
+    expect.objectContaining({
+      origin: expect.objectContaining({
+        from: expect.objectContaining({ provider: "codex" }),
+        to: expect.objectContaining({ provider: "claude" }),
+      }),
+    }),
+  ]);
   // A replay of the same command changes nothing.
   await h.engine.flush();
   expect(h.inputs.filter((input) => input.provider === "claude")).toHaveLength(1);

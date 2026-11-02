@@ -184,11 +184,49 @@ export function queueCommand(
         const to = payload.selection;
         const root = host.state.rootKey;
         if (!to) return fail("switch_selection_required");
-        // The daemon publishes the switch; the held turn carries on there with ace's continue.
+        // The daemon publishes the switch; another provider gets the conversation as a context
+        // handoff (its marker is the transcript's usual "Context handoff" row), then the held
+        // turn carries on there with ace's continue.
+        const from = {
+          provider: host.view.thread.provider,
+          ...(host.view.thread.live?.model ? { model: host.view.thread.live.model } : {}),
+        };
+        const toSide = { provider: to.provider, ...(to.model ? { model: to.model } : {}) };
+        const handoff: Fact[] =
+          root === undefined || to.provider === from.provider
+            ? []
+            : [
+                {
+                  type: "item.upsert",
+                  agent: root,
+                  item: `handoff:${commandId}`,
+                  draft: {
+                    type: "message",
+                    role: "user",
+                    complete: true,
+                    synthetic: true,
+                    parts: [
+                      {
+                        type: "text",
+                        text: `<ace_context_handoff source_thread="${host.id}">\nContext handoff.\n</ace_context_handoff>`,
+                      },
+                    ],
+                    origin: {
+                      kind: "handoff",
+                      commandId: CommandId.parse(commandId),
+                      from,
+                      to: toSide,
+                      sources: [from],
+                      lossy: true,
+                    },
+                  },
+                },
+              ];
         const resumed: Fact[] =
           root === undefined
             ? []
             : [
+                ...handoff,
                 {
                   type: "item.upsert",
                   agent: root,
@@ -199,11 +237,7 @@ export function queueCommand(
                     complete: true,
                     synthetic: true,
                     parts: [{ type: "text", text: limitResumeText }],
-                    origin: {
-                      kind: "limit_resume",
-                      commandId: CommandId.parse(commandId),
-                      to: { provider: to.provider, ...(to.model ? { model: to.model } : {}) },
-                    },
+                    origin: { kind: "limit_resume", commandId: CommandId.parse(commandId) },
                   },
                 },
                 ...startTurn(host, commandId, limitResumeText),
