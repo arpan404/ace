@@ -108,7 +108,6 @@ function MachineDrafts(props: {
                 {row.provider && (
                   <ProviderIcon
                     provider={row.provider}
-                    variant="mono"
                     size={14}
                     className="ml-auto"
                     decorative

@@ -274,7 +274,6 @@ export function RowContext(props: {
           <ProviderIcon
             provider={card.provider}
             acpAgentId={card.acpAgentId}
-            variant="mono"
             size={14}
             decorative
             className="text-muted-foreground"

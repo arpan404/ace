@@ -132,7 +132,6 @@ function StartedRow(props: { send: PendingSend }) {
           {send.payload.type === "thread.create" && (
             <ProviderIcon
               provider={send.payload.provider}
-              variant="mono"
               size={14}
               className="ml-auto"
               decorative
