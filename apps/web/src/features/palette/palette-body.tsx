@@ -30,7 +30,8 @@ import { warmThread } from "@/lib/thread-warmer.ts";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
 import { describeKeys } from "@/lib/keymap.ts";
 import { useLayout, type PalettePage } from "@/lib/layout.tsx";
-import { arrange, readQuery, type Row, type RowGroup } from "./arrange.ts";
+import { arrange, readQuery, type PaletteScope, type Row, type RowGroup } from "./arrange.ts";
+import { focusScopeTabs, ScopeTabs, stepScope } from "./scope-tabs.tsx";
 import { usePaletteGroups, type PaletteCommand } from "./commands.ts";
 import { useMessageHits } from "./message-hits.ts";
 import { readRecentCommands, readRecentThreads, recentShown, rememberCommand } from "./recent.ts";
@@ -45,6 +46,24 @@ const icons = {
 } as const;
 
 const wallClock = () => Date.now();
+
+/** What the field invites in each tab. */
+const placeholders: Record<PaletteScope, string> = {
+  all: "Search threads, chats and actions",
+  actions: "Search actions",
+  threads: "Search threads",
+  chats: "Search chats",
+  messages: "Search inside every thread",
+};
+
+/** What an empty tab says: before a query, and when nothing matches one. */
+const empties: Record<PaletteScope, (asked: boolean) => string> = {
+  all: () => "Nothing matches.",
+  actions: () => "No actions match.",
+  threads: (asked) => (asked ? "No threads match." : "No threads yet."),
+  chats: (asked) => (asked ? "No chats match." : "No chats yet."),
+  messages: (asked) => (asked ? "No messages match." : "Type to search inside every thread."),
+};
 
 /** Text with the given [start, end) ranges in full ink. */
 function Marked(props: { text: string; ranges: readonly (readonly [number, number])[] }) {
@@ -72,6 +91,8 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
   const current = useParams({ strict: false }).threadId;
   const { storage, openSearch } = useLayout();
   const [query, setQuery] = useState("");
+  const [scope, setScope] = useState<PaletteScope>("all");
+  const field = useRef<HTMLInputElement>(null);
   const groups = usePaletteGroups(props.close, query, props.push);
   const messages = useMessageHits(query, props.close);
   const [recentThreads] = useState(() => readRecentThreads(storage));
@@ -92,6 +113,7 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
       arrange({
         groups,
         query,
+        scope,
         recentThreads,
         recentCommands,
         current,
@@ -99,7 +121,7 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
         searchAll,
         recentLimit: recentShown,
       }),
-    [groups, query, recentThreads, recentCommands, current, messages, searchAll],
+    [groups, query, scope, recentThreads, recentCommands, current, messages, searchAll],
   );
   const { text } = readQuery(query);
   const ranked = query.trim() !== "";
@@ -129,11 +151,24 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
       onValueChange={setQuery}
       onItemHighlighted={warm}
     >
-      <CommandInput
-        aria-label="Search commands"
-        placeholder={phone ? "Search or run a command" : "Search threads, projects and commands"}
+      <ScopeTabs
+        scope={scope}
+        onScope={setScope}
+        onLeave={() => field.current?.focus({ preventScroll: true })}
       />
-      <CommandEmpty>No commands or threads match.</CommandEmpty>
+      <CommandInput
+        ref={field}
+        aria-label="Search commands"
+        placeholder={placeholders[scope]}
+        onKeyDown={(event) => {
+          if (event.key !== "Tab" || event.altKey || event.metaKey || event.ctrlKey) return;
+          event.preventDefault();
+          // ⇧Tab steps up onto the tabs; Tab moves to the next one, the field keeping focus.
+          if (event.shiftKey) focusScopeTabs(event.currentTarget.closest('[role="dialog"]'));
+          else setScope((open) => stepScope(open, 1));
+        }}
+      />
+      <CommandEmpty>{empties[scope](query.trim() !== "")}</CommandEmpty>
       <CommandList>
         {(group: RowGroup) => (
           <CommandGroup key={group.value} items={group.items}>
@@ -145,6 +180,10 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
                 const Glyph = typeof item.icon === "string" ? icons[item.icon] : item.icon;
                 const keys = item.keys && resolveKeys(item.keys, keymap);
                 const detail = item.disabled ?? item.detail;
+                // A thread's project sits at the right edge, so titles read as one column; a
+                // chat has no project to name.
+                const aside = item.kind === "thread" && detail !== undefined && !item.chat;
+                const shownDetail = item.chat ? undefined : detail;
                 return (
                   <CommandItem
                     key={item.id}
@@ -173,8 +212,15 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
                             )}
                           />
                         </span>
+                      ) : aside ? (
+                        // A thread's branch, on the highlighted row only.
+                        item.more && (
+                          <span className="ml-1.5 hidden text-sm text-muted-foreground in-data-highlighted:inline">
+                            {item.more}
+                          </span>
+                        )
                       ) : (
-                        detail && (
+                        shownDetail && (
                           <span className="ml-1.5 text-sm text-muted-foreground">
                             {detail}
                             {item.more && (
@@ -187,10 +233,18 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
                         )
                       )}
                     </span>
-                    {ranked && item.hint && !group.labelled && (
-                      <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
-                        {item.hint}
+                    {aside ? (
+                      <span className="max-w-[40%] shrink-0 truncate text-sm text-muted-foreground">
+                        {detail}
                       </span>
+                    ) : (
+                      ranked &&
+                      item.hint &&
+                      !group.labelled && (
+                        <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
+                          {item.hint}
+                        </span>
+                      )
                     )}
                     {keys && !phone && <CommandShortcut>{describeKeys(keys)}</CommandShortcut>}
                   </CommandItem>

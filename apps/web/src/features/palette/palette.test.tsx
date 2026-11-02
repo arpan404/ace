@@ -28,7 +28,8 @@ test("⌘K finds a thread by its branch and opens it", async () => {
   await userEvent.type(search, "perf/fan");
   // The thread first; the way into full-text search last.
   await waitFor(() => {
-    expect(options()[0]).toBe("Backpressure on broadcast fan-outrelay · perf/fanoutThreads");
+    // Its branch beside it while highlighted, its project at the right.
+    expect(options()[0]).toBe("Backpressure on broadcast fan-outperf/fanoutrelay");
     expect(options().at(-1)).toBe("Search all threads for “perf/fan”");
   });
   await userEvent.keyboard("{Enter}");
@@ -59,10 +60,9 @@ test("moving the highlight to a thread follows it before it is opened", async ()
   );
 });
 
-test("typing finds threads that are absent from the empty palette", async () => {
+test("typing finds a thread beyond the recent ones and opens it", async () => {
   await openApp();
   const search = await palette();
-  expect(screen.queryByRole("group", { name: "Threads" })).toBeNull();
   await userEvent.type(search, "replay");
   const match = await screen.findByRole("option", { name: /Dedupe thread events after reconnect/ });
   await userEvent.click(match);
@@ -200,7 +200,7 @@ test("a query nothing matches falls through to searching every thread", async ()
   );
 });
 
-test("an empty palette shows Actions, then recent threads with the last opened first", async () => {
+test("an empty palette opens clean: Quick actions, then recent threads, the last opened first", async () => {
   await openApp("/t/thread-fan-out");
   await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" });
   const threads = within(screen.getByRole("navigation", { name: "Threads" }));
@@ -208,18 +208,42 @@ test("an empty palette shows Actions, then recent threads with the last opened f
   await screen.findByRole("heading", { level: 1, name: /^Partial refunds double-count tax/ });
   const listed = threads.getAllByRole("link").length;
   await palette();
-  const recent = within(await screen.findByRole("group", { name: "Recent threads" }));
+  const recent = within(await screen.findByRole("group", { name: "Threads" }));
   const rows = recent.getAllByRole("option").map((option) => option.textContent ?? "");
   expect(rows[0]).toMatch(/^Backpressure on broadcast fan-out/);
-  // The open thread is not one of them; the rest fill up from the list, twelve at most.
+  // The open thread is not one of them; the rest fill up from the list, five at most.
   expect(rows.some((row) => row.startsWith("Partial refunds double-count tax"))).toBe(false);
-  expect(rows.length).toBeLessThanOrEqual(12);
-  expect(rows.length).toBeGreaterThanOrEqual(Math.min(listed - 1, 12));
-  const actions = screen.getByRole("group", { name: "Actions" });
-  const after = actions.compareDocumentPosition(
-    screen.getByRole("group", { name: "Recent threads" }),
-  );
+  expect(rows.length).toBeLessThanOrEqual(5);
+  expect(rows.length).toBeGreaterThanOrEqual(Math.min(listed - 1, 5));
+  const quick = screen.getByRole("group", { name: "Quick actions" });
+  const after = quick.compareDocumentPosition(screen.getByRole("group", { name: "Threads" }));
   expect(after & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // What acts on the open thread waits for a query or the Actions tab.
+  expect(screen.queryByRole("group", { name: "Agent" })).toBeNull();
+  expect(screen.queryByRole("option", { name: /^Settle/ })).toBeNull();
+});
+
+test("the tabs narrow the palette, and the keyboard reaches them from the field", async () => {
+  await openApp();
+  const search = await palette();
+  const tab = (name: string) => screen.getByRole("tab", { name });
+  expect(tab("All").getAttribute("aria-selected")).toBe("true");
+  // Tab moves to the next tab; the field keeps the caret.
+  await userEvent.keyboard("{Tab}");
+  expect(tab("Actions").getAttribute("aria-selected")).toBe("true");
+  expect(document.activeElement).toBe(search);
+  expect(screen.queryByRole("group", { name: "Threads" })).toBeNull();
+  // ⇧Tab steps up onto the tabs; the arrows move along them.
+  await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+  expect(document.activeElement).toBe(tab("Actions"));
+  await userEvent.keyboard("{ArrowRight}");
+  await waitFor(() => expect(document.activeElement).toBe(tab("Threads")));
+  expect(tab("Threads").getAttribute("aria-selected")).toBe("true");
+  // Typing goes back to the field, which searches threads only now.
+  await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(search);
+  await userEvent.type(search, "dark mode");
+  await waitFor(() => expect(screen.queryByRole("option", { name: /^Dark mode/ })).toBeNull());
 });
 
 test("a command run from the palette comes first among actions next time", async () => {
@@ -229,6 +253,8 @@ test("a command run from the palette comes first among actions next time", async
   await userEvent.click(await screen.findByRole("option", { name: /^Dark mode/ }));
   await waitFor(() => expect(document.documentElement.getAttribute("data-scheme")).toBe("dark"));
   await palette();
+  // The Actions tab lists every action, the recently run first.
+  await userEvent.keyboard("{Tab}");
   const actions = within(await screen.findByRole("group", { name: "Actions" }));
   expect(actions.getAllByRole("option")[0]?.textContent).toMatch(/^Dark mode/);
 });

@@ -32,7 +32,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { keymap } from "@/lib/keymap.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useDebouncedValue, searchSettleMs } from "@/lib/debounced.ts";
-import { useProjectDirectory, useProjectName } from "@/lib/projects.ts";
+import { useIsChat, useIsChatThread, useProjectDirectory, useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useTransferOpener } from "@/lib/transfer-opener.ts";
 import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
@@ -82,6 +82,8 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
   const picked = useHomeSelectionState().ids;
   const entries = useSidebarAll(entriesOf, arrayEqual) ?? noEntries;
   const projectName = useProjectName();
+  const isChat = useIsChat();
+  const isChatThread = useIsChatThread();
   const directory = useProjectDirectory();
   const settledQuery = useDebouncedValue(query.trim(), searchSettleMs);
   const own = useHostIdentity()?.hostId;
@@ -168,6 +170,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
           ...(branch ? { more: branch } : {}),
           ...(pr === undefined ? {} : { keywords: `#${pr} pr ${pr}` }),
           kind: "thread",
+          ...(isChatThread(entry) ? { chat: true } : {}),
           threadId: id,
           at: entry.updatedAt,
           icon: "thread",
@@ -185,6 +188,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
         label: hit.threadTitle,
         detail: projectName(hit.workspaceId),
         kind: "thread",
+        ...(isChat(hit.workspaceId) ? { chat: true } : {}),
         threadId: hit.threadId,
         at: hit.createdAt,
         icon: "thread",
@@ -386,5 +390,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
     selection,
     picked,
     projectName,
+    isChat,
+    isChatThread,
   ]);
 }

@@ -33,7 +33,13 @@ export default function PaletteDialog(props: {
       ? "New thread in"
       : "Command palette";
   return (
-    <CommandDialog open={props.open} onOpenChange={props.onOpenChange} title={title}>
+    <CommandDialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      title={title}
+      // Its tabs take a row: a little more room for what they list.
+      className="max-h-[min(520px,72dvh)] w-[min(600px,calc(100vw-1.5rem))]"
+    >
       {props.open &&
         (page === undefined ? (
           <PaletteBody close={props.close} push={push} />
