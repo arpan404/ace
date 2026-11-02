@@ -43,6 +43,7 @@ const tones: Record<RowStatusTone, string> = {
   working: "text-(--row-status-working)",
   waiting: "text-(--row-status-waiting)",
   background: "text-(--row-status-background)",
+  limited: "text-(--row-status-limited)",
   finished: "text-(--row-status-finished)",
   idle: "text-muted-foreground",
 };

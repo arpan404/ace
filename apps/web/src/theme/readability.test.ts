@@ -98,6 +98,7 @@ test("each thread-row status colour stands out on the sidebar, its hover and the
     "--row-status-working",
     "--row-status-waiting",
     "--row-status-background",
+    "--row-status-limited",
     "--row-status-finished",
   ];
   // The sidebar's panel is a mix of the page and the sidebar colour, so it lies between them.

@@ -45,6 +45,7 @@ export type RowStatusTone =
   | "working"
   | "waiting"
   | "background"
+  | "limited"
   | "finished"
   | "idle";
 
@@ -139,7 +140,7 @@ export function rowStatusLook(
         return {
           ...look,
           icon: "limited",
-          tone: "waiting",
+          tone: "limited",
           mode: "icon",
           word: "Limited",
           meaning: full,
