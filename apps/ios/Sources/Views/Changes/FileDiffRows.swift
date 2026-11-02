@@ -1,11 +1,13 @@
 import SwiftUI
 
 @MainActor enum FileDiffStyle {
-    static let path = AceTheme.TypeStyle(size: 13.5, lineHeight: 18, weight: 400, tracking: 0)
-    static let line = AceTheme.TypeStyle(size: 13, lineHeight: 24, weight: 400, tracking: 0)
+    /// Paths and diff lines are code.
+    static let path = AceTheme.Typography.code
+    static let line = AceTheme.Typography.code
+    /// Content geometry: one diff line's height, the line-number column, the change bar.
     static let rowHeight: CGFloat = 24
     static let gutter: CGFloat = 46
-    static let bar: CGFloat = 4
+    static let bar: CGFloat = AceDesign.Space.unit
 }
 
 extension EnvironmentValues {
@@ -46,7 +48,7 @@ struct ChangesLineRow: View {
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
                 .padding(.leading, FileDiffStyle.gutter + AceTheme.Spacing.xs)
                 .frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight, alignment: .leading)
-                .background(AceTheme.Colours.fill.opacity(0.5))
+                .background(AceDesign.Surface.band)
         } else {
             Button(action: { if commentable { tap() } }) {
                 HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.none) {
@@ -59,17 +61,17 @@ struct ChangesLineRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.trailing, AceTheme.Spacing.lg)
                     if row.clipped {
-                        Spacer(minLength: 0)
+                        Spacer(minLength: AceTheme.Spacing.none)
                         Button("Whole line", action: wholeLine)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
                             .padding(.trailing, AceTheme.Spacing.lg)
-                            .frame(minHeight: 44)
+                            .frame(minHeight: AceDesign.Size.tap)
                     }
                 }
                 .aceMonospace(FileDiffStyle.line, relativeTo: .caption)
                 .frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight, alignment: .leading)
-                .background(selected ? AceTheme.Colours.accent.opacity(0.16) : background)
+                .background(selected ? AceDesign.Surface.picked : background)
                 .overlay(alignment: .leading) {
                     if let bar { Rectangle().fill(bar).frame(width: FileDiffStyle.bar) }
                 }
@@ -121,7 +123,7 @@ struct ChangesSplitRow: View {
             ChangesLineRow(row: row, wrap: wrap, selected: selected(row), tap: { tap(row) }, wholeLine: { wholeLine(row) })
                 .frame(maxWidth: .infinity)
         } else {
-            AceTheme.Colours.fill.opacity(0.4).frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight)
+            AceDesign.Surface.band.frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight)
         }
     }
 }

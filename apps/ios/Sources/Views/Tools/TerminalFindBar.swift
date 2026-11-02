@@ -19,21 +19,21 @@ struct TerminalFindBar: View {
                 .onSubmit(next)
                 .focused($focused)
                 .padding(.horizontal, AceTheme.Spacing.md)
-                .frame(minHeight: 36)
-                .background(AceTheme.Colours.fill, in: Capsule())
+                .frame(minHeight: AceDesign.Size.pill)
+                .background(AceTheme.Colours.fill, in: AceDesign.Shape.control)
                 .accessibilityIdentifier("terminal.find.field")
             Text(summary)
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).monospacedDigit()
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .lineLimit(1).fixedSize()
                 .accessibilityIdentifier("terminal.find.count")
-            Button(action: previous) { Image(systemName: "chevron.up").frame(width: 44, height: 44) }
+            Button(action: previous) { Image(systemName: "chevron.up").frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap) }
                 .accessibilityLabel("Previous match").disabled(count == 0)
-            Button(action: next) { Image(systemName: "chevron.down").frame(width: 44, height: 44) }
+            Button(action: next) { Image(systemName: "chevron.down").frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap) }
                 .accessibilityLabel("Next match").disabled(count == 0)
                 .accessibilityIdentifier("terminal.find.next")
-            Button("Done", action: done).fontWeight(.medium)
-                .frame(minHeight: 44)
+            Button("Done", action: done)
+                .frame(minHeight: AceDesign.Size.tap)
                 .accessibilityIdentifier("terminal.find.done")
         }
         .buttonStyle(.plain)

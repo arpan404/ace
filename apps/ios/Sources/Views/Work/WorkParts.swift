@@ -6,7 +6,7 @@ struct WorkSection<Rows: View>: View {
     @ViewBuilder let rows: () -> Rows
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Text(title).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(.medium)
+            Text(title).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .padding(.horizontal, AceTheme.Spacing.lg).padding(.bottom, AceTheme.Spacing.xs)
                 .accessibilityAddTraits(.isHeader)
@@ -48,7 +48,7 @@ struct WorkPullLine: View {
     let pr: WorkSummary.PullRequest
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            AceIcon(pr.state == "merged" ? .gitMerge : .gitPullRequest, size: 16, relativeTo: .body)
+            AceIcon(pr.state == "merged" ? .gitMerge : .gitPullRequest, size: AceDesign.Size.icon, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 (Text("#\(pr.number) ").monospacedDigit().foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -87,7 +87,7 @@ struct WorkProblemRows: View {
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                         .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                 }
-                .frame(maxHeight: 160).fixedSize(horizontal: false, vertical: true)
+                .frame(maxHeight: AceDesign.Size.outputMaxHeight).fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.xs)
                 .accessibilityLabel("Setup output")
             }

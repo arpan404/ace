@@ -25,11 +25,11 @@ struct ReviewCommentCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             HStack(spacing: AceTheme.Spacing.sm) {
-                Text(stateWord).fontWeight(.medium).foregroundStyle(stateColour)
+                Text(stateWord).foregroundStyle(stateColour)
                 Text(draft.lines).foregroundStyle(AceTheme.Colours.subtleForeground)
                 if draft.anchor == "outdated" { Text("Outdated").foregroundStyle(AceTheme.Colours.subtleForeground) }
                 if draft.anchor == "addressed-pending-review" { Text("Changed since").foregroundStyle(AceTheme.Colours.subtleForeground) }
-                Spacer(minLength: 0)
+                Spacer(minLength: AceTheme.Spacing.none)
                 if draft.state == "sending" || draft.state == "resolving" { ProgressView().controlSize(.mini) }
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -46,7 +46,7 @@ struct ReviewCommentCard: View {
                         .foregroundStyle(AceTheme.Colours.foreground)
                         .padding(AceTheme.Spacing.sm)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(AceTheme.Colours.diffAdd, in: AceDesign.Shape.control)
+                        .background(AceTheme.Colours.diffAdd, in: AceShape.field)
                 }
             }
             if let error = draft.error {
@@ -59,7 +59,7 @@ struct ReviewCommentCard: View {
         .padding(.trailing, AceTheme.Spacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .leading) {
-            Rectangle().fill(AceTheme.Colours.separator).frame(width: 2).padding(.leading, FileDiffStyle.gutter - AceTheme.Spacing.md)
+            Rectangle().fill(AceTheme.Colours.separator).frame(width: AceDesign.Size.rail).padding(.leading, FileDiffStyle.gutter - AceTheme.Spacing.md)
         }
         .transition(.opacity)
         .confirmationDialog("Delete this comment?", isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -97,7 +97,7 @@ struct ReviewCommentCard: View {
             .buttonStyle(.plain)
             .aceFont(AceTheme.Typography.label, relativeTo: .footnote)
             .foregroundStyle(tone)
-            .frame(minHeight: 44)
+            .frame(minHeight: AceDesign.Size.tap)
             .accessibilityIdentifier("review.\(title.lowercased())")
     }
     private func send() {
@@ -131,6 +131,7 @@ struct ReviewComposer: View {
     let current: String
     var editing: ChangesReview.Draft?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var text = ""
     @State private var suggesting = false
     @State private var suggestion = ""
@@ -150,11 +151,11 @@ struct ReviewComposer: View {
                 } header: { Text("\((path as NSString).lastPathComponent) · \(start == end ? "line \(start)" : "lines \(start)–\(end)")") }
                 if side == "new" {
                     Section {
-                        Toggle("Suggest a change", isOn: $suggesting.animation(.smooth))
+                        Toggle("Suggest a change", isOn: $suggesting.animation(AceDesign.Motion.arriving(reduceMotion)))
                             .accessibilityIdentifier("review.suggest")
                         if suggesting {
                             TextField("Replacement", text: $suggestion, axis: .vertical)
-                                .font(.system(.footnote, design: .monospaced))
+                                .font(AceDesign.Typeface.code)
                                 .lineLimit(2...16)
                                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                         }
@@ -214,11 +215,11 @@ struct ReviewRepliesSheet: View {
                     Text(draft.text).foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
                 if let replies {
-                    if replies.state == "loading" { ProgressView().frame(maxWidth: .infinity) }
+                    if replies.state == "loading" { SkeletonRows(count: 2, label: "Reading replies").listRowInsets(EdgeInsets()).listRowSeparator(.hidden) }
                     if replies.state == "error" { Text(replies.message).foregroundStyle(AceTheme.StatusText.failed) }
                     ForEach(replies.replies) { reply in Text(reply.text).textSelection(.enabled) }
                 } else {
-                    ProgressView().frame(maxWidth: .infinity)
+                    SkeletonRows(count: 2, label: "Reading replies").listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
                 }
             }
             .listStyle(.plain)
@@ -226,16 +227,16 @@ struct ReviewRepliesSheet: View {
                 HStack(spacing: AceTheme.Spacing.sm) {
                     TextField("Reply", text: $text, axis: .vertical).lineLimit(1...5)
                         .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
-                        .background(AceTheme.Colours.fill, in: AceDesign.Shape.block)
+                        .background(AceTheme.Colours.fill, in: AceShape.field)
                     Button("Reply") {
                         request = model.reviewAction("review.reply", ["key": draft.key, "text": String(text.prefix(4096))])
                         text = ""
                     }
-                    .fontWeight(.semibold)
+                    .fontWeight(AceDesign.Typeface.strong)
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canOperate)
-                    .frame(minHeight: 44)
+                    .frame(minHeight: AceDesign.Size.tap)
                 }
-                .padding(AceTheme.Spacing.lg)
+                .padding(AceDesign.Space.margin)
                 .background(.bar)
             }
             .navigationTitle("Replies").navigationBarTitleDisplayMode(.inline)
@@ -275,7 +276,7 @@ struct ReviewBar: View {
                     .accessibilityIdentifier(note.1 ? "review.storage" : "review.notHere")
             } else if let selection {
                 HStack(spacing: AceTheme.Spacing.md) {
-                    Text(selection.label).fontWeight(.medium).monospacedDigit()
+                    Text(selection.label).monospacedDigit()
                     Text(selection.side == "old" ? "removed side" : "").foregroundStyle(AceTheme.Colours.mutedForeground)
                     Spacer(minLength: AceTheme.Spacing.sm)
                     Button("Clear") { self.selection = nil }.foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -287,8 +288,8 @@ struct ReviewBar: View {
             } else if let review, !review.drafts.isEmpty || review.session != nil {
                 HStack(spacing: AceTheme.Spacing.md) {
                     Button(action: list) {
-                        Text(summary(review)).fontWeight(.medium).lineLimit(1)
-                            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                        Text(summary(review)).lineLimit(1)
+                            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                             .contentShape(Rectangle())
                     }
                     .accessibilityIdentifier("review.list")
@@ -306,13 +307,13 @@ struct ReviewBar: View {
         .buttonStyle(.plain)
         .foregroundStyle(AceTheme.Colours.foreground)
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-        .padding(.horizontal, AceTheme.Spacing.xl)
-        .frame(minHeight: 48)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .frame(minHeight: AceDesign.Size.tap)
         .aceGlass(in: AceShape.capsule)
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.bottom, AceTheme.Spacing.sm)
         .opacity(selection == nil && note == nil && (review?.drafts.isEmpty ?? true) && review?.session == nil ? 0 : 1)
-        .animation(reduceMotion ? .easeInOut(duration: AceTheme.Motion.fast) : .smooth(duration: AceTheme.Motion.standard), value: selection)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: selection)
     }
 
     private func summary(_ review: ChangesReview) -> String {
@@ -348,7 +349,7 @@ struct ReviewCommentsSheet: View {
                         Button { if let first = drafts.first { reveal(first); dismiss() } } label: {
                             Text(path).aceMonospace(FileDiffStyle.path, relativeTo: .footnote)
                                 .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)
-                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowLine, alignment: .leading)
                         }
                         .buttonStyle(.plain)
                         .padding(.horizontal, AceTheme.Spacing.lg)

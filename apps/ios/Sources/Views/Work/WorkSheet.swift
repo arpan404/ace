@@ -28,7 +28,7 @@ struct WorkSheet: View {
                     if let work { content(work) } else { WorkSkeleton() }
                 }
                 .padding(.vertical, AceTheme.Spacing.lg)
-                .animation(reduceMotion ? .easeInOut(duration: AceTheme.Motion.fast) : .smooth, value: work)
+                .animation(AceDesign.Motion.arriving(reduceMotion), value: work)
             }
             .background(AceTheme.Colours.background)
             .refreshable { model.sheet(["kind": "work.refresh"]) }
@@ -107,7 +107,7 @@ struct WorkSheet: View {
     private func place(_ work: WorkSummary, mode: String, label: String, reason: String?) -> some View {
         let current = work.mode == mode
         return HStack(spacing: AceTheme.Spacing.sm) {
-            AceIcon(mode == "worktree" ? .gitFork : .folder, size: 16, relativeTo: .body).foregroundStyle(AceTheme.Colours.subtleForeground)
+            AceIcon(mode == "worktree" ? .gitFork : .folder, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceTheme.Colours.subtleForeground)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 Text(label).foregroundStyle(AceTheme.Colours.foreground)
                 if !current, let reason { Text(reason).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
