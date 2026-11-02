@@ -41,11 +41,11 @@ test("the Inbox spans projects, and the arrows walk its rows both ways", async (
   ]);
   const [first, second, third] = links;
   if (!first || !second || !third) throw new Error("Missing rows");
-  // A row leads with its project's name (no mark) and its status, then its title.
+  // A row leads with its project's mark and name and its status, then its title.
   expect(rowText(first)).toMatch(/^ace.*Last task/);
   expect(first.querySelector('[data-icon="working"]')).toBeTruthy();
   expect(first.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
-  expect(first.querySelector("[data-project-mark]")).toBeNull();
+  expect(first.querySelector("[data-project-mark]")?.textContent).toBe("AC");
   first.focus();
   await userEvent.keyboard("{ArrowDown}");
   expect(document.activeElement).toBe(second);
