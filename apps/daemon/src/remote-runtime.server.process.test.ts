@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { expect, test } from "vitest";
+import { z } from "zod";
 import { SettingsService } from "@ace/settings";
 import { DeviceCredential, PairingResponse, SocketTicket, DeviceId } from "@ace/protocol";
 import { fixture, Client, token } from "./socket-test-support.ts";
@@ -15,6 +16,10 @@ import { loadIdentity } from "./tls-identity.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { accessRequest } from "./client-access.ts";
 import { addressCheckMs } from "./remote-runtime.ts";
+import type { Store } from "./store.ts";
+import { machineAccount, type MachineAccount } from "./account-access/machine-account.ts";
+import { startFakeAccountBackend } from "./account-backend-test-support.ts";
+import { randomBytes } from "node:crypto";
 
 async function runtime(
   overrides: {
@@ -28,6 +33,10 @@ async function runtime(
     holdPairingLinkSetting?: { until: Promise<void>; onHold(): void };
     /** This machine's Tailscale addresses, read on each status; undefined: Tailscale fails. */
     tailnet?: { ips: string[] | undefined };
+    /** ace's hosted relay (ACE_HOSTED_RELAY_URL). */
+    hostedRelayUrl?: string;
+    /** This machine's ace account, on the fixture's store. */
+    account?: (store: Store, home: string) => MachineAccount;
   } = {},
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-remote-runtime-"));
@@ -69,32 +78,37 @@ async function runtime(
     ACE_PORT: "0",
     ACE_ADVERTISE_HOST: "127.0.0.1",
     ...(overrides.listen ? { ACE_LISTEN: overrides.listen } : {}),
+    ...(overrides.hostedRelayUrl ? { ACE_HOSTED_RELAY_URL: overrides.hostedRelayUrl } : {}),
   });
+  const makeAccount = overrides.account;
   const identity = loadIdentity(tlsFixtureHome());
-  const f = await fixture({
-    settings,
-    files,
-    ...(overrides.runtime ? { runtime: overrides.runtime } : {}),
-    log: (error) => logs.push(error),
-    now: () => now,
-    remoteConfig: config,
-    webRoot,
-    hostName: "Office Mac",
-    network: {
-      identity: () => identity,
-      interfaces: () => ({}),
-      status: async () => {
-        if (!networkAvailable) throw new Error("No Tailscale");
-        if (!overrides.transport) throw new Error("No Tailscale");
-        const tailnet = overrides.tailnet ? overrides.tailnet.ips : ["127.0.0.1"];
-        if (!tailnet) throw new Error("Tailscale isn't answering");
-        return JSON.stringify({ BackendState: "Running", TailscaleIPs: tailnet });
-      },
-      certificate: async () => {
-        throw new Error("HTTPS certificates are off for this tailnet");
+  const f = await fixture(
+    {
+      settings,
+      files,
+      ...(overrides.runtime ? { runtime: overrides.runtime } : {}),
+      log: (error) => logs.push(error),
+      now: () => now,
+      remoteConfig: config,
+      webRoot,
+      hostName: "Office Mac",
+      network: {
+        identity: () => identity,
+        interfaces: () => ({}),
+        status: async () => {
+          if (!networkAvailable) throw new Error("No Tailscale");
+          if (!overrides.transport) throw new Error("No Tailscale");
+          const tailnet = overrides.tailnet ? overrides.tailnet.ips : ["127.0.0.1"];
+          if (!tailnet) throw new Error("Tailscale isn't answering");
+          return JSON.stringify({ BackendState: "Running", TailscaleIPs: tailnet });
+        },
+        certificate: async () => {
+          throw new Error("HTTPS certificates are off for this tailnet");
+        },
       },
     },
-  });
+    makeAccount ? (store, home) => ({ machineAccount: makeAccount(store, home) }) : undefined,
+  );
   const client = await f.connect();
   await client.next();
   let id = 0;
@@ -600,5 +614,66 @@ test("remote access moves to this machine's new Tailscale address, and a failed 
     ).rejects.toThrow();
   } finally {
     await f.close();
+  }
+});
+
+test("ace's relay waits for this machine to sign in, registers with a machine grant, and stops on sign-out", async () => {
+  const relay = await startRelay();
+  const backend = await startFakeAccountBackend(Date.now);
+  const retries: number[] = [];
+  let account: MachineAccount | undefined;
+  const f = await runtime({
+    enabled: true,
+    transport: "relay",
+    relayUrl: relay.url,
+    hostedRelayUrl: relay.url,
+    runtime: {
+      delay(_run, ms) {
+        retries.push(ms);
+        return () => {};
+      },
+    },
+    account: (store, home) => {
+      account = machineAccount({
+        dataDir: home,
+        codes: store.machineCodes,
+        fetch: globalThis.fetch,
+        now: Date.now,
+        randomBytes,
+        delay: () => () => {},
+      });
+      return account;
+    },
+  });
+  try {
+    if (!account) throw new Error("No account");
+    const status = async () =>
+      z
+        .object({
+          remoteAccess: z
+            .object({ error: z.string().optional(), relay: z.unknown().optional() })
+            .loose(),
+        })
+        .parse(await f.local("/v1/status")).remoteAccess;
+    const waiting = await status();
+    expect(waiting.error).toContain("Sign in to your ace account");
+    expect(waiting.relay).toBeUndefined();
+    // Waiting for a sign-in is not retried on a timer.
+    expect(retries).not.toContain(1000);
+    expect(backend.grantRequests).toEqual([]);
+
+    await account.handover(backend.origin, backend.token);
+    await expect.poll(async () => (await status()).relay).toMatchObject({ url: relay.url });
+    expect((await status()).error).toBeUndefined();
+    expect(backend.grantRequests).toMatchObject([{ kind: "machine" }]);
+
+    await account.signOut();
+    await expect.poll(async () => (await status()).error).toContain("Sign in to your ace account");
+    expect((await status()).relay).toBeUndefined();
+  } finally {
+    await f.close();
+    await account?.close();
+    await backend.close();
+    await relay.close();
   }
 });
