@@ -26,6 +26,17 @@ export const BackgroundTask = z.object({
    * It holds the thread open exactly like running work, but clients never list or name it.
    */
   internal: z.literal(true).optional(),
+  /**
+   * The provider reported that it never resumes the agent when this task ends (ADR 0109): the
+   * agent can't come back for it by itself. Once the agent's turn is over it no longer holds the
+   * thread open; it is listed as left running instead.
+   */
+  wakesAgent: z.literal(false).optional(),
+  /**
+   * TCP ports the task's processes listen on, as the host last saw them (ADR 0109): a service
+   * such as a dev server. Once the agent's turn is over it no longer holds the thread open.
+   */
+  listening: z.array(z.number().int().min(1).max(65_535)).max(16).optional(),
   /** File the provider writes the task's output to, if any. */
   outputPath: z.string().optional(),
   /** Tool call that started it. */

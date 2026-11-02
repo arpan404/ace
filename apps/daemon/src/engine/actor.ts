@@ -477,7 +477,12 @@ export class ThreadActor {
     if (this.stopped || this.poisoned) return;
     const state = this.repo.state(this.id);
     if (!state) return;
-    if (state.status.state === "done" && this.session) {
+    // Work left running after a done turn (a dev server, ADR 0109) lives in the provider's
+    // process: it stays warm until that work ends or the thread is settled or archived.
+    const leftRunning = Object.keys(state.indexes.runningTasks).some(
+      (key) => state.tasks[key]?.ambient === false,
+    );
+    if (state.status.state === "done" && this.session && (!leftRunning || this.releaseRequested)) {
       this.idleSince ??= this.clock.now();
     } else {
       this.idleSince = undefined;

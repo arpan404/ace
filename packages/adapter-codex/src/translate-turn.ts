@@ -42,6 +42,9 @@ export function completeTurn(
         title: str(open.data["command"]),
         item: itemId,
         stoppable: true,
+        // Codex never starts a turn when a terminal exits after its turn ended (recorded in
+        // fixtures/codex/0.159.1/background-shell.jsonl): the agent won't come back for it.
+        wakesAgent: false,
         raw: raw("commandExecution", open.data),
       });
     } else {

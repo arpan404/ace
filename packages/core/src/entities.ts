@@ -102,13 +102,15 @@ export function startBackground(
   ctx: ApplyContext,
   events: EventPayload[],
 ): void {
-  if (fact.kind === "shell" && fact.item !== undefined && get(state.items, fact.item)?.complete)
-    return;
   const previous = get(state.tasks, fact.task);
+  // Running work is refined even once its starting call has returned (Claude names a
+  // background command's output file in the call's result).
   if (previous?.status === "running") {
     refineBackground(state, fact, previous, ctx, events);
     return;
   }
+  if (fact.kind === "shell" && fact.item !== undefined && get(state.items, fact.item)?.complete)
+    return;
   if (previous) put(state.taskHistory, previous.id, structuredClone(previous));
   const record = ensureAgent(state, fact.agent, ctx, events);
   const child =
@@ -157,6 +159,7 @@ export function startBackground(
     ...(item ? { toolCallId: item.id } : {}),
     ...(child ? { childAgentId: child.agent.id } : {}),
     ...(fact.outputPath === undefined ? {} : { outputPath: fact.outputPath }),
+    ...(fact.wakesAgent === false ? { wakesAgent: false as const } : {}),
   };
   if (state.uncertainTasks) delete state.uncertainTasks[fact.task];
   put(state.tasks, fact.task, task);
@@ -210,6 +213,10 @@ function refineBackground(
     task.outputPath = fact.outputPath;
     changed = true;
   }
+  if (task.wakesAgent === undefined && fact.wakesAgent === false) {
+    task.wakesAgent = false;
+    changed = true;
+  }
   if (!changed) return;
   emit(events, { type: "background_task.started", task: structuredClone(task) });
   if (fact.childAgent !== undefined)
@@ -224,6 +231,25 @@ function refineBackground(
       ctx,
       events,
     );
+}
+
+/**
+ * The ports a running task's processes listen on (ADR 0109). A change re-announces the task so
+ * every client sees it; ports seen once stay until the task ends or the host sees none.
+ */
+export function listenBackground(
+  state: ThreadState,
+  fact: Extract<Fact, { type: "background.listening" }>,
+  events: EventPayload[],
+): void {
+  const task = get(state.tasks, fact.task);
+  if (task?.status !== "running") return;
+  const ports = [...new Set(fact.ports)].sort((a, b) => a - b);
+  const known = task.listening ?? [];
+  if (ports.length === known.length && ports.every((port, i) => port === known[i])) return;
+  if (ports.length) task.listening = ports;
+  else delete task.listening;
+  emit(events, { type: "background_task.started", task: structuredClone(task) });
 }
 
 export function endBackground(

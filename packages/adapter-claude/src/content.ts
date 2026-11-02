@@ -7,6 +7,7 @@ import { matchBlock, type MessageIndex } from "./blocks.ts";
 import { childUsage } from "./usage.ts";
 import { toolDetail } from "./tools.ts";
 import { childPrompt, injectedInput } from "./injected-inputs.ts";
+import { backgroundOutput } from "./tasks.ts";
 
 /** Claude Code's markers that the person stopped it: shown as ace's notice, not their words. */
 const interruptions = new Set([
@@ -214,6 +215,7 @@ export function message(
         activity: "thinking",
       });
       const output = text(block["content"]);
+      if (output) backgroundOutput(state, data, output);
       if (output && state.toolKinds.get(toolId) === "shell")
         state.emit({
           type: "item.delta",

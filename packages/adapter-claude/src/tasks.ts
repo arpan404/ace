@@ -74,6 +74,18 @@ function finish(
       status: status === "completed" ? "completed" : status === "failed" ? "failed" : "stopped",
     });
 }
+/**
+ * Where a background command writes its output, from the call's result: Claude states it in
+ * words ("Output is being written to: /…/tasks/<id>.output.") and in no structured field. The
+ * host finds the command's processes through this file (ADR 0109). No match leaves it unknown.
+ */
+export function backgroundOutput(state: ClaudeState, data: Data, output: string): void {
+  const id = string(object(data["tool_use_result"])["backgroundTaskId"]);
+  const path = /Output is being written to: (\S.*?\.output)(?=\.?(?:\s|$))/.exec(output)?.[1];
+  const task = id ? state.tasks.get(id) : undefined;
+  if (!path || !task?.background || task.terminal || task.data["output_file"] !== undefined) return;
+  register(state, { task_id: id, output_file: path }, true);
+}
 export function taskFrame(state: ClaudeState, data: Data, now: number): boolean {
   const subtype = string(data["subtype"]);
   if (subtype === "background_tasks_changed") {

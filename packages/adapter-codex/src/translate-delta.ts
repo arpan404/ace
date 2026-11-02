@@ -41,6 +41,7 @@ export function translateDelta(
         kind: "shell",
         title: "Command output",
         stoppable: true,
+        wakesAgent: false,
       });
       return;
     }

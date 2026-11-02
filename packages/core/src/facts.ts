@@ -170,8 +170,12 @@ export type Fact =
       internal?: true;
       stoppable: boolean;
       outputPath?: string;
+      /** The provider never resumes the agent when this task ends (ADR 0109). */
+      wakesAgent?: false;
       raw?: RawPayload[];
     }
+  /** The ports a running task's processes listen on now; empty when none (ADR 0109). */
+  | { type: "background.listening"; task: Key; ports: number[] }
   | {
       type: "background.ended";
       task: Key;

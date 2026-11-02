@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./background-hold": "./src/background-hold.ts",
     "./human": "./src/human.ts",
     "./switch-route": "./src/switch-route.ts"
   },
