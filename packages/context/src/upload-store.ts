@@ -63,7 +63,15 @@ export class UploadStore {
       resumeAttachmentCleanup(this.metadata, options.root),
     );
     this.tail = this.initialReady;
-    this.leases = new BlobLeases(this.metadata);
+    this.leases = new BlobLeases(this.metadata, {
+      now: options.now,
+      perOwner: this.limits.threadLeases,
+      total: this.limits.leases,
+      // A draft lives in its own table; a thread is gone once the daemon no longer knows it.
+      ownerAlive: (owner) =>
+        Boolean(this.metadata.get("SELECT 1 FROM drafts WHERE id=?", owner)) ||
+        (this.options.threadExists?.(owner) ?? true),
+    });
     this.maintenance = new Maintenance(this.metadata, options.root, options.now, (row) =>
       this.removeUpload(row),
     );
@@ -610,7 +618,7 @@ export class UploadStore {
         );
         return { attachment: Attachment.parse({ ...blob, name }), path: this.path(hash) };
       });
-      return this.leases.acquire(blobs);
+      return this.leases.acquire(thread, blobs);
     });
   }
   async acquireMessage(

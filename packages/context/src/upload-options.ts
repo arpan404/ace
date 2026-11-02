@@ -11,6 +11,10 @@ export interface UploadLimits {
   uploads: number;
   queued: number;
   ttlMs: number;
+  /** Attachment leases (files an agent or a transfer is still reading) one thread may hold. */
+  threadLeases: number;
+  /** Attachment leases across all threads. */
+  leases: number;
 }
 export const defaultUploadLimits: UploadLimits = {
   fileBytes: 512 * 1024 * 1024,
@@ -22,6 +26,8 @@ export const defaultUploadLimits: UploadLimits = {
   uploads: 1024,
   queued: 32,
   ttlMs: 24 * 60 * 60 * 1000,
+  threadLeases: 256,
+  leases: 4096,
 };
 export interface UploadOptions {
   signal?: AbortSignal;
