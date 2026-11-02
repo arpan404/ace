@@ -151,7 +151,7 @@ test("an image posted from a relative path is shown in the reply and its bytes r
 });
 
 test("an image the thread's attachment store can't take says why instead of failing blankly", async () => {
-  const { connection, items } = await daemon({ threadEntries: 1 });
+  const { connection, items } = await daemon({ globalEntries: 1 });
   const first = await show(connection, { data: png().toString("base64"), alt: "First" });
   expect(first.isError).not.toBe(true);
   const other = Buffer.concat([png(), Buffer.from("trailing bytes make a new file")]);
@@ -159,7 +159,7 @@ test("an image the thread's attachment store can't take says why instead of fail
   expect(refused.isError).toBe(true);
   const said = JSON.stringify(refused);
   expect(said).toContain("image_not_saved");
-  expect(said).toContain("Attachment storage is full");
+  expect(said).toContain("attachment storage is full");
   expect(said).not.toContain("execution_failed");
   expect(items().filter((item) => item.type === "image")).toHaveLength(1);
 });

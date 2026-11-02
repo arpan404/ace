@@ -44,7 +44,7 @@ describe("resumable uploads", () => {
     expect(attachment(await f.commit(id)).sha256).toBe(hash(bytes));
   });
   test("hash mismatches reject the blob and release the reservation", async () => {
-    const f = await fixture({ threadBytes: 4 });
+    const f = await fixture({ globalBytes: 4 });
     const bytes = Buffer.from("abcd"),
       id = await f.begin(bytes, thread, "0".repeat(64));
     await f.chunk(id, bytes);
@@ -55,19 +55,24 @@ describe("resumable uploads", () => {
     });
     expect(await f.begin(bytes)).toBeTruthy();
   });
-  test("thread quota counts retained blobs and pending uploads", async () => {
-    const f = await fixture({ threadBytes: 6 });
+  test("the disk guard counts retained blobs and pending uploads and says how to free space", async () => {
+    const f = await fixture({ globalBytes: 6 });
     const bytes = Buffer.from("abcd"),
       id = await f.begin(bytes);
     await expect(f.begin(Buffer.from("xxx"))).rejects.toMatchObject({ code: "quota" });
     await f.chunk(id, bytes);
     await f.commit(id);
-    await expect(f.begin(Buffer.from("xxx"))).rejects.toMatchObject({ code: "quota" });
+    await expect(f.begin(Buffer.from("xxx"))).rejects.toMatchObject({
+      code: "quota",
+      message: expect.stringMatching(/disk.*Settings > Storage/),
+    });
     await f.store.handle("device", {
       op: "attachment.release",
       threadId: thread,
       sha256: hash(bytes),
     });
+    // Space comes back once collection deletes the released file.
+    await f.store.collect();
     expect(await f.begin(Buffer.from("xxx"))).toBeTruthy();
   });
   test("global quota reserves bytes across different threads", async () => {
@@ -75,11 +80,13 @@ describe("resumable uploads", () => {
     await f.begin(Buffer.from("abcd"));
     await expect(f.begin(Buffer.from("xxx"), otherThread)).rejects.toMatchObject({ code: "quota" });
   });
-  test("entry and file caps reject too many small attachments and oversized files", async () => {
-    const f = await fixture({ threadEntries: 1, fileBytes: 3 });
-    await expect(f.begin(Buffer.from("four"))).rejects.toMatchObject({ code: "quota" });
-    await f.put(Buffer.from("one"));
-    await expect(f.begin(Buffer.from("two"))).rejects.toMatchObject({ code: "quota" });
+  test("a file over the per-file limit is refused and named by its size limit", async () => {
+    const f = await fixture({ fileBytes: 3 * 1024 * 1024 });
+    await expect(f.begin(Buffer.alloc(3 * 1024 * 1024 + 1))).rejects.toMatchObject({
+      code: "quota",
+      message: expect.stringContaining("larger than the 3 MiB limit for one attachment"),
+    });
+    expect(await f.begin(Buffer.alloc(3 * 1024 * 1024))).toBeTruthy();
   });
   test("magic-byte sniffing identifies an image despite a lying filename", async () => {
     const f = await fixture();
@@ -131,7 +138,7 @@ describe("resumable uploads", () => {
     await expect(f.chunk(id, Buffer.from("abcd"))).rejects.toMatchObject({ code: "forbidden" });
   });
   test("expiry cancels abandoned reservations so quota can be used again", async () => {
-    const f = await fixture({ threadBytes: 4, ttlMs: 10 });
+    const f = await fixture({ globalBytes: 4, ttlMs: 10 });
     const id = await f.begin(Buffer.from("abcd"));
     f.advance(11);
     await f.store.collect();
@@ -172,7 +179,7 @@ describe("resumable uploads", () => {
     await expect(access(sharedPath)).rejects.toThrow();
   });
   test("deduplicating within a thread releases the extra reservation", async () => {
-    const f = await fixture({ threadBytes: 8, globalBytes: 8 });
+    const f = await fixture({ globalBytes: 8 });
     const bytes = Buffer.from("four");
     await f.put(bytes);
     await f.put(bytes);
