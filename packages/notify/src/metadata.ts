@@ -10,6 +10,7 @@ import {
 import { AgentStatus } from "@ace/protocol/agent-status";
 import { BackgroundTask } from "@ace/protocol/background";
 import { ThreadStatus } from "@ace/protocol/thread-status";
+import { QueueState } from "@ace/protocol/queue";
 import type { Event } from "@ace/protocol";
 import { InteractionLink, interactionLink } from "./model.ts";
 
@@ -58,6 +59,10 @@ const Payload = z.discriminatedUnion("type", [
       archivedAt: Timestamp.nullable().optional(),
       remote: z.literal(true).optional(),
     })
+    .strict(),
+  /** Only why the queue is held: the person's own Stop silences its Done (`stoppedByPerson`). */
+  QueueState.pick({ paused: true, reason: true })
+    .extend({ type: z.literal("queue.updated") })
     .strict(),
   z
     .object({
@@ -137,6 +142,9 @@ export function metadata(event: Event): MetadataEvent | undefined {
         archivedAt: p.archivedAt,
         ...(p.delegatedFrom ? { remote: true } : {}),
       };
+      break;
+    case "queue.updated":
+      payload = { type: p.type, paused: p.paused, reason: p.reason };
       break;
     case "agent.created":
       payload = {

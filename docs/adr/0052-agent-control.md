@@ -223,6 +223,9 @@ by the user."
   queue's reason directly.
 - **Already read.** `isUnread` (ui-core) answers false while a Stop's hold stands
   (`stoppedByPerson`), on every device's cursor; the person's own Mark unread still wins.
+- **No Done alert.** The notifier (`notify/model.ts`) keeps each thread's queue hold and asks the
+  same `stoppedByPerson`: a Stop's Done alerts no device (desktop, web or phone push). Failures
+  and requests still alert, and the next turn's finish alerts as usual once a message lifts the hold.
 - **No Continue.** `stopTitle` names only a restart or a provider exit, so the pill never shows for
   a Stop; `queueNotice` says nothing for a Stop, except, when the Stop kept queued messages, "Queued
   messages wait" with Send now (`queue.resume`) in the queue's strip. The transcript keeps its quiet
@@ -235,4 +238,4 @@ by the user."
 Tests: `engine/restart-resume.process.test.ts` (a stopped turn stays done, asks nothing and sends
 nothing after a crash and after a graceful restart; a crash's own interruption still continues),
 `cli-attention.process.test.ts`, `engine/io-lifecycle.process.test.ts`, ui-core `thread-card`,
-`mobile-inbox` and `queue` tests, web `interrupted-turn.test.tsx`.
+`mobile-inbox` and `queue` tests, web `interrupted-turn.test.tsx`, notify `status.test.ts`.

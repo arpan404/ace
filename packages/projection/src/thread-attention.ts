@@ -17,7 +17,9 @@ export function threadAttention(thread: Pick<Thread, "queue">): string | undefin
 }
 
 /** The person's own Stop ended the thread's latest turn, and nothing has run since. */
-export function stoppedByPerson(thread: Pick<Thread, "queue">): boolean {
+export function stoppedByPerson(thread: {
+  queue?: Pick<QueueState, "paused" | "reason"> | undefined;
+}): boolean {
   return thread.queue?.paused === true && thread.queue.reason === "stopped";
 }
 

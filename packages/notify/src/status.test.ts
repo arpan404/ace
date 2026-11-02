@@ -30,6 +30,34 @@ it("alerts for whole-thread completion, failure and silence from core status", a
     "unresponsive",
   ]);
 });
+it("the person's own Stop alerts no device, while a normal finish after it still does", async () => {
+  const f = fixture();
+  const hold = (paused: boolean, revision: number) =>
+    f.append([
+      {
+        type: "queue.updated",
+        revision,
+        paused,
+        reason: paused ? "stopped" : null,
+        resumeAt: null,
+        pendingCount: 0,
+      },
+    ]);
+  f.start();
+  // As the daemon records a Stop: the queue holds as stopped, then the turn ends interrupted.
+  hold(true, 1);
+  f.fact({ type: "turn.ended", agent: "root", outcome: "interrupted" });
+  await f.flush();
+  expect(f.state.status.state).toBe("done");
+  expect(f.deliveries).toEqual([]);
+  // The person's next message lifts the hold; that turn's finish alerts as usual.
+  hold(false, 2);
+  f.start();
+  f.end();
+  await f.flush();
+  expect(f.deliveries.map((d) => d.notification.status)).toEqual(["done", "done"]);
+  expect(f.deliveries.map((d) => d.device.id).toSorted()).toEqual([f.desktop, f.phone].toSorted());
+});
 it("needs-you links to an approval without leaking its description or provider data", async () => {
   const f = fixture();
   f.start();
