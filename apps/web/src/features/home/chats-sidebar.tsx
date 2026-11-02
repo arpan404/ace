@@ -11,7 +11,7 @@ import { useHostIdentity } from "@/lib/host-name.ts";
 import { useMachineEntries } from "@/lib/machine-threads.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
 import { useMachines } from "@/lib/machines.ts";
-import { ChatHits } from "./chat-row.tsx";
+import { FoundHits } from "./found-row.tsx";
 import { ChatsFilter } from "./chats-filter.tsx";
 import { useChatsDevice } from "./device-filter-state.ts";
 import { DraftRows } from "./new-thread/draft-rows.tsx";
@@ -89,7 +89,7 @@ export function ChatsSidebar() {
         ) : searching && !chats.rows.length ? (
           <p className="px-4 pt-4 text-ui text-subtle-foreground">No chats match.</p>
         ) : (
-          <ChatHits value={chats.hits}>
+          <FoundHits value={chats.hits}>
             <ThreadList
               label="Chats"
               rows={chats.rows}
@@ -97,7 +97,7 @@ export function ChatsSidebar() {
               pinned={chats.pinned}
               onNearEnd={setNear}
             />
-          </ChatHits>
+          </FoundHits>
         )}
       </nav>
     </div>

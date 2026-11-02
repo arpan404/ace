@@ -2,11 +2,10 @@ import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@phosphor-icons/
 import { tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
-import { Suspense, type KeyboardEvent } from "react";
+import { Suspense, useMemo, useState, type KeyboardEvent } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { panelIconButton, PanelTitle, PanelTitleRow } from "@/components/ui/panel.tsx";
+import { panelIconButton } from "@/components/ui/panel.tsx";
 import { Icon } from "@/components/icon.tsx";
-import { PaletteButton } from "@/features/shell/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -20,11 +19,14 @@ import { formatKeys } from "@/lib/keymap.ts";
 import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useSidebarDevice } from "./device-filter-state.ts";
-import { useMachines } from "@/lib/machines.ts";
+import { useMachines, usePrimaryMachine } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
-import { useHomeList } from "./use-home-threads.ts";
+import { useHomeList, useSettledEntries } from "./use-home-threads.ts";
+import { useSettledSearch, useThreadHits, type SearchHit } from "./use-panel-search.ts";
+import { FoundHits } from "./found-row.tsx";
 import { PanelPagingContext, usePanelRows } from "./use-panel-rows.ts";
 import { ThreadsTabs } from "./threads-tabs.tsx";
+import { ThreadsTitle } from "./threads-title.tsx";
 import {
   useOrganizer,
   useOrganizerState,
@@ -42,7 +44,8 @@ const StartedTitlePublisher = deferredComponent(() =>
  * Snoozed, Settled), then the open tab's list. The Inbox is one flat list across projects and
  * machines in the order the person would act (pinned, needs you, running, unseen, the rest),
  * with no headings; the filter narrows every tab to a project or a device. 1, 2 and 3 switch
- * tabs from anywhere in the panel. Snoozed and Settled show 50 threads at a time, with Show
+ * tabs from anywhere in the panel. The title row's magnifier opens a search in place that narrows
+ * every tab to the threads whose title, project, branch or pull request match. Snoozed and Settled show 50 threads at a time, with Show
  * more and Show less at their end. Chats are the Chats panel's. Search (⌘K) opens the palette,
  * which also finds older settled threads.
  */
@@ -50,17 +53,39 @@ export function HomeSidebar() {
   // Other machines' threads join the list, each row marked with its machine.
   const host = useHostIdentity()?.hostId;
   const others = useOverlaidMachineEntries(useMachineEntries(host));
-  const list = useHomeList(others);
-  const { project, tab } = useOrganizerState();
+  // The title row's search narrows every tab to the threads it matches: by title (forgiving
+  // typos) at once, and by their messages through the daemon's search once typing pauses.
+  const [query, setQuery] = useState("");
+  const searching = query.trim().length > 0;
   const device = useSidebarDevice();
+  const own = usePrimaryMachine().id;
+  const asked = useThreadHits(query);
+  // Only this machine's daemon searches: another machine's threads match by title alone.
+  const found = device && device !== own ? noHits : asked;
+  const list = useHomeList(others, query, found);
+  // Settled also lists older settled threads the search found that the list hasn't paged in.
+  const settledShown = useSettledEntries(list.settled);
+  const older = useSettledSearch(query, list, settledShown);
+  const settledMatches = useMemo(
+    () => (searching ? older.matches.map((match) => match.id) : undefined),
+    [searching, older.matches],
+  );
+  const { project, tab } = useOrganizerState();
   const deviceName = useMachines().find((machine) => machine.id === device)?.name;
   useThreadsWindowSync();
   const organizer = useOrganizer();
   const loaded = useSidebarLoaded();
   // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
   const skeleton = useHeld(!loaded);
-  const { rows, paging } = usePanelRows({ list, tab, project, device });
-  const empty = !tabThreads(list.panel, tab).length;
+  const { rows, paging } = usePanelRows({
+    list,
+    tab,
+    project,
+    device,
+    settled: settledMatches,
+  });
+  const empty =
+    !tabThreads(list.panel, tab).length && !(tab === "settled" && searching && older.hits.size);
   // No thread anywhere (not even snoozed or settled): the first-run words, not Inbox zero.
   const none = [list.panel.inbox, list.panel.snoozed, list.panel.settled].every(
     (ids) => !ids.length,
@@ -74,10 +99,7 @@ export function HomeSidebar() {
       : undefined;
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <PanelTitleRow className="@container/thread-filters">
-        <PanelTitle>Threads</PanelTitle>
-        <PaletteButton />
-      </PanelTitleRow>
+      <ThreadsTitle query={query} onQuery={setQuery} />
       <div className="flex h-8 shrink-0 items-center gap-1 pr-2.5 pl-2">
         <ProjectFilter />
         <NewThreadButton />
@@ -110,16 +132,18 @@ export function HomeSidebar() {
             <EmptyState
               className="shrink-0 justify-start pt-6"
               icon={tab === "inbox" ? TrayIcon : tab === "snoozed" ? ClockIcon : CheckIcon}
-              title={emptyTitle(tab, narrowed, none)}
+              title={searching ? "No threads match" : emptyTitle(tab, narrowed, none)}
               description={
-                tab !== "inbox"
+                searching
                   ? undefined
-                  : none && !narrowed
-                    ? `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
-                    : "Nothing needs you, and nothing is running."
+                  : tab !== "inbox"
+                    ? undefined
+                    : none && !narrowed
+                      ? `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
+                      : "Nothing needs you, and nothing is running."
               }
               action={
-                project ? (
+                searching ? undefined : project ? (
                   <button
                     type="button"
                     className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
@@ -146,7 +170,9 @@ export function HomeSidebar() {
           </>
         ) : (
           <PanelPagingContext value={paging}>
-            <ThreadList rows={rows} needsYou={list.needsYou} pinned={list.pinned} triage />
+            <FoundHits value={older.hits}>
+              <ThreadList rows={rows} needsYou={list.needsYou} pinned={list.pinned} triage />
+            </FoundHits>
           </PanelPagingContext>
         )}
       </nav>
@@ -221,3 +247,4 @@ function NewThreadButton() {
 }
 
 const unsentOnly = [{ kind: "unsent" as const }];
+const noHits: ReadonlyMap<string, SearchHit> = new Map();

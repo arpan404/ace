@@ -58,6 +58,7 @@ const empty: HomeList = {
 };
 const noProjects: ProjectCount[] = [];
 const noOthers: readonly ThreadListEntry[] = [];
+const noFound: ReadonlyMap<string, unknown> = new Map();
 
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
   reader.ids.flatMap((id) => {
@@ -103,12 +104,17 @@ export function useStandingOf(now: number): (entry: ThreadListEntry) => Standing
 /**
  * Home order (`arrange`) across every project and device the filter lets through, and the
  * Threads panel's places over it. Chats (ADR 0099) are the Chats panel's: they stay out of the
- * Threads panel and History, as the Chats panel holds its own. `query` narrows it to the threads whose
- * title, project, branch or pull request match. Only ids are selected, so a status change re-renders its own row and moves rows only
+ * Threads panel and History, as the Chats panel holds its own. `query` narrows it to the threads
+ * whose title, project, branch or pull request match (`threadMatches`, forgiving typos), and to
+ * those the daemon's search `found` in their messages. Only ids are selected, so a status change re-renders its own row and moves rows only
  * when the order changes. `others` are other machines' threads under their machine row ids
  * (`useMachineEntries`), ordered in the same list (ADR 0102).
  */
-export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query = ""): HomeList {
+export function useHomeList(
+  others: readonly ThreadListEntry[] = noOthers,
+  query = "",
+  found: ReadonlyMap<string, unknown> = noFound,
+): HomeList {
   const device = useSidebarDevice();
   const ownDevice = usePrimaryMachine().id;
   const keys = useEveryEntryKey();
@@ -129,7 +135,10 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
       const work = onDevice.filter((entry) => !isChatThread(entry));
       const entries =
         query.trim().length > 0
-          ? work.filter((entry) => threadMatches(entry, query, projectName(entry.workspaceId)))
+          ? work.filter(
+              (entry) =>
+                threadMatches(entry, query, projectName(entry.workspaceId)) || found.has(entry.id),
+            )
           : work;
       const arrangement = arrange(entries, { ...state, sortBy }, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
@@ -163,6 +172,7 @@ export function useHomeList(others: readonly ThreadListEntry[] = noOthers, query
       device,
       ownDevice,
       query,
+      found,
       projectName,
       standingOf,
       isChatThread,

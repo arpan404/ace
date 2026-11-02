@@ -30,8 +30,18 @@ export function usePanelRows(input: {
   tab: ThreadsTab;
   project: string | null;
   device: string | undefined;
+  /**
+   * While searching, the settled threads that match, newest first: the list's own and older ones
+   * the search found that it hasn't paged in (`useSettledSearch`).
+   */
+  settled?: readonly string[] | undefined;
 }): { rows: readonly HomeRow[]; paging: PanelPaging } {
   const { list, tab } = input;
+  const found = input.settled;
+  const panel = useMemo(
+    () => (found ? { ...list.panel, settled: [...found] } : list.panel),
+    [list.panel, found],
+  );
   const settledPaging = useSettledPaging(input.project, input.device);
   const key = JSON.stringify([input.project, input.device]);
   const [held, setShown] = useState({ key, shown: firstPage });
@@ -69,12 +79,12 @@ export function usePanelRows(input: {
   }, [key, paged, settledPaging.loading, settledPaging.error, loadMore]);
   const rows = useMemo(
     (): readonly HomeRow[] =>
-      panelRows(list.panel, tab, {
+      panelRows(panel, tab, {
         includeUnsent: true,
         ...(paged ? { shown: shown[paged] } : {}),
         moreOnDaemon: settledPaging.hasMore,
       }),
-    [list.panel, tab, paged, shown, settledPaging.hasMore],
+    [panel, tab, paged, shown, settledPaging.hasMore],
   );
   return { rows, paging };
 }

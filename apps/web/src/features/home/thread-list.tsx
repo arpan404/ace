@@ -36,6 +36,7 @@ import { machineRow } from "@/lib/machine-threads.ts";
 import { UnsentRows } from "./unsent-rows.tsx";
 import { SectionRow } from "./section-rows.tsx";
 import { ChatRow } from "./chat-row.tsx";
+import { ListedOrFound } from "./found-row.tsx";
 import { useHomeSort } from "./use-home-threads.ts";
 import { SnoozeRequestContext } from "./snooze-request.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
@@ -522,13 +523,16 @@ export function ThreadList(props: {
                   ) : (
                     <>
                       {(isTask(row) || isLine(row)) && "id" in row && (
-                        <ThreadRow
-                          threadId={row.id}
-                          settled={row.kind === "settled"}
-                          leaving={leaving}
-                          lead={rowLead(row)}
-                          end={isLine(row) ? "work" : "status"}
-                        />
+                        // A settled thread only the search found draws from its hit.
+                        <ListedOrFound id={row.id}>
+                          <ThreadRow
+                            threadId={row.id}
+                            settled={row.kind === "settled"}
+                            leaving={leaving}
+                            lead={rowLead(row)}
+                            end={isLine(row) ? "work" : "status"}
+                          />
+                        </ListedOrFound>
                       )}
                       {row.kind === "chat" && (
                         <ChatRow id={row.id} settled={row.settled} leaving={leaving} />
