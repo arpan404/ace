@@ -1,5 +1,21 @@
-import { accountProvider, explicitInstance, pickInstance, type Candidate } from "@ace/accounts";
-import { AcpIdentity, type DelegationRequest, type Thread, type CatalogModel } from "@ace/protocol";
+import {
+  accountProvider,
+  automaticRefusal,
+  definiteRefusal,
+  explicitInstance,
+  pickInstance,
+  refusalWords,
+  type AccountRefusal,
+  type Candidate,
+} from "@ace/accounts";
+import { providerNames } from "@ace/ui-core/providers";
+import {
+  AcpIdentity,
+  type DelegationRequest,
+  type Thread,
+  type CatalogModel,
+  type ProviderKind,
+} from "@ace/protocol";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { executionModelId, isDefaultSelection, selectionModelFilter } from "@ace/models";
 import { modelsAvailableWithoutAuth } from "@ace/models/availability";
@@ -7,6 +23,62 @@ import { cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
 import { delegationEffort, selectedDelegationModel } from "./models.ts";
 import { AgentControlError } from "./failure.ts";
 import type { DelegationDependencies } from "./delegations.ts";
+import { matchAccountName, registeredAccounts } from "./account-names.ts";
+
+/** A refused account: code `account_unavailable`, with the reason the agent may read. */
+function unavailable(reason: string): AgentControlError {
+  return new AgentControlError("account_unavailable", reason, undefined, reason);
+}
+function accountName(provider: ProviderKind, candidate: Candidate) {
+  const label = candidate.instance.label.trim() || candidate.instance.id;
+  return `${providerNames[provider]} account ${label}`;
+}
+function refused(
+  deps: DelegationDependencies,
+  provider: ProviderKind,
+  candidate: Candidate,
+  refusal: AccountRefusal,
+  now: number,
+): string {
+  const zone = deps.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return refusalWords(accountName(provider, candidate), refusal, now, zone);
+}
+
+/**
+ * The id of the account a request names, by its id or by the label the person gave it ("346"):
+ * an exact id first, else the one account of the request's provider with that label (any case).
+ * Refuses, saying why, a name no account of that provider has, or a label two of them share.
+ */
+export function namedAccountId(
+  deps: DelegationDependencies,
+  input: Pick<DelegationRequest, "provider" | "accountId">,
+): string | undefined {
+  const name = input.accountId;
+  if (!name) return undefined;
+  const provider = input.provider;
+  // An ACP agent's account is its installation's instance id, checked against its identity at
+  // admission; it has no label to resolve.
+  if (provider === "acp") return name;
+  const accounts = registeredAccounts(deps.accounts);
+  const match = matchAccountName(accounts, provider, name);
+  const words = providerNames[provider];
+  if ("shared" in match)
+    throw unavailable(
+      `${match.shared.length} ${words} accounts are labelled "${name}"; pass one's id as accountId: ${match.shared.map((entry) => entry.id).join(", ")}`.slice(
+        0,
+        256,
+      ),
+    );
+  // An added Antigravity account is stored as an ACP account but belongs to Antigravity.
+  if ("account" in match && match.account.provider !== provider)
+    throw unavailable(
+      `Account ${name} does not belong to ${words}; it belongs to ${providerNames[match.account.provider]}`,
+    );
+  if ("account" in match) return match.account.id;
+  // Accounts whose homes are still being validated aren't listed yet; their id is checked later.
+  if (deps.accounts?.get(name)) return name;
+  throw unavailable(`No ${words} account has "${name}" as its id or label`);
+}
 
 function withoutAuth(deps: DelegationDependencies, model: CatalogModel) {
   return modelsAvailableWithoutAuth(
@@ -33,11 +105,13 @@ function checkAuth(
   const auth =
     deps.accounts?.get(instance)?.quota.auth ??
     deps.engine.providerAvailability(input.provider).auth;
-  if (auth === "logged_out" && !withoutAuth(deps, model))
-    throw new AgentControlError(
-      "account_unavailable",
-      "Selected account/model requires authentication",
+  if (auth === "logged_out" && !withoutAuth(deps, model)) {
+    const account = deps.accounts?.get(instance);
+    const name = account ? accountName(input.provider, account) : providerNames[input.provider];
+    throw unavailable(
+      `${name} is signed out and this model requires authentication; the person signs it in again in Settings`,
     );
+  }
   if (deps.providerEnabled?.(input.provider, instance) === false)
     throw new AgentControlError("provider_disabled", "Selected account is disabled");
 }
@@ -49,13 +123,24 @@ function checkAuth(
  */
 function antigravityAccount(deps: DelegationDependencies, accountId: string) {
   const account = deps.accounts?.get(accountId);
-  if (
-    !account ||
-    accountProvider(account.instance) !== "antigravity" ||
-    account.quota.blockers.homeUnavailable
-  )
-    throw new AgentControlError("account_unavailable", "Account unavailable or quota exhausted");
+  if (!account || accountProvider(account.instance) !== "antigravity")
+    throw unavailable(`No Antigravity account has "${accountId}" as its id`);
+  if (account.quota.blockers.homeUnavailable)
+    throw unavailable(refused(deps, "antigravity", account, { reason: "home_unavailable" }, 0));
   return account.instance;
+}
+
+/** The account someone named, or the reason it can't run the work. */
+function admitted(
+  deps: DelegationDependencies,
+  request: Parameters<typeof explicitInstance>[0],
+  candidate: Candidate,
+  now: number,
+) {
+  const result = explicitInstance(request, candidate, now);
+  if ("refusal" in result)
+    throw unavailable(refused(deps, request.provider, candidate, result.refusal, now));
+  return result.instance;
 }
 
 /** Choose the account before checking its authentication against its actual selected model. */
@@ -67,13 +152,14 @@ export function delegationSelection(
   configured?: string,
 ) {
   const provider = AccountProvider.safeParse(input.provider === "acp" ? undefined : input.provider);
+  const accountId = namedAccountId(deps, input);
   const candidates = provider.success
     ? (deps.accounts
         ?.list()
         .filter(
           (entry) =>
             entry.instance.provider === provider.data &&
-            (input.accountId ? entry.instance.id === input.accountId : !entry.instance.implicit),
+            (accountId ? entry.instance.id === accountId : !entry.instance.implicit),
         ) ?? [])
     : [];
   const request = {
@@ -102,13 +188,35 @@ export function delegationSelection(
   // Only a model the agent named makes "it isn't there" the reason; otherwise the account is.
   if (missing && !views.length && input.model && !isDefaultSelection(input.model)) throw missing;
   const selected =
-    input.provider === "antigravity" && input.accountId
-      ? antigravityAccount(deps, input.accountId)
-      : input.accountId && views[0]
-        ? explicitInstance(request, views[0], now)
+    input.provider === "antigravity" && accountId
+      ? antigravityAccount(deps, accountId)
+      : accountId && views[0]
+        ? admitted(deps, request, views[0], now)
         : pickInstance(request, views, now);
-  if (provider.success && (input.accountId || candidates.length > 0) && !selected)
-    throw new AgentControlError("account_unavailable", "Account unavailable or quota exhausted");
+  if (provider.success && !selected && (accountId || candidates.length)) {
+    const words = providerNames[input.provider];
+    const named = candidates[0];
+    if (accountId && !named) throw unavailable(`No ${words} account has "${accountId}" as its id`);
+    // An account that can't work at all says so before it is asked which models it serves.
+    const blocked = candidates.flatMap((candidate) => {
+      const refusal = definiteRefusal(request.provider, candidate, now);
+      return refusal ? [refused(deps, input.provider, candidate, refusal, now)] : [];
+    });
+    if (!views.length && named && accountId)
+      throw unavailable(
+        blocked[0] ?? `${accountName(input.provider, named)} serves no model for this request`,
+      );
+    if (!views.length)
+      throw unavailable(
+        blocked.length === candidates.length
+          ? `No ${words} account can take work: ${blocked.join("; ")}`.slice(0, 256)
+          : `No ${words} account serves a model for this request`,
+      );
+    const reasons = views.map((view) =>
+      refused(deps, input.provider, view, automaticRefusal(request.provider, view, now), now),
+    );
+    throw unavailable(`No ${words} account can take work: ${reasons.join("; ")}`.slice(0, 256));
+  }
   const instance =
     selected?.id ??
     input.instanceId ??
@@ -150,13 +258,12 @@ export function validateDelegationSelection(
     return;
   }
   const account = deps.accounts?.get(accountId);
-  if (
-    !account ||
-    !explicitInstance(
-      { provider: account.instance.provider, role: input.role, estimatedLoad: input.estimatedLoad },
-      eligible(deps, account, resolved.model),
-      now,
-    )
-  )
-    throw new AgentControlError("account_unavailable", "Account unavailable or quota exhausted");
+  if (!account)
+    throw unavailable(`No ${providerNames[input.provider]} account has "${accountId}" as its id`);
+  admitted(
+    deps,
+    { provider: account.instance.provider, role: input.role, estimatedLoad: input.estimatedLoad },
+    eligible(deps, account, resolved.model),
+    now,
+  );
 }

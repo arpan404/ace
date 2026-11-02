@@ -210,7 +210,7 @@ test("ambiguous and nonexistent DST times stay blocked rather than guessing", ()
     Date.parse("2026-10-02T21:00:00Z"),
   );
 });
-test("the scheduler spends quota that resets soonest while excluding near limits and insufficient headroom", () => {
+test("the scheduler spends quota that resets soonest, passing over near limits and insufficient headroom", () => {
   const candidates = [
     { instance: instance("late"), quota: codex(login, 10, now, now / 1000 + 500) },
     { instance: instance("early"), quota: codex(login, 60, now, now / 1000 + 100) },
@@ -330,19 +330,20 @@ test("recorded provider rate-limit payloads retain all windows and their measure
     timeZone: "UTC",
   }).state;
   expect(x.windows["codex:primary"]?.usedPercent).toBe(33);
-  // Once the five-hour window expires, the weekly window still constrains load.
-  expect(
-    pickInstance(
-      { provider: "claude", role: "worker", estimatedLoad: 40 },
-      [
-        {
-          instance: createInstance({ id: "c", provider: "claude", label: "c", homeDir: "/tmp/c" }),
-          quota: c,
-        },
-      ],
-      Date.parse("2026-10-02T09:00:00Z"),
-    ),
-  ).toBeUndefined();
+  // Once the five-hour window expires, the weekly window still decides room for the load: an
+  // account with room wins, and alone it still takes the work rather than being refused.
+  const later = Date.parse("2026-10-02T09:00:00Z");
+  const weekly = {
+    instance: createInstance({ id: "c", provider: "claude", label: "c", homeDir: "/tmp/c" }),
+    quota: c,
+  };
+  const roomy = {
+    instance: createInstance({ id: "d", provider: "claude", label: "d", homeDir: "/tmp/d" }),
+    quota: login,
+  };
+  const load = { provider: "claude" as const, role: "worker", estimatedLoad: 40 };
+  expect(pickInstance(load, [weekly, roomy], later)?.id).toBe("d");
+  expect(pickInstance(load, [weekly], later)?.id).toBe("c");
 });
 test("fresh quota facts recover a resetless provider limit, and usage counters are cumulative snapshots", () => {
   const limited = ingestQuota(login, {

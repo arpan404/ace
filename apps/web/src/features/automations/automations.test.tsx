@@ -8,6 +8,7 @@ import { configure, act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { listGroup } from "@/test/list-groups.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -71,8 +72,9 @@ const setAutomations = (app: ReturnType<typeof harness>, value: boolean) =>
 
 const heading = (name: string | RegExp) => screen.findByRole("heading", { level: 2, name });
 const main = () => within(screen.getByRole("main"));
+/** The rows under one of the list's section headings (Upcoming, Paused, In threads). */
 const group = (sidebar: ReturnType<typeof within>, name: string) =>
-  within(sidebar.getByRole("region", { name }));
+  listGroup(sidebar.getByRole("list", { name: "Automations" }), name);
 const prompt = () => screen.findByRole("combobox", { name: "What the agent does each time" });
 
 async function menu(item: string) {
@@ -219,9 +221,7 @@ test("pausing from the switch moves it to Paused and stops runs; the switch resu
   await heading("Nightly dependency audit");
   await userEvent.click(screen.getByRole("switch", { name: "Enabled" }));
   expect(
-    await within(await sidebar.findByRole("region", { name: "Paused" })).findByRole("link", {
-      name: /Nightly dependency audit/,
-    }),
+    await group(sidebar, "Paused").findByRole("link", { name: /Nightly dependency audit/ }),
   ).toBeTruthy();
   expect(await main().findByText(/Paused\. Resume to schedule the next run\./)).toBeTruthy();
   await waitFor(async () =>
@@ -661,10 +661,10 @@ test("an agent's automation opens as the same conversation, runs and pauses thro
     threads: true,
   });
   await setAutomations(app, true);
-  const row = await within(await sidebar.findByRole("region", { name: "In threads" })).findByRole(
-    "link",
-    { name: /Re-run the checkout test overnight/ },
-  );
+  await sidebar.findByRole("heading", { name: "In threads" });
+  const row = await group(sidebar, "In threads").findByRole("link", {
+    name: /Re-run the checkout test overnight/,
+  });
   await userEvent.click(row);
   await heading("Re-run the checkout test overnight");
   // Its page links back to the thread it belongs to.

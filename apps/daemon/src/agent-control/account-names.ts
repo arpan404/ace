@@ -22,24 +22,43 @@ export function registeredAccounts(registry: AccountRegistry | undefined): Named
   }
 }
 
+/** What a name matches: one account, none, or several sharing the label. */
+export type NameMatch =
+  | { account: NamedAccount }
+  | { missing: true }
+  | { shared: readonly NamedAccount[] };
+
 /**
- * The account a name selects: an exact id first, else the one account on `provider` (or on
- * any provider when none is named) whose label matches, ignoring case and outer spaces. A label
- * two accounts share, or no match at all, selects nothing.
+ * The accounts a name matches: an exact id first, else the accounts on `provider` (or on any
+ * provider when none is named) whose label matches, ignoring case and outer spaces.
+ */
+export function matchAccountName(
+  accounts: readonly NamedAccount[],
+  provider: ProviderKind | undefined,
+  name: string,
+): NameMatch {
+  const byId = accounts.find((entry) => entry.id === name);
+  if (byId) return { account: byId };
+  const wanted = name.trim().toLowerCase();
+  const labelled = accounts.filter(
+    (entry) =>
+      entry.label.trim().toLowerCase() === wanted && (!provider || entry.provider === provider),
+  );
+  if (labelled.length > 1) return { shared: labelled };
+  return labelled[0] ? { account: labelled[0] } : { missing: true };
+}
+
+/**
+ * The account a name selects (see `matchAccountName`). A label two accounts share, or no match
+ * at all, selects nothing.
  */
 export function accountForName(
   accounts: readonly NamedAccount[],
   provider: ProviderKind | undefined,
   name: string,
 ): { id: string; provider: ProviderKind } | undefined {
-  const byId = accounts.find((entry) => entry.id === name);
-  if (byId) return { id: byId.id, provider: byId.provider };
-  const wanted = name.trim().toLowerCase();
-  const labelled = accounts.filter(
-    (entry) =>
-      entry.label.trim().toLowerCase() === wanted && (!provider || entry.provider === provider),
-  );
-  return labelled.length === 1 && labelled[0]
-    ? { id: labelled[0].id, provider: labelled[0].provider }
+  const match = matchAccountName(accounts, provider, name);
+  return "account" in match
+    ? { id: match.account.id, provider: match.account.provider }
     : undefined;
 }

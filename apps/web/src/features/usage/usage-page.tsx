@@ -1,25 +1,19 @@
 import { ArrowsClockwiseIcon, ChartBarIcon, DevicesIcon, XIcon } from "@phosphor-icons/react";
-import { ManagedAccountProvider } from "@ace/protocol/accounts";
 import {
   catalogModelIds,
   catalogModelNames,
   dayRange,
   formatAgo,
   previousSpan,
-  tightestProvider,
   usageAccounts,
   usageDay,
-  usageHeadroom,
   usageLimits,
   priceNote,
   usageMoney,
-  usageNow,
   usageQueryFilters,
   usageReport,
-  usageSuggestion,
   type MachineAccounts,
   type UsageFilter,
-  type UsageSuggestion,
 } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -40,7 +34,6 @@ import { listAutomations } from "@/features/automation-data/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { breakdownLists, breakdownNamer } from "./breakdown-lists.ts";
 import { LimitsView } from "./limits-view.tsx";
-import { NowLine } from "./now-line.tsx";
 import { SpendSection, type Metric } from "./spend-section.tsx";
 import { TokensSection } from "./tokens-section.tsx";
 import {
@@ -63,9 +56,9 @@ const periods: Record<Range, string> = { "1": "Today", "30": "Last 30 days", "90
 const all = "all";
 
 /**
- * Usage (`/usage`), one page top to bottom: Now (who has room, who is out), Limits per provider
- * and account, Spend, Tokens and Where it went. A row in Where it went (or a provider in the
- * legend) narrows the whole page to it through the usage queries' own filters.
+ * Usage (`/usage`), one page top to bottom: Limits per provider and account, Spend, Tokens and
+ * Where it went. A row in Where it went (or a provider in the legend) narrows the whole page to
+ * it through the usage queries' own filters.
  */
 export function UsagePage() {
   const now = useNow();
@@ -113,9 +106,6 @@ export function UsagePage() {
     filter?.kind === "provider" ? filter.key : undefined,
   ).filter((entry) => filter?.kind !== "account" || entry.account.id === filter.key);
   const limits = usageLimits(listed, now);
-  const headroom = usageHeadroom(limits);
-  const nowLine = usageNow(headroom, now);
-  const suggestion = usageSuggestion(headroom, tightestProvider(headroom)?.key);
   const days = useMemo(() => dayRange(span.from, span.to), [span.from, span.to]);
   const report = useMemo(
     () =>
@@ -167,21 +157,6 @@ export function UsagePage() {
       current?.kind === next.kind && current.key === next.key ? undefined : next,
     );
   };
-  const makeDefault = async (pick: UsageSuggestion) => {
-    const provider = ManagedAccountProvider.safeParse(pick.provider);
-    const machine = machineFor(pick.account.environmentId);
-    if (!provider.success || !machine?.client) throw new Error("Can't change this default");
-    await machine.client.request({
-      type: "accounts.setDefault",
-      provider: provider.data,
-      instanceId: pick.account.account.id,
-    });
-    await refresh();
-  };
-  const canDefault =
-    suggestion !== undefined &&
-    ManagedAccountProvider.safeParse(suggestion.provider).success &&
-    machineFor(suggestion.account.environmentId)?.client !== undefined;
   return (
     <Screen title="Usage">
       <div className="h-full overflow-auto">
@@ -243,13 +218,6 @@ export function UsagePage() {
               </button>
             </p>
           )}
-          <div className="mt-6">
-            <NowLine
-              line={nowLine}
-              suggestion={suggestion}
-              act={canDefault ? makeDefault : undefined}
-            />
-          </div>
           <SectionHeading id="usage-limits" title="Limits">
             {observedAt > 0 && <span>Updated {formatAgo(observedAt, now)}</span>}
             <button

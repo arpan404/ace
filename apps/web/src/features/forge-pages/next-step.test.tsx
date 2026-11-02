@@ -3,6 +3,7 @@ import { VerifyRun, WorkspaceId } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { listGroup } from "@/test/list-groups.ts";
 import { harness } from "@/test/harness.tsx";
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
@@ -35,7 +36,12 @@ const mine = (number: number, patch: Partial<PrSketch> = {}): PrSketch => ({
   ...patch,
 });
 
-const group = async (name: string) => within(await screen.findByRole("region", { name }));
+/** The rows under one of the list's group headings, once it is drawn. */
+const group = async (name: string) => {
+  const list = await screen.findByRole("navigation", { name: "Pull requests" });
+  await within(list).findByRole("heading", { name: new RegExp(`^${name}`) });
+  return listGroup(list, name);
+};
 const strip = () => within(screen.getByRole("status", { name: "Merge" }));
 
 test("a pull request waiting on the viewer's review shows Review, which opens its code", async () => {
@@ -78,7 +84,7 @@ test("a failing local check moves a ready pull request to Needs you with Fix che
   );
   const needs = await group("Needs you");
   expect(await needs.findByRole("button", { name: /^Fix checks: #302 / })).toBeTruthy();
-  expect(screen.queryByRole("region", { name: "Ready to merge" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: /^Ready to merge/ })).toBeNull();
 });
 
 test("selecting two ready pull requests and pressing Start sends one merge run with both heads in list order", async () => {
