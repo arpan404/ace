@@ -8,6 +8,7 @@ export const VisualizationTabData = z.object({
   bytes: z.number().check(z.int(), z.gte(1)),
   title: z.string().check(z.minLength(1), z.maxLength(160)),
   mode: z.optional(z.enum(["interactive", "static"])),
+  kit: z.optional(z.number().check(z.int(), z.gte(1))),
 });
 export type VisualizationTabData = z.infer<typeof VisualizationTabData>;
 
@@ -23,6 +24,7 @@ export function visualizationTab(visualization: HtmlVisualization): OpenRequest 
     bytes: visualization.document.bytes,
     title: visualization.title,
     ...(visualization.mode ? { mode: visualization.mode } : {}),
+    ...(visualization.kit ? { kit: visualization.kit } : {}),
   };
   return { kind: visualizationTabKind, id: data.sha256, title: data.title, data };
 }

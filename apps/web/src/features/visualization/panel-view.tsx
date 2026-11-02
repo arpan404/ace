@@ -56,6 +56,7 @@ function PanelPage(props: { threadId: string; data: VisualizationTabData }) {
           <HtmlFrame
             html={html}
             mode={mode}
+            kit={data.kit}
             title={data.title}
             theme={theme}
             initialHeight={160}
@@ -103,7 +104,7 @@ function PanelActions(props: { threadId: string; data: VisualizationTabData }) {
   // The same cached page the view draws.
   const { html } = usePageHtml(props.threadId, page);
   const mode = html === undefined ? "static" : resolveHtmlMode(html, data.mode);
-  const actions = usePageActions({ html, title: data.title, theme, mode });
+  const actions = usePageActions({ html, title: data.title, theme, mode, kit: data.kit });
   const disabled = html === undefined;
   return (
     <>

@@ -44,7 +44,7 @@ test("a published page's scripts run but cannot reach the app, navigate, open po
       document.getElementById('result').textContent = failures.length ? failures.join(',') : 'isolated and interactive';
       setTimeout(() => location.replace('${origin}/frame-navigation'), 100);
     </script></body></html>`;
-    const url = visualizationUrl(html, { foreground: "rgb(0, 0, 0)" }, "interactive");
+    const url = visualizationUrl(html, { foreground: "rgb(0, 0, 0)" }, "interactive", 2);
     await page.evaluate((src) => {
       const frame = document.createElement("iframe");
       frame.title = "Published chart";
@@ -72,6 +72,7 @@ test("an exported visualization runs its handlers inside the same sandbox", asyn
       '<!doctype html><html><body><button onclick="this.textContent=42">Count</button></body></html>',
       {},
       "interactive",
+      2,
     ),
   );
   const button = page.frameLocator("iframe").frameLocator("iframe").getByRole("button");
@@ -90,7 +91,7 @@ const scripted = `<!doctype html><html><body style="height:300px">
 test("a static visualization never runs its scripts but still fits its height", async ({
   page,
 }) => {
-  await page.setContent(visualizationWindow(scripted, {}, "static"));
+  await page.setContent(visualizationWindow(scripted, {}, "static", 2));
   const outer = page.frameLocator("iframe");
   const inner = outer.frameLocator("iframe");
   await expect(inner.getByRole("button")).toBeVisible();
@@ -103,7 +104,7 @@ test("a static visualization never runs its scripts but still fits its height", 
 });
 
 test("an interactive visualization runs the same page's scripts", async ({ page }) => {
-  await page.setContent(visualizationWindow(scripted, {}, "interactive"));
+  await page.setContent(visualizationWindow(scripted, {}, "interactive", 2));
   const inner = page.frameLocator("iframe").frameLocator("iframe");
   await expect(inner.locator("#ran")).toHaveText("svg script ran");
   await inner.getByRole("button").click();

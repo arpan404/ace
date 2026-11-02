@@ -49,7 +49,7 @@ function scripts(page: string): string[] {
 test("a static page keeps only the bridge, and its policy admits nothing else", () => {
   const html =
     '<!doctype html><html><body><button onclick="go()">Go</button><script>go()</script><svg><script>go()</script></svg></body></html>';
-  const page = framedPage(visualizationDocument(html, {}, "static"));
+  const page = framedPage(visualizationDocument(html, {}, "static", 2));
   const remaining = scripts(page);
   expect(page).not.toContain("onclick");
   expect(remaining).toHaveLength(1);
@@ -60,7 +60,7 @@ test("a static page keeps only the bridge, and its policy admits nothing else", 
   expect(staticHtmlCsp).not.toMatch(/script-src[^;]*unsafe/);
   expect(page).toContain(`script-src 'sha256-${hash}'`);
 
-  const interactive = framedPage(visualizationDocument(html, {}, "interactive"));
+  const interactive = framedPage(visualizationDocument(html, {}, "interactive", 2));
   expect(scripts(interactive)).toHaveLength(3);
   expect(interactive).toContain("onclick");
 });

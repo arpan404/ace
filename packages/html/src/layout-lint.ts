@@ -111,7 +111,7 @@ export function lintHtmlLayout(html: string): Diagnostic[] {
     const next = "tagName" in node ? [...ancestors, node] : ancestors;
     for (const child of node.childNodes) pending.push({ node: child, ancestors: next });
     if (!("tagName" in node)) continue;
-    if (node.tagName === "template") pending.push({ node: node.content, ancestors: next });
+    if ("content" in node) pending.push({ node: node.content, ancestors: next });
     if (node.tagName === "style") styles.push(textOf(node));
     if (node.tagName === "svg") svgs.push({ node, ancestors });
     const style = attribute(node, "style");

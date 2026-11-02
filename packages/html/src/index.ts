@@ -6,6 +6,7 @@ export {
   visualizationUrl,
   inlineVisualizationUrl,
   visualizationWindow,
+  styleKitVersion,
   themeMessage,
   htmlCsp,
   staticHtmlCsp,

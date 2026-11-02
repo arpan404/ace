@@ -12,6 +12,9 @@ export const HtmlHeight = z.number().int().min(80).max(2000);
  */
 export const HtmlMode = z.enum(["interactive", "static"]);
 export type HtmlMode = z.infer<typeof HtmlMode>;
+/** A version of the style kit every page is rendered with (`@ace/html` `styleKitVersion`). */
+export const HtmlStyleKit = z.number().int().min(1).max(1000);
+export type HtmlStyleKit = z.infer<typeof HtmlStyleKit>;
 export const HtmlPreviewInput = z.strictObject({ html: z.string().max(maxHtmlDocumentBytes + 1) });
 export const HtmlRenderInput = z.strictObject({
   title: z.string().min(1).max(160).regex(/\S/),
@@ -33,6 +36,11 @@ export const HtmlVisualization = z.object({
   height: HtmlHeight.optional(),
   /** Resolved and stored at publication; when absent, clients infer it by the same rule. */
   mode: HtmlMode.optional(),
+  /**
+   * The style kit the page was written against, stored at publication. Absent on pages from
+   * before the kit was versioned: they render with the first kit, whose classes are unprefixed.
+   */
+  kit: HtmlStyleKit.optional(),
 });
 export type HtmlVisualization = z.infer<typeof HtmlVisualization>;
 export const HtmlHeightMessage = z.strictObject({

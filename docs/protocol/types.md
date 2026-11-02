@@ -2663,7 +2663,6 @@ Example:
   },
   "id": "example",
   "nativeId": "example",
-  "raw": [],
   "runId": "example",
   "type": "html",
   "visualization": {
@@ -2675,6 +2674,7 @@ Example:
       "name": "example",
       "sha256": "7807e661d601c92e7220473793283ed54640bd53a0ffb9691fb5a3beb0068864"
     },
+    "kit": 8,
     "title": "example"
   }
 }
@@ -14766,6 +14766,18 @@ Example:
 }
 ```
 
+## HtmlStyleKit
+
+[JSON Schema](schema/HtmlStyleKit.json), input validation.
+
+Type: integer. See JSON Schema for constraints.
+
+Example:
+
+```json
+6
+```
+
 ## HtmlVisualization
 
 [JSON Schema](schema/HtmlVisualization.json), input validation.
@@ -14776,6 +14788,7 @@ Example:
 | document | yes | [Attachment.json](schema/Attachment.json) |  |
 | height | no | [HtmlHeight.json](schema/HtmlHeight.json) |  |
 | mode | no | [HtmlMode.json](schema/HtmlMode.json) |  |
+| kit | no | [HtmlStyleKit.json](schema/HtmlStyleKit.json) |  |
 
 Example:
 
@@ -14787,6 +14800,7 @@ Example:
     "name": "example",
     "sha256": "d5598bcb7e64166d03a9fc59bdbe6e10caae488f758594526226696890d3bb62"
   },
+  "kit": 5,
   "mode": "interactive",
   "title": "example"
 }
@@ -15741,6 +15755,7 @@ Example:
       "sha256": "60f651bd39d3cf4327862709bbe7735751a9111073b4f7c8742af294ee8755b3"
     },
     "height": 87,
+    "kit": 6,
     "title": "example"
   }
 }

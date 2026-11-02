@@ -1860,9 +1860,13 @@
       "bytes": 613,
       "sha256": "0dc1fd432c5f27adead21c1710e69ce10573aa2d3544143f2dbff72416bc771f"
     },
+    "schema/HtmlStyleKit.json": {
+      "bytes": 180,
+      "sha256": "3909f7dc4e0a4215c9ed95b70a91a15d5027d5a164d6f22ef896a2ad78ec2fb4"
+    },
     "schema/HtmlVisualization.json": {
-      "bytes": 564,
-      "sha256": "b5726a6c0e014add6a3ac46e6c87f30775d384702222a7ab93ff3f74a9dfc366"
+      "bytes": 648,
+      "sha256": "7536852c7c46afd2edfecf16aec451a61c7f18e02085016012b4a9ce68c71729"
     },
     "schema/IconRef.json": {
       "bytes": 170,
@@ -4645,10 +4649,10 @@
       "sha256": "5689abd9740d125fc925f514b8ad6da3bf4252fdd3934fbe5031dc92265ef181"
     },
     "types.md": {
-      "bytes": 957769,
-      "sha256": "778cf27dce9373cddea4c51b21cfd8048c0c82d8362903d536e3ddf8db9f430d"
+      "bytes": 958011,
+      "sha256": "c82e289a86d71154482a11bf6b80e4d257efe174b347f505aad652ffb7ce086b"
     }
   },
-  "input": "b406ed7bdfb099ae2171f2b8c849ab8045676ea762b2a78c0c436dee0b2486b6",
+  "input": "08d63a13e251177204755d98eaa7973ca086a14d693ad5a5a1cb18bafb72c6b6",
   "version": 1
 }

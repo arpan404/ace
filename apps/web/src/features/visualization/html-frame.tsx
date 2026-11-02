@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { HtmlHeightMessage, type HtmlMode } from "@ace/protocol";
+import { HtmlHeightMessage, type HtmlMode, type HtmlStyleKit } from "@ace/protocol";
 import {
   heightFromTitle,
   inlineVisualizationUrl,
@@ -30,6 +30,8 @@ export function HtmlFrame(props: {
   html: string;
   /** The agent's choice: `static` strips and blocks the page's scripts. */
   mode: HtmlMode;
+  /** The style kit the page was published against; absent on pages from before kits had versions. */
+  kit: HtmlStyleKit | undefined;
   title: string;
   theme: HtmlTheme;
   /** Height held until the page reports its own (the agent's hint, or a default). */
@@ -55,14 +57,14 @@ export function HtmlFrame(props: {
     html: props.html,
     mode: props.mode,
     fill: props.fill,
-    source: build(props.html, props.theme, props.mode),
+    source: build(props.html, props.theme, props.mode, props.kit),
   }));
   if (built.html !== props.html || built.mode !== props.mode || built.fill !== props.fill)
     setBuilt({
       html: props.html,
       mode: props.mode,
       fill: props.fill,
-      source: build(props.html, props.theme, props.mode),
+      source: build(props.html, props.theme, props.mode, props.kit),
     });
   const height = props.fill ? "100%" : `${Math.max(48, props.measured ?? props.initialHeight)}px`;
   const Surface = props.webview ? WebviewSurface : IframeSurface;
