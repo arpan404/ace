@@ -1,6 +1,7 @@
 import { BrowserPlacementReceipt } from "./contract.ts";
 import { z } from "zod";
 import { AceAccountOrigin } from "@ace/protocol/ace-account";
+import { MachineAccountStatus, MachineCode } from "@ace/protocol";
 import {
   AbsolutePath,
   AppInfo,
@@ -45,6 +46,16 @@ const ExternalUrl = z
   .url()
   .refine((value) => ["https:", "http:", "mailto:"].includes(new URL(value).protocol));
 
+/** What the renderer asks of this computer's daemon about its ace account (`daemon.account`). */
+export const MachineAccountRequest = z.discriminatedUnion("op", [
+  /** Sign this machine in with the app's own saved session for `origin`. */
+  z.object({ op: z.literal("signIn"), origin: AceAccountOrigin }),
+  z.object({ op: z.literal("signOut") }),
+  z.object({ op: z.literal("setCode"), code: MachineCode }),
+  z.object({ op: z.literal("clearCode") }),
+]);
+export type MachineAccountRequest = z.infer<typeof MachineAccountRequest>;
+
 /** Renderer → main requests. Every request and result is parsed on both sides. */
 export const requests = {
   "account.read": { request: AceAccountOrigin, result: z.string().nullable() },
@@ -58,6 +69,8 @@ export const requests = {
     }),
     result: None,
   },
+  /** This computer's daemon's ace account and machine code (ADR 0111). */
+  "daemon.account": { request: MachineAccountRequest, result: MachineAccountStatus },
   "keymap.update": {
     request: z
       .record(z.string().max(64), z.string().max(64))

@@ -1,6 +1,7 @@
 import { writableFolder } from "./browser/download-folder.ts";
 import { accountSecrets } from "./account-secrets.ts";
 import { handAccountToDaemon } from "./account-handover.ts";
+import { machineAccount } from "./machine-account.ts";
 import {
   app,
   BrowserWindow,
@@ -111,6 +112,8 @@ export function createHandlers(options: {
         .catch(() => {});
       return undefined;
     },
+    "daemon.account": async (request) =>
+      machineAccount(await options.connection(), request, (origin) => account.read(origin)),
     "keymap.update": (bindings) => {
       options.updateKeymap?.(bindings);
       return undefined;
