@@ -133,5 +133,6 @@ export {
   seedLongLists,
   seedSettledThreads,
   seedSnoozedThreads,
+  seedVariedSettledThreads,
   withLongAutomations,
 } from "./scenarios/long-lists.ts";

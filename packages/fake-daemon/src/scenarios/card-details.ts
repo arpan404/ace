@@ -9,7 +9,8 @@ import type { ThreadInit } from "../daemon.ts";
 
 const buildBox = { host: "build-box.local", name: "build-box" };
 
-interface Seed {
+/** What a seeded thread works on: its branch, pull request, checkout, machine and diff. */
+export interface CardSeed {
   branch: string;
   pr?: number;
   /** The PR merged, so the daemon settles the thread once it is done. */
@@ -19,7 +20,7 @@ interface Seed {
   diff?: [additions: number, deletions: number, files: number];
 }
 
-const seeds: Record<string, Seed> = {
+const seeds: Record<string, CardSeed> = {
   "thread-retry-budget": { branch: "fix/restart-retry", pr: 188, diff: [34, 1, 2] },
   "thread-sheet-rotate": { branch: "fix/sheet-rotate", remote: true },
   "thread-refund-tax": { branch: "fix/refund-tax", pr: 77, diff: [31, 18, 2] },
@@ -50,8 +51,9 @@ const seeds: Record<string, Seed> = {
   "thread-router": { branch: "docs/router" },
 };
 
-function details(
-  seed: Seed,
+/** A seed's card details for a thread in `workspaceId`, as the daemon projects them. */
+export function cardDetails(
+  seed: CardSeed,
   workspaceId: string,
   here: { host: string; name: string },
 ): NonNullable<Thread["details"]> {
@@ -98,5 +100,5 @@ export function withCardDetails(
       : thread;
   }
   const seed = Object.hasOwn(seeds, thread.id) ? seeds[thread.id] : undefined;
-  return seed ? { ...thread, details: details(seed, thread.workspaceId, machine) } : thread;
+  return seed ? { ...thread, details: cardDetails(seed, thread.workspaceId, machine) } : thread;
 }
