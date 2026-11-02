@@ -31,9 +31,6 @@ export function endPrompt(
           title: string(tool.data["title"]),
           item: tool.key,
           stoppable: false,
-          // An ACP agent only works inside a client's `session/prompt`; it never starts a turn
-          // itself when a shell exits, so it won't come back for this one (ADR 0109).
-          wakesAgent: false,
           raw: [...tool.raw],
         });
       }
