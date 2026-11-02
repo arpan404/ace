@@ -19,7 +19,7 @@ struct GlassBlock: ViewModifier {
             content
                 .environment(\.inGlassBlock, true)
                 .padding(Self.inset)
-                .aceGlass(in: AceShape.rounded(AceTheme.Radii.xl + Self.inset))
+                .aceGlass(in: AceDesign.Shape.container)
                 .padding(.horizontal, bar.composer)
                 .padding(.bottom, bar.bottom)
         } else {

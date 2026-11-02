@@ -109,8 +109,8 @@ private struct ComposerMediaThumb: View {
                 }
             }
             .frame(width: Self.side, height: Self.side)
-            .clipShape(AceShape.rounded(AceTheme.Radii.lg))
-            .contentShape(AceShape.rounded(AceTheme.Radii.lg))
+            .clipShape(AceDesign.Shape.block)
+            .contentShape(AceDesign.Shape.block)
         }
         .buttonStyle(.plain)
         .accessibilityLabel([file.name, length.map { "video, \($0)" }, file.state == "uploading" ? "uploading" : nil].compactMap { $0 }.joined(separator: ", "))

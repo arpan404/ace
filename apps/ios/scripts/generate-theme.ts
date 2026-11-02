@@ -148,13 +148,9 @@ for (const key of Object.keys(rowStatusColours.light) as (keyof typeof rowStatus
   );
 }
 lines.push("    }");
-/** DESIGN.md's radius scale: tags 4, small controls 6, rows 8, blocks 12, the composer 18. */
-const designRadii = new Set(["xs", "sm", "md", "lg", "xl"]);
-for (const group of ["spacing", "radii", "dimensions", "elevation"] as const) {
+for (const group of ["spacing", "dimensions", "elevation"] as const) {
   lines.push(`    enum ${group[0]?.toUpperCase()}${group.slice(1)} {`);
   for (const [key, value] of Object.entries(tokens[group])) {
-    // The phone keeps DESIGN.md's one radius scale; the older named radii are Android's.
-    if (group === "radii" && !designRadii.has(key)) continue;
     lines.push(`        static let ${key}: CGFloat = ${value}`);
   }
   lines.push("    }");
@@ -181,26 +177,32 @@ lines.push(
   "    struct TypeStyle: Sendable { let size: CGFloat; let lineHeight: CGFloat; let weight: CGFloat; let tracking: CGFloat }",
   "    enum Typography {",
 );
-for (const [key, value] of Object.entries(tokens.typography.typeScale))
+// The phone's five type roles (docs/design/design-language.md §3: large title 34, title 17, body
+// 15, meta 13, caption 11), two weights, under the names views already use. Sizes follow the
+// system's own text styles, so Dynamic Type scales them as it scales the system's.
+const phoneType: Record<string, { size: number; lineHeight: number; weight: number }> = {
+  largeTitle: { size: 34, lineHeight: 41, weight: 600 },
+  wordmark: { size: 34, lineHeight: 41, weight: 600 },
+  title: { size: 17, lineHeight: 22, weight: 600 },
+  body: { size: 17, lineHeight: 22, weight: 400 },
+  rowTitle: { size: 15, lineHeight: 20, weight: 400 },
+  label: { size: 15, lineHeight: 20, weight: 400 },
+  caption: { size: 13, lineHeight: 18, weight: 400 },
+  meta: { size: 13, lineHeight: 18, weight: 400 },
+  code: { size: 13, lineHeight: 18, weight: 400 },
+  small: { size: 11, lineHeight: 13, weight: 400 },
+};
+for (const [key, value] of Object.entries(phoneType))
   lines.push(
-    `        static let ${key} = TypeStyle(size: ${value.size}, lineHeight: ${value.lineHeight}, weight: ${value.weight}, tracking: ${value.letterSpacing})`,
+    `        static let ${key} = TypeStyle(size: ${value.size}, lineHeight: ${value.lineHeight}, weight: ${value.weight}, tracking: 0)`,
   );
 lines.push(`    }
+    /// Two weights: regular, and semibold for what needs the person and emphasis.
     static func fontWeight(_ value: CGFloat) -> Font.Weight {
-        switch value {
-        case 500: .medium
-        case 600: .semibold
-        case 700: .bold
-        default: .regular
-        }
+        value >= 600 ? .semibold : .regular
     }
     static func uiFont(_ style: TypeStyle, relativeTo: UIFont.TextStyle, traits: UITraitCollection) -> UIFont {
-        let weight: UIFont.Weight = switch style.weight {
-        case 500: .medium
-        case 600: .semibold
-        case 700: .bold
-        default: .regular
-        }
+        let weight: UIFont.Weight = style.weight >= 600 ? .semibold : .regular
         return UIFontMetrics(forTextStyle: relativeTo).scaledFont(for: .systemFont(ofSize: style.size, weight: weight), compatibleWith: traits)
     }
     static func inputAttributes(traits: UITraitCollection) -> [NSAttributedString.Key: Any] {

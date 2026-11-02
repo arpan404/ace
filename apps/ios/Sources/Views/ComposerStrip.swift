@@ -20,7 +20,7 @@ struct StripSurface<Content: View>: View {
         .scrollIndicators(.hidden)
         .frame(maxHeight: maxHeight)
         .fixedSize(horizontal: false, vertical: true)
-        .containerShape(shape)
+        .concentricContainer()
         .background(GroupedSurface.colour, in: shape)
         .padding(.horizontal, ReadingColumn.bar(sizeClass).composer)
         .padding(.bottom, AceTheme.Spacing.sm)
@@ -40,7 +40,7 @@ enum GroupedSurface {
 enum StripMetrics {
     /// Insets inside the surface (a command, a plan) sit `lg` in from its edge, so their corners
     /// are the surface's less that.
-    static let insetRadius = AceShape.nested(in: AceTheme.Radii.xl, inset: AceTheme.Spacing.lg)
+    static let insetRadius = AceDesign.Corner.nested(in: AceDesign.Corner.containerFloor, inset: AceDesign.Space.margin)
 }
 
 /// One row of a request's grouped list: a hairline above every row but the first, the name on

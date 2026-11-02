@@ -66,7 +66,7 @@ struct NewSkillView: View {
                             }
                         }
                         .clipShape(AceShape.group)
-                        .overlay(AceShape.group.strokeBorder(AceTheme.Colours.fill, lineWidth: 1.5))
+                        .overlay(AceShape.group.stroke(AceTheme.Colours.fill, lineWidth: 1.5))
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
                         .accessibilityIdentifier("skill.new.body")

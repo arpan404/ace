@@ -234,7 +234,7 @@ struct StreamStatsCard: View {
         }
         .monospacedDigit()
         .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
-        .aceGlass(in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
+        .aceGlass(in: AceDesign.Shape.container)
         .padding(AceTheme.Spacing.md)
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)

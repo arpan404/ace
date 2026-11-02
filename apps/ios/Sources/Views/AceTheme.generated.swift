@@ -639,13 +639,6 @@ import UIKit
         static let xxl: CGFloat = 24
         static let xxxl: CGFloat = 32
     }
-    enum Radii {
-        static let xs: CGFloat = 4
-        static let sm: CGFloat = 6
-        static let md: CGFloat = 8
-        static let lg: CGFloat = 12
-        static let xl: CGFloat = 18
-    }
     enum Dimensions {
         static let touchTarget: CGFloat = 48
         static let statusDot: CGFloat = 7
@@ -681,29 +674,23 @@ import UIKit
     }
     struct TypeStyle: Sendable { let size: CGFloat; let lineHeight: CGFloat; let weight: CGFloat; let tracking: CGFloat }
     enum Typography {
-        static let caption = TypeStyle(size: 13, lineHeight: 17, weight: 400, tracking: 0)
-        static let label = TypeStyle(size: 14, lineHeight: 19, weight: 500, tracking: 0)
-        static let body = TypeStyle(size: 16, lineHeight: 23, weight: 400, tracking: -0.16)
-        static let rowTitle = TypeStyle(size: 17, lineHeight: 22, weight: 500, tracking: -0.17)
-        static let title = TypeStyle(size: 18, lineHeight: 23, weight: 700, tracking: -0.18)
-        static let wordmark = TypeStyle(size: 25, lineHeight: 30, weight: 700, tracking: -0.5)
-        static let code = TypeStyle(size: 13, lineHeight: 19, weight: 400, tracking: 0)
+        static let largeTitle = TypeStyle(size: 34, lineHeight: 41, weight: 600, tracking: 0)
+        static let wordmark = TypeStyle(size: 34, lineHeight: 41, weight: 600, tracking: 0)
+        static let title = TypeStyle(size: 17, lineHeight: 22, weight: 600, tracking: 0)
+        static let body = TypeStyle(size: 17, lineHeight: 22, weight: 400, tracking: 0)
+        static let rowTitle = TypeStyle(size: 15, lineHeight: 20, weight: 400, tracking: 0)
+        static let label = TypeStyle(size: 15, lineHeight: 20, weight: 400, tracking: 0)
+        static let caption = TypeStyle(size: 13, lineHeight: 18, weight: 400, tracking: 0)
+        static let meta = TypeStyle(size: 13, lineHeight: 18, weight: 400, tracking: 0)
+        static let code = TypeStyle(size: 13, lineHeight: 18, weight: 400, tracking: 0)
+        static let small = TypeStyle(size: 11, lineHeight: 13, weight: 400, tracking: 0)
     }
+    /// Two weights: regular, and semibold for what needs the person and emphasis.
     static func fontWeight(_ value: CGFloat) -> Font.Weight {
-        switch value {
-        case 500: .medium
-        case 600: .semibold
-        case 700: .bold
-        default: .regular
-        }
+        value >= 600 ? .semibold : .regular
     }
     static func uiFont(_ style: TypeStyle, relativeTo: UIFont.TextStyle, traits: UITraitCollection) -> UIFont {
-        let weight: UIFont.Weight = switch style.weight {
-        case 500: .medium
-        case 600: .semibold
-        case 700: .bold
-        default: .regular
-        }
+        let weight: UIFont.Weight = style.weight >= 600 ? .semibold : .regular
         return UIFontMetrics(forTextStyle: relativeTo).scaledFont(for: .systemFont(ofSize: style.size, weight: weight), compatibleWith: traits)
     }
     static func inputAttributes(traits: UITraitCollection) -> [NSAttributedString.Key: Any] {

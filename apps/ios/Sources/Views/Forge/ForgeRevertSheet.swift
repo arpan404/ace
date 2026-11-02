@@ -30,7 +30,7 @@ struct ForgeRevertSheet: View {
                     TextField("Title", text: $title)
                         .aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .padding(AceTheme.Spacing.md)
-                        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
+                        .background(AceTheme.Colours.fill, in: AceDesign.Shape.field)
                         .accessibilityIdentifier("forge.revert.title")
                     ForgeEditor(text: $body_, placeholder: "Description", minLines: 5)
                         .accessibilityIdentifier("forge.revert.body")

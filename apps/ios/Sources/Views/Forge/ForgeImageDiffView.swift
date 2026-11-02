@@ -30,7 +30,7 @@ struct ForgeImageDiffView: View {
                 }
             } else {
                 AceTheme.Colours.fill.aspectRatio(16 / 9, contentMode: .fit)
-                    .clipShape(AceShape.rounded(AceTheme.Radii.sm))
+                    .clipShape(AceDesign.Shape.block)
                     .overlay(ProgressView())
             }
         }
@@ -71,8 +71,8 @@ struct ForgeImageDiffView: View {
     private func figure(_ image: UIImage, label: String, size: Int?) -> some View {
         VStack(spacing: AceTheme.Spacing.xs) {
             Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
-                .clipShape(AceShape.rounded(AceTheme.Radii.sm))
-                .overlay(AceShape.rounded(AceTheme.Radii.sm).strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+                .clipShape(AceDesign.Shape.block)
+                .overlay(AceDesign.Shape.block.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
                 .accessibilityLabel("\(route.path ?? "Image") \(label.lowercased())")
             Text(size.map { "\(label) · \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))" } ?? label)
                 .meta().monospacedDigit()
@@ -101,7 +101,7 @@ struct ForgeImageDiffView: View {
                 })
             }
             .aspectRatio(after.size.width / max(1, after.size.height), contentMode: .fit)
-            .clipShape(AceShape.rounded(AceTheme.Radii.sm))
+            .clipShape(AceDesign.Shape.block)
             Slider(value: $reveal, in: 0...1) { Text("Swipe between before and after") }
                 .accessibilityValue("\(Int(reveal * 100)) percent before")
                 .accessibilityIdentifier("forge.image.swipe")

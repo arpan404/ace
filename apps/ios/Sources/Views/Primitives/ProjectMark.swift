@@ -43,7 +43,7 @@ struct ProjectMark: View {
         }
         .foregroundStyle(ink)
         .frame(width: width, height: height)
-        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.xs, style: .continuous))
+        .background(AceTheme.Colours.fill, in: AceDesign.Shape.control)
     }
 }
 
@@ -55,11 +55,11 @@ private struct ProjectArtworkMark: View {
         Group {
             if let image = artwork.image {
                 Image(uiImage: image).resizable().scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: AceTheme.Radii.xs, style: .continuous))
+                    .clipShape(AceDesign.Shape.control)
                     .grayscale(1)
                     .opacity(quiet ? 0.5 : 1)
             } else {
-                RoundedRectangle(cornerRadius: AceTheme.Radii.xs, style: .continuous).fill(AceTheme.Colours.fill)
+                AceDesign.Shape.control.fill(AceTheme.Colours.fill)
             }
         }
         .onAppear { artwork.load() }

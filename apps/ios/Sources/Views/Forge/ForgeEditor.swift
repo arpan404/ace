@@ -19,7 +19,7 @@ struct ForgeEditor: View {
                 .aceFont(AceTheme.Typography.body, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .padding(AceTheme.Spacing.md)
-                .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
+                .background(AceTheme.Colours.fill, in: AceDesign.Shape.field)
                 .accessibilityIdentifier("forge.editor")
             if !suggestions.isEmpty { list }
         }

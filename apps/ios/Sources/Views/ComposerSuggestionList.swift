@@ -46,7 +46,7 @@ struct ComposerSuggestionList: View {
         }
         .aceFont(AceTheme.Typography.body, relativeTo: .body)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .containerShape(shape)
+        .concentricContainer()
         .background(GroupedSurface.colour, in: shape)
         .padding(.bottom, AceTheme.Spacing.sm)
         .accessibilityIdentifier("composer.suggestions")

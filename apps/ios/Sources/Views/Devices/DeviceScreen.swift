@@ -95,7 +95,7 @@ struct DeviceScreen: View {
                         // The picture wears the device's own bezel: one frame, not two.
                         stageScreen(info, size: size)
                             .aspectRatio(size, contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: screenOnly && info.framed != true ? AceTheme.Radii.xl : 0, style: .continuous))
+                            .clipShape(screenOnly && info.framed != true ? AceDesign.Shape.block : AnyShape(Rectangle()))
                             .frame(maxWidth: room.width, maxHeight: room.height)
                             .transition(.opacity)
                     } else if let look = chromeLook(info, picture: size) {

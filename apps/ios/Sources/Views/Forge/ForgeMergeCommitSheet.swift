@@ -24,7 +24,7 @@ struct ForgeMergeCommitSheet: View {
                     TextField("Commit title", text: commitTitle)
                         .aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .padding(AceTheme.Spacing.md)
-                        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
+                        .background(AceTheme.Colours.fill, in: AceDesign.Shape.field)
                         .accessibilityIdentifier("forge.commit.title")
                     ForgeEditor(text: commitMessage, placeholder: "Commit message", minLines: 4)
                 }

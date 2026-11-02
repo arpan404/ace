@@ -60,7 +60,7 @@ struct ForgeNewPullSheet: View {
                     TextField("Title", text: $title)
                         .aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .padding(AceTheme.Spacing.md)
-                        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
+                        .background(AceTheme.Colours.fill, in: AceDesign.Shape.field)
                         .accessibilityIdentifier("forge.newpr.title")
                     ForgeEditor(text: $body_, placeholder: "Description", minLines: 4,
                                 completer: ForgeCompleter(client: client, project: project, repository: context.repository, on: nil))

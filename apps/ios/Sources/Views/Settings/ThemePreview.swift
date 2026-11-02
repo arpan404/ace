@@ -9,7 +9,6 @@ struct ThemePreview: View {
     let scheme: ColorScheme
     @Environment(\.aceDensityId) private var densityId
     static let height: CGFloat = 104
-    static let radius = AceTheme.Radii.lg
 
     var body: some View {
         let compact = densityId == "compact"
@@ -22,8 +21,8 @@ struct ThemePreview: View {
         .padding(AceTheme.Spacing.sm)
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height)
         .background(colour("background"))
-        .clipShape(RoundedRectangle(cornerRadius: Self.radius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Self.radius, style: .continuous).strokeBorder(colour("separator"), lineWidth: AceTheme.Dimensions.border))
+        .clipShape(AceDesign.Shape.block)
+        .overlay(AceDesign.Shape.block.stroke(colour("separator"), lineWidth: AceTheme.Dimensions.border))
         // Status colours are the same in every theme; they resolve in the preview's scheme.
         .environment(\.colorScheme, scheme)
         .accessibilityHidden(true)
@@ -40,7 +39,7 @@ struct ThemePreview: View {
         }
         .padding(.horizontal, AceTheme.Spacing.xs)
         .frame(height: compact ? 11 : 14)
-        .background(row == 0 ? colour("fill") : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.xs, style: .continuous))
+        .background(row == 0 ? colour("fill") : .clear, in: AceDesign.Shape.control)
     }
 
     private var composer: some View {
@@ -80,8 +79,8 @@ struct PickerCard<Preview: View>: View {
                 preview()
                     .padding(AceTheme.Spacing.xs)
                     .overlay {
-                        RoundedRectangle(cornerRadius: ThemePreview.radius + AceTheme.Spacing.xs, style: .continuous)
-                            .strokeBorder(AceTheme.Colours.accent, lineWidth: 2)
+                        AceDesign.Shape.container
+                            .stroke(AceTheme.Colours.accent, lineWidth: 2)
                             .opacity(selected ? 1 : 0)
                     }
                 Text(name)

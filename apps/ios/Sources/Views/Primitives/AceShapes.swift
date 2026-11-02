@@ -1,45 +1,36 @@
 import SwiftUI
 
-/// Every corner in the app, in one place, the way iOS 26 rounds things: controls are capsules,
+/// Every corner in the app, named for what it is and drawn from `AceDesign`: controls are capsules,
 /// surfaces that grow with their text are capsules until they wrap, and containers nest
 /// concentrically inside their parent and the display (DESIGN.md §2: inner radius = outer radius
 /// − the inset between them). Views name a shape from here and never write a radius of their own.
 @MainActor enum AceShape {
     /// Buttons, pills, chips, toasts, search and one-line fields, pressed fills on small text actions.
-    static let capsule = Capsule(style: .continuous)
-    /// The composer and its strip, and the fields inside cards that take several lines: a full
-    /// capsule while one line tall, then the composer's radius.
-    static let field = TextCapsule(maxRadius: AceTheme.Radii.xl)
-    /// The composer's box (the words and its controls row): the composer's radius.
-    static let composerBox = rounded(AceTheme.Radii.xl)
-    /// The request above the composer: a grouped list at the composer's radius.
-    static let group = rounded(AceTheme.Radii.xl)
-    /// The person's message: a capsule for a short line, the bubble radius once it wraps.
-    static let bubble = TextCapsule(maxRadius: AceTheme.Radii.lg)
-    /// Code inside the person's message: concentric with the bubble's padding.
-    static let bubbleInset = rounded(nested(in: AceTheme.Radii.lg, inset: AceTheme.Spacing.md))
-    /// Code blocks, cards and screenshots: the content block radius.
-    static let block = rounded(AceTheme.Radii.lg)
-    /// A row's pressed or selected fill: this radius on iOS 18, and the floor of its concentric
-    /// corners on iOS 26.
-    static let rowRadius = AceTheme.Radii.lg
-    /// The tiny drawn glyphs (the Stop square, a file-status box, the tab count): radius scales
-    /// with the glyph, never a capsule.
-    static let stopGlyph = rounded(AceTheme.Radii.xs / 2)
-    static let glyph = rounded(AceTheme.Radii.sm)
+    static let capsule = AceDesign.Shape.control
+    /// The composer's field and anything that grows with its text: a capsule while one line
+    /// tall, then concentric with its container.
+    static let field = AceDesign.Shape.field
+    /// A container: the composer block, a strip, a grouped list, a sheet's surface.
+    static var group: AnyShape { AceDesign.Shape.container }
+    /// The person's message: a capsule for a short line, then concentric with the page.
+    static let bubble = AceDesign.Shape.bubble
+    /// Code inside the person's message: concentric with the bubble.
+    static var bubbleInset: AnyShape { AceDesign.Shape.container }
+    /// Code blocks, images, diffs on the page: concentric with the screen at the margin.
+    static var block: AnyShape { AceDesign.Shape.block }
+    /// A row's pressed or chosen fill: concentric with the list it sits in.
+    static let rowRadius = AceDesign.Corner.containerFloor
+    /// The tiny drawn glyphs (the Stop square, a file-status box): their corner scales with the
+    /// glyph, part of its drawing rather than a UI radius.
+    static let stopGlyph = RoundedRectangle(cornerRadius: AceDesign.Corner.glyphStop, style: .continuous)
+    static let glyph = RoundedRectangle(cornerRadius: AceDesign.Corner.glyph, style: .continuous)
 
-    /// A fixed corner, always continuous like the system's own.
-    static func rounded(_ radius: CGFloat) -> RoundedRectangle {
-        RoundedRectangle(cornerRadius: radius, style: .continuous)
-    }
-    /// The concentric radius inside `outer` at `inset` from its edge, never sharper than `xs`.
+    /// The concentric radius inside `outer` at `inset` from its edge.
     nonisolated static func nested(in outer: CGFloat, inset: CGFloat) -> CGFloat {
-        max(outer - inset, AceTheme.Radii.xs)
+        AceDesign.Corner.nested(in: outer, inset: inset)
     }
 }
 
-/// A capsule whose radius stops growing at `maxRadius`, so a one-line surface is fully round and a
-/// tall one keeps sensible corners instead of turning into a lozenge.
 struct TextCapsule: InsettableShape {
     var maxRadius: CGFloat
     var inset: CGFloat = 0
@@ -73,7 +64,7 @@ extension View {
         if #available(iOS 26, *) {
             self.background(style, in: ConcentricRectangle.aceUniform(minimum))
         } else {
-            self.background(style, in: AceShape.rounded(minimum))
+            self.background(style, in: RoundedRectangle(cornerRadius: minimum, style: .continuous))
         }
     }
 
@@ -82,7 +73,7 @@ extension View {
         if #available(iOS 26, *) {
             self.overlay(ConcentricRectangle.aceUniform(minimum).stroke(style, lineWidth: lineWidth))
         } else {
-            self.overlay(AceShape.rounded(minimum).strokeBorder(style, lineWidth: lineWidth))
+            self.overlay(RoundedRectangle(cornerRadius: minimum, style: .continuous).strokeBorder(style, lineWidth: lineWidth))
         }
     }
 
@@ -91,7 +82,7 @@ extension View {
         if #available(iOS 26, *) {
             self.contentShape(ConcentricRectangle.aceUniform(minimum))
         } else {
-            self.contentShape(AceShape.rounded(minimum))
+            self.contentShape(RoundedRectangle(cornerRadius: minimum, style: .continuous))
         }
     }
 }
