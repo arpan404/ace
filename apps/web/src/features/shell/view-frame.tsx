@@ -8,7 +8,8 @@ import {
   type ReactNode,
 } from "react";
 import { useSidebarInline } from "@/lib/breakpoints.ts";
-import { PanelTitle, PanelTitleRow } from "@/components/ui/panel.tsx";
+import { PanelSearch, PanelTitle, PanelTitleRow } from "@/components/ui/panel.tsx";
+import { PanelTitleSearch } from "@/components/ui/panel-title-search.tsx";
 import { Screen } from "./screen.tsx";
 import { useViewFrame } from "./sidebar-frame.tsx";
 
@@ -117,6 +118,11 @@ function ListActions(props: { children: ReactNode }) {
 export function ViewSidebar(props: {
   title?: string;
   actions?: ReactNode;
+  /**
+   * The panel's search: a magnifier at the title row's end that opens a field in place
+   * (`PanelTitleSearch`). As a page, with no title row, the field sits under the actions.
+   */
+  search?: { label: string; query: string; onQuery(query: string): void } | undefined;
   /** Fixed rows under the heading: the panel's search (`PanelSearch`), New automation. */
   toolbar?: ReactNode;
   children: ReactNode;
@@ -125,10 +131,26 @@ export function ViewSidebar(props: {
   const title = useContext(InPageContext) ? undefined : props.title;
   return (
     <>
-      {title ? (
+      {title && props.search ? (
+        <PanelTitleSearch
+          title={title}
+          label={props.search.label}
+          query={props.search.query}
+          onQuery={props.search.onQuery}
+          actions={props.actions}
+        />
+      ) : title ? (
         <PanelHeader title={title} actions={props.actions} />
       ) : (
         props.actions && <ListActions>{props.actions}</ListActions>
+      )}
+      {!title && props.search && (
+        <PanelSearch
+          label={props.search.label}
+          placeholder={props.search.label}
+          value={props.search.query}
+          onValueChange={props.search.onQuery}
+        />
       )}
       {props.toolbar}
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-4">{props.children}</div>

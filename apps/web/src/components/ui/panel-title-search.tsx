@@ -1,5 +1,5 @@
 import { MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { PanelTitleRow, panelTitleText } from "@/components/ui/panel.tsx";
@@ -9,13 +9,22 @@ import { cn } from "@/lib/cn.ts";
 const motion = "duration-(--motion-base) ease-(--ease-out) motion-reduce:transition-none";
 
 /**
- * The Threads panel's title row with its own search. At rest: "Threads" and a magnifier. The
- * magnifier opens the search in place: the title fades out as the magnifier's box grows left
- * into a field across the row, its input focused, with × at its end. Typing narrows the panel's
- * threads (`query`). × clears and closes; Esc clears the text, then closes; leaving an empty field
- * closes it. ⌘K stays the palette, which searches everything.
+ * A panel's title row with its own search (Threads, Automations, Skills). At rest: the title,
+ * the panel's actions, then a magnifier at the row's end. The magnifier opens the search in
+ * place: the title and actions fade out as the magnifier's box grows left into a field across
+ * the row, its input focused, with × at its end. Typing narrows the panel's list (`query`). ×
+ * clears and closes; Esc clears the text, then closes; leaving an empty field closes it. ⌘K
+ * stays the palette, which searches everything.
  */
-export function ThreadsTitle(props: { query: string; onQuery(query: string): void }) {
+export function PanelTitleSearch(props: {
+  title: string;
+  /** The field's name and placeholder: "Search threads". */
+  label: string;
+  query: string;
+  onQuery(query: string): void;
+  /** The panel's own actions (New automation, Add a skill), before the magnifier. */
+  actions?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
@@ -32,17 +41,18 @@ export function ThreadsTitle(props: { query: string; onQuery(query: string): voi
   };
   return (
     <PanelTitleRow className="relative">
-      <h2
+      <div
         aria-hidden={open || undefined}
+        inert={open}
         className={cn(
-          "flex-1 pl-2 transition-[opacity,translate]",
-          panelTitleText,
+          "flex min-w-0 flex-1 items-center gap-1 transition-[opacity,translate]",
           motion,
           open && "pointer-events-none -translate-x-1 opacity-0",
         )}
       >
-        Threads
-      </h2>
+        <h2 className={cn("min-w-0 flex-1 pl-2", panelTitleText)}>{props.title}</h2>
+        {props.actions}
+      </div>
       {/* Room for the magnifier while closed; the field itself floats over the row. */}
       <span aria-hidden className="size-8 shrink-0" />
       <div
@@ -64,11 +74,11 @@ export function ThreadsTitle(props: { query: string; onQuery(query: string): voi
             <Icon icon={MagnifyingGlassIcon} size={16} />
           </span>
         ) : (
-          <Tip label="Search threads">
+          <Tip label={props.label}>
             <button
               ref={toggle}
               type="button"
-              aria-label="Search threads"
+              aria-label={props.label}
               onClick={() => setOpen(true)}
               className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit touch-hit-lg hover:bg-hover hover:text-foreground"
             >
@@ -79,8 +89,8 @@ export function ThreadsTitle(props: { query: string; onQuery(query: string): voi
         <input
           ref={input}
           type="search"
-          aria-label="Search threads"
-          placeholder="Search threads"
+          aria-label={props.label}
+          placeholder={props.label}
           tabIndex={open ? 0 : -1}
           aria-hidden={!open || undefined}
           value={props.query}

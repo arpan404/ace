@@ -47,6 +47,14 @@ export function PanelSearch(props: ComponentProps<typeof SearchField>) {
   );
 }
 
+/**
+ * A search that matches nothing: one quiet line where the rows would be ("No skills match."),
+ * lined up with a row's text. The field's × clears it, so it needs no button.
+ */
+export function PanelNoMatch(props: { children: ReactNode }) {
+  return <p className="px-2.5 pt-2 text-ui text-subtle-foreground">{props.children}</p>;
+}
+
 /** One row's line: `--row-height`, inset, rounded; the fills come with `panelRow`. */
 export const panelRowLine =
   "flex h-(--row-height) w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left text-md transition-colors duration-(--motion-fast) focus-ring-inset";

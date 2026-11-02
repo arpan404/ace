@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { listGroup } from "@/test/list-groups.ts";
+import { openPanelSearch } from "@/test/panel-search.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -66,10 +67,10 @@ test("Skills opens on the first skill with its source from the plugin", async ()
   ).toBeTruthy();
 });
 
-test("searching matches the plugin a skill ships with, and a miss offers to clear the search", async () => {
+test("searching matches the plugin a skill ships with, and a miss says so until × clears it", async () => {
   await open("/skills");
   await screen.findByRole("navigation", { name: "Skills catalog" });
-  const search = screen.getByRole("searchbox", { name: "Search skills" });
+  const search = await openPanelSearch("Search skills");
 
   await userEvent.type(search, "PR");
   await waitFor(() => expect(within(catalog()).queryByText("Test-driven development")).toBeNull());
@@ -82,8 +83,8 @@ test("searching matches the plugin a skill ships with, and a miss offers to clea
 
   await userEvent.clear(search);
   await userEvent.type(search, "zzzz");
-  expect(await screen.findByText('Nothing matches "zzzz".')).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Clear search" }));
+  expect(await screen.findByText("No skills match.")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Close search" }));
   expect(within(catalog()).getByText("Release notes")).toBeTruthy();
 });
 
@@ -111,7 +112,7 @@ test("a group folds under its heading and searching opens every group", async ()
   await waitFor(() =>
     expect(within(catalog()).queryByRole("link", { name: /^Engineering reviewer/ })).toBeNull(),
   );
-  await userEvent.type(screen.getByRole("searchbox", { name: "Search skills" }), "review");
+  await userEvent.type(await openPanelSearch("Search skills"), "review");
   expect(within(catalog()).getByRole("link", { name: /^Engineering reviewer/ })).toBeTruthy();
 });
 

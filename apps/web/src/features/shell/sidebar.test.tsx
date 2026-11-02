@@ -454,7 +454,7 @@ test("Skills, Automations, Settings and GitHub panels share one title row and on
     {
       path: "/automations",
       name: "Automations",
-      action: { role: "searchbox", name: "Search automations" },
+      action: { role: "button", name: "Search automations" },
     },
     {
       path: "/settings/general",
@@ -470,9 +470,11 @@ test("Skills, Automations, Settings and GitHub panels share one title row and on
     expect(await sidebar.findByRole("heading", { level: 2, name: panel.name })).toBeTruthy();
     if (panel.action)
       expect(sidebar.getByRole(panel.action.role, { name: panel.action.name })).toBeTruthy();
-    // Every row is the shared panel row.
+    // Every row is the shared panel row (the title row's own actions, New automation, aren't rows).
     const links = await waitFor(() => {
-      const found = sidebar.getAllByRole("link");
+      const found = sidebar
+        .getAllByRole("link")
+        .filter((link) => !link.closest('[data-slot="panel-top"]'));
       expect(found.length).toBeGreaterThan(0);
       return found;
     });

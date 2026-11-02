@@ -2,7 +2,7 @@ import { useSidebarLoaded } from "@ace/client-react";
 import { ChatsCircleIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { PanelSearch, PanelTitleRow } from "@/components/ui/panel.tsx";
+import { PanelNoMatch, PanelSearch, PanelTitleRow } from "@/components/ui/panel.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useOrganizer, useOverlaidMachineEntries } from "@/features/organize/index.ts";
@@ -87,7 +87,9 @@ export function ChatsSidebar() {
             }
           />
         ) : searching && !chats.rows.length ? (
-          <p className="px-4 pt-4 text-ui text-subtle-foreground">No chats match.</p>
+          <div className="px-2">
+            <PanelNoMatch>No chats match.</PanelNoMatch>
+          </div>
         ) : (
           <FoundHits value={chats.hits}>
             <ThreadList

@@ -11,8 +11,9 @@ const rows = () =>
   [...threads().querySelectorAll<HTMLElement>("[data-row-focus]")].map(
     (row) => row.getAttribute("aria-label")?.split(". ")[0] ?? "",
   );
-/** The panel's title, which steps aside (aria-hidden) while the search is open. */
+/** The panel's title, which steps aside (hidden with its row) while the search is open. */
 const heading = () => screen.getByText("Threads", { selector: "h2" });
+const titleHidden = () => heading().closest("[aria-hidden=true]") !== null;
 
 async function openHome() {
   const app = harness();
@@ -29,7 +30,7 @@ test("the title's search opens in place, narrows the Inbox forgiving a typo, and
   // The title steps aside for the field, which takes the typing at once.
   const field = screen.getByRole("searchbox", { name: "Search threads" });
   expect(document.activeElement).toBe(field);
-  expect(heading().getAttribute("aria-hidden")).toBe("true");
+  expect(titleHidden()).toBe(true);
 
   await userEvent.type(field, "retyr budget");
   await waitFor(() => expect(rows()).toEqual(["Retry budget for app-server restarts"]));
@@ -38,7 +39,7 @@ test("the title's search opens in place, narrows the Inbox forgiving a typo, and
   await waitFor(() => expect(rows()).toEqual(all));
   // Closed, the field leaves the page's reading order and the title returns.
   expect(screen.queryByRole("searchbox", { name: "Search threads" })).toBeNull();
-  expect(heading().getAttribute("aria-hidden")).toBeNull();
+  expect(titleHidden()).toBe(false);
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Search threads" }));
 });
 
@@ -47,11 +48,11 @@ test("Esc clears the search first, then closes it; nothing matching says so", as
   await userEvent.click(screen.getByRole("button", { name: "Search threads" }));
   const field = screen.getByRole("searchbox", { name: "Search threads" });
   await userEvent.type(field, "zzzz qqqq");
-  expect(await within(threads()).findByText("No threads match")).toBeTruthy();
+  expect(await within(threads()).findByText("No threads match.")).toBeTruthy();
 
   await userEvent.keyboard("{Escape}");
   expect(field).toHaveProperty("value", "");
   await waitFor(() => expect(rows().length).toBeGreaterThan(1));
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(heading().getAttribute("aria-hidden")).toBeNull());
+  await waitFor(() => expect(titleHidden()).toBe(false));
 });

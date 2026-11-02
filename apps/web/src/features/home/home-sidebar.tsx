@@ -4,7 +4,7 @@ import { useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import { Suspense, useMemo, useState, type KeyboardEvent } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { panelIconButton } from "@/components/ui/panel.tsx";
+import { panelIconButton, PanelNoMatch } from "@/components/ui/panel.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
@@ -26,7 +26,7 @@ import { useSettledSearch, useThreadHits, type SearchHit } from "./use-panel-sea
 import { FoundHits } from "./found-row.tsx";
 import { PanelPagingContext, usePanelRows } from "./use-panel-rows.ts";
 import { ThreadsTabs } from "./threads-tabs.tsx";
-import { ThreadsTitle } from "./threads-title.tsx";
+import { PanelTitleSearch } from "@/components/ui/panel-title-search.tsx";
 import {
   useOrganizer,
   useOrganizerState,
@@ -99,7 +99,7 @@ export function HomeSidebar() {
       : undefined;
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <ThreadsTitle query={query} onQuery={setQuery} />
+      <PanelTitleSearch title="Threads" label="Search threads" query={query} onQuery={setQuery} />
       <div className="flex h-8 shrink-0 items-center gap-1 pr-2.5 pl-2">
         <ProjectFilter />
         <NewThreadButton />
@@ -127,23 +127,25 @@ export function HomeSidebar() {
         )}
         {!loaded ? (
           skeleton && <ListSkeleton label="threads" shape="thread" />
+        ) : empty && searching ? (
+          <div className="px-2">
+            <PanelNoMatch>No threads match.</PanelNoMatch>
+          </div>
         ) : empty ? (
           <>
             <EmptyState
               className="shrink-0 justify-start pt-6"
               icon={tab === "inbox" ? TrayIcon : tab === "snoozed" ? ClockIcon : CheckIcon}
-              title={searching ? "No threads match" : emptyTitle(tab, narrowed, none)}
+              title={emptyTitle(tab, narrowed, none)}
               description={
-                searching
+                tab !== "inbox"
                   ? undefined
-                  : tab !== "inbox"
-                    ? undefined
-                    : none && !narrowed
-                      ? `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
-                      : "Nothing needs you, and nothing is running."
+                  : none && !narrowed
+                    ? `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
+                    : "Nothing needs you, and nothing is running."
               }
               action={
-                searching ? undefined : project ? (
+                project ? (
                   <button
                     type="button"
                     className="text-ui font-medium text-foreground underline-offset-4 hover:underline"

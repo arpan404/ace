@@ -91,8 +91,10 @@ export function ComputerUseMark(props: { threadId: string }) {
 }
 
 /**
- * State is also spoken, so the PR's colour is never the only clue. `ink="muted"` (rows) draws it
- * in the surrounding muted ink; the hover card keeps the state's colour.
+ * A thread's pull request: its state's glyph (the merge glyph once merged) in the state's colour,
+ * everywhere it shows, so a row and its hover card always agree. `ink="muted"` (rows) keeps the
+ * number in the surrounding muted ink; elsewhere it takes the state's colour too. State is also
+ * spoken, so the colour is never the only clue.
  */
 export function PullRequest(props: { card: ThreadCard; ink?: "state" | "muted" | undefined }) {
   const { pr, prState } = props.card;
@@ -104,7 +106,7 @@ export function PullRequest(props: { card: ThreadCard; ink?: "state" | "muted" |
   const label = `${prState ?? "Linked"} pull request #${pr}${more > 0 ? `, ${more} more linked` : ""}`;
   const content = (
     <>
-      <PullRequestGlyph state={props.ink === "muted" ? undefined : prState} size={12} />#{pr}
+      <PullRequestGlyph state={prState} size={12} />#{pr}
       {more > 0 && <span>+{more}</span>}
     </>
   );

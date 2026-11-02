@@ -14,8 +14,6 @@ import { useRef, useState } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { SlashIcon } from "@/components/slash-icon.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
@@ -27,7 +25,7 @@ import {
 } from "@/components/ui/menu.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { VirtualList, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
-import { PanelDisclosure, PanelRowBody, panelRow, PanelSearch } from "@/components/ui/panel.tsx";
+import { PanelDisclosure, PanelNoMatch, PanelRowBody, panelRow } from "@/components/ui/panel.tsx";
 import { useViewListKeys, ViewSidebarError } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { useSkillLibrary } from "./skills-library.tsx";
@@ -120,30 +118,14 @@ export function SkillsSidebar() {
           <AddMenu />
         </>
       }
-      toolbar={
-        <PanelSearch
-          label="Search skills"
-          placeholder="Search skills"
-          value={query}
-          onValueChange={setQuery}
-        />
-      }
+      search={{ label: "Search skills", query, onQuery: setQuery }}
     >
       {skills.isError ? (
         <ViewSidebarError onRetry={() => void skills.refetch()} />
       ) : !skills.data ? (
         <ListSkeleton label="skills" shape="row" rows={5} />
       ) : !skills.data.length ? null : !shown.length ? (
-        <EmptyState
-          variant="inline"
-          title="No matching skills"
-          description={`Nothing matches "${query.trim()}".`}
-          action={
-            <Button size="sm" variant="ghost" onClick={() => setQuery("")}>
-              Clear search
-            </Button>
-          }
-        />
+        <PanelNoMatch>No skills match.</PanelNoMatch>
       ) : (
         <nav aria-label="Skills catalog" {...listKeys}>
           <VirtualList

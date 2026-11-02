@@ -21,6 +21,8 @@ const palette = async () => {
   return screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 });
 };
 const options = () => screen.getAllByRole("option").map((option) => option.textContent ?? "");
+/** One of the palette's tabs: All, Actions, Threads, Chats, Messages. */
+const tab = (name: string) => screen.getByRole("tab", { name });
 
 test("⌘K finds a thread by its branch and opens it", async () => {
   await openApp();
@@ -226,7 +228,6 @@ test("an empty palette opens clean: Quick actions, then recent threads, the last
 test("the tabs narrow the palette, and the keyboard reaches them from the field", async () => {
   await openApp();
   const search = await palette();
-  const tab = (name: string) => screen.getByRole("tab", { name });
   expect(tab("All").getAttribute("aria-selected")).toBe("true");
   // Tab moves to the next tab; the field keeps the caret.
   await userEvent.keyboard("{Tab}");
