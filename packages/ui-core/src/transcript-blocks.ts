@@ -69,6 +69,8 @@ export type Block =
       folded?: Block[] | undefined;
       /** The completed turn's answer (every message after its last step), below its head. */
       answerIds?: string[] | undefined;
+      /** Nothing behind the head to open (a paused turn that took no step): plain text. */
+      bare?: boolean | undefined;
     }
   /** The newest turn's one live line ("Working for …"), at the end of its flow, until it settles. */
   | { kind: "live"; key: string; askId: string | undefined }
@@ -998,6 +1000,9 @@ export function buildBlocks(source: BlockSource): Block[] {
         }
         if (folded.length) head.folded = folded;
         if (answers.length) head.answerIds = answers;
+        // A paused turn that took no step and said nothing before the limit has nothing behind
+        // its head: the line stands alone, as plain text.
+        if (turn.paused && !first && !folded.length) head.bare = true;
       }
     }
     if (turn.edits.length)
