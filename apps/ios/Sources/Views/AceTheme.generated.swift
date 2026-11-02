@@ -620,6 +620,14 @@ import UIKit
         static let done = adaptive(0x007856, 0x57BD9B)
         static let failed = adaptive(0xA3233A, 0xE4697D)
     }
+    @MainActor enum RowStatus {
+        static let needsYou = adaptive(0xAD7200, 0xEDB250)
+        static let failed = adaptive(0xC93A33, 0xF47670)
+        static let working = adaptive(0x3D63A6, 0x7E9FD6)
+        static let waiting = adaptive(0x6A55A8, 0xA08FD4)
+        static let background = adaptive(0x6B7380, 0x7E8692)
+        static let finished = adaptive(0x2E7D4F, 0x6CBF8C)
+    }
     enum Spacing {
         static let none: CGFloat = 0
         static let xxs: CGFloat = 2

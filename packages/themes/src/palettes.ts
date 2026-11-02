@@ -19,7 +19,7 @@ import type {
 } from "./types.ts";
 
 export { rampSteps } from "./types.ts";
-export { sharedStatus } from "./status.ts";
+export { rowStatusColours, sharedStatus, type RowStatusColour } from "./status.ts";
 export type {
   Accent,
   Base,

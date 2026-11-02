@@ -8,6 +8,7 @@ import {
   phoneAccentIds,
   phoneColourRoles,
   phoneOverrides,
+  rowStatusColours,
   themeIds,
   themes,
   transcriptScale,
@@ -138,6 +139,15 @@ for (const group of ["status", "statusText"] as const) {
   }
   lines.push("    }");
 }
+// Thread-row status icons (`@ace/themes` rowStatusColours), as the web's `--row-status-*`.
+lines.push("    @MainActor enum RowStatus {");
+for (const key of Object.keys(rowStatusColours.light) as (keyof typeof rowStatusColours.light)[]) {
+  const name = key.replace(/-(.)/g, (_, c: string) => c.toUpperCase());
+  lines.push(
+    `        static let ${name} = adaptive(0x${hex(rowStatusColours.light[key])}, 0x${hex(rowStatusColours.dark[key])})`,
+  );
+}
+lines.push("    }");
 for (const group of ["spacing", "radii", "dimensions", "elevation"] as const) {
   lines.push(`    enum ${group[0]?.toUpperCase()}${group.slice(1)} {`);
   for (const [key, value] of Object.entries(tokens[group]))
