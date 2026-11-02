@@ -4,6 +4,8 @@ import {
   threadMenuLabels,
   threadMenuSection,
   threadsTabs,
+  emptyInboxLine,
+  emptyTabTitle,
   type AccountView,
   type ThreadMenuId,
   type HomeSort,
@@ -116,17 +118,16 @@ export function inboxLayout(
       order: inboxGroupRank(section.key),
     })),
     /**
-     * Inbox, Snoozed and Settled in order, each with the threads it counts on this machine
-     * (Settled counts what the daemon pages too; unsent sends are not threads) and, for the
-     * Inbox, how many need the person: the tab's dot. The app adds machines up.
+     * Inbox, Snoozed and Settled in order (the sections say which rows each lists): what an
+     * empty one says, and the Inbox threads that need the person, which light its dot. The app
+     * keeps those its filter shows.
      */
     tabs: threadsTabs.map(({ id, label }) => ({
       id,
       label,
-      count: sections
-        .filter((section) => section.tab === id && section.key !== "unsent")
-        .reduce((sum, section) => sum + section.total, 0),
-      needsYou: id === "inbox" ? needsYou : 0,
+      empty: emptyTabTitle(id, undefined, false),
+      emptyLine: id === "inbox" ? emptyInboxLine : null,
+      needsYou: id === "inbox" ? needsYou : [],
     })),
     more,
     snooze: snoozePresets(now).map((preset) => ({ id: preset.id, label: preset.label })),

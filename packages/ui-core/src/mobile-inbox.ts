@@ -318,19 +318,19 @@ export function inboxSectionTab(key: InboxGroupKey): ThreadsTab {
 }
 
 /**
- * How many Inbox threads wait on a request from the person, for the Inbox tab's dot. As the
- * desktop counts them: unpinned threads whose status needs them, and none from a copy the
- * daemon hasn't confirmed, whose statuses may be stale. A request outranks a snooze, so a
- * snoozed thread that asks is counted here.
+ * The Inbox threads that wait on a request from the person, for the Inbox tab's dot, in the
+ * order given. As the desktop picks them: unpinned threads whose status needs them, and none
+ * from a copy the daemon hasn't confirmed, whose statuses may be stale. A request outranks a
+ * snooze, so a snoozed thread that asks is among them.
  */
-export function inboxNeedsYou(threads: Iterable<InboxThread>, now: number): number {
-  let count = 0;
+export function inboxNeedsYou(threads: Iterable<InboxThread>, now: number): string[] {
+  const keys: string[] = [];
   for (const thread of threads) {
     if (thread.unconfirmed || thread.entry.pinned === true) continue;
     if (thread.entry.status.state !== "needs_you") continue;
-    if (inboxGroup(thread, now) === "needs-you") count++;
+    if (inboxGroup(thread, now) === "needs-you") keys.push(thread.key);
   }
-  return count;
+  return keys;
 }
 
 /** The live groups the desktop's bands reorder; pinned, syncing, snoozed and settled stay. */

@@ -20,7 +20,7 @@ import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 /*
  * The phone's Threads screen has the desktop's three tabs (ADR 0107): Inbox, Snoozed and
  * Settled. Each section the bridge sends names the tab that lists it, and the layout carries
- * every tab's count and the Inbox's needs-you count for its dot.
+ * every tab and the Inbox threads that need the person, which light its dot.
  */
 
 const closers: (() => Promise<void> | void)[] = [];
@@ -107,7 +107,7 @@ async function following(seed: (daemon: FakeDaemon) => void) {
 
 type Layout = {
   sections: { key: string; tab: string; ids: string[] }[];
-  tabs: { id: string; label: string; count: number; needsYou: number }[];
+  tabs: { id: string; label: string; empty: string; needsYou: string[] }[];
 };
 const layout = (sink: RecordingSink) => sink.read("inbox:sections") as Layout | undefined;
 /** The thread ids each tab lists, section by section in order, as the phone draws them. */
@@ -140,10 +140,10 @@ test("each tab lists its own threads: live and pinned in Inbox, snoozed with its
   expect(row(sink, "nap")?.snoozedUntil).toBe(wakesAt);
   expect(row(sink, "done")?.look.settled).toBe(true);
   expect(row(sink, "live")?.look.settled).toBe(false);
-  expect(layout(sink)?.tabs).toEqual([
-    { id: "inbox", label: "Inbox", count: 2, needsYou: 0 },
-    { id: "snoozed", label: "Snoozed", count: 1, needsYou: 0 },
-    { id: "settled", label: "Settled", count: 1, needsYou: 0 },
+  expect(layout(sink)?.tabs.map(({ id, label, needsYou }) => ({ id, label, needsYou }))).toEqual([
+    { id: "inbox", label: "Inbox", needsYou: [] },
+    { id: "snoozed", label: "Snoozed", needsYou: [] },
+    { id: "settled", label: "Settled", needsYou: [] },
   ]);
 });
 
@@ -154,13 +154,13 @@ test("a snoozed thread that asks for the person comes back to the Inbox and ligh
     finished(machine, "other");
   });
   await until(() => tabs(sink).snoozed.includes("quiet"), "the snooze");
-  expect(layout(sink)?.tabs[0]).toMatchObject({ id: "inbox", needsYou: 0 });
+  expect(layout(sink)?.tabs[0]).toMatchObject({ id: "inbox", needsYou: [] });
 
   asking(daemon, "asks");
   snooze(daemon, "asks");
   await until(() => tabs(sink).inbox.includes("asks"), "the request");
   expect(tabs(sink).snoozed).toEqual(["quiet"]);
-  expect(layout(sink)?.tabs[0]).toMatchObject({ id: "inbox", count: 2, needsYou: 1 });
+  expect(layout(sink)?.tabs[0]).toMatchObject({ id: "inbox", needsYou: ["asks"] });
 });
 
 test("a pinned thread the person settles rests in Settled, not among the pinned", async () => {
