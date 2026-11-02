@@ -74,16 +74,18 @@ export function ThreadsTabs(props: {
       }}
     >
       {/*
-       * The one selection indicator. Same fill and corner as the rail's current place
-       * (`railPlaceClass` in components/rail-place.ts, used by app-rail.tsx): a solid
-       * `--active` box in `rounded-md`, never a circle or a ring. It sits under the open
-       * tab and slides on transform only; see threads-tabs.css.
+       * The one selection indicator. A solid-feeling foreground wash (`--pill-thumb`,
+       * living with the theme in theme/tokens.ts): the rail's `--active` is tuned for
+       * the opaque rail and almost vanishes on the translucent pill, so the thumb takes
+       * 8% foreground in light, 14% in dark. Same `rounded-md` corner as the rail's
+       * current place, never a circle or a ring. It sits under the open tab and slides
+       * on transform only; see threads-tabs.css.
        */}
       <span
         aria-hidden
         data-selected-index={index}
         style={{ "--i": index } as CSSProperties}
-        className="threads-tabs-thumb absolute top-1 left-1 size-7 rounded-md bg-active"
+        className="threads-tabs-thumb absolute top-1 left-1 size-7 rounded-md bg-(--pill-thumb)"
       />
       {threadsTabs.map(({ id }) => {
         const current = id === props.tab;
