@@ -8,6 +8,9 @@ import { activeDevice, allows, type Devices } from "./devices.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import type { MachineAccount } from "./account-access/machine-account.ts";
 import { relayHello } from "./relay-hello.ts";
+import type { RelayedMain } from "./relay-socket.ts";
+import { AccessError } from "./remote-auth.ts";
+import type { ClientMessage, PairResult } from "@ace/protocol";
 
 /** The production host composes authenticated relay frames with the same file service. */
 export async function startFilesRelay(
@@ -25,9 +28,13 @@ export async function startFilesRelay(
       | { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string }
       | undefined;
     onRefused?: ((error: RelayRefusedError) => void) | undefined;
+    /** Serves a main conversation channel (a hello without `channel`). */
+    relayMain?: ((entry: RelayedMain) => void) | undefined;
   },
 ) {
   const clients = new Map<HostChannel, string>();
+  // Main channels close on revocation in the main-socket handler, with its close code.
+  const mains = new Set<HostChannel>();
   // Account devices keep access only while the machine stays on their account and they hold
   // the current machine code.
   const accountClients = new Map<HostChannel, () => boolean>();
@@ -48,7 +55,11 @@ export async function startFilesRelay(
       ...(options.onRefused ? { onRefused: options.onRefused } : {}),
       async onClientChannel(channel) {
         const hello = await channel.receive();
-        if (hello.type !== "hello" || clients.size >= 64) {
+        if (hello.type === "pair.redeem") {
+          await redeemPairing(channel, hello, options.auth);
+          return;
+        }
+        if (hello.type !== "hello" || clients.size + mains.size >= 64) {
           channel.close();
           return;
         }
@@ -59,6 +70,34 @@ export async function startFilesRelay(
           return;
         }
         const device = admitted.device;
+        if (hello.channel === undefined) {
+          const actor = mainActor(device.id, admitted.stillAdmitted, options);
+          if (!actor || !options.relayMain) {
+            await channel
+              .send({ type: "error", code: "unauthorized", message: "Valid hello required" })
+              .catch(() => {});
+            channel.close();
+            return;
+          }
+          channel.authorize();
+          mains.add(channel);
+          if (admitted.stillAdmitted) accountClients.set(channel, admitted.stillAdmitted);
+          try {
+            options.relayMain({
+              channel,
+              hello: JSON.stringify(hello),
+              actor,
+              stillAdmitted: admitted.stillAdmitted,
+              account: admitted.account,
+              deflate: hello.compression?.includes("deflate-raw") === true,
+            });
+            await channel.closed;
+          } finally {
+            mains.delete(channel);
+            accountClients.delete(channel);
+          }
+          return;
+        }
         channel.authorize();
         clients.set(channel, device.id);
         if (admitted.stillAdmitted) accountClients.set(channel, admitted.stillAdmitted);
@@ -124,4 +163,63 @@ export async function startFilesRelay(
   } finally {
     clearTimeout(deadline);
   }
+}
+
+/**
+ * Who a relayed main channel speaks for: a paired device with its stored scopes (never the
+ * desktop app's local-only credential), or an account device holding admin while it stays
+ * admitted (ADR 0111).
+ */
+function mainActor(
+  id: RelayedMain["actor"]["id"],
+  stillAdmitted: (() => boolean) | undefined,
+  options: { auth: RemoteAuth; devices: Devices },
+): RelayedMain["actor"] | undefined {
+  if (stillAdmitted) {
+    const now = options.auth.now();
+    return {
+      id,
+      name: "ace account device",
+      scopes: ["admin"],
+      createdAt: now,
+      lastSeenAt: now,
+      revokedAt: null,
+      revocable: false,
+    };
+  }
+  const device = options.devices.get(id);
+  if (!activeDevice(device, options.auth.now())) return undefined;
+  if (device.scopes.includes("desktop") || device.scopes.includes("user-browser")) return undefined;
+  return { ...device, scopes: [...device.scopes], revocable: true };
+}
+
+/**
+ * Redeem a pairing code that came through a self-hosted relay (ADR 0070): the same single-use,
+ * five-minute code and host-chosen scopes as `POST /v1/pair`, rate limited together as one
+ * source. The answer is the channel's only message; nothing about it is logged.
+ */
+async function redeemPairing(
+  channel: HostChannel,
+  request: Extract<ClientMessage, { type: "pair.redeem" }>,
+  auth: RemoteAuth,
+): Promise<void> {
+  let result: PairResult["result"];
+  try {
+    auth.pairingAttempt("relay");
+    result = { ok: true, ...auth.redeem(request.code, request.name) };
+  } catch (error) {
+    const status = error instanceof AccessError ? error.status : 500;
+    result =
+      status === 429
+        ? {
+            ok: false,
+            error: "rate_limited",
+            message: "Too many pairing attempts. Try again in a minute.",
+          }
+        : status === 401
+          ? { ok: false, error: "invalid", message: "That pairing code is wrong, used or expired." }
+          : { ok: false, error: "unavailable", message: "Couldn't pair right now. Try again." };
+  }
+  await channel.send({ type: "pair.result", result }).catch(() => {});
+  channel.close();
 }

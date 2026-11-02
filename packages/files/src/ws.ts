@@ -3,9 +3,22 @@ import { WebSocket } from "ws";
 import { attachFilesChannel } from "./socket.ts";
 import type { FilesService } from "./service.ts";
 
+/** What a files socket uses: a ws socket, or a daemon socket that behaves like one. */
+export interface FilesSocket {
+  readonly readyState: number;
+  readonly bufferedAmount: number;
+  send(
+    data: string | Buffer,
+    options: { binary?: boolean },
+    callback: (error?: Error) => void,
+  ): void;
+  once(event: "close", listener: () => void): unknown;
+  off(event: "close", listener: () => void): unknown;
+  terminate(): void;
+}
 export function attachFilesSocket(
   service: FilesService,
-  socket: WebSocket,
+  socket: FilesSocket,
   device: string,
   authorize: (
     capability: "files.read" | "files.write",

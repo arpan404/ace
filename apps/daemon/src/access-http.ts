@@ -48,7 +48,7 @@ export interface AccessHttpOptions {
   shutdown?: import("./shutdown-receipt.ts").ShutdownControl;
   auth: RemoteAuth;
   authenticate: (token: string) => Device | undefined;
-  pairing: () => { origin: string; fingerprint: string } | undefined;
+  pairing: () => import("./pairing-issue.ts").PairingConnection | undefined;
   /** Origins whose pages may read the cross-origin routes. */
   allowedOrigins: ReadonlySet<string>;
   /** Origin of the web app new pairing links open; the daemon's own when it resolves undefined. */
@@ -131,7 +131,7 @@ export function accessHttp({
             running: true,
             ready: ready(),
             version,
-            remote: pairing() ?? null,
+            remote: directPairing(pairing()) ?? null,
             ...(remoteStatus ? { remoteAccess: remoteStatus() } : {}),
             ...(serviceStatus ? { services: serviceStatus() } : {}),
             ...(eventLoop ? { eventLoop: eventLoop() } : {}),
@@ -241,4 +241,13 @@ async function accountRoute(
   }
   if (path === "/v1/ace-account" && request.method === "DELETE") return account.signOut();
   throw new AccessError(405, "Unsupported method");
+}
+
+/** The daemon's own HTTPS address and pin for status; a relay route is reported apart. */
+function directPairing(
+  connection: import("./pairing-issue.ts").PairingConnection | undefined,
+): { origin: string; fingerprint: string } | undefined {
+  return connection?.origin === undefined
+    ? undefined
+    : { origin: connection.origin, fingerprint: connection.fingerprint };
 }

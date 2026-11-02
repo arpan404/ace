@@ -8,6 +8,8 @@ export type RelayAdmission =
       device: { id: DeviceId };
       /** For an account device: whether it still holds access (account, machine code). */
       stillAdmitted?: () => boolean;
+      /** For an account device: the ace account its grant names. */
+      account?: string;
       refusal?: undefined;
     }
   | { device?: undefined; refusal?: Extract<ServerMessage, { type: "error" }> };
@@ -35,6 +37,7 @@ export async function relayHello(
     const machine = options.account;
     return {
       device: { id: hello.deviceId },
+      account,
       stillAdmitted: () => machine?.stillAdmitted(hello.deviceId, account) === true,
     };
   }
