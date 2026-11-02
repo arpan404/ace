@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// The tabs of the home screen. `compose` is the detached New thread button, never a page.
-enum InboxTab: Hashable { case threads, pulls, compose }
+enum InboxTab: Hashable { case threads, chats, pulls, compose }
 
 /// The single inbox (issue #560) across every paired machine, in a system tab bar: Threads,
-/// Pulls (the web's Pull requests and Issues lists) and the detached New thread button. Grouping
+/// Chats (plain chats with no project, ADR 0099), Pulls (the web's Pull requests and Issues lists) and the detached New thread button. Grouping
 /// and wording come from each machine's runtime. A row and its thread belong to their machine.
 struct InboxView: View {
     @Environment(\.aceReduceMotion) private var reduceMotion
@@ -18,6 +18,7 @@ struct InboxView: View {
     @State private var tab = InboxTab.threads
     @State private var threadsPath: [InboxRoute] = []
     @State private var pullsPath: [InboxRoute] = []
+    @State private var chatsPath: [InboxRoute] = []
     /// Each tab's list as a drawer over its open page in a compact window (`ThreadDrawer`).
     @State private var threadsDrawer = ThreadDrawer()
     @State private var pullsDrawer = ThreadDrawer()
@@ -117,6 +118,7 @@ struct InboxView: View {
     private var tabs: some View {
         TabView(selection: $tab) {
             Tab("Threads", systemImage: "text.bubble", value: InboxTab.threads) { stack(.threads, path: $threadsPath) }
+            Tab("Chats", systemImage: "bubble.left.and.bubble.right", value: InboxTab.chats) { chats }
             Tab("Pulls", image: "tab-pulls", value: InboxTab.pulls) { stack(.pulls, path: $pullsPath) }
             if inbox.canStartThreads {
                 Tab("New thread", systemImage: "square.and.pencil", value: InboxTab.compose, role: Self.detachedRole) { Color.clear }
@@ -148,6 +150,7 @@ struct InboxView: View {
             if threadsPath.isEmpty { openThread(key) }
         }
         .onChange(of: pullsPath) { old, new in pathChanged(.pulls, old: old, new: new) }
+        .onChange(of: chatsPath) { old, new in pathChanged(.chats, old: old, new: new) }
         .environment(\.otherMachines, otherMachines)
         .sensoryFeedback(.success, trigger: settles)
         // Bulk actions, deletes, moves and Mark unread confirm with the same tap.
@@ -240,6 +243,25 @@ struct InboxView: View {
         }
     }
 
+    /// The Chats tab: its list and the chats it opens in the thread view, on its own stack.
+    private var chats: some View {
+        ChatsStack(inbox: inbox, path: $chatsPath,
+                   actions: ChatsActions(open: { key in openThread(key) },
+                                         newChat: {
+                                             composeProject = NewThreadDraft.chat
+                                             startThread()
+                                         },
+                                         rename: { key in renamingRow = key },
+                                         settings: { settingsStart = []; showingSettings = true },
+                                         machines: { settingsStart = [.machines]; showingSettings = true })) { key in
+            if let client = inbox.client(key.machineId) {
+                ThreadPage(client: client, id: key.id) { child in
+                    client.open(child); chatsPath.append(.thread(InboxKey(machineId: key.machineId, id: child)))
+                }
+            }
+        }
+    }
+
     private var actions: InboxRowActions {
         // Each row action first holds off row taps for a moment (`RowTapGuard`).
         let acted = { rowTaps.acted(at: ProcessInfo.processInfo.systemUptime) }
@@ -322,6 +344,7 @@ struct InboxView: View {
         case "archive": if let row { actions.archive(row, key) }
         case "restore": Task { _ = await client.unarchive(key.id) }
         case "delete": Task { await organize.askDelete([key], in: inbox) }
+        case "rename": renamingRow = key
         case "copy-link": UIPasteboard.general.string = AceLink.thread(key.id, machine: client.hostId).absoluteString
         case "new-on-main":
             composeProject = row?.workspaceId
@@ -376,6 +399,19 @@ struct InboxView: View {
         // Shown from anywhere (a notification, a transfer, a row), the thread shows with its
         // drawer in. Already showing, it is not opened again: that would restart its session.
         withAnimation(reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring) { threadsDrawer.close() }
+        // A chat opens on the Chats tab, in the same thread view.
+        if client.inbox[key.id]?.chat == true {
+            tab = .chats
+            if chatsPath == [.thread(key)], openMachine == key.machineId { return }
+            if let openMachine, openMachine != key.machineId { inbox.client(openMachine)?.back() }
+            if openTab == .threads { threadsPath = [] }
+            openMachine = key.machineId
+            openTab = .chats
+            client.open(key.id)
+            chatsPath = [.thread(key)]
+            return
+        }
+        if openTab == .chats { chatsPath = [] }
         tab = .threads
         if threadsPath == [.thread(key)], openMachine == key.machineId { return }
         if let openMachine, openMachine != key.machineId { inbox.client(openMachine)?.back() }

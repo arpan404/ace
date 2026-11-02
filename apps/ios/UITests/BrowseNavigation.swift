@@ -19,6 +19,12 @@ extension XCUIApplication {
         XCTAssertTrue(control.waitForExistence(timeout: timeout), "\(identifier) never showed in the composer")
         return control
     }
+    /// The thread's model pill under its title (`thread.model`), or its effort part (`thread.effort`).
+    @MainActor @discardableResult func threadModelPill(_ identifier: String = "thread.model", timeout: TimeInterval = 15) -> XCUIElement {
+        let control = buttons[identifier]
+        XCTAssertTrue(control.waitForExistence(timeout: timeout), "\(identifier) never showed under the thread's title")
+        return control
+    }
     /// An item of the thread's ⋯ panel. iOS 27 drops a menu item's identifier and keeps its label,
     /// so the item is found by either. Secondary actions are grouped in native menus.
     @MainActor func threadMenuItem(_ identifier: String) -> XCUIElement {

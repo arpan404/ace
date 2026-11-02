@@ -22,6 +22,7 @@ final class MachineSession: Identifiable {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let now: () -> Double
     @ObservationIgnored private var memo: (inputs: [(String, InboxLayout)], merged: MergedInbox)?
+    @ObservationIgnored private var chatMemo: (inputs: [(String, InboxLayout)], merged: MergedInbox)?
     @ObservationIgnored private var projectCache = ProjectChoiceCache()
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Double) {
@@ -77,6 +78,15 @@ final class MachineSession: Identifiable {
            zip(memo.inputs, inputs).allSatisfy({ $0.0 == $1.0 && $0.1 == $1.1 }) { return memo.merged }
         let merged = MergedInbox.merge(inputs.map { (machineId: $0.0, layout: $0.1) })
         memo = (inputs, merged)
+        return merged
+    }
+    /// Every machine's chats (the Chats tab), merged by rank as the inbox is.
+    var mergedChats: MergedInbox {
+        let inputs = sessions.map { ($0.hostId, $0.client.chatLayout) }
+        if let chatMemo, chatMemo.inputs.count == inputs.count,
+           zip(chatMemo.inputs, inputs).allSatisfy({ $0.0 == $1.0 && $0.1 == $1.1 }) { return chatMemo.merged }
+        let merged = MergedInbox.merge(inputs.map { (machineId: $0.0, layout: $0.1) })
+        chatMemo = (inputs, merged)
         return merged
     }
     /// The machines' Sort threads setting, as the menu shows it: the first machine in `scope`

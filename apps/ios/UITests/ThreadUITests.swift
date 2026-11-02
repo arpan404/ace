@@ -46,7 +46,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Writing the PID-reuse regression."].waitForExistence(timeout: 10))
         screenshot("thread-agent-lane")
         app.buttons["Done"].tap()
-        app.composerControl("composer.model").tap()
+        app.threadModelPill().tap()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
         sleep(2)
         screenshot("thread-models")

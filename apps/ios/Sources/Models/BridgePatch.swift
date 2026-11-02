@@ -57,6 +57,9 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// Inbox rows only: what its menus offer, in order, by the shared rules (`threadMenu`);
     /// the words are the layout's `menuLabels`. Nil from older bridges.
     var menu: [String]? = nil
+    /// A chat's row menu in the Chats tab (Rename, Pin or Unpin, Move, Delete); nil for a
+    /// project thread and from older bridges.
+    var chatMenu: [String]? = nil
 }
 /// How an inbox row reads, by the web's Home row rule (`rowAttention`): the attention level,
 /// the status word (none at rest: the row shows its age), its tone and glyph, and whether the
@@ -73,6 +76,17 @@ struct RowLook: Codable, Sendable, Equatable {
     let subagents: Int
     /// A finished result not yet opened, or marked unread by hand; nil from older bridges.
     var unread: Bool? = nil
+    /// The desktop row's status mark (`rowStatusLook`): which icon ("approve", "working",
+    /// "agents"… or "none"), the colour it draws in, the count an `agents` icon holds, what sits
+    /// beside it ("icon" alone, "elapsed", "age" or a quiet "word") and the state in words for
+    /// VoiceOver. Nil from older bridges.
+    var icon: String? = nil
+    var iconTone: String? = nil
+    var count: Int? = nil
+    var mode: String? = nil
+    var meaning: String? = nil
+    /// Only a thread that needs the person sets its title in semibold.
+    var strong: Bool? = nil
     /// The word takes its tone's colour unless the row mutes; waiting never does.
     var loud: Bool { !muted && tone != "waiting" }
 }
@@ -198,6 +212,8 @@ struct InboxLayout: Codable, Sendable, Equatable {
         var order: Int? = nil
         /// Threads in the section, loaded or not: Settled counts the daemon's older pages too.
         var total: Int? = nil
+        /// Chats only: the section's rows are settled and draw dimmed.
+        var settled: Bool? = nil
         var id: String { key }
     }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
@@ -274,6 +290,8 @@ enum BridgePatch: Decodable, Sendable {
     case models(String, Int, ThreadModels)
     case queue(String, Int, QueueRow)
     case inboxSections(InboxLayout)
+    /// The Chats tab's sections, in the inbox layout's shape (`chats.sections`).
+    case chatSections(InboxLayout)
     case problem(ProblemNotice?)
     case machineStatus(MachineStatusInfo)
     case machineProviders(MachineProvidersInfo)
@@ -394,6 +412,7 @@ enum BridgePatch: Decodable, Sendable {
             let (id, epoch) = try scope()
             self = .models(id, epoch, try ThreadModels(from: decoder))
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
+        case "chats.sections": self = .chatSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))
         case "machine.providers": self = .machineProviders(try MachineProvidersInfo(from: decoder))

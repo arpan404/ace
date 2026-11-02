@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Threads and Pull requests at the foot of the sidebar, where a regular window (iPad, the
+/// Threads, Chats and Pull requests at the foot of the sidebar, where a regular window (iPad, the
 /// unfolded iPhone Duo, a large iPhone turned) keeps them instead of the tab bar: one two-way
 /// switch, the place showing filled. A compact window has the tab bar back while its list fills
 /// the window; as the drawer over a thread the list keeps New thread here too, beside the switch
@@ -15,6 +15,7 @@ struct InboxPlaces: View {
             HStack(spacing: AceTheme.Spacing.sm) {
                 GlassSwitch(selection: $tab, choices: [
                     .init(value: .threads, title: "Threads", identifier: "sidebar.threads"),
+                    .init(value: .chats, title: "Chats", identifier: "sidebar.chats"),
                     .init(value: .pulls, title: "Pull requests", identifier: "sidebar.pulls", short: "Pulls"),
                 ])
                 if let compose { ComposeCircle(action: compose, size: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs) }
@@ -46,6 +47,7 @@ private struct PlacesTabBar: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.none) {
             item(.threads, title: "Threads", icon: Image(systemName: "text.bubble"), identifier: "sidebar.threads")
+            item(.chats, title: "Chats", icon: Image(systemName: "bubble.left.and.bubble.right"), identifier: "sidebar.chats")
             item(.pulls, title: "Pulls", icon: Image("tab-pulls"), identifier: "sidebar.pulls")
         }
         .padding(4)

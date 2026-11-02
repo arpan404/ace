@@ -90,30 +90,28 @@ import XCTest
         capture("new-task-keyboard", app)
         app.navigationBars.buttons["Close"].tap()
     }
-    func testThreadKeepsModelFilesAndSendWithinTheComposer() {
+    func testThreadKeepsTheModelOnTopAndFilesAndSendInTheComposer() {
         let app = launch()
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 30)); row.tap()
-        app.composerControl("composer.model", timeout: 30)
+        let model = app.threadModelPill(timeout: 30)
         waitForConversation(app)
         XCTAssertTrue(app.buttons["composer.attach"].isHittable)
-        let model = app.buttons["composer.model"]
         let inputBeforeKeyboard = app.textViews["composer.input"]
-        XCTAssertGreaterThanOrEqual(model.frame.minY, inputBeforeKeyboard.frame.maxY)
+        // The model sits on top, under the title; the composer keeps only +, its field and Send.
+        XCTAssertLessThan(model.frame.maxY, app.frame.height * 0.25)
+        XCTAssertFalse(app.buttons["composer.model"].exists)
         XCTAssertGreaterThan(inputBeforeKeyboard.frame.width, app.frame.width * 0.8)
         capture("thread-idle", app)
         let input = app.textViews["composer.input"]
         XCTAssertTrue(input.isHittable); input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         capture("thread-keyboard", app)
-        XCTAssertTrue(app.buttons["composer.model"].isHittable)
+        XCTAssertTrue(model.isHittable)
         XCTAssertTrue(app.buttons["composer.attach"].isHittable)
         XCTAssertLessThanOrEqual(input.frame.maxY, app.keyboards.firstMatch.frame.minY)
-        // The model chip stays under the field and above the keyboard while writing.
-        XCTAssertGreaterThanOrEqual(app.buttons["composer.model"].frame.minY, input.frame.maxY)
-        XCTAssertLessThanOrEqual(app.buttons["composer.model"].frame.maxY, app.keyboards.firstMatch.frame.minY)
         capture("thread-keyboard", app)
-        app.buttons["composer.model"].tap()
+        model.tap()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 15))
         capture("thread-model-picker", app)
         app.closeSheet()

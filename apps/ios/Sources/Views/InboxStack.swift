@@ -298,6 +298,8 @@ struct InboxStack<Destination: View, Side: View>: View {
                     .accessibilityLabel("Select").accessibilityIdentifier("inbox.select")
             }
             settings
+            // Spade, not launched yet, beside Search on the Threads list.
+            if !pulls { SpadeSoonButton() }
             Button { withAnimation(listMotion) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
             // The phone's floating New thread button, in the Threads sidebar's own bar.
@@ -348,6 +350,7 @@ struct InboxStack<Destination: View, Side: View>: View {
                     headerButton("checkmark.circle", label: "Select", identifier: "inbox.select") { startSelecting() }
                 }
                 headerButton("gearshape", label: "Settings", identifier: "inbox.settings", action: header.settings)
+                SpadeSoonButton(framed: true)
                 headerButton("magnifyingglass", label: "Search", identifier: "inbox.search") {
                     withAnimation(listMotion) { searching = true }
                 }

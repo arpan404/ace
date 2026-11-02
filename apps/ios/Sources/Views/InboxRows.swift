@@ -26,6 +26,8 @@ struct InboxThreadRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
                     Text(row.title)
                         .aceFont(InboxRowType.title, relativeTo: .body)
+                        // Semibold only while the thread needs the person, as on the desktop.
+                        .fontWeight(look.strong == true ? .semibold : .regular)
                         .foregroundStyle(look.settled ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                         .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     Spacer(minLength: AceTheme.Spacing.sm)
@@ -47,13 +49,26 @@ enum InboxRowType {
     static let line = AceTheme.TypeStyle(size: 15, lineHeight: 20, weight: 400, tracking: -0.1)
 }
 
-/// The one status mark beside a row: a dot for needs-you or failed, a turning open ring for live
-/// work, nothing for a thread at rest. Decorative; the line under the title says it in words.
+/// The one status mark beside a row: the desktop row's status icon in its state's colour
+/// (`RowStatusIcon`), nothing for a thread at rest. Older bridges without the icon draw a dot for
+/// needs-you or failed and a turning ring for live work. Decorative; the line under the title
+/// says it in words.
 struct InboxRowMark: View {
     let look: RowLook
     var body: some View {
+        if let icon = look.icon {
+            Group {
+                if icon == "none" { Color.clear } else { RowStatusIcon(kind: icon, tone: look.iconTone ?? "idle", count: look.count) }
+            }
+            .frame(width: 18)
+            .accessibilityHidden(true)
+        } else {
+            legacy
+        }
+    }
+    private var legacy: some View {
         let tone = AceTone(look.tone)
-        Group {
+        return Group {
             switch look.level {
             case _ where look.level == "needs-you" || tone == .failed: Circle().fill(tone.mark).frame(width: 8, height: 8)
             case "active": InboxWorkingRing()
@@ -86,17 +101,25 @@ private struct InboxWorkingRing: View {
     }
 }
 
-/// The age on the title's line: how long live work has run, else how long since it moved.
+/// The age on the title's line: how long live work has run, to the second ("1m 34s") as the
+/// desktop row counts it, else how long since it moved.
 struct InboxRowAge: View {
     let row: ThreadRow
     let look: RowLook
     var body: some View {
-        TimelineView(.everyMinute) { context in
-            Text(text(at: context.date)).monospacedDigit()
-                .aceFont(InboxRowType.line, relativeTo: .subheadline)
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .lineLimit(1).fixedSize()
+        if look.mode == "elapsed", let since = look.since {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                label(ActivityTime.running(since: Date(timeIntervalSince1970: since / 1000), now: context.date))
+            }
+        } else {
+            TimelineView(.everyMinute) { context in label(text(at: context.date)) }
         }
+    }
+    private func label(_ text: String) -> some View {
+        Text(text).monospacedDigit()
+            .aceFont(InboxRowType.line, relativeTo: .subheadline)
+            .foregroundStyle(AceTheme.Colours.subtleForeground)
+            .lineLimit(1).fixedSize()
     }
     private func text(at now: Date) -> String {
         if look.level == "active", let start = look.since ?? row.activityAt,
@@ -167,7 +190,10 @@ struct InboxRowMarks: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(look.subagents) agents")
             }
+            // The provider in its own colours at 80% (a one-colour mark in the foreground ink).
             ProviderMark(provider: row.provider, size: 15, account: row.account, quiet: look.settled)
+                .foregroundStyle(look.settled ? AceTheme.Colours.faintForeground : AceTheme.Colours.foreground)
+                .opacity(look.settled ? 1 : 0.8)
         }
         .foregroundStyle(look.settled ? AceTheme.Colours.faintForeground : AceTheme.Colours.subtleForeground)
     }

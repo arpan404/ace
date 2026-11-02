@@ -17,6 +17,7 @@ import { seedSubagents } from "./subagent-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
+import { seedChats } from "./chats-scenario.ts";
 import { seedMessageAttachments, seedNativeMedia } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
@@ -223,6 +224,7 @@ seedSettled(daemon, details, Number(process.env.ACE_IOS_SPIKE_SETTLED ?? 0));
 seedProjects(daemon);
 seedSkills(daemon, Date.now());
 seedProjectMarks(daemon, { host: hostId, name: machineName });
+seedChats(daemon);
 // GitHub pull requests, issues and notifications for the Pulls tab.
 seedForgeBrowse(daemon, Date.now());
 // PR page work: #229's check runs, #226's linked thread with conflicts and its stack (`pr-work.ts`).

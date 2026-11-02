@@ -126,6 +126,10 @@ struct ThreadView: View {
             // The thread's own keyboard commands, in the iPad menu bar and ⌘-hold overlay. Its
             // own view, so the row it reads redraws only it, never the transcript.
             .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
+            .modifier(ModelPillBar(shown: model.canOperate && !archived && screen.controls != nil) {
+                ThreadModelPill(screen: screen, openModel: { showModels = true }, openTune: { showTune = true },
+                                openSettings: { showSettings = true })
+            })
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
                 if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
                     StateLabel(status: status)
@@ -338,6 +342,8 @@ struct ThreadView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Model and access").accessibilityIdentifier("composer.settings")
                     }
+                    // The model sits on top (`ThreadModelPill`); the composer keeps room to type.
+                    .showsOptions(false)
                     .task(id: thread.id) {
                         suggester.attach(model)
                         suggester.scope = .thread(thread.id)

@@ -43,6 +43,9 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     @ViewBuilder var model: () -> Model
     /// The button that opens the model, effort and access while the composer is one line.
     @ViewBuilder var settings: () -> Settings
+    /// False where the model sits elsewhere (a thread's pill on top): the composer keeps +,
+    /// its field and Send or Stop only, so it has room to type.
+    var showsOptions = true
     @State private var draft = ComposerDraft()
     @State private var feedback = 0
     @State private var wraps = false
@@ -77,8 +80,10 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                     HStack(alignment: .center, spacing: AceTheme.Spacing.none) {
                         input
                         if !big {
-                            settingsButton
-                                .padding(.trailing, AceTheme.Spacing.xxs)
+                            if showsOptions {
+                                settingsButton
+                                    .padding(.trailing, AceTheme.Spacing.xxs)
+                            }
                             action
                         }
                     }
@@ -86,10 +91,16 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                     .frame(minHeight: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs)
                     if big {
                         HStack(spacing: AceTheme.Spacing.none) {
-                            ViewThatFits(in: .horizontal) {
-                                expandedOptions
-                                expandedOptions.environment(\.composerRoomy, false)
-                                settingsButton
+                            Group {
+                                if showsOptions {
+                                    ViewThatFits(in: .horizontal) {
+                                        expandedOptions
+                                        expandedOptions.environment(\.composerRoomy, false)
+                                        settingsButton
+                                    }
+                                } else {
+                                    Spacer(minLength: AceTheme.Spacing.none)
+                                }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             action.fixedSize().layoutPriority(1)
@@ -241,5 +252,14 @@ struct ComposerRestore: Equatable {
     func merged(into current: String) -> String {
         let typed = current.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
         return typed.isEmpty ? text : "\(typed)\n\n\(text)"
+    }
+}
+
+extension ComposerView {
+    /// The composer without its model, access and settings controls.
+    func showsOptions(_ shown: Bool) -> Self {
+        var copy = self
+        copy.showsOptions = shown
+        return copy
     }
 }
