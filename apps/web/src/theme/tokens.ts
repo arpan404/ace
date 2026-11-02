@@ -82,7 +82,6 @@ const rowStatus: Record<Scheme, Record<`--row-status-${string}`, string>> = {
     "--row-status-working": "#7E9FD6",
     "--row-status-waiting": "#A08FD4",
     "--row-status-background": "#7E8692",
-    "--row-status-limited": "#E8925C",
     "--row-status-finished": "#6CBF8C",
   },
   light: {
@@ -91,7 +90,6 @@ const rowStatus: Record<Scheme, Record<`--row-status-${string}`, string>> = {
     "--row-status-working": "#3D63A6",
     "--row-status-waiting": "#6A55A8",
     "--row-status-background": "#6B7380",
-    "--row-status-limited": "#B4531A",
     "--row-status-finished": "#2E7D4F",
   },
 };
