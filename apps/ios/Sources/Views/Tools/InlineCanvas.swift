@@ -19,6 +19,9 @@ struct CanvasPage: Equatable {
 /// The transcript scrolls, not the page; it keeps its own taps and gestures.
 struct InlineCanvas: View {
     let page: CanvasPage
+    /// The item the page belongs to: its height is kept under it, so even a row whose page must
+    /// be read again keeps its place. Loaded views are kept under the page's content hash.
+    let itemId: String
     let title: String
     let shelf: ViewShelf<WKWebView>?
     @State private var reported: CGFloat?
@@ -26,9 +29,9 @@ struct InlineCanvas: View {
     static let placeholderHeight: CGFloat = 160
 
     var body: some View {
-        let height = reported ?? shelf?.height(page.id) ?? Self.placeholderHeight
+        let height = reported ?? shelf?.height(itemId) ?? Self.placeholderHeight
         MeasuredCanvas(page: page, shelf: shelf) { measured in
-            shelf?.remember(height: measured, for: page.id)
+            shelf?.remember(height: measured, for: itemId)
             if abs((reported ?? height) - measured) >= 1 { reported = measured }
         }
         .frame(maxWidth: .infinity)
@@ -59,6 +62,7 @@ private struct MeasuredCanvas: UIViewRepresentable {
         } else {
             view = Self.makeWebView()
             PerfProbe.add("canvas.loads", 1)
+            if PerfProbe.enabled, !Self.loaded.insert(page.id).inserted { PerfProbe.add("canvas.reloads", 1) }
             view.loadHTMLString(page.document, baseURL: nil)
         }
         view.navigationDelegate = coordinator
@@ -71,6 +75,9 @@ private struct MeasuredCanvas: UIViewRepresentable {
         coordinator.release(to: coordinator.shelf)
     }
     func makeCoordinator() -> Coordinator { Coordinator(shelf: shelf, onHeight: onHeight) }
+
+    /// Measurement only: pages loaded before, so loading one again is counted.
+    @MainActor private static var loaded: Set<String> = []
 
     private static func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()

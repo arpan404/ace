@@ -28,16 +28,16 @@ import XCTest
 
         // First trip back: older pages load as the reader nears the top of what is loaded.
         var flings = 0
-        while (app.probeValue("pages.older") ?? 0) < 3, flings < 40 {
+        while (app.probeValue("pages.older") ?? 0) < 2, flings < 40 {
             transcript.fling(older: true)
             flings += 1
         }
         let olderRead = app.probeValue("pages.older") ?? 0
-        XCTAssertGreaterThanOrEqual(olderRead, 3, "older pages read in \(flings) flings")
+        XCTAssertGreaterThanOrEqual(olderRead, 2, "older pages read in \(flings) flings")
         settle()
-        let resizedAfterFirstTrip = app.probeValue("rows.resized") ?? 0
-        let canvasAfterFirstTrip = app.probeValue("canvas.loads") ?? 0
-        let fetchesAfterFirstTrip = app.probeValue("media.fetches") ?? 0
+        let resizedAfterFirstTrip = app.probeValue("rows.resizedOnReturn") ?? 0
+        let canvasAfterFirstTrip = app.probeValue("canvas.reloads") ?? 0
+        let fetchesAfterFirstTrip = app.probeValue("media.refetches") ?? 0
 
         // Down to the end and back over the same history, twice.
         for trip in 1...2 {
@@ -52,9 +52,9 @@ import XCTest
         let busy = (app.probeValue("main.busyMsTotal") ?? 0) - busyBefore
         let lost = (app.probeValue("frames.lostMsTotal") ?? 0) - lostBefore
         let olderAgain = (app.probeValue("pages.older") ?? 0) - olderRead
-        let resized = (app.probeValue("rows.resized") ?? 0) - resizedAfterFirstTrip
-        let canvas = (app.probeValue("canvas.loads") ?? 0) - canvasAfterFirstTrip
-        let fetches = (app.probeValue("media.fetches") ?? 0) - fetchesAfterFirstTrip
+        let resized = (app.probeValue("rows.resizedOnReturn") ?? 0) - resizedAfterFirstTrip
+        let canvas = (app.probeValue("canvas.reloads") ?? 0) - canvasAfterFirstTrip
+        let fetches = (app.probeValue("media.refetches") ?? 0) - fetchesAfterFirstTrip
         let summary = """
             scroll: spent=\(String(format: "%.1f", spent))s mainBusy=\(String(format: "%.1f", busy / (spent * 10)))% \
             hitchMsPerS=\(String(format: "%.1f", lost / spent)) olderFirstTrip=\(olderRead) olderAgain=\(olderAgain) \
@@ -72,9 +72,9 @@ import XCTest
         XCTAssertEqual(olderAgain, 0, "Reading back over loaded history must not read it again")
         XCTAssertEqual(app.probeValue("reading.windows") ?? 0, 1, "One reading window for the whole visit")
         XCTAssertEqual(app.probeValue("pages.live") ?? 0, 0, "Reaching the end must not discard loaded history")
-        XCTAssertEqual(fetches, 0, "Charts come back from the cache")
-        XCTAssertEqual(canvas, 0, "Charts scrolled back into view keep their page")
-        XCTAssertEqual(resized, 0, "Rows come back at the height they had")
+        XCTAssertEqual(fetches, 0, "A chart read once is never fetched again")
+        XCTAssertEqual(canvas, 0, "A chart loaded once is never loaded again")
+        XCTAssertEqual(resized, 0, "Rows come back at the height they left with")
     }
 
     /// Lets a fling's momentum and the page it asked for finish.

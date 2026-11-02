@@ -16,8 +16,15 @@ private struct PublishedMediaReply: Decodable { let kind: String; let document: 
 @MainActor final class PublishedMediaSource {
     let model: ClientModel
     let threadId: String
+    /// Pixels may be large, so the system may drop them under memory pressure.
     private let cache = NSCache<NSString, Box>()
-    let canvases = ViewShelf<WKWebView>()
+    /// Pages are a few kilobytes of HTML: kept in order and dropped oldest first, never at the
+    /// system's whim, so a page read once is never fetched again while the thread is open.
+    private var pages: [NSString: CanvasPage] = [:]
+    private var pageOrder: [NSString] = []
+    private static let maxPages = 64
+    /// Enough loaded pages that reading back over a long thread's charts never loads one again.
+    let canvases = ViewShelf<WKWebView>(maxKept: 16)
     private final class Box { let media: PublishedMedia; init(_ media: PublishedMedia) { self.media = media } }
 
     init(model: ClientModel, threadId: String) {
@@ -27,19 +34,46 @@ private struct PublishedMediaReply: Decodable { let kind: String; let document: 
     }
 
     func cached(_ itemId: String, scheme: ColorScheme) -> PublishedMedia? {
-        cache.object(forKey: key(itemId, scheme))?.media
+        let key = key(itemId, scheme)
+        if let page = pages[key] { return .page(page) }
+        return cache.object(forKey: key)?.media
     }
+
+    /// Reads in flight, shared by every row that asks, and never cancelled with a row: a row
+    /// flung past before its media arrives still leaves it here for when it comes back.
+    private var reading: [NSString: Task<PublishedMedia, Error>] = [:]
 
     func load(_ itemId: String, scheme: ColorScheme) async throws -> PublishedMedia {
         if let hit = cached(itemId, scheme: scheme) { return hit }
+        let key = key(itemId, scheme)
+        if let pending = reading[key] { return try await pending.value }
+        let read = Task<PublishedMedia, Error> { @MainActor in
+            defer { reading[key] = nil }
+            return try await fetch(itemId, scheme: scheme)
+        }
+        reading[key] = read
+        return try await read.value
+    }
+
+    /// Measurement only: what was fetched before, so a second fetch of it is counted.
+    private var fetched: Set<NSString> = []
+
+    private func fetch(_ itemId: String, scheme: ColorScheme) async throws -> PublishedMedia {
         PerfProbe.add("media.fetches", 1)
+        if PerfProbe.enabled, !fetched.insert(key(itemId, scheme)).inserted { PerfProbe.add("media.refetches", 1) }
         let reply = try await model.service(["type": "native.media", "threadId": threadId, "itemId": itemId, "scheme": scheme == .dark ? "dark" : "light"], as: PublishedMediaReply.self)
         let media: PublishedMedia
         if reply.kind == "html", let html = reply.document { media = .page(CanvasPage(document: html)) }
         else if let encoded = reply.data, let data = Data(base64Encoded: encoded), let image = UIImage(data: data) {
             media = .picture(await image.byPreparingForDisplay() ?? image)
         } else { throw ServiceFailure(message: "The attachment couldn't be decoded.") }
-        cache.setObject(Box(media), forKey: key(itemId, scheme))
+        let key = key(itemId, scheme)
+        if case .page(let page) = media {
+            if pages.updateValue(page, forKey: key) == nil { pageOrder.append(key) }
+            while pageOrder.count > Self.maxPages { pages[pageOrder.removeFirst()] = nil }
+        } else {
+            cache.setObject(Box(media), forKey: key)
+        }
         return media
     }
 
@@ -148,10 +182,11 @@ struct PublishedMediaRow: View {
             .contentShape(Rectangle())
             .accessibilityLabel("Open \(row.text) full screen")
             if case .page(let page) = shown {
-                InlineCanvas(page: page, title: row.text, shelf: source?.canvases)
+                InlineCanvas(page: page, itemId: row.id, title: row.text, shelf: source?.canvases)
             } else {
                 AceShape.block.fill(AceTheme.Colours.fill)
-                    .frame(maxWidth: .infinity).frame(height: InlineCanvas.placeholderHeight)
+                    // A page read before keeps its place while it is fetched again.
+                    .frame(maxWidth: .infinity).frame(height: source?.canvases.height(row.id) ?? InlineCanvas.placeholderHeight)
                     .accessibilityLabel("Loading \(row.text)")
             }
         }

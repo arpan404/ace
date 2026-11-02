@@ -129,8 +129,9 @@ struct ConversationFeed: View {
                             .disabled(historyStale)
                             .onAppear { ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1) }
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("transcript.viewport")) } action: { frame in
+                                let returning = anchor.frames[row.id] == nil
                                 anchor.frames[row.id] = frame
-                                anchor.measured(row.id, height: frame.height)
+                                anchor.measured(row.id, height: frame.height, returning: returning)
                                 extent.measure(row.id, height: Double(frame.height))
                                 // Post-gesture shell: refresh the capture from settled
                                 // frames before any drift correction, so a stale
