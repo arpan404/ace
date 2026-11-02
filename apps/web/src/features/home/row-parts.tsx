@@ -276,7 +276,7 @@ export function RowContext(props: {
             acpAgentId={card.acpAgentId}
             size={14}
             decorative
-            className="text-muted-foreground"
+            className="text-foreground opacity-80"
           />
         </span>
       </span>

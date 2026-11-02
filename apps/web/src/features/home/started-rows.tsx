@@ -133,7 +133,7 @@ function StartedRow(props: { send: PendingSend }) {
             <ProviderIcon
               provider={send.payload.provider}
               size={14}
-              className="ml-auto"
+              className="ml-auto text-foreground opacity-80"
               decorative
             />
           )}
