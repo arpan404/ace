@@ -161,9 +161,10 @@ test("each tab's rows are its threads, with no headings; Settled offers more the
   ]);
 });
 
+const ids = (prefix: string, count: number) =>
+  Array.from({ length: count }, (_, index) => `${prefix}${index}`);
+
 test("Snoozed and Settled show a page at a time, with Show more and Show less", () => {
-  const ids = (prefix: string, count: number) =>
-    Array.from({ length: count }, (_, index) => `${prefix}${index}`);
   const loaded = { inbox: [], pinned: [], snoozed: ids("nap", 120), settled: ids("rest", 70) };
   const first = panelRows(loaded, "snoozed", { shown: panelPage });
   expect(first.filter((row) => row.kind === "snoozed")).toHaveLength(50);
