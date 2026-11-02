@@ -6,6 +6,7 @@ import {
   type EventPayload,
   type ForkPoint,
   type Item,
+  type SwitchSelection,
   type ThreadLineage,
 } from "@ace/protocol";
 import { busy } from "./thread-commands.ts";
@@ -151,6 +152,40 @@ export function mergeFacts(
           patchApplied: payload.patch !== undefined,
         },
         parts: [{ type: "text", text: payload.summary }],
+      },
+    },
+  ];
+}
+
+/** The limit strip's switch, as the daemon publishes it: applied at once on the new selection. */
+export function limitSwitchEvents(
+  host: ThreadHost,
+  requested: SwitchSelection | undefined,
+  at: number,
+): EventPayload[] {
+  if (!requested) return [];
+  const selection = { ...requested, options: requested.options ?? {} };
+  return [
+    {
+      type: "thread.updated",
+      provider: selection.provider,
+      execution: selection,
+      switch: {
+        selection,
+        state: "applied",
+        lossy: selection.provider !== host.view.thread.provider,
+        at,
+      },
+    },
+    {
+      type: "thread.client.updated",
+      changes: {
+        live: {
+          ...host.view.thread.live,
+          provider: selection.provider,
+          ...(selection.model ? { model: selection.model } : {}),
+          ...(selection.instanceId ? { account: selection.instanceId } : {}),
+        },
       },
     },
   ];

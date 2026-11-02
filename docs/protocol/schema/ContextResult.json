@@ -158,6 +158,9 @@
             "kind": {
               "const": "attachments",
               "type": "string"
+            },
+            "nextCursor": {
+              "$ref": "https://ace.local/protocol/v1/AttachmentListCursor.json"
             }
           },
           "required": [

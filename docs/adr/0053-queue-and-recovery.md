@@ -350,6 +350,54 @@ fences concurrent devices, so only one of them releases it. Clients read the hol
 daemon's queue state; the message behind a released hold shows as queued or sending, never
 "Not sent".
 
+## Amendment 2026-11-01: switching away from a limit, and a resume at reset you can cancel
+
+The person called the usage limit the worst flow in the app. Walking it in the fake app showed:
+
+- The strip's Switch opened the full model picker on the account that ran out, every model
+  greyed out as "Limit reached"; other accounts and providers were small icons in its rail.
+- A pick from the composer's model chip opened the effort slider first, then needed another
+  click on the model's name.
+- After a pick the strip vanished, the chip said "Pending" and its tooltip "Applies at the
+  agent's next turn", and nothing carried on: the person had to type something. The sidebar
+  still showed the thread as limited.
+- "Resume at reset" changed the sentence to "… · resumes at 9:23 PM" with the same Continue, and
+  the only way to call it off ("Don't resume", `queue.pause`) turned the limit into a manual
+  pause the reset never lifted.
+
+Decisions:
+
+- **`thread.limit` `switch`.** It carries a `selection` (provider, model, account, as
+  `thread.switch` takes) and runs as one durable continuation intent, like `migrate_now`: close the
+  limited session, apply the selection through the existing switch path (`Transitions.execute`,
+  so a cross-provider switch gets the same context handoff and "you are resuming" rules as
+  [ADR 0051](0051-thread-forks-and-turn-boundary-switches.md)), then send the held turn's
+  continuation, ahead of queued messages. The person never presses Continue. A replay after a
+  restart finds the selection already applied and doesn't switch again; the continuation keeps the
+  existing exactly-once rules. The transcript shows the move the way any switch does: another
+  provider gets the usual "Context handoff" row, then ace's "Resumed after the usage limit" line.
+- **Switch opens the normal model picker, on its list.** The strip's Switch, and the composer's
+  model chip on a limited thread, open the picker straight on the models (no effort step first).
+  When the thread's account is at its limit, the picker opens on an account with room (the same
+  provider's next one first, `@ace/ui-core` `startingTab`), never on an all-greyed list; the
+  exhausted account keeps its rail tab, greyed with its reset. A pick of any model with room that
+  the thread can move to in place sends `switch` at once, with no confirmation for another
+  provider and whatever the fork preference says; the strip says "Continuing on Claude Code ·
+  Personal" until the turn runs. A first version listed destinations in a menu of its own; the
+  owner rejected it for the existing picker.
+- **`thread.limit` `cancel_resume`.** It drops a chosen resume at reset and leaves the thread held
+  by its limit exactly as the `manual` policy would: the reset only clears the limit, nothing is
+  sent. A new hold token fences a deadline already firing. Refused with `no_scheduled_resume` when
+  nothing is scheduled.
+- **The scheduled state reads as itself.** "Resumes at 9:23 PM when Codex resets · in 1h 28m",
+  with Switch and Cancel. The sidebar row keeps the limit's gauge and its hover card says
+  "Resumes at 9:23 PM". The schedule is the existing durable `resume_at` / `timer_action` row, so
+  it survives restarts and fires once.
+- **What supersedes a scheduled resume.** The person's next message cancels it (the earlier
+  amendment: a message is the go-ahead and drops any timer). A switch from the strip cancels it:
+  admitting the continuation clears the deadline in the same transaction, so the old account's
+  timer can't fire on the new one. A Stop cancels it as before.
+
 ## Amendment 2026-11-01: a turn a usage limit paused is a complete turn
 
 The transcript folded a paused turn's steps and messages under a bare "Worked" disclosure, which

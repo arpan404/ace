@@ -1,4 +1,4 @@
-import { attachmentBytes, type ClientCore } from "@ace/client";
+import { attachmentBytes, listThreadAttachments, type ClientCore } from "@ace/client";
 import { BlobHash, ItemId, ThreadId, type Attachment } from "@ace/protocol";
 import { z } from "zod";
 
@@ -49,14 +49,15 @@ export async function readNativeAttachment(
     if (request.ref.startsWith("part:")) throw new Error("Attachment unavailable");
     const known = listed?.find(request.threadId, request.ref);
     if (known) return readStored(owner, request, known, signal);
-    const reply = await owner.request(
-      { type: "context.request", operation: { op: "attachment.list", threadId: request.threadId } },
-      { signal },
+    const files = await listThreadAttachments(
+      request.threadId,
+      async (operation) =>
+        (await owner.request({ type: "context.request", operation }, { signal })).result,
+      () => {
+        throw new Error("Attachment unavailable");
+      },
     );
-    const stored =
-      reply.result.kind === "attachments"
-        ? reply.result.attachments.find((file) => file.sha256 === request.ref)
-        : undefined;
+    const stored = files.find((file) => file.sha256 === request.ref);
     if (!stored) throw new Error("Attachment unavailable");
     return readStored(owner, request, stored, signal);
   }

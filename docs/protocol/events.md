@@ -28,11 +28,13 @@ Example:
     "task": {
       "agentId": "example",
       "childAgentId": "example",
-      "endedAt": 5,
       "id": "example",
       "internal": true,
       "kind": "shell",
-      "startedAt": 1,
+      "listening": [],
+      "outputPath": "example",
+      "raw": [],
+      "startedAt": 5,
       "status": "failed",
       "stoppable": true,
       "title": "example",
@@ -603,11 +605,11 @@ Example:
     "agentId": "example",
     "id": "example",
     "kind": "shell",
-    "raw": [],
-    "startedAt": 5,
+    "startedAt": 2,
     "status": "failed",
-    "stoppable": true,
-    "title": "example"
+    "stoppable": false,
+    "title": "example",
+    "toolCallId": "example"
   },
   "type": "background_task.started"
 }

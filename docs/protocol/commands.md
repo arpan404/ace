@@ -284,15 +284,21 @@ Example:
 | type | yes | `"thread.limit"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | expectedRevision | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| action | yes | ["resume_now","resume_at_reset","snooze_until_reset","migrate_now"] |  |
+| action | yes | ["resume_now","resume_at_reset","snooze_until_reset","migrate_now","switch","cancel_resume"] |  |
 | instanceId | no | [AccountId.json](schema/AccountId.json) |  |
+| selection | no | [SwitchSelection.json](schema/SwitchSelection.json) |  |
 
 Example:
 
 ```json
 {
-  "action": "migrate_now",
+  "action": "cancel_resume",
   "expectedRevision": 2,
+  "selection": {
+    "acpAgentId": "example",
+    "options": {},
+    "provider": "acp"
+  },
   "threadId": "example",
   "type": "thread.limit"
 }
@@ -358,7 +364,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"thread.switch"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| selection | yes | object | {"properties":{"provider":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"$ref":"https://ace.local/protocol/v1/ExecutionOptions.json"},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256}},"required":["provider"]} |
+| selection | yes | [SwitchSelection.json](schema/SwitchSelection.json) |  |
 
 Example:
 

@@ -6,6 +6,7 @@ import {
   pickerEntries,
   pickerList,
   providerNames,
+  startingTab,
   providersWithProblems,
   type PickerGroup,
   type PickerModel,
@@ -109,16 +110,14 @@ export function ModelPickerPanel(props: {
   );
   const tabs = props.only ? entries.filter((entry) => entry.provider === props.only) : entries;
   const [chosen, setChosen] = useState<string>();
-  // It opens on Favorites when the person has any: switching usually means going elsewhere.
   const selected =
     tabs.find((entry) => entry.id === chosen) ??
-    (favorites.length ? tabs.find((entry) => entry.id === "favorites") : undefined) ??
-    tabs.find(
-      (entry) =>
-        entry.provider === props.currentProvider && entry.instance === props.currentInstance,
-    ) ??
-    tabs.find((entry) => entry.provider === (props.only ?? props.currentProvider)) ??
-    tabs.find((entry) => !entry.reason);
+    startingTab(tabs, {
+      favorites: favorites.length > 0,
+      provider: props.currentProvider,
+      instance: props.currentInstance,
+      only: props.only,
+    });
   const tab = selected?.id ?? "favorites";
   const provider = selected?.provider;
   const selectedInstance = selected?.instance;

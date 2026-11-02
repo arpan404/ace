@@ -151,7 +151,7 @@ test("a draft cannot move its attachments to a different workspace or before upl
   }
 });
 
-test("removing a ready draft attachment frees its slot without releasing another device's draft", async () => {
+test("removing a ready draft attachment works for its own device and not for another", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-draft-release-"));
   let sequence = 0;
   const service = await ContextService.open({
@@ -161,7 +161,6 @@ test("removing a ready draft attachment frees its slot without releasing another
     authorize: () => true,
     workspaceRoot: () => root,
     workspace: () => root,
-    limits: { threadEntries: 1 },
   });
   const request = async (device: string, operation: ContextOperation) =>
     (
@@ -194,14 +193,14 @@ test("removing a ready draft attachment frees its slot without releasing another
       data: bytes.toString("base64"),
     });
     await request("phone", { op: "upload.commit", uploadId: begun.uploadId });
-    const next = {
-      op: "draft.upload.begin",
-      draftId: draft.draftId,
-      sha256: hash(Buffer.from("other")),
-      bytes: 5,
-      name: "other.txt",
-    } satisfies ContextOperation;
-    expect(await request("phone", next)).toMatchObject({ kind: "error", code: "quota" });
+    const listed = async () => {
+      const result = await request("phone", {
+        op: "attachment.list",
+        threadId: ThreadId.parse(draft.draftId),
+      });
+      return result.kind === "attachments" ? result.attachments.map((file) => file.name) : result;
+    };
+    expect(await listed()).toEqual(["notes.txt"]);
     expect(
       await request("other-phone", {
         op: "draft.attachment.release",
@@ -209,11 +208,11 @@ test("removing a ready draft attachment frees its slot without releasing another
         sha256,
       }),
     ).toMatchObject({ kind: "error", code: "not_found" });
-    expect(await request("phone", next)).toMatchObject({ kind: "error", code: "quota" });
+    expect(await listed()).toEqual(["notes.txt"]);
     expect(
       await request("phone", { op: "draft.attachment.release", draftId: draft.draftId, sha256 }),
     ).toMatchObject({ kind: "ok" });
-    expect(await request("phone", next)).toMatchObject({ kind: "upload", offset: 0 });
+    expect(await listed()).toEqual([]);
   } finally {
     await service.close();
     await rm(root, { recursive: true, force: true });

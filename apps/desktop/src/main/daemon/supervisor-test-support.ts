@@ -11,6 +11,9 @@ export const local: LocalDaemon = {
 /** A fake machine: a clock with timers, a process table and a daemon that may answer. */
 export function machine() {
   let now = 0;
+  /** While the app is frozen, answers the daemon sent wait unread, as in a socket. */
+  let frozen = false;
+  const unread: (() => void)[] = [];
   const timers: { at: number; callback: () => void; cancelled: boolean }[] = [];
   const children: FakeChild[] = [];
   const signals: string[] = [];
@@ -77,10 +80,13 @@ export function machine() {
     find: async () => (state.answering ? local : undefined),
     healthy: (_daemon, timeoutMs) =>
       new Promise((resolve) => {
-        if (state.hung) later(timeoutMs, () => resolve(false));
-        else if (state.healthDelayMs)
-          later(state.healthDelayMs, () => resolve(state.answering && state.healthy));
-        else resolve(state.answering && state.healthy);
+        // The request's own deadline, as `AbortSignal.timeout` gives it.
+        later(timeoutMs, () => resolve(false));
+        if (state.hung) return;
+        const answer = () => resolve(state.answering && state.healthy);
+        const arrive = () => (frozen ? unread.push(answer) : answer());
+        if (state.healthDelayMs) later(state.healthDelayMs, arrive);
+        else answer();
       }),
     setMaintenance: async (_daemon, on) => {
       state.maintenance = on;
@@ -131,7 +137,27 @@ export function machine() {
     now = until;
     await new Promise((resolve) => setImmediate(resolve));
   }
-  return { ports, state, children, signals, log, advance };
+  /**
+   * The app's main thread blocks for `ms`: nothing runs, then every overdue timer fires at
+   * once, and only after them does the I/O that arrived meanwhile (as Node orders a turn).
+   */
+  async function freeze(ms: number) {
+    frozen = true;
+    now += ms;
+    for (;;) {
+      const next = timers
+        .filter((timer) => !timer.cancelled && timer.at <= now)
+        .toSorted((a, b) => a.at - b.at)[0];
+      if (!next) break;
+      next.cancelled = true;
+      next.callback();
+      await Promise.resolve();
+    }
+    frozen = false;
+    for (const answer of unread.splice(0)) answer();
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  return { ports, state, children, signals, log, advance, freeze };
 }
 
 export function track(supervisor: DaemonSupervisor): DaemonStatus[] {

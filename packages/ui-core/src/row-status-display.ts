@@ -135,8 +135,9 @@ export function rowStatusLook(
           meaning: waitingOnAgentsLabel(agents),
         };
       const old = attention.word ?? "";
-      // Held at a usage limit: its own mark and no running time; the tooltip says when it lifts.
-      if (old.startsWith("Limited") || full.startsWith("Limited"))
+      // Held at a usage limit (or resuming at its reset): its own mark and no running time; the
+      // tooltip says when it lifts or resumes.
+      if ([old, full].some((label) => label.startsWith("Limited") || label.startsWith("Resumes")))
         return {
           ...look,
           icon: "limited",

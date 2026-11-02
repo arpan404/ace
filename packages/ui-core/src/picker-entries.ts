@@ -108,3 +108,34 @@ export function pickerEntries(
     }),
   ];
 }
+
+/**
+ * The tab the picker opens on: Favorites when the person has any, else the account the thread
+ * runs on. When that account is at its limit (its tab has a `reason`) it opens on an account with
+ * room instead, the same provider's next one first, never on a list that is all greyed out; the
+ * exhausted tab stays in the rail. `only` (Settings, automations) keeps to one provider.
+ */
+export function startingTab(
+  tabs: readonly PickerEntry[],
+  at: {
+    favorites: boolean;
+    provider: ProviderKind | undefined;
+    instance: string | undefined;
+    only?: ProviderKind | undefined;
+  },
+): PickerEntry | undefined {
+  const own = tabs.find(
+    (entry) => entry.provider === at.provider && entry.instance === at.instance,
+  );
+  const home = at.only ?? at.provider;
+  const open = (entry: PickerEntry) => !entry.reason;
+  return (
+    (at.favorites && !own?.reason ? tabs.find((entry) => entry.id === "favorites") : undefined) ??
+    (own && open(own) ? own : undefined) ??
+    tabs.find((entry) => entry.provider === home && open(entry)) ??
+    (at.only ? undefined : tabs.find((entry) => entry.id !== "favorites" && open(entry))) ??
+    own ??
+    tabs.find((entry) => entry.provider === home) ??
+    tabs.find(open)
+  );
+}

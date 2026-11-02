@@ -70,6 +70,19 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
     },
     {
       ...shared,
+      // The main-process freeze watchdog's thread. One self-contained file: it is unpacked
+      // from the asar archive, where shared chunks would not resolve.
+      entryPoints: {
+        "stall-watchdog-worker": join(repo, "packages/diagnostics/src/stall-watchdog-worker.ts"),
+      },
+      outdir,
+      format: "esm",
+      outExtension: { ".js": ".mjs" },
+      platform: "node",
+      target: "node26",
+    },
+    {
+      ...shared,
       entryPoints: [join(desktop, "src/preload/index.ts")],
       outfile: join(outdir, "preload.cjs"),
       format: "cjs",

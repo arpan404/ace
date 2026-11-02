@@ -34,6 +34,17 @@ export const ExecutionSelection = z.object({
   options: ExecutionOptions.default({}),
 });
 export type ExecutionSelection = z.infer<typeof ExecutionSelection>;
+/** What a switch asks for: a provider, and optionally a model, account and options. */
+export const SwitchSelection = ExecutionSelection.omit({ options: true }).extend({
+  options: ExecutionOptions.optional(),
+  /**
+   * The ACP agent a switch moves to, with `instanceId` its account. Required to enter an
+   * ACP agent or change to another one; a model change within the agent may omit it.
+   */
+  acpAgentId: AcpIdentity.shape.acpAgentId.optional(),
+  installationId: AcpIdentity.shape.installationId.optional(),
+});
+export type SwitchSelection = z.infer<typeof SwitchSelection>;
 export const ExecutionSource = z.object({
   nativeSessionId: NativeSessionId,
   selection: ExecutionSelection,
@@ -147,15 +158,7 @@ export const TransitionCommands = [
   z.object({
     type: z.literal("thread.switch"),
     threadId: ThreadId,
-    selection: ExecutionSelection.omit({ options: true }).extend({
-      options: ExecutionOptions.optional(),
-      /**
-       * The ACP agent a switch moves to, with `instanceId` its account. Required to enter an
-       * ACP agent or change to another one; a model change within the agent may omit it.
-       */
-      acpAgentId: AcpIdentity.shape.acpAgentId.optional(),
-      installationId: AcpIdentity.shape.installationId.optional(),
-    }),
+    selection: SwitchSelection,
   }),
 ] as const;
 

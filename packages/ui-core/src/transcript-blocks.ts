@@ -69,6 +69,8 @@ export type Block =
       folded?: Block[] | undefined;
       /** The completed turn's answer (every message after its last step), below its head. */
       answerIds?: string[] | undefined;
+      /** Nothing behind the head to open (a paused turn that took no step): plain text. */
+      bare?: boolean | undefined;
     }
   /** The newest turn's one live line ("Working for …"), at the end of its flow, until it settles. */
   | { kind: "live"; key: string; askId: string | undefined }
@@ -911,7 +913,10 @@ export function buildBlocks(source: BlockSource): Block[] {
       // ask, where its "Worked for" head stands once it settles (DESIGN.md §8).
       if (newest === turn) {
         const live: Block = { kind: "live", key: `live:${turn.key}`, askId: turn.askId };
-        const first = turn.blocks.size ? Math.min(...turn.blocks) : undefined;
+        // ace's own inputs that open a turn with no ask of the person's (a context handoff
+        // before a resume) read as its ask: the line goes under them.
+        const own = [...turn.blocks].toSorted((a, b) => a - b);
+        const first = own.find((index) => blocks[index]?.kind !== "event");
         if (first === undefined) place(turn.lastBlock, live);
         else before.set(first, [live, ...(before.get(first) ?? [])]);
       }
@@ -995,6 +1000,9 @@ export function buildBlocks(source: BlockSource): Block[] {
         }
         if (folded.length) head.folded = folded;
         if (answers.length) head.answerIds = answers;
+        // A paused turn that took no step and said nothing before the limit has nothing behind
+        // its head: the line stands alone, as plain text.
+        if (turn.paused && !first && !folded.length) head.bare = true;
       }
     }
     if (turn.edits.length)

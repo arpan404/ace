@@ -1,5 +1,37 @@
+import type { Fact } from "@ace/core";
 import type { Scenario } from "../scenario.ts";
-import { message, rootAgent, turn } from "./facts.ts";
+import { message, rootAgent, tool, toolDone, turn } from "./facts.ts";
+
+/**
+ * As a real turn the limit cuts short: the agent said where it got to, then kept working, and
+ * the limit hit between steps.
+ */
+const workBeforeLimit: Fact[] = [
+  tool("root", "survey", {
+    kind: "shell",
+    title: "rg --files src | head -40",
+    detail: { kind: "shell", command: "rg --files src | head -40" },
+  }),
+  toolDone("root", "survey"),
+  message(
+    "root",
+    "progress",
+    "assistant",
+    "I've mapped the code this touches and have a plan. Next I'll check the entry point and run the affected tests before changing anything.",
+  ),
+  tool("root", "read", {
+    kind: "file.read",
+    title: "Read src/index.ts",
+    detail: { kind: "file.read", path: "src/index.ts" },
+  }),
+  toolDone("root", "read"),
+  tool("root", "test", {
+    kind: "shell",
+    title: "bun run test src",
+    detail: { kind: "shell", command: "bun run test src" },
+  }),
+  toolDone("root", "test"),
+];
 
 /**
  * A Codex thread on `account` that ran into the account's usage limit mid-turn and stopped
@@ -10,13 +42,20 @@ export function accountLimit(
   title: string,
   account = "codex-team",
   workspaceId = "ace",
+  /** False: the limit hit before the agent did or said anything. */
+  worked = true,
 ): Scenario {
   return {
     thread: { id, workspaceId, title, provider: "codex", live: { account } },
     steps: [
       {
         kind: "facts",
-        facts: [rootAgent("codex"), turn("root"), message("root", "ask", "user", title)],
+        facts: [
+          rootAgent("codex"),
+          turn("root"),
+          message("root", "ask", "user", title),
+          ...(worked ? workBeforeLimit : []),
+        ],
       },
       {
         kind: "facts",

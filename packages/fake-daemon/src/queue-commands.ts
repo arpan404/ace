@@ -2,7 +2,7 @@ import { accountName, providerDisplayName } from "@ace/ui-core";
 import { blockedUntil } from "@ace/accounts/availability";
 import type { AccountSummary } from "@ace/protocol/accounts";
 import type { Fact } from "@ace/core";
-import { QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
+import { CommandId, QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
 import {
   admissionFacts,
   inputText,
@@ -50,6 +50,10 @@ export function isQueueCommand(payload: CommandPayload): payload is QueueCommand
 }
 
 const fail = (error: string): ThreadCommandOutcome => ({ ok: false, error });
+
+/** ace's input when a turn resumes after a usage limit, as the daemon words it. */
+const limitResumeText =
+  "ace is resuming after a provider usage limit. Continue the interrupted task from native history.";
 
 function hold(host: ThreadHost, reason: FakeQueuedHold, resumeAt: number | null) {
   host.queue.paused = true;
@@ -167,6 +171,96 @@ export function queueCommand(
           return fail("reset_time_unknown");
         hold(host, payload.action === "resume_at_reset" ? "limit" : "snooze", reset);
         return { ok: true, facts: [] };
+      }
+      if (payload.action === "cancel_resume") {
+        // As the daemon: back to the plain limit, nothing sent at the reset.
+        if (!host.queue.paused || host.queue.reason !== "limit" || host.queue.resumeAt === null)
+          return fail("no_scheduled_resume");
+        hold(host, "limit", null);
+        return { ok: true, facts: [] };
+      }
+      if (payload.action === "switch") {
+        const to = payload.selection;
+        const root = host.state.rootKey;
+        if (!to) return fail("switch_selection_required");
+        // The daemon publishes the switch; another provider gets the conversation as a context
+        // handoff (its marker is the transcript's usual "Context handoff" row), then the held
+        // turn carries on there with ace's continue.
+        const from = {
+          provider: host.view.thread.provider,
+          ...(host.view.thread.live?.model ? { model: host.view.thread.live.model } : {}),
+        };
+        const toSide = { provider: to.provider, ...(to.model ? { model: to.model } : {}) };
+        // A turn the limit held mid-run ended there, as the daemon's provider reports it.
+        const paused: Fact[] =
+          root !== undefined && host.state.agents[root]?.activeRun
+            ? [
+                {
+                  type: "turn.ended",
+                  agent: root,
+                  outcome: "failed",
+                  error: { kind: "quota", message: "Usage limit reached" },
+                },
+              ]
+            : [];
+        const handoff: Fact[] =
+          root === undefined || to.provider === from.provider
+            ? []
+            : [
+                {
+                  type: "item.upsert",
+                  agent: root,
+                  item: `handoff:${commandId}`,
+                  draft: {
+                    type: "message",
+                    role: "user",
+                    complete: true,
+                    synthetic: true,
+                    parts: [
+                      {
+                        type: "text",
+                        text: `<ace_context_handoff source_thread="${host.id}">\nContext handoff.\n</ace_context_handoff>`,
+                      },
+                    ],
+                    origin: {
+                      kind: "handoff",
+                      commandId: CommandId.parse(commandId),
+                      from,
+                      to: toSide,
+                      sources: [from],
+                      lossy: true,
+                    },
+                  },
+                },
+              ];
+        const resumed: Fact[] =
+          root === undefined
+            ? []
+            : [
+                // As the daemon: the resumed run is ace's, started after the limit.
+                {
+                  type: "turn.started",
+                  agent: root,
+                  nativeTurnId: `turn-${commandId}`,
+                  trigger: "limit_resume",
+                },
+                {
+                  type: "item.upsert",
+                  agent: root,
+                  item: `input:${commandId}`,
+                  draft: {
+                    type: "message",
+                    role: "user",
+                    complete: true,
+                    synthetic: true,
+                    parts: [{ type: "text", text: limitResumeText }],
+                    origin: { kind: "limit_resume", commandId: CommandId.parse(commandId) },
+                  },
+                },
+              ];
+        // The paused turn's end, then the switch's commit with its handoff, then the turn once
+        // its session opens: each a moment after the one before, as in the daemon.
+        return { ok: true, facts: [...paused, ...releaseHold(host)], after: [handoff, resumed] };
       }
       if (payload.action === "migrate_now") {
         const root = host.state.rootKey;

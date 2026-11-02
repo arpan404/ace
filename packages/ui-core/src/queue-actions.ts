@@ -39,6 +39,8 @@ export function queueActionPayload(
       return { type: queue.reason === "restart" ? "thread.resume" : "queue.resume", ...fresh };
     case "hold":
       return { type: "queue.pause", ...fresh };
+    case "switch":
+      return { type: "thread.limit", ...fresh, action: "switch", selection: action.selection };
     case "migrate_now":
       return {
         type: "thread.limit",

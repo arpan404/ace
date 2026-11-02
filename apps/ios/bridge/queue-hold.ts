@@ -111,10 +111,15 @@ export function queueHold(
           kind: "limit",
           sentence: heldTurnSentence(turn),
           detail: "",
+          // Scheduled to resume at reset: Switch, or Cancel back to the limit.
           actions: [
             { id: "choose_model", label: "Switch", primary: false },
-            ...(turn.atReset ? [action(turn.atReset, false)] : []),
-            action(turn.carryOn, true),
+            ...(turn.cancel
+              ? [action(turn.cancel, true)]
+              : [
+                  ...(turn.atReset ? [action(turn.atReset, false)] : []),
+                  action(turn.carryOn, true),
+                ]),
           ],
         }
       : notice && notice.kind !== "not_sent" && !holdsTurn(notice)
