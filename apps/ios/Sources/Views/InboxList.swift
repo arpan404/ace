@@ -198,24 +198,15 @@ struct InboxList: View {
     }
 }
 
-/// An empty tab while other threads exist: its runtime's words ("Inbox zero", "Nothing snoozed"),
-/// quiet and near the top, as the desktop's panel says them.
+/// An empty tab while other threads exist: the shared empty state with its runtime's words
+/// ("Inbox zero", "Nothing snoozed"), as the desktop's panel says them.
 private struct TabEmpty: View {
     let tab: MergedInbox.Tab
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            Text(tab.empty).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                .foregroundStyle(AceTheme.Colours.foreground)
-            if let line = tab.emptyLine {
-                Text(line).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-        }
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.top, AceTheme.Spacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("threads.empty.\(tab.id)")
+        EmptyState(systemImage: tab.id == "snoozed" ? "moon.zzz" : tab.id == "settled" ? "checkmark.circle" : "tray",
+                   title: tab.empty, line: tab.emptyLine)
+            .padding(.top, AceTheme.Spacing.xxxl * 2)
+            .accessibilityIdentifier("threads.empty.\(tab.id)")
     }
 }
 
