@@ -3,6 +3,7 @@ import {
   threadMenu,
   threadMenuLabels,
   threadMenuSection,
+  threadsTabs,
   type AccountView,
   type ThreadMenuId,
   type HomeSort,
@@ -13,6 +14,7 @@ import {
   inboxGroup,
   isChatThread,
   inboxGroupRank,
+  inboxNeedsYou,
   inboxSections,
   inboxStatus,
   snoozePresets,
@@ -87,7 +89,10 @@ const menuSections = Object.fromEntries(
   (Object.keys(threadMenuLabels) as ThreadMenuId[]).map((id) => [id, threadMenuSection(id)]),
 );
 
-/** The shared grouping as ordered sections, each row with its rank for merging machines. */
+/**
+ * The shared grouping as ordered sections, each row with its rank for merging machines and the
+ * Threads tab that lists it (Inbox, Snoozed or Settled, ADR 0107), and the tabs themselves.
+ */
 export function inboxLayout(
   threads: readonly InboxThread[],
   unsent: readonly InboxUnsent[],
@@ -95,17 +100,33 @@ export function inboxLayout(
   more: boolean,
   options: InboxSectionOptions = {},
 ) {
+  const sections = inboxSections(threads, unsent, now, options);
+  const needsYou = inboxNeedsYou(threads, now);
   return {
     type: "inbox.sections",
-    sections: inboxSections(threads, unsent, now, options).map((section) => ({
+    sections: sections.map((section) => ({
       key: section.key,
       label: section.label,
+      tab: section.tab,
       ids: section.keys,
       // Rows on the phone may be fewer: the daemon pages older settled threads.
       total: section.total,
       // A merged inbox orders sections from every machine by these (`inboxRank`).
       ranks: section.ranks,
       order: inboxGroupRank(section.key),
+    })),
+    /**
+     * Inbox, Snoozed and Settled in order, each with the threads it counts on this machine
+     * (Settled counts what the daemon pages too; unsent sends are not threads) and, for the
+     * Inbox, how many need the person: the tab's dot. The app adds machines up.
+     */
+    tabs: threadsTabs.map(({ id, label }) => ({
+      id,
+      label,
+      count: sections
+        .filter((section) => section.tab === id && section.key !== "unsent")
+        .reduce((sum, section) => sum + section.total, 0),
+      needsYou: id === "inbox" ? needsYou : 0,
     })),
     more,
     snooze: snoozePresets(now).map((preset) => ({ id: preset.id, label: preset.label })),

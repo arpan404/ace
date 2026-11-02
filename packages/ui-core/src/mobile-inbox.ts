@@ -10,6 +10,7 @@ import {
   type HomeSort,
 } from "./arrange.ts";
 import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
+import type { ThreadsTab } from "./organizer.ts";
 import { inboxBand, standingReader } from "./threads-panel.ts";
 import {
   mobileThreadStatus,
@@ -83,6 +84,8 @@ export interface InboxUnsent {
 export interface InboxSection {
   key: InboxGroupKey;
   label: string;
+  /** The Threads tab that lists it (`inboxSectionTab`). */
+  tab: ThreadsTab;
   /** Row keys in display order. */
   keys: string[];
   /** Each row's rank, parallel to `keys` (`inboxRank`, `unsentRank`). */
@@ -306,6 +309,30 @@ export function inboxGroupRank(key: InboxGroupKey): number {
   return groupRanks[key];
 }
 
+/**
+ * The Threads tab (ADR 0107) that lists a group, as the desktop's panel places threads: Snoozed
+ * and Settled have their own tabs; every live group, Pinned and Unsent included, is the Inbox's.
+ */
+export function inboxSectionTab(key: InboxGroupKey): ThreadsTab {
+  return key === "snoozed" || key === "settled" ? key : "inbox";
+}
+
+/**
+ * How many Inbox threads wait on a request from the person, for the Inbox tab's dot. As the
+ * desktop counts them: unpinned threads whose status needs them, and none from a copy the
+ * daemon hasn't confirmed, whose statuses may be stale. A request outranks a snooze, so a
+ * snoozed thread that asks is counted here.
+ */
+export function inboxNeedsYou(threads: Iterable<InboxThread>, now: number): number {
+  let count = 0;
+  for (const thread of threads) {
+    if (thread.unconfirmed || thread.entry.pinned === true) continue;
+    if (thread.entry.status.state !== "needs_you") continue;
+    if (inboxGroup(thread, now) === "needs-you") count++;
+  }
+  return count;
+}
+
 /** The live groups the desktop's bands reorder; pinned, syncing, snoozed and settled stay. */
 const bandedGroups: ReadonlySet<InboxGroupKey> = new Set(["needs-you", "working", "done"]);
 
@@ -340,8 +367,9 @@ export function inboxSections(
       if (group === "done") lead = band === "unseen" ? "0" : "1";
     }
     let rank: string;
-    // A pinned thread stays in Pinned whatever its state, as on Home; its row still says it.
-    if (thread.entry.pinned === true) {
+    // A pinned thread leads the Inbox whatever its live state, as on Home; its row still says
+    // it. Snoozed or settled, it rests in that tab like any other, as the desktop's panel has it.
+    if (thread.entry.pinned === true && group !== "snoozed" && group !== "settled") {
       group = "pinned";
       rank = inboxPinnedRank(thread);
     } else if (sortBy !== "activity" && listedGroups.has(group)) {
@@ -369,6 +397,7 @@ export function inboxSections(
       sections.push({
         key,
         label: inboxGroupLabels[key],
+        tab: inboxSectionTab(key),
         keys: rows.map((row) => row.key),
         ranks: rows.map((row) => row.rank),
         total,

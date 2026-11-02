@@ -213,7 +213,7 @@ test("a thread placed by hand while offline keeps its place after the reconnect"
   expect(groups(sink).threads).toEqual(["a", "c", "b"]);
 });
 
-test("a pinned thread that is snoozed still reads as snoozed, so its row offers Wake", async () => {
+test("a pinned thread that is snoozed rests in Snoozed, still pinned, and its row offers Wake", async () => {
   const { sink } = await following((machine) => {
     finished(machine, "nap");
     pin(machine, "nap", 10);
@@ -223,9 +223,9 @@ test("a pinned thread that is snoozed still reads as snoozed, so its row offers 
       payload: { type: "thread.snooze", threadId: ThreadId.parse("nap"), until: 9_000_000_000_000 },
     });
   });
-  await until(() => groups(sink).pinned?.includes("nap") === true, "the pin");
-  await until(() => row(sink, "nap")?.group === "snoozed", "the snooze");
-  expect(groups(sink).snoozed).toBeUndefined();
+  await until(() => groups(sink).snoozed?.includes("nap") === true, "the snooze");
+  expect(row(sink, "nap")).toMatchObject({ pinned: true, group: "snoozed" });
+  expect(groups(sink).pinned).toBeUndefined();
 });
 
 test("a move in the list is refused while the machine doesn't sort by hand, keeping its order", async () => {
