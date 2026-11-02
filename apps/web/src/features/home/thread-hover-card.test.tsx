@@ -53,3 +53,90 @@ test("the hover card shows no model line when the model is unknown", async () =>
   const tip = await screen.findByLabelText(/^Details for Thread without a model/);
   expect(within(tip).queryByLabelText(/^Model:/)).toBeNull();
 });
+
+const threadsList = async () => within(await screen.findByRole("navigation", { name: "Threads" }));
+
+test("a row draws its provider mark with no account bubble; the hover card names the account", async () => {
+  const app = harness();
+  app.daemon.createThread({
+    id: "hover-account",
+    title: "Runs on the work account",
+    workspaceId: "ace",
+    provider: "claude",
+    execution: {
+      provider: "claude",
+      instanceId: "claude-work",
+      model: "claude-opus-4-1",
+      options: {},
+    },
+  });
+  app.daemon.apply("hover-account", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Fix replay"),
+  ]);
+  await app.open("/new");
+  const row = await (await threadsList()).findByRole("link", { name: /^Runs on the work account/ });
+  expect(within(row).getByRole("img", { name: /^Claude Code/ })).toBeTruthy();
+  expect(row.querySelector("[data-account-badge]")).toBeNull();
+  await userEvent.hover(row);
+  const tip = await screen.findByLabelText(/^Details for Runs on the work account/);
+  expect(tip.textContent).toContain("Work");
+});
+
+test("the hover card says in words that a thread waits for approval, in amber, with no chip", async () => {
+  const app = harness();
+  app.daemon.createThread({
+    id: "hover-asks",
+    title: "Publish the release",
+    workspaceId: "ace",
+    provider: "codex",
+  });
+  app.daemon.apply("hover-asks", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Publish it."),
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "ask",
+      blocking: true,
+      request: { kind: "approval", title: "Publish?", options: [] },
+    },
+  ]);
+  await app.open("/new");
+  const row = await (await threadsList()).findByRole("link", { name: /^Publish the release/ });
+  await within(row).findByRole("img", { name: "Needs approval" });
+  await userEvent.hover(row);
+  const tip = await screen.findByLabelText(/^Details for Publish the release/);
+  const sentence = within(tip).getByText("Waiting for approval", { exact: true });
+  expect(sentence.closest("[data-ink]")?.getAttribute("data-ink")).toBe("warning");
+  expect(within(tip).queryByText("Approval", { exact: true })).toBeNull();
+  expect(tip.querySelector("[data-hover-status] [data-icon]")).toBeNull();
+});
+
+test("the hover card of a failed thread says Failed in red", async () => {
+  // The daemon's clock runs ahead of this device's first launch, so the failure is news here.
+  let at = Date.now() + 60_000;
+  const app = harness({ clock: () => (at = Math.max(at + 1, Date.now() + 60_000)) });
+  app.daemon.createThread({
+    id: "hover-failed",
+    title: "Migrate the billing table",
+    workspaceId: "ace",
+    provider: "codex",
+  });
+  app.daemon.apply("hover-failed", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Migrate."),
+    facts.endTurn("root", "failed"),
+  ]);
+  await app.open("/new");
+  const row = await (
+    await threadsList()
+  ).findByRole("link", { name: /^Migrate the billing table/ });
+  await userEvent.hover(row);
+  const tip = await screen.findByLabelText(/^Details for Migrate the billing table/);
+  const sentence = within(tip).getByText("Failed", { exact: true });
+  expect(sentence.closest("[data-ink]")?.getAttribute("data-ink")).toBe("destructive");
+});
