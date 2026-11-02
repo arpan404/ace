@@ -153,6 +153,55 @@ test("a persisted reset timer the person chose resumes a limited thread across a
   expect(h.store.getThread(id)?.status.state).toBe("done");
 });
 
+function limitAction(
+  h: Awaited<ReturnType<typeof limitedThread>>["h"],
+  id: Awaited<ReturnType<typeof limitedThread>>["id"],
+  action: "resume_at_reset" | "cancel_resume",
+) {
+  return h.command({
+    type: "thread.limit",
+    threadId: id,
+    expectedRevision: h.engine.queue(id).revision,
+    action,
+  });
+}
+
+test("cancelling a chosen resume at reset goes back to the limit and sends nothing at the reset", async () => {
+  const { h, id, replacement } = await limitedThread({ recovery: { resetAt: () => 5000 } });
+  expect(limitAction(h, id, "resume_at_reset").ok).toBe(true);
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit", resumeAt: 5000 });
+  expect(limitAction(h, id, "cancel_resume").ok).toBe(true);
+  // Clients read the plain limit again: held, with no resume promised.
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit", resumeAt: null });
+  h.clock.advance(6000);
+  await h.engine.flush();
+  expect(sends(replacement)).toHaveLength(0);
+  expect(h.engine.queue(id).messages.map((message) => message.id)).toEqual([
+    "first-followup",
+    "second-followup",
+  ]);
+  // Nothing scheduled is left to cancel.
+  expect(limitAction(h, id, "cancel_resume").error).toBe("no_scheduled_resume");
+});
+
+test("a resume at reset the person chose survives a restart and resumes once at the reset", async () => {
+  const { h, id, replacement } = await limitedThread({ recovery: { resetAt: () => 5000 } });
+  expect(limitAction(h, id, "resume_at_reset").ok).toBe(true);
+  const recovered = await restart(h, { recovery: { resetAt: () => 5000 } });
+  expect(recovered.queue(id)).toMatchObject({ paused: true, reason: "limit", resumeAt: 5000 });
+  h.clock.advance(4999);
+  await recovered.flush();
+  expect(sends(replacement)).toHaveLength(0);
+  h.clock.advance(5000);
+  await recovered.flush();
+  // The continuation, then the two queued messages: once each.
+  expect(sends(replacement)).toHaveLength(3);
+  h.clock.advance(60_000);
+  await recovered.flush();
+  expect(sends(replacement)).toHaveLength(3);
+  expect(h.store.getThread(id)?.status.state).toBe("done");
+});
+
 test("snooze reaches its deadline without spending quota and leaves the queue available for manual resume", async () => {
   const { h, id, replacement } = await limitedThread({
     preferences: { limitPolicy: "snooze_until_reset" },

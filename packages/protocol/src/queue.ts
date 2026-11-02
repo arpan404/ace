@@ -3,6 +3,7 @@ import { CommandId, ThreadId } from "./ids.ts";
 import { ContentPart } from "./items.ts";
 import { MessageContext } from "./context.ts";
 import { AccountId } from "./account-ids.ts";
+import { SwitchSelection } from "./thread-transitions.ts";
 
 export const FollowUpBehavior = z.enum(["steer", "queue"]);
 export type FollowUpBehavior = z.infer<typeof FollowUpBehavior>;
@@ -84,8 +85,22 @@ export const QueueCommands = [
   z.object({
     type: z.literal("thread.limit"),
     ...target,
-    action: z.enum(["resume_now", "resume_at_reset", "snooze_until_reset", "migrate_now"]),
+    /**
+     * `switch`: move the held work to `selection` (another account, model or provider, with a
+     * context handoff across providers) and carry it on there. `cancel_resume`: drop a chosen
+     * resume at reset; the thread stays held by its limit.
+     */
+    action: z.enum([
+      "resume_now",
+      "resume_at_reset",
+      "snooze_until_reset",
+      "migrate_now",
+      "switch",
+      "cancel_resume",
+    ]),
     instanceId: AccountId.optional(),
+    /** With `switch`: where the held work carries on. */
+    selection: SwitchSelection.optional(),
   }),
 ] as const;
 export const QueueGet = z.object({

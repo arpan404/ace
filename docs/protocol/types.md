@@ -3856,6 +3856,8 @@ Example:
 | status | yes | ["running","completed","failed","stopped","unknown"] |  |
 | ambient | no | boolean | {"default":false} |
 | internal | no | `true` |  |
+| wakesAgent | no | `false` |  |
+| listening | no | array | {"maxItems":16,"items":{"type":"integer","minimum":1,"maximum":65535}} |
 | outputPath | no | string |  |
 | toolCallId | no | [ItemId.json](schema/ItemId.json) |  |
 | childAgentId | no | [AgentId.json](schema/AgentId.json) |  |
@@ -3869,15 +3871,16 @@ Example:
 ```json
 {
   "agentId": "example",
-  "endedAt": 3,
   "id": "example",
   "internal": true,
   "kind": "monitor",
-  "outputPath": "example",
-  "startedAt": 4,
+  "raw": [],
+  "startedAt": 3,
   "status": "stopped",
   "stoppable": true,
-  "title": "example"
+  "title": "example",
+  "toolCallId": "example",
+  "wakesAgent": false
 }
 ```
 
@@ -31039,6 +31042,27 @@ Example:
 {
   "kind": "thread",
   "threadId": "example"
+}
+```
+
+## SwitchSelection
+
+[JSON Schema](schema/SwitchSelection.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| model | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
+| options | no | [ExecutionOptions.json](schema/ExecutionOptions.json) |  |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "provider": "cursor"
 }
 ```
 

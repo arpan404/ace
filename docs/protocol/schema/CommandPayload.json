@@ -328,7 +328,9 @@
             "resume_now",
             "resume_at_reset",
             "snooze_until_reset",
-            "migrate_now"
+            "migrate_now",
+            "switch",
+            "cancel_resume"
           ],
           "type": "string"
         },
@@ -339,6 +341,9 @@
         },
         "instanceId": {
           "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "selection": {
+          "$ref": "https://ace.local/protocol/v1/SwitchSelection.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -434,38 +439,7 @@
     {
       "properties": {
         "selection": {
-          "properties": {
-            "acpAgentId": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            },
-            "installationId": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            },
-            "instanceId": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            },
-            "model": {
-              "maxLength": 256,
-              "minLength": 1,
-              "type": "string"
-            },
-            "options": {
-              "$ref": "https://ace.local/protocol/v1/ExecutionOptions.json"
-            },
-            "provider": {
-              "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
-            }
-          },
-          "required": [
-            "provider"
-          ],
-          "type": "object"
+          "$ref": "https://ace.local/protocol/v1/SwitchSelection.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"

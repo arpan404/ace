@@ -222,6 +222,13 @@ export class IntentDelivery {
         this.dependencies.recovery.moveTarget(actor.id, p.instanceId),
       );
     }
+    // The limit's Switch: the same switch the composer makes (a handoff across providers),
+    // then the held turn carries on there.
+    if (p.type === "thread.limit" && p.action === "switch" && p.selection) {
+      await this.dependencies.sessions.close(actor, "user");
+      await this.dependencies.transitions.carryTo(actor, intent, p.selection);
+      this.dependencies.invalidateContext(actor.id);
+    }
     if (!this.dependencies.recovery.owns(actor.id, token)) return;
     const queue = this.dependencies.repo.queue.get(actor.id);
     if (queue.continuation) {
@@ -244,6 +251,13 @@ export class IntentDelivery {
         this.dependencies.repo.session(actor.id).cwd,
       );
       const key = `input:${intent.command.id}`;
+      // A switch from the limit names where the work carried on, for the transcript's one line.
+      const moved = p.type === "thread.limit" && p.action === "switch";
+      const selection = moved ? this.dependencies.repo.transitions.get(actor.id).selection : undefined;
+      const switched = selection && {
+        provider: selection.provider,
+        ...(selection.model ? { model: selection.model } : {}),
+      };
       // A restart continuation tells the agent what died; a limit resume just carries on.
       const continuation = queue.continuation || continueMessage;
       this.dependencies.repo.syntheticInput(
@@ -254,6 +268,7 @@ export class IntentDelivery {
           kind: queue.trigger ?? "restart",
           commandId: intent.command.id,
           ...(queue.exited ? { afterExit: true } : {}),
+          ...(switched ? { to: switched } : {}),
         },
         this.dependencies.clock.now(),
       );
