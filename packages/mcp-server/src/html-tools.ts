@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { HtmlRenderInput, ItemId, type McpAttribution } from "@ace/protocol";
-import { validateHtml } from "@ace/html";
+import { checkHtmlForPublish } from "@ace/html";
 import { PublicToolError } from "./public-error.ts";
 import { maxHtmlInputBytes } from "./result-budgets.ts";
 import type { Toolkit } from "./toolkits.ts";
@@ -28,7 +28,7 @@ export const htmlToolCatalog = [
     name: "html_render",
     title: "Show an HTML visual inline",
     description:
-      "Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first and follow it. invalid_html lists every problem; nothing is published.",
+      "Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first and follow it. invalid_html lists every safety or layout problem; nothing is published.",
     input: RenderInput,
     output: z.object({ itemId: ItemId }),
     capability: null,
@@ -44,8 +44,9 @@ export function htmlToolkit(port: HtmlPublicationPort): Toolkit {
       registry.register({
         ...htmlToolCatalog[0],
         async run(input, { caller, signal }) {
-          const diagnostics = validateHtml(input.html);
-          // One call: an invalid page comes back with every problem instead of needing a preview.
+          // One call: a page that is unsafe or breaks in the chat column comes back with every
+          // problem, and nothing is published.
+          const diagnostics = checkHtmlForPublish(input.html);
           if (!diagnostics.valid)
             throw new PublicToolError(
               "invalid_html",

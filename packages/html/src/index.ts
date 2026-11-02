@@ -1,4 +1,5 @@
 export { validateHtml, maxHtmlBytes } from "./validation.ts";
+export { checkHtmlForPublish, lintHtmlLayout, narrowestColumn } from "./layout-lint.ts";
 export { hasScript, resolveHtmlMode } from "./mode.ts";
 export {
   visualizationDocument,
