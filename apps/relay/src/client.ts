@@ -12,6 +12,8 @@ export async function connectClientViaRelay(options: {
   pinnedFingerprint: string;
   signal?: AbortSignal;
   clock?: Clock;
+  /** A device grant (ADR 0111) for ace's hosted relay, offered as a subprotocol. */
+  grant?: string;
 }): Promise<ClientChannel> {
   if (HostId.parse(options.hostId) !== HostId.parse(options.pinnedFingerprint))
     throw new Error("Host id must match pinned fingerprint");
@@ -20,6 +22,8 @@ export async function connectClientViaRelay(options: {
     relayAddress(options.relayUrl, "/client", { hostId: options.hostId }),
     options.signal,
     clock,
+    10000,
+    options.grant,
   );
   const cancel = clock.schedule(10000, () => socket.terminate());
   try {

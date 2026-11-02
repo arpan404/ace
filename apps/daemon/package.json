@@ -24,6 +24,7 @@
     "bench:long-thread-reliability": "node --expose-gc bench/long-thread-reliability.ts"
   },
   "dependencies": {
+    "@ace/account-grant": "workspace:*",
     "@ace/accounts": "workspace:*",
     "@ace/adapter-acp": "workspace:*",
     "@ace/adapter-claude": "workspace:*",

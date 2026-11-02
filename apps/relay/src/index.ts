@@ -5,6 +5,7 @@ export type { AccountProvider, AccountIdentity } from "./account/workos.ts";
 export { connectHostToRelay } from "./host.ts";
 export type { HostRelayConnection } from "./host.ts";
 export { connectClientViaRelay } from "./client.ts";
+export { RelayRefusedError } from "./refusal.ts";
 export type { ClientChannel, HostChannel, MessageChannel, BinaryChannel } from "./channel.ts";
 
 export { readRelayConfig } from "./config.ts";

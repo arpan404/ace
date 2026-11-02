@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { hostId } from "@ace/secure-channel";
 import type { Transport } from "@ace/secure-channel";
 import { z } from "zod";
+import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { FrameReader, sendFrame } from "./socket.ts";
 import { respondHandshake, CONTROL_PROLOGUE } from "./handshake.ts";
 import { LimitsSchema, HostControlMessage } from "./config.ts";
@@ -92,6 +93,10 @@ export async function startRelay(options: RelayOptions = {}) {
     autoPong: false,
     maxFragments: 256,
     maxBufferedChunks: 256,
+    // A self-hosted relay stays anonymous: an offered grant (ADR 0111) is echoed, never checked,
+    // so daemons and clients signed in to an ace account work here too. Nothing else is chosen.
+    handleProtocols: (protocols) =>
+      [...protocols].find((protocol) => protocol.startsWith(GRANT_SUBPROTOCOL_PREFIX)) ?? false,
   });
   async function apply(actions: RouteAction[]): Promise<void> {
     for (const action of actions) {

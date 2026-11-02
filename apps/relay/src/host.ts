@@ -17,6 +17,7 @@ import { ControlMessage, HostOptionsSchema } from "./config.ts";
 import { ClientSlots } from "./admission.ts";
 import { systemClock, delay } from "./clock.ts";
 import type { Clock } from "./clock.ts";
+import { RelayRefusedError, refusalCloseCodes } from "./refusal.ts";
 import type { z } from "zod";
 const noop = () => {};
 export type HostRelayConnection = {
@@ -34,6 +35,14 @@ export async function connectHostToRelay(options: {
   clock?: Clock;
   random?: () => number;
   limits?: Partial<z.infer<typeof HostOptionsSchema>>;
+  /**
+   * A fresh machine grant (ADR 0111) for each `/host` attempt, offered as a subprotocol. ace's
+   * hosted relay needs one; a self-hosted relay ignores it. A rejection counts as a failed
+   * attempt and is retried with backoff.
+   */
+  grant?: () => Promise<string>;
+  /** The relay refused a host that had registered before; the connection has stopped. */
+  onRefused?: (error: RelayRefusedError) => void;
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -51,13 +60,22 @@ export async function connectHostToRelay(options: {
   let generation = 0;
   const waiters: { after: number; resolve(value: number): void; reject(error: Error): void }[] = [];
   const id = hostId(options.hostKeys.publicKey);
-  const cancel = () => {
+  const cancel = (reason: Error = new Error("Host connection closed")) => {
     controller.abort();
     for (const socket of sockets) socket.terminate();
     for (const channel of channels) channel.close();
-    for (const waiter of waiters.splice(0)) waiter.reject(new Error("Host connection closed"));
+    for (const waiter of waiters.splice(0)) waiter.reject(reason);
   };
-  options.signal?.addEventListener("abort", cancel, { once: true });
+  // A refusal ends the connection: the same credentials would be refused again.
+  let refused = false;
+  const refuse = (error: RelayRefusedError) => {
+    if (refused || controller.signal.aborted) return;
+    refused = true;
+    if (generation > 0) options.onRefused?.(error);
+    cancel(error);
+  };
+  const abort = () => cancel();
+  options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) cancel();
   async function openClient(ticket: string, owned: AbortController): Promise<void> {
     const signal = AbortSignal.any([controller.signal, owned.signal]);
@@ -121,6 +139,8 @@ export async function connectHostToRelay(options: {
       let socket: WebSocket | undefined;
       let expire: () => void = noop;
       try {
+        const grant = options.grant ? await options.grant() : undefined;
+        if (controller.signal.aborted) break;
         const connection = await dial(
           // The id only selects where a relay routes this host (a Durable Object); the
           // handshake below still proves it.
@@ -128,14 +148,15 @@ export async function connectHostToRelay(options: {
           controller.signal,
           clock,
           limits.handshakeTimeoutMs,
+          grant,
         );
         socket = connection.socket;
         watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
         sockets.add(socket);
         const owned = socket;
-        socket.once("close", (code) => {
+        socket.once("close", (code, reason) => {
           sockets.delete(owned);
-          if (code === 4001 || code === 1008) cancel();
+          if (refusalCloseCodes.has(code)) refuse(new RelayRefusedError(code, reason.toString()));
         });
         expire = clock.schedule(limits.handshakeTimeoutMs, () => owned.terminate());
         const transport = await initiateHandshake(socket, connection.reader, {
@@ -188,8 +209,9 @@ export async function connectHostToRelay(options: {
         } finally {
           transport.destroy();
         }
-      } catch {
-        /* Re-register with fresh ephemerals after network or relay failure. */
+      } catch (error) {
+        // Re-register with fresh ephemerals after network or relay failure.
+        if (error instanceof RelayRefusedError) refuse(error);
       } finally {
         expire();
         socket?.terminate();
@@ -211,7 +233,7 @@ export async function connectHostToRelay(options: {
     },
     async close() {
       cancel();
-      options.signal?.removeEventListener("abort", cancel);
+      options.signal?.removeEventListener("abort", abort);
       await run;
       await Promise.all(tasks);
     },

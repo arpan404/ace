@@ -1,5 +1,7 @@
 import { WebSocket } from "ws";
+import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { systemClock } from "./clock.ts";
+import { upgradeRefusal } from "./refusal.ts";
 import type { Clock } from "./clock.ts";
 export const FRAME_LIMIT = 65535;
 export const QUEUE_LIMIT = 1024 * 1024;
@@ -123,13 +125,18 @@ export function relayAddress(base: string, path: string, query?: Record<string, 
   url.hash = "";
   return url.toString();
 }
+/**
+ * Open a relay socket. A `grant` (ADR 0111) is offered as the `ace.grant.<token>` subprotocol,
+ * which ace's hosted relay checks and echoes; a self-hosted relay echoes it unchecked.
+ */
 export async function dial(
   url: string,
   signal?: AbortSignal,
   clock: Clock = systemClock(),
   timeoutMs = 10000,
+  grant?: string,
 ): Promise<{ socket: WebSocket; reader: FrameReader }> {
-  const socket = new WebSocket(url, {
+  const socket = new WebSocket(url, grant ? [`${GRANT_SUBPROTOCOL_PREFIX}${grant}`] : [], {
     maxPayload: FRAME_LIMIT,
     perMessageDeflate: false,
     maxFragments: 256,
@@ -144,7 +151,7 @@ export async function dial(
     if (signal?.aborted) abort();
     await new Promise<void>((resolve, reject) => {
       socket.once("open", resolve);
-      socket.once("error", reject);
+      socket.once("error", (error) => reject(upgradeRefusal(error) ?? error));
       socket.once("close", () => reject(new Error("Connection closed")));
     });
     return { socket, reader };
