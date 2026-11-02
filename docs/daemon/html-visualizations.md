@@ -34,9 +34,11 @@ Remote and relay clients fetch through their owning connection's attachment API.
 ## Previewing before publishing
 
 `html_preview({ html, mode?, scheme? })` lets an agent look at a page before it publishes
-it. It validates like `html_render` (same `invalid_html` error), then lays the page out in
-the transcript's own document (`inlineVisualizationUrl`: style kit, sandboxed out-of-process
-frame, CSP) at 360 px and 760 px, the phone and the desktop message column. The theme comes
+it. A safety problem (`validateHtml`) fails with the same `invalid_html` error as
+`html_render`. Layout-lint problems (`lintHtmlLayout`), which `html_render` refuses, do not stop
+a preview: they are listed under the report beside the pictures that show them. It lays the
+page out in the transcript's own document (`inlineVisualizationUrl` with the current
+`styleKitVersion`: style kit, sandboxed out-of-process frame, CSP) at 360 px and 760 px, the phone and the desktop message column. The theme comes
 from `@ace/design-tokens` for `scheme` (default `dark`), with the thread background behind the
 frame. Nothing is stored, posted or shown to the person, and no provider quota is spent.
 
