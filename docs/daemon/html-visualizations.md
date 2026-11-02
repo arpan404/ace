@@ -114,7 +114,10 @@ item without one gets the same rule from the client. Desktop and web honour the 
 `@ace/html` owns the pure validator, the layout lint, the document builder and the two fixed bridge scripts
 (`@ace/html/scripts`). The validator parses with parse5 and rejects authored frames, forms,
 plugins, `<link>`, base URLs, HTTP-equivalent metadata and every external URL in markup or
-CSS. Every display path wraps the page the same way:
+CSS. In CSS it allows only in-page `url(#id)` references (SVG markers, gradients, clip paths)
+and inline `data:` URLs (images, fonts, masks), which the page's CSP already admits; `@import`,
+files and web addresses in `url()`, `src()` and `image-set()` are refused. Every display path
+wraps the page the same way:
 
 - **Outer document.** A trusted document with `frame-src 'none'` holds the page in a
   `sandbox="allow-scripts"` `srcdoc` frame, so the page cannot navigate its frame elsewhere.

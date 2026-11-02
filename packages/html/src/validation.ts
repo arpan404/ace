@@ -13,6 +13,24 @@ const forbidden = new Set([
   "form",
   "link",
 ]);
+/**
+ * CSS that would load something from outside the page: any `@import`, and any `url()`,
+ * `src()` or `image-set()` reference that isn't an in-page fragment (`url(#arrow)`, used by
+ * SVG markers, gradients and clip paths) or an inline `data:` URL (images, fonts, masks).
+ */
+function loadsExternalCss(css: string): boolean {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  if (/@import/i.test(text)) return true;
+  for (const match of text.matchAll(
+    /(?<![\w-])(?:url|src)\(\s*(["']?)\s*|image-set\(\s*(["'])\s*/gi,
+  )) {
+    const rest = text.slice((match.index ?? 0) + match[0].length);
+    if (!rest.startsWith("#") && !/^data:/i.test(rest)) return true;
+  }
+  return false;
+}
+const cssResourceMessage =
+  "CSS may use only in-page url(#id) references and inline data: URLs; no @import, files or web addresses.";
 /** Diagnostics help authors; the iframe policy remains the execution boundary. */
 export function validateHtml(html: string): HtmlDiagnostics {
   const bytes = new TextEncoder().encode(html).byteLength;
@@ -76,14 +94,14 @@ export function validateHtml(html: string): HtmlDiagnostics {
             "Use inline assets and fragment links; external requests are blocked.",
           );
       }
-      if (attr.name === "style" && /(?:@import|url\s*\()/i.test(attr.value))
-        report("css-resource", "Use inline CSS without imports or URL resources.");
+      if (attr.name === "style" && loadsExternalCss(attr.value))
+        report("css-resource", cssResourceMessage);
     }
     if (
       node.tagName === "style" &&
-      node.childNodes.some((child) => "value" in child && /(?:@import|url\s*\()/i.test(child.value))
+      node.childNodes.some((child) => "value" in child && loadsExternalCss(child.value))
     )
-      report("css-resource", "Use inline CSS without imports or URL resources.");
+      report("css-resource", cssResourceMessage);
   }
   return { valid: diagnostics.length === 0, bytes, maxBytes: maxHtmlBytes, diagnostics };
 }

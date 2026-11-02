@@ -185,6 +185,15 @@ The app theme arrives as CSS variables and updates live when the person changes 
 
 Leave the page background transparent.
 
+### Your own CSS
+
+Write any CSS you need in a `<style>` element or `style` attributes. It always beats the kit, with no `!important`. Everything a modern browser supports works: grid, flex, container queries, `:has()`, custom properties, `@keyframes`, transforms, filters, `clip-path`, `mask`, `backdrop-filter`, `@media (prefers-color-scheme)` and `@supports`.
+
+- **References inside the page work:** `marker-end: url(#arrow)`, `fill: url(#fade)`, `clip-path: url(#round)`.
+- **Inline assets work:** `background: url("data:image/png;base64,…")`, SVG data URLs for masks and patterns, and `@font-face { src: url(data:font/woff2;base64,…) }` for a font.
+- **Nothing outside the page loads:** no `@import`, files or web addresses in `url()`, `src()` or `image-set()`.
+- The [layout rules](#layout-that-holds-at-every-width) still apply: no viewport units, no `position: fixed`, no fixed widths over 360 px, no text under 10 px.
+
 ## Mockups
 
 A mockup shows a UI proposal, so it must look like ace and work at every width.
@@ -240,7 +249,7 @@ If `html_preview` isn't available, check your code against [Layout that holds at
 
 `html_render` checks the page before publishing. If it returns `invalid_html`, nothing was published; fix every problem in `issues` and call it again. It refuses:
 
-- **Unsafe content:** frames, forms, plugins, `<link>`, base URLs, `http-equiv` metadata, and any external URL in markup or CSS (see [The sandbox](#the-sandbox)).
+- **Unsafe content:** frames, forms, plugins, `<link>`, base URLs, `http-equiv` metadata, and any file or web address in markup or CSS. `url(#id)` and `data:` URLs are fine (see [Your own CSS](#your-own-css)).
 - **`viewport-height`, `root-height`:** viewport units, or `height: 100%` on `html`/`body`.
 - **`fixed-position`:** `position: fixed`.
 - **`fixed-width`:** a fixed `width` over 360 px outside an `ace-scroll-x` and outside a `@media (min-width: …)` block.
@@ -252,6 +261,7 @@ If `html_preview` isn't available, check your code against [Layout that holds at
 To show an image (a screenshot, a plot, a photo) inside a page, encode it as base64 and put it in the page as a `data:` URL. The page has no file access and no network, so anything else renders as a broken image.
 
 - Right: `<img src="data:image/png;base64,iVBORw0KGgo…" alt="What it shows">` (`image/jpeg`, `image/gif` or `image/webp` for those formats).
+- In CSS, the same `data:` URL works: `background: url("data:image/png;base64,…")`.
 - Wrong: a file path, `file://`, or `https://` URL in `src`, `href`, CSS `url(…)`, `<source>`, `<image href>` in SVG or `<link rel="icon">`.
 - Get the string with `base64 -i shot.png` on macOS or `base64 -w0 shot.png` on Linux.
 - Images count toward the 16 MiB page cap, and base64 is a third larger than the file. Downscale first, for example `sips -Z 1600 -s format jpeg shot.png --out shot.jpg` on macOS.
