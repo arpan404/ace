@@ -266,16 +266,16 @@ for (const [outcome, label, at] of [
   });
 }
 
-test("a usage-limit pause keeps its work collapsible, and the limit is said only in the strip", async () => {
+test("a usage-limit pause before any work leaves only the ask, and the limit is said only in the strip", async () => {
   const app = harness();
   app.play(accountLimit(id, "Replay cursor")).runUntilBlocked();
   await app.open(`/t/${id}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const summary = await within(feed).findByRole("button", { name: /^Worked/ });
-  expect(within(feed).queryByText(/usage limit/i)).toBeNull();
   expect(await screen.findByRole("region", { name: "Codex is out of usage" })).toBeTruthy();
-  await userEvent.click(summary);
-  expect(await screen.findByRole("list", { name: "Steps" })).toBeTruthy();
+  expect(within(feed).getByText("Replay cursor")).toBeTruthy();
+  // Nothing was done, so nothing stands for the turn: no pause row, no live line.
+  expect(within(feed).queryByText(/usage limit/i)).toBeNull();
+  expect(within(feed).queryByText(/^Worked/)).toBeNull();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
 });
 

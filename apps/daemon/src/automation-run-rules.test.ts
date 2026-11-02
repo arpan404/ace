@@ -47,7 +47,8 @@ const root = (patch: Partial<CliTree[number]> = {}) => ({
   cancelled: false,
   ...patch,
 });
-const stoppedRoot = root({ attention: "stopped" });
+const stopped = { revision: 0, paused: true, reason: "stopped" as const, resumeAt: null };
+const stoppedRoot = root({ queue: { ...stopped, uncertain: false } });
 
 test("a stopped run stays running while anything its turn began still works", () => {
   expect(decideRun(facts({ cancel: "sent", stopReached: true, tree: "working" }))).toEqual({
@@ -94,7 +95,10 @@ test("a Stop marker never ends a run whose background task, subagent or preparat
   // A thread held to carry the turn on beats its Stop marker too.
   expect(
     runTreeState({
-      root: root({ attention: "stopped", status: { state: "waiting", on: "rate_limit" } }),
+      root: root({
+        queue: { ...stopped, uncertain: false },
+        status: { state: "waiting", on: "rate_limit" },
+      }),
       work: idle,
       children: none,
       cancelling: true,

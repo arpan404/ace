@@ -62,7 +62,8 @@ test("interrupt reaches the provider while its send is still awaiting a turn res
   const stopped = h.store.getThread(thread.id);
   expect(stopped?.status.state).toBe("done");
   expect(stopped?.queue).toMatchObject({ paused: true, reason: "stopped", pendingCount: 0 });
-  expect(stopped && threadAttention(stopped)).toBe("stopped");
+  // The person's Stop is final and asks nothing of them (ADR 0052).
+  expect(stopped && threadAttention(stopped)).toBeUndefined();
 });
 
 test("a control intent without a live session becomes a visible failure notice", async () => {

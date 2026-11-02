@@ -1,4 +1,4 @@
-import { sidebarSettled, snoozeWakeDue } from "@ace/projection";
+import { sidebarSettled, snoozeWakeDue, stoppedByPerson } from "@ace/projection";
 import type { ThreadListEntry, ThreadListWindow, ThreadReadStateResponse } from "@ace/protocol";
 
 /*
@@ -37,7 +37,8 @@ export function isSnoozedToTime(entry: ThreadListEntry, now: number): boolean {
 export const activityOf = (entry: ThreadListEntry): number => entry.activityAt ?? entry.updatedAt;
 
 /**
- * Device read cursors compare execution sequences. Explicit read/unread choices win.
+ * Device read cursors compare execution sequences. Explicit read/unread choices win, and a turn
+ * the person stopped themselves is read.
  * Older snapshots without sequence facts fall back to finished activity newer than the read
  * time, or this device's first launch when it has never read the thread.
  */
@@ -47,6 +48,8 @@ export function isUnread(
   read?: ThreadReadStateResponse,
 ): boolean {
   if (entry.unread === true) return true;
+  // The person's own Stop ended the turn: they saw it end, so it is already read (ADR 0052).
+  if (stoppedByPerson(entry)) return false;
   if (read?.updatedAt != null && entry.activitySeq !== undefined) {
     if (entry.readAt !== undefined && entry.readAt >= activityOf(entry)) return false;
     return entry.activitySeq > read.lastSeenSeq;

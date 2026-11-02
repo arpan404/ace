@@ -76,7 +76,7 @@ export function ComposerStrip(props: {
   // A message that wasn't sent is in the transcript with its reason; the strip lists the rest.
   const failed = failedHead(allHeld, noAgents);
   const queue = withoutMessage(noAgents, failed?.id);
-  // A failed send is in the transcript; a stopped turn is the pill over the composer; a limit
+  // A failed send is in the transcript; a turn a restart cut short is the pill over the composer; a limit
   // has its own colored strip, so the queue's strip lists only the messages.
   const held =
     allHeld?.notice.kind === "not_sent" ||

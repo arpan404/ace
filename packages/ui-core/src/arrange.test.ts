@@ -124,7 +124,7 @@ test("a settled thread stays in Settled when done or failed, but comes back whil
 });
 
 test("a thread settled by hand stays settled while its queue waits on recovery", () => {
-  const queue = { revision: 1, paused: true, reason: "stopped" as const, resumeAt: null };
+  const queue = { revision: 1, paused: true, reason: "restart" as const, resumeAt: null };
   const entries = [
     entry("by-hand", { state: "waiting", on: "queue" }, now, {
       settledAt: now - hour,

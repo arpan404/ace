@@ -1,3 +1,4 @@
+import { ThreadReadStateResponse } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { entry } from "./test-entries.fixture.ts";
 import { currentAttention } from "./row-attention.ts";
@@ -225,6 +226,41 @@ test("new activity after reading makes a finished thread unread again", () => {
   const read = { readAt: now - 5000 };
   const again = threadCard(input({ entry: entry("t", { state: "done" }, now - 1000, read) }));
   expect(again.attention).toMatchObject({ level: "done-unread", word: "Done" });
+});
+
+test("a thread the person stopped reads done and already read: no unread mark, nothing asked", () => {
+  const stoppedQueue = { revision: 3, paused: true, reason: "stopped", resumeAt: null };
+  // Its Stop is the newest activity, newer than any read, on every device's cursor.
+  const card = threadCard(
+    input({
+      entry: entry("t", { state: "done" }, now - 1000, {
+        readAt: now - 60_000,
+        activitySeq: 9,
+        queue: { ...stoppedQueue, pendingCount: 0 },
+      }),
+      readState: ThreadReadStateResponse.parse({
+        type: "thread.readState",
+        requestId: "read",
+        threadId: "t",
+        lastSeenSeq: 4,
+        updatedAt: now - 60_000,
+      }),
+    }),
+  );
+  expect(card.flags.unread).toBe(false);
+  expect(card.announceUnread).toBe(false);
+  expect(card.attention).toMatchObject({ level: "quiet", word: undefined });
+  expect(card.pill).toBeUndefined();
+  // The person can still mark it unread by hand.
+  const marked = threadCard(
+    input({
+      entry: entry("t", { state: "done" }, now - 1000, {
+        unread: true,
+        queue: { ...stoppedQueue, pendingCount: 0 },
+      }),
+    }),
+  );
+  expect(marked.flags.unread).toBe(true);
 });
 
 test("a settled row is quiet and shows no pill", () => {
