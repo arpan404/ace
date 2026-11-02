@@ -136,7 +136,8 @@ details>:not(summary){margin:0;padding:0 12px 12px}
 :is(.ace-tabs,[role=tablist])>button:hover{color:var(--ace-ink)}
 :is(.ace-tabs,[role=tablist])>button:is([aria-selected=true],[aria-pressed=true],.active){background:var(--ace-raised);color:var(--ace-ink);box-shadow:0 0 0 .5px var(--ace-line)}
 .ace-muted{color:var(--ace-ink-2)}.ace-subtle{color:var(--ace-ink-3)}.ace-mono{font-family:var(--font-mono,ui-monospace,monospace);font-size:.86em}.ace-num{font-variant-numeric:tabular-nums}
-.ace-eyebrow{font-size:.6875rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ace-ink-3)}
+.ace-eyebrow{display:block;margin:0 0 8px;font-size:.6875rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ace-ink-3)}
+*+.ace-eyebrow{margin-top:22px}
 .ace-lead{font-size:1rem;color:var(--ace-ink-2)}
 .ace-divider{height:1px;background:var(--ace-line);margin:12px 0;border:0}
 .ace-swatch{display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--c,currentColor);vertical-align:baseline;flex:none}
