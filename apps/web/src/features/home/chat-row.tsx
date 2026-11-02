@@ -11,7 +11,8 @@ import type { SearchHit } from "./use-panel-search.ts";
 export const ChatHits = createContext<ReadonlyMap<string, SearchHit>>(new Map());
 
 /**
- * A chat in the Chats panel: a thread row (one line, its one mark, the hover card) with a chat's
+ * A chat in the Chats panel: a thread row (one line led by its provider's mark, its one mark,
+ * the hover card) with a chat's
  * hover actions, dimmed while settled. An older chat only the search found draws from its hit.
  */
 export function ChatRow(props: { id: string; settled: boolean; leaving: boolean }) {
@@ -23,7 +24,7 @@ export function ChatRow(props: { id: string; settled: boolean; leaving: boolean 
       threadId={props.id}
       settled={false}
       leaving={props.leaving}
-      lead="none"
+      lead="provider"
       actions={ChatRowActions}
       compactActions
       dimmed={props.settled}

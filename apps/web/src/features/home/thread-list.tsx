@@ -556,9 +556,10 @@ export function ThreadList(props: {
   );
 }
 
-/** Inbox rows lead with their project, in three lines; snoozed, settled and chats with nothing. */
+/** Inbox rows lead with their project, in three lines; chats with their provider; the rest with nothing. */
 function rowLead(row: HomeRow): RowLead {
-  return isTask(row) ? "task" : "none";
+  if (isTask(row)) return "task";
+  return row.kind === "chat" ? "provider" : "none";
 }
 
 /**

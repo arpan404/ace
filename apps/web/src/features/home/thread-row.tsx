@@ -13,6 +13,7 @@ import {
 } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProjectMark } from "@/components/project-mark.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { panelRowLine } from "@/components/ui/panel.tsx";
 import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
@@ -35,9 +36,10 @@ const row = cn(panelRowLine, "relative outline-none");
  * What leads a row: in Active, which spans projects, its project (`task`: three lines led by the
  * project's mark and name, `project`: one line led by its mark, as a pinned row); inside its
  * project, room the width of the project's folder glyph, so its title lines up with the
- * project's name; else nothing.
+ * project's name; a chat (`provider`), the mark of the provider it runs on, as an Inbox row's
+ * third line shows it; else nothing.
  */
-export type RowLead = "task" | "project" | "indent" | "none";
+export type RowLead = "task" | "project" | "provider" | "indent" | "none";
 
 /**
  * Another machine's thread (ADR 0102), drawn under that machine's client. It opens on that
@@ -159,6 +161,15 @@ export function ThreadRow(props: {
     <>
       {props.lead === "project" && <ProjectMark id={entry.workspaceId} badge={card.badge} />}
       {props.lead === "indent" && <span aria-hidden className="w-4 shrink-0" />}
+      {props.lead === "provider" && (
+        <ProviderIcon
+          provider={card.provider}
+          acpAgentId={card.acpAgentId}
+          size={14}
+          decorative
+          className="shrink-0 text-foreground opacity-80"
+        />
+      )}
       <span
         className={cn(
           "min-w-0 flex-1 truncate",
