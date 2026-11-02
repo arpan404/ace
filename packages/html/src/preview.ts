@@ -93,7 +93,8 @@ export interface PreviewMeasurement {
 }
 
 const list = (items: string[], limit: number) =>
-  items.slice(0, limit).join(", ") + (items.length > limit ? `, +${items.length - limit} more` : "");
+  items.slice(0, limit).join(", ") +
+  (items.length > limit ? `, +${items.length - limit} more` : "");
 
 /** One line per width: height, sideways overflow and small text, terse enough for a context. */
 export function previewReport(measurements: readonly PreviewMeasurement[]): string {

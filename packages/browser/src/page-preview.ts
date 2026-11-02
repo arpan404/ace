@@ -108,8 +108,7 @@ export class PagePreviewer {
       await page.prepare(request.scheme);
       await instance.targets.resume(target);
       const shots: PagePreviewShot[] = [];
-      for (const width of request.widths)
-        shots.push(await page.shoot(request, width));
+      for (const width of request.widths) shots.push(await page.shoot(request, width));
       return shots;
     } finally {
       // A page still running a script must not hold the tab: the browser closes it regardless.
@@ -266,7 +265,8 @@ class PreviewPage {
   private async contentFrame(): Promise<{ id: string; sessionId: string } | undefined> {
     const tree = FrameTree.parse(await this.send("Page.getFrameTree")).frameTree;
     const local = tree.childFrames?.[0]?.frame;
-    if (local) return local.url === "about:blank" ? undefined : { ...local, sessionId: this.sessionId };
+    if (local)
+      return local.url === "about:blank" ? undefined : { ...local, sessionId: this.sessionId };
     const [remote] = this.frames.values();
     if (remote === undefined) return undefined;
     const own = FrameTree.parse(await this.send("Page.getFrameTree", undefined, remote)).frameTree;

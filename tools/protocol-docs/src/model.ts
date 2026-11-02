@@ -12,7 +12,8 @@ export interface ToolEntry {
   capability: string | null;
   timeoutMs: number;
   input: string;
-  output: string;
+  /** Absent for a tool that returns MCP content (text and images) rather than structured data. */
+  output?: string;
 }
 export interface Snapshot {
   protocolVersion: number;

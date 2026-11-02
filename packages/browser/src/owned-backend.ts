@@ -129,43 +129,39 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
     return error;
   };
   const executable = (): Promise<string> => {
-        if (options.executablePath) return Promise.resolve(options.executablePath);
-        // Chrome for Testing has no Windows ARM64 build: use the installed Chrome or Edge, and
-        // without one that ace can drive, the x64 build under Windows' emulation.
-        if (
-          process.platform === "win32" &&
-          process.arch === "arm64" &&
-          !options.acquisition?.artifact
+    if (options.executablePath) return Promise.resolve(options.executablePath);
+    // Chrome for Testing has no Windows ARM64 build: use the installed Chrome or Edge, and
+    // without one that ace can drive, the x64 build under Windows' emulation.
+    if (process.platform === "win32" && process.arch === "arm64" && !options.acquisition?.artifact)
+      acquiring ??= installedWindowsChromium({ dataDir: options.dataDir })
+        .catch(() =>
+          // Run under emulation, with the flags `emulated-chrome.ts` gives it at launch.
+          import("./chromium-manifest.ts").then(({ chromiumArtifact }) =>
+            acquireChromium({
+              ...options.acquisition,
+              artifact: chromiumArtifact("win32", "x64"),
+              dataDir: options.dataDir,
+              signal,
+              progress,
+            }),
+          ),
         )
-          acquiring ??= installedWindowsChromium({ dataDir: options.dataDir })
-            .catch(() =>
-              // Run under emulation, with the flags `emulated-chrome.ts` gives it at launch.
-              import("./chromium-manifest.ts").then(({ chromiumArtifact }) =>
-                acquireChromium({
-                  ...options.acquisition,
-                  artifact: chromiumArtifact("win32", "x64"),
-                  dataDir: options.dataDir,
-                  signal,
-                  progress,
-                }),
-              ),
-            )
-            .catch((error: unknown) => {
-              acquiring = undefined;
-              options.onError?.(error);
-              throw error;
-            });
-        acquiring ??= acquireChromium({
-          ...options.acquisition,
-          dataDir: options.dataDir,
-          signal,
-          progress,
-        }).catch((error: unknown) => {
+        .catch((error: unknown) => {
           acquiring = undefined;
           options.onError?.(error);
           throw error;
         });
-        return acquiring;
+    acquiring ??= acquireChromium({
+      ...options.acquisition,
+      dataDir: options.dataDir,
+      signal,
+      progress,
+    }).catch((error: unknown) => {
+      acquiring = undefined;
+      options.onError?.(error);
+      throw error;
+    });
+    return acquiring;
   };
   const stagingDir = (profileDir: string) =>
     join(dirname(profileDir), `${basename(profileDir)}-downloads`);

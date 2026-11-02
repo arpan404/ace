@@ -15,7 +15,6 @@ export type HtmlMode = z.infer<typeof HtmlMode>;
 /** A version of the style kit every page is rendered with (`@ace/html` `styleKitVersion`). */
 export const HtmlStyleKit = z.number().int().min(1).max(1000);
 export type HtmlStyleKit = z.infer<typeof HtmlStyleKit>;
-export const HtmlPreviewInput = z.strictObject({ html: z.string().max(maxHtmlDocumentBytes + 1) });
 export const HtmlRenderInput = z.strictObject({
   title: z.string().min(1).max(160).regex(/\S/),
   html: HtmlDocument,
@@ -23,6 +22,16 @@ export const HtmlRenderInput = z.strictObject({
   mode: HtmlMode.optional(),
 });
 export type HtmlRenderInput = z.infer<typeof HtmlRenderInput>;
+/** The app theme a preview is drawn in. */
+export const HtmlColorScheme = z.enum(["dark", "light"]);
+export type HtmlColorScheme = z.infer<typeof HtmlColorScheme>;
+/** A page to lay out and look at before publishing it; nothing is stored or shown. */
+export const HtmlPreviewInput = z.strictObject({
+  html: HtmlDocument,
+  mode: HtmlMode.optional(),
+  scheme: HtmlColorScheme.optional(),
+});
+export type HtmlPreviewInput = z.infer<typeof HtmlPreviewInput>;
 export const HtmlDiagnostics = z.object({
   valid: z.boolean(),
   bytes: z.number().int().nonnegative(),
