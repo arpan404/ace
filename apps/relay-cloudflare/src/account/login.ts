@@ -93,9 +93,9 @@ export function loginRoutes(deps: {
       if (!id || !value || !sameDigest(await digest(value), row.binding)) return unverified();
       const verifier = await logins.openVerifier(row);
       if (!verifier || !(await logins.startExchange(row.id, now()))) return unverified();
-      const cleared = { "Set-Cookie": bindingCookie(id, "", 0) };
+      // The binding is spent: clear the cookie whatever happens next.
       const withCookie = (response: Response) => {
-        response.headers.set("Set-Cookie", cleared["Set-Cookie"]);
+        response.headers.set("Set-Cookie", bindingCookie(id, "", 0));
         return response;
       };
       const code = url.searchParams.get("code");
