@@ -9955,104 +9955,13 @@ Example:
 
 ```json
 {
-  "seq": 5,
+  "seq": 7,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "interactions": {},
-    "itemOrder": [],
-    "items": {},
-    "itemsBefore": null,
-    "kind": "thread",
-    "runs": {},
-    "seq": 5,
-    "thread": {
-      "acpAgentId": "example",
-      "archivedAt": 4,
-      "autoSettle": false,
-      "capabilitiesRef": "example",
-      "continuation": {
-        "actionId": "thread.continue_new",
-        "reason": "cursor_cli_retired",
-        "state": "read_only"
-      },
-      "createdAt": 1,
-      "deletedAt": 9,
-      "effectiveCapabilities": {
-        "approvals": "sandbox-only",
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "none",
-        "childControls": "read-only",
-        "fork": true,
-        "forkMode": "none",
-        "imageInput": true,
-        "interruptCascades": true,
-        "permissions": {
-          "modes": [],
-          "nativeAutoReview": true,
-          "toolGate": false
-        },
-        "planMode": true,
-        "resume": true,
-        "rewindFiles": true,
-        "steer": true,
-        "subagentTranscripts": false,
-        "tokenUsage": true
-      },
-      "execution": {
-        "options": {},
-        "provider": "acp"
-      },
-      "hasSentMessage": true,
-      "id": "example",
-      "instanceId": "example",
-      "movedFrom": {
-        "links": {
-          "linkedPr": null
-        },
-        "workspaceId": "example"
-      },
-      "provider": "antigravity",
-      "queuedLaunch": {
-        "slotLimit": 6,
-        "text": "example"
-      },
-      "readAt": 1,
-      "settledAt": 2,
-      "snoozeWake": {
-        "on": "pr",
-        "prs": [
-          {
-            "checks": "pending",
-            "pr": "example",
-            "state": "open",
-            "updatedAt": 2
-          }
-        ]
-      },
-      "status": {
-        "state": "limited"
-      },
-      "switch": {
-        "at": 0,
-        "lossy": true,
-        "selection": {
-          "instanceId": "example",
-          "model": "example",
-          "options": {},
-          "provider": "acp"
-        },
-        "state": "queued"
-      },
-      "title": "example",
-      "titleSource": "generated",
-      "updatedAt": 0,
-      "workspaceId": "example"
-    },
-    "usage": {}
+    "kind": "threads",
+    "seq": 7,
+    "threads": {}
   }
 }
 ```
@@ -16514,6 +16423,30 @@ Example:
 }
 ```
 
+## ListAttention
+
+[JSON Schema](schema/ListAttention.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threads | yes | [PlaceAttention.json](schema/PlaceAttention.json) |  |
+| chats | yes | [PlaceAttention.json](schema/PlaceAttention.json) |  |
+
+Example:
+
+```json
+{
+  "chats": {
+    "needsYou": 7,
+    "unread": 3
+  },
+  "threads": {
+    "needsYou": 3,
+    "unread": 2
+  }
+}
+```
+
 ## ListedThreadPlace
 
 [JSON Schema](schema/ListedThreadPlace.json), input validation.
@@ -19946,6 +19879,24 @@ Example:
   "rollbackConversation": true,
   "supported": false,
   "version": "example"
+}
+```
+
+## PlaceAttention
+
+[JSON Schema](schema/PlaceAttention.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| needsYou | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| unread | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "needsYou": 7,
+  "unread": 5
 }
 ```
 
@@ -32035,6 +31986,7 @@ Example:
 | counts | yes | array | {"items":{"type":"object","properties":{"id":{"type":"string"},"threads":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threads"]}} |
 | revision | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | epoch | no | string | {"minLength":1,"maxLength":256} |
+| attention | no | [ListAttention.json](schema/ListAttention.json) |  |
 
 Example:
 

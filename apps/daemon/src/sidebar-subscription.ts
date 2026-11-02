@@ -8,7 +8,8 @@ import type {
   ThreadListEntry,
   ThreadListWindow,
 } from "@ace/protocol";
-import { PlacedEntries, type SidebarPlacement } from "./sidebar-placement.ts";
+import { noAttention, withSignal, type PlaceAttentions } from "@ace/ui-core/thread-place";
+import { PlacedEntries, type Placed, type SidebarPlacement } from "./sidebar-placement.ts";
 import type { SubscriptionStore } from "./subscription.ts";
 
 export interface SidebarSubscription {
@@ -18,15 +19,17 @@ export interface SidebarSubscription {
 
 type WindowOptions = NonNullable<Extract<SubscriptionScope, { kind: "threads" }>["window"]>;
 
-const samePlace = (a: ThreadListEntry | undefined, b: ThreadListEntry) =>
-  JSON.stringify(a?.place) === JSON.stringify(b.place);
+const samePlace = (a: Placed | undefined, b: Placed) =>
+  JSON.stringify(a?.entry.place) === JSON.stringify(b.entry.place) &&
+  JSON.stringify(a?.signal) === JSON.stringify(b.signal);
 
 /**
  * A windowed thread list (ADR 0107): every live thread and the newest settled page, each sent
  * with the place the daemon gives it in the Threads panel (`SidebarPlacement`). A change sends
  * only the threads it touched, each placed anew, so a thread that moves tabs costs one entry.
  * A list that resumes from a revision of this database and epoch gets only what changed since,
- * and the ids it keeps; any other starts from the whole window.
+ * and the ids it keeps; any other starts from the whole window. The window carries the rail's
+ * dots for what it places live (`threadSignal`), kept as running totals of the threads sent.
  */
 export function sidebarSubscription(
   store: SubscriptionStore,
@@ -38,8 +41,19 @@ export function sidebarSubscription(
   const { resume, ...scope } = options;
   /** The daemon's rows as last read, keyed by id: what a live read reuses. */
   const selected = new Map<string, ThreadListEntry>();
-  /** What the client was last sent for each row, with its place. */
-  const sent = new Map<string, ThreadListEntry>();
+  /** What the client was last sent for each row, with its place and part in the dots. */
+  const sent = new Map<string, Placed>();
+  let attention: PlaceAttentions = noAttention;
+  /** Send `placed` for a row: its old part in the dots goes, its new one comes. */
+  const track = (threadId: string, placed: Placed | undefined) => {
+    attention = withSignal(attention, sent.get(threadId)?.signal, -1);
+    if (!placed) {
+      sent.delete(threadId);
+      return;
+    }
+    attention = withSignal(attention, placed.signal, 1);
+    sent.set(threadId, placed);
+  };
   const places = new PlacedEntries(placement);
   let stopped = false;
   let initializing = true;
@@ -50,6 +64,7 @@ export function sidebarSubscription(
   const stamped = (current: ThreadListWindow): ThreadListWindow => ({
     ...current,
     epoch: placement.epoch,
+    attention,
   });
   const deliver = (events: Event[]) => {
     if (stopped || !events.some(isSidebarEvent)) return;
@@ -64,18 +79,18 @@ export function sidebarSubscription(
     for (const threadId of selected.keys())
       if (!present.has(threadId)) {
         selected.delete(threadId);
-        sent.delete(threadId);
+        track(threadId, undefined);
         removed.push(ThreadId.parse(threadId));
       }
     for (const entry of current.threads) {
       if (changed.has(entry.id) || selected.get(entry.id) !== entry) {
         const placed = places.placed(entry);
         Object.defineProperty(threads, entry.id, {
-          value: placed,
+          value: placed.entry,
           enumerable: true,
           configurable: true,
         });
-        sent.set(entry.id, placed);
+        track(entry.id, placed);
       }
       selected.set(entry.id, entry);
     }
@@ -98,11 +113,11 @@ export function sidebarSubscription(
       const placed = places.placed(entry);
       if (samePlace(sent.get(threadId), placed)) continue;
       Object.defineProperty(threads, threadId, {
-        value: placed,
+        value: placed.entry,
         enumerable: true,
         configurable: true,
       });
-      sent.set(threadId, placed);
+      track(threadId, placed);
     }
     window = stamped(window);
     send({
@@ -122,7 +137,6 @@ export function sidebarSubscription(
   try {
     const initial = store.sidebarPage(scope);
     before = initial.window.before;
-    window = stamped(initial.window);
     const revision = initial.window.revision;
     // Resumable only from this database and epoch, and from a revision this one has reached.
     const resumable =
@@ -135,12 +149,13 @@ export function sidebarSubscription(
     for (const entry of initial.threads) {
       selected.set(entry.id, entry);
       const placed = places.placed(entry);
-      sent.set(entry.id, placed);
+      track(entry.id, placed);
       const read = store.sidebarRowRevision?.(entry);
       if (resumable && read !== undefined && read <= resume.revision)
         keep.push(ThreadId.parse(entry.id));
-      else fresh.push(placed);
+      else fresh.push(placed.entry);
     }
+    window = stamped(initial.window);
     const view = createThreadListView(fresh);
     view.seq = store.headSeq();
     view.window = window;
@@ -168,9 +183,9 @@ export function sidebarSubscription(
       for (const entry of next.threads) {
         selected.set(entry.id, entry);
         const placed = places.placed(entry);
-        sent.set(entry.id, placed);
+        track(entry.id, placed);
         Object.defineProperty(threads, entry.id, {
-          value: placed,
+          value: placed.entry,
           enumerable: true,
           configurable: true,
         });

@@ -31,6 +31,7 @@
     "./thread-execution": "./src/thread-execution.ts",
     "./mobile": "./src/mobile.ts",
     "./thread-place": "./src/thread-place.ts",
+    "./chat-list": "./src/chat-list.ts",
     "./host-care": "./src/host-care.ts",
     "./thread-log": "./src/thread-log.ts",
     "./log-filter": "./src/log-filter.ts",

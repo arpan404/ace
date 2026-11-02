@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/ListAttention.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "chats": {
+      "$ref": "https://ace.local/protocol/v1/PlaceAttention.json"
+    },
+    "threads": {
+      "$ref": "https://ace.local/protocol/v1/PlaceAttention.json"
+    }
+  },
+  "required": [
+    "threads",
+    "chats"
+  ],
+  "type": "object"
+}

@@ -1,4 +1,11 @@
-import type { InboxBand, ThreadListEntry, ThreadPlace, ThreadTab } from "@ace/protocol";
+import type {
+  InboxBand,
+  ListAttention,
+  PlaceAttention as WirePlaceAttention,
+  ThreadListEntry,
+  ThreadPlace,
+  ThreadTab,
+} from "@ace/protocol";
 import {
   homeListKey,
   isDraft,
@@ -53,23 +60,39 @@ function bandOf(standing: Standing): InboxBand {
   return standing.level === "done-unread" ? "unseen" : "idle";
 }
 
+/** A thread's place with the standing it was read from (`placeThread`). */
+export interface PlacedStanding {
+  place: ThreadPlace;
+  standing: Standing;
+}
+
 /**
  * Where a thread sits, or undefined when the panel leaves it out: archived, deleted, a draft
  * nobody sent, or a child delegated here from another machine (#1562). A request is never
  * hidden by a snooze; a pinned thread snoozes and settles like any other.
  */
 export function placeThread(entry: ThreadListEntry, input: PlaceInput): ThreadPlace | undefined {
+  return placeWithStanding(entry, input)?.place;
+}
+
+/** `placeThread`, with the standing it read, for the rail's dots (`threadSignal`). */
+export function placeWithStanding(
+  entry: ThreadListEntry,
+  input: PlaceInput,
+): PlacedStanding | undefined {
   if (isRemoved(entry) || isDraft(entry) || isRemoteChild(entry)) return undefined;
   const at = activityOf(entry);
-  if (entry.status.state !== "needs_you" && isSnoozed(entry, input.now))
-    return { tab: "snoozed", rank: [-(entry.snoozedUntil ?? 0), at] };
   const standing = standingOf(entry, input);
-  if (isSettled(entry) && atRest(standing)) return { tab: "settled", rank: [at] };
-  if (entry.pinned === true) return { tab: "inbox", band: "pinned", rank: [pinOrderOf(entry), at] };
+  const placed = (place: ThreadPlace) => ({ place, standing });
+  if (entry.status.state !== "needs_you" && isSnoozed(entry, input.now))
+    return placed({ tab: "snoozed", rank: [-(entry.snoozedUntil ?? 0), at] });
+  if (isSettled(entry) && atRest(standing)) return placed({ tab: "settled", rank: [at] });
+  if (entry.pinned === true)
+    return placed({ tab: "inbox", band: "pinned", rank: [pinOrderOf(entry), at] });
   const sortBy = input.sortBy ?? "activity";
   if (sortBy !== "activity")
-    return { tab: "inbox", band: "listed", rank: [homeListKey(sortBy)(entry)] };
-  return { tab: "inbox", band: bandOf(standing), rank: [at] };
+    return placed({ tab: "inbox", band: "listed", rank: [homeListKey(sortBy)(entry)] });
+  return placed({ tab: "inbox", band: bandOf(standing), rank: [at] });
 }
 
 const bandOrder: readonly InboxBand[] = [
@@ -164,5 +187,74 @@ export function threadTabs(
     pinned: inbox.filter((row) => row.place.band === "pinned").map((row) => row.id),
     snoozed: ids(tabs.snoozed),
     settled: ids(tabs.settled),
+  };
+}
+
+/** The rail places whose dots read their own threads (DESIGN.md §3, Rail). */
+export type SignalPlace = "threads" | "chats";
+
+/** What one rail place's dot reads: how many of its threads need the person or hold news. */
+export type PlaceAttention = WirePlaceAttention;
+/** Both rail places' dots, as the daemon sends them with a list (`ListAttention`). */
+export type PlaceAttentions = ListAttention;
+
+/** What one listed thread adds to its place's dot, if anything. */
+export interface ThreadSignal {
+  place: SignalPlace;
+  needsYou: boolean;
+  unread: boolean;
+}
+
+/**
+ * A thread's part in its rail place's dot. Only what the place lists live counts: a thread in
+ * its Inbox (snoozed threads that need the person are there too). A settled or snoozed thread at
+ * rest draws no unread mark in its list, so it never lights the dot either. A request asks
+ * loudest; a failure or finished work not yet opened is news.
+ */
+export function threadSignal(
+  place: ThreadPlace | undefined,
+  standing: Standing,
+  chat: boolean,
+): ThreadSignal | undefined {
+  if (place?.tab !== "inbox") return undefined;
+  const needsYou = standing.level === "needs-you";
+  const unread = standing.level === "failed" || standing.level === "done-unread";
+  if (!needsYou && !unread) return undefined;
+  return { place: chat ? "chats" : "threads", needsYou, unread };
+}
+
+export const noAttention: PlaceAttentions = {
+  threads: { needsYou: 0, unread: 0 },
+  chats: { needsYou: 0, unread: 0 },
+};
+
+/** Running totals of `threadSignal`s: add a thread's part, take back its old one. */
+export function withSignal(
+  totals: PlaceAttentions,
+  signal: ThreadSignal | undefined,
+  sign: 1 | -1,
+): PlaceAttentions {
+  if (!signal) return totals;
+  const place = totals[signal.place];
+  return {
+    ...totals,
+    [signal.place]: {
+      needsYou: place.needsYou + (signal.needsYou ? sign : 0),
+      unread: place.unread + (signal.unread ? sign : 0),
+    },
+  };
+}
+
+/** Two places' totals together: every machine's list adds to the same dots. */
+export function addAttention(a: PlaceAttentions, b: PlaceAttentions): PlaceAttentions {
+  return {
+    threads: {
+      needsYou: a.threads.needsYou + b.threads.needsYou,
+      unread: a.threads.unread + b.threads.unread,
+    },
+    chats: {
+      needsYou: a.chats.needsYou + b.chats.needsYou,
+      unread: a.chats.unread + b.chats.unread,
+    },
   };
 }

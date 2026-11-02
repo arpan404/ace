@@ -20,7 +20,7 @@ import { OmittedItem } from "./omitted-items.ts";
 import { QueueState } from "./queue.ts";
 import { ReviewData } from "./review.ts";
 import { Run, Thread } from "./thread.ts";
-import { ListedThreadPlace, ThreadListResume } from "./thread-place.ts";
+import { ListAttention, ListedThreadPlace, ThreadListResume } from "./thread-place.ts";
 import { EditorLaunch } from "./workspace-actions.ts";
 
 /*
@@ -94,6 +94,8 @@ export const ThreadListWindow = z.object({
   revision: seq.optional(),
   /** The database and placement settings the list was read under (`ThreadListResume`). */
   epoch: z.string().min(1).max(256).optional(),
+  /** The rail dots for what this list places live; absent from older daemons. */
+  attention: ListAttention.optional(),
 });
 export type ThreadListWindow = z.infer<typeof ThreadListWindow>;
 export const ThreadListView = z.object({

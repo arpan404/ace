@@ -1,4 +1,4 @@
-import type { ThreadListView } from "@ace/protocol";
+import type { ThreadListResume, ThreadListView } from "@ace/protocol";
 import type { SidebarHalf } from "./read-records.ts";
 
 /** How many filters' lists a sidebar keeps in memory for this session (ADR 0030). */
@@ -48,19 +48,33 @@ export class FilterMemory {
   provisional(
     half: SidebarHalf,
     project: string | undefined,
-  ): { view: ThreadListView; source: ProvisionalSource } | undefined {
+  ): { view: ThreadListView; source: ProvisionalSource; resume?: ThreadListResume } | undefined {
     const key = keyOf(half, project);
     const remembered = this.#lists.get(key);
     if (remembered) {
       this.#lists.delete(key);
       this.#lists.set(key, remembered);
-      return { view: withoutWindow(remembered), source: "remembered" };
+      // The list as the daemon placed it, tabs and all; its revision lets the next
+      // subscription send only what changed since.
+      const resume = resumeOf(remembered);
+      return {
+        view: withoutWindow(remembered),
+        source: "remembered",
+        ...(resume ? { resume } : {}),
+      };
     }
     if (project === undefined) return undefined;
     const all = this.#lists.get(keyOf(half, undefined));
     const view = all && narrow(all, project);
     return view && { view, source: "derived" };
   }
+}
+
+/** Where a list held whole can resume from (`ThreadListResume`), if its daemon said. */
+export function resumeOf(view: ThreadListView | undefined): ThreadListResume | undefined {
+  const revision = view?.window?.revision;
+  const epoch = view?.window?.epoch;
+  return revision !== undefined && epoch !== undefined ? { revision, epoch } : undefined;
 }
 
 function rowsOf(view: ThreadListView): number {

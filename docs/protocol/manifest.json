@@ -33,8 +33,8 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 108300,
-      "sha256": "4a5dd338a90f952074eb0ac49d91f8f13af263274fa7c046147b50fa08de2f00"
+      "bytes": 108465,
+      "sha256": "88a43b44244616be04cd1d6df9ba36203bf38c8be1b9eb7648cc626fbd5ad758"
     },
     "requests.md": {
       "bytes": 106745,
@@ -2060,6 +2060,10 @@
       "bytes": 1580,
       "sha256": "2f6cc5edcdaa5cb95bbdb38bdc77ec924d536075d3b6ef431947fb4e31d15261"
     },
+    "schema/ListAttention.json": {
+      "bytes": 393,
+      "sha256": "94f1787bc72df750fdfd36afb877646af7196848ca2868bef9c113b0540258d4"
+    },
     "schema/ListedThreadPlace.json": {
       "bytes": 277,
       "sha256": "afbe5fac15dd73eb605ad3a5de283a0e6c37120faedabd8bf142d43dc39b7ade"
@@ -2695,6 +2699,10 @@
     "schema/PiProfile.json": {
       "bytes": 720,
       "sha256": "d741115bc56e5a634855c61ad745cb7262709798c508985c90409e5262685ba4"
+    },
+    "schema/PlaceAttention.json": {
+      "bytes": 424,
+      "sha256": "d4de36c3938b5d2a7a97f95233969368367d4d2efcdcf6ccdb4e10c95f6756c7"
     },
     "schema/PluginAvailability.json": {
       "bytes": 528,
@@ -3945,8 +3953,8 @@
       "sha256": "cec35c942245de5ac57d954f808fd93368a62e70f0f288369be14fd7d4561324"
     },
     "schema/ThreadListWindow.json": {
-      "bytes": 1105,
-      "sha256": "c4ccc1ab02e10b521f5a726cc54a9353c651e5ef841e1d3d0bf9406d7ab05c61"
+      "bytes": 1196,
+      "sha256": "31bfe06410b842363ba6338ee55fc507e1b73162a36c410e1634cabf2ead5630"
     },
     "schema/ThreadMarkReadCommand.json": {
       "bytes": 512,
@@ -4685,10 +4693,10 @@
       "sha256": "5689abd9740d125fc925f514b8ad6da3bf4252fdd3934fbe5031dc92265ef181"
     },
     "types.md": {
-      "bytes": 960586,
-      "sha256": "7418bffed970c5fdd53a0a98393c05cdf894bf8bb94c459eb2c238eb923fdcb4"
+      "bytes": 959264,
+      "sha256": "f10ac38d21c0044838c0c728c995da5b8ed0773f35ebd84a20e66449e238cd43"
     }
   },
-  "input": "0f185f58d40f7dc681dc29845233ff661c5f41718bdab18508aeca3a77127db5",
+  "input": "dbd733406db20fe212b9f23976eebeb68d218711e9fdd21543fe616c6580c0c7",
   "version": 1
 }

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { Thread, type ServerMessage, type ThreadListEntry } from "@ace/protocol";
+import { Thread, ThreadId, type ServerMessage, type ThreadListEntry } from "@ace/protocol";
 import { threadTabs } from "@ace/ui-core/thread-place";
 import { fixture } from "./socket-test-support.ts";
 import { SidebarPlacement } from "./sidebar-placement.ts";
@@ -35,7 +35,7 @@ async function world() {
       hasSentMessage: true,
       ...patch,
     });
-    f.store.appendEvents(id, [{ type: "thread.created", thread }], now);
+    f.store.appendEvents(thread.id, [{ type: "thread.created", thread }], now);
   };
   return { ...f, placement, add };
 }
@@ -135,7 +135,7 @@ test("settle, unsettle, snooze, wake and status changes move one thread with a o
   };
   const step = (events: Parameters<typeof f.store.appendEvents>[1]) => {
     const before = list.messages.length;
-    f.store.appendEvents("t", events, now);
+    f.store.appendEvents(ThreadId.parse("t"), events, now);
     const patches = list.messages.slice(before);
     expect(patches).toHaveLength(1);
     const patch = patches[0];
@@ -179,12 +179,12 @@ test("a reconnect from revision N gets only the threads that moved since, and th
   first.stop();
   // While it was away: one thread settled, one started working.
   f.store.appendEvents(
-    "t-5",
+    ThreadId.parse("t-5"),
     [{ type: "thread.client.updated", changes: { settledAt: now, settledReason: "manual" } }],
     now,
   );
   f.store.appendEvents(
-    "t-9",
+    ThreadId.parse("t-9"),
     [{ type: "thread.updated", status: { state: "working", agents: 1 } }],
     now,
   );
@@ -244,4 +244,40 @@ test("a sort change re-places the open list, sending only threads whose place ch
   expect(Object.keys(patch.threads)).not.toContain("rest");
   expect(patch.window.epoch).toBe(f.placement.epoch);
   expect(list.tabs(["asks", "newer", "rest"]).inbox).toEqual(["newer", "asks"]);
+});
+
+test("the list carries the rail dots: reading every listed chat clears Chats, and a settled chat never lights it", async () => {
+  const f = await world();
+  const chat = (id: string) => ({
+    workspaceId: f.thread.workspaceId,
+    details: {
+      workspace: { id: f.thread.workspaceId, name: "Chat", path: "/chats/a", kind: "chat" },
+    },
+  });
+  f.add("chat-a", { ...chat("chat-a"), status: { state: "done" } });
+  f.add("chat-b", { ...chat("chat-b"), status: { state: "failed" } });
+  // Finished before anyone opened it, then settled: Settled draws it quiet.
+  f.add("chat-settled", { ...chat("chat-settled"), settledAt: now - day, settledReason: "manual" });
+  f.add("work", { status: { state: "needs_you", interactions: 1 } });
+  const list = follow(f);
+  const attention = () => {
+    const last = list.messages.at(-1);
+    return last?.type === "snapshot" && last.view.kind === "threads"
+      ? last.view.window?.attention
+      : last?.type === "threads.patch"
+        ? last.window.attention
+        : undefined;
+  };
+  expect(attention()).toEqual({
+    threads: { needsYou: 1, unread: 0 },
+    chats: { needsYou: 0, unread: 2 },
+  });
+  for (const id of ["chat-a", "chat-b"])
+    f.store.appendEvents(
+      ThreadId.parse(id),
+      [{ type: "thread.client.updated", changes: { readAt: now + 1, unread: false } }],
+      now + 1,
+    );
+  expect(attention()?.chats).toEqual({ needsYou: 0, unread: 0 });
+  expect(attention()?.threads).toEqual({ needsYou: 1, unread: 0 });
 });

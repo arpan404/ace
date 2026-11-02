@@ -81,6 +81,7 @@ export * from "./home-history.ts";
 export * from "./home-rows.ts";
 export * from "./thread-standing.ts";
 export * from "./thread-place.ts";
+export * from "./place-signals.ts";
 export * from "./list-selection.ts";
 export * from "./pin-drag.ts";
 export * from "./pin-order.ts";

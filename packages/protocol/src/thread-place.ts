@@ -46,3 +46,14 @@ export const ListedThreadPlace = z
     "x-ace-json-input": ThreadPlace,
     "x-ace-constraint": "A place that does not parse is accepted and decoded as absent.",
   });
+
+const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+/** One rail place's dot: how many threads it lists live that need the person or hold news. */
+export const PlaceAttention = z.object({ needsYou: count, unread: count });
+export type PlaceAttention = z.infer<typeof PlaceAttention>;
+/**
+ * The rail's Threads and Chats dots, from what each place lists (DESIGN.md §3, Rail): every
+ * client shows the daemon's, adding each machine's.
+ */
+export const ListAttention = z.object({ threads: PlaceAttention, chats: PlaceAttention });
+export type ListAttention = z.infer<typeof ListAttention>;

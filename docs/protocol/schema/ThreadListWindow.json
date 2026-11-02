@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/ThreadListWindow.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "attention": {
+      "$ref": "https://ace.local/protocol/v1/ListAttention.json"
+    },
     "before": {
       "anyOf": [
         {

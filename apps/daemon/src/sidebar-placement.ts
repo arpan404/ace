@@ -1,5 +1,12 @@
-import type { ThreadListEntry, ThreadPlace } from "@ace/protocol";
-import { placeThread, type PlaceInput } from "@ace/ui-core/thread-place";
+import type { ThreadListEntry } from "@ace/protocol";
+import { isChatEntry } from "@ace/ui-core/chat-list";
+import {
+  placeWithStanding,
+  threadSignal,
+  type PlaceInput,
+  type PlacedStanding,
+  type ThreadSignal,
+} from "@ace/ui-core/thread-place";
 
 /** How the Inbox orders unpinned threads (`threads.sortBy`). */
 export type SidebarSort = NonNullable<PlaceInput["sortBy"]>;
@@ -23,9 +30,13 @@ export class SidebarPlacement {
   get epoch(): string {
     return `${this.token}:${this.sortBy}:${this.baseline}`;
   }
-  /** The thread's place now, or undefined when the panel leaves it out. */
-  place(entry: ThreadListEntry): ThreadPlace | undefined {
-    return placeThread(entry, { baseline: this.baseline, now: this.now(), sortBy: this.sortBy });
+  /** The thread's place now with the standing it read, or undefined when the panel leaves it out. */
+  place(entry: ThreadListEntry): PlacedStanding | undefined {
+    return placeWithStanding(entry, {
+      baseline: this.baseline,
+      now: this.now(),
+      sortBy: this.sortBy,
+    });
   }
   setSort(sortBy: SidebarSort): void {
     if (sortBy === this.sortBy) return;
@@ -53,12 +64,18 @@ export class SidebarPlacement {
   }
 }
 
+/** A listed entry as sent, with its place, and its part in the rail's dots. */
+export interface Placed {
+  entry: ThreadListEntry;
+  signal: ThreadSignal | undefined;
+}
+
 /**
  * Entries with their places, worked out once per entry snapshot and epoch: entries are
  * replaced, never changed, so a list update places only the threads that changed.
  */
 export class PlacedEntries {
-  private known = new WeakMap<ThreadListEntry, ThreadListEntry>();
+  private known = new WeakMap<ThreadListEntry, Placed>();
   private epoch: string;
   private readonly placement: SidebarPlacement;
   constructor(placement: SidebarPlacement) {
@@ -66,16 +83,19 @@ export class PlacedEntries {
     this.epoch = placement.epoch;
   }
   /** `entry` as the list sends it, with its place (none when the panel leaves it out). */
-  placed(entry: ThreadListEntry): ThreadListEntry {
+  placed(entry: ThreadListEntry): Placed {
     if (this.epoch !== this.placement.epoch) {
       this.known = new WeakMap();
       this.epoch = this.placement.epoch;
     }
     let placed = this.known.get(entry);
     if (!placed) {
-      const place = this.placement.place(entry);
+      const found = this.placement.place(entry);
       const { place: _old, ...rest } = entry;
-      placed = Object.freeze(place ? { ...rest, place } : rest);
+      placed = {
+        entry: Object.freeze(found ? { ...rest, place: found.place } : rest),
+        signal: found && threadSignal(found.place, found.standing, isChatEntry(entry)),
+      };
       this.known.set(entry, placed);
     }
     return placed;
