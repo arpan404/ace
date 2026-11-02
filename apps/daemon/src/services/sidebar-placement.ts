@@ -1,4 +1,4 @@
-import { SidebarPlacement, type SidebarSort } from "../sidebar-placement.ts";
+import { SidebarPlacement, followSeenBaseline, type SidebarSort } from "../sidebar-placement.ts";
 import type { ServiceContext } from "./types.ts";
 
 const sorts: readonly SidebarSort[] = ["activity", "created", "manual"];
@@ -6,14 +6,18 @@ const sortOf = (value: unknown): SidebarSort => sorts.find((sort) => sort === va
 
 /**
  * Places listed threads (ADR 0107) under the person's sort (`threads.sortBy`, global) and the
- * daemon's seen baseline (the Activity read cursor's first moment), so every client sees one
- * placement. A sort change re-places every open thread list.
+ * daemon's seen baseline (the Activity read cursor's `before`, kept current as it moves), so
+ * every client sees one placement. A sort or baseline change re-places every open thread list.
  */
-export async function startSidebarPlacement(context: ServiceContext): Promise<void> {
+export async function startSidebarPlacement(
+  context: Pick<ServiceContext, "store" | "services" | "now"> & {
+    resources: Pick<ServiceContext["resources"], "own">;
+  },
+): Promise<void> {
   const { store, services, now, resources } = context;
   const placement = new SidebarPlacement(store.sidebarToken(), now);
-  const baseline = services.activityReads?.get().before;
-  if (baseline !== undefined) placement.setBaseline(baseline);
+  // Follows "Mark all read" live, as a restart reads its stored cursor.
+  if (services.activityReads) resources.own(followSeenBaseline(placement, services.activityReads));
   services.sidebarPlacement = placement;
   const settings = services.settings;
   if (!settings) return;

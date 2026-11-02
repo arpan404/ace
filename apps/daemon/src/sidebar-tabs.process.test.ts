@@ -2,7 +2,10 @@ import { afterEach, expect, test } from "vitest";
 import { Thread, ThreadId, type ServerMessage, type ThreadListEntry } from "@ace/protocol";
 import { threadTabs } from "@ace/ui-core/thread-place";
 import { fixture } from "./socket-test-support.ts";
+import { ActivityReads } from "./activity-reads.ts";
 import { SidebarPlacement } from "./sidebar-placement.ts";
+import { startSidebarPlacement } from "./services/sidebar-placement.ts";
+import type { Services } from "./services/types.ts";
 import { subscribe } from "./subscription.ts";
 
 /*
@@ -282,4 +285,57 @@ test("the list carries the rail dots: reading every listed chat clears Chats, an
     );
   expect(attention()?.chats).toEqual({ needsYou: 0, unread: 0 });
   expect(attention()?.threads).toEqual({ needsYou: 1, unread: 0 });
+});
+
+/** The daemon's placement service over a real Activity read cursor, started at `startedAt`. */
+async function placedByService(f: Awaited<ReturnType<typeof world>>, startedAt: number) {
+  const services: Partial<Services> = {
+    activityReads: new ActivityReads(f.store, () => startedAt),
+  };
+  const owned: (() => unknown)[] = [];
+  await startSidebarPlacement({
+    store: f.store,
+    services,
+    now: () => now,
+    resources: { own: (dispose) => void owned.push(dispose) },
+  });
+  cleanup.push(async () => {
+    for (const dispose of owned) await dispose();
+  });
+  const placement = services.sidebarPlacement;
+  if (!placement || !services.activityReads) throw new Error("placement not started");
+  return { placement, reads: services.activityReads };
+}
+
+test("Mark all read moves the seen baseline live: unseen work turns idle at once, as after a restart", async () => {
+  const f = await world();
+  // The cursor began ten days ago, so work finished since and never opened is news.
+  const { placement, reads } = await placedByService(f, now - 10 * day);
+  f.add("older", { status: { state: "done" }, activityAt: now - 2 * day });
+  f.add("newer", { status: { state: "done" }, readAt: now, activityAt: now - day });
+  const live = follow({ ...f, placement });
+  expect(live.tabs(["older", "newer"]).inbox).toEqual(["older", "newer"]);
+  const unread = () => {
+    const last = live.messages.at(-1);
+    return last?.type === "threads.patch"
+      ? last.window.attention?.threads.unread
+      : last?.type === "snapshot" && last.view.kind === "threads"
+        ? last.view.window?.attention?.threads.unread
+        : undefined;
+  };
+  expect(unread()).toBeGreaterThan(0);
+  const epoch = placement.epoch;
+
+  reads.mark({ allBefore: now });
+  // Re-placed without any thread changing: both are seen, newest first, and the dot is out.
+  expect(live.tabs(["older", "newer"]).inbox).toEqual(["newer", "older"]);
+  expect(unread()).toBe(0);
+  expect(placement.epoch).not.toBe(epoch);
+
+  // A restarted daemon reads the stored cursor and places the same way.
+  const restarted = await placedByService(f, now + day);
+  expect(restarted.placement.epoch).toBe(placement.epoch);
+  expect(follow({ ...f, placement: restarted.placement }).tabs(["older", "newer"])).toEqual(
+    live.tabs(["older", "newer"]),
+  );
 });

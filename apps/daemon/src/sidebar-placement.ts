@@ -101,3 +101,19 @@ export class PlacedEntries {
     return placed;
   }
 }
+
+/** The Activity read cursor as placement reads it (`ActivityReads`). */
+interface SeenCursor {
+  get(): { before: number };
+  subscribe(listener: (change: { cursor: { before: number } }) => void): () => void;
+}
+
+/**
+ * Keeps the seen baseline on the Activity read cursor's `before`: its stored value at start, then
+ * each change ("Mark all read" moves it), so a live daemon places threads as a restarted one
+ * would. A move re-places every open list and changes the epoch. Returns how to stop.
+ */
+export function followSeenBaseline(placement: SidebarPlacement, cursor: SeenCursor): () => void {
+  placement.setBaseline(cursor.get().before);
+  return cursor.subscribe((change) => placement.setBaseline(change.cursor.before));
+}
