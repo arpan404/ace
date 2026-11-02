@@ -82,9 +82,11 @@ export function HeldTurnStrip(props: {
   return (
     <section
       aria-label={turn.lead}
-      className="flex h-9 min-w-0 items-center gap-1 pr-1 pl-2.5 text-xs"
+      // The sentence is never cut: when the strip is too narrow for it and the actions on one
+      // line, the actions move to a second line, still at the right.
+      className="flex min-h-9 min-w-0 flex-wrap items-center gap-x-1 py-1 pr-1 pl-2.5 text-xs"
     >
-      <p className="min-w-0 flex-1 truncate text-muted-foreground">
+      <p className="min-w-[14rem] flex-1 py-1 text-muted-foreground">
         {turn.lead}
         {turn.until && (
           <>
@@ -93,32 +95,34 @@ export function HeldTurnStrip(props: {
           </>
         )}
       </p>
-      {props.indicators}
-      <button
-        type="button"
-        onClick={props.onSwitch}
-        className="h-7 shrink-0 rounded-md px-2 font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring"
-      >
-        Switch
-      </button>
-      {turn.atReset && (
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {props.indicators}
+        <button
+          type="button"
+          onClick={props.onSwitch}
+          className="h-7 shrink-0 rounded-md px-2 font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring"
+        >
+          Switch
+        </button>
+        {turn.atReset && (
+          <button
+            type="button"
+            disabled={props.queue.acting}
+            onClick={() => turn.atReset && props.queue.act(turn.atReset)}
+            className="h-7 shrink-0 rounded-md px-2 font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring disabled:opacity-50"
+          >
+            Resume at reset
+          </button>
+        )}
         <button
           type="button"
           disabled={props.queue.acting}
-          onClick={() => turn.atReset && props.queue.act(turn.atReset)}
-          className="h-7 shrink-0 rounded-md px-2 font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring disabled:opacity-50"
+          onClick={() => props.queue.act(turn.carryOn)}
+          className="h-7 shrink-0 rounded-md px-2 font-semibold text-foreground transition-colors duration-(--motion-fast) hover:bg-accent focus-ring disabled:opacity-50"
         >
-          Resume at reset
+          Continue
         </button>
-      )}
-      <button
-        type="button"
-        disabled={props.queue.acting}
-        onClick={() => props.queue.act(turn.carryOn)}
-        className="h-7 shrink-0 rounded-md px-2 font-semibold text-foreground transition-colors duration-(--motion-fast) hover:bg-accent focus-ring disabled:opacity-50"
-      >
-        Continue
-      </button>
+      </div>
     </section>
   );
 }
