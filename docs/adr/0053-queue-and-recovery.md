@@ -396,3 +396,25 @@ Decisions:
   amendment: a message is the go-ahead and drops any timer). A switch from the strip cancels it:
   admitting the continuation clears the deadline in the same transaction, so the old account's
   timer can't fire on the new one. A Stop cancels it as before.
+
+## Amendment 2026-11-01: a turn a usage limit paused is a complete turn
+
+The transcript folded a paused turn's steps and messages under a bare "Worked" disclosure, which
+hid what the agent had said. The owner: "When limited we don't hide the message, we treat the whole
+turn as a complete turn and show it as it is."
+
+- **Shown like a completed turn.** The block builder (`ui-core/transcript-blocks.ts`) settles a
+  paused turn as it stands, whether the limit holds it now or a resume followed: the same "Worked
+  for" head as a completed turn, its steps folded under it, and the agent's last message in view as
+  the turn's answer, even when steps followed that message (`pausedTurnsOf` finds the paused turns
+  before grouping, so this holds after a reload too). A held turn's time stops at the last thing it
+  said. There is no pause ending row. A limit hit before any output leaves only the ask.
+- **The limit is said once**, in the composer's held-turn strip (unchanged).
+- **A resume is a new turn.** A `limit_resume` run never joins the paused turn (unchanged); it
+  reads below it as its own turn, and nothing calls the paused turn stopped or interrupted.
+
+Tests: web `turn-structure.test.tsx` (the head and answer while held, a resume below, the same
+after a reload) and `transcript-live-state.test.tsx`.
+
+The person's Stop is now done and already read, never attention and never offered a Continue; see
+[ADR 0052](0052-agent-control.md), amendment of the same date.

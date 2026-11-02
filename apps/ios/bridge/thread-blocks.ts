@@ -275,18 +275,15 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
       };
     case "end": {
       const items = block.itemIds ?? [];
-      // A usage-limit pause keeps the work it did, a tap away.
-      const background = block.ending === "paused" ? backgroundRows(store, items) : [];
-      const log = block.ending === "paused" ? workLog(items, read, { ...facts, background }) : null;
       return {
         ...base,
         items: [...items],
         ending: endingRow(store, block),
-        log: log?.rows ?? null,
-        background,
-        aceSteps: log?.ace ?? [],
-        retried: log?.retried ?? [],
-        thoughts: log?.thoughts ?? [],
+        log: null,
+        background: [],
+        aceSteps: [],
+        retried: [],
+        thoughts: [],
       };
     }
     case "files":

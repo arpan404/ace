@@ -32,7 +32,7 @@ export type QueueAction =
   /** Carry the held turn on at `selection` (another account, model or provider) now. */
   | { id: "switch"; label: string; selection: SwitchSelection }
   | { id: "resume"; label: string }
-  /** Carry the stopped turn on: one "Continue where you left off." in the person's words. */
+  /** Carry a turn a restart cut short on: one "Continue where you left off." in the person's words. */
   | { id: "continue"; label: string }
   | { id: "hold"; label: string }
   | { id: "choose_model"; label: string };
@@ -64,14 +64,14 @@ export type QueueHold = Pick<
 /**
  * What stopped a held turn, in words: "Stopped by a restart" when ace restarted, "Cursor
  * stopped unexpectedly" when the provider's process died on its own (the provider's name when
- * known), "Agent stopped" after the person's Stop. Undefined when no stop holds the turn.
+ * known). Undefined when no such stop holds the turn. The person's own Stop is never said here:
+ * their turn is done, and their next message starts a new one (ADR 0052).
  */
 export function stopTitle(
   queue: Pick<QueueHold, "paused" | "reason" | "exited"> | undefined,
   provider?: ProviderKind,
 ): string | undefined {
   if (!queue?.paused) return undefined;
-  if (queue.reason === "stopped") return "Agent stopped";
   if (queue.reason !== "restart") return undefined;
   if (!queue.exited) return "Stopped by a restart";
   return `${provider ? providerNames[provider] : "Agent"} stopped unexpectedly`;
@@ -168,12 +168,14 @@ export function queueNotice(
           queue?.lastFailure?.title ?? "Your message is kept in the queue. Try sending it again.",
         actions: [{ id: "resume", label: "Try again" }],
       };
+    // The person's Stop ended the turn: nothing to continue. Only messages it kept say so.
     case "stopped":
+      if (!queue?.pendingCount) return undefined;
       return {
         kind: "stopped",
-        title: "Agent stopped",
-        detail: "",
-        actions: [{ id: "continue", label: "Continue" }],
+        title: "Queued messages wait",
+        detail: "Your Stop kept them. They send with your next message.",
+        actions: [{ id: "resume", label: "Send now" }],
       };
     case "restart":
       return {
@@ -204,11 +206,12 @@ export function queueNotice(
 }
 
 /**
- * A stopped turn (the person's Stop, a restart, a provider that died) is not a queue state: it
- * reads as a pill over the composer with Continue, never as an item in the queue's strip.
+ * A turn a restart or a provider that died cut short is not a queue state: it reads as a pill
+ * over the composer with Continue, never as an item in the queue's strip. The person's Stop has
+ * no pill: their turn is done.
  */
 export function stoppedHold(notice: QueueNotice | undefined): boolean {
-  return notice?.kind === "restart" || notice?.kind === "stopped";
+  return notice?.kind === "restart";
 }
 
 /**

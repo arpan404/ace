@@ -3,7 +3,6 @@ import type { Run } from "@ace/protocol";
 import { formatElapsed } from "@ace/ui-core";
 import { Suspense, useCallback, useMemo } from "react";
 import { StopCircleIcon } from "@phosphor-icons/react";
-import { GroupedSteps } from "../items/step-groups-view.tsx";
 import { SystemRow } from "../items/system-row.tsx";
 import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import type { Block } from "./blocks.ts";
@@ -49,15 +48,9 @@ interface Ending {
   ranMs: number | undefined;
   /** Why it failed: the run's own reason, else the one seen on its agent while it was latest. */
   error: Failure | undefined;
-  /** A usage-limit hold still in effect, with its reset time when known. */
-  held: { until: number | undefined } | undefined;
 }
 
-const sameEnding = (a: Ending, b: Ending) =>
-  a.ranMs === b.ranMs &&
-  a.error === b.error &&
-  a.held?.until === b.held?.until &&
-  !a.held === !b.held;
+const sameEnding = (a: Ending, b: Ending) => a.ranMs === b.ranMs && a.error === b.error;
 
 function readEnding(reader: ThreadReader, block: EndBlock): Watched<Ending> {
   const run = block.runId ? reader.run(block.runId) : undefined;
@@ -68,19 +61,10 @@ function readEnding(reader: ThreadReader, block: EndBlock): Watched<Ending> {
     error = status.error;
     if (block.runId) remember(block.runId, error);
   }
-  const thread = reader.thread?.status;
-  const held =
-    block.ending === "paused" &&
-    block.latest &&
-    status?.state === "blocked" &&
-    status.on === "rate_limit"
-      ? { until: status.until ?? (thread?.state === "limited" ? thread.until : undefined) }
-      : undefined;
   return {
     value: {
       ranMs: run?.endedAt === undefined ? undefined : run.endedAt - run.startedAt,
       error,
-      held,
     },
     watch: agentId ? [`agent:${agentId}`] : [],
   };
@@ -88,8 +72,8 @@ function readEnding(reader: ThreadReader, block: EndBlock): Watched<Ending> {
 
 /**
  * How a turn that didn't simply complete ended, kept in the transcript under its last block
- * (UX audit TS-4, TS-5, IR-15): a failed turn's reason with Retry and Details, a quiet
- * "Stopped by you", or where a usage limit paused it.
+ * (UX audit TS-4, TS-5, IR-15): a failed turn's reason with Retry and Details, or a quiet
+ * "Interrupted by you". A turn a usage limit paused has no ending: it reads complete.
  */
 export function TurnEnd(props: { threadId: string; block: EndBlock }) {
   const { block } = props;
@@ -100,25 +84,6 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
   const read = useCallback((reader: ThreadReader) => readEnding(reader, block), [block]);
   const ending = useWatched(props.threadId, keys, read, sameEnding);
   if (!ending) return null;
-  if (block.ending === "paused") {
-    // The limit itself is said in the composer's strip; history keeps only the work.
-    const text =
-      ending.ranMs !== undefined && ending.ranMs >= 1000
-        ? `Worked for ${formatElapsed(ending.ranMs)}`
-        : "Worked";
-    return (
-      <details
-        role="note"
-        aria-label={text}
-        className="border-t border-border pt-2 text-xs text-muted-foreground"
-      >
-        <summary role="button" className="cursor-pointer py-1 focus-ring">
-          {text}
-        </summary>
-        <GroupedSteps threadId={props.threadId} itemIds={block.itemIds ?? []} id={block.key} />
-      </details>
-    );
-  }
   if (block.ending === "interrupted" && !block.automatic)
     // The person's Stop: a thin break, and their next message starts a new turn below it.
     return (

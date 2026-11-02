@@ -215,11 +215,7 @@ export function createBlockReader(
       restartedTail: restarted,
       pausedTurns: paused,
       stoppedTail:
-        status?.state === "failed" || status?.state === "interrupted"
-          ? status.state
-          : limited
-            ? "paused"
-            : undefined,
+        status?.state === "failed" || status?.state === "interrupted" ? status.state : undefined,
       watch,
       unsettledTail,
       turnKeys,
