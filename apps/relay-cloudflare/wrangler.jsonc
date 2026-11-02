@@ -32,4 +32,37 @@
   // Request logs would record join tickets in URLs. Account secrets, grants and tokens are
   // never logged either.
   "observability": { "enabled": false },
+  // ace's hosted relay. The top level above is for local development and tests. Deploy with
+  // `--env production`; scripts/deploy-wizard.sh fills in the domain, origins and database id.
+  "env": {
+    "production": {
+      "name": "ace-relay",
+      "routes": [{ "pattern": "RELAY_DOMAIN", "custom_domain": true }],
+      "vars": {
+        "ACE_ACCOUNT_PUBLIC_URL": "https://RELAY_DOMAIN",
+        "ACE_ACCOUNT_ALLOWED_ORIGINS": "ALLOWED_ORIGINS",
+      },
+      "durable_objects": {
+        "bindings": [{ "name": "RELAY", "class_name": "RelayObject" }],
+      },
+      "d1_databases": [
+        {
+          "binding": "ACCOUNTS",
+          "database_name": "ace-accounts",
+          "database_id": "PRODUCTION_DATABASE_ID",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "ratelimits": [
+        { "name": "UPGRADES", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } },
+        {
+          "name": "ACCOUNT_REQUESTS",
+          "namespace_id": "1002",
+          "simple": { "limit": 120, "period": 60 },
+        },
+      ],
+      "triggers": { "crons": ["17 * * * *"] },
+      "observability": { "enabled": false },
+    },
+  },
 }

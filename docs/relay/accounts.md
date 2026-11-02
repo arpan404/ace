@@ -11,46 +11,42 @@ on the person's machine.
 
 ## Deploy
 
-Run these from `apps/relay-cloudflare`.
+`apps/relay-cloudflare/scripts/deploy-wizard.sh` walks through the first deploy and
+can be re-run: it asks for the domain and allowed origins, signs in to Cloudflare,
+creates the D1 database, applies migrations, deploys, takes the WorkOS keys, sets
+the secrets and runs the smoke check. Public values it captures stay in the
+git-ignored `apps/relay-cloudflare/.deploy.env`; secrets go only to Cloudflare.
 
-1. Create the database and put the id it prints into `d1_databases[0].database_id`
-   in `wrangler.jsonc`:
+The production settings live in `wrangler.jsonc` under `env.production`; the top
+level is for local development and tests. The wizard replaces its placeholders
+(`RELAY_DOMAIN`, `ALLOWED_ORIGINS`, `PRODUCTION_DATABASE_ID`); commit the result.
+By hand, from `apps/relay-cloudflare`:
 
-   ```sh
-   bunx wrangler d1 create ace-accounts
-   ```
-
-2. Apply the migrations in `migrations/`:
-
-   ```sh
-   bunx wrangler d1 migrations apply ACCOUNTS --remote
-   ```
-
-3. Create a WorkOS AuthKit application and register exactly
-   `https://YOUR_RELAY_DOMAIN/v1/account/callback` as its redirect URI. Use a separate
-   WorkOS environment for development.
-
-4. Set the secrets. `ACE_ACCOUNT_ENCRYPTION_KEY` seals WorkOS refresh tokens; losing
+1. `bunx wrangler d1 create ace-accounts`, then put the printed id in
+   `env.production.d1_databases[0].database_id`.
+2. `bunx wrangler d1 migrations apply ACCOUNTS --remote --env production`.
+3. In WorkOS, register exactly `https://YOUR_RELAY_DOMAIN/v1/account/callback` as a
+   redirect of your AuthKit application. Use a separate WorkOS environment for
+   development.
+4. Set the domain and origins in `env.production` (`routes` and `vars`): exact
+   browser origins, comma-separated, plus `app://ace` for the desktop app, never a
+   wildcard. Native iOS requests send no Origin and authenticate with their token.
+   Then `bunx wrangler deploy --env production`.
+5. Set the secrets. `ACE_ACCOUNT_ENCRYPTION_KEY` seals WorkOS refresh tokens; losing
    or changing it signs everyone out. `ACE_GRANT_KEY` signs grants; it is
    `<key id>:<base64url of a 32-byte Ed25519 seed>`.
 
    ```sh
-   bunx wrangler secret put WORKOS_CLIENT_ID
-   bunx wrangler secret put WORKOS_API_KEY
-   openssl rand -hex 32 | bunx wrangler secret put ACE_ACCOUNT_ENCRYPTION_KEY
+   bunx wrangler secret put WORKOS_CLIENT_ID --env production
+   bunx wrangler secret put WORKOS_API_KEY --env production
+   openssl rand -hex 32 | bunx wrangler secret put ACE_ACCOUNT_ENCRYPTION_KEY --env production
    printf 'k%s:%s' "$(date +%Y%m%d)" "$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')" \
-     | bunx wrangler secret put ACE_GRANT_KEY
+     | bunx wrangler secret put ACE_GRANT_KEY --env production
    ```
 
-5. Deploy with the public origin and the browser origins allowed to call the API
-   (exact origins, comma-separated, plus `app://ace` for the desktop app; never a
-   wildcard). Native iOS requests send no Origin and authenticate with their token.
-
-   ```sh
-   bunx wrangler deploy \
-     --var ACE_ACCOUNT_PUBLIC_URL:https://YOUR_RELAY_DOMAIN \
-     --var ACE_ACCOUNT_ALLOWED_ORIGINS:https://app.example.com,app://ace
-   ```
+6. `bun run smoke https://YOUR_RELAY_DOMAIN` checks the live Worker without an
+   account: it answers, publishes grant keys, starts and cancels a sign-in, and
+   refuses relay upgrades that carry no grant.
 
 Settings are all or nothing. With none of them, the Worker answers account routes
 with 503 `account_not_configured` and refuses `/host` and `/client`, since the
@@ -63,7 +59,7 @@ grants, tokens, cookies or callback queries. Account requests are limited per
 client address by the `ACCOUNT_REQUESTS` rate-limit binding, relay upgrades by
 `UPGRADES`. A cron trigger drops expired sign-ins and sessions hourly.
 
-To rotate the grant key, set a new `ACE_GRANT_KEY` with a new key id and deploy.
+To rotate the grant key, set a new `ACE_GRANT_KEY` with a new key id.
 Grants signed with the old key fail at the relay within five minutes of issue;
 clients and daemons fetch a new grant and retry.
 

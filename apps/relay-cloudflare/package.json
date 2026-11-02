@@ -7,7 +7,8 @@
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "migrate:local": "wrangler d1 migrations apply ACCOUNTS --local"
+    "migrate:local": "wrangler d1 migrations apply ACCOUNTS --local",
+    "smoke": "node scripts/smoke.ts"
   },
   "dependencies": {
     "@ace/account-grant": "workspace:*",
