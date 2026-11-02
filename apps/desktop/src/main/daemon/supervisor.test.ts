@@ -371,6 +371,55 @@ describe("daemon supervisor", () => {
     },
   );
 
+  it("never stops a daemon that answers while the app's own main thread keeps freezing", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    // The daemon answers every check, in 3 s. The app freezes for 12 to 60 s at a time while a
+    // check is out, as on 1 Nov: its own timeouts and request deadlines fired first on waking,
+    // ahead of the answer waiting unread, and the daemon was killed for it.
+    m.state.healthDelayMs = 3_000;
+    for (const frozenMs of [12_000, 25_000, 40_000, 60_000, 37_000, 45_000]) {
+      // Each check goes out 5 s after the last answer; freeze 1 s into the next one.
+      await m.advance(6_000);
+      await m.freeze(frozenMs);
+    }
+    await m.advance(30_000);
+    expect(m.signals).toEqual([]);
+    expect(m.children).toHaveLength(1);
+    expect(supervisor.current()).toMatchObject({ state: "running", source: "app" });
+    expect(m.log.filter((entry) => entry.message === "The daemon missed a health check")).toEqual(
+      [],
+    );
+    expect(m.log).toContainEqual(
+      expect.objectContaining({
+        message: "The app froze during a daemon health check; checking again",
+      }),
+    );
+  });
+
+  it("still stops a daemon that truly stops answering, even after the app froze once", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports, { stopGraceMs: 10_000 });
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    m.state.hung = true;
+    await m.advance(2_000);
+    await m.freeze(30_000);
+    let waited = 0;
+    while (m.signals.length === 0 && waited < 600_000) {
+      await m.advance(1_000);
+      waited += 1_000;
+    }
+    expect(m.signals).toEqual(["SIGTERM"]);
+    expect(
+      m.log.filter((entry) => entry.message === "The daemon missed a health check").length,
+    ).toBe(3);
+  });
+
   it("a daemon that stops answering is asked to stop before it is killed, and the reason is logged", async () => {
     const m = machine();
     const supervisor = new DaemonSupervisor(m.ports, { stopGraceMs: 10_000 });
