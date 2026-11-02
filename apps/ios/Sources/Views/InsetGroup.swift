@@ -1,29 +1,29 @@
 import SwiftUI
 
-/// The inset-grouped lists of Settings, Machines and the model sheet: the system list, with
-/// 56pt rows on a quiet fill, a 21pt monochrome symbol, a 16.5pt label and a muted trailing
-/// value. Navigation chevrons, toggles and menus stay the system's own.
+/// The grouped lists of Settings, Machines and the model sheet: the system list, one group per
+/// place, rows on the quiet fill, a monochrome glyph at the icon size, the body role for labels
+/// and a muted trailing value. Navigation chevrons, toggles and menus stay the system's own.
 extension View {
     func insetGroupedList() -> some View {
         self.listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
-            .background(AceTheme.Colours.background)
+            .background(AceDesign.Surface.background)
             .modifier(InsetRowDensity())
-            .listSectionSpacing(AceDesign.Space.related)
+            .listSectionSpacing(AceDesign.Space.group)
     }
     /// Rows pass under the bottom search field behind a firm edge, so none reads through it.
     @ViewBuilder func searchBarEdge() -> some View {
         if #available(iOS 26, *) { scrollEdgeEffectStyle(.hard, for: .bottom) } else { self }
     }
     /// A row's fill inside an inset group.
-    func insetRowBackground() -> some View { listRowBackground(AceTheme.Colours.fill).listRowSeparator(.hidden) }
+    func insetRowBackground() -> some View { listRowBackground(AceDesign.Surface.fill).listRowSeparator(.hidden) }
 }
 
-/// On/off switches in the system's own green: the ink accent the sheets tint with would hide an
-/// on switch's knob. Applied to a whole stack, so every page it pushes gets it too.
+/// On/off switches in the one accent (design language §3). Applied to a whole stack, so every
+/// page it pushes gets it too.
 struct SystemSwitchStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
-        Toggle(configuration).toggleStyle(.switch).tint(Color(uiColor: .systemGreen))
+        Toggle(configuration).toggleStyle(.switch).tint(AceDesign.Ink.accent)
     }
 }
 
@@ -31,23 +31,21 @@ extension ToggleStyle where Self == SystemSwitchStyle {
     static var systemSwitch: SystemSwitchStyle { SystemSwitchStyle() }
 }
 
-/// "Connections", "Options": a 14pt medium muted header in sentence case.
+/// "Connections", "Options": a muted header on the meta role, in sentence case.
 struct InsetHeader: View {
     let title: String
     init(_ title: String) { self.title = title }
     var body: some View {
-        Text(title).aceFont(InsetStyle.header, relativeTo: .subheadline)
-            .foregroundStyle(AceTheme.Colours.mutedForeground).textCase(nil)
+        Text(title).font(AceDesign.Typeface.meta)
+            .foregroundStyle(AceDesign.Ink.muted).textCase(nil)
     }
 }
 
-/// The inset rows' measures: the title role for a row's name, the body role for its value and
-/// meta for a section's header (design language §3).
+/// The grouped rows' measures, on the type roles: labels and values on body, headers on meta.
 @MainActor enum InsetStyle {
-    /// A glyph row with room for a subtitle under its name: taller than a one-line row.
-    static let rowHeight: CGFloat = 56
-    static let label = AceTheme.Typography.body
-    static let value = AceTheme.Typography.rowTitle
+    static let rowHeight = AceDesign.Size.rowLine
+    static let label = AceTheme.Typography.label
+    static let value = AceTheme.Typography.label
     static let header = AceTheme.Typography.meta
 }
 
@@ -59,6 +57,7 @@ struct InsetRow<Trailing: View>: View {
     let title: String
     var subtitle: String? = nil
     @ViewBuilder var trailing: () -> Trailing
+    @ScaledMetric(relativeTo: .subheadline) private var glyphSize = AceDesign.Size.icon
 
     init(systemImage: String?, title: String, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
         self.init(glyph: systemImage.map(Glyph.symbol), title: title, subtitle: subtitle, trailing: trailing)
@@ -77,19 +76,20 @@ struct InsetRow<Trailing: View>: View {
         HStack(spacing: AceDesign.Space.row) {
             switch glyph {
             case .symbol(let name)?:
-                Image(systemName: name).font(.system(size: AceDesign.Size.barIcon))
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                    .frame(width: AceDesign.Size.glyphBox).accessibilityHidden(true)
+                Image(systemName: name).font(.system(size: glyphSize))
+                    .foregroundStyle(AceDesign.Ink.primary)
+                    .frame(width: glyphSize + AceDesign.Space.related).accessibilityHidden(true)
             case .ace(let name)?:
-                AceIcon(name, size: AceDesign.Size.barIcon).foregroundStyle(AceTheme.Colours.foreground).frame(width: AceDesign.Size.glyphBox)
+                AceIcon(name, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.primary)
+                    .frame(width: glyphSize + AceDesign.Space.related)
             case nil:
                 EmptyView()
             }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Text(title).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                Text(title).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
                 if let subtitle {
-                    Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                    Text(subtitle).font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                 }
             }
             Spacer(minLength: AceDesign.Space.related)
@@ -111,8 +111,8 @@ struct InsetValue: View {
     let text: String?
     var body: some View {
         if let text {
-            Text(text).aceFont(InsetStyle.value, relativeTo: .body)
-                .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+            Text(text).font(AceDesign.Typeface.body)
+                .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
         }
     }
 }

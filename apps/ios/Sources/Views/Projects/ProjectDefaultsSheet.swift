@@ -29,14 +29,14 @@ struct ProjectDefaultsSheet: View {
                 } else if let problem {
                     EmptyState(systemImage: "folder", title: "Project unavailable", line: problem)
                 } else {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    SkeletonPage(label: "Opening the project")
                 }
             }
             .toolbar {
                 if project == nil { ToolbarItem(placement: .cancellationAction) { Button("Close", action: done) } }
             }
         }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.accent)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .task { await load() }
     }

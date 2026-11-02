@@ -4,6 +4,7 @@ import SwiftUI
 /// per account, stars, "Find a model") over the machine's models (`settings.models`). The check
 /// saves the picked model; X leaves the setting as it was.
 struct SettingsModelSheet: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let page: String
     let row: SettingsPageData.Row
@@ -46,7 +47,7 @@ struct SettingsModelSheet: View {
         ModelPicker(
             query: $query, tabs: tabs, shown: Binding(get: { tab }, set: { shown = $0 }), state: state,
             rows: listed.rows, hidden: listed.hidden, expanded: open && hasMore && !ModelSearch.active(query),
-            toggleMore: { withAnimation(.smooth) { if open { expanded.remove(tab) } else { expanded.insert(tab) } } },
+            toggleMore: { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { if open { expanded.remove(tab) } else { expanded.insert(tab) } } },
             rowPrefix: "settingsModel", morePrefix: "settingsModel.\(tab)", starProblem: read.starProblem,
             retry: { Task { await load() } }, confirm: confirm, choose: choose, star: { star($0.key) }
         )

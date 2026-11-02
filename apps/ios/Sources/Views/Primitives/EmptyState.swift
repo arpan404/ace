@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// DESIGN.md §3 "Empty state", centred: a faint icon, the title (500), one muted line, and at
+/// DESIGN.md §3 "Empty state", centred: a faint icon, the title, one muted line, and at
 /// most one secondary action. The error state is the same anatomy with the failed glyph: its line
 /// says what happened, then what to do.
 struct EmptyState<Action: View>: View {
@@ -13,34 +13,34 @@ struct EmptyState<Action: View>: View {
     @ViewBuilder var action: () -> Action
 
     var body: some View {
-        VStack(spacing: AceTheme.Spacing.xs) {
+        VStack(spacing: AceDesign.Space.tight) {
             if failed {
-                StatusGlyph(.failed, tone: .failed, size: 24).padding(.bottom, AceTheme.Spacing.sm)
+                StatusGlyph(.failed, tone: .failed, size: AceDesign.Size.emptyIcon).padding(.bottom, AceDesign.Space.related)
             } else if let icon {
-                AceIcon(icon, size: 28, relativeTo: .title2)
-                    .foregroundStyle(AceTheme.Colours.faintForeground)
-                    .padding(.bottom, AceTheme.Spacing.sm)
+                AceIcon(icon, size: AceDesign.Size.emptyIcon, relativeTo: .title2)
+                    .foregroundStyle(AceDesign.Ink.faint)
+                    .padding(.bottom, AceDesign.Space.related)
             } else if let symbol {
                 Image(systemName: symbol).font(.title2)
-                    .foregroundStyle(AceTheme.Colours.faintForeground)
-                    .padding(.bottom, AceTheme.Spacing.sm)
+                    .foregroundStyle(AceDesign.Ink.faint)
+                    .padding(.bottom, AceDesign.Space.related)
             }
             Text(title)
-                .aceFont(AceTheme.Typography.label, relativeTo: .body)
-                .foregroundStyle(AceTheme.Colours.foreground)
+                .font(AceDesign.Typeface.body)
+                .foregroundStyle(AceDesign.Ink.primary)
             if let line {
                 Text(line)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
             }
             action()
                 .buttonStyle(.bordered).buttonBorderShape(.capsule)
-                .tint(AceTheme.Colours.foreground)
-                .padding(.top, AceTheme.Spacing.sm)
+                .tint(AceDesign.Ink.accent)
+                .padding(.top, AceDesign.Space.related)
         }
         .multilineTextAlignment(.center)
-        .frame(maxWidth: 360)
-        .padding(.horizontal, AceTheme.Spacing.xl)
+        .frame(maxWidth: AceDesign.Size.emptyWidth)
+        .padding(.horizontal, AceDesign.Space.margin)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
     }

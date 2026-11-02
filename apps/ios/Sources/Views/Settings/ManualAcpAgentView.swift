@@ -32,7 +32,7 @@ struct ManualAcpAgentView: View {
                 }
                 Section {
                     Button("Add agent") {}
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                         .disabled(manual?.canAdd != true || !model.canOperate)
                 } footer: { if let note = manual?.note { Text(note).transition(.opacity) } }
                 ServiceProblem(message: problem)
@@ -40,7 +40,7 @@ struct ManualAcpAgentView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(.smooth(duration: 0.2), value: manual?.note)
+        .smoothChange(manual?.note)
         .navigationTitle("Add by command").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model) { await read() }
     }

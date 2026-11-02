@@ -150,7 +150,7 @@ struct UsageLimitsReply: Decodable, Sendable {
 enum UsageColour {
     @MainActor static func of(_ hue: UsageHue?, ink: Bool) -> Color {
         guard let hue, let light = rgb(hue.light), let dark = rgb(hue.dark) else {
-            return ink ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground
+            return ink ? AceDesign.Ink.primary : AceDesign.Ink.muted
         }
         return Color(uiColor: UIColor { @Sendable traits in
             let value = traits.userInterfaceStyle == .dark ? dark : light

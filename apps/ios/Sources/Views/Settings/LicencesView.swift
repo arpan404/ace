@@ -33,12 +33,12 @@ struct LicencesView: View {
         List {
             ForEach(entries) { entry in
                 Section {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                        Text(entry.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                        Text(entry.licence).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        Text(entry.notice).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                        Text(entry.name).font(AceDesign.Typeface.body)
+                        Text(entry.licence).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                        Text(entry.notice).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                     }
-                    .padding(.vertical, AceTheme.Spacing.sm)
+                    .padding(.vertical, AceDesign.Space.related)
                     .accessibilityElement(children: .combine)
                 }
                 .insetRowBackground()

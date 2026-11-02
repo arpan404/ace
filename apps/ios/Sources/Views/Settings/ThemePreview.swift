@@ -3,6 +3,8 @@ import SwiftUI
 /// The app in miniature, drawn in one theme's and accent's own colours in one scheme: a title,
 /// three thread rows and the composer with its send button. Picker cards show it (DESIGN.md
 /// Picker card); it never reads the colours on screen, so every choice previews as itself.
+// The miniature's bars, dots and heights are its own drawing at about a quarter scale: content
+// geometry, not UI measures.
 struct ThemePreview: View {
     let theme: String
     let accent: String
@@ -12,13 +14,13 @@ struct ThemePreview: View {
 
     var body: some View {
         let compact = densityId == "compact"
-        VStack(alignment: .leading, spacing: compact ? AceTheme.Spacing.xxs : AceTheme.Spacing.xs) {
-            AceShape.capsule.fill(colour("foreground")).frame(width: 30, height: 4).padding(.bottom, AceTheme.Spacing.xxs)
+        VStack(alignment: .leading, spacing: compact ? AceTheme.Spacing.xxs : AceDesign.Space.tight) {
+            AceDesign.Shape.control.fill(colour("foreground")).frame(width: 30, height: 4).padding(.bottom, AceTheme.Spacing.xxs)
             ForEach(0..<(compact ? 4 : 3), id: \.self) { row in thread(row, compact: compact) }
             Spacer(minLength: 0)
             composer
         }
-        .padding(AceTheme.Spacing.sm)
+        .padding(AceDesign.Space.related)
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height)
         .background(colour("background"))
         .clipShape(AceDesign.Shape.block)
@@ -29,30 +31,30 @@ struct ThemePreview: View {
     }
 
     private func thread(_ row: Int, compact: Bool) -> some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
+        HStack(spacing: AceDesign.Space.tight) {
             Circle().fill(row == 0 ? AceTheme.Status.working : colour("decoration")).frame(width: 4, height: 4)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                AceShape.capsule.fill(colour("foreground")).frame(width: [34, 26, 30, 24][row], height: 3)
-                AceShape.capsule.fill(colour("mutedForeground")).frame(width: [22, 28, 18, 26][row], height: 2)
+                AceDesign.Shape.control.fill(colour("foreground")).frame(width: [34, 26, 30, 24][row], height: 3)
+                AceDesign.Shape.control.fill(colour("mutedForeground")).frame(width: [22, 28, 18, 26][row], height: 2)
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, AceTheme.Spacing.xs)
+        .padding(.horizontal, AceDesign.Space.tight)
         .frame(height: compact ? 11 : 14)
         .background(row == 0 ? colour("fill") : .clear, in: AceDesign.Shape.control)
     }
 
     private var composer: some View {
         HStack {
-            AceShape.capsule.fill(colour("subtleForeground")).frame(width: 20, height: 2)
+            AceDesign.Shape.control.fill(colour("subtleForeground")).frame(width: 20, height: 2)
             Spacer(minLength: 0)
             Circle().fill(colour("accent")).frame(width: 9, height: 9)
-                .overlay { AceShape.capsule.fill(colour("onAccent")).frame(width: 1.5, height: 4) }
+                .overlay { AceDesign.Shape.control.fill(colour("onAccent")).frame(width: 1.5, height: 4) }
         }
-        .padding(.leading, AceTheme.Spacing.sm).padding(.trailing, AceTheme.Spacing.xxs)
+        .padding(.leading, AceDesign.Space.related).padding(.trailing, AceTheme.Spacing.xxs)
         .frame(height: 13)
-        .background(colour("card"), in: AceShape.capsule)
-        .overlay(AceShape.capsule.strokeBorder(colour("separator"), lineWidth: AceTheme.Dimensions.border))
+        .background(colour("card"), in: AceDesign.Shape.control)
+        .overlay(AceDesign.Shape.control.strokeBorder(colour("separator"), lineWidth: AceTheme.Dimensions.border))
     }
 
     private func colour(_ role: String) -> Color { Self.colour(role, theme: theme, accent: accent, scheme: scheme) }
@@ -75,18 +77,18 @@ struct PickerCard<Preview: View>: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: AceTheme.Spacing.sm) {
+            VStack(spacing: AceDesign.Space.related) {
                 preview()
-                    .padding(AceTheme.Spacing.xs)
+                    .padding(AceDesign.Space.tight)
                     .overlay {
                         AceDesign.Shape.container
-                            .stroke(AceTheme.Colours.accent, lineWidth: 2)
+                            .stroke(AceDesign.Ink.accent, lineWidth: AceDesign.Size.ring)
                             .opacity(selected ? 1 : 0)
                     }
                 Text(name)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .fontWeight(selected ? .medium : .regular)
-                    .foregroundStyle(selected ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
+                    .font(AceDesign.Typeface.meta)
+                    .fontWeight(selected ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
+                    .foregroundStyle(selected ? AceDesign.Ink.primary : AceDesign.Ink.muted)
                     .lineLimit(1)
             }
             .contentShape(Rectangle())

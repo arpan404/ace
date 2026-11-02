@@ -13,22 +13,22 @@ struct BrowserPageState: View {
         if let content {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AceTheme.Colours.background)
+                .background(AceDesign.Surface.background)
                 .accessibilityIdentifier("browser.notice")
         }
     }
 
     private var content: AnyView? {
-        guard let view = browser.view else { return AnyView(ProgressView("Opening the browser…")) }
+        guard let view = browser.view else { return AnyView(SkeletonPage(label: "Opening the browser")) }
         guard let state = view.state, !state.closed else {
             return AnyView(EmptyState(icon: .compass, title: "No page open") {
-                if model.canOperate { Button("Open a page", action: openAddress).buttonStyle(.pillSecondary).frame(maxWidth: 200) }
+                if model.canOperate { Button("Open a page", action: openAddress).buttonStyle(.pillSecondary).frame(maxWidth: AceDesign.Size.loneAction) }
             })
         }
         if state.disconnected == true {
             return AnyView(EmptyState(icon: .warning, title: "The browser disconnected",
                                       line: state.reason ?? "Reopen it to continue where it left off.") {
-                if model.canOperate { Button("Reopen") { model.browserReopen() }.buttonStyle(.pillPrimary).frame(maxWidth: 200) }
+                if model.canOperate { Button("Reopen") { model.browserReopen() }.buttonStyle(.pillPrimary).frame(maxWidth: AceDesign.Size.loneAction) }
             })
         }
         if let certificate = state.certificate, let tabId = state.activeTabId {
@@ -44,32 +44,32 @@ struct BrowserPageState: View {
             })
         }
         if state.status != "ready" {
-            return AnyView(ProgressView(state.reason ?? "The browser is restarting…").padding(AceTheme.Spacing.xl))
+            return AnyView(EmptyState(icon: .compass, title: state.reason ?? "The browser is restarting…"))
         }
         if state.blank == true && !state.loading {
             return AnyView(EmptyState(icon: .compass, title: "New tab") {
-                if model.canOperate { Button("Open a page", action: openAddress).buttonStyle(.pillSecondary).frame(maxWidth: 200) }
+                if model.canOperate { Button("Open a page", action: openAddress).buttonStyle(.pillSecondary).frame(maxWidth: AceDesign.Size.loneAction) }
             })
         }
-        if browser.pageSize == nil { return AnyView(ProgressView("Opening the page…")) }
+        if browser.pageSize == nil { return AnyView(SkeletonPage(label: "Opening the page")) }
         return nil
     }
 
     /// A load that failed, said plainly, with the address it was for.
     private func failure<Actions: View>(_ failure: BrowserViewInfo.Failure, @ViewBuilder actions: () -> Actions) -> some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-            AceIcon(.warning, size: 30, relativeTo: .title).foregroundStyle(AceTheme.Colours.mutedForeground)
-                .padding(.bottom, AceTheme.Spacing.sm)
-            Text(failure.title).aceFont(AceTheme.Typography.title, relativeTo: .title3)
-            Text(failure.host).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.mutedForeground)
-            Text(failure.detail).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
-            VStack(spacing: AceTheme.Spacing.sm) { actions() }
-                .padding(.top, AceTheme.Spacing.lg)
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
+            AceIcon(.warning, size: AceDesign.Size.emptyIcon, relativeTo: .title).foregroundStyle(AceDesign.Ink.muted)
+                .padding(.bottom, AceDesign.Space.related)
+            Text(failure.title).font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong))
+            Text(failure.host).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.muted)
+            Text(failure.detail).font(AceDesign.Typeface.title).foregroundStyle(AceDesign.Ink.muted)
+            VStack(spacing: AceDesign.Space.related) { actions() }
+                .padding(.top, AceDesign.Space.margin)
                 .disabled(!model.canOperate)
         }
-        .padding(AceTheme.Spacing.xxl)
-        .frame(maxWidth: 480, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.top, AceTheme.Spacing.xxxl)
+        .padding(AceDesign.Space.margin)
+        .frame(maxWidth: AceDesign.Size.noticeWidth, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.top, AceDesign.Space.section)
         .accessibilityElement(children: .contain)
     }
 }

@@ -49,7 +49,7 @@ struct AcpRegistryView: View {
                             NavigationLink { AcpAgentView(model: model, agentId: row.id, name: row.name) } label: { RegistryRow(row: row) }
                         }
                         if let empty = screen.empty {
-                            Text(empty).foregroundStyle(AceTheme.Colours.mutedForeground).transition(.opacity)
+                            Text(empty).foregroundStyle(AceDesign.Ink.muted).transition(.opacity)
                             if screen.noMatch {
                                 NavigationLink("Add one by command") { ManualAcpAgentView(model: model) }
                             }
@@ -68,7 +68,7 @@ struct AcpRegistryView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(reduceMotion ? .easeInOut(duration: 0.15) : .smooth(duration: 0.25), value: screen)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen)
         .searchable(text: $query, prompt: "Search agents")
         .navigationTitle("Add agent").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model, id: query) {
@@ -79,14 +79,14 @@ struct AcpRegistryView: View {
         .sensoryFeedback(.success, trigger: refreshing) { was, now in was && !now && refreshProblem == nil }
     }
     private func footer(_ screen: RegistryScreenData) -> some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            if refreshing { ProgressView().controlSize(.mini); Text("Updating…") }
+        HStack(spacing: AceDesign.Space.related) {
+            if refreshing { WorkingMark(label: "Updating"); Text("Updating…") }
             else {
                 Text(refreshProblem ?? screen.age).lineLimit(1)
-                Button("Refresh") { Task { await refresh() } }.buttonStyle(.borderless).frame(minHeight: 44)
+                Button("Refresh") { Task { await refresh() } }.buttonStyle(.borderless).frame(minHeight: AceDesign.Size.tap)
             }
         }
-        .animation(.smooth(duration: 0.2), value: refreshing)
+        .smoothChange(refreshing)
     }
     private func read() async {
         do {
@@ -115,22 +115,22 @@ private struct RegistryRow: View {
         RegistryRow(row: RegistryRowData(id: "", name: "Agent name", publisher: "Publisher", description: "What the agent does", version: "1.0.0", standing: nil, tone: nil, unavailable: false))
     }
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(row.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+                Text(row.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
                 Text([row.publisher, row.description].filter { !$0.isEmpty }.joined(separator: " · "))
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(2)
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             if let standing = row.standing {
-                Text(standing).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(row.tone == "needsYou" ? AceTheme.StatusText.needsYou : AceTheme.Colours.subtleForeground)
+                Text(standing).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(row.tone == "needsYou" ? AceTheme.StatusText.needsYou : AceDesign.Ink.subtle)
                     .lineLimit(1)
                     .fixedSize()
             }
         }
-        .padding(.vertical, AceTheme.Spacing.xs)
+        .padding(.vertical, AceDesign.Space.tight)
         .opacity(row.unavailable ? 0.6 : 1)
         .accessibilityElement(children: .combine)
     }

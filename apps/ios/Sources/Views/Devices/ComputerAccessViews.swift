@@ -9,28 +9,28 @@ struct LockedUseRow: View {
     let locked: ComputerAccessModel.Locked
     let busy: Bool
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(alignment: .center, spacing: AceTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            HStack(alignment: .center, spacing: AceDesign.Space.row) {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                     Text("Let agents work while this Mac is locked")
-                        .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                        .foregroundStyle(AceTheme.Colours.foreground)
+                        .font(AceDesign.Typeface.body)
+                        .foregroundStyle(AceDesign.Ink.primary)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(locked.label)
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .font(AceDesign.Typeface.meta)
                         .foregroundStyle(tone)
                         .contentTransition(.opacity)
                         .accessibilityIdentifier("computer.locked.state")
                 }
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Spacer(minLength: AceDesign.Space.related)
                 Toggle("Let agents work while this Mac is locked", isOn: Binding(get: { locked.on }, set: { model.lockedUse($0 ? "install" : "remove") }))
                     .labelsHidden()
                     .disabled(locked.unavailable || busy || locked.busy || !model.canOperate || !model.mayAdminister)
                     .accessibilityIdentifier("computer.locked.switch")
             }
             if let note = locked.note {
-                Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(note).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .transition(.opacity)
             }
@@ -38,18 +38,18 @@ struct LockedUseRow: View {
                 // A read pairing sees the Mac's state; only its owner turns locked use on or off.
                 OwnerOnlyNote().transition(.opacity)
             } else if model.canOperate, !locked.unavailable, locked.repair || locked.note != nil {
-                HStack(spacing: AceTheme.Spacing.xl) {
+                HStack(spacing: AceDesign.Space.group) {
                     if locked.repair { Button("Repair") { model.lockedUse("repair") }.accessibilityIdentifier("computer.locked.repair") }
                     Button("Check again") { model.lockedUse("recheck") }.accessibilityIdentifier("computer.locked.recheck")
                 }
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                .tint(AceTheme.Colours.foreground)
+                .font(AceDesign.Typeface.body)
+                .tint(AceDesign.Ink.accent)
                 .buttonStyle(.borderless)
                 .disabled(busy)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minHeight: AceDesign.Size.tap)
             }
         }
-        .padding(.vertical, AceTheme.Spacing.sm)
+        .padding(.vertical, AceDesign.Space.related)
         .animation(AceTheme.Motion.standardCurve, value: locked)
         .sensoryFeedback(.selection, trigger: locked.on)
         .accessibilityElement(children: .contain)
@@ -59,7 +59,7 @@ struct LockedUseRow: View {
         switch locked.tone {
         case "needs-you": AceTheme.StatusText.needsYou
         case "failed": AceTheme.StatusText.failed
-        default: AceTheme.Colours.mutedForeground
+        default: AceDesign.Ink.muted
         }
     }
 }
@@ -79,7 +79,7 @@ struct UseMyChromeView: View {
             if let chrome {
                 if !chrome.supported {
                     Text("Use my Chrome works on macOS and Linux for now.")
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).insetRowBackground()
+                        .foregroundStyle(AceDesign.Ink.muted).insetRowBackground()
                 } else {
                     Section {
                         InsetRow(systemImage: nil, title: "Browser connection",
@@ -92,22 +92,22 @@ struct UseMyChromeView: View {
                         }
                         .insetRowBackground()
                         if let path = chrome.extensionPath {
-                            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                                Text("Extension").aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
+                            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                                Text("Extension").font(AceDesign.Typeface.body)
                                 Text("On that computer, open chrome://extensions, turn on Developer mode, choose Load unpacked and pick this folder:")
-                                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                                    .font(AceDesign.Typeface.meta)
+                                    .foregroundStyle(AceDesign.Ink.muted)
                                     .fixedSize(horizontal: false, vertical: true)
                                 HStack {
-                                    Text(path).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
+                                    Text(path).font(AceDesign.Typeface.code)
                                         .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
-                                    Spacer(minLength: AceTheme.Spacing.sm)
+                                    Spacer(minLength: AceDesign.Space.related)
                                     Button("Copy") { UIPasteboard.general.string = path }
                                         .buttonStyle(.borderless)
-                                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                                        .frame(minHeight: AceDesign.Size.tap)
                                 }
                             }
-                            .padding(.vertical, AceTheme.Spacing.sm)
+                            .padding(.vertical, AceDesign.Space.related)
                             .insetRowBackground()
                             .accessibilityIdentifier("computer.chrome.extension")
                         }
@@ -149,7 +149,7 @@ struct UseMyChromeView: View {
                 OwnerOnlyNote().insetRowBackground().transition(.opacity)
             } else {
                 ForEach(0..<2, id: \.self) { _ in
-                    Capsule().fill(AceTheme.Colours.fill).frame(width: 180, height: 12)
+                    SkeletonBar(width: 180, height: 12)
                         .frame(minHeight: InsetStyle.rowHeight, alignment: .leading).insetRowBackground()
                 }
                 .accessibilityLabel("Reading Use my Chrome")
@@ -172,9 +172,9 @@ struct UseMyChromeView: View {
 struct OwnerOnlyNote: View {
     var body: some View {
         Text("Only the machine's owner can change this.")
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+            .font(AceDesign.Typeface.meta)
+            .foregroundStyle(AceDesign.Ink.muted)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
             .accessibilityIdentifier("computer.ownerOnly")
     }
 }

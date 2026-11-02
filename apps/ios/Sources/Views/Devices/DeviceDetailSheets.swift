@@ -17,20 +17,20 @@ struct DeviceLogsSheet: View {
                 List {
                     if let logs {
                         if !logs.error.isEmpty {
-                            Text(logs.error).foregroundStyle(AceTheme.Colours.mutedForeground)
+                            Text(logs.error).foregroundStyle(AceDesign.Ink.muted)
                         } else if logs.lines.isEmpty {
-                            Text(logs.total == 0 ? "No log lines yet." : "No lines match.").foregroundStyle(AceTheme.Colours.mutedForeground)
+                            Text(logs.total == 0 ? "No log lines yet." : "No lines match.").foregroundStyle(AceDesign.Ink.muted)
                         }
-                        if logs.dropped > 0 { Text("\(logs.dropped) lines skipped").foregroundStyle(AceTheme.Colours.subtleForeground) }
+                        if logs.dropped > 0 { Text("\(logs.dropped) lines skipped").foregroundStyle(AceDesign.Ink.subtle) }
                         ForEach(Array(logs.lines.enumerated()), id: \.offset) { index, line in
                             Text(line.text)
-                                .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                                .font(AceDesign.Typeface.code)
                                 .foregroundStyle(colour(line.level))
                                 .textSelection(.enabled)
                                 .id(index)
                         }
                     } else {
-                        ProgressView().frame(maxWidth: .infinity)
+                        SkeletonRows(count: 4, label: "Reading the logs").listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
                     }
                 }
                 .listStyle(.plain)
@@ -62,7 +62,7 @@ struct DeviceLogsSheet: View {
         switch level {
         case "error": AceTheme.StatusText.failed
         case "warning": AceTheme.StatusText.needsYou
-        default: AceTheme.Colours.mutedForeground
+        default: AceDesign.Ink.muted
         }
     }
 }
@@ -82,27 +82,27 @@ struct DeviceTreeSheet: View {
         NavigationStack {
             List {
                 if !live {
-                    Text("Start the live view to read the screen.").foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text("Start the live view to read the screen.").foregroundStyle(AceDesign.Ink.muted)
                 } else if let failure {
-                    Text("Couldn't read the screen. \(failure)").foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text("Couldn't read the screen. \(failure)").foregroundStyle(AceDesign.Ink.muted)
                 } else if let tree {
-                    if tree.rows.isEmpty { Text("Nothing on screen to read.").foregroundStyle(AceTheme.Colours.mutedForeground) }
+                    if tree.rows.isEmpty { Text("Nothing on screen to read.").foregroundStyle(AceDesign.Ink.muted) }
                     ForEach(shown(tree)) { row in
-                        HStack(spacing: AceTheme.Spacing.sm) {
+                        HStack(spacing: AceDesign.Space.related) {
                             if !row.ref.isEmpty {
-                                Text("@\(row.ref)").aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
-                                    .foregroundStyle(AceTheme.Colours.subtleForeground)
+                                Text("@\(row.ref)").font(AceDesign.Typeface.code)
+                                    .foregroundStyle(AceDesign.Ink.subtle)
                             }
-                            Text(row.role).foregroundStyle(AceTheme.Colours.mutedForeground)
-                            if !row.name.isEmpty { Text(row.name).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1) }
+                            Text(row.role).foregroundStyle(AceDesign.Ink.muted)
+                            if !row.name.isEmpty { Text(row.name).foregroundStyle(AceDesign.Ink.primary).lineLimit(1) }
                         }
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .padding(.leading, query.isEmpty ? CGFloat(row.depth) * AceTheme.Spacing.md : 0)
+                        .font(AceDesign.Typeface.meta)
+                        .padding(.leading, query.isEmpty ? CGFloat(row.depth) * AceDesign.Space.row : 0)
                         .accessibilityElement(children: .combine)
                     }
-                    if tree.truncated { Text("The tree is cut short here.").foregroundStyle(AceTheme.Colours.subtleForeground) }
+                    if tree.truncated { Text("The tree is cut short here.").foregroundStyle(AceDesign.Ink.subtle) }
                 } else {
-                    ProgressView().frame(maxWidth: .infinity)
+                    SkeletonRows(count: 4, label: "Reading the tree").listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
                 }
             }
             .listStyle(.plain)

@@ -57,7 +57,7 @@ struct BrowserScreen: View {
             .ignoresSafeArea(.keyboard)
             if finding {
                 BrowserFindBar(model: model) { finding = false }
-                    .background(AceTheme.Colours.background)
+                    .background(AceDesign.Surface.background)
             }
             if editingAddress {
                 BrowserAddressEditor(model: model, editing: $editingAddress)
@@ -65,11 +65,11 @@ struct BrowserScreen: View {
             }
         }
         .overlay(alignment: .top) { BrowserDoneNote(model: model) }
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: editingAddress)
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: annotating)
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: splitTab)
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: state?.recording)
-        .background(AceTheme.Colours.background)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: editingAddress)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: annotating)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: splitTab)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: state?.recording)
+        .background(AceDesign.Surface.background)
         .modifier(PageTitle(title: title, subtitle: shownTab?.host ?? ""))
         .navigationBarTitleDisplayMode(.inline)
         .screenBar {
@@ -173,9 +173,9 @@ struct BrowserScreen: View {
                     if let tooltip = browser.page?.tooltip {
                         let box = geometry.viewRect(PageRect(x: tooltip.x, y: tooltip.y, width: 0, height: 0))
                         Text(tooltip.text)
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .padding(AceTheme.Spacing.xs)
-                            .background(.regularMaterial, in: AceShape.capsule)
+                            .font(AceDesign.Typeface.meta)
+                            .padding(AceDesign.Space.tight)
+                            .background(.regularMaterial, in: AceDesign.Shape.control)
                             .fixedSize()
                             .position(x: min(max(box.minX, 80), proxy.size.width - 80), y: box.minY + 24)
                             .allowsHitTesting(false)
@@ -270,21 +270,21 @@ struct BrowserSplitPane: View {
         Button(action: show) {
             VStack(spacing: AceTheme.Spacing.none) {
                 HStack {
-                    Text(tab.title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                        .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                    Spacer(minLength: AceTheme.Spacing.sm)
-                    Text(tab.host ?? "").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                    Text(tab.title).font(AceDesign.Typeface.body)
+                        .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
+                    Spacer(minLength: AceDesign.Space.related)
+                    Text(tab.host ?? "").font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                 }
-                .padding(.horizontal, AceTheme.Spacing.md)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .padding(.horizontal, AceDesign.Space.row)
+                .frame(minHeight: AceDesign.Size.tap)
                 ZStack(alignment: .top) {
                     AceTheme.Colours.secondaryBackground
                     if let still {
                         Image(uiImage: still).resizable().scaledToFit().transition(.opacity)
                     } else {
-                        Text("Shows here once you've looked at it").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground).padding(.top, AceTheme.Spacing.xxl)
+                        Text("Shows here once you've looked at it").font(AceDesign.Typeface.meta)
+                            .foregroundStyle(AceDesign.Ink.muted).padding(.top, AceDesign.Space.group)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -304,19 +304,19 @@ struct BrowserStrip<Actions: View>: View {
     let sentence: String
     @ViewBuilder var actions: () -> Actions
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.lg) {
+        HStack(spacing: AceDesign.Space.margin) {
             Text(sentence)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .foregroundStyle(AceDesign.Ink.muted)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             actions()
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-        .tint(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceTheme.Spacing.xl)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .font(AceDesign.Typeface.body)
+        .tint(AceDesign.Ink.accent)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .frame(minHeight: AceDesign.Size.tap)
         .overlay(alignment: .top) {
             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
         }
@@ -331,12 +331,14 @@ private struct AgentCursor: View {
     let name: String
     let at: CGPoint
     var body: some View {
-        AceIcon(.cursor, size: 22, relativeTo: .title3)
-            .foregroundStyle(AceTheme.Colours.foreground)
-            .shadow(color: AceTheme.Colours.background, radius: 1)
+        // The cursor is drawn on the page: its halo keeps it legible on any content, and the
+        // offset puts its tip, not its centre, on the point.
+        AceIcon(.cursor, size: AceDesign.Size.barIcon, relativeTo: .title3)
+            .foregroundStyle(AceDesign.Ink.primary)
+            .shadow(color: AceDesign.Surface.background, radius: 1)
             .offset(x: 7, y: 9)
             .position(at)
-            .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: at)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: at)
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(name) is pointing here")

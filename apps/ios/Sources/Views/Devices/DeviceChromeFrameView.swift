@@ -105,7 +105,7 @@ struct DeviceChromeFrameView<Screen: View>: View {
                 Button { press(art.key) } label: {
                     Image(uiImage: image).resizable().frame(width: frame.width, height: frame.height)
                         // Room for a finger around a sliver of metal.
-                        .padding(8).contentShape(Rectangle()).padding(-8)
+                        .padding(AceDesign.Space.related).contentShape(Rectangle()).padding(-AceDesign.Space.related)
                 }
                 .buttonStyle(ChromeButtonStyle(pressed: look.pressed[index], size: frame.size))
                 .disabled(!enabled)

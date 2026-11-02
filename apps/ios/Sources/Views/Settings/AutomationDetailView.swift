@@ -24,7 +24,7 @@ struct AutomationDetailView: View {
     @Environment(\.automationLinks) private var links
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var zone: String { TimeZone.current.identifier }
-    private var motion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : .smooth }
+    private var motion: Animation { AceDesign.Motion.arriving(reduceMotion) }
 
     /// Opens on the row the list last read, so its words show in the first frame.
     init(model: ClientModel, id: String) {
@@ -75,18 +75,18 @@ struct AutomationDetailView: View {
 
     private func summary(_ row: AutomationListRow) -> some View {
         Section {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                Text(row.when).aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.foreground)
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                Text(row.when).font(AceDesign.Typeface.title)
+                    .foregroundStyle(AceDesign.Ink.primary)
                     .accessibilityIdentifier("automation.when")
-                Text(row.next).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(row.next).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
                     .accessibilityIdentifier("automation.next")
                 Text([row.project, row.agent, row.model].compactMap { $0 }.joined(separator: " · "))
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
             }
-            .padding(.vertical, AceTheme.Spacing.xs)
+            .padding(.vertical, AceDesign.Space.tight)
             ServiceProblem(message: problem)
         }
         .insetRowBackground()
@@ -94,13 +94,13 @@ struct AutomationDetailView: View {
 
     private func attentionSection(_ attention: AutomationListRow.Attention) -> some View {
         Section {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 StateLabel(status: StatusDisplay(label: attention.word, token: "failed"))
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                Text(attention.text).aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .font(AceDesign.Typeface.body)
+                Text(attention.text).font(AceDesign.Typeface.title)
+                    .foregroundStyle(AceDesign.Ink.primary)
             }
-            .padding(.vertical, AceTheme.Spacing.xs)
+            .padding(.vertical, AceDesign.Space.tight)
             if attention.retry && own {
                 textRow("Retry", id: "automation.retry") { Task { await retry() } }
             }
@@ -121,7 +121,7 @@ struct AutomationDetailView: View {
                 textRow("Duplicate", id: "automation.duplicate") { Task { await duplicate() } }
             }
             Button(role: .destructive) { deleting = true } label: {
-                Text("Delete").aceFont(InsetStyle.label, relativeTo: .body)
+                Text("Delete").font(AceDesign.Typeface.body)
                     .foregroundStyle(AceTheme.StatusText.failed)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
@@ -130,8 +130,8 @@ struct AutomationDetailView: View {
             .accessibilityIdentifier("automation.delete")
             if !row.enabled {
                 Text("Paused. Resume to run it, or to schedule its next run.")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
             }
             if !model.canOperate {
                 ViewOnlyNote(message: "View only. To run or change automations from this phone, pair it again with View and act.")
@@ -146,9 +146,9 @@ struct AutomationDetailView: View {
                 ForEach(0..<2, id: \.self) { _ in AutomationRowPlaceholder() }
             } else if runs.isEmpty {
                 Text("No runs yet. Run it now, or wait for it to start.")
-                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(.vertical, AceTheme.Spacing.xs)
+                    .font(AceDesign.Typeface.title)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .padding(.vertical, AceDesign.Space.tight)
             }
             ForEach(runs) { run in
                 AutomationRunView(run: run, canRun: canAct && row?.enabled == true,
@@ -173,9 +173,9 @@ struct AutomationDetailView: View {
 
     private func textRow(_ title: String, id: String, strong: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).aceFont(InsetStyle.label, relativeTo: .body)
+            Text(title).font(AceDesign.Typeface.body)
                 .fontWeight(strong ? .semibold : .regular)
-                .foregroundStyle(AceTheme.Colours.foreground)
+                .foregroundStyle(AceDesign.Ink.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
         }
@@ -302,6 +302,7 @@ struct AutomationDetailView: View {
 
 /// One run: when it started and how it went, what it said, and the way into its thread.
 struct AutomationRunView: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let run: AutomationRunRow
     let canRun: Bool
     let open: (() -> Void)?
@@ -309,30 +310,30 @@ struct AutomationRunView: View {
     @State private var expanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            HStack(spacing: AceDesign.Space.tight) {
                 if let head = run.head { StateLabel(status: head.status) }
                 Text([run.when, run.detail].compactMap { $0 }.joined(separator: " · "))
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
+                    .foregroundStyle(AceDesign.Ink.muted).monospacedDigit()
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+            .font(AceDesign.Typeface.meta)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("automation.run.\(run.id)")
             if run.live {
                 (Text("Working for ") + Text(Date(timeIntervalSince1970: run.startedAt / 1000), style: .timer))
-                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
+                    .font(AceDesign.Typeface.title)
+                    .foregroundStyle(AceDesign.Ink.muted).monospacedDigit()
             } else if let note = run.note {
-                Text(note).aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(note).font(AceDesign.Typeface.title)
+                    .foregroundStyle(AceDesign.Ink.muted)
             }
             if let body = run.body {
-                Text(body).aceFont(AceTheme.Typography.body, relativeTo: .body)
-                    .foregroundStyle(run.muted ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
+                Text(body).font(AceDesign.Typeface.title)
+                    .foregroundStyle(run.muted ? AceDesign.Ink.muted : AceDesign.Ink.primary)
                     .lineLimit(expanded ? nil : 4)
                     .textSelection(.enabled)
             }
-            HStack(spacing: AceTheme.Spacing.lg) {
+            HStack(spacing: AceDesign.Space.margin) {
                 if let open {
                     Button("Open thread", action: open).accessibilityIdentifier("automation.run.open.\(run.id)")
                 }
@@ -341,15 +342,15 @@ struct AutomationRunView: View {
                         .accessibilityIdentifier("automation.run.again.\(run.id)")
                 }
                 if (run.body?.count ?? 0) > 220 {
-                    Button(expanded ? "Show less" : "Show all") { withAnimation(.smooth) { expanded.toggle() } }
+                    Button(expanded ? "Show less" : "Show all") { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { expanded.toggle() } }
                 }
             }
             .buttonStyle(.borderless)
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .foregroundStyle(AceTheme.Colours.foreground)
-            .frame(minHeight: 44)
+            .font(AceDesign.Typeface.body)
+            .foregroundStyle(AceDesign.Ink.primary)
+            .frame(minHeight: AceDesign.Size.tap)
         }
-        .padding(.top, AceTheme.Spacing.xs)
+        .padding(.top, AceDesign.Space.tight)
     }
 }
 

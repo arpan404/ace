@@ -75,7 +75,7 @@ struct SettingsSheet: View {
         }
         .environment(\.settingsScope, scope)
         .escapeCloses { dismiss() }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.accent)
         .toggleStyle(.systemSwitch)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .onChange(of: path) { old, new in navigated(from: old, to: new) }

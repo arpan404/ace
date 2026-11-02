@@ -33,7 +33,7 @@ struct StorageWorktreeSection: View {
         } header: { InsetHeader("Worktrees") } footer: {
             Text("Automatic deletion only removes clean worktrees merged into origin/main. Back up commits everything not in .gitignore, .env included, and pushes it to origin.")
         }
-        .animation(.smooth, value: settings.worktreeDays)
+        .smoothChange(settings.worktreeDays)
         .sensoryFeedback(.selection, trigger: settings.backupWorktrees)
     }
     private func write(_ setting: [String: Any]) {
@@ -120,14 +120,14 @@ struct NumberRow: View {
     }
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        HStack(spacing: AceDesign.Space.related) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 Text(title)
                 if let line = pinnedBy.map({ "Set by \($0) on this machine" }) ?? subtitle {
-                    Text(line).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text(line).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                 }
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             TextField(emptyKeeps ? "Keep" : "", text: Binding(get: { draft ?? shown }, set: { draft = $0 }))
                 .textFieldStyle(.plain)
                 .lineLimit(1)
@@ -135,13 +135,13 @@ struct NumberRow: View {
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
-                .frame(width: 64)
+                .frame(width: AceDesign.Size.numberField)
                 .focused($focused)
                 .disabled(pinnedBy != nil || saving)
                 .accessibilityLabel("\(title) in \(unit)")
-            Text(unit).foregroundStyle(AceTheme.Colours.mutedForeground)
+            Text(unit).foregroundStyle(AceDesign.Ink.muted)
         }
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())
         .onTapGesture { focused = true }
         .onChange(of: focused) { _, now in if !now { save() } }

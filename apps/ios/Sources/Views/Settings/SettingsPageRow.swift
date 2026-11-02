@@ -5,6 +5,7 @@ import SwiftUI
 /// link to another page. Under the title, one quiet line says where a value that isn't the
 /// default comes from and, with All machines, which machines hold another value. A change shows at once while it saves.
 struct SettingsPageRowView: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let row: SettingsPageData.Row
     /// The change being saved, drawn in place of the value until the machine answers.
@@ -22,7 +23,7 @@ struct SettingsPageRowView: View {
     @State private var entries: [String] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             control
             if let note = row.note { caption(note).contentTransition(.opacity).accessibilityIdentifier("setting.\(row.id).note") }
             ServiceProblem(message: problem)
@@ -52,7 +53,7 @@ struct SettingsPageRowView: View {
             if let empty = row.empty {
                 HStack { label; Spacer(); caption(empty) }
             } else if segmented {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+                VStack(alignment: .leading, spacing: AceDesign.Space.related) {
                     label
                     picker(choices).pickerStyle(.segmented)
                 }
@@ -67,12 +68,12 @@ struct SettingsPageRowView: View {
             list(placeholder: placeholder, add: add)
         case .model(_, let provider, let label, let account, _):
             Button(action: pick) {
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     self.label
-                    Spacer(minLength: AceTheme.Spacing.sm)
-                    if let provider { ProviderMark(provider: provider, size: 16) }
+                    Spacer(minLength: AceDesign.Space.related)
+                    if let provider { ProviderMark(provider: provider, size: AceDesign.Size.icon) }
                     InsetValue(text: [label, account].compactMap { $0 }.joined(separator: " · ")).contentTransition(.opacity)
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceDesign.Ink.subtle)
                 }
                 .contentShape(Rectangle())
             }
@@ -82,10 +83,10 @@ struct SettingsPageRowView: View {
             NavigationLink {
                 SettingsPageView(model: model, page: page, title: row.title)
             } label: {
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     self.label
-                    Spacer(minLength: AceTheme.Spacing.sm)
-                    if let provider { ProviderMark(provider: provider, size: 16) }
+                    Spacer(minLength: AceDesign.Space.related)
+                    if let provider { ProviderMark(provider: provider, size: AceDesign.Size.icon) }
                     InsetValue(text: label).contentTransition(.opacity)
                 }
             }
@@ -95,19 +96,19 @@ struct SettingsPageRowView: View {
 
     private var label: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Text(row.title).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+            Text(row.title).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
                 .fixedSize(horizontal: false, vertical: true)
             if let subtitle {
-                Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(subtitle).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
                     .contentTransition(.opacity)
                     .accessibilityIdentifier("setting.\(row.id).source")
             }
         }
     }
     private func caption(_ text: String) -> some View {
-        Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
+        Text(text).font(AceDesign.Typeface.meta)
+            .foregroundStyle(AceDesign.Ink.muted)
             .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -129,15 +130,15 @@ struct SettingsPageRowView: View {
             }
             .pickerStyle(.inline)
         } label: {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 label
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Spacer(minLength: AceDesign.Space.related)
                 HStack(spacing: AceTheme.Spacing.xxs) {
                     Text(shown).multilineTextAlignment(.trailing).lineLimit(2).contentTransition(.opacity)
-                    Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.medium))
+                    Image(systemName: "chevron.up.chevron.down").font(AceDesign.Typeface.meta)
                 }
-                .aceFont(InsetStyle.value, relativeTo: .body)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .font(AceDesign.Typeface.body)
+                .foregroundStyle(AceDesign.Ink.muted)
             }
             .contentShape(Rectangle())
         }
@@ -148,7 +149,7 @@ struct SettingsPageRowView: View {
     }
 
     private func field(_ placeholder: String, keyboard: UIKeyboardType) -> some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             label
             HStack {
                 TextField(placeholder, text: $words, axis: .vertical)
@@ -157,7 +158,7 @@ struct SettingsPageRowView: View {
                     .onSubmit(save)
                     .accessibilityIdentifier("setting.\(row.id)")
                 if words != row.value.text {
-                    if pending != nil { ProgressView() } else { Button("Save", action: save).buttonStyle(.borderless) }
+                    if pending != nil { WorkingMark(label: "Saving") } else { Button("Save", action: save).buttonStyle(.borderless) }
                 }
             }
         }
@@ -170,7 +171,7 @@ struct SettingsPageRowView: View {
     }
 
     private func list(placeholder: String, add: String) -> some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             label
             ForEach(entries.indices, id: \.self) { index in
                 HStack {
@@ -179,12 +180,12 @@ struct SettingsPageRowView: View {
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                     Button { entries.remove(at: index) } label: { Image(systemName: "minus.circle") }
                         .buttonStyle(.borderless).accessibilityLabel("Remove")
-                        .frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget)
+                        .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
                 }
                 .transition(.opacity)
             }
             HStack {
-                Button(add) { withAnimation(.smooth) { entries.append("") } }.disabled(entries.count >= 200)
+                Button(add) { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { entries.append("") } }.disabled(entries.count >= 200)
                 Spacer()
                 if entries != row.value.list { Button("Save") { change(.list(entries)) } }
             }

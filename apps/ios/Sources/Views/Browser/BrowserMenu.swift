@@ -120,9 +120,9 @@ struct BrowserMenu: View {
                 }
             }
         } label: {
-            AceIcon(.dotsThree, size: 17, relativeTo: .subheadline)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+            AceIcon(.dotsThree, size: AceDesign.Size.barIcon, relativeTo: .subheadline)
+                .foregroundStyle(AceDesign.Ink.primary)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("Browser options")

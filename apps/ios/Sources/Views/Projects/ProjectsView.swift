@@ -45,9 +45,9 @@ struct ProjectsView: View {
                 ForEach(projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.path.localizedCaseInsensitiveContains(query) }) { project in
                     NavigationLink { ProjectDetailView(model: model, project: project) } label: {
                         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                            Text(project.name).aceFont(InsetStyle.label, relativeTo: .body)
-                            Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
-                        }.padding(.vertical, AceTheme.Spacing.xs)
+                            Text(project.name).font(AceDesign.Typeface.body)
+                            Text(project.path).font(AceDesign.Typeface.code).foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
+                        }.padding(.vertical, AceDesign.Space.tight)
                     }.accessibilityIdentifier("projects.row.\(project.id)")
                 }
                 if next != nil { Button("Show more projects") { Task { await read(more: true) } }.disabled(loading) }
@@ -93,7 +93,7 @@ struct ProjectsView: View {
                         }
                     }
             }
-            .tint(AceTheme.Colours.foreground)
+            .tint(AceDesign.Ink.accent)
             .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
     }
