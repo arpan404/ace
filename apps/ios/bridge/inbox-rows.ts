@@ -113,6 +113,16 @@ function tabsOf(sections: readonly { key: string; keys: readonly string[] }[]) {
   return tabs;
 }
 
+/** The phone's fourth tab beside Inbox, Snoozed and Settled: the chats, where compose starts a chat. */
+const chatsTab = {
+  id: "chats",
+  label: "Chats",
+  counted: false,
+  empty: "No chats yet",
+  emptyLine: null,
+  compose: "chat" as const,
+};
+
 /** The shared grouping as ordered sections, each row with its rank for merging machines. */
 export function inboxLayout(
   threads: readonly InboxThread[],
@@ -131,15 +141,20 @@ export function inboxLayout(
     tabs: tabsOf(sections),
     /**
      * Each tab's words, in order: its label, whether its count shows (Inbox and Snoozed, as
-     * DESIGN.md has it), and what it says while empty. The lists are `tabs`, as placed.
+     * DESIGN.md has it), what it says while empty and what the compose button starts there.
+     * The lists are `tabs`, as placed; Chats, last, lists the chats layout instead.
      */
-    tabWords: threadsTabs.map(({ id, label }) => ({
-      id,
-      label,
-      counted: id !== "settled",
-      empty: emptyTabTitle(id, undefined, false),
-      emptyLine: id === "inbox" ? emptyInboxLine : null,
-    })),
+    tabWords: [
+      ...threadsTabs.map(({ id, label }) => ({
+        id,
+        label,
+        counted: id !== "settled",
+        empty: emptyTabTitle(id, undefined, false),
+        emptyLine: id === "inbox" ? emptyInboxLine : null,
+        compose: "thread" as const,
+      })),
+      chatsTab,
+    ],
     ...(options.attention ? { attention: options.attention } : {}),
     sections: sections.map((section) => ({
       key: section.key,
