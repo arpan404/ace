@@ -6,7 +6,7 @@ import { createContext, createElement, use, type ComponentType, type ReactElemen
  * app supplies it here (`ThreadPreviewProvider`), so a feature that names a thread can offer it
  * without importing Home. With none supplied, the trigger shows alone.
  */
-export type ThreadPreviewView = ComponentType<{ threadId: string; children: ReactElement }>;
+export type ThreadPreviewView = ComponentType<{ threadId: string; children?: ReactElement }>;
 
 const PreviewView = createContext<ThreadPreviewView | undefined>(undefined);
 export const ThreadPreviewProvider = PreviewView;
@@ -15,7 +15,5 @@ export const ThreadPreviewProvider = PreviewView;
 export function ThreadPreview(props: { threadId: string; children: ReactElement }) {
   const View = use(PreviewView);
   // The app's view, handed down: drawn by reference, as the pull request view is.
-  return View
-    ? createElement(View, { threadId: props.threadId, children: props.children })
-    : props.children;
+  return View ? createElement(View, { threadId: props.threadId }, props.children) : props.children;
 }

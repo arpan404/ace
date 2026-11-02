@@ -10,9 +10,10 @@ import { useThreadCard } from "./use-thread-card.ts";
  * (above it when there's no room), never over the panels beside it. A thread the list doesn't
  * hold yet shows the trigger alone.
  */
-export function ThreadHoverPreview(props: { threadId: string; children: ReactElement }) {
+export function ThreadHoverPreview(props: { threadId: string; children?: ReactElement }) {
   const data = useThreadCard(props.threadId, false);
   const hover = useThreadHover();
+  if (!props.children) return null;
   if (!data) return props.children;
   const { entry, card } = data;
   const instance =
