@@ -3,7 +3,7 @@
 // the acknowledged offset, commit) that turns a file into an attachment the next message carries.
 // Before a thread exists (New thread) the same operations run in a device-owned draft scope
 // (`draft.create`), whose id the draft `ThreadRef` carries and `thread.create` adopts (ADR 0057).
-import type { ClientApi } from "@ace/client";
+import { listThreadAttachments, type ClientApi } from "@ace/client";
 import { ThreadId, WorkspaceId, type Attachment, type ContextOperation } from "@ace/protocol";
 import type { ThreadRef } from "./workspace-source.ts";
 import { ContextError, expect, uploadContextFile } from "@/lib/context-requests.ts";
@@ -14,6 +14,7 @@ export interface ContextSource {
   /** Paths in the thread's checkout matching `query`, best first. */
   complete(thread: ThreadRef, query: string, signal: AbortSignal): Promise<readonly string[]>;
   onReleased(listener: (thread: ThreadRef, hash: string) => void): () => void;
+  /** Every file the thread stores, newest first, across as many pages as it takes. */
   list(thread: ThreadRef, signal?: AbortSignal): Promise<readonly Attachment[]>;
   release(thread: ThreadRef, sha256: string): Promise<void>;
   /** Upload a file or image into the thread's context. `progress` is 0..1. */
@@ -31,12 +32,15 @@ export function daemonContextSource(client: ClientApi): ContextSource {
         released.delete(listener);
       };
     },
-    async list(thread, signal) {
-      const result = await ask(
-        { op: "attachment.list", threadId: ThreadId.parse(thread.id) },
-        signal,
+    list(thread, signal) {
+      return listThreadAttachments(
+        ThreadId.parse(thread.id),
+        (operation) => ask(operation, signal),
+        (result) => {
+          expect(result, "attachments");
+          throw new ContextError("ace answered something unexpected.");
+        },
       );
-      return expect(result, "attachments").attachments;
     },
     async release(thread, hash) {
       expect(

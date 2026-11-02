@@ -201,7 +201,7 @@ test("a message of only files goes with empty words, and nothing at all is refus
   });
 });
 
-test("a refused upload says what to do in the web's words, not the daemon's code", async () => {
+test("a refused upload says which limit it hit and what to do, not the daemon's code", async () => {
   const big = Buffer.alloc(2 * 1024 * 1024, 1);
   staged.set("big-00001", big);
   const thread = open(connect(idle()), "files", chunks);
@@ -221,7 +221,7 @@ test("a refused upload says what to do in the web's words, not the daemon's code
     "the refusal",
   );
   expect(file?.error).toBe(
-    "Attachment limit reached. Open Attachments from the thread menu and remove files you no longer need.",
+    "This file is larger than the 1 MiB limit for one attachment. Choose a smaller file.",
   );
 });
 

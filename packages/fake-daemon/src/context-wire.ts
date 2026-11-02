@@ -5,8 +5,13 @@ import {
   ContextResult,
   type ContextRequest,
   type Attachment,
+  attachmentPageMax,
 } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
+
+/** The disk guard's refusal; the fake keeps scopes and blobs bounded in memory as the daemon does on disk. */
+const storageFull =
+  "quota:ace's attachment storage is full. Free space in Settings > Storage, then try again.";
 import { completePaths } from "./services/workspace-files.ts";
 
 const mimeTypes: Record<string, string> = {
@@ -85,7 +90,7 @@ export class FakeContextWire {
   private references(scope: string) {
     let map = this.attachments.get(scope);
     if (!map) {
-      if (this.attachments.size >= 256) throw new Error("quota");
+      if (this.attachments.size >= 256) throw new Error(storageFull);
       map = new Map();
       this.attachments.set(scope, map);
     }
@@ -95,7 +100,6 @@ export class FakeContextWire {
   inherit(source: string, threadId: string, hashes: readonly string[]): Attachment[] {
     const attachments = this.messageAttachments(source, hashes);
     const target = this.references(threadId);
-    if (target.size + attachments.length > 256) throw new Error("quota");
     for (const attachment of attachments) target.set(attachment.sha256, attachment);
     return attachments;
   }
@@ -112,7 +116,6 @@ export class FakeContextWire {
     this.validateDraft(device, draftId, draft.workspaceId, threadId);
     const target = this.references(threadId);
     const source = this.references(draftId);
-    if (target.size + source.size > 256) throw new Error("quota");
     for (const [key, attachment] of source) target.set(key, attachment);
     source.clear();
     draft.adopted = threadId;
@@ -167,7 +170,14 @@ export class FakeContextWire {
               break;
             }
         }
-        if (this.uploads.size >= 64 || op.bytes > 1_048_576) throw new Error("quota");
+        if (op.bytes > 1_048_576)
+          throw new Error(
+            "quota:This file is larger than the 1 MiB limit for one attachment. Choose a smaller file.",
+          );
+        if (this.uploads.size >= 64)
+          throw new Error(
+            "quota:Too many uploads are in progress. Wait for them to finish, then try again.",
+          );
         const uploadId = `upload-${++this.counter}`;
         this.uploads.set(uploadId, {
           device,
@@ -205,14 +215,13 @@ export class FakeContextWire {
             .join("");
           if (hash !== upload.hash) throw new Error("hash_mismatch");
           const refs = this.references(upload.scope);
-          if (refs.size >= 256 && !refs.has(hash)) throw new Error("quota");
           const attachment = {
             sha256: hash,
             bytes: bytes.length,
             ...imageMetadata(bytes, upload.name),
             name: upload.name,
           };
-          if (!this.blobs.has(hash) && this.blobs.size >= 256) throw new Error("quota");
+          if (!this.blobs.has(hash) && this.blobs.size >= 4096) throw new Error(storageFull);
           this.blobs.set(hash, bytes);
           refs.set(hash, attachment);
           upload.attachment = attachment;
@@ -256,7 +265,17 @@ export class FakeContextWire {
         };
       } else if (op.op === "attachment.list") {
         check(op.threadId);
-        result = { kind: "attachments", attachments: [...this.references(op.threadId).values()] };
+        // Newest first, in pages; the cursor is the last file a page returned.
+        const newest = [...this.references(op.threadId).values()].toReversed();
+        const from = op.cursor ? newest.findIndex((file) => file.sha256 === op.cursor) + 1 : 0;
+        const limit = op.limit ?? attachmentPageMax;
+        const page = newest.slice(from, from + limit);
+        const last = page.at(-1);
+        result = {
+          kind: "attachments",
+          attachments: page,
+          ...(from + limit < newest.length && last ? { nextCursor: last.sha256 } : {}),
+        };
       } else if (op.op === "attachment.release" || op.op === "draft.attachment.release") {
         const scope = "threadId" in op ? op.threadId : op.draftId;
         check(scope);
@@ -333,7 +352,10 @@ export class FakeContextWire {
               };
       }
     } catch (error) {
-      const code = error instanceof Error ? error.message : "invalid_request";
+      // "code" or "code:what the person reads", as the daemon's refusals carry both.
+      const [code = "invalid_request", said] = (
+        error instanceof Error ? error.message : "invalid_request"
+      ).split(/:(.*)/s);
       result = {
         kind: "error",
         code: [
@@ -347,7 +369,7 @@ export class FakeContextWire {
         ].includes(code)
           ? ContextErrorCode.parse(code)
           : "invalid_request",
-        message: code,
+        message: said ?? code,
       };
     }
     return ContextResult.parse({ type: "context.result", requestId: request.requestId, result });
