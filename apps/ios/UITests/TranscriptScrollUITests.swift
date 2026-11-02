@@ -14,6 +14,9 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port, "--spike-open", "ios-reading", "--perf-probe"]
         app.launch()
+        // A fresh install asks about notifications first.
+        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
+        if allow.waitForExistence(timeout: 5) { allow.tap() }
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         expectation(for: NSPredicate(format: "value == 'Ready'"), evaluatedWith: transcript)
