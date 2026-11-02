@@ -73,6 +73,14 @@ function questions(interaction: Interaction) {
   }));
 }
 
+/** A strip line cut to what a phone frame carries. */
+const clip = (strip: StripLine): StripLine => ({
+  lead: strip.lead,
+  sentence: preview(strip.sentence, 256),
+  payload: preview(strip.payload, 512),
+  detail: preview(strip.detail, 512),
+});
+
 /**
  * The request as its strip above the composer says it (`@ace/ui-core/mobile` strip lines): who
  * asks, by the asking agent's name and provider mark, and the one line under it.
@@ -82,12 +90,6 @@ function stripOf(interaction: Interaction, reader: ThreadReader, command: string
   const provider = agent?.native?.provider ?? reader.thread?.provider ?? "";
   const who = agent ? agentName(agent) : "The agent";
   const request = interaction.request;
-  const clip = (strip: StripLine): StripLine => ({
-    lead: strip.lead,
-    sentence: preview(strip.sentence, 256),
-    payload: preview(strip.payload, 512),
-    detail: preview(strip.detail, 512),
-  });
   switch (request.kind) {
     case "approval":
       return clip(

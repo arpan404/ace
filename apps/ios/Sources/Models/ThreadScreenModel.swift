@@ -43,6 +43,8 @@ import Observation
     var steps: [Int: TurnStepsModel] = [:]
     /// The live pill over the composer; nil when nothing is live, queued or pursued.
     var pill: PillRow?
+    /// Commands a stopped or finished turn left running, for their strip with Stop.
+    var leftRunning: LeftRunningRow?
     /// The thread's goal, for its sheet; nil without one.
     var goal: GoalRow?
     /// Subagent groups the person opened, by block id. Kept across a reload of the thread, so

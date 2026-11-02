@@ -271,8 +271,16 @@ struct ThreadView: View {
             ComposerFloaters(pill: nil, behind: behind, open: openPill) { jumps += 1 }
                 .padding(.bottom, AceTheme.Spacing.sm)
             VStack(spacing: AceTheme.Spacing.none) {
+                // Just above the strip: the model on the left, the live pill ("1m 34s · waiting on
+                // 3 agents") to its right.
+                ComposerPills(model: model.canOperate && !archived && screen.controls != nil ? screen : nil,
+                              pill: screen.pill, open: openPill,
+                              openModel: { showModels = true }, openTune: { showTune = true }, openSettings: { showSettings = true })
+                // The one strip, right on the composer (`DockStrip`): what needs the person first.
                 Group {
-                    if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
+                    if !thread.approvals.isEmpty {
+                        RequestStrip(requests: thread.approvals, model: model, questionDraft: $questionDraft, openBrowser: { open(.browser) })
+                    }
                     // Then what holds the queue: a usage limit, a stopped turn, a paused queue.
                     else if let hold = screen.queue?.strip,
                             HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).visible {
@@ -280,6 +288,17 @@ struct ThreadView: View {
                                        canAct: HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).actionable,
                                        act: { await model.actOnQueue($0) },
                                        chooseModel: { showModels = true }, openQueue: { showQueue = true })
+                    }
+                    // A message that didn't go, with Try again, Edit and Remove.
+                    else if let held = screen.queue?.notSent {
+                        NotSentStrip(message: held, canAct: model.canOperate && !archived, act: { await model.actOnQueue($0) },
+                                     edit: { message, change in await model.editQueued(message, change: change) },
+                                     words: { await model.queuedWords(held.id) },
+                                     saveWords: { await model.editQueuedWords(held.id, text: $0, revision: $1) })
+                    }
+                    // Commands a stopped turn left running, with one Stop.
+                    else if let left = screen.leftRunning {
+                        LeftRunningStrip(row: left, canAct: model.canOperate && !archived) { id in _ = await model.stopTask(id) }
                     }
                     // A request needs the person first; the transfer's line waits under it.
                     else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
@@ -290,11 +309,6 @@ struct ThreadView: View {
                 }
                 // A strip rises out of the composer and fades; with Reduce Motion it only fades.
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-                // Under any request strip, just above the composer: the model on the left, the
-                // live pill ("1m 34s · waiting on 3 agents") to its right.
-                ComposerPills(model: model.canOperate && !archived && screen.controls != nil ? screen : nil,
-                              pill: screen.pill, open: openPill,
-                              openModel: { showModels = true }, openTune: { showTune = true }, openSettings: { showSettings = true })
                 if archived {
                     ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
@@ -377,9 +391,6 @@ struct ThreadView: View {
         case "goal": goalSheet = GoalPresentation(epoch: thread.epoch)
         default: break
         }
-    }
-    private func requestCard(_ request: ApprovalRow) -> some View {
-        RequestCard(request: request, model: model, maxHeight: height * 0.6, questionDraft: $questionDraft, openBrowser: { open(.browser) })
     }
     /// A builtin from the composer's `/` or + list (the bridge lists only these on a thread).
     private func runComposerAction(_ action: String) {

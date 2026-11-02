@@ -162,14 +162,7 @@ struct ConversationFeed: View {
                                        discard: { await model.dismissSend(row.id) })
                             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
                     }
-                    if let held = thread.screen.queue?.notSent {
-                        HeldSendRow(message: held, canAct: model.canOperate, act: { await model.actOnQueue($0) },
-                                    edit: { message, change in await model.editQueued(message, change: change) },
-                                    words: { await model.queuedWords(held.id) },
-                                    saveWords: { await model.editQueuedWords(held.id, text: $0, revision: $1) })
-                            .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
-                            .transition(.opacity)
-                    }
+                    // A message that wasn't sent is the strip's above the composer (`NotSentStrip`).
                 }
                 // Room for the composer, its strip and the keyboard, and under the last row so it
                 // clears the strip tucked above the composer. The feed itself never changes size as
@@ -190,6 +183,8 @@ struct ConversationFeed: View {
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { feedFrame = $0; feedBottom = $0.maxY }
         .coordinateSpace(name: "transcript.viewport")
         .defaultScrollAnchor(.bottom, for: .initialOffset)
+        // A short thread sits on the dock, not at the top with empty room under it.
+        .defaultScrollAnchor(.bottom, for: .alignment)
         .background(AceTheme.Colours.background)
         .overlay(alignment: .top) {
             if reading.loading, reading.operation == "older" || reading.operation == "newer" {

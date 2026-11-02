@@ -188,6 +188,8 @@ struct ApprovalRow: Codable, Sendable, Identifiable {
     var plan: PlanRequest? = nil
     var form: FormRequest? = nil
     var help: HelpRequest? = nil
+    /// The request as its strip above the composer says it (`StripLine`); nil from older bridges.
+    var strip: StripLineRow? = nil
 }
 struct PendingRow: Codable, Sendable, Identifiable {
     let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String

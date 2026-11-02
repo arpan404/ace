@@ -16,46 +16,15 @@ struct QueueHoldStrip: View {
     /// Bumped when a way on was taken: a light confirmation under the finger.
     @State private var taken = 0
     var body: some View {
-        StripSurface {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: AceTheme.Spacing.sm) { words; Spacer(minLength: AceTheme.Spacing.none); buttons }
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    words
-                    HStack(spacing: AceTheme.Spacing.xs) { Spacer(minLength: AceTheme.Spacing.none); buttons }
-                }
-            }
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("thread.hold")
-        .sensoryFeedback(.success, trigger: taken)
-    }
-    private var words: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            Text(strip.sentence)
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .monospacedDigit()
-                .fixedSize(horizontal: false, vertical: true)
-                .contentTransition(.numericText())
-                .accessibilityIdentifier("hold.sentence")
-            if !strip.detail.isEmpty {
-                Text(strip.detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-    private var buttons: some View {
-        HStack(spacing: AceTheme.Spacing.none) {
-            ForEach(strip.actions) { action in
-                Button(action.label) { run(action) }
-                    .buttonStyle(StripTextButtonStyle(prominent: action.primary == true))
-                    .disabled(!canAct || (acting && action.id != "choose_model" && action.id != "queue"))
-                    .accessibilityIdentifier("hold.\(action.id)")
-            }
-        }
-        .fixedSize()
+        DockStrip(line: StripLineRow(lead: strip.lead ?? StripLeadRow(icon: "waiting", tone: "waiting"),
+                                     sentence: strip.sentence, detail: strip.detail),
+                  actions: strip.actions.map { action in
+                      DockAction(id: action.id, label: action.label, primary: action.primary == true,
+                                 enabled: canAct && (!acting || action.id == "choose_model" || action.id == "queue"),
+                                 identifier: "hold.\(action.id)") { run(action) }
+                  },
+                  identifier: "thread.hold", sentenceIdentifier: "hold.sentence")
+            .sensoryFeedback(.success, trigger: taken)
     }
     private func run(_ action: QueueRow.Action) {
         switch action.id {

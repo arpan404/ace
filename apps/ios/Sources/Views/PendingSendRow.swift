@@ -41,32 +41,6 @@ struct PendingSendRow: View {
     }
 }
 
-/// The message a failed send or session start left at the head of the daemon's queue, where it
-/// was written: "Not sent · the short reason", Try again (resumes the held queue), Edit (its words
-/// changed where it waits) and Remove, and the provider's detail behind Details. The messages
-/// behind it wait for it.
-struct HeldSendRow: View {
-    let message: QueueRow.NotSent
-    let canAct: Bool
-    let act: (QueueRow.Action) async -> Bool
-    let edit: (QueueRow.Message, [String: Any]) async -> Bool
-    /// The message's full words from the daemon's queue, and saving new ones in place.
-    let words: () async -> WordsRequests.Answer
-    let saveWords: (String, Int?) async -> String?
-    @State private var editor: MessageEditor?
-    var body: some View {
-        let queued = QueueRow.Message(id: message.id, text: message.text, delivery: "queue", state: "queued", attachments: message.attachments)
-        NotSentMessage(text: message.text, attachments: message.attachments, reason: message.reason, detail: message.detail,
-                       canAct: canAct, retryLabel: "Try again", removeLabel: "Remove",
-                       retry: { await act(QueueRow.Action(id: "resume", label: "Try again")) },
-                       edit: { editor = MessageEditor(attachments: message.attachments, read: words, write: saveWords) },
-                       remove: { await edit(queued, ["kind": "remove"]) })
-            .sheet(item: $editor) { MessageEditSheet(editor: $0) }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("heldSend")
-    }
-}
-
 /// The bubble, "Not sent · reason" in the failed colour, then its ways on as words and Details.
 /// Remove asks first: the words are gone once it's done.
 struct NotSentMessage: View {

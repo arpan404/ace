@@ -136,7 +136,7 @@ struct PlanReviewCard: View {
 /// The whole plan in a native sheet: its summary and markdown as the transcript draws prose, with
 /// no box around it, then Request changes and Approve plan at the bottom. Request changes asks
 /// what should change before it sends.
-private struct PlanReviewSheet: View {
+struct PlanReviewSheet: View {
     let plan: PlanRequest?
     let submission: ApprovalSubmission?
     let canAct: Bool

@@ -242,6 +242,8 @@ struct QueueRow: Codable, Sendable, Equatable {
         let sentence: String
         var detail: String = ""
         let actions: [Action]
+        /// What leads the sentence: the row's own icon for the hold (`holdStripLead`).
+        var lead: StripLeadRow? = nil
     }
     /// The message a failed send left at the queue's head, shown in the transcript.
     struct NotSent: Codable, Sendable, Equatable, Identifiable {
@@ -250,6 +252,8 @@ struct QueueRow: Codable, Sendable, Equatable {
         let attachments: Int
         let reason: String
         let detail: String
+        /// Its strip above the composer: "Not sent · …" with the message's opening words.
+        var strip: StripLineRow? = nil
     }
     let revision: Int
     let label: String
