@@ -37,14 +37,16 @@ Treat the pairing URL as a credential until redeemed or expired. A code lasts fi
 
 ## Listeners and configuration
 
-| Setting              | Default                     | Behavior                                                                |
-| -------------------- | --------------------------- | ----------------------------------------------------------------------- |
-| `ACE_HOME`           | `~/.ace`                    | SQLite, local credential, private TLS identity and daemon endpoint file |
-| `ACE_PORT`           | `4242`                      | HTTP and WebSocket listener on `127.0.0.1`                              |
-| `ACE_LISTEN`         | `local`                     | `local`, `lan` or `tailscale`                                           |
-| `ACE_REMOTE_PORT`    | local port plus one         | Separate HTTPS/WSS listener; ephemeral when `ACE_PORT=0` or `65535`     |
-| `ACE_ADVERTISE_HOST` | first external IPv4 address | LAN pairing URL address, useful with multiple network interfaces        |
-| `ACE_WEB_ORIGINS`    | none                        | Comma-separated http(s) origins of web apps that may manage devices     |
+| Setting                | Default                     | Behavior                                                                |
+| ---------------------- | --------------------------- | ----------------------------------------------------------------------- |
+| `ACE_HOME`             | `~/.ace`                    | SQLite, local credential, private TLS identity and daemon endpoint file |
+| `ACE_PORT`             | `4242`                      | HTTP and WebSocket listener on `127.0.0.1`                              |
+| `ACE_LISTEN`           | `local`                     | `local`, `lan` or `tailscale`                                           |
+| `ACE_REMOTE_PORT`      | local port plus one         | Separate HTTPS/WSS listener; ephemeral when `ACE_PORT=0` or `65535`     |
+| `ACE_ADVERTISE_HOST`   | first external IPv4 address | LAN pairing URL address, useful with multiple network interfaces        |
+| `ACE_WEB_ORIGINS`      | none                        | Comma-separated http(s) origins of web apps that may manage devices     |
+| `ACE_ACCOUNT_URL`      | none                        | ace account backend that `ace login` signs in to                        |
+| `ACE_HOSTED_RELAY_URL` | none                        | ace's hosted relay: the only relay this daemon offers machine grants to |
 
 LAN mode listens on IPv4 wildcard `0.0.0.0`. Tailscale mode runs `tailscale status --json`, requires a running backend and binds only its IPv4 address. When the tailnet has MagicDNS and HTTPS certificates turned on (Tailscale admin console › DNS), the listener serves Tailscale's publicly trusted certificate to clients that ask for this machine's ts.net name, and pairing links name that host (`https://<machine>.<tailnet>.ts.net:<port>`), so browsers pair with no warning. Until that certificate is served, or if it can't be fetched or has expired, links use the 100.x address, which works for native clients and the CLI. The daemon fetches it with `tailscale cert`, refreshes it twice a day and keeps ace's own certificate for every other name. On Linux, let ace fetch it with `sudo tailscale set --operator=$USER`. Native clients still pin ace's key, and also accept a publicly trusted certificate for the exact ts.net name ([ADR 0097](../adr/0097-tailscale-https-certificates.md)). A detection failure stops startup and prints setup guidance; it never switches to LAN exposure automatically.
 
@@ -75,6 +77,47 @@ Remote access needs no administrator rights on Windows. What differs from macOS 
 - **Windows Defender Firewall.** The first time ace listens on the LAN or on its Tailscale address, Windows may ask whether to allow ace's Node runtime on private or public networks. Allowing it creates a firewall rule and needs an administrator once. Declining (or a standard account that can't approve) leaves the listener running but blocked: local use keeps working and paired devices can't connect until a rule is added in Windows Security › Firewall & network protection › Allow an app through firewall. Tailscale Serve avoids the prompt entirely, because Tailscale's own service receives the traffic and forwards it to localhost: start ace with `ACE_LISTEN=lan` and `ACE_REMOTE_PORT=4243`, run `tailscale serve --tcp=443 tcp://localhost:4243`, and keep the pairing URL's fragment (the public-key pin) while replacing its authority with the Serve hostname.
 - **Sleep and network changes.** Connections drop while Windows sleeps and paired clients retry when it wakes. Tailscale keeps the 100.x address across network changes; a LAN address can change with the network, so pair again or set `ACE_ADVERTISE_HOST`.
 
+## Your ace account and the machine code
+
+A machine signed in to an ace account opens to every device signed in to the same account,
+with admin access and no pairing ([ADR 0111](../adr/0111-account-machine-access.md)). Pairing,
+LAN, Tailscale and self-hosted relays keep working without an account.
+
+**Signing the machine in.** The daemon holds one ace session in `ACE_HOME/ace-account.json`
+(mode 0600; never logged). The desktop app hands it its own session when you sign in to ace in
+the app, and tells it when you sign out. On a machine without the app, `ace login` starts the
+sign-in, prints the address to open, and waits until you finish it in a browser; `ace logout`
+signs the machine out. `ace status` shows the account under `remoteAccess.account`.
+
+**ace's relay.** With the relay transport set to ace's hosted relay (`ACE_HOSTED_RELAY_URL`),
+the daemon asks the account backend for a fresh, five-minute machine grant before every
+registration and offers it as the `ace.grant.<grant>` WebSocket subprotocol. While the machine
+is signed out, or after the relay refuses it, remote access shows "Sign in to your ace account
+on this machine…" and does not retry on a timer; signing in starts the relay again. Signing out
+stops it. Self-hosted relays stay anonymous: they echo an offered grant without checking it,
+and the daemon offers them none.
+
+**Account devices.** A client on the account connects to `/client` with a device grant as its
+subprotocol, then sends it in `hello` (`grant` instead of `token` or `ticket`). The daemon
+accepts it only while signed in, and only a `device` grant signed by a key from the account
+backend's `GET /v1/keys` (cached, refetched once for a new key id and at most once a minute),
+not expired, for the daemon's own account and for the `deviceId` in the hello. Anything else
+is refused like any bad credential. An admitted device has admin on that channel until the
+machine signs out, moves to another account or changes its machine code; then its open
+account channels close.
+
+**Machine code.** A machine may require a code (a PIN or password, 4 to 128 characters) so a
+stolen account login alone does not open it. Set it with `ace machine-code set` (read from
+stdin or typed without echo) or `PUT /v1/machine-code` from an admin, and clear it with
+`ace machine-code clear`. It is stored as an scrypt hash with a version that grows on every
+change, and only the daemon checks it; the account backend never sees it. An account device
+that has not passed the current version is refused before welcome with an `error` frame whose
+code is `machine_code_required`, `machine_code_wrong` or `machine_code_locked`, and the channel
+closes; the client asks for the code and opens a new channel with `machineCode` in its hello.
+A right code is remembered per device, account and code version in the daemon's SQLite store.
+Five wrong codes lock code entry on the machine (not per device) for 15 minutes. Changing or
+clearing the code makes every device enter the new one.
+
 ## HTTP API
 
 All JSON endpoints return HTTP 200 on success and `{ "error": "..." }` otherwise. Responses are `Cache-Control: no-store`; there are no redirects, cookies or query-string credentials. Requests are capped at 4 KiB. Bearer tokens go only in the `Authorization` header.
@@ -85,14 +128,20 @@ The loopback WebSocket listener shares the HTTP access allowlist: an upgrade car
 
 The device service caps state subscribers at 64 across all clients to bound state fan-out. Only main and devices admin channels hold a subscriber; files, screen and browser channels do not. Excess sockets close before welcome with application code 4013 and reason `connection_limit`, without a pre-welcome error frame. The main client exposes `error.code === "limit"` while reconnecting, retries with a minimum five-second delay and exponential backoff, and clears the error after welcome. Dedicated `deviceTransport` channels likewise expose a `DeviceClient` snapshot limit error and retry after five seconds, increasing to thirty seconds on repeated saturation; commands are never replayed. Transient service admission failures close with 1011 and reason `service_unavailable` and follow ordinary reconnect backoff. Closing an admitted socket releases its slot.
 
-| Method and path           | Credential          | Request                                     | Response                                                     |
-| ------------------------- | ------------------- | ------------------------------------------- | ------------------------------------------------------------ |
-| `GET /v1/status`          | admin               | none                                        | `{ running: true, remote: null \| { origin, fingerprint } }` |
-| `POST /v1/pairings`       | admin               | `{ scopes?: ["read", "operate", "admin"] }` | `{ url, expiresAt }`                                         |
-| `POST /v1/pair`           | pairing code        | `{ code, name }`                            | `{ device, token }`                                          |
-| `POST /v1/tickets`        | device bearer token | none                                        | `{ ticket, expiresAt }`                                      |
-| `GET /v1/devices`         | admin               | none                                        | device records, including revoked devices                    |
-| `DELETE /v1/devices/<id>` | admin               | none                                        | `{ revoked: true }`                                          |
+| Method and path              | Credential          | Request                                     | Response                                                      |
+| ---------------------------- | ------------------- | ------------------------------------------- | ------------------------------------------------------------- |
+| `GET /v1/status`             | admin               | none                                        | `{ running: true, remote: null \| { origin, fingerprint } }`  |
+| `POST /v1/pairings`          | admin               | `{ scopes?: ["read", "operate", "admin"] }` | `{ url, expiresAt }`                                          |
+| `POST /v1/pair`              | pairing code        | `{ code, name }`                            | `{ device, token }`                                           |
+| `POST /v1/tickets`           | device bearer token | none                                        | `{ ticket, expiresAt }`                                       |
+| `GET /v1/devices`            | admin               | none                                        | device records, including revoked devices                     |
+| `DELETE /v1/devices/<id>`    | admin               | none                                        | `{ revoked: true }`                                           |
+| `GET /v1/ace-account`        | admin               | none                                        | the machine's account, pending sign-in and machine code state |
+| `PUT /v1/ace-account`        | host token          | `{ origin, token }` (an ace session)        | account state, once the backend confirms the session          |
+| `POST /v1/ace-account/login` | host token          | `{ origin? }`                               | account state with `login: { url, expiresAt }`                |
+| `DELETE /v1/ace-account`     | host token          | none                                        | account state, signed out                                     |
+| `PUT /v1/machine-code`       | admin               | `{ code }`                                  | account state                                                 |
+| `DELETE /v1/machine-code`    | admin               | none                                        | account state                                                 |
 
 Only the host/admin that creates the code chooses scopes. Redemption cannot add scopes. The default grant is `read` plus `operate`. The pairing dialog offers view-only, view-and-act and administrator access. Advanced access grants `projects` and `accounts` independently; admin does not imply these scopes. Every device row lists the actual stored grant. `read` permits subscriptions, output reads and item pages, `operate` permits all current agent commands, and `admin` includes both and device administration. Ping and unsubscribe remain available to authenticated devices.
 
@@ -108,7 +157,7 @@ Exchange a device bearer token for a ticket over pinned HTTPS. Open WSS at the s
 { "type": "hello", "protocolVersion": 1, "deviceId": "<paired device id>", "ticket": "<ticket>" }
 ```
 
-A ticket lasts sixty seconds and is consumed by one hello. It is bound to the paired device's ID. Device tokens are rejected in hello. Local clients can continue sending hello with their token-file credential. Exactly one of `token` or `ticket` is required.
+A ticket lasts sixty seconds and is consumed by one hello. It is bound to the paired device's ID. Device tokens are rejected in hello. Local clients can continue sending hello with their token-file credential. Exactly one of `token`, `ticket` or `grant` is required; `grant` (an account device grant, with an optional `machineCode`) is accepted on relayed channels only.
 
 Scope checks run before subscriptions or command receipts. Revoking a device disconnects every socket authenticated by its tickets, cancels its subscriptions, and invalidates its bearer token and outstanding tickets immediately. A caller-selected local device ID cannot cause revocation of the host credential.
 
