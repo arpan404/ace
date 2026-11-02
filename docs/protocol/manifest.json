@@ -9,12 +9,12 @@
       "sha256": "b076a5b134ee8fe6eba1d4a7d409dd6680d8e7bf278945ea6f63af7b27df3848"
     },
     "commands.md": {
-      "bytes": 57451,
-      "sha256": "1a6e394b0e799d668de5d071a64cbf8bc268cba8221ebf42fd5c326cd76b80bf"
+      "bytes": 57265,
+      "sha256": "6bbf154d595d381e0b8b9376feadfd575dc80d4970a10bcb5a14543870f3a240"
     },
     "events.md": {
-      "bytes": 21241,
-      "sha256": "1814d89193ec2b7cded8560c247908eedfa667c6ac758b94658b792bce6d0278"
+      "bytes": 21307,
+      "sha256": "2682e62dd79b199e54d9e4d2b3d8e7a1ffa2b42f6375c1b081cade4d812e9bb8"
     },
     "forge.md": {
       "bytes": 131807,
@@ -425,8 +425,8 @@
       "sha256": "c0c8968636dd8f24857ad4f2dc6fdcb924450235a26f1722b2fc11888fa07b13"
     },
     "schema/BackgroundTask.json": {
-      "bytes": 1615,
-      "sha256": "939adc2dcca3ee475570b0abb2ca565bf8d80729cec15f67a79990ec52b05ec2"
+      "bytes": 1858,
+      "sha256": "aab0b4062ee629811fc83883625799e8759f0a017ef83f590d4bf08c8d89220b"
     },
     "schema/BackgroundTaskId.json": {
       "bytes": 166,
@@ -853,8 +853,8 @@
       "sha256": "9d81a29a1e885281a89e8c1e208cd8d84e18683844c6a6182d25e21455f7a3d0"
     },
     "schema/CommandPayload.json": {
-      "bytes": 53156,
-      "sha256": "78dbe6b4e50c828c6cc697ce7d02c97419e8c5fb259dd3353a4dc900923f7ae3"
+      "bytes": 52486,
+      "sha256": "2118c8f45d2831d5155c806101c0f082e42a90137f8392d6f2d41635413bfa1b"
     },
     "schema/CommandPlan.json": {
       "bytes": 1803,
@@ -3824,6 +3824,10 @@
       "bytes": 1108,
       "sha256": "bdcde8f3cdaacba850cdb312c00b1e84a3fd894ea747e60f2929d90027bd3092"
     },
+    "schema/SwitchSelection.json": {
+      "bytes": 769,
+      "sha256": "84077261be97ad29cac3a6b5c99e38448b5d33a8b7dd4018cb585ca71719eef5"
+    },
     "schema/TerminalCredit.json": {
       "bytes": 400,
       "sha256": "d2a01f3ad8d61274f93180be12016f5064713aea812116abedab607a05fdc2ef"
@@ -4657,10 +4661,10 @@
       "sha256": "5689abd9740d125fc925f514b8ad6da3bf4252fdd3934fbe5031dc92265ef181"
     },
     "types.md": {
-      "bytes": 958329,
-      "sha256": "d8a25932c4cbe75a492b08275b430a7a88e7e4fd1f66157e9a833908d654ec17"
+      "bytes": 959081,
+      "sha256": "c11716527e31ffdaa80d571d882bdf08f6217b5d9f2459a9bd1fd8ab243a0ca2"
     }
   },
-  "input": "f79ae9bc5c7745338c7df493e516e121e281b2e8268ebd770a967005567e2e00",
+  "input": "b097a0d22cacec126e8cb88251c843b67183f6eef4ee254aa7115b1438252082",
   "version": 1
 }

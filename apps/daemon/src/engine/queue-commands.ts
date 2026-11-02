@@ -185,6 +185,27 @@ export function handleQueue(
         return fail("acp_account_fixed");
       if (p.type === "thread.limit" && p.action === "migrate_now" && !dependencies.ports.moveTarget)
         return fail("migration_unavailable");
+      if (p.type === "thread.limit" && p.action === "cancel_resume") {
+        // Back to the plain limit as the manual policy leaves it: the hold stays, and at the
+        // reset the limit only clears (nothing is sent). The new hold token fences a deadline
+        // already firing.
+        if (!queue.paused || queue.reason !== "limit" || queue.timerAction !== "resume")
+          return fail("no_scheduled_resume");
+        const lifts = queue.limited && queue.resumeAt !== null;
+        dependencies.repo.queue.set(
+          p.threadId,
+          {
+            holdToken: queue.holdToken + 1,
+            resumeAt: lifts ? queue.resumeAt : null,
+            timerAction: lifts ? "clear" : null,
+          },
+          dependencies.clock.now(),
+        );
+        dependencies.schedule();
+        return { commandId: command.id, ok: true };
+      }
+      if (p.type === "thread.limit" && p.action === "switch" && !p.selection)
+        return fail("switch_selection_required");
       if (
         p.type === "thread.limit" &&
         ["resume_at_reset", "snooze_until_reset"].includes(p.action)

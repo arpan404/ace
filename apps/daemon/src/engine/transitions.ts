@@ -7,7 +7,7 @@ import { switchWorkContext, usageBlocked } from "./switch-recovery.ts";
 import type { EngineModels } from "./models.ts";
 import { handoffSources, renderHandoff } from "@ace/handoff";
 import type { MigrationResult } from "@ace/protocol/accounts";
-import type { ExecutionSelection, ThreadId } from "@ace/protocol";
+import type { ExecutionSelection, SwitchSelection, ThreadId } from "@ace/protocol";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { ThreadActor } from "./actor.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -464,6 +464,27 @@ export class ThreadTransitions {
           threadId: actor.id,
           selection: { provider, instanceId: target() },
         },
+      },
+    });
+  }
+  /**
+   * The usage limit's Switch: the thread moves to `selection` the way a switch does. Replayed
+   * after a restart, a switch that already committed is not made again.
+   */
+  async carryTo(actor: ThreadActor, intent: Intent, selection: SwitchSelection): Promise<void> {
+    const current = this.repo.transitions.get(actor.id).selection;
+    if (
+      current &&
+      current.provider === selection.provider &&
+      (selection.model === undefined || current.model === selection.model) &&
+      (selection.instanceId === undefined || current.instanceId === selection.instanceId)
+    )
+      return;
+    await this.execute(actor, {
+      ...intent,
+      command: {
+        ...intent.command,
+        payload: { type: "thread.switch", threadId: actor.id, selection },
       },
     });
   }

@@ -90,6 +90,7 @@ import {
   forkPointError,
   forkOpening,
   mergeFacts,
+  limitSwitchEvents,
   mergeForkError,
   switchEvents,
 } from "./transitions.ts";
@@ -1049,7 +1050,9 @@ export class FakeDaemon implements Host {
       return { commandId, ok: false, error: "thread_not_found" };
     const outcome = decide(host);
     if (!outcome.ok) return { commandId, ok: false, error: outcome.error };
-    this.apply(threadId, outcome.facts);
+    const later = outcome.after ?? [];
+    this.apply(threadId, outcome.facts, later.length);
+    later.forEach((facts, step) => this.apply(threadId, facts, later.length - 1 - step));
     return { commandId, ok: true };
   }
   /**
@@ -1165,6 +1168,12 @@ export class FakeDaemon implements Host {
       // Moving a limited thread runs it on the chosen account from now on, or, as the daemon
       // does when none is named, the same provider's account with headroom.
       const host = this.threads.get(payload.threadId);
+      if (result.ok && host && payload.type === "thread.limit" && payload.action === "switch")
+        this.append(
+          host,
+          limitSwitchEvents(host, payload.selection, this.options.clock()),
+          this.options.clock(),
+        );
       if (
         result.ok &&
         host &&

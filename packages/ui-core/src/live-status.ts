@@ -1,6 +1,6 @@
 import { pluralCount } from "./counts.ts";
 import { treeOnlyWaits } from "@ace/projection";
-import type { ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
+import type { QueueSnapshot, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
 import { agentName } from "./agents.ts";
 import { describeWake } from "./snooze.ts";
 import type { Tone } from "./status.ts";
@@ -19,7 +19,8 @@ export type LiveFact =
   | { kind: "asking"; request: string }
   /** A delegated child (or one further down its tree) waits on the person; `agent` names it. */
   | { kind: "child-asking"; agent: string }
-  | { kind: "limited"; until: number | undefined }
+  /** `resumesAt`: the person chose to resume at the reset, and it carries on by itself then. */
+  | { kind: "limited"; until: number | undefined; resumesAt?: number | undefined }
   | { kind: "subagents"; count: number }
   /**
    * Background work holds the thread; `title` is the command of a single shell. A `count` of 0
@@ -68,6 +69,12 @@ export function limitedLabel(until: number | undefined, now: number, locale?: st
   return `Limited until ${until - now < 20 * hour ? formatClock(until, locale) : describeWake(until, now, locale)}`;
 }
 
+/** "Resumes at 9:23 PM" (or "Resumes tomorrow 9:23 AM"): a resume at reset the person chose. */
+export function resumesLabel(at: number, now: number, locale?: string): string {
+  const when = at - now < 20 * hour ? formatClock(at, locale) : describeWake(at, now, locale);
+  return /^\d/.test(when) ? `Resumes at ${when}` : `Resumes ${when}`;
+}
+
 /** A live fact in words, with its tone. */
 export function describeLive(fact: LiveFact, now: number, locale?: string): LiveStatus {
   switch (fact.kind) {
@@ -76,7 +83,14 @@ export function describeLive(fact: LiveFact, now: number, locale?: string): Live
     case "child-asking":
       return { label: childAskingLabel(fact.agent), code: undefined, tone: "needs-you" };
     case "limited":
-      return { label: limitedLabel(fact.until, now, locale), code: undefined, tone: "waiting" };
+      return {
+        label:
+          fact.resumesAt !== undefined && fact.resumesAt > now
+            ? resumesLabel(fact.resumesAt, now, locale)
+            : limitedLabel(fact.until, now, locale),
+        code: undefined,
+        tone: "waiting",
+      };
     case "subagents":
       return {
         label: waitingOnSubagentsLabel(fact.count),
@@ -116,8 +130,9 @@ export function liveStatusText(status: LiveStatus): string {
 export function threadLiveFact(thread: {
   status: ThreadStatus;
   live?: ThreadRunMetadata | undefined;
+  queue?: Pick<QueueSnapshot, "paused" | "reason" | "resumeAt"> | undefined;
 }): LiveFact | undefined {
-  const { status, live } = thread;
+  const { status, live, queue } = thread;
   switch (status.state) {
     case "needs_you": {
       const request = live?.asking?.[0]?.kind;
@@ -125,8 +140,14 @@ export function threadLiveFact(thread: {
       const child = live?.askingThreads?.[0];
       return child ? { kind: "child-asking", agent: agentName({ name: child.name }) } : undefined;
     }
-    case "limited":
-      return { kind: "limited", until: status.until };
+    case "limited": {
+      // A resume at reset the person chose: the queue holds on the limit with a deadline.
+      const resumesAt =
+        queue?.paused && queue.reason === "limit" && queue.resumeAt !== null
+          ? queue.resumeAt
+          : undefined;
+      return { kind: "limited", until: status.until, ...(resumesAt ? { resumesAt } : {}) };
+    }
     case "working":
       if (live?.waitingOn) return { kind: "subagents", count: live.waitingOn };
       return live?.step === "tests" ? { kind: "tests" } : undefined;

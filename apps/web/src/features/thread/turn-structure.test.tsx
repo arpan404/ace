@@ -6,7 +6,7 @@ import {
   workbench,
   type Scenario,
 } from "@ace/fake-daemon";
-import { configure, act, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, configure, act, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -345,6 +345,66 @@ test("a paused turn in history reads the same complete turn after a reload", asy
   expect(within(feed).queryByRole("note", { name: /^Worked/ })).toBeNull();
   // The resume ended the paused turn; nothing calls it stopped or interrupted.
   expect(within(feed).queryByRole("note", { name: /^Stopped|^Interrupted/ })).toBeNull();
+});
+
+/** A held turn's head and answer, in that order, with the steps after the answer folded. */
+async function heldTurnReads() {
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const head = await within(feed).findByRole("button", { name: /^Worked for/ });
+  const answer = within(feed).getByText(said);
+  expect(follows(head, answer)).toBe(true);
+  expect(answer.closest("details")).toBeNull();
+  // The search the agent ran after saying it is in the folded log, not in view.
+  expect(within(feed).queryByText("rg legacyFlags")).toBeNull();
+}
+
+test("a turn still held at its limit shows the message it said before more steps under Worked for, before and after a reload", async () => {
+  const app = harness();
+  app.play(limitPausedTurn()).runUntilBlocked();
+  await app.open("/t/thread-limit-paused");
+  await heldTurnReads();
+
+  // A reload: the same daemon, a fresh window and client.
+  cleanup();
+  const reloaded = harness({ daemon: app.daemon });
+  await reloaded.open("/t/thread-limit-paused");
+  await heldTurnReads();
+});
+
+test("a paused turn that said nothing and took no step reads Worked for as plain text, with nothing to open", async () => {
+  const app = harness();
+  app
+    .play({
+      thread: {
+        id: "thread-limit-silent",
+        workspaceId: "ace",
+        title: "Split the CI matrix by package",
+        provider: "codex",
+        live: { account: "codex-team" },
+      },
+      steps: [
+        {
+          kind: "facts",
+          facts: [
+            rootAgent("codex"),
+            turn("root"),
+            message("root", "ask", "user", "Split the CI matrix by package"),
+          ],
+        },
+        {
+          kind: "facts",
+          label: "limited",
+          facts: [{ type: "retry", agent: "root", on: "rate_limit", message: "Usage limit." }],
+        },
+      ],
+    })
+    .runUntilBlocked();
+  app.daemon.apply("thread-limit-silent", resumeAfterLimit);
+  await app.open("/t/thread-limit-silent");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText("Picking the flag removal back up.");
+  expect(await within(feed).findByText(/^Worked for/)).toBeTruthy();
+  expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
 });
 
 test("the changed-files card waits until the subagents a turn started have finished too", async () => {

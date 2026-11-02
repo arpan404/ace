@@ -1,7 +1,7 @@
 import { AccountSummary } from "@ace/protocol/accounts";
 import { accountView } from "./accounts.ts";
 import { expect, test } from "vitest";
-import { pickerEntries } from "./picker-entries.ts";
+import { pickerEntries, startingTab } from "./picker-entries.ts";
 
 const account = (
   id: string,
@@ -124,4 +124,27 @@ test("Antigravity's CLI login is Antigravity itself, and each added account gets
     ["Antigravity", "antigravity-cli-default"],
     ["Antigravity · Work", "account-work"],
   ]);
+});
+
+test("on a thread whose account is at its limit, the picker opens on an account with room, never the greyed one", () => {
+  const tabs = rail([
+    account("claude-work", "claude", "Work"),
+    account("codex-team", "codex", "Team", undefined, true),
+    account("codex-personal", "codex", "Personal"),
+  ]);
+  const at = { provider: "codex" as const, instance: "codex-team" };
+  // The same provider's next account with room, even over Favorites.
+  expect(startingTab(tabs, { ...at, favorites: true })?.name).toBe("Codex · Personal");
+  // With no other account of its own provider, another provider's.
+  const alone = rail([
+    account("claude-work", "claude", "Work"),
+    account("codex-team", "codex", "Team", undefined, true),
+  ]);
+  expect(startingTab(alone, { ...at, favorites: false })?.name).toBe("Claude Code · Work");
+  // The exhausted account keeps its tab, greyed with its reset.
+  expect(alone.find((tab) => tab.instance === "codex-team")?.reason).toBe("Limit reached");
+  // With room on its own account, it opens there (or on Favorites when there are any).
+  const fine = { provider: "codex" as const, instance: "codex-personal" };
+  expect(startingTab(tabs, { ...fine, favorites: false })?.name).toBe("Codex · Personal");
+  expect(startingTab(tabs, { ...fine, favorites: true })?.id).toBe("favorites");
 });
