@@ -498,6 +498,22 @@ test("the window label reads in full, through its accessible name and visible te
   expect(within(personal).getByText("Ahead of pace").textContent).toBe("Ahead of pace");
 });
 
+test("every window bar renders its fill with a width percentage", async () => {
+  const app = harness();
+  report(app.daemon, "codex-personal", {
+    five_hour: [50, 4 * hour, 300],
+    seven_day: [5, 4 * day, 10080],
+  });
+  await app.open("/usage");
+  const personal = await accountBlock("Codex", "Personal");
+  const meters = within(personal).getAllByRole("meter");
+  expect(meters.length).toBeGreaterThan(0);
+  for (const bar of meters) {
+    const fill = bar.querySelector(":scope > span");
+    expect(fill?.getAttribute("style") ?? "").toMatch(/width:\s*\d+(\.\d+)?%/);
+  }
+});
+
 test("clicking a row in Where it went filters the whole page to it, and Clear undoes it", async () => {
   const app = harness();
   app.daemon.services.usage.sources = [

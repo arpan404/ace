@@ -31,7 +31,7 @@ export function LimitsView(props: {
     .filter(Boolean)
     .join(" ");
   return (
-    <div className="flex flex-col gap-6">
+    <div className="@container/limits flex flex-col gap-6">
       {providers.map((group) => (
         <ProviderSection key={group.key} group={group} now={props.now} redeem={props.redeem} />
       ))}
@@ -97,7 +97,7 @@ function Account(props: {
   return (
     <article
       aria-label={`${props.provider} · ${entry.account.label} · ${entry.environment}`}
-      className="grid gap-x-6 gap-y-2 border-t border-border py-3 first-of-type:border-t-0 sm:grid-cols-[13rem_minmax(0,1fr)]"
+      className="grid gap-x-6 gap-y-2 border-t border-border py-3 first-of-type:border-t-0 @min-[38rem]/limits:grid-cols-[minmax(0,13rem)_minmax(0,1fr)]"
     >
       <div className="min-w-0 text-ui leading-5">
         <h4 className="truncate font-semibold">{entry.account.label}</h4>
@@ -108,7 +108,7 @@ function Account(props: {
           <p className="text-xs leading-5 font-medium text-status-done">Used for new threads</p>
         )}
         {banked !== undefined && banked > 0 && (
-          <div className="flex items-baseline gap-1 text-xs leading-5 whitespace-nowrap text-muted-foreground">
+          <div className="flex flex-wrap items-baseline gap-x-1 text-xs leading-5 text-muted-foreground">
             <Tip
               label={`${plural(banked, "banked reset")}: each one resets this account's limits once, when you redeem it.${
                 entry.bankedExpiresAt !== null
@@ -154,12 +154,18 @@ function Account(props: {
 const freshMs = staleReadingMs;
 
 /**
- * Every window row is one 40px line: label (with "Ahead of pace" under it when it is), a bar of
- * at most 220px with the even-pace tick, the share left, and when it resets. The label column
- * keeps at least 7rem so "Session (5h)" and "Weekly" never truncate; the bar shrinks first.
+ * Every window row keeps an even height. In a wide container it is one 40px line: label (with
+ * "Ahead of pace" under it when it is), a bar of at least 96px up to 220px with the even-pace
+ * tick, the share left, and when it resets. The label column keeps at least 7rem so "Session
+ * (5h)" and "Weekly" never truncate; the bar shrinks first but never away. Below 38rem of
+ * container the row stacks: label and percent share the first line, the bar stretches full-width
+ * beneath them, and the reset line hides (its words stay spoken on the meter).
  */
-const rowGrid =
-  "grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 sm:grid-cols-[minmax(7rem,11rem)_minmax(0,220px)_5.5rem_minmax(0,1fr)]";
+const rowGrid = cn(
+  "grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4",
+  "sm:@max-[38rem]/limits:h-12 sm:@max-[38rem]/limits:grid-rows-[1fr_auto] sm:@max-[38rem]/limits:gap-y-1.5",
+  "@min-[38rem]/limits:grid-cols-[minmax(7rem,11rem)_minmax(6rem,220px)_5.5rem_minmax(0,1fr)]",
+);
 
 const barTone: Record<HeadroomTone, string> = {
   ok: "bg-foreground",
@@ -204,7 +210,7 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
         aria-valuemax={100}
         aria-valuenow={window.leftPercent}
         aria-valuetext={`${window.leftPercent}% left${countdown ? `, resets in ${countdown}` : ""}${old ? `, as of ${formatAgo(window.observedAt, now)}` : ""}`}
-        className="relative hidden h-1 rounded-full bg-faint-foreground/45 sm:block"
+        className="relative hidden h-1 rounded-full bg-faint-foreground/45 @min-[38rem]/limits:block sm:@max-[38rem]/limits:col-span-2 sm:@max-[38rem]/limits:block"
       >
         <span
           aria-hidden
@@ -220,13 +226,13 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
           />
         )}
       </div>
-      <p className="text-right whitespace-nowrap tabular-nums">
+      <p className="text-right whitespace-nowrap tabular-nums sm:@max-[38rem]/limits:col-start-2 sm:@max-[38rem]/limits:row-start-1">
         <span className={cn("text-md font-semibold", out && "text-status-failed")}>
           {window.leftPercent}%
         </span>
         <span className="text-xs text-subtle-foreground"> left</span>
       </p>
-      <div className="hidden min-w-0 text-right sm:block">
+      <div className="hidden min-w-0 text-right @min-[38rem]/limits:block">
         <p
           className={cn(
             "truncate text-ui tabular-nums",
@@ -271,7 +277,7 @@ function StaleLine(props: { window: AccountWindow; now: number }) {
     <li className={rowGrid}>
       <WindowName window={window} ahead={false} />
       <p className="text-ui text-subtle-foreground sm:col-span-2">{words}</p>
-      <p className="hidden truncate text-right text-ui text-subtle-foreground tabular-nums sm:block">
+      <p className="hidden truncate text-right text-ui text-subtle-foreground tabular-nums @min-[38rem]/limits:block">
         {window.resetsAt !== null && `Reset ${formatAgo(window.resetsAt, now)}`}
         <span className="block text-2xs leading-3 text-faint-foreground">
           Read {formatAgo(window.observedAt, now)}
