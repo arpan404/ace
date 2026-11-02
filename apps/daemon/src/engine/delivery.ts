@@ -100,7 +100,12 @@ export async function executeIntent(
             p.type === "thread.fork" ? { inheritFrom: p.threadId } : undefined,
           )
         : undefined;
-    await repo.store.writable();
+    try {
+      await repo.store.writable();
+    } catch (error) {
+      prepared?.release();
+      throw error;
+    }
     if (
       repo.cancelled(intent.id) ||
       actor.lifetime?.signal.aborted ||
@@ -111,35 +116,39 @@ export async function executeIntent(
       prepared?.release();
       throw new DeliveryDeferred("Delivery was superseded before provider consumption");
     }
-    // Commit before any send/admission frame; resume can resolve echoes even if no item survived.
-    // The admitted input is the person's bubble (ADR 0065); its metadata must not depend on echo matching.
-    const attachments = prepared?.attachments;
-    if (attachments)
-      repo.store.atomic(() => {
-        repo.attachments.remember(actor.id, intent.id, attachments);
-        repo.attachments.rememberPaths(actor.id, prepared?.attachmentPaths ?? []);
-        const current = repo.requireState(actor.id);
-        const key = `input:${intent.command.id}`;
-        const admitted = current.items[key];
-        if (attachments.length && admitted?.type === "message" && admitted.role === "user")
-          actor.apply([
-            {
-              type: "item.upsert",
-              agent: current.rootKey ?? "root",
-              item: key,
-              draft: { type: "message", role: "user", attachments },
-            },
-          ]);
-      });
-    if (prepared)
+    // The actor owns the lease from here: every later failure releases it through `releaseInput`.
+    // A steer the provider takes into its running turn is read by that run; anything else is
+    // read by the next root run. The live state names the run: `state` predates the awaits above.
+    const steering = p.type === "thread.send" && p.delivery === "steer" && capabilities.steer;
+    if (prepared) {
+      const live = repo.requireState(actor.id);
       actor.retainInput(
         intent.id,
         prepared.release,
-        p.type === "thread.send" && p.delivery === "steer"
-          ? state.agents[state.rootKey ?? ""]?.activeRun
-          : undefined,
+        steering ? live.agents[live.rootKey ?? ""]?.activeRun : undefined,
       );
+    }
     try {
+      // Commit before any send/admission frame; resume can resolve echoes even if no item survived.
+      // The admitted input is the person's bubble (ADR 0065); its metadata must not depend on echo matching.
+      const attachments = prepared?.attachments;
+      if (attachments)
+        repo.store.atomic(() => {
+          repo.attachments.remember(actor.id, intent.id, attachments);
+          repo.attachments.rememberPaths(actor.id, prepared?.attachmentPaths ?? []);
+          const current = repo.requireState(actor.id);
+          const key = `input:${intent.command.id}`;
+          const admitted = current.items[key];
+          if (attachments.length && admitted?.type === "message" && admitted.role === "user")
+            actor.apply([
+              {
+                type: "item.upsert",
+                agent: current.rootKey ?? "root",
+                item: key,
+                draft: { type: "message", role: "user", attachments },
+              },
+            ]);
+        });
       if (!state.agents[state.rootKey ?? ""]?.activeRun) {
         try {
           await beforeSend?.(actor.id, intent.command.id);
@@ -194,9 +203,7 @@ export async function executeIntent(
       repo.pending.submit(intent, generation);
       await session.send(
         input,
-        p.type === "thread.send" && p.delivery === "steer" && capabilities.steer
-          ? "steer"
-          : "queue",
+        steering ? "steer" : "queue",
         intent.command.id,
         repo.inputs.origin(actor.id, `input:${intent.command.id}`)?.kind === "subagent_result"
           ? "ace"

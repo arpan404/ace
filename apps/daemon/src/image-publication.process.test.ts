@@ -46,7 +46,7 @@ async function show(connection: { url: string; bearer: string }, args: unknown) 
 }
 
 /** A daemon store, attachment store and ace MCP server, with one agent working in `home`. */
-async function daemon() {
+async function daemon(limits?: Partial<import("@ace/context").UploadLimits>) {
   const home = await realpath(await mkdtemp(join(tmpdir(), "ace-image-")));
   const path = join(home, "store.sqlite");
   const world: {
@@ -79,6 +79,7 @@ async function daemon() {
       workspace: () => undefined,
       threadExists: (id) => store.hasLiveThread(ThreadId.parse(id)),
       retained: (id, hash) => retainsImage(store, id, hash),
+      ...(limits ? { limits } : {}),
     });
     world.mcp = await startDaemonMcp(store, [
       imagePublication({ store, context: () => world.context, now: () => 2, id: randomUUID }),
@@ -147,6 +148,20 @@ test("an image posted from a relative path is shown in the reply and its bytes r
     () => true,
   );
   expect(Buffer.from(read.data).equals(bytes)).toBe(true);
+});
+
+test("an image the thread's attachment store can't take says why instead of failing blankly", async () => {
+  const { connection, items } = await daemon({ threadEntries: 1 });
+  const first = await show(connection, { data: png().toString("base64"), alt: "First" });
+  expect(first.isError).not.toBe(true);
+  const other = Buffer.concat([png(), Buffer.from("trailing bytes make a new file")]);
+  const refused = await show(connection, { data: other.toString("base64"), alt: "Second" });
+  expect(refused.isError).toBe(true);
+  const said = JSON.stringify(refused);
+  expect(said).toContain("image_not_saved");
+  expect(said).toContain("Attachment storage is full");
+  expect(said).not.toContain("execution_failed");
+  expect(items().filter((item) => item.type === "image")).toHaveLength(1);
 });
 
 test("bytes that are not an image are refused and nothing is posted", async () => {

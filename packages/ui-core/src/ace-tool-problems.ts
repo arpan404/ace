@@ -301,6 +301,10 @@ const shared: Record<string, Wording> = {
   invalid_html: () => ({ title: "That page has content ace can't show" }),
   invalid_image: () => ({ title: "That file isn't an image ace can show" }),
   image_unavailable: () => ({ title: "Couldn't read that image file" }),
+  image_not_saved: (_, { said }) => ({
+    title: "Couldn't save that image to the thread",
+    ...(said ? { hint: said } : {}),
+  }),
   tool_unavailable: () => ({ title: "That ace tool isn't available in this thread" }),
   call_directly: () => ({
     title: "That action needs its own approval step",

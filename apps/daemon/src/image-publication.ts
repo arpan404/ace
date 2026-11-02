@@ -9,7 +9,7 @@ import {
   maxSharedImageDataBytes,
   type McpAttribution,
 } from "@ace/protocol";
-import { sniffMime, type ContextService } from "@ace/context";
+import { ContextError, sniffMime, type ContextService } from "@ace/context";
 import type { Store } from "./store.ts";
 import { toolAttachment } from "./tool-result-content.ts";
 import { agentDirectory, readImageFile } from "./image-files.ts";
@@ -20,6 +20,23 @@ const extensions: Record<SharedImageType, string> = {
   "image/webp": "webp",
   "image/gif": "gif",
 };
+
+/** Why the thread's attachment store refused, in its own (ace-authored) words. */
+function notSaved(detail: string): PublicToolError {
+  return new PublicToolError("image_not_saved", undefined, undefined, undefined, detail);
+}
+/**
+ * The bytes go into the thread's attachments. A refusal there (storage full, files still being
+ * read, cleanup pending) is ace's own sentence and reaches the agent; anything else stays private.
+ */
+async function storeImage(...args: Parameters<typeof toolAttachment>) {
+  try {
+    return await toolAttachment(...args);
+  } catch (error) {
+    if (error instanceof ContextError) throw notSaved(error.message);
+    throw error;
+  }
+}
 
 /**
  * The file an agent named. Its folders may be links (macOS `/tmp` is one); the file itself
@@ -57,8 +74,9 @@ export function imagePublication(runtime: {
     async publish(caller, input, signal) {
       signal.throwIfAborted();
       const context = runtime.context();
-      if (!context || !runtime.store.hasLiveThread(caller.threadId))
-        throw new Error("Image publication unavailable");
+      if (!context)
+        throw notSaved("Attachments aren't available while ace is starting. Retry shortly.");
+      if (!runtime.store.hasLiveThread(caller.threadId)) throw notSaved("This thread was deleted.");
       const bytes =
         input.path === undefined
           ? Buffer.from(input.data ?? "", "base64")
@@ -73,7 +91,7 @@ export function imagePublication(runtime: {
         throw new PublicToolError("invalid_image");
       const mimeType = sniffed.data;
       const named = input.path === undefined ? "" : basename(input.path).slice(-120);
-      const attachment = await toolAttachment(context, caller, bytes, {
+      const attachment = await storeImage(context, caller, bytes, {
         name: named.includes(".") ? named : `image.${extensions[mimeType]}`,
         mimeType,
       });
@@ -94,7 +112,7 @@ export function imagePublication(runtime: {
       if (signal.aborted || !runtime.store.hasLiveThread(caller.threadId)) {
         await release();
         signal.throwIfAborted();
-        throw new Error("Thread deleted");
+        throw notSaved("This thread was deleted.");
       }
       const caption = input.caption === undefined ? "" : redact(input.caption.trim()).slice(0, 500);
       const itemId = ItemId.parse(runtime.id());
