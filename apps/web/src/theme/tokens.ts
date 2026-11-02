@@ -77,20 +77,20 @@ function neutralRamp(p: Palette): Record<`--neutral-${number}`, string> {
  */
 const rowStatus: Record<Scheme, Record<`--row-status-${string}`, string>> = {
   dark: {
-    "--row-status-needs-you": "#F5B544",
-    "--row-status-failed": "#FF6B6B",
-    "--row-status-working": "#6EA8FE",
-    "--row-status-waiting": "#B197FC",
-    "--row-status-background": "#8C95A3",
-    "--row-status-finished": "#4ADE80",
+    "--row-status-needs-you": "#D2A65C",
+    "--row-status-failed": "#E07A74",
+    "--row-status-working": "#7E9FD6",
+    "--row-status-waiting": "#A08FD4",
+    "--row-status-background": "#7E8692",
+    "--row-status-finished": "#6CBF8C",
   },
   light: {
-    "--row-status-needs-you": "#B7790A",
-    "--row-status-failed": "#D23B3B",
-    "--row-status-working": "#2F6FE0",
-    "--row-status-waiting": "#7354D6",
+    "--row-status-needs-you": "#9C6B12",
+    "--row-status-failed": "#B5463F",
+    "--row-status-working": "#3D63A6",
+    "--row-status-waiting": "#6A55A8",
     "--row-status-background": "#6B7380",
-    "--row-status-finished": "#16934A",
+    "--row-status-finished": "#2E7D4F",
   },
 };
 
