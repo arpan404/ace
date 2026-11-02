@@ -10,7 +10,7 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
         XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
-        app.tabBars.buttons["Pulls"].firstMatch.tap()
+        app.openPulls()
         let heading = app.descendants(matching: .any).matching(identifier: "inbox.heading.title").firstMatch
         XCTAssertTrue(heading.waitForExistence(timeout: 20))
         XCTAssertTrue(heading.label.hasPrefix("Pulls"))

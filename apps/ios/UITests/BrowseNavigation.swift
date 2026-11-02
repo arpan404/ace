@@ -51,17 +51,12 @@ extension XCUIApplication {
         for _ in 0..<4 where menu.exists && !(item.exists && item.isHittable) { menu.swipeUp() }
         return item
     }
-    /// Pull requests and Issues: the tab bar's Pulls on a phone, the sidebar's on a wide window
-    /// (iPad, an opened foldable), whichever the layout shows.
+    /// Pull requests and Issues: More's Pull requests, from the inbox header's More button.
     @MainActor func openPulls() {
-        // Some runtimes (iOS 27, the folded Duo) show the tab bar's items without a TabBar
-        // around them, so the tab is found by its label too.
-        let tab = tabBars.buttons["Pulls"].firstMatch, side = buttons["sidebar.pulls"]
-        let labelled = buttons.matching(NSPredicate(format: "label == 'Pulls'")).firstMatch
-        if tab.waitForExistence(timeout: 3) { tab.tap(); return }
-        if side.exists { side.tap(); return }
-        XCTAssertTrue(labelled.waitForExistence(timeout: 10), "no Pulls tab or sidebar entry showed")
-        labelled.tap()
+        XCTAssertTrue(buttons["inbox.settings"].waitForExistence(timeout: 10))
+        buttons["inbox.settings"].tap()
+        XCTAssertTrue(buttons["more.pulls"].waitForExistence(timeout: 10))
+        buttons["more.pulls"].tap()
     }
     /// The system back button of a pushed page. Some runtimes (iOS 27, the folded Duo) show it
     /// without a NavigationBar around it, so it is found by its usual identifier or label too.
@@ -117,21 +112,26 @@ extension XCUIApplication {
         coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.75))
             .press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.3)), withVelocity: .fast, thenHoldForDuration: 0)
     }
-    /// Opens Settings from the inbox, scrolled so the machine tools show.
+    /// Opens More from the inbox, scrolled so the machine tools show.
     @MainActor func openSettings() {
         XCTAssertTrue(buttons["inbox.settings"].waitForExistence(timeout: 10))
         buttons["inbox.settings"].tap()
-        XCTAssertTrue(buttons["settings.machines"].waitForExistence(timeout: 10))
+        XCTAssertTrue(buttons["more.settings"].waitForExistence(timeout: 10))
         for _ in 0..<4 where !buttons["library.projects"].isHittable { swipeUp() }
     }
-    /// A row of Settings, opened from the inbox when Settings isn't showing yet. `inbox.settings`
-    /// only opens it; `inbox.machines` opens Settings › Machines.
+    /// A row of More (a machine tool), or of Settings one step into it (`settings.*`), opened
+    /// from the inbox when it isn't showing yet. `inbox.settings` only opens Settings;
+    /// `inbox.machines` opens Settings › Machines.
     @MainActor func openBrowseDestination(_ identifier: String) {
         let target = identifier == "inbox.machines" ? "settings.machines" : identifier
         if !buttons[target].exists || target == "inbox.settings" {
             XCTAssertTrue(buttons["inbox.settings"].waitForExistence(timeout: 10))
             buttons["inbox.settings"].tap()
-            XCTAssertTrue(buttons["settings.machines"].waitForExistence(timeout: 10))
+            XCTAssertTrue(buttons["more.settings"].waitForExistence(timeout: 10))
+            if target.hasPrefix("settings.") || target == "inbox.settings" {
+                buttons["more.settings"].tap()
+                XCTAssertTrue(buttons["settings.machines"].waitForExistence(timeout: 10))
+            }
         }
         guard target != "inbox.settings" else { return }
         for _ in 0..<6 where !buttons[target].isHittable { swipeUp() }
