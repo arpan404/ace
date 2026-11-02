@@ -8,7 +8,9 @@ import {
   type HomeSort,
 } from "@ace/ui-core";
 import {
+  chatMenu,
   inboxGroup,
+  isChatThread,
   inboxGroupRank,
   inboxSections,
   inboxStatus,
@@ -46,6 +48,11 @@ export interface RowContext {
 export function inboxRow(thread: InboxThread, context: RowContext) {
   const { entry } = thread;
   const look = inboxLook(thread, context.baseline, context.now);
+  const menu = threadMenu(entry, {
+    settled: look.settled,
+    unread: look.unread,
+    pinned: entry.pinned === true,
+  });
   return {
     ...threadRow(entry),
     machineId: context.machineId,
@@ -69,11 +76,9 @@ export function inboxRow(thread: InboxThread, context: RowContext) {
      * What its menus offer, in order, by the web's rules (`threadMenu`); the words are the
      * layout's `menuLabels`.
      */
-    menu: threadMenu(entry, {
-      settled: look.settled,
-      unread: look.unread,
-      pinned: entry.pinned === true,
-    }),
+    menu,
+    /** A chat's row menu in the Chats tab (`chatMenu`); null for a project thread. */
+    chatMenu: isChatThread(thread) ? chatMenu(menu) : null,
   };
 }
 

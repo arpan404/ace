@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type { ThreadStatus } from "@ace/protocol";
-import { chatSections } from "./mobile-chats.ts";
+import { chatMenu, chatSections } from "./mobile-chats.ts";
+import { threadMenu } from "./thread-menu.ts";
 import type { InboxThread } from "./mobile-inbox.ts";
 import { entry } from "./test-entries.fixture.ts";
 
@@ -121,4 +122,19 @@ test("an unconfirmed copy of a chat never reads as settled and done", () => {
   expect(chatSections([copy], { now, baseline: 0 }).map((section) => section.key)).toEqual([
     "today",
   ]);
+});
+
+test("a chat's menu keeps Rename, Pin or Unpin, Move and Delete, in the thread menu's order", () => {
+  const unpinned = threadMenu(chat("m", "a", now).entry, {
+    settled: false,
+    unread: false,
+    pinned: false,
+  });
+  const pinned = threadMenu(chat("m", "b", now).entry, {
+    settled: true,
+    unread: true,
+    pinned: true,
+  });
+  expect(chatMenu(unpinned)).toEqual(["rename", "pin", "move", "delete"]);
+  expect(chatMenu(pinned)).toEqual(["rename", "unpin", "move", "delete"]);
 });

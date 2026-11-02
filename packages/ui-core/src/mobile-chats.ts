@@ -3,6 +3,7 @@ import { chatDayLabels, chatList, isChatEntry } from "./chat-list.ts";
 import type { ChatDay } from "./home-rows.ts";
 import { inboxPinnedRank, recentRank, type InboxThread } from "./mobile-inbox.ts";
 import { activityOf } from "./thread-state.ts";
+import type { ThreadMenuId } from "./thread-menu.ts";
 import { threadMatches } from "./thread-match.ts";
 import { atWork, needsPerson, standingReader, type Standing } from "./threads-panel.ts";
 
@@ -112,4 +113,20 @@ function section(
     order: sectionOrder[key],
     settled,
   };
+}
+
+const chatMenuIds: ReadonlySet<ThreadMenuId> = new Set([
+  "rename",
+  "pin",
+  "unpin",
+  "move",
+  "delete",
+]);
+
+/**
+ * A chat row's menu, as the web's chat ⋯ offers it: the thread menu's own Rename, Pin or Unpin
+ * and Move to project, then Delete, in the thread menu's order.
+ */
+export function chatMenu(menu: readonly ThreadMenuId[]): ThreadMenuId[] {
+  return menu.filter((id) => chatMenuIds.has(id));
 }
