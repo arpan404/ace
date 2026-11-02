@@ -19,7 +19,7 @@ extension XCUIApplication {
         XCTAssertTrue(control.waitForExistence(timeout: timeout), "\(identifier) never showed in the composer")
         return control
     }
-    /// The thread's model pill under its title (`thread.model`), or its effort part (`thread.effort`).
+    /// The thread's model pill just above the composer (`thread.model`).
     @MainActor @discardableResult func threadModelPill(_ identifier: String = "thread.model", timeout: TimeInterval = 15) -> XCUIElement {
         let control = buttons[identifier]
         XCTAssertTrue(control.waitForExistence(timeout: timeout), "\(identifier) never showed under the thread's title")

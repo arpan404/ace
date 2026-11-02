@@ -1,9 +1,47 @@
 import SwiftUI
 
-/// The thread's model on top, centred under its title: one capsule with the provider's mark in
-/// its colours, the model's name and its effort ("Opus 5.5 · Med") and a caret. A tap opens the
-/// model picker; the effort opens Effort and speed. Its context menu reaches Access too, which
-/// left the composer with it. A switch not in effect yet shows a clock in place of the caret.
+/// The row just above the composer, under any request strip: the thread's model on the left and,
+/// to its right, the live pill while something runs. Left-aligned on the composer's edge; the
+/// model never takes more than about 60% of the row, so the two always share it.
+struct ComposerPills: View {
+    /// The thread's controls, or nil where the model can't be changed (view only, archived).
+    let model: ThreadScreenModel?
+    let pill: PillRow?
+    let open: (String) -> Void
+    let openModel: () -> Void
+    let openTune: () -> Void
+    let openSettings: () -> Void
+    @State private var width: CGFloat = 0
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.aceReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if model != nil || pill != nil {
+            HStack(spacing: AceTheme.Spacing.sm) {
+                if let model {
+                    ThreadModelPill(screen: model, openModel: openModel, openTune: openTune, openSettings: openSettings)
+                        .frame(maxWidth: width > 0 ? width * 0.6 : nil, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let pill {
+                    LivePillCapsule(pill: pill, open: open)
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.94)))
+                }
+                Spacer(minLength: AceTheme.Spacing.none)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .padding(.horizontal, ReadingColumn.bar(sizeClass).composer)
+            .padding(.bottom, AceTheme.Spacing.sm)
+            .animation(reduceMotion ? nil : AceTheme.Motion.spring, value: pill)
+        }
+    }
+}
+
+/// The thread's model as a compact capsule: the provider's mark in its colours, the model's
+/// name (cut in the middle when long, so its version still reads) and its effort ("· Med"),
+/// which always shows, then a caret. A tap opens the model picker; a long press offers the
+/// model and access sheet. A switch not in effect yet shows a clock in place of the caret.
 struct ThreadModelPill: View {
     let screen: ThreadScreenModel
     let openModel: () -> Void
@@ -15,74 +53,37 @@ struct ThreadModelPill: View {
         let tune = ComposerModelButton.tune(screen)
         let note = screen.controls?.note.flatMap { $0.isEmpty ? nil : $0 }
         let queued = screen.controls?.switching == "queued" || note != nil
-        HStack(spacing: AceTheme.Spacing.none) {
-            Button(action: openModel) {
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    if let provider = screen.controls?.provider, !provider.isEmpty {
-                        ProviderMark(provider: provider, size: 14)
-                    }
-                    Text(name).lineLimit(1).truncationMode(.tail)
-                        .foregroundStyle(AceTheme.Colours.foreground)
+        Button(action: openModel) {
+            HStack(spacing: AceTheme.Spacing.xs) {
+                if let provider = screen.controls?.provider, !provider.isEmpty {
+                    ProviderMark(provider: provider, size: 14)
                 }
-                .padding(.leading, AceTheme.Spacing.md)
-                .padding(.trailing, tune == nil ? AceTheme.Spacing.xs : AceTheme.Spacing.xxs)
-                .frame(minHeight: 32)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Model").accessibilityValue(name).accessibilityHint(note ?? "")
-            .accessibilityIdentifier("thread.model")
-            if let tune {
-                Button(action: openTune) {
-                    Text("· \(tune)").lineLimit(1)
+                Text(name).lineLimit(1).truncationMode(.middle)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                if let tune {
+                    Text("· \(tune)").lineLimit(1).fixedSize()
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .padding(.trailing, AceTheme.Spacing.xs)
-                        .frame(minHeight: 32)
-                        .contentShape(Rectangle())
+                        .layoutPriority(1)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Effort and speed").accessibilityValue(tune)
-                .accessibilityIdentifier("thread.effort")
-            }
-            Button(action: openModel) {
                 AceIcon(queued ? .clock : .caretDown, size: 11, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .padding(.trailing, AceTheme.Spacing.md)
-                    .frame(minHeight: 32)
-                    .contentShape(Rectangle())
+                    .layoutPriority(1)
             }
-            .buttonStyle(.plain)
-            .accessibilityHidden(true)
+            .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
+            .padding(.horizontal, AceTheme.Spacing.md)
+            .frame(minHeight: LivePillCapsule.height)
+            .contentShape(AceShape.capsule)
         }
-        .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
-        .fontWeight(.medium)
+        .buttonStyle(.plain)
         .aceGlass(in: AceShape.capsule, interactive: true)
+        .accessibilityLabel("Model")
+        .accessibilityValue(tune.map { "\(name), \($0)" } ?? name)
+        .accessibilityHint(note ?? "")
+        .accessibilityIdentifier("thread.model")
         .contextMenu {
             Button("Choose model", ace: .sparkle, action: openModel)
             if tune != nil { Button("Effort and speed", ace: .slidersHorizontal, action: openTune) }
             Button("Model and access", ace: .shield, action: openSettings)
-        }
-    }
-}
-
-/// Hangs the model pill centred under the navigation bar, on the bar's own band (iOS 26's
-/// `safeAreaBar`, so the transcript's edge effect runs under it), or as a plain inset before.
-struct ModelPillBar<Pill: View>: ViewModifier {
-    let shown: Bool
-    @ViewBuilder let pill: () -> Pill
-    func body(content: Content) -> some View {
-        if #available(iOS 26, *) {
-            content.safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none) { band }
-        } else {
-            content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { band }
-        }
-    }
-    @ViewBuilder private var band: some View {
-        if shown {
-            pill()
-                .frame(maxWidth: .infinity)
-                .padding(.top, AceTheme.Spacing.xxs)
-                .padding(.bottom, AceTheme.Spacing.xs)
         }
     }
 }

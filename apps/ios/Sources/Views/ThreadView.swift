@@ -126,10 +126,6 @@ struct ThreadView: View {
             // The thread's own keyboard commands, in the iPad menu bar and ⌘-hold overlay. Its
             // own view, so the row it reads redraws only it, never the transcript.
             .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
-            .modifier(ModelPillBar(shown: model.canOperate && !archived && screen.controls != nil) {
-                ThreadModelPill(screen: screen, openModel: { showModels = true }, openTune: { showTune = true },
-                                openSettings: { showSettings = true })
-            })
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
                 if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
                     StateLabel(status: status)
@@ -271,7 +267,8 @@ struct ThreadView: View {
         let request = thread.approvals.first
         VStack(spacing: AceTheme.Spacing.none) {
             // Whether a request takes the pill's place is the bridge's (`livePill`).
-            ComposerFloaters(pill: screen.pill, behind: behind, open: openPill) { jumps += 1 }
+            // Scroll to end floats over the transcript; the live pill sits by the model, lower down.
+            ComposerFloaters(pill: nil, behind: behind, open: openPill) { jumps += 1 }
                 .padding(.bottom, AceTheme.Spacing.sm)
             VStack(spacing: AceTheme.Spacing.none) {
                 Group {
@@ -293,6 +290,11 @@ struct ThreadView: View {
                 }
                 // A strip rises out of the composer and fades; with Reduce Motion it only fades.
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                // Under any request strip, just above the composer: the model on the left, the
+                // live pill ("1m 34s · waiting on 3 agents") to its right.
+                ComposerPills(model: model.canOperate && !archived && screen.controls != nil ? screen : nil,
+                              pill: screen.pill, open: openPill,
+                              openModel: { showModels = true }, openTune: { showTune = true }, openSettings: { showSettings = true })
                 if archived {
                     ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))

@@ -45,6 +45,8 @@ test("a plan is approved as is, or sent back only with what should change", asyn
     title: "Ship kill-all",
     markdown: "1. Record start times\n2. Filter by owner",
     todos: [{ text: "Record start times", status: "pending" }],
+    // The strip's one line: the plan's own todo list counts its steps.
+    line: "Plan ready · Ship kill-all · 1 step",
   });
   const interactionId = String(row.id);
   thread.handle({

@@ -98,8 +98,10 @@ import XCTest
         waitForConversation(app)
         XCTAssertTrue(app.buttons["composer.attach"].isHittable)
         let inputBeforeKeyboard = app.textViews["composer.input"]
-        // The model sits on top, under the title; the composer keeps only +, its field and Send.
-        XCTAssertLessThan(model.frame.maxY, app.frame.height * 0.25)
+        // The model sits just above the composer, on its left; the composer keeps only +, its
+        // field and Send.
+        XCTAssertLessThanOrEqual(model.frame.maxY, inputBeforeKeyboard.frame.minY)
+        XCTAssertLessThan(model.frame.minX, app.frame.width * 0.2)
         XCTAssertFalse(app.buttons["composer.model"].exists)
         XCTAssertGreaterThan(inputBeforeKeyboard.frame.width, app.frame.width * 0.8)
         capture("thread-idle", app)

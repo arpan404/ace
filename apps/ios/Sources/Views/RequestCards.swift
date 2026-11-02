@@ -82,45 +82,115 @@ struct CardButton: View {
     }
 }
 
-/// A plan to approve as is, or send back with what should change.
+/// A plan waiting for review, as one line above the composer like every request strip: "Plan
+/// ready · Kill-all filters · 3 steps", then Review and Approve as plain words. Review opens the
+/// whole plan in a sheet, where it can be approved or sent back with what should change. The
+/// transcript shows nothing big.
 struct PlanReviewCard: View {
     let interaction: ApprovalRow
     let submission: ApprovalSubmission?
     var canAct = true
     let answer: ([String: Any]) -> Void
-    @State private var revising = false
-    @State private var feedback = ""
-    /// The plan's scroll area grows with the text size, so large text still shows a few lines.
-    @ScaledMetric(relativeTo: .body) private var planHeight = AceTheme.Dimensions.touchTarget * 5
+    @State private var reviewing = false
     var body: some View {
         let plan = interaction.plan
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-            RequestHeader(title: plan?.title ?? "Review the plan", detail: "Plan review")
-            if let plan, !plan.summary.isEmpty {
-                Text(plan.summary).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: AceTheme.Spacing.xs) { line(plan); Spacer(minLength: AceTheme.Spacing.sm); buttons }
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    line(plan)
+                    HStack(spacing: AceTheme.Spacing.xs) { Spacer(minLength: AceTheme.Spacing.none); buttons }
+                }
             }
+            RequestFooter(submission: submission, canAct: canAct)
+        }
+        .modifier(RequestCardFrame(submission: submission))
+        .sheet(isPresented: $reviewing) {
+            PlanReviewSheet(plan: plan, submission: submission, canAct: canAct) { decision in
+                reviewing = false
+                answer(decision)
+            }
+        }
+    }
+    private func line(_ plan: PlanRequest?) -> some View {
+        Text(plan?.line ?? plan?.title ?? "Plan ready")
+            .aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(.medium)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .lineLimit(1).truncationMode(.tail)
+            .accessibilityIdentifier("plan.line")
+    }
+    private var buttons: some View {
+        HStack(spacing: AceTheme.Spacing.xxs) {
+            Button("Review") { reviewing = true }
+                .buttonStyle(StripTextButtonStyle())
+                .accessibilityIdentifier("plan.review")
+            Button("Approve") { answer(["kind": "plan", "decision": "approve"]) }
+                .buttonStyle(StripTextButtonStyle(prominent: true))
+                .disabled(submission != nil || !canAct)
+                .accessibilityIdentifier("plan.approve")
+        }
+        .fixedSize()
+    }
+}
+
+/// The whole plan in a native sheet: its summary and markdown as the transcript draws prose, with
+/// no box around it, then Request changes and Approve plan at the bottom. Request changes asks
+/// what should change before it sends.
+private struct PlanReviewSheet: View {
+    let plan: PlanRequest?
+    let submission: ApprovalSubmission?
+    let canAct: Bool
+    let answer: ([String: Any]) -> Void
+    @State private var revising = false
+    @State private var feedback = ""
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+                    if let plan, !plan.summary.isEmpty {
+                        Text(plan.summary).aceFont(AceTheme.Typography.body, relativeTo: .body)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     AceMarkdown(text: plan?.markdown ?? "")
                     ForEach(Array((plan?.todos ?? []).enumerated()), id: \.offset) { _, todo in
                         Label(todo.text, ace: todo.status == "completed" ? .checkCircle : todo.status == "in_progress" ? .circleHalf : .circle)
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
-                    if plan?.truncated == true { Text("The full plan is on your machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                    if plan?.truncated == true {
+                        Text("The full plan is on your machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, AceTheme.Spacing.xl)
+                .padding(.vertical, AceTheme.Spacing.md)
+                .accessibilityIdentifier("plan.body")
             }
-            .frame(maxHeight: planHeight)
-            .padding(AceTheme.Spacing.md).requestInset()
-            .accessibilityIdentifier("plan.body")
+            .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { actions }
+            .navigationTitle(plan?.title ?? "Plan")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close").accessibilityIdentifier("plan.close")
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+    private var actions: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             if revising {
                 TextField("What should change?", text: $feedback, axis: .vertical)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(2...5)
                     .padding(.vertical, AceTheme.Spacing.sm).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .overlay(alignment: .top) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
                     .accessibilityIdentifier("plan.feedback")
             }
-            RequestActions {
+            HStack(spacing: AceTheme.Spacing.sm) {
+                Spacer(minLength: AceTheme.Spacing.none)
                 CardButton(title: revising ? "Cancel" : "Request changes") { revising.toggle() }
                     .accessibilityIdentifier("plan.revise")
                 if revising {
@@ -130,12 +200,15 @@ struct PlanReviewCard: View {
                     }.accessibilityIdentifier("plan.send")
                 } else {
                     CardButton(title: "Approve plan", primary: true) { answer(["kind": "plan", "decision": "approve"]) }
-                        .accessibilityIdentifier("plan.approve")
+                        .accessibilityIdentifier("plan.approveFull")
                 }
-            }.disabled(submission != nil || !canAct)
+            }
+            .disabled(submission != nil || !canAct)
             RequestFooter(submission: submission, canAct: canAct)
         }
-        .modifier(RequestCardFrame(submission: submission))
+        .padding(.horizontal, AceTheme.Spacing.xl)
+        .padding(.vertical, AceTheme.Spacing.md)
+        .background(.bar)
     }
 }
 

@@ -7,6 +7,7 @@
 export * from "./mobile-status.ts";
 export * from "./mobile-inbox.ts";
 export * from "./mobile-chats.ts";
+export { planReviewLine } from "./plan-review.ts";
 export * from "./mobile-transcript.ts";
 export { handoffMarker, type HandoffMarker, type HandoffEnd } from "./handoff-marker.ts";
 export * from "./mobile-agents.ts";

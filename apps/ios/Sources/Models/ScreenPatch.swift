@@ -8,6 +8,8 @@ struct PlanRequest: Codable, Sendable, Equatable {
     let markdown: String
     let truncated: Bool
     let todos: [Todo]
+    /// The strip's one line, "Plan ready · Kill-all filters · 3 steps"; nil from older bridges.
+    var line: String? = nil
 }
 /// An MCP server's form or consent page. Values travel as typed text; the bridge validates them.
 struct FormRequest: Codable, Sendable, Equatable {
