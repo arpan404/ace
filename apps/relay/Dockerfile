@@ -10,6 +10,7 @@ RUN bun install --frozen-lockfile --production --ignore-scripts
 FROM node:24-alpine
 WORKDIR /ace
 COPY --from=dependencies /ace /ace
+RUN mkdir -p /data && chown node:node /data
 USER node
 EXPOSE 8787
 CMD ["node", "apps/relay/src/cli.ts"]

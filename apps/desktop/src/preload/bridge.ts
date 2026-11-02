@@ -63,6 +63,10 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
   }
 
   return {
+    account: {
+      read: (origin: string) => call("account.read", origin),
+      write: (origin: string, token: string | null) => call("account.write", { origin, token }),
+    },
     version: info.version,
     platform: info.platform,
     arch: info.arch,

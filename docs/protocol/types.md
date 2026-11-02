@@ -840,6 +840,150 @@ Example:
 }
 ```
 
+## AceAccount
+
+[JSON Schema](schema/AceAccount.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":256} |
+| email | yes | string | {"maxLength":320,"format":"email","pattern":"^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"} |
+| name | yes | string | {"maxLength":256} |
+
+Example:
+
+```json
+{
+  "email": "qxitqSV+4Z.Ghou4.u.DZYz-rvvbnG.RKs.XzIK.9PDdlLXkg.qe-MALRFGHP.G+CuSiI.KT7COlI43.xTr80@vX.pCDkT4.Hf6qOcjD.wnpttAwg0.nZO-qn4G-6t.GuIuOPrR4Ra.t.2aHrSSk.o.g7CHXjL1lct.lCE0BMb.ddDmALVzabSL",
+  "id": "example",
+  "name": "example"
+}
+```
+
+## AceAccountGrant
+
+[JSON Schema](schema/AceAccountGrant.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| account | yes | [AceAccount.json](schema/AceAccount.json) |  |
+| expiresAt | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| token | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+
+Example:
+
+```json
+{
+  "account": {
+    "email": "TtkMuyew.b4hYD.sWnEh5.9ZG5u.y@YRM0J9.BSZbnwIN.fDe3C2xG.cnk2X7.T8.IetoanO.T3k8.rHoh",
+    "id": "example",
+    "name": "example"
+  },
+  "expiresAt": 10,
+  "token": "w9CbBjbewoyKYN3I0CQyO4DDiHmqg6kySK_Pp8-HZVf"
+}
+```
+
+## AceAccountOrigin
+
+[JSON Schema](schema/AceAccountOrigin.json), input validation.
+
+Semantic rule: An exact HTTPS origin, or an HTTP origin on localhost, 127.0.0.1 or [::1], without credentials, a path, query or fragment.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"https://backend.example.com"
+```
+
+## AceAccountSession
+
+[JSON Schema](schema/AceAccountSession.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| account | yes | [AceAccount.json](schema/AceAccount.json) |  |
+| expiresAt | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "account": {
+    "email": "Um.XcUfx'TqOo.9d.g9lADJYfL@LG1.vUhyo4I28c.ohKmtpad",
+    "id": "example",
+    "name": "example"
+  },
+  "expiresAt": 7
+}
+```
+
+## AceLogin
+
+[JSON Schema](schema/AceLogin.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+| secret | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+| loginUrl | yes | string | {"format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
+| expiresAt | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "expiresAt": 2,
+  "id": "6LAljM0X7myoJn5zzvaOic4X8EMMfvXDAjf0zJotdwF",
+  "loginUrl": "https://example.invalid/",
+  "secret": "HHnQW4cLSX8Tj8ys7QgeMB8bPWEMehCCS7lIyfApcpY"
+}
+```
+
+## AceLoginStatus
+
+[JSON Schema](schema/AceLoginStatus.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | `"pending"` |  |
+
+Example:
+
+```json
+{
+  "status": "pending"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | `"complete"` |  |
+| session | yes | [AceAccountGrant.json](schema/AceAccountGrant.json) |  |
+
+Example:
+
+```json
+{
+  "session": {
+    "account": {
+      "email": "gP.kxuqa.jFoJ8IS.HkPC5f.ED2v+sqs.88h-pjb2.x.rdIMdF89uc.e-SK.syr6kRveI6v@WhAC2ji.kFCd0.tlUT1.pPMM8HJZ.V8mI.vo39t.XJXezRc.0vx.HjVrkbx",
+      "id": "example",
+      "name": "example"
+    },
+    "expiresAt": 4,
+    "token": "6CnMjRq-0eSFcWNY-oXbqfj5KtxPq25eefB2pMIck97"
+  },
+  "status": "complete"
+}
+```
+
 ## AcpHomeStrategy
 
 [JSON Schema](schema/AcpHomeStrategy.json), input validation.

@@ -1,3 +1,4 @@
+import { httpJson } from "./http-json.ts";
 import { DeviceToken } from "@ace/protocol";
 import { ClientError } from "./types.ts";
 
@@ -119,28 +120,7 @@ export function accessHttp(options: AccessOptions): AccessHttp {
       await response.body?.cancel();
       throw accessResponseError(response.status);
     }
-    if (!response.body) throw new ClientError("protocol");
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let text = "",
-      bytes = 0;
-    try {
-      for (;;) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        bytes += chunk.value.byteLength;
-        if (bytes > 1_048_576) {
-          await reader.cancel();
-          throw new ClientError("limit");
-        }
-        text += decoder.decode(chunk.value, { stream: true });
-      }
-      text += decoder.decode();
-      const result: unknown = JSON.parse(text);
-      return result;
-    } finally {
-      reader.releaseLock();
-    }
+    return httpJson(response, 1_048_576);
   }
   return call;
 }

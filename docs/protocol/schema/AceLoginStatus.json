@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceLoginStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "status": {
+          "const": "pending",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "session": {
+          "$ref": "https://ace.local/protocol/v1/AceAccountGrant.json"
+        },
+        "status": {
+          "const": "complete",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "session"
+      ],
+      "type": "object"
+    }
+  ]
+}

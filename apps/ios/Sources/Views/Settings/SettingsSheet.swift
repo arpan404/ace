@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Every screen Settings pushes inside its own stack.
 enum SettingsRoute: Hashable {
+    case account
     case machines, machine(String), pair
     case notifications, lock, appearance, keyboard
     case archive, profiles, cache, thread(machine: String, id: String)
@@ -39,6 +40,10 @@ struct SettingsSheet: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
+                Section {
+                    link(.account, "Profile", "person.crop.circle", id: "settings.account")
+                } header: { InsetHeader("You") }
+                .insetRowBackground()
                 Section {
                     link(.machines, "Machines", "laptopcomputer", value: inbox.sessions.count.formatted(), id: "settings.machines")
                     if notifications != nil {
@@ -97,6 +102,7 @@ struct SettingsSheet: View {
 
     @ViewBuilder private func destination(_ route: SettingsRoute) -> some View {
         switch route {
+        case .account: AceAccountView()
         case .machines: MachinesView(inbox: inbox, machines: machines)
         case .machine(let hostId): MachineDetailView(inbox: inbox, machines: machines, hostId: hostId)
         case .pair:
