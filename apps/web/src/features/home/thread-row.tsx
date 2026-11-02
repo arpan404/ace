@@ -148,6 +148,7 @@ export function ThreadRow(props: {
   const body = task ? (
     <TaskLines
       card={card}
+      projectId={entry.workspaceId}
       attention={attention}
       remote={machine !== undefined || !data.machinePrimary}
       actions={actions}

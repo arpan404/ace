@@ -2,6 +2,7 @@ import type { RowAttention, ThreadCard } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { PushPinIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
+import { ProjectMark } from "@/components/project-mark.tsx";
 import { BrowsingMark, ComputerUseMark, RowContext, RowStatus, titleTone } from "./row-parts.tsx";
 
 /**
@@ -11,13 +12,15 @@ import { BrowsingMark, ComputerUseMark, RowContext, RowStatus, titleTone } from 
 export const taskRowHeight = "h-[80px] py-2.5 px-3 items-start";
 
 /**
- * An Active row's three lines: the project's name and the status (an icon, its time, or its
+ * An Active row's three lines: the project's mark and name and the status (an icon, its time, or its
  * age), the title, then the branch, pull request, another machine and the provider. Under the pointer or keyboard focus the row's
  * actions take the status's place: the status hides where it sits, and the project name stops
  * short of the actions.
  */
 export function TaskLines(props: {
   card: ThreadCard;
+  /** The thread's project, whose mark leads line 1. */
+  projectId: string;
   attention: RowAttention;
   /** The row's actions are up (pointer, focus, or one of their menus open). */
   actions: boolean;
@@ -38,6 +41,9 @@ export function TaskLines(props: {
         )}
       >
         <span className="flex min-w-0 flex-1 items-center gap-1">
+          <span className="mr-0.5 flex shrink-0">
+            <ProjectMark id={props.projectId} badge={card.badge} />
+          </span>
           <span className="min-w-0 truncate">{card.project}</span>
           {card.flags.pinned && (
             <PushPinIcon aria-hidden size={11} className="shrink-0 text-subtle-foreground" />
