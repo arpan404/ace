@@ -48,18 +48,21 @@ import Testing
         #expect(merged.sections[0].scoped({ _ in false }, whole: { _ in false }) == nil)
     }
 
-    @Test func eachSectionKeepsItsTabAndTheInboxDotGathersEveryMachinesRequests() {
-        var nap = section("snoozed", order: 6, ["n": "0001"]); nap.tab = "snoozed"
+    @Test func eachSectionIsInTheTabWhoseDaemonListHoldsItAndTheDotSumsEveryDaemonsCount() {
+        let nap = section("snoozed", order: 6, ["n": "0001"])
         var studio = layout([section("needs-you", order: 0, ["a": "0001"]), nap])
-        studio.tabs = [.init(id: "inbox", label: "Inbox", empty: "Inbox zero", needsYou: ["a"]),
-                       .init(id: "snoozed", label: "Snoozed", empty: "Nothing snoozed", needsYou: [])]
+        studio.tabs = .init(inbox: ["a"], snoozed: ["n"], settled: [])
+        studio.tabWords = [.init(id: "inbox", label: "Inbox", empty: "Inbox zero"),
+                           .init(id: "snoozed", label: "Snoozed", empty: "Nothing snoozed")]
+        studio.attention = .init(threads: .init(needsYou: 1, unread: 0), chats: .init(needsYou: 0, unread: 0))
         var laptop = layout([section("needs-you", order: 0, ["b": "0002"])])
-        laptop.tabs = [.init(id: "inbox", label: "Inbox", empty: "Inbox zero", needsYou: ["b"])]
+        laptop.tabs = .init(inbox: ["b"], snoozed: [], settled: [])
+        laptop.attention = .init(threads: .init(needsYou: 2, unread: 0), chats: .init(needsYou: 0, unread: 0))
         let merged = MergedInbox.merge([("studio", studio), ("laptop", laptop)])
         #expect(merged.sections.map(\.tab) == ["inbox", "snoozed"])
         #expect(merged.tabs.map(\.id) == ["inbox", "snoozed"])
-        #expect(merged.tabs[0].needsYou == [key("studio", "a"), key("laptop", "b")])
-        // A section from an older bridge names no tab: it stays in the Inbox.
+        #expect(merged.tabs[0].needsYou == 3)
+        // A layout from an older bridge places nothing: its sections stay in the Inbox.
         #expect(MergedInbox.merge([("old", layout([section("done", order: 4, ["x": "0001"])]))]).sections[0].tab == "inbox")
     }
 

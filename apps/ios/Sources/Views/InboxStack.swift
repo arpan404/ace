@@ -93,9 +93,15 @@ struct InboxStack<Destination: View, Side: View>: View {
                 // The system's large title, collapsing as rows scroll under it; the scope (machine
                 // and project, or what is wrong with the connection) under it and its pickers in
                 // the title's own menu.
-                .nativeTitle(pulls ? "Pull requests" : "Threads", subtitle: pulls ? nil : scopeLine) {
+                .nativeTitle(pulls ? "Pull requests" : "Threads") {
                     if !pulls {
                         filters
+                        if inbox.sessions.contains(where: { $0.client.canOperate }) {
+                            Section {
+                                Button("Select threads", ace: .checkCircle) { startSelecting() }
+                                    .accessibilityIdentifier("inbox.select")
+                            }
+                        }
                         if InboxConnectionProblem.of(inbox) != nil {
                             Button("Machines", ace: .laptop, action: header.machines)
                         }
@@ -141,7 +147,14 @@ struct InboxStack<Destination: View, Side: View>: View {
                 // The list and search everything crossfade; nothing slides.
                 .animation(AceDesign.Motion.arriving(reduceMotion), value: searching)
                 // Inbox, Snoozed and Settled under the title, pinned as rows pass beneath them.
-                .inboxTopBar { if !searching { tabsBar } }
+                .inboxTopBar {
+                    if !searching {
+                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                            scopeMenu
+                            tabsBar
+                        }
+                    }
+                }
             }
         }
         .modifier(InboxSearchField(query: $query, searching: $searching,
@@ -178,6 +191,37 @@ struct InboxStack<Destination: View, Side: View>: View {
     }
     /// The Threads tabs, once a runtime sends them. The Inbox's dot follows the scope: only a
     /// request the list would show lights it.
+    /// Under the large title: what the list shows ("All projects ⌄"), or what is wrong with the
+    /// connection, as a menu holding the machine and project pickers and Select threads. The
+    /// title's own menu offers the same once it has collapsed.
+    private var scopeMenu: some View {
+        Menu {
+            filters
+            if inbox.sessions.contains(where: { $0.client.canOperate }) {
+                Section {
+                    Button("Select threads", ace: .checkCircle) { startSelecting() }
+                }
+            }
+            if InboxConnectionProblem.of(inbox) != nil {
+                Button("Machines", ace: .laptop, action: header.machines)
+            }
+        } label: {
+            HStack(spacing: AceDesign.Space.tight) {
+                Text(scopeLine).lineLimit(1)
+                Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
+            }
+            .font(AceDesign.Typeface.meta)
+            .foregroundStyle(InboxConnectionProblem.of(inbox) == nil ? AceDesign.Ink.muted : AceDesign.Status.failed)
+            .frame(minHeight: AceDesign.Size.tap)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Showing \(scopeLine)")
+        .accessibilityHint("Chooses what the list shows")
+        .accessibilityIdentifier("inbox.projects")
+        .padding(.horizontal, AceDesign.Space.margin)
+    }
+
     @ViewBuilder private var tabsBar: some View {
         let tabs = inbox.merged.tabs
         if !tabs.isEmpty {
@@ -299,23 +343,9 @@ struct InboxStack<Destination: View, Side: View>: View {
         }
     }
     @ToolbarContentBuilder private func listToolbar(holdsTabs: Bool, composeInBar: Bool) -> some ToolbarContent {
-        // Select, Settings and Search share one glass capsule, so the bar never runs out of room
-        // and folds them, the title too, into an overflow ⋯ (a drawer, large text).
+        // Two round glass buttons (design language §5): More and Search. What the list shows and
+        // Select are in the title's own menu.
         ToolbarItemGroup(placement: .topBarTrailing) {
-            // What the list shows (machine, project) and Select, in one menu: the large title's own
-            // menu only opens once it has collapsed.
-            if !pulls {
-                Menu {
-                    filters
-                    if inbox.sessions.contains(where: { $0.client.canOperate }) {
-                        Section {
-                            Button("Select threads", ace: .checkCircle) { startSelecting() }
-                                .accessibilityIdentifier("inbox.select")
-                        }
-                    }
-                } label: { Image(systemName: "line.3.horizontal.decrease.circle") }
-                    .accessibilityLabel("Filter and select").accessibilityIdentifier("inbox.filter")
-            }
             settings
             Button { withAnimation(listMotion) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
