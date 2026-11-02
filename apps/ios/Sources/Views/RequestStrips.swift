@@ -45,7 +45,7 @@ struct RequestStrip: View {
             let verbs = request.verbs
             var words: [DockAction] = verbs.map { verb in
                 DockAction(id: verb.option.kind, label: verb.decision.label, primary: verb.decision.emphasis == "primary",
-                           destructive: verb.decision.verb == "deny", enabled: open,
+                           enabled: open,
                            identifier: "approval.\(verb.option.kind)") { model.approve(request, option: verb.option) }
             }
             if verbs.isEmpty {
@@ -54,7 +54,7 @@ struct RequestStrip: View {
                     .sorted { $0.kind == "deny" && $1.kind != "deny" }
                     .map { option in
                         DockAction(id: option.kind, label: option.label, primary: option.kind == "allow_once",
-                                   destructive: option.kind == "deny", enabled: open,
+                                   enabled: open,
                                    identifier: "approval.\(option.kind)") { model.approve(request, option: option) }
                     }
             }
@@ -158,7 +158,7 @@ struct NotSentStrip: View {
         let line = message.strip ?? StripLineRow(lead: StripLeadRow(icon: "approve", tone: "needs-you"),
                                                  sentence: message.reason.isEmpty ? "Not sent" : message.reason, detail: message.text)
         DockStrip(line: line, actions: [
-            DockAction(id: "remove", label: "Remove", destructive: true, enabled: canAct && !busy, identifier: "notSent.remove") { confirming = true },
+            DockAction(id: "remove", label: "Remove", enabled: canAct && !busy, identifier: "notSent.remove") { confirming = true },
             DockAction(id: "edit", label: "Edit", enabled: canAct && !busy, identifier: "notSent.edit") {
                 editor = MessageEditor(attachments: message.attachments, read: words, write: saveWords)
             },

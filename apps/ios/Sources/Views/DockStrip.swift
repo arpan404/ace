@@ -1,15 +1,15 @@
 import SwiftUI
 
-/// One of a strip's actions: a word, the primary one filled. Never an icon.
+/// One of a strip's actions: a word, the primary one in semibold ink, the rest muted. Never an
+/// icon, a capsule or a colour: Deny reads as plainly as the others.
 struct DockAction: Identifiable {
     let id: String
     let label: String
     var primary = false
-    var destructive = false
     var enabled = true
     /// The accessibility identifier; `strip.<id>` when not given.
     var identifier: String? = nil
-    /// A way to more (Details): always a word on the sentence's line, never a capsule.
+    /// A way to more (Details): first, apart from the answers.
     var aside = false
     let run: () -> Void
 }
@@ -24,9 +24,10 @@ struct DockPager {
 /// Every strip above the composer, drawn alike (DESIGN.md "words, not chrome"): one glass shape
 /// the composer's width and corners, sitting on it. One short sentence led by the provider's mark
 /// or the row's status icon; under it at most one line, the payload in mono (cut in the middle,
-/// a tap shows it whole, or opens it) or a muted detail. One or two actions are words at the
-/// sentence's end; three or more are capsules on a row of their own, the primary filled. Long
-/// content is never here: it opens in a sheet. The words come from `@ace/ui-core/mobile`.
+/// a tap shows it whole, or opens it) or a muted detail. Its actions are words, "Deny · Always ·
+/// Allow": at the sentence's end when they fit beside it, else on a line of their own at the
+/// trailing edge. Long content is never here: it opens in a sheet. The words come from
+/// `@ace/ui-core/mobile`.
 struct DockStrip: View {
     let line: StripLineRow
     var pager: DockPager? = nil
@@ -39,23 +40,18 @@ struct DockStrip: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.aceReduceMotion) private var reduceMotion
 
-    private var answers: [DockAction] { actions.filter { !$0.aside } }
-    private var inline: Bool { answers.count < 3 }
+    /// Details first, then the answers in the bridge's order.
+    private var ordered: [DockAction] { actions.filter(\.aside) + actions.filter { !$0.aside } }
+    /// The words fit at the sentence's end: at most two short ones beside it.
+    private var inline: Bool { actions.count <= 2 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             HStack(alignment: .center, spacing: AceTheme.Spacing.sm) {
                 StripLeadMark(lead: line.lead)
-                Text(line.sentence)
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.medium)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                    .lineLimit(2)
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier(sentenceIdentifier)
+                sentence
                 if let pager, pager.total > 1 { pagerView(pager) }
-                if inline { words(actions) } else { words(actions.filter(\.aside)) }
+                if inline { words(ordered) }
             }
             if !line.payload.isEmpty { payload }
             if !line.detail.isEmpty {
@@ -66,7 +62,9 @@ struct DockStrip: View {
                     .padding(.leading, StripLeadMark.width + AceTheme.Spacing.sm)
                     .accessibilityIdentifier("strip.detail")
             }
-            if !inline { capsules }
+            if !inline {
+                words(ordered).frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
@@ -78,6 +76,17 @@ struct DockStrip: View {
         .padding(.bottom, AceTheme.Spacing.xs)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(identifier)
+    }
+
+    private var sentence: some View {
+        Text(line.sentence)
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.medium)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .lineLimit(2)
+            .monospacedDigit()
+            .contentTransition(.numericText())
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier(sentenceIdentifier)
     }
 
     private var payload: some View {
@@ -110,17 +119,6 @@ struct DockStrip: View {
             }
         }
         .fixedSize()
-    }
-
-    private var capsules: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            ForEach(answers) { action in
-                Button(action.label, action: action.run)
-                    .buttonStyle(DockCapsuleStyle(primary: action.primary, destructive: action.destructive))
-                    .disabled(!action.enabled)
-                    .accessibilityIdentifier(action.identifier ?? "strip.\(action.id)")
-            }
-        }
     }
 
     private func pagerView(_ pager: DockPager) -> some View {
@@ -164,25 +162,5 @@ struct StripLeadMark: View {
         }
         .frame(width: Self.width)
         .accessibilityHidden(true)
-    }
-}
-
-/// Three or more actions: capsules sharing a row, the primary one filled in ink.
-struct DockCapsuleStyle: ButtonStyle {
-    var primary = false
-    var destructive = false
-    @Environment(\.isEnabled) private var enabled
-    @Environment(\.colorScheme) private var scheme
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .fontWeight(primary ? .semibold : .medium)
-            .lineLimit(1).minimumScaleFactor(0.8)
-            .foregroundStyle(primary ? AceTheme.Colours.background
-                             : destructive ? AceTheme.StatusText.failed : AceTheme.Colours.foreground)
-            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
-            .background(primary ? AceTheme.Colours.foreground : AceTheme.Colours.fill, in: AceShape.capsule)
-            .opacity(configuration.isPressed ? 0.8 : enabled ? 1 : AceTheme.Opacity.disabled(scheme))
-            .contentShape(AceShape.capsule)
     }
 }
