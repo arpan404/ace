@@ -1,18 +1,19 @@
 # Self-hosted encrypted relay
 
-The relay also supports the optional [WorkOS account backend](accounts.md),
-including deployment on one HTTPS/WSS endpoint. ace accounts are independent
-of paired-device grants and coding-provider accounts.
+This Node relay is the self-hosted relay: anonymous registration, no accounts. ace's hosted
+relay runs on Cloudflare (`apps/relay-cloudflare`) with the same wire contract and adds
+[ace account admission](accounts.md): there a daemon registers only with its account, and a
+device reaches only machines on its own account.
 
-The relay is a fallback after LAN and Tailscale. It can run on the user's own infrastructure or alongside the optional ace account backend. It handles no coding-provider credentials. The daemon integration worker chooses the route and validates device tokens inside the encrypted channel.
+The relay is a fallback after LAN and Tailscale. It can run on the user's own infrastructure. It handles no coding-provider credentials. The daemon integration worker chooses the route and validates device tokens inside the encrypted channel.
 
 ## API
 
 `@ace/relay` exports:
 
 - `startRelay({ port?, bind?, limits?, allowedHostIds?, clock?, now?, createTicket?, createConnectionId?, onBackpressure?, onThrottle? })`, returning `{ url, port, close, stats, sweep }`. The library binds to loopback on an ephemeral port by default. Stats contain buffer sizes and frame counts, never payloads. `now` remains a compatibility shorthand for a monotonic clock; use `clock` to inject both time and scheduling.
-- `connectHostToRelay({ relayUrl, hostKeys, onClientChannel, signal?, clock?, limits? })`, returning `{ hostId, generation, whenRegistered(afterGeneration?), close }` after registration. Registration retries start at 250 ms and back off to 5 seconds. Abort cancels startup, retries and owned sockets. A newer proven registration replaces the old owner; an old helper receiving replacement code 4001 stops reconnecting.
-- `connectClientViaRelay({ relayUrl, hostId, pinnedFingerprint, signal?, clock? })`, returning a client channel after pin verification. The host id must equal the pinned fingerprint.
+- `connectHostToRelay({ relayUrl, hostKeys, onClientChannel, signal?, clock?, limits?, account? })`, returning `{ hostId, generation, whenRegistered(afterGeneration?), close }` after registration. Registration retries start at 250 ms and back off to 5 seconds. Abort cancels startup, retries and owned sockets. A newer proven registration replaces the old owner; an old helper receiving replacement code 4001 stops reconnecting. `account: { grant(signal), name?, platform? }` is for ace's hosted relay: `grant` returns a fresh `machine` grant before every registration, sent as the `ace.grant.<token>` subprotocol (a self-hosted relay ignores it).
+- `connectClientViaRelay({ relayUrl, hostId, pinnedFingerprint, signal?, clock?, grant? })`, returning a client channel after pin verification. The host id must equal the pinned fingerprint. `grant` is a `device` grant for ace's hosted relay.
 - `readRelayConfig(env)` and the pure `RelayRoutes`, `IpBudget`, and `ClientSlots` policies. Their inputs are facts, ids and timestamps; they perform no socket or timer I/O.
 
 Channels expose `send(message)`, `receive()`, async iteration, `sendBinary(bytes)`, `receiveFrame()` and `frames()`, `close()`, `closed`, `bufferedBytes` and `bufferedReceiveBytes`. Host channels receive `ClientMessage` values and send `ServerMessage` values; client channels do the reverse. Schemas parse messages only at the endpoints. `receive()` and the original async iterator retain JSON-only behavior. `receiveFrame()` and `frames()` return either a typed protocol message or a `Uint8Array`. The file service adapter binds those frames after the host authenticates its hello. Consume with one reader and await sends. `closed` resolves with an error on network or authentication failure, and without one on local close. Local close also ends a pending async iterator normally; a pending direct `receive()` rejects.

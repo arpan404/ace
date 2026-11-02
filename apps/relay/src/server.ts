@@ -17,13 +17,8 @@ import { RelayRoutes } from "./routes.ts";
 import type { RouteAction } from "./routes.ts";
 import { pairStreams } from "./forward.ts";
 import type { RelayStats } from "./forward.ts";
-import type { AccountConfig } from "./account/config.ts";
-import type { AccountProvider } from "./account/workos.ts";
 const noop = () => {};
 export type RelayOptions = {
-  account?: AccountConfig;
-  accountProvider?: AccountProvider;
-  accountNow?: () => number;
   port?: number;
   bind?: string;
   limits?: Partial<Limits>;
@@ -66,22 +61,7 @@ export async function startRelay(options: RelayOptions = {}) {
   const sockets = new Map<Socket, PeerBudget>();
   const createTicket = options.createTicket ?? (() => randomBytes(32).toString("hex"));
   const createId = options.createConnectionId ?? randomUUID;
-  const account = options.account
-    ? (await import("./account/http.ts")).accountHttp({
-        config: options.account,
-        now: options.accountNow ?? Date.now,
-        ...(options.accountProvider ? { provider: options.accountProvider } : {}),
-      })
-    : undefined;
-  const http = createServer((req, res) => {
-    if (req.url?.startsWith("/v1/account/")) {
-      if (account) account.handle(req, res);
-      else {
-        res.writeHead(503, { "Content-Type": "application/json" });
-        res.end('{"error":"account_not_configured"}');
-      }
-      return;
-    }
+  const http = createServer((_req, res) => {
     res.writeHead(404);
     res.end();
   });
@@ -255,7 +235,6 @@ export async function startRelay(options: RelayOptions = {}) {
     });
   });
   function sweep(): void {
-    account?.sweep();
     void apply(routing.sweep(clock.now())).catch(() => {});
     for (const connection of connections.values())
       if (clock.now() - connection.lastActivity >= limits.idleTimeoutMs)
@@ -277,7 +256,6 @@ export async function startRelay(options: RelayOptions = {}) {
       http.listen(options.port ?? 0, options.bind ?? "127.0.0.1", resolve);
     });
   } catch (error) {
-    account?.close();
     throttle.close();
     throw error;
   }
@@ -293,7 +271,6 @@ export async function startRelay(options: RelayOptions = {}) {
     close(): Promise<void> {
       if (closing) return closing;
       cancelled = true;
-      account?.close();
       cancelSweep();
       throttle.close();
       for (const connection of connections.values()) connection.socket.terminate();

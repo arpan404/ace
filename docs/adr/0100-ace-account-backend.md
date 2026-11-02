@@ -2,7 +2,11 @@
 
 Accepted by the owner, 2026-10-24. Amends the no-hosted-service boundary in
 [ADR 0002](0002-local-cli-providers.md) and
-[ADR 0070](0070-runtime-remote-access.md).
+[ADR 0070](0070-runtime-remote-access.md). Amended by
+[ADR 0111](0111-account-machine-access.md): an account now opens every machine on it,
+and the backend runs in the Cloudflare relay Worker with D1
+([ADR 0110](0110-cloudflare-relay.md)) instead of the Node relay. Pending logins are
+stored in D1 and survive restarts.
 
 The relay service is also ace's account backend. WorkOS AuthKit handles the
 person's ace login; the backend owns the WorkOS integration and persistent ace
