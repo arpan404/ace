@@ -370,10 +370,10 @@ export function useFeedScroll(options: FeedScrollOptions) {
   });
   useEffect(
     () => () => {
-      const { rows: shown, detached: away, remember } = leaving.current;
+      const { rows: shown, detached: windowed, remember } = leaving.current;
       const at = top.current;
       const row = at && shown[at.index];
-      if (away || mode.current.kind === "following" || !at || !row) return remember(undefined);
+      if (windowed || mode.current.kind === "following" || !at || !row) return remember(undefined);
       remember({
         key: row.key,
         offset: at.offset,

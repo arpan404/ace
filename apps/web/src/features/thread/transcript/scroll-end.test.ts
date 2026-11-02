@@ -41,7 +41,7 @@ const bottomOf = (view: Extent) => view.scrollHeight - view.clientHeight;
 test("a wheel nudge on a transcript that doesn't overflow never shows Scroll to end", () => {
   // One ask, a short reply and a question card: shorter than the view, no scrollbar.
   const short: Extent = { scrollTop: 0, scrollHeight: 640, clientHeight: viewHeight };
-  let mode = following;
+  let mode: ScrollMode = following;
   for (const upward of [true, true, false, true]) {
     mode = transition(mode, gesture(short, upward)).mode;
     expect(showsScrollToEnd(mode, short)).toBe(false);
