@@ -87,17 +87,17 @@ struct ForgeListFrame<Rows: View>: View {
                 EmptyState(icon: nil, title: "Couldn't load from GitHub", line: failure, failed: true) {
                     Button("Try again") { Task { await refresh() } }
                 }
-                .padding(.top, 100)
+                .padding(.top, AceDesign.Space.pageState)
                 .forgeRowChrome()
             } else if !loaded {
-                ForgeSkeleton().forgeRowChrome()
+                SkeletonRows(count: 6).forgeRowChrome()
             } else if empty {
                 EmptyState(icon: icon, title: emptyTitle) { EmptyView() }
-                    .padding(.top, 100)
+                    .padding(.top, AceDesign.Space.pageState)
                     .forgeRowChrome()
             } else {
                 if let failure {
-                    Text(failure).meta().padding(.horizontal, AceTheme.Spacing.md).forgeRowChrome()
+                    Text(failure).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
                 }
                 rows()
                 if hasMore {
@@ -106,8 +106,8 @@ struct ForgeListFrame<Rows: View>: View {
                             Text("Show more").meta()
                             if loading { ProgressView().controlSize(.mini) }
                         }
-                        .padding(.horizontal, AceTheme.Spacing.md)
-                        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                        .padding(.horizontal, AceTheme.Spacing.rowInner)
+                        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                     }
                     .buttonStyle(.row)
                     .disabled(loading)
@@ -121,34 +121,12 @@ struct ForgeListFrame<Rows: View>: View {
         .background(surface)
         .environment(\.defaultMinListRowHeight, 0)
         .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
-        .opacity(stale ? 0.6 : 1)
-        .animation(.easeOut(duration: 0.15), value: stale)
+        .opacity(stale ? AceDesign.Ink.settledOpacity : 1)
+        .animation(AceMotion.smooth, value: stale)
         .refreshable { await refresh() }
     }
 }
 
-/// Row-shaped pills while the first page reads (DESIGN.md: skeletons, never a page spinner).
-private struct ForgeSkeleton: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xl) {
-            ForEach(0..<6, id: \.self) { index in
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-                    pill(width: 120, height: 11)
-                    pill(width: index.isMultiple(of: 2) ? 260 : 200, height: 15)
-                    pill(width: 160, height: 11)
-                }
-            }
-        }
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Loading")
-    }
-    private func pill(width: CGFloat, height: CGFloat) -> some View {
-        AceShape.capsule.fill(AceTheme.Colours.fill).frame(width: width, height: height)
-    }
-}
 
 extension View {
     /// The lists' row chrome: the inbox's insets, no rules, the page colour behind.

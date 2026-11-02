@@ -4,6 +4,7 @@ import SwiftUI
 /// where) first, then live progress with Cancel, then the result. The bridge owns the job
 /// (`bridge/provider-install.ts`), so leaving the page and coming back shows the same one.
 struct ProviderInstallSection: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let provider: String
     @Binding var screen: InstallScreenData?
@@ -14,58 +15,58 @@ struct ProviderInstallSection: View {
         if let screen, !screen.idle {
             Section {
                 if let status = screen.status {
-                    HStack(spacing: AceTheme.Spacing.sm) {
+                    HStack(spacing: AceDesign.Space.related) {
                         StateLabel(status: status)
-                        Spacer(minLength: AceTheme.Spacing.sm)
-                        if screen.busy { ProgressView().controlSize(.small) }
+                        Spacer(minLength: AceDesign.Space.related)
+                        if screen.busy { WorkingMark() }
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("install.status")
                 }
                 ForEach(screen.facts) { fact in
-                    LabeledContent(fact.term, value: fact.value).aceFont(InsetStyle.value, relativeTo: .body)
+                    LabeledContent(fact.term, value: fact.value).font(AceDesign.Typeface.body)
                 }
                 if !screen.lines.isEmpty {
                     ScrollView {
                         Text(screen.lines.joined(separator: "\n"))
-                            .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .font(AceDesign.Typeface.code)
+                            .foregroundStyle(AceDesign.Ink.muted)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxHeight: 132)
+                    .frame(maxHeight: AceDesign.Size.tap * 3)
                     .defaultScrollAnchor(.bottom)
                     .accessibilityLabel("Installer log")
                 }
                 if let message = screen.message {
-                    Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text(message).font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
                 }
                 if let confirm = screen.confirm {
                     if confirm.destructive {
                         Button(confirm.label, role: .destructive) { act(["kind": "run"]) }
-                            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                            .frame(minHeight: AceDesign.Size.tap)
                     } else {
                         Button(confirm.label) { act(["kind": "run"]) }
-                            .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
-                            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                            .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceDesign.Ink.accent)
+                            .frame(minHeight: AceDesign.Size.tap)
                             .accessibilityIdentifier("install.confirm")
                     }
                 }
                 if let retry = screen.retry {
                     Button("Retry") { act(["kind": "plan", "action": retry.action]) }
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                        .frame(minHeight: AceDesign.Size.tap)
                 }
                 if let link = screen.link, let url = URL(string: link.url), url.scheme == "https" {
                     Link(link.label, destination: url)
                 }
                 if screen.cancel {
                     Button("Cancel", role: .cancel) { act(["kind": "cancel"]) }
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                        .frame(minHeight: AceDesign.Size.tap)
                         .accessibilityIdentifier("install.cancel")
                 } else if screen.finished {
                     Button("Done") { act(["kind": "dismiss"]) }
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                        .frame(minHeight: AceDesign.Size.tap)
                 }
                 ServiceProblem(message: problem)
             } header: { InsetHeader(screen.title) }
@@ -83,7 +84,7 @@ struct ProviderInstallSection: View {
             defer { acting = false }
             do {
                 let next = try await model.service(["type": "provider.install.act", "provider": provider, "step": step], as: InstallScreenData.self)
-                withAnimation(.smooth) { screen = next }
+                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { screen = next }
             } catch { problem = error.localizedDescription }
         }
     }
@@ -103,7 +104,7 @@ extension ProviderInstallSection {
                 let next = try await model.service(["type": "provider.install.watch", "provider": provider, "after": after], as: InstallScreenData.self, timeout: .seconds(40))
                 if next != screen.wrappedValue {
                     let finishedNow = next.changed && screen.wrappedValue?.changed != true
-                    withAnimation(.smooth) { screen.wrappedValue = next }
+                    withAnimation(AceDesign.Motion.arrive) { screen.wrappedValue = next }
                     if finishedNow { model.refreshMachine() }
                 }
                 after = next.revision

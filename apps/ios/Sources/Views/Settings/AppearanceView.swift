@@ -16,12 +16,12 @@ struct AppearanceView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
-    private let columns = [GridItem(.adaptive(minimum: 92), spacing: AceTheme.Spacing.md)]
+    private let columns = [GridItem(.adaptive(minimum: 92), spacing: AceDesign.Space.row)]
 
     var body: some View {
         List {
             Section {
-                LazyVGrid(columns: columns, spacing: AceTheme.Spacing.lg) {
+                LazyVGrid(columns: columns, spacing: AceDesign.Space.margin) {
                     ForEach(PhoneAppearance.modes, id: \.id) { mode in
                         PickerCard(name: mode.label, selected: appearance == mode.id, id: "appearance.\(mode.id)") {
                             change { appearance = mode.id }
@@ -31,7 +31,7 @@ struct AppearanceView: View {
                 .pickerRow()
             } header: { InsetHeader("Mode") }
             Section {
-                LazyVGrid(columns: columns, spacing: AceTheme.Spacing.lg) {
+                LazyVGrid(columns: columns, spacing: AceDesign.Space.margin) {
                     ForEach(AceTheme.themeChoices, id: \.id) { theme in
                         PickerCard(name: theme.name, selected: chosenTheme == theme.id, id: "appearance.theme.\(theme.id)") {
                             change { palette?.choose(theme: theme.id) }
@@ -90,7 +90,7 @@ struct AppearanceView: View {
             if let palette, !palette.palette.colours.isEmpty {
                 Section {
                     Button("Use the standard colours") { change { palette.reset() } }
-                        .foregroundStyle(AceTheme.Colours.foreground)
+                        .foregroundStyle(AceDesign.Ink.primary)
                         .accessibilityIdentifier("appearance.resetColours")
                 } footer: { Text("This phone uses colours from an earlier custom theme.") }
                 .insetRowBackground()
@@ -136,15 +136,15 @@ private struct AccentSwatches<Custom: View>: View {
     @ViewBuilder var custom: () -> Custom
 
     var body: some View {
-        VStack(spacing: AceTheme.Spacing.xs) {
+        VStack(spacing: AceDesign.Space.tight) {
             HStack(spacing: AceTheme.Spacing.none) {
                 ForEach(AceTheme.accentChoices, id: \.id) { accent in
                     Button { choose(accent.id) } label: {
                         Circle().fill(ThemePreview.colour("accent", theme: theme, accent: accent.id, scheme: scheme))
-                            .frame(width: 28, height: 28)
-                            .padding(AceTheme.Spacing.xs)
-                            .overlay { Circle().strokeBorder(AceTheme.Colours.accent, lineWidth: 2).opacity(chosen == accent.id ? 1 : 0) }
-                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .frame(width: AceDesign.Size.swatch, height: AceDesign.Size.swatch)
+                            .padding(AceDesign.Space.tight)
+                            .overlay { Circle().strokeBorder(AceDesign.Ink.accent, lineWidth: AceDesign.Size.ring).opacity(chosen == accent.id ? 1 : 0) }
+                            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -155,10 +155,10 @@ private struct AccentSwatches<Custom: View>: View {
                 custom()
             }
             Text(chosen == "custom" ? "Custom" : AceTheme.accentChoices.first { $0.id == chosen }?.name ?? "Theme")
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.muted)
                 .contentTransition(.opacity)
-                .animation(.smooth, value: chosen)
+                .smoothChange(chosen)
                 .accessibilityHidden(true)
         }
     }
@@ -168,7 +168,7 @@ private extension View {
     /// Picker cards sit on the page itself, not in a filled row.
     func pickerRow() -> some View {
         listRowBackground(Color.clear).listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xs, leading: AceTheme.Spacing.xs, bottom: AceTheme.Spacing.xs, trailing: AceTheme.Spacing.xs))
+            .listRowInsets(EdgeInsets(top: AceDesign.Space.tight, leading: AceDesign.Space.tight, bottom: AceDesign.Space.tight, trailing: AceDesign.Space.tight))
     }
 }
 

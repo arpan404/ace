@@ -11,19 +11,19 @@ struct BrowserDoneNote: View {
             if let done = model.browser.done {
                 Button { model.browser.done = nil } label: {
                     VStack(spacing: AceTheme.Spacing.xxs) {
-                        Text(done.message).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                            .foregroundStyle(AceTheme.Colours.foreground)
+                        Text(done.message).font(AceDesign.Typeface.body)
+                            .foregroundStyle(AceDesign.Ink.primary)
                         if let detail = done.detail {
-                            Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
+                            Text(detail).font(AceDesign.Typeface.meta)
+                                .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
                         }
                     }
-                    .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .aceGlass(in: AceShape.capsule)
+                    .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
+                    .frame(minHeight: AceDesign.Size.tap)
+                    .aceGlass(in: AceDesign.Shape.control)
                 }
                 .buttonStyle(.plain)
-                .padding(.top, AceTheme.Spacing.sm)
+                .padding(.top, AceDesign.Space.related)
                 .transition(.opacity)
                 .accessibilityIdentifier("browser.done")
                 .task(id: done.at) {
@@ -32,7 +32,7 @@ struct BrowserDoneNote: View {
                 }
             }
         }
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: model.browser.done)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: model.browser.done)
         .sensoryFeedback(.success, trigger: model.browser.done?.at) { _, new in new != nil }
     }
 }
@@ -51,10 +51,10 @@ struct BrowserSourceSheet: View {
                         .safeAreaInset(edge: .bottom) {
                             if source.truncated {
                                 Text("Shortened: the page's source is longer.")
-                                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                                    .frame(maxWidth: .infinity).padding(AceTheme.Spacing.sm)
-                                    .background(AceTheme.Colours.background)
+                                    .font(AceDesign.Typeface.meta)
+                                    .foregroundStyle(AceDesign.Ink.muted)
+                                    .frame(maxWidth: .infinity).padding(AceDesign.Space.related)
+                                    .background(AceDesign.Surface.background)
                             }
                         }
                         .transition(.opacity)
@@ -63,7 +63,7 @@ struct BrowserSourceSheet: View {
                 }
             }
             .animation(AceTheme.Motion.standardCurve, value: model.browser.source == nil)
-            .background(AceTheme.Colours.background)
+            .background(AceDesign.Surface.background)
             .navigationTitle("Page source").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 SheetClose()
@@ -76,7 +76,7 @@ struct BrowserSourceSheet: View {
                 }
             }
         }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.accent)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .onAppear { model.browserSource(open: true) }
         .onDisappear { model.browserSource(open: false) }
@@ -95,7 +95,7 @@ private struct SourceText: UIViewRepresentable {
         view.backgroundColor = .clear
         view.font = UIFontMetrics(forTextStyle: .footnote).scaledFont(for: .monospacedSystemFont(ofSize: 12, weight: .regular))
         view.adjustsFontForContentSizeCategory = true
-        view.textColor = UIColor(AceTheme.Colours.foreground)
+        view.textColor = UIColor(AceDesign.Ink.primary)
         view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 24, right: 12)
         view.accessibilityIdentifier = "browser.source.text"
         return view
@@ -112,14 +112,15 @@ private struct SourceText: UIViewRepresentable {
 /// Grey lines where text arrives, at the size the text will be.
 private struct SkeletonLines: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             ForEach(0..<8, id: \.self) { index in
-                Capsule().fill(AceTheme.Colours.fill).frame(width: [220, 300, 180, 260, 140, 290, 200, 240][index], height: 12)
+                // Ragged widths, like lines of source: content geometry.
+                SkeletonBar(width: [220, 300, 180, 260, 140, 290, 200, 240][index], height: 12)
             }
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(AceTheme.Spacing.lg)
+        .padding(AceDesign.Space.margin)
         .accessibilityLabel("Reading the page source")
     }
 }
@@ -136,17 +137,17 @@ struct BrowserSizesSheet: View {
             Group {
                 if asked, let images = model.browser.sizes?.images, !images.isEmpty {
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.xl) {
+                        LazyVStack(alignment: .leading, spacing: AceDesign.Space.group) {
                             ForEach(images) { SizedShot(image: $0) }
                         }
-                        .padding(AceTheme.Spacing.lg)
+                        .padding(AceDesign.Space.margin)
                     }
                     .transition(.opacity)
                 } else if asked, model.browser.sizes?.images == nil {
-                    VStack(spacing: AceTheme.Spacing.md) {
-                        ProgressView()
-                        Text("Laying the page out at each size").aceFont(AceTheme.Typography.body, relativeTo: .body)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    VStack(spacing: AceDesign.Space.row) {
+                        WorkingMark()
+                        Text("Laying the page out at each size").font(AceDesign.Typeface.title)
+                            .foregroundStyle(AceDesign.Ink.muted)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity)
@@ -156,7 +157,7 @@ struct BrowserSizesSheet: View {
                             ForEach(Self.sizes, id: \.id) { size in
                                 Button { toggle(size.id) } label: {
                                     InsetRow(systemImage: nil, title: size.title, subtitle: "\(size.width) px wide") {
-                                        if chosen.contains(size.id) { AceIcon(.check).foregroundStyle(AceTheme.Colours.foreground) }
+                                        if chosen.contains(size.id) { AceIcon(.check).foregroundStyle(AceDesign.Ink.primary) }
                                     }
                                 }
                                 .buttonStyle(.plain).insetRowBackground()
@@ -171,7 +172,7 @@ struct BrowserSizesSheet: View {
             }
             .animation(AceTheme.Motion.standardCurve, value: asked)
             .animation(AceTheme.Motion.standardCurve, value: model.browser.sizes)
-            .background(AceTheme.Colours.background)
+            .background(AceDesign.Surface.background)
             .navigationTitle("Screenshots").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 SheetClose()
@@ -187,7 +188,7 @@ struct BrowserSizesSheet: View {
                 }
             }
         }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.accent)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         .sensoryFeedback(.selection, trigger: chosen)
         .onAppear { model.browser.sizes = nil }
@@ -202,25 +203,25 @@ private struct SizedShot: View {
     let image: BrowserSizes.Image
     @State private var picture: UIImage?
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             HStack {
-                Text(image.size.capitalized).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                Text("\(image.width) × \(image.height)").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
+                Text(image.size.capitalized).font(AceDesign.Typeface.body)
+                Text("\(image.width) × \(image.height)").font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted).monospacedDigit()
                 Spacer()
                 if let picture {
                     let shown = Image(uiImage: picture)
                     ShareLink(item: shown, preview: SharePreview("\(image.size.capitalized) screenshot", image: shown)) {
                         Text("Share")
                     }
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .frame(minHeight: AceDesign.Size.tap)
                 }
             }
             ZStack {
-                AceShape.block.fill(AceTheme.Colours.fill)
+                AceDesign.Shape.block.fill(AceDesign.Surface.fill)
                 if let picture {
                     Image(uiImage: picture).resizable().scaledToFit()
-                        .clipShape(AceShape.block)
+                        .clipShape(AceDesign.Shape.block)
                         .transition(.opacity)
                 }
             }
@@ -252,7 +253,7 @@ struct BrowserExtensionsSheet: View {
                 Section {
                     if let items {
                         if items.isEmpty {
-                            Text("No extensions installed").foregroundStyle(AceTheme.Colours.mutedForeground).insetRowBackground()
+                            Text("No extensions installed").foregroundStyle(AceDesign.Ink.muted).insetRowBackground()
                         }
                         ForEach(items) { item in
                             InsetRow(icon: .puzzlePiece, title: item.name, subtitle: [item.version, item.enabled ? nil : "Off"].compactMap { $0 }.joined(separator: " · ")) { EmptyView() }
@@ -260,7 +261,7 @@ struct BrowserExtensionsSheet: View {
                         }
                     } else {
                         ForEach(0..<2, id: \.self) { _ in
-                            Capsule().fill(AceTheme.Colours.fill).frame(width: 160, height: 12).frame(minHeight: InsetStyle.rowHeight, alignment: .leading)
+                            SkeletonBar(width: 160, height: 12).frame(minHeight: InsetStyle.rowHeight, alignment: .leading)
                                 .insetRowBackground()
                         }
                     }
@@ -286,7 +287,7 @@ struct BrowserExtensionsSheet: View {
             .navigationTitle("Extensions").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
         }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.accent)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         .sensoryFeedback(.selection, trigger: inBar)
         .onAppear { model.browserExtensions() }

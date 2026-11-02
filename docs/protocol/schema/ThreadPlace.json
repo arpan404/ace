@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadPlace.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "band": {
+      "$ref": "https://ace.local/protocol/v1/InboxBand.json"
+    },
+    "rank": {
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 4,
+      "minItems": 1,
+      "type": "array"
+    },
+    "tab": {
+      "$ref": "https://ace.local/protocol/v1/ThreadTab.json"
+    }
+  },
+  "required": [
+    "tab",
+    "rank"
+  ],
+  "type": "object"
+}

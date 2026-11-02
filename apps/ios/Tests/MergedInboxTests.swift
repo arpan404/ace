@@ -48,6 +48,24 @@ import Testing
         #expect(merged.sections[0].scoped({ _ in false }, whole: { _ in false }) == nil)
     }
 
+    @Test func eachSectionIsInTheTabWhoseDaemonListHoldsItAndTheDotSumsEveryDaemonsCount() {
+        let nap = section("snoozed", order: 6, ["n": "0001"])
+        var studio = layout([section("needs-you", order: 0, ["a": "0001"]), nap])
+        studio.tabs = .init(inbox: ["a"], snoozed: ["n"], settled: [])
+        studio.tabWords = [.init(id: "inbox", label: "Inbox", empty: "Inbox zero"),
+                           .init(id: "snoozed", label: "Snoozed", empty: "Nothing snoozed")]
+        studio.attention = .init(threads: .init(needsYou: 1, unread: 0), chats: .init(needsYou: 0, unread: 0))
+        var laptop = layout([section("needs-you", order: 0, ["b": "0002"])])
+        laptop.tabs = .init(inbox: ["b"], snoozed: [], settled: [])
+        laptop.attention = .init(threads: .init(needsYou: 2, unread: 0), chats: .init(needsYou: 0, unread: 0))
+        let merged = MergedInbox.merge([("studio", studio), ("laptop", laptop)])
+        #expect(merged.sections.map(\.tab) == ["inbox", "snoozed"])
+        #expect(merged.tabs.map(\.id) == ["inbox", "snoozed"])
+        #expect(merged.tabs[0].needsYou == 3)
+        // A layout from an older bridge places nothing: its sections stay in the Inbox.
+        #expect(MergedInbox.merge([("old", layout([section("done", order: 4, ["x": "0001"])]))]).sections[0].tab == "inbox")
+    }
+
     private func key(_ machine: String, _ id: String) -> InboxKey { InboxKey(machineId: machine, id: id) }
     private func section(_ key: String, order: Int, _ rows: KeyValuePairs<String, String>) -> InboxLayout.Section {
         InboxLayout.Section(key: key, label: key, ids: rows.map(\.key), ranks: rows.map(\.value), order: order)

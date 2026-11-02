@@ -74,6 +74,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "automations",
     "threadAutomations",
     "activityReads",
+    "sidebarPlacement",
     "utility",
     "verify",
     "browsing",

@@ -45,7 +45,7 @@ struct AcpAgentView: View {
         List {
             Group {
                 if let agent { content(agent) }
-                else if problem == nil { Section { HStack { Spacer(); ProgressView(); Spacer() }.frame(minHeight: 88) } }
+                else if problem == nil { Section { SkeletonRows(count: 2, label: "Loading the agent").listRowInsets(EdgeInsets()) } }
                 if let problem {
                     Section {
                         ServiceProblem(message: problem)
@@ -56,8 +56,8 @@ struct AcpAgentView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: agent)
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: install)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: agent)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: install)
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model, id: agentId) { await read() }
         .task(id: install?.session) { await follow() }
@@ -67,12 +67,12 @@ struct AcpAgentView: View {
     }
     @ViewBuilder private func content(_ agent: RegistryAgentData) -> some View {
         Section {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 Text([agent.publisher, agent.version].filter { !$0.isEmpty }.joined(separator: " · "))
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                Text(agent.description).foregroundStyle(AceTheme.Colours.foreground)
+                    .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                Text(agent.description).foregroundStyle(AceDesign.Ink.primary)
             }
-            .padding(.vertical, AceTheme.Spacing.xs)
+            .padding(.vertical, AceDesign.Space.tight)
             if let standing = agent.standing { InsetRow("On this machine", systemImage: nil, value: standing) }
             if let install { progress(install) }
             if let installProblem { ServiceProblem(message: installProblem) }
@@ -80,10 +80,10 @@ struct AcpAgentView: View {
         if install == nil, let label = agent.actionLabel, model.canOperate {
             Section {
                 Button { Task { await start(agent) } } label: {
-                    Text(label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: 44)
+                    Text(label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-                .tint(AceTheme.Colours.accent).foregroundStyle(AceTheme.Colours.onAccent)
+                .tint(AceDesign.Ink.accent).foregroundStyle(AceDesign.Ink.onAccent)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
                 .disabled(agent.planProblem != nil)
@@ -93,9 +93,9 @@ struct AcpAgentView: View {
             Section {
                 ForEach(agent.facts) { fact in
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(fact.label).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text(fact.label).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                         Text(fact.value).font(fact.code == true ? .system(.footnote, design: .monospaced) : .body)
-                            .foregroundStyle(AceTheme.Colours.foreground).textSelection(.enabled)
+                            .foregroundStyle(AceDesign.Ink.primary).textSelection(.enabled)
                     }
                     .padding(.vertical, AceTheme.Spacing.xxs)
                 }
@@ -123,23 +123,23 @@ struct AcpAgentView: View {
                     }
                     .buttonStyle(.borderless).contentTransition(.opacity)
                 }
-                .frame(minHeight: 44)
+                .frame(minHeight: AceDesign.Size.tap)
                 if let prompt = agent.setup.prompt { InsetRow("Then type", systemImage: nil, value: prompt) }
             }
-            if let note = agent.setup.note { Text(note).foregroundStyle(AceTheme.Colours.mutedForeground) }
+            if let note = agent.setup.note { Text(note).foregroundStyle(AceDesign.Ink.muted) }
         } header: { InsetHeader("Set up") } footer: {
             Text(agent.setup.run == nil ? "\(agent.name) signs in with its own CLI, never through ace." : "\(agent.name) signs in with its own CLI, never through ace. Run this in a terminal on the computer running ace.")
         }
     }
     private func progress(_ install: InstallData) -> some View {
-        HStack(spacing: AceTheme.Spacing.md) {
-            if !install.finished { ProgressView() }
+        HStack(spacing: AceDesign.Space.row) {
+            if !install.finished { WorkingMark(label: "Installing") }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(install.title)
-                    .foregroundStyle(install.finished && !install.succeeded ? AceTheme.StatusText.failed : AceTheme.Colours.foreground)
+                    .foregroundStyle(install.finished && !install.succeeded ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
                     .contentTransition(.opacity)
                 if let detail = install.detail {
-                    Text(detail).font(.system(.caption, design: .monospaced)).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                    Text(detail).font(.system(.caption, design: .monospaced)).foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                 }
             }
             Spacer()
@@ -149,7 +149,7 @@ struct AcpAgentView: View {
                 Button("Try again") { self.install = nil }.buttonStyle(.borderless)
             }
         }
-        .frame(minHeight: 44)
+        .frame(minHeight: AceDesign.Size.tap)
     }
     private func read() async {
         do {

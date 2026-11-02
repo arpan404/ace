@@ -7,6 +7,7 @@ await vi.hoisted(async () => {
 });
 
 import { FakeDaemon, facts } from "@ace/fake-daemon";
+import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import type { HomeSort } from "@ace/ui-core";
 import { followInbox, type InboxClock } from "./inbox.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
@@ -104,4 +105,31 @@ test("the inbox keeps the sort it was last drawn in until the machine's setting 
   timers.fire();
   await until(() => layout(sink)?.sortBy === "activity", "the machine's sort");
   expect(groups(sink)).toEqual({ working: ["older"], done: ["newer"] });
+});
+
+test("against a daemon from before placement, finished work from before the phone followed it reads as seen, as on the web", async () => {
+  const { daemon, client } = sheetFixture({ olderDaemon: true });
+  closers.push(() => client.close());
+  // Both finished before the phone started following; only the newer one was opened.
+  for (const id of ["old", "new"]) {
+    daemon.createThread({
+      id,
+      workspaceId: "ace",
+      title: id,
+      provider: "codex",
+      hasSentMessage: true,
+    });
+    daemon.apply(id, [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+  }
+  daemon.command({
+    id: CommandId.parse("read-new"),
+    deviceId: DeviceId.parse("seed"),
+    payload: { type: "thread.read", threadId: ThreadId.parse("new"), unread: false },
+  });
+  await client.start();
+  const sink = new RecordingSink();
+  closers.push(followInbox(client, "mac", sink, new Timers()));
+  await until(() => groups(sink).done?.length === 2, "the inbox");
+  // Both seen, newest first: the never-opened old thread doesn't jump above as news.
+  expect(groups(sink).done).toEqual(["new", "old"]);
 });

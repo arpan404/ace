@@ -153,3 +153,55 @@ test("a request card takes the pill's place while it is open, and the pill comes
   );
   expect(back?.segments.map((segment) => segment.kind)).toEqual(["goal"]);
 });
+
+const leftRunning = () =>
+  latest("thread.pill")?.leftRunning as
+    | { strip: { sentence: string; payload: string; lead: unknown }; taskIds: string[] }
+    | null
+    | undefined;
+
+function relay(stopped: boolean) {
+  return [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Start the relay."),
+    facts.tool("root", "relay", {
+      kind: "shell",
+      title: "bun run dev:relay",
+      detail: { kind: "shell", command: "bun run dev:relay" },
+    }),
+    {
+      type: "background.started" as const,
+      agent: "root",
+      task: "relay",
+      kind: "shell" as const,
+      title: "bun run dev:relay",
+      item: "relay",
+      stoppable: true,
+    },
+    ...(stopped ? [facts.endTurn("root", "interrupted")] : []),
+  ];
+}
+
+test("a command a stopped turn left running shows on the strip with its command and one Stop", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "stopped", workspaceId: "ace", title: "Relay", provider: "claude" });
+  fake.apply("stopped", relay(true));
+  open(connect(fake), "stopped");
+  const left = await until(() => leftRunning() ?? undefined, "what the stop left running");
+  expect(left.strip).toMatchObject({
+    lead: { icon: "background", tone: "background" },
+    sentence: "Running",
+    payload: "bun run dev:relay",
+  });
+  expect(left.taskIds).toHaveLength(1);
+});
+
+test("while the turn still works, nothing is said to be left running", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "busy", workspaceId: "ace", title: "Relay", provider: "claude" });
+  fake.apply("busy", relay(false));
+  open(connect(fake), "busy");
+  await until(() => pill()?.status ?? undefined, "the pill");
+  expect(leftRunning()).toBeNull();
+});

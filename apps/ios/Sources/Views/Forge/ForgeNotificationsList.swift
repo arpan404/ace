@@ -51,10 +51,10 @@ struct ForgeNotificationsList: View {
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .accessibilityIdentifier("forge.inbox.again")
                 }
-                .padding(.horizontal, AceTheme.Spacing.md)
+                .padding(.horizontal, AceTheme.Spacing.rowInner)
                 .forgeRowChrome()
             } else if let message {
-                Text(message).meta(AceTone.failed.text).padding(.horizontal, AceTheme.Spacing.md).forgeRowChrome()
+                Text(message).meta(AceTone.failed.text).padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
             }
             ForEach(rows) { row in
                 Button { tap(row) } label: { ForgeNotificationRow(row: row) }
@@ -114,16 +114,16 @@ struct ForgeNotificationRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: AceTheme.Spacing.sm) {
             Circle().fill(row.unread ? AceTheme.Colours.accent : .clear)
-                .frame(width: 6, height: 6).padding(.top, 8)
+                .frame(width: AceDesign.Size.dotTiny, height: AceDesign.Size.dotTiny).padding(.top, AceDesign.Space.related)
                 .accessibilityHidden(true)
-            glyph.padding(.top, 2)
+            glyph.padding(.top, AceTheme.Spacing.xxs)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 HStack(spacing: AceTheme.Spacing.xs) {
                     if let number = row.number {
                         Text(verbatim: "#\(number)").monospacedDigit().meta(AceTheme.Colours.subtleForeground)
                     }
                     Text(row.title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                        .fontWeight(row.unread ? .medium : .regular)
+                        .fontWeight(row.unread ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
                         .foregroundStyle(row.unread ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                         .lineLimit(2)
                 }
@@ -132,7 +132,7 @@ struct ForgeNotificationRow: View {
             Spacer(minLength: AceTheme.Spacing.sm)
             if let at = row.updatedAt { ForgeAge(at: at).meta() }
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.rowInner)
         .padding(.vertical, AceTheme.Spacing.sm)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -140,10 +140,10 @@ struct ForgeNotificationRow: View {
     }
 
     @ViewBuilder private var glyph: some View {
-        if row.glyph == "pull", let state = row.state { ForgePullGlyph(state: state, merged: row.merged, size: 15) }
-        else if row.glyph == "issue", let state = row.state { ForgeIssueGlyph(state: state, size: 15) }
+        if row.glyph == "pull", let state = row.state { ForgePullGlyph(state: state, merged: row.merged, size: AceDesign.Size.icon) }
+        else if row.glyph == "issue", let state = row.state { ForgeIssueGlyph(state: state, size: AceDesign.Size.icon) }
         else {
-            AceIcon(.bell, size: 15, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
+            AceIcon(.bell, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.subtleForeground)
                 .accessibilityLabel(row.type)
         }
     }

@@ -97,6 +97,8 @@ import QuartzCore
     /// choices are kept against (`MachineInbox.projectChoices`), never a scan of every row.
     private(set) var projectsVersion = 0
     var inboxLayout = InboxLayout.empty
+    /// The Chats tab's sections from this machine's runtime (`chats.sections`).
+    var chatLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
     /// The Machines sheet's view of this runtime's computer (`bridge/machine-info.ts`).
     var machineStatus: MachineStatusInfo?
@@ -181,7 +183,7 @@ import QuartzCore
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset()
-        inboxLayout = .empty
+        inboxLayout = .empty; chatLayout = .empty
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
@@ -424,6 +426,7 @@ import QuartzCore
                 }
                 activityChanged = true
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
+            case .chatSections(let layout): if chatLayout != layout { chatLayout = layout }
             case .connection(let state, let generation):
                 if state != connection { LaunchTrace.mark("connection", state) }
                 connection = state

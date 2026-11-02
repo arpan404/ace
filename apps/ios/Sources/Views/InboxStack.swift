@@ -33,7 +33,8 @@ struct InboxStack<Destination: View, Side: View>: View {
     /// Pull requests, Issues or Notifications on the Pulls tab; the inbox's, so a command can
     /// open Issues from the Threads tab.
     @Binding var forgeKind: ForgeKind
-    @Binding var shelves: InboxShelves
+    /// The Threads tab open: Inbox, Snoozed or Settled (`ThreadsTabsBar`).
+    @Binding var threadsTab: String
     /// A row to scroll to once it is in the list (`InboxList.reveal`).
     @Binding var reveal: InboxKey?
     let actions: InboxRowActions
@@ -89,12 +90,23 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .inboxFootBar {
                     if holds { InboxPlaces(tab: $tab, compose: inDrawer && inbox.canStartThreads ? forge.startThread : nil) }
                 }
-                // The bar's own title stays for Back buttons and VoiceOver; the leading title draws it.
-                .navigationTitle(pulls ? "Pull requests" : "Threads")
-                .navigationBarTitleDisplayMode(.inline)
-                // The leading heading draws the title; the bar's own centred one would take the
-                // middle and leave the heading and its buttons half the width each.
-                .toolbar(removing: .title)
+                // The system's large title, collapsing as rows scroll under it; the scope (machine
+                // and project, or what is wrong with the connection) under it and its pickers in
+                // the title's own menu.
+                .nativeTitle(pulls ? "Pull requests" : "Threads") {
+                    if !pulls {
+                        filters
+                        if inbox.sessions.contains(where: { $0.client.canOperate }) {
+                            Section {
+                                Button("Select threads", ace: .checkCircle) { startSelecting() }
+                                    .accessibilityIdentifier("inbox.select")
+                            }
+                        }
+                        if InboxConnectionProblem.of(inbox) != nil {
+                            Button("Machines", ace: .laptop, action: header.machines)
+                        }
+                    }
+                }
                 .toolbar { toolbar(holdsTabs: holds, composeInBar: holds && !inDrawer) }
                 // As a compact window's drawer the list is too narrow for the system's bar, which
                 // folds the title and its buttons into one ⋯: the list draws its own header, and
@@ -120,7 +132,7 @@ struct InboxStack<Destination: View, Side: View>: View {
                 // The list stays mounted under the results, so it keeps its place while the
                 // person searches and is back where it was when they cancel.
                 ZStack {
-                    InboxList(inbox: inbox, includes: includes, whole: whole, shelves: $shelves, reveal: $reveal, actions: picking, compose: nil,
+                    InboxList(inbox: inbox, includes: includes, whole: whole, tab: threadsTab, reveal: $reveal, actions: picking, compose: nil,
                               pair: header.pair, selection: selecting ? $selection : nil)
                         .refreshable { await refresh() }
                         .opacity(searching ? 0 : 1)
@@ -133,7 +145,16 @@ struct InboxStack<Destination: View, Side: View>: View {
                     }
                 }
                 // The list and search everything crossfade; nothing slides.
-                .animation(reduceMotion ? .easeInOut(duration: 0.15) : AceTheme.Motion.standardCurve, value: searching)
+                .animation(AceDesign.Motion.arriving(reduceMotion), value: searching)
+                // Inbox, Snoozed and Settled under the title, pinned as rows pass beneath them.
+                .inboxTopBar {
+                    if !searching {
+                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                            scopeMenu
+                            tabsBar
+                        }
+                    }
+                }
             }
         }
         .modifier(InboxSearchField(query: $query, searching: $searching,
@@ -164,12 +185,53 @@ struct InboxStack<Destination: View, Side: View>: View {
             selecting = true
         }
     }
-    /// Every thread the list shows outside its folded shelves, for Select all.
+    /// Every thread the open tab shows, for Select all.
     private var selectable: [InboxKey] {
-        inbox.merged.sections.filter { $0.key != "unsent" }.flatMap { section -> [InboxKey] in
-            if section.key == "snoozed" && !shelves.snoozed { return [] }
-            if section.key == "settled" && !shelves.settled { return [] }
-            return section.rows.filter(includes)
+        inbox.merged.sections.filter { $0.key != "unsent" && $0.tab == threadsTab }.flatMap { $0.rows.filter(includes) }
+    }
+    /// The Threads tabs, once a runtime sends them. The Inbox's dot follows the scope: only a
+    /// request the list would show lights it.
+    /// Under the large title: what the list shows ("All projects ⌄"), or what is wrong with the
+    /// connection, as a menu holding the machine and project pickers and Select threads. The
+    /// title's own menu offers the same once it has collapsed.
+    private var scopeMenu: some View {
+        Menu {
+            filters
+            if inbox.sessions.contains(where: { $0.client.canOperate }) {
+                Section {
+                    Button("Select threads", ace: .checkCircle) { startSelecting() }
+                }
+            }
+            if InboxConnectionProblem.of(inbox) != nil {
+                Button("Machines", ace: .laptop, action: header.machines)
+            }
+        } label: {
+            HStack(spacing: AceDesign.Space.tight) {
+                Text(scopeLine).lineLimit(1)
+                Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
+            }
+            .font(AceDesign.Typeface.meta)
+            .foregroundStyle(InboxConnectionProblem.of(inbox) == nil ? AceDesign.Ink.muted : AceDesign.Status.failed)
+            .frame(minHeight: AceDesign.Size.tap)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Showing \(scopeLine)")
+        .accessibilityHint("Chooses what the list shows")
+        .accessibilityIdentifier("inbox.projects")
+        .padding(.horizontal, AceDesign.Space.margin)
+    }
+
+    @ViewBuilder private var tabsBar: some View {
+        let tabs = inbox.merged.tabs
+        if !tabs.isEmpty {
+            // The daemon's own count of what needs the person, as the desktop's dot.
+            let dot = (tabs.first { $0.id == "inbox" }?.needsYou ?? 0) > 0
+            ThreadsTabsBar(tabs: tabs, selection: $threadsTab, dot: dot) { id in
+                inbox.merged.sections.filter { $0.tab == id && $0.key != "unsent" }
+                    .compactMap { $0.scoped(includes, whole: whole)?.count }.reduce(0, +)
+            }
+            .modifier(HeaderLead())
         }
     }
     /// What search everything's rows open.
@@ -212,8 +274,8 @@ struct InboxStack<Destination: View, Side: View>: View {
         open()
     }
     /// Select mode, search and scope changes: the system's smooth curve, a fade under Reduce Motion.
-    private var listMotion: Animation { reduceMotion ? .easeInOut(duration: 0.2) : .smooth }
-    private var drawerMotion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring }
+    private var listMotion: Animation { AceDesign.Motion.arriving(reduceMotion) }
+    private var drawerMotion: Animation { AceDesign.Motion.arriving(reduceMotion) }
 
     private var filters: InboxFilters { InboxFilters(inbox: inbox, machine: $machine, project: $project) }
 
@@ -244,8 +306,8 @@ struct InboxStack<Destination: View, Side: View>: View {
     }
     private func step(_ step: Int) {
         let order = ThreadColumns.order(inbox.merged.sections.map { section in
-            MergedInbox.Section(key: section.key, label: section.label, rows: section.rows.filter(includes))
-        }, shelves: shelves) { key in
+            MergedInbox.Section(key: section.key, label: section.label, rows: section.rows.filter(includes), tab: section.tab)
+        }, tab: threadsTab) { key in
             inbox.pending(key).map { InboxKey(machineId: key.machineId, id: $0.threadId) } ?? key
         }
         if let key = ThreadColumns.neighbour(of: ThreadColumns.selection(path), in: order, step: step) { actions.open(key) }
@@ -269,34 +331,21 @@ struct InboxStack<Destination: View, Side: View>: View {
         }
         ToolbarItem(placement: .principal) {
             Text(selection.isEmpty ? "Select threads" : "\(selection.count) selected")
-                .aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
+                .aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(AceDesign.Typeface.strong)
                 .monospacedDigit()
                 .accessibilityIdentifier("select.count")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button("Done") { withAnimation(listMotion) { selecting = false; selection = [] } }
-                .fontWeight(.semibold)
+                .fontWeight(AceDesign.Typeface.strong)
                 .keyboardShortcut(.escape, modifiers: [])
                 .accessibilityIdentifier("select.done")
         }
     }
     @ToolbarContentBuilder private func listToolbar(holdsTabs: Bool, composeInBar: Bool) -> some ToolbarContent {
-        // The title, its menu and the scope or connection problem under it, with no glass. The
-        // Pulls tab's title is its list's own, which knows its projects.
-        if !pulls {
-            if #available(iOS 26, *) {
-                ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .topBarLeading) { title }
-            }
-        }
-        // Select, Settings and Search share one glass capsule, so the bar never runs out of room
-        // and folds them, the title too, into an overflow ⋯ (a drawer, large text).
+        // Two round glass buttons (design language §5): More and Search. What the list shows and
+        // Select are in the title's own menu.
         ToolbarItemGroup(placement: .topBarTrailing) {
-            if !pulls, inbox.sessions.contains(where: { $0.client.canOperate }) {
-                Button { startSelecting() } label: { Image(systemName: "checkmark.circle") }
-                    .accessibilityLabel("Select").accessibilityIdentifier("inbox.select")
-            }
             settings
             Button { withAnimation(listMotion) { searching = true } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
@@ -308,26 +357,12 @@ struct InboxStack<Destination: View, Side: View>: View {
         }
     }
     private func forgePage(_ route: ForgeRoute) -> some View {
-        forgeContent(route).modifier(ProjectDefaultsHook(inbox: inbox))
+        ForgePage(inbox: inbox, route: route, open: { path.append(.forge($0)) }, openThread: forge.openThread,
+                  startThread: inbox.canStartThreads ? forge.startThread : nil)
     }
-    @ViewBuilder private func forgeContent(_ route: ForgeRoute) -> some View {
-        if let client = inbox.client(route.machineId) {
-            switch route.kind {
-            case .pull: ForgePullPageView(client: client, route: route, open: { path.append(.forge($0)) }, openThread: forge.openThread,
-                                          startThread: inbox.canStartThreads ? forge.startThread : nil)
-            case .timeline: ForgeTimelineView(client: client, route: route)
-            case .file: ForgeFileView(client: client, route: route)
-            case .files: ForgeFilesView(client: client, route: route, open: { path.append(.forge($0)) })
-            case .check: ForgeCheckPageView(client: client, route: route, openThread: forge.openThread,
-                                            startThread: inbox.canStartThreads ? forge.startThread : nil)
-            case .conflicts: ForgeConflictsPageView(client: client, route: route, openThread: forge.openThread)
-            case .stack: ForgeStackPageView(client: client, route: route, open: { path.append(.forge($0)) })
-            case .commits: ForgeCommitsView(client: client, route: route, open: { path.append(.forge($0)) })
-            case .issue:
-                ForgeIssuePageView(client: client, route: route,
-                                   actions: ForgeTabActions(open: { path.append(.forge($0)) }, openThread: forge.openThread, startThread: forge.startThread))
-            }
-        }
+    /// Under the large title: what is wrong with the connection, else the scope the list shows.
+    private var scopeLine: String {
+        InboxConnectionProblem.of(inbox)?.text ?? filters.subtitle
     }
     private var title: some View {
         InboxHeading(title: "Threads", scope: filters.subtitle, problem: InboxConnectionProblem.of(inbox),
@@ -340,30 +375,30 @@ struct InboxStack<Destination: View, Side: View>: View {
     /// The drawer's own header: the title and its menu, then Select, Settings and Search on one
     /// glass capsule, each a full touch target.
     private var drawerHeader: some View {
-        HStack(alignment: .center, spacing: AceTheme.Spacing.sm) {
+        HStack(alignment: .center, spacing: AceDesign.Space.related) {
             title
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             HStack(spacing: AceTheme.Spacing.none) {
                 if inbox.sessions.contains(where: { $0.client.canOperate }) {
                     headerButton("checkmark.circle", label: "Select", identifier: "inbox.select") { startSelecting() }
                 }
-                headerButton("gearshape", label: "Settings", identifier: "inbox.settings", action: header.settings)
+                headerButton("ellipsis.circle", label: "More", identifier: "inbox.settings", action: header.settings)
                 headerButton("magnifyingglass", label: "Search", identifier: "inbox.search") {
                     withAnimation(listMotion) { searching = true }
                 }
             }
             .aceGlass(in: AceShape.capsule, interactive: true)
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.top, AceTheme.Spacing.md)
-        .padding(.bottom, AceTheme.Spacing.sm)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .padding(.top, AceDesign.Space.row)
+        .padding(.bottom, AceDesign.Space.related)
     }
     private func headerButton(_ symbol: String, label: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 19, weight: .medium))
+                .font(.system(size: AceDesign.Size.barIcon))
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -371,8 +406,9 @@ struct InboxStack<Destination: View, Side: View>: View {
         .accessibilityIdentifier(identifier)
     }
     private var settings: some View {
-        Button(action: header.settings) { Image(systemName: "gearshape") }
-            .accessibilityLabel("Settings").accessibilityIdentifier("inbox.settings")
+        // More: Pull requests, Settings and each machine's tools.
+        Button(action: header.settings) { Image(systemName: "ellipsis.circle") }
+            .accessibilityLabel("More").accessibilityIdentifier("inbox.settings")
     }
 
     /// The list is live; a pull asks every machine that isn't ready to reconnect now.
@@ -392,6 +428,7 @@ private struct InboxSearchField: ViewModifier {
     @Binding var searching: Bool
     let prompt: String
     @State private var shown = false
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
@@ -406,7 +443,7 @@ private struct InboxSearchField: ViewModifier {
             .onAppear { if searching { shown = true } }
             .onChange(of: searching) { _, now in
                 // The field joins the bar in the same animation the system uses to focus it.
-                if now { withAnimation(AceMotion.smooth) { shown = true } } else { query = ""; shown = false }
+                if now { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { shown = true } } else { query = ""; shown = false }
             }
     }
 }

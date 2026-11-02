@@ -14,7 +14,7 @@ struct OtherProvidersSections: View {
                 Section {
                     ForEach(others.off) { row in
                         NavigationLink { ProviderPageView(model: model, provider: row.provider, name: row.name) } label: {
-                            providerRow(row) { Text("Off").foregroundStyle(AceTheme.Colours.mutedForeground) }
+                            providerRow(row) { Text("Off").foregroundStyle(AceDesign.Ink.muted) }
                         }
                     }
                 } header: { InsetHeader("Turned off") }
@@ -26,7 +26,7 @@ struct OtherProvidersSections: View {
                         NavigationLink { ProviderPageView(model: model, provider: row.provider, name: row.name, start: row.installable ? "install" : nil) } label: {
                             providerRow(row) {
                                 if row.installable {
-                                    Text("Install").aceFont(InsetStyle.value, relativeTo: .body).foregroundStyle(AceTheme.Colours.accent)
+                                    Text("Install").font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.accent)
                                 }
                             }
                         }
@@ -36,23 +36,23 @@ struct OtherProvidersSections: View {
                 .insetRowBackground()
             }
         }
-        .animation(.smooth, value: others)
+        .smoothChange(others)
     }
 
     private func providerRow<Trailing: View>(_ row: OtherProvidersData.Row, @ViewBuilder trailing: () -> Trailing) -> some View {
-        HStack(spacing: AceTheme.Spacing.md + AceTheme.Spacing.xxs) {
-            ProviderMark(provider: row.provider, size: 20, quiet: true).frame(width: 24)
+        HStack(spacing: AceDesign.Space.row) {
+            ProviderMark(provider: row.provider, size: AceDesign.Size.icon, quiet: true).frame(width: AceDesign.Size.icon + AceDesign.Space.related)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Text(row.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                Text(row.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
                 if let detail = row.detail {
-                    Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
+                    Text(detail).font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted).lineLimit(2)
                 }
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             trailing()
         }
-        .padding(.vertical, AceTheme.Spacing.xs)
+        .padding(.vertical, AceDesign.Space.tight)
         .accessibilityElement(children: .combine)
     }
 }
@@ -65,7 +65,7 @@ extension View {
             .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(OtherProvidersData.read)]) {
                 guard model.connection == "ready" else { return }
                 if let next = try? await model.read(OtherProvidersData.read, as: OtherProvidersData.self) {
-                    withAnimation(.smooth) { others.wrappedValue = next }
+                    withAnimation(AceDesign.Motion.arrive) { others.wrappedValue = next }
                 }
             }
     }

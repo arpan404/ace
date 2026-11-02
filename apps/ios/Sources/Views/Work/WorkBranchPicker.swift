@@ -64,7 +64,7 @@ struct WorkBranchPicker: View {
                 Spacer()
                 if current { Image(systemName: "checkmark").foregroundStyle(AceTheme.Colours.foreground) }
             }
-            .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+            .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!allowed)

@@ -20,7 +20,7 @@ struct BrowserConsoleSheet: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(AceTheme.Colours.background)
+            .background(AceDesign.Surface.background)
             .overlay {
                 if entries.isEmpty {
                     EmptyState(icon: .terminal, title: section == "console" ? "No messages" : "No requests")
@@ -32,7 +32,7 @@ struct BrowserConsoleSheet: View {
                     Text("Network").tag("network")
                 }
                 .pickerStyle(.segmented)
-                .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
+                .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
                 .accessibilityIdentifier("browser.console.section")
             }
             .navigationTitle("Console").navigationBarTitleDisplayMode(.inline)
@@ -45,7 +45,7 @@ struct BrowserConsoleSheet: View {
                 }
             }
         }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.accent)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         .onChange(of: [section, level, requests], initial: true) { send(clear: false) }
         .onDisappear { model.closeBrowserConsole() }
@@ -77,14 +77,14 @@ struct BrowserConsoleSheet: View {
     }
 
     private func consoleRow(_ entry: BrowserLog.Entry) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-            AceIcon(entry.level == "error" ? .xCircle : entry.level == "warning" ? .warning : .circle, size: 14, relativeTo: .caption)
-                .foregroundStyle(entry.level == "error" ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+            AceIcon(entry.level == "error" ? .xCircle : entry.level == "warning" ? .warning : .circle, size: AceDesign.Size.icon, relativeTo: .caption)
+                .foregroundStyle(entry.level == "error" ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
                 .opacity(entry.level == "info" ? 0 : 1)
                 .accessibilityElement(children: .ignore).accessibilityLabel(entry.level == "error" ? "Error" : entry.level == "warning" ? "Warning" : "")
             Text(entry.text)
-                .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
-                .foregroundStyle(entry.level == "error" ? AceTheme.StatusText.failed : AceTheme.Colours.foreground)
+                .font(AceDesign.Typeface.code)
+                .foregroundStyle(entry.level == "error" ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
                 .textSelection(.enabled)
         }
         .browserRow()
@@ -93,13 +93,13 @@ struct BrowserConsoleSheet: View {
 
     private func requestRow(_ entry: BrowserLog.Entry) -> some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            Text(entry.url ?? entry.text).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+            Text(entry.url ?? entry.text).font(AceDesign.Typeface.code)
                 .lineLimit(2).truncationMode(.middle)
             Text([entry.status, entry.method, entry.size, entry.time].filter { !$0.isEmpty }.joined(separator: " · "))
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                .foregroundStyle(entry.failed ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
+                .font(AceDesign.Typeface.meta)
+                .foregroundStyle(entry.failed ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
         }
-        .foregroundStyle(entry.failed ? AceTheme.StatusText.failed : AceTheme.Colours.foreground)
+        .foregroundStyle(entry.failed ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
         .browserRow()
     }
 }
@@ -113,12 +113,12 @@ struct BrowserShotSheet: View {
         NavigationStack {
             Group {
                 if let image {
-                    ScrollView { Image(uiImage: image).resizable().scaledToFit().padding(AceTheme.Spacing.lg) }
+                    ScrollView { Image(uiImage: image).resizable().scaledToFit().padding(AceDesign.Space.margin) }
                 } else {
                     EmptyState(icon: .camera, title: "Screenshot saved to this thread", line: shot.path)
                 }
             }
-            .background(AceTheme.Colours.background)
+            .background(AceDesign.Surface.background)
             .navigationTitle("Screenshot").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 SheetClose()
@@ -131,7 +131,7 @@ struct BrowserShotSheet: View {
                 }
             }
         }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.accent)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
     }
 }

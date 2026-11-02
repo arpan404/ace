@@ -62,7 +62,7 @@ struct BlockView: View {
             }
         case "question": if let question = row.question { QuestionAskedLine(question: question) }
         case "user", "message", "event", "item":
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            VStack(alignment: .leading, spacing: AceDesign.Space.related) {
                 ForEach(row.items, id: \.self) { id in
                     if let item = thread.items[id] { BlockItemView(item: item, block: row, links: links) }
                 }
@@ -70,7 +70,7 @@ struct BlockView: View {
             .environment(\.readMessage, reader)
             .environment(\.readImage, imageReader)
         default:
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            VStack(alignment: .leading, spacing: AceDesign.Space.related) {
                 ForEach(row.items, id: \.self) { id in
                     if let item = thread.items[id] { ItemRowView(item: item, openMedia: links.openMedia, openMessage: links.openMessage) }
                 }

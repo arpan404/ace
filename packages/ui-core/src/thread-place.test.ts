@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
 import type { ThreadListEntry } from "@ace/protocol";
-import { arrange, type HomeSort } from "./arrange.ts";
+import type { HomeSort } from "./arrange.ts";
 import { panelPage, panelRows, tabThreads } from "./home-rows.ts";
-import { threadsPanel, standingReader } from "./threads-panel.ts";
+import { placeReader, placeThread, threadTabs } from "./thread-place.ts";
 import { Organizer } from "./organizer.ts";
 import { entry } from "./test-entries.fixture.ts";
 
@@ -13,18 +13,23 @@ const now = local(10, 31, 15);
 const minute = 60_000;
 const day = 24 * 60 * minute;
 
+/** The tabs as the daemon places each entry (`placeThread`) and a client reads them. */
 function panel(
   entries: readonly ThreadListEntry[],
   options: { sortBy?: HomeSort; project?: string | null } = {},
 ) {
-  const sortBy = options.sortBy ?? "activity";
-  const byId = new Map<string, ThreadListEntry>(entries.map((each) => [each.id, each]));
-  return threadsPanel({
-    arrangement: arrange(entries, { project: options.project ?? null, sortBy }, now),
-    entry: (id) => byId.get(id),
-    standing: standingReader({ baseline: 0, now }),
-    sortBy,
-  });
+  const input = { baseline: 0, now, sortBy: options.sortBy ?? "activity" } as const;
+  const placed = entries.map((each) => withPlace(each, input));
+  // The project filter narrows what comes in; it never reorders.
+  const shown = placed.filter(
+    (each) => options.project == null || each.workspaceId === options.project,
+  );
+  return threadTabs(shown, placeReader({ fallback: input }));
+}
+
+/** The entry as the daemon sends it, with its place. */
+function withPlace(each: ThreadListEntry, input: Parameters<typeof placeThread>[1]) {
+  return Object.assign({}, each, { place: placeThread(each, input) });
 }
 
 /** Settled by the daemon a while ago, read, at rest. */
@@ -83,6 +88,53 @@ test("sorted newest first, the Inbox keeps the person's sort below the pinned th
     { sortBy: "created" },
   );
   expect(built.inbox).toEqual(["new", "asks"]);
+});
+
+test("a settled thread held at a usage limit or with only a command left running stays in Settled", () => {
+  const built = panel([
+    entry(
+      "limited",
+      { state: "limited", until: now + day },
+      now - 5 * day,
+      settledAt(now - 5 * day),
+    ),
+    entry("rate", { state: "waiting", on: "rate_limit" }, now - 4 * day, settledAt(now - 4 * day)),
+    entry(
+      "server",
+      { state: "waiting", on: "background_task" },
+      now - 3 * day,
+      settledAt(now - 3 * day),
+    ),
+    entry("works", { state: "working", agents: 1 }, now - 2 * day, settledAt(now - 2 * day)),
+    entry("asks", { state: "needs_you", interactions: 1 }, now - day, settledAt(now - day)),
+  ]);
+  expect(built.settled).toEqual(["server", "rate", "limited"]);
+  // Real work under a settled thread, or a request, still brings it back to the Inbox.
+  expect(built.inbox).toEqual(["asks", "works"]);
+});
+
+test("a client shows the daemon's places as given, and places only entries that came without one", () => {
+  const input = { baseline: 0, now };
+  const fromDaemon = entry("a", { state: "done" }, now, seen(now));
+  // The daemon put it in Settled; the entry alone would read as idle in the Inbox.
+  const placed = { ...fromDaemon, place: { tab: "settled" as const, rank: [now] } };
+  const older = entry("b", { state: "working", agents: 1 }, now - minute);
+  const built = threadTabs([placed, older], placeReader({ fallback: input }));
+  expect(built.settled).toEqual(["a"]);
+  expect(built.inbox).toEqual(["b"]);
+});
+
+test("an unconfirmed copy keeps its tabs but folds the Inbox's live bands into one list by activity", () => {
+  const input = { baseline: 0, now };
+  const entries = [
+    entry("asks", { state: "needs_you", interactions: 1 }, now - day),
+    entry("idle", { state: "done" }, now, seen(now)),
+    entry("pin", { state: "done" }, now - 2 * day, { ...seen(now), pinned: true }),
+    entry("rest", { state: "done" }, now, settledAt(now)),
+  ].map((each) => withPlace(each, input));
+  const built = threadTabs(entries, placeReader({ fallback: input, unconfirmed: true }));
+  expect(built.inbox).toEqual(["pin", "idle", "asks"]);
+  expect(built.settled).toEqual(["rest"]);
 });
 
 test("settling moves a thread from the Inbox to Settled, and Undo brings it back", () => {

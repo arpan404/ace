@@ -4,6 +4,7 @@ import SwiftUI
 /// chosen project's, personal, ace's own), New skill, and the installed plugins with the agents
 /// each reaches. Opens on what this phone last saw, read again behind it.
 struct SkillsLibraryView: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     @AppStorage("skills.project") private var projectId = ""
     @State private var projects: [NativeProject] = []
@@ -100,8 +101,8 @@ struct SkillsLibraryView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(.smooth, value: library)
-        .animation(.smooth, value: plugins)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: library)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: plugins)
         .sensoryFeedback(.success, trigger: made)
         .searchable(text: $query, prompt: "Search skills and plugins")
         .navigationTitle("Skills and plugins").navigationBarTitleDisplayMode(.inline)

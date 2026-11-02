@@ -51,7 +51,7 @@ struct ForgeLogView: View {
                 if let failure {
                     Text(failure).meta(AceTone.failed.text).padding(.vertical, AceTheme.Spacing.sm)
                 } else if paging.count == nil {
-                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, AceTheme.Spacing.lg)
+                    SkeletonPage(label: "Reading the log")
                 }
                 ForEach(0..<paging.lines, id: \.self) { index in
                     line(index).id(index)
@@ -113,7 +113,7 @@ struct ForgeLogView: View {
         Text(verbatim: paging.line(index) ?? " ")
             .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
             .foregroundStyle(errors.contains(index) ? AceTone.failed.text : AceTheme.Colours.foreground)
-            .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.icon, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
     }

@@ -21,6 +21,9 @@
             "project": {
               "minLength": 1,
               "type": "string"
+            },
+            "resume": {
+              "$ref": "https://ace.local/protocol/v1/ThreadListResume.json"
             }
           },
           "required": [

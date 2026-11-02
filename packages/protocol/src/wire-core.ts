@@ -20,6 +20,7 @@ import { OmittedItem } from "./omitted-items.ts";
 import { QueueState } from "./queue.ts";
 import { ReviewData } from "./review.ts";
 import { Run, Thread } from "./thread.ts";
+import { ListAttention, ListedThreadPlace, ThreadListResume } from "./thread-place.ts";
 import { EditorLaunch } from "./workspace-actions.ts";
 
 /*
@@ -75,7 +76,13 @@ export const ThreadView = z.object({
   usageSnapshots: records(UsageUpdated).default({}),
 });
 export type ThreadView = z.infer<typeof ThreadView>;
-export const ThreadListEntry = Thread.omit({ rootAgentId: true });
+export const ThreadListEntry = Thread.omit({ rootAgentId: true }).extend({
+  /**
+   * Where the daemon puts the thread in the Threads panel. Absent from older daemons, and from
+   * archived or unlisted threads; one this client can't read is dropped, not fatal.
+   */
+  place: ListedThreadPlace.optional(),
+});
 export type ThreadListEntry = z.infer<typeof ThreadListEntry>;
 export const ThreadListCursor = z.object({ at: z.number().int().nonnegative(), id: ThreadId });
 export type ThreadListCursor = z.infer<typeof ThreadListCursor>;
@@ -83,6 +90,12 @@ export const ThreadListWindow = z.object({
   before: ThreadListCursor.nullable(),
   total: z.number().int().nonnegative(),
   counts: z.array(z.object({ id: z.string(), threads: z.number().int().nonnegative() })),
+  /** The newest thread row revision this list reflects (`ThreadListResume`). */
+  revision: seq.optional(),
+  /** The database and placement settings the list was read under (`ThreadListResume`). */
+  epoch: z.string().min(1).max(256).optional(),
+  /** The rail dots for what this list places live; absent from older daemons. */
+  attention: ListAttention.optional(),
 });
 export type ThreadListWindow = z.infer<typeof ThreadListWindow>;
 export const ThreadListView = z.object({
@@ -90,6 +103,12 @@ export const ThreadListView = z.object({
   kind: z.literal("threads"),
   seq,
   threads: records(ThreadListEntry),
+  /**
+   * Answering a `resume`: threads unchanged since the client's revision, which it keeps from
+   * the copy it holds. `threads` then holds only what changed. A kept id the client doesn't
+   * hold means it must subscribe again without `resume`.
+   */
+  keep: z.array(ThreadId).optional(),
 });
 export type ThreadListView = z.infer<typeof ThreadListView>;
 export const SnapshotView = z.discriminatedUnion("kind", [ThreadView, ThreadListView]);
@@ -101,6 +120,8 @@ export const SubscriptionScope = z.discriminatedUnion("kind", [
         limit: z.number().int().min(1).max(20),
         project: z.string().min(1).optional(),
         archived: z.boolean().optional(),
+        /** Skip threads the client already holds unchanged; ignored by older daemons. */
+        resume: ThreadListResume.optional(),
       })
       .optional(),
   }),

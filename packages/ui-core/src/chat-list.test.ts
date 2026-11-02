@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { ThreadListEntry, ThreadStatus } from "@ace/protocol";
-import { chatList, chatRows, isChatEntry, placeSignals, withChatHits } from "./chat-list.ts";
-import { standingReader } from "./threads-panel.ts";
+import { chatList, chatRows, isChatEntry, withChatHits } from "./chat-list.ts";
+import { standingReader } from "./thread-standing.ts";
 import { entry } from "./test-entries.fixture.ts";
 
 const local = (month: number, date: number, hour = 12) =>
@@ -121,35 +121,4 @@ test("an older chat a search found joins its day as settled; one already listed 
     { kind: "day-label", day: "earlier" },
     { kind: "chat", id: "january", settled: true },
   ]);
-});
-
-test("each rail place's dot comes from its own threads", () => {
-  const signals = placeSignals({
-    entries: [
-      chat("asks", now - minute, {}, { state: "needs_you", interactions: 1 }),
-      entry("finished", { state: "done" }, now - minute),
-      entry("read", { state: "done" }, now - minute, { readAt: now }),
-    ],
-    isChat: isChatEntry,
-    standing: standingReader({ baseline: 0, now }),
-  });
-  expect(signals.chats).toEqual({ tone: "needs-you", needsYou: 1 });
-  expect(signals.threads).toEqual({ tone: "unread", needsYou: 0 });
-});
-
-test("a paired machine's child asking for approval never lights this machine's Threads dot", () => {
-  const signals = placeSignals({
-    entries: [
-      entry("delegated", { state: "needs_you", interactions: 1 }, now - minute, {
-        hasSentMessage: true,
-        delegatedFrom: { hostId: "host-a", threadId: "parent-on-a" },
-      }),
-      entry("finished", { state: "done" }, now - minute, {
-        delegatedFrom: { hostId: "host-a", threadId: "parent-on-a" },
-      }),
-    ],
-    isChat: isChatEntry,
-    standing: standingReader({ baseline: 0, now }),
-  });
-  expect(signals.threads).toEqual({ tone: undefined, needsYou: 0 });
 });

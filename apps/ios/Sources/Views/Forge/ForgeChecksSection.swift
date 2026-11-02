@@ -69,7 +69,7 @@ struct ForgeChecksSection: View {
                     Spacer(minLength: AceTheme.Spacing.sm)
                     Button("Refresh") { Task { await load(fresh: true) } }.aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                 }
-                .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
             }
             if let local = checks.local { localRow(local, headSha: checks.headSha) }
             ForEach(checks.checks, id: \.id) { check in row(check) }
@@ -87,9 +87,9 @@ struct ForgeChecksSection: View {
                 Spacer(minLength: AceTheme.Spacing.sm)
                 Text(check.word).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(check.tone == "idle" ? AceTheme.Colours.mutedForeground : AceTone(check.tone).text)
-                AceIcon(.caretRight, size: 12, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
+                AceIcon(.caretRight, size: AceDesign.Size.caret, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
             }
-            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44).contentShape(Rectangle())
+            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
         }
         .buttonStyle(.row)
         .accessibilityIdentifier("forge.check.\(check.name)")

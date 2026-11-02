@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct ThreadView: View {
-    @Environment(\.dismiss) private var dismiss
+    /// Going back a page, read where it is used: the body never depends on `dismiss`.
+    @State private var back = DismissBox()
     /// Closes the thread open beside the list, which has no page under it to go back to.
     @Environment(\.closeOpenThread) private var closeOpenThread
     @Environment(\.threadDrawerOpen) private var drawerOpen
@@ -96,6 +97,7 @@ struct ThreadView: View {
         GeometryReader { geometry in
             content(pageWidth: geometry.size.width)
         }
+        .background { DismissCapture(box: back) }
     }
 
     private func content(pageWidth: CGFloat) -> some View {
@@ -106,6 +108,7 @@ struct ThreadView: View {
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
+            .markdownShelf(threadId: thread.id)
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
@@ -130,7 +133,7 @@ struct ThreadView: View {
                 if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
                     StateLabel(status: status)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.sm)
+                        .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
                         .background(AceTheme.Colours.background)
                 }
             }
@@ -247,11 +250,12 @@ struct ThreadView: View {
                 if let picked, picked.scope == thread.id { mention = picked.mention }
             }
             .environment(\.stopBackground, model.canOperate ? { id in Task { _ = await model.stopTask(id) } } : nil)
+            .environment(\.stripTasks, Set(screen.leftRunning?.taskIds ?? []))
             #if ACE_FIXTURE
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
                     Text(verbatim: "\(thread.items.count) items · \(model.connection)").aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                        .padding(AceTheme.Spacing.xs).background(.thinMaterial, in: AceShape.capsule).allowsHitTesting(false)
+                        .padding(AceDesign.Space.tight).background(.thinMaterial, in: AceShape.capsule).allowsHitTesting(false)
                         .accessibilityLabel("Loaded transcript").accessibilityValue(String(thread.items.count))
                         .accessibilityIdentifier("spike.loaded")
                 }
@@ -263,15 +267,34 @@ struct ThreadView: View {
     /// surface just above the composer, which holds the oldest open request (a question
     /// too, the composer staying under it). While a request needs the person the pill steps
     /// aside. Nothing sits below the composer.
+    /// Whether a strip shows above the composer, by the same order the strip's own chain reads.
+    private var hasStrip: Bool {
+        !thread.approvals.isEmpty
+            || (screen.queue?.strip).map { HoldStripState.of(strip: $0, canOperate: model.canOperate, archived: archived).visible } == true
+            || screen.queue?.notSent != nil || screen.leftRunning != nil
+            || model.transfers.thread(thread.id)?.line != nil || screen.work != nil
+    }
+
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
         VStack(spacing: AceTheme.Spacing.none) {
             // Whether a request takes the pill's place is the bridge's (`livePill`).
-            ComposerFloaters(pill: screen.pill, behind: behind, open: openPill) { jumps += 1 }
-                .padding(.bottom, AceTheme.Spacing.sm)
+            // Scroll to end floats over the transcript; the live pill sits by the model, lower down.
+            ComposerFloaters(pill: nil, behind: behind, open: openPill) { jumps += 1 }
+                .padding(.bottom, AceDesign.Space.related)
             VStack(spacing: AceTheme.Spacing.none) {
+                // Just above the strip: the model on the left, the live pill ("1m 34s · waiting on
+                // 3 agents") to its right.
+                ComposerPills(model: model.canOperate && !archived && screen.controls != nil ? screen : nil,
+                              pill: screen.pill, open: openPill,
+                              openModel: { showModels = true }, openTune: { showTune = true }, openSettings: { showSettings = true })
+                // The one strip and the composer as one glass block (`GlassBlock`): the strip is
+                // the block's top section, what needs the person first.
+                VStack(spacing: AceTheme.Spacing.none) {
                 Group {
-                    if let request { StripSurface(maxHeight: height * 0.6) { requestCard(request) } }
+                    if !thread.approvals.isEmpty {
+                        RequestStrip(requests: thread.approvals, model: model, questionDraft: $questionDraft, openBrowser: { open(.browser) })
+                    }
                     // Then what holds the queue: a usage limit, a stopped turn, a paused queue.
                     else if let hold = screen.queue?.strip,
                             HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).visible {
@@ -279,6 +302,17 @@ struct ThreadView: View {
                                        canAct: HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).actionable,
                                        act: { await model.actOnQueue($0) },
                                        chooseModel: { showModels = true }, openQueue: { showQueue = true })
+                    }
+                    // A message that didn't go, with Try again, Edit and Remove.
+                    else if let held = screen.queue?.notSent {
+                        NotSentStrip(message: held, canAct: model.canOperate && !archived, act: { await model.actOnQueue($0) },
+                                     edit: { message, change in await model.editQueued(message, change: change) },
+                                     words: { await model.queuedWords(held.id) },
+                                     saveWords: { await model.editQueuedWords(held.id, text: $0, revision: $1) })
+                    }
+                    // Commands a stopped turn left running, with one Stop.
+                    else if let left = screen.leftRunning {
+                        LeftRunningStrip(row: left, canAct: model.canOperate && !archived) { id in _ = await model.stopTask(id) }
                     }
                     // A request needs the person first; the transfer's line waits under it.
                     else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
@@ -291,7 +325,7 @@ struct ThreadView: View {
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 if archived {
                     ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
-                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.lg)))
+                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
                 } else if model.canOperate {
                     ComposerView(controls: screen.controls, stopping: screen.stopping,
                                  placeholder: screen.fork != nil ? "Message the fork" : asking == nil ? placeholder : "Reply…",
@@ -314,7 +348,7 @@ struct ThreadView: View {
                                  recall: { older in await model.sentText(thread.id, older: older) },
                                  files: screen.attachments.count + screen.annotations.count,
                                  draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
-                                 suggester: suggester, suggestionHeight: max(AceTheme.Dimensions.touchTarget * 2, height * (request == nil ? 0.4 : 0.22)),
+                                 suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
                                  run: runComposerAction, focusRequest: composerFocus) {
                         if let fork = screen.fork {
                             ForkStrip(fork: fork) { model.closeFork() }
@@ -331,13 +365,15 @@ struct ThreadView: View {
                         ComposerModelButton(screen: screen, open: { showModels = true }, openTune: { showTune = true })
                     } settings: {
                         Button { showSettings = true } label: {
-                            Image(systemName: "slider.horizontal.3").font(.system(size: 15, weight: .medium))
+                            Image(systemName: "slider.horizontal.3").font(.system(size: AceDesign.Size.icon))
                                 .foregroundStyle(AceTheme.Colours.foreground)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Circle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Model and access").accessibilityIdentifier("composer.settings")
                     }
+                    // The model sits on top (`ThreadModelPill`); the composer keeps room to type.
+                    .showsOptions(false)
                     .task(id: thread.id) {
                         suggester.attach(model)
                         suggester.scope = .thread(thread.id)
@@ -345,21 +381,23 @@ struct ThreadView: View {
                     }
                 } else {
                     ViewOnlyNote.thread
-                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceTheme.Spacing.md, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.md, trailing: AceTheme.Spacing.lg)))
+                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.row, leading: AceDesign.Space.margin, bottom: AceDesign.Space.row, trailing: AceDesign.Space.margin)))
                 }
+                }
+                .modifier(GlassBlock(active: hasStrip))
             }
             .composerGlassGroup()
         }
-        .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: request?.id)
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.queue?.strip)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: request?.id)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.queue?.strip)
         // The fork strip rises out of the composer as it opens, or fades under Reduce Motion.
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen.fork?.key)
-        .animation(reduceMotion ? .easeInOut(duration: AceTheme.Motion.fast) : .smooth, value: screen.work)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.fork?.key)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.work)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
     private func leave() {
-        if let close = closeOpenThread, close.id == thread.id { close.close() } else { dismiss() }
+        if let close = closeOpenThread, close.id == thread.id { close.close() } else { back.dismiss?() }
     }
     /// A pill part opens what it names.
     private func openPill(_ opens: String) {
@@ -369,9 +407,6 @@ struct ThreadView: View {
         case "goal": goalSheet = GoalPresentation(epoch: thread.epoch)
         default: break
         }
-    }
-    private func requestCard(_ request: ApprovalRow) -> some View {
-        RequestCard(request: request, model: model, maxHeight: height * 0.6, questionDraft: $questionDraft, openBrowser: { open(.browser) })
     }
     /// A builtin from the composer's `/` or + list (the bridge lists only these on a thread).
     private func runComposerAction(_ action: String) {
@@ -421,7 +456,7 @@ struct ThreadView: View {
                              closable: shown.flatMap { $0.pinned ? nil : $0.key })
     }
     private func panel(_ op: [String: Any]) {
-        withAnimation(reduceMotion ? AceTheme.Motion.standardCurve : AceTheme.Motion.spring) { model.panel(thread.id, op) }
+        withAnimation(AceDesign.Motion.arriving(reduceMotion)) { model.panel(thread.id, op) }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
     private var browserFollow: Int? {
@@ -459,8 +494,8 @@ private struct FloatingBar<Bar: View>: ViewModifier {
 /// The page colour from the composer's lower edge on down, behind the keyboard's translucent
 /// edge and the home indicator. The composer itself stays glass over the transcript.
 private struct BarFloor: View {
-    private let below = AceTheme.Dimensions.touchTarget * 8
-    private let fade = AceTheme.Spacing.lg
+    private let below = AceDesign.Size.tap * 8
+    private let fade = AceDesign.Space.margin
     var body: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background], startPoint: .top, endPoint: .bottom)
@@ -471,5 +506,22 @@ private struct BarFloor: View {
         .offset(y: below)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// The page's current dismiss action, kept out of the thread page's body. Read there, every new
+/// `DismissAction` (the navigation container hands out another whenever it updates, which with an
+/// accessibility client attached is every frame) re-evaluated the page, its feed and every row.
+@MainActor final class DismissBox {
+    var dismiss: DismissAction?
+}
+
+/// Reads `dismiss` into the page's box; only this empty view updates when it changes.
+private struct DismissCapture: View {
+    let box: DismissBox
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        let _ = box.dismiss = dismiss
+        Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
     }
 }

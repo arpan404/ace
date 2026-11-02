@@ -1,5 +1,5 @@
 import type { ThreadsTab } from "./organizer.ts";
-import type { ThreadsPanel } from "./threads-panel.ts";
+import type { ThreadsPanel } from "./thread-place.ts";
 
 /*
  * The Threads panel's rows as the sidebar draws them (ADR 0107): the open tab's threads, one
@@ -74,6 +74,24 @@ export function panelRows(
 export function tabThreads(panel: ThreadsPanel, tab: ThreadsTab): readonly string[] {
   return tab === "inbox" ? panel.inbox : panel[tab];
 }
+
+/**
+ * An empty tab's title: "No threads yet" while there is no thread anywhere, else "Inbox zero",
+ * "Nothing snoozed" or "Nothing settled", each narrowed to the filter ("in docs") when one is on.
+ */
+export function emptyTabTitle(
+  tab: ThreadsTab,
+  narrowed: string | undefined,
+  none: boolean,
+): string {
+  const where = narrowed ? ` ${narrowed}` : "";
+  if (none) return narrowed ? `No threads ${narrowed}` : "No threads yet";
+  if (tab === "inbox") return `Inbox zero${where}`;
+  return tab === "snoozed" ? `Nothing snoozed${where}` : `Nothing settled${where}`;
+}
+
+/** The line under an empty Inbox while other threads exist (snoozed, settled or filtered out). */
+export const emptyInboxLine = "Nothing needs you, and nothing is running.";
 
 /**
  * A stable key per row, for the virtualizer and the list's motion. Threads and other rows have

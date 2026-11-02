@@ -11,6 +11,9 @@ import XCTest
         var app = launch([])
         XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30))
         app.buttons["inbox.settings"].tap()
+        // Settings is one step into More.
+        XCTAssertTrue(app.buttons["more.settings"].waitForExistence(timeout: 10))
+        app.buttons["more.settings"].tap()
         XCTAssertTrue(app.buttons["settings.cache"].waitForExistence(timeout: 10))
         app.buttons["settings.cache"].tap()
         clearKeptChats(in: app)
@@ -41,6 +44,9 @@ import XCTest
         let settings = app.buttons["inbox.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 30))
         settings.tap()
+        // Settings is one step into More.
+        XCTAssertTrue(app.buttons["more.settings"].waitForExistence(timeout: 10))
+        app.buttons["more.settings"].tap()
         let cache = app.buttons["settings.cache"]
         XCTAssertTrue(cache.waitForExistence(timeout: 10))
         cache.tap()

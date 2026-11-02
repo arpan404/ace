@@ -77,13 +77,10 @@ struct ForgeHome: View {
     var body: some View {
         content
             .inboxTopBar { chips }
-            .toolbar {
-                if #available(iOS 26, *) {
-                    ToolbarItem(placement: .topBarLeading) { heading }.sharedBackgroundVisibility(.hidden)
-                } else {
-                    ToolbarItem(placement: .topBarLeading) { heading }
-                }
-            }
+            // The system's large title (Pulls, Issues or Inbox), the project under it and the
+            // machine and project pickers in its menu.
+            .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,
+                         hasMenu: inbox.showsMachineNames || projects.count > 1) { titleMenu }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
             .task(id: "\(listKey)|\(listGeneration)") { await load(fresh: false) }
             .sheet(isPresented: $creating) {
@@ -130,33 +127,20 @@ struct ForgeHome: View {
         } else if session != nil, projects.isEmpty, session?.client.connection == "ready" {
             ForgeEmpty { EmptyState(icon: .gitPullRequest, title: "No projects yet", line: "Add a project with a GitHub remote to see its pull requests and issues.") { EmptyView() } }
         } else {
-            ForgeEmpty { ProgressView().controlSize(.regular) }
+            SkeletonRows(label: "Loading pull requests")
         }
     }
 
-    /// "Pulls", "Issues" or "Inbox": the list the tab shows, in the tab bar's own short
-    /// words, with the project under the title. One machine with one project needs no menu.
-    private var heading: some View {
-        let several = inbox.showsMachineNames || projects.count > 1
-        return InboxHeading(title: headingTitle, scope: projects.first { $0.id == chosen }?.name,
-                            problem: InboxConnectionProblem.of(inbox), openMachines: openMachines, identifier: "forge.project") {
-            if several {
-                if inbox.showsMachineNames {
-                    Picker("Machine", selection: Binding(get: { session?.hostId ?? "" }, set: { machine = $0 })) {
-                        ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
-                    }
-                }
-                Picker("Project", selection: Binding(get: { chosen ?? "" }, set: { choose($0) })) {
-                    ForEach(projects) { Text($0.name).tag($0.id) }
-                }
+    /// The title's menu: the machine (several only) and the project the lists follow.
+    @ViewBuilder private var titleMenu: some View {
+        if inbox.showsMachineNames {
+            Picker("Machine", selection: Binding(get: { session?.hostId ?? "" }, set: { machine = $0 })) {
+                ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
             }
         }
-        // Like the Threads title: the bar's heading stops growing at the largest standard
-        // size, so it keeps its place beside the buttons; accessibility sizes read it from
-        // the title's own menu and VoiceOver.
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-        .modifier(HeaderLead())
-        .accessibilityIdentifier("forge.heading")
+        Picker("Project", selection: Binding(get: { chosen ?? "" }, set: { choose($0) })) {
+            ForEach(projects) { Text($0.name).tag($0.id) }
+        }
     }
 
     /// The heading names the list showing, as the tab bar and the switch below it do.
@@ -178,7 +162,7 @@ struct ForgeHome: View {
             ])
             if kind == .pulls, session?.client.canOperate == true, chosen != nil {
                 Button { creating = true } label: {
-                    Image(ace: .plus).frame(width: 36, height: 36).contentShape(Rectangle())
+                    Image(ace: .plus).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap).contentShape(Rectangle())
                 }
                 .accessibilityLabel("New pull request")
                 .accessibilityIdentifier("forge.newpr")
@@ -261,7 +245,7 @@ struct ForgeEmpty<Content: View>: View {
     @Environment(\.onSidebarGlass) private var onGlass
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     var body: some View {
-        ScrollView { content().padding(.top, 120).frame(maxWidth: .infinity) }
+        ScrollView { content().padding(.top, AceDesign.Space.pageState).frame(maxWidth: .infinity) }
             .background(surface)
     }
 }

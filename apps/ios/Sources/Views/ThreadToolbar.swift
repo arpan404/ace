@@ -45,8 +45,8 @@ struct ThreadToolbar: ToolbarContent {
     var coveredByDrawer = false
 
     private var headingWidth: CGFloat {
-        max(0, min(AceTheme.Dimensions.touchTarget * 5,
-                   pageWidth - (panel == nil ? 2 : 4) * AceTheme.Dimensions.touchTarget - 2 * AceTheme.Spacing.lg))
+        max(0, min(AceDesign.Size.tap * 5,
+                   pageWidth - (panel == nil ? 2 : 4) * AceDesign.Size.tap - 2 * AceDesign.Space.margin))
     }
 
     var body: some ToolbarContent {
@@ -83,7 +83,7 @@ struct ThreadToolbar: ToolbarContent {
                     Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                         .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
                         .frame(width: headingWidth)
-                        .frame(minHeight: AceTheme.Spacing.lg).contentShape(Rectangle())
+                        .frame(minHeight: AceDesign.Space.margin).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(subtitle)
@@ -111,10 +111,10 @@ struct ThreadToolbar: ToolbarContent {
     }
     private func titleText(chevron: Bool) -> some View {
         HStack(spacing: AceTheme.Spacing.xxs) {
-            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(.semibold)
+            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(AceDesign.Typeface.strong)
                 .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
             if chevron {
-                Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+                Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
                     .foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
             }
         }
@@ -151,7 +151,7 @@ struct ThreadMenu: View, Equatable {
         Button {
             showing = true
         } label: {
-            AceIcon(.dotsThree, size: AceTheme.Spacing.xxl)
+            AceIcon(.dotsThree, size: AceDesign.Space.group)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .contentShape(Rectangle())
         }

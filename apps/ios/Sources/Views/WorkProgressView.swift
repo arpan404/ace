@@ -125,15 +125,15 @@ private struct LogGroupView: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Button {
                 if !open { DisclosureTrace.shared.asked("group", key: key) }
-                withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { disclosures.set(key, open: !open) }
+                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { disclosures.set(key, open: !open) }
             } label: {
                 if live && running, let active = row.active, let item = source.thread.items[active] {
                     LiveGroupTitle(item: item, step: source.ace[active], count: row.count ?? "", open: open)
                 } else {
                     LogRowBox(open: open) {
-                        AceIcon(Self.icon(row.icon ?? ""), size: 16, relativeTo: .subheadline)
+                        AceIcon(Self.icon(row.icon ?? ""), size: AceDesign.Size.icon, relativeTo: .subheadline)
                     } title: {
-                        (Text(row.sentence ?? "") + failedText).shimmer(running && live)
+                        (Text(row.sentence ?? "") + failedText)
                     }
                 }
             }
@@ -197,7 +197,7 @@ private struct LiveGroupTitle: View {
                 } else {
                     HStack(spacing: AceTheme.Spacing.none) {
                         Text([step.verb, step.target].filter { !$0.isEmpty }.joined(separator: " "))
-                            .truncationMode(.middle).shimmer(!step.settled)
+                            .truncationMode(.middle)
                         if !count.isEmpty {
                             Text(" · \(count)").foregroundStyle(AceTheme.Colours.subtleForeground).layoutPriority(1)
                         }
@@ -205,9 +205,9 @@ private struct LiveGroupTitle: View {
                 }
             }
         } else if item.row.type == "reasoning" {
-            LogRowBox(open: open) { AceIcon(.brain, size: 16, relativeTo: .subheadline) } title: { Text("Thinking…").shimmer(true) }
+            LogRowBox(open: open) { AceIcon(.brain, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text("Thinking…") }
         } else {
-            LogRowBox(open: open) { AceIcon(.hammer, size: 16, relativeTo: .subheadline) } title: { Text("Working").shimmer(true) }
+            LogRowBox(open: open) { AceIcon(.hammer, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text("Working") }
         }
     }
 }

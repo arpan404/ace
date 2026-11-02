@@ -20,10 +20,10 @@ struct NativeMediaView: View {
     @State private var problem: String?
     var body: some View {
         Group {
-            if let document { SandboxedCanvas(document: document).padding(.horizontal, AceTheme.Spacing.xl) }
+            if let document { SandboxedCanvas(document: document).padding(.horizontal, AceDesign.Space.margin) }
             else if let picture { ZoomableImage(image: picture, label: title) }
-            else if let problem { ContentUnavailableView("Couldn't open media", systemImage: "doc", description: Text(problem)) }
-            else { ProgressView("Loading…") }
+            else if let problem { EmptyState(systemImage: "doc", title: "Couldn't open media", line: problem) }
+            else { SkeletonPage(label: "Loading media") }
         }
         .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
         .task(id: scheme) {

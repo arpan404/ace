@@ -44,6 +44,10 @@ export class SidebarLive {
       this.seen = Math.max(this.seen, next.revision);
     }
   }
+  /** The newest row revision the index holds: every listed row has it or an older one. */
+  get revision(): number {
+    return this.seen ?? 0;
+  }
   /** Forget everything; the next sync reads every row again. */
   reset(): void {
     this.seen = undefined;

@@ -11,9 +11,9 @@ struct AnnotationChips: View {
     @Environment(\.aceReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        HStack(spacing: AceDesign.Space.related) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: AceTheme.Spacing.xs) {
+                HStack(spacing: AceDesign.Space.tight) {
                     ForEach(items) { item in
                         Menu {
                             if let openBrowser {
@@ -25,42 +25,47 @@ struct AnnotationChips: View {
                         .transition(.opacity)
                     }
                 }
-                .animation(reduceMotion ? nil : AceTheme.Motion.standardCurve, value: items)
+                .animation(AceDesign.Motion.arriving(reduceMotion), value: items)
             }
             if items.count > 1 {
                 Button("Clear", action: clear)
-                    .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                    .tint(AceTheme.Colours.mutedForeground)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .font(AceDesign.Typeface.body)
+                    .tint(AceDesign.Ink.muted)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("composer.annotations.clear")
             }
         }
         .sensoryFeedback(.selection, trigger: items.count)
     }
 
+    /// The chip's number mark (a count in a filled circle) and the most of its comment it shows.
+    private static let numberDigits: CGFloat = 11
+    private static let numberMark: CGFloat = 18
+    private static let commentWidth: CGFloat = 180
+
     private func chip(_ item: AnnotationChip) -> some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
+        HStack(spacing: AceDesign.Space.tight) {
             Text("\(item.number)")
-                .font(.system(size: 11, weight: .semibold, design: .rounded)).monospacedDigit()
-                .foregroundStyle(AceTheme.Colours.background)
-                .frame(width: 18, height: 18)
-                .background(AceTheme.Colours.foreground, in: Circle())
+                .font(.system(size: Self.numberDigits, weight: AceDesign.Typeface.strong, design: .rounded)).monospacedDigit()
+                .foregroundStyle(AceDesign.Surface.background)
+                .frame(width: Self.numberMark, height: Self.numberMark)
+                .background(AceDesign.Ink.primary, in: Circle())
             Text(item.comment.isEmpty ? item.label : item.comment)
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.foreground)
+                .font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.primary)
                 .lineLimit(1)
-                .frame(maxWidth: 180, alignment: .leading)
+                .frame(maxWidth: Self.commentWidth, alignment: .leading)
             if item.state == "uploading" {
-                ProgressView().controlSize(.mini)
+                WorkingMark(label: "Uploading")
             } else if item.state == "failed" {
-                Text("No image").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                Text("No image").font(AceDesign.Typeface.meta)
                     .foregroundStyle(AceTheme.StatusText.failed)
             }
         }
-        .padding(.leading, AceTheme.Spacing.xs).padding(.trailing, AceTheme.Spacing.sm)
-        .frame(minHeight: 30)
-        .background(AceTheme.Colours.fill, in: AceShape.capsule)
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .padding(.leading, AceDesign.Space.tight).padding(.trailing, AceDesign.Space.related)
+        .frame(minHeight: AceDesign.Size.slimControl)
+        .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
+        .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Annotation \(item.number): \(item.comment.isEmpty ? item.label : item.comment)")

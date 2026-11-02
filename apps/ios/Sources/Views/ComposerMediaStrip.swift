@@ -18,7 +18,7 @@ struct ComposerMediaStrip: View {
         ScrollView(.horizontal, showsIndicators: false) {
             // Spaced and padded so each thumbnail's Remove target, which reaches past its corner,
             // stays inside the row and clear of the next file.
-            HStack(spacing: ComposerMediaThumb.reach + AceTheme.Spacing.xxs) {
+            HStack(spacing: ComposerMediaThumb.reach + AceDesign.Space.tight) {
                 ForEach(files) { file in
                     if let carried = file.carried, file.kind == "image", carried.thumbnail, stored != nil {
                         ComposerMediaThumb(file: file, source: .carried(carried)) { carriedViewing = file } remove: { remove(file.id) }
@@ -96,21 +96,21 @@ private struct ComposerMediaThumb: View {
                 }
                 if let length {
                     Text(length).aceFont(AceTheme.Typography.caption, relativeTo: .caption2).monospacedDigit()
-                        .foregroundStyle(Color.white)
-                        .shadow(color: .black.opacity(0.6), radius: 2)
+                        .foregroundStyle(AceDesign.Ink.onMedia)
+                        .shadow(color: AceDesign.Ink.onMediaShadow, radius: AceDesign.Ink.onMediaShadowRadius)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .padding(AceTheme.Spacing.xs)
+                        .padding(AceDesign.Space.tight)
                 }
                 if file.state == "uploading" {
                     ProgressView(value: file.progress).progressViewStyle(.linear)
                         .tint(AceTheme.Colours.foreground)
-                        .padding(.horizontal, AceTheme.Spacing.xs).padding(.bottom, AceTheme.Spacing.xs)
+                        .padding(.horizontal, AceDesign.Space.tight).padding(.bottom, AceDesign.Space.tight)
                         .accessibilityHidden(true)
                 }
             }
             .frame(width: Self.side, height: Self.side)
-            .clipShape(AceShape.rounded(AceTheme.Radii.code))
-            .contentShape(AceShape.rounded(AceTheme.Radii.code))
+            .clipShape(AceDesign.Shape.block)
+            .contentShape(AceDesign.Shape.block)
         }
         .buttonStyle(.plain)
         .accessibilityLabel([file.name, length.map { "video, \($0)" }, file.state == "uploading" ? "uploading" : nil].compactMap { $0 }.joined(separator: ", "))
@@ -119,12 +119,12 @@ private struct ComposerMediaThumb: View {
         .accessibilityIdentifier("composer.media")
         .overlay(alignment: .topTrailing) {
             Button(action: remove) {
-                AceIcon(.x, size: 10, weight: .bold, relativeTo: .caption2)
+                AceIcon(.x, size: AceDesign.Size.glyphSmall, relativeTo: .caption2)
                     .foregroundStyle(AceTheme.Colours.foreground)
-                    .frame(width: 18, height: 18)
-                    .background(AceTheme.Colours.background.opacity(0.8), in: Circle())
+                    .frame(width: AceDesign.Size.badge, height: AceDesign.Size.badge)
+                    .background(AceDesign.Surface.veil, in: Circle())
                     // The X sits inside the thumbnail's corner, at the target's lower left.
-                    .padding(.leading, 5).padding(.bottom, 5)
+                    .padding(.leading, AceDesign.Space.tight).padding(.bottom, AceDesign.Space.tight)
                     .frame(width: Self.target, height: Self.target, alignment: .bottomLeading)
                     .contentShape(Rectangle())
             }

@@ -33,9 +33,9 @@ struct ForgeRenderedDiffView: View {
                 EmptyState(icon: nil, title: "Couldn't draw this file", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
                 }
-                .padding(.top, 60)
+                .padding(.top, AceDesign.Space.partState)
             } else {
-                ProgressView().padding(.top, 60).frame(maxWidth: .infinity)
+                SkeletonPage()
             }
         }
         .animation(AceMotion.smooth, value: blocks == nil)
@@ -47,7 +47,7 @@ struct ForgeRenderedDiffView: View {
             Text(verbatim: block.kind == "add" ? "+" : block.kind == "del" ? "−" : "")
                 .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .frame(width: 12, alignment: .leading)
+                .frame(width: AceDesign.Size.caret, alignment: .leading)
                 .accessibilityHidden(true)
             ForgeText(text: block.text, scope: scope)
         }

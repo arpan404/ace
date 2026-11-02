@@ -8,6 +8,7 @@ struct InboxSelectionBar: View {
     let selection: Set<InboxKey>
     let organize: InboxOrganize
     let finish: () -> Void
+    @Environment(\.colorScheme) private var scheme
 
     /// Picks in list order, so a bulk pin keeps the order they were listed in.
     private var picked: [InboxKey] {
@@ -40,10 +41,10 @@ struct InboxSelectionBar: View {
                 Task { await organize.askDelete(keys, in: inbox); finish() }
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.sm)
+        .padding(.horizontal, AceDesign.Space.related)
         .aceGlass(in: AceShape.capsule)
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.bottom, AceTheme.Spacing.sm)
+        .padding(.horizontal, AceDesign.Space.row)
+        .padding(.bottom, AceDesign.Space.related)
     }
 
     private func run(_ action: BulkAction, _ keys: [InboxKey]) {
@@ -54,16 +55,15 @@ struct InboxSelectionBar: View {
     private func word(_ title: String, id: String, enabled: Bool, danger: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.medium)
-                // The system's destructive red, as menus and alerts draw Delete.
-                .foregroundStyle(danger ? Color(uiColor: .systemRed) : AceTheme.Colours.foreground)
+                .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+                .foregroundStyle(danger ? AceDesign.Ink.destructive : AceTheme.Colours.foreground)
                 .lineLimit(1).minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.4)
+        .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
         .accessibilityIdentifier(id)
     }
 }

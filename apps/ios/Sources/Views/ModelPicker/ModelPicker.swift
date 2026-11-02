@@ -77,11 +77,10 @@ struct ModelPicker: View {
     @ViewBuilder private var content: some View {
         switch state {
         case .loading:
-            HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear).listRowSeparator(.hidden)
+            SkeletonRows(count: 4, label: "Loading models").listRowBackground(Color.clear).listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets())
         case .failed(let title, let message):
-            ContentUnavailableView {
-                Label(title, systemImage: "wifi.exclamationmark")
-            } description: { Text(message) } actions: { Button("Try again", action: retry) }
+            EmptyState(icon: nil, title: title, line: message, failed: true) { Button("Try again", action: retry) }
             .listRowSeparator(.hidden)
         case .ready:
             if let starProblem { PickerNote(text: starProblem).accessibilityIdentifier("modelSheet.starProblem") }
@@ -89,7 +88,7 @@ struct ModelPicker: View {
                 PickerNote(text: note).accessibilityIdentifier("tab.\(shown).reason")
             }
             if rows.isEmpty {
-                if searching { ContentUnavailableView.search(text: query).listRowSeparator(.hidden) }
+                if searching { EmptyState.search(query).listRowSeparator(.hidden) }
                 else if shown == ModelPickerTab.favorites {
                     PickerNote(text: "Star a model to keep it here.").accessibilityIdentifier("favorites.empty")
                 } else if tab?.note == nil { PickerNote(text: "No models on this account.") }

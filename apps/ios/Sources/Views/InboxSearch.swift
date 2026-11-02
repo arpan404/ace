@@ -95,7 +95,7 @@ struct InboxSearchList: View {
         .background(surface)
         .environment(\.defaultMinListRowHeight, 0)
         // New results crossfade in; under Reduce Motion they simply fade.
-        .animation(reduceMotion ? .easeInOut(duration: 0.15) : AceTheme.Motion.standardCurve, value: shape)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: shape)
         .task(id: "\(text)|\(threadOpen)|\(scope.project)|\(inbox.sessions.map { "\($0.hostId):\($0.client.connection)" })") {
             let project = scopedMachine.flatMap { machine in scopedWorkspace.map { (machineId: machine, workspaceId: $0) } }
             await everything.run(inbox, query: text, threadOpen: threadOpen, project: project)
@@ -135,7 +135,7 @@ struct InboxSearchList: View {
                     Button("Clear") { withAnimation { recent = []; UserDefaults.standard.set([String](), forKey: RecentSearches.key) } }
                         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget)
+                        .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
                         .accessibilityIdentifier("search.recent.clear")
                 }
             }
@@ -190,12 +190,12 @@ struct InboxSearchList: View {
             }
         }
         if messages.loading && messages.merged(inbox).isEmpty && foundThreads.isEmpty {
-            ProgressView().frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
+            ProgressView().frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 .accessibilityLabel("Searching")
                 .listRowSeparator(.hidden).listRowBackground(surface)
         } else if !messages.loading && foundThreads.isEmpty && everything.commands.isEmpty && everything.projects.isEmpty
                     && messages.merged(inbox).isEmpty {
-            ContentUnavailableView.search(text: text)
+            EmptyState.search(text)
                 .listRowSeparator(.hidden).listRowBackground(surface)
         }
     }
@@ -245,7 +245,7 @@ struct InboxSearchList: View {
     /// Kind, project and date, as glass chips under the field; each shows its current choice.
     private var filterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 Menu {
                     Picker("Show", selection: $scope.kind) { ForEach(SearchScope.kinds, id: \.id) { Text($0.label).tag($0.id) } }
                 } label: { InboxChip(title: SearchScope.kinds.first { $0.id == scope.kind }?.label ?? "All") }
@@ -262,8 +262,8 @@ struct InboxSearchList: View {
                 } label: { InboxChip(title: SearchScope.ranges.first { $0.days == scope.days }?.label ?? "Any time") }
                 .accessibilityIdentifier("search.filter.date")
             }
-            .padding(.horizontal, AceTheme.Spacing.sm)
-            .padding(.vertical, AceTheme.Spacing.xs)
+            .padding(.horizontal, AceDesign.Space.related)
+            .padding(.vertical, AceDesign.Space.tight)
         }
     }
 
@@ -280,14 +280,14 @@ struct InboxSearchList: View {
     }
 
     private func plainRow(_ title: String, icon: AceIcon.Name?, detail: String? = nil) -> some View {
-        HStack(spacing: AceTheme.Spacing.md) {
-            if let icon { AceIcon(icon, size: 16, relativeTo: .body).foregroundStyle(AceTheme.Colours.faintForeground) }
+        HStack(spacing: AceDesign.Space.row) {
+            if let icon { AceIcon(icon, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceTheme.Colours.faintForeground) }
             Text(title).aceFont(InboxRowType.title, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             if let detail { Text(detail).meta(AceTheme.Colours.subtleForeground) }
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+        .padding(.horizontal, AceTheme.Spacing.rowInner)
+        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
         .contentShape(Rectangle())
     }
 
@@ -301,16 +301,16 @@ private struct MessageHitLabel: View {
     let hit: ConversationHit
     var machine: String?
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            HStack(spacing: AceDesign.Space.related) {
                 Text(hit.threadTitle).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Spacer(minLength: AceDesign.Space.related)
                 if let machine { Text(machine).meta(AceTheme.Colours.subtleForeground) }
             }
             Text(hit.excerpt).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
         }
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.vertical, AceTheme.Spacing.md)
+        .padding(.horizontal, AceTheme.Spacing.rowInner)
+        .padding(.vertical, AceDesign.Space.row)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }

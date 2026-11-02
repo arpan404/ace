@@ -99,7 +99,7 @@ struct ForgeLinePickStrip: View {
         .buttonStyle(.forgeWord)
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
         .padding(.horizontal, AceTheme.Spacing.lg)
-        .frame(minHeight: 52)
+        .frame(minHeight: AceDesign.Size.rowDetail)
         .aceGlass(in: AceShape.capsule)
         .padding(.horizontal, AceTheme.Spacing.md)
         .padding(.bottom, AceTheme.Spacing.sm)

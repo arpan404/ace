@@ -17,14 +17,14 @@ struct ChangesTreeSheet: View {
                         .buttonStyle(.plain)
                         .listRowSeparator(.hidden)
                         .listRowBackground(AceTheme.Colours.background)
-                        .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.lg, bottom: 0, trailing: AceTheme.Spacing.lg))
+                        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
                         .accessibilityIdentifier("tree.\(row.key)")
                 }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
-            .animation(reduceMotion ? nil : .smooth(duration: AceTheme.Motion.standard), value: folded)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: folded)
             .navigationTitle("Files").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
@@ -59,10 +59,10 @@ struct ChangesTreeSheet: View {
         let folder = row.kind == "folder"
         let viewed = model.sheets.changes?.files.first { $0.path == row.key }?.viewed == true
         return HStack(spacing: AceTheme.Spacing.sm) {
-            Color.clear.frame(width: CGFloat(row.depth) * 16, height: 1)
+            Color.clear.frame(width: CGFloat(row.depth) * AceDesign.Space.treeLevel, height: AceDesign.Size.hairline)
             Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
                 .rotationEffect(.degrees(folder && !folded.contains(row.key) ? 90 : 0))
-                .foregroundStyle(AceTheme.Colours.decoration).frame(width: 10).opacity(folder ? 1 : 0)
+                .foregroundStyle(AceTheme.Colours.decoration).frame(width: AceDesign.Size.caret).opacity(folder ? 1 : 0)
             Text(row.name).aceFont(AceTheme.Typography.body, relativeTo: .body)
                 .foregroundStyle(folder || viewed ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                 .lineLimit(1).truncationMode(.middle)
@@ -72,9 +72,9 @@ struct ChangesTreeSheet: View {
                 Text("−\(row.deletions)").foregroundStyle(AceTheme.StatusText.failed)
                 Text("+\(row.additions)").foregroundStyle(AceTheme.StatusText.done)
             }
-            .aceMonospace(FileDiffStyle.path, relativeTo: .caption).opacity(folder ? 0.7 : 1)
+            .aceMonospace(FileDiffStyle.path, relativeTo: .caption).opacity(folder ? AceDesign.Ink.settledOpacity : 1)
         }
-        .frame(minHeight: 44).contentShape(Rectangle())
+        .frame(minHeight: AceDesign.Size.rowLine).contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityValue(folder ? (folded.contains(row.key) ? "Folded" : "Open") : "")
     }

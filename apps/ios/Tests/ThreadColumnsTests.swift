@@ -92,17 +92,17 @@ import SwiftUI
         #expect(ThreadColumns.neighbour(of: nil, in: [], step: 1) == nil)
     }
 
-    @Test func threadOrderSkipsClosedShelvesAndOpensAnUnsentRowsThread() {
+    @Test func threadOrderStaysInTheOpenTabAndOpensAnUnsentRowsThread() {
         let key = { InboxKey(machineId: "m", id: $0) }
         let sections = [
-            MergedInbox.Section(key: "settled", label: "Settled", rows: [key("done")]),
+            MergedInbox.Section(key: "settled", label: "Settled", rows: [key("done")], tab: "settled"),
             MergedInbox.Section(key: "unsent", label: "Unsent", rows: [key("pending-1")]),
             MergedInbox.Section(key: "now", label: "", rows: [key("a"), key("b")]),
-            MergedInbox.Section(key: "snoozed", label: "Snoozed", rows: [key("later")]),
+            MergedInbox.Section(key: "snoozed", label: "Snoozed", rows: [key("later")], tab: "snoozed"),
         ]
         let thread: (InboxKey) -> InboxKey? = { $0.id == "pending-1" ? key("b") : $0 }
-        #expect(ThreadColumns.order(sections, shelves: InboxShelves(), thread: thread) == [key("b"), key("a")])
-        #expect(ThreadColumns.order(sections, shelves: InboxShelves(snoozed: true, settled: true), thread: thread)
-                == [key("b"), key("a"), key("later"), key("done")])
+        #expect(ThreadColumns.order(sections, tab: "inbox", thread: thread) == [key("b"), key("a")])
+        #expect(ThreadColumns.order(sections, tab: "snoozed", thread: thread) == [key("later")])
+        #expect(ThreadColumns.order(sections, tab: "settled", thread: thread) == [key("done")])
     }
 }

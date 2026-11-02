@@ -2,6 +2,12 @@
   "$id": "https://ace.local/protocol/v1/ThreadListView.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "keep": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+      },
+      "type": "array"
+    },
     "kind": {
       "const": "threads",
       "type": "string"

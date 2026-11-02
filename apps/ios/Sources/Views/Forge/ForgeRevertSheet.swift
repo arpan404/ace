@@ -30,7 +30,7 @@ struct ForgeRevertSheet: View {
                     TextField("Title", text: $title)
                         .aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .padding(AceTheme.Spacing.md)
-                        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
+                        .background(AceTheme.Colours.fill, in: AceDesign.Shape.field)
                         .accessibilityIdentifier("forge.revert.title")
                     ForgeEditor(text: $body_, placeholder: "Description", minLines: 5)
                         .accessibilityIdentifier("forge.revert.body")
@@ -80,7 +80,7 @@ struct ForgeRevertSheet: View {
                 if busy { ProgressView().controlSize(.small) }
                 Text(label).fontWeight(.semibold)
             }
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
         }
         .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
         .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)

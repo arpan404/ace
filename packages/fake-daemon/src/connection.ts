@@ -1,4 +1,6 @@
 import { sidebarPage, isSidebarEvent } from "@ace/projection";
+import { isChatEntry } from "@ace/ui-core/chat-list";
+import { placeWindow, type PlaceInput } from "@ace/ui-core/thread-place";
 import { WireTrimmer } from "@ace/projection/wire-trim";
 import {
   ThreadId,
@@ -28,6 +30,11 @@ export interface Host {
   readonly platform?: string | undefined;
   readonly head: number;
   readonly duplicateEvents: boolean;
+  /**
+   * What places listed threads (the daemon's `SidebarPlacement`); absent, the defaults at time 0.
+   * Undefined: a daemon from before placement, whose lists carry no places or dots.
+   */
+  placeInput?(): PlaceInput | undefined;
   accepts(credential: { token?: string | undefined; ticket?: string | undefined }): boolean;
   snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined;
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[];
@@ -210,6 +217,7 @@ export class Connection {
         );
         for (const entry of page.threads) subscription.selected?.add(entry.id);
         subscription.before = page.window.before;
+        const placed = this.placed(page.threads);
         subscription.limit =
           (subscription.limit ?? subscription.scope.window.limit) + page.threads.length;
         this.send({
@@ -217,9 +225,12 @@ export class Connection {
           requestId: message.requestId,
           subscriptionId: message.subscriptionId,
           seq: this.host.head,
-          threads: Object.fromEntries(page.threads.map((entry) => [entry.id, entry])),
+          threads: Object.fromEntries(placed.threads.map((entry) => [entry.id, entry])),
           removed: [],
-          window: page.window,
+          window: {
+            ...page.window,
+            attention: this.attention(view, subscription.scope.window, subscription.limit),
+          },
         });
         break;
       }
@@ -309,7 +320,8 @@ export class Connection {
         return;
       }
       const page = sidebarPage(Object.values(view.threads), scope.window);
-      const threads = Object.fromEntries(page.threads.map((entry) => [entry.id, entry]));
+      const placed = this.placed(page.threads);
+      const threads = Object.fromEntries(placed.threads.map((entry) => [entry.id, entry]));
       this.subscriptions.set(id, {
         scope,
         cursor: head,
@@ -321,7 +333,7 @@ export class Connection {
         type: "snapshot",
         subscriptionId: id,
         seq: head,
-        view: { ...view, threads, window: page.window },
+        view: { ...view, threads, window: { ...page.window, attention: placed.attention } },
       });
       if (paced) this.send({ type: "subscription.ready", subscriptionId: id, seq: head });
       return;
@@ -349,6 +361,44 @@ export class Connection {
     // even an empty one) is complete, so its startup slot frees for the next scope.
     if (paced) this.send({ type: "subscription.ready", subscriptionId: id, seq: head });
   }
+  /** A window placed by the daemon's rule (`placeWindow`), so clients see what the daemon sends. */
+  private placed(entries: readonly import("@ace/protocol").ThreadListEntry[]): {
+    threads: readonly import("@ace/protocol").ThreadListEntry[];
+    attention: import("@ace/protocol").ListAttention | undefined;
+  } {
+    const input = this.host.placeInput ? this.host.placeInput() : { baseline: 0, now: 0 };
+    if (!input) return { threads: entries, attention: undefined };
+    return placeWindow(entries, input, isChatEntry);
+  }
+  /** The dots for a window of `limit` threads: a page adds settled threads, never live ones. */
+  private attention(
+    view: ThreadListView,
+    window: NonNullable<Extract<SubscriptionScope, { kind: "threads" }>["window"]>,
+    limit: number,
+  ) {
+    return this.placed(sidebarPage(Object.values(view.threads), { ...window, limit }).threads)
+      .attention;
+  }
+  /** What places threads changed (the sort): each open list gets its threads placed anew. */
+  replace(): void {
+    const view = this.host.snapshot({ kind: "threads" });
+    if (!view || view.kind !== "threads") return;
+    for (const [id, subscription] of this.subscriptions) {
+      const window = subscription.scope.kind === "threads" ? subscription.scope.window : undefined;
+      if (!window || !subscription.selected) continue;
+      const limit = subscription.limit ?? window.limit;
+      const current = sidebarPage(Object.values(view.threads), { ...window, limit });
+      const placed = this.placed(current.threads);
+      this.send({
+        type: "threads.patch",
+        subscriptionId: id,
+        seq: subscription.cursor,
+        threads: Object.fromEntries(placed.threads.map((entry) => [entry.id, entry])),
+        removed: [],
+        window: { ...current.window, attention: placed.attention },
+      });
+    }
+  }
   /** Fan out one appended batch. Filtered events leave a host-sequence gap, as the daemon does. */
   publish(events: readonly DeliveryEvent[], through: number): void {
     for (const [id, subscription] of this.subscriptions) {
@@ -372,7 +422,8 @@ export class Connection {
         const removed = [...subscription.selected]
           .filter((threadId) => !present.has(threadId))
           .map((threadId) => ThreadId.parse(threadId));
-        const rows = current.threads.filter(
+        const placed = this.placed(current.threads);
+        const rows = placed.threads.filter(
           (entry) => changed.has(entry.id) || !subscription.selected?.has(entry.id),
         );
         subscription.selected = new Set(present.keys());
@@ -383,7 +434,7 @@ export class Connection {
           seq: through,
           threads: Object.fromEntries(rows.map((entry) => [entry.id, entry])),
           removed,
-          window: current.window,
+          window: { ...current.window, attention: placed.attention },
         });
         subscription.cursor = through;
         continue;

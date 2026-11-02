@@ -6,6 +6,7 @@ import SwiftUI
 /// (`bridge/provider-page-view.ts`); this draws them. `extra` takes more sections (ACP
 /// registry, MCP servers) between Behaviour and Advanced.
 struct ProviderPageView<Extra: View>: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let provider: String
     let name: String
@@ -53,16 +54,16 @@ struct ProviderPageView<Extra: View>: View {
             } else if let problem {
                 Section {
                     ServiceProblem(message: problem)
-                    Button("Retry") { Task { await read() } }.frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    Button("Retry") { Task { await read() } }.frame(minHeight: AceDesign.Size.tap)
                 }.insetRowBackground()
             } else {
                 placeholder
             }
         }
         .insetGroupedList()
-        .onChange(of: install?.title) { if install?.idle == false { withAnimation(.smooth) { proxy.scrollTo("install", anchor: .top) } } }
+        .onChange(of: install?.title) { if install?.idle == false { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { proxy.scrollTo("install", anchor: .top) } } }
         }
-        .animation(.smooth, value: page)
+        .smoothChange(page)
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
         .sensoryFeedback(.success, trigger: saved)
         .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(ProviderPageData.read(provider, admin: model.canAdmin == true))]) {
@@ -80,7 +81,7 @@ struct ProviderPageView<Extra: View>: View {
     private func read() async {
         do {
             let next = try await model.read(ProviderPageData.read(provider, admin: model.canAdmin == true), as: ProviderPageData.self)
-            withAnimation(.smooth) { page = next; problem = nil }
+            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { page = next; problem = nil }
         } catch {
             // The last page this phone saw stays; the problem shows only when there is none.
             if page == nil { problem = "Couldn't read \(name) on this computer. Check the connection and retry." }
@@ -93,24 +94,24 @@ struct ProviderPageView<Extra: View>: View {
             defer { busy = false }
             do {
                 let next = try await ProviderInstallSection.plan(model, provider: provider, action: action)
-                withAnimation(.smooth) { install = next }
+                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { install = next }
             } catch { editProblem = error.localizedDescription }
         }
     }
 
     @ViewBuilder private func header(_ page: ProviderPageData) -> some View {
         Section {
-            HStack(spacing: AceTheme.Spacing.md) {
-                ProviderMark(provider: provider, size: 36).opacity(page.missing ? 0.6 : 1).grayscale(page.missing ? 1 : 0)
+            HStack(spacing: AceDesign.Space.row) {
+                ProviderMark(provider: provider, size: AceDesign.Size.headerMark).opacity(page.missing ? AceDesign.Ink.recede : 1).grayscale(page.missing ? 1 : 0)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Text(page.name).aceFont(AceTheme.Typography.title, relativeTo: .title3).foregroundStyle(AceTheme.Colours.foreground)
+                    Text(page.name).font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong)).foregroundStyle(AceDesign.Ink.primary)
                     if page.version != nil || page.update != nil {
-                        HStack(spacing: AceTheme.Spacing.xs) {
-                            if let version = page.version { Text(version).monospacedDigit().foregroundStyle(AceTheme.Colours.mutedForeground) }
-                            if page.version != nil, page.update != nil { Text("·").foregroundStyle(AceTheme.Colours.mutedForeground) }
+                        HStack(spacing: AceDesign.Space.tight) {
+                            if let version = page.version { Text(version).monospacedDigit().foregroundStyle(AceDesign.Ink.muted) }
+                            if page.version != nil, page.update != nil { Text("·").foregroundStyle(AceDesign.Ink.muted) }
                             if let update = page.update { Text(update).foregroundStyle(AceTheme.StatusText.needsYou) }
                         }
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .font(AceDesign.Typeface.meta)
                     }
                 }
                 Spacer(minLength: 0)
@@ -122,18 +123,18 @@ struct ProviderPageView<Extra: View>: View {
 
     @ViewBuilder private func status(_ page: ProviderPageData) -> some View {
         Section {
-            HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+            HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
                 StateLabel(status: page.status)
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Spacer(minLength: AceDesign.Space.related)
             }
             .accessibilityIdentifier("provider.status")
             if let detail = page.detail {
-                Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(detail).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
             }
             if let fix = page.fix, install?.idle ?? true { fixButton(fix, page) }
             if page.updateToo, install?.idle ?? true {
-                Button("Update") { plan("update") }.frame(minHeight: AceTheme.Dimensions.touchTarget)
+                Button("Update") { plan("update") }.frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("provider.update")
             }
             ServiceProblem(message: editProblem)
@@ -146,17 +147,17 @@ struct ProviderPageView<Extra: View>: View {
         switch fix.action {
         case "sign_in":
             NavigationLink { ProviderSignInView(model: model, provider: provider, name: page.name) } label: {
-                Text(fix.label).foregroundStyle(AceTheme.Colours.accent)
+                Text(fix.label).foregroundStyle(AceDesign.Ink.accent)
             }
             .accessibilityIdentifier("provider.fix")
         case "turn_on":
             Button(fix.label) { edit(["kind": "enabled", "on": true]) }
-                .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget).accessibilityIdentifier("provider.fix")
+                .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceDesign.Ink.accent)
+                .frame(minHeight: AceDesign.Size.tap).accessibilityIdentifier("provider.fix")
         default:
             Button(fix.label) { plan(fix.action) }
-                .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget).accessibilityIdentifier("provider.fix")
+                .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceDesign.Ink.accent)
+                .frame(minHeight: AceDesign.Size.tap).accessibilityIdentifier("provider.fix")
         }
     }
 
@@ -174,12 +175,12 @@ struct ProviderPageView<Extra: View>: View {
             }
             if let terminal = page.terminal {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Text("In a terminal on the computer").aceFont(InsetStyle.label, relativeTo: .body)
+                    Text("In a terminal on the computer").font(AceDesign.Typeface.body)
                     (Text("Run ") + Text(terminal.run).monospaced() + Text(terminal.prompt.map { ", then type \($0)" } ?? ""))
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).textSelection(.enabled)
+                        .font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted).textSelection(.enabled)
                 }
-                .padding(.vertical, AceTheme.Spacing.xs)
+                .padding(.vertical, AceDesign.Space.tight)
             }
         } header: { InsetHeader("Sign-in") } footer: {
             if let apiKey = page.apiKey { Text(apiKey) }
@@ -194,7 +195,7 @@ struct ProviderPageView<Extra: View>: View {
                     if fact.code { Text(fact.value).monospaced().textSelection(.enabled).multilineTextAlignment(.trailing) }
                     else { Text(fact.value).multilineTextAlignment(.trailing) }
                 }
-                .aceFont(InsetStyle.value, relativeTo: .body)
+                .font(AceDesign.Typeface.body)
             }
         } header: { InsetHeader("About") }
         .insetRowBackground()

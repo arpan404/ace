@@ -9,16 +9,17 @@ struct MediaViewer: View {
     @Environment(\.dismiss) private var dismiss
     @State private var image: UIImage?
     @State private var failed = false
+    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            AceDesign.Surface.media.ignoresSafeArea()
             if let image {
                 ZoomableImage(image: image, label: title, dismiss: { dismiss() }).ignoresSafeArea()
             } else if failed {
                 Text("\(title) couldn't be read.")
                     .aceFont(AceTheme.Typography.body, relativeTo: .body)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(AceTheme.Spacing.xl)
+                    .padding(AceDesign.Space.margin)
             } else {
                 ProgressView().accessibilityLabel("Loading \(title)")
             }
@@ -30,7 +31,7 @@ struct MediaViewer: View {
                     .transition(.opacity)
             }
         }
-        .animation(.smooth, value: image != nil)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: image != nil)
         .environment(\.colorScheme, .dark)
         // VoiceOver's scrub gesture closes it too.
         .accessibilityAction(.escape) { dismiss() }
@@ -61,10 +62,10 @@ struct MediaShareButton<Item: Transferable>: View {
         ShareLink(item: item, preview: SharePreview(title)) { Text("Share") }
             .aceFont(AceTheme.Typography.label, relativeTo: .body)
             .foregroundStyle(AceTheme.Colours.foreground)
-            .padding(.horizontal, AceTheme.Spacing.lg)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            .padding(.horizontal, AceDesign.Space.margin)
+            .frame(minHeight: AceDesign.Size.tap)
             .floatingGlass()
-            .padding(.leading, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.xs)
+            .padding(.leading, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
             .accessibilityIdentifier("media.share")
     }
 }
@@ -76,10 +77,10 @@ struct MediaDoneButton: View {
         Button("Done", action: action)
             .aceFont(AceTheme.Typography.label, relativeTo: .body)
             .foregroundStyle(AceTheme.Colours.foreground)
-            .padding(.horizontal, AceTheme.Spacing.lg)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            .padding(.horizontal, AceDesign.Space.margin)
+            .frame(minHeight: AceDesign.Size.tap)
             .floatingGlass()
-            .padding(.trailing, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.xs)
+            .padding(.trailing, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
             .accessibilityIdentifier("media.close")
     }
 }

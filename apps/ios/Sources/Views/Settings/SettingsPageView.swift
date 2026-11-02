@@ -29,7 +29,7 @@ struct SettingsPageView: View {
 
     private var request: [String: Any] { SettingsPageData.request(page) }
     private var spreading: Bool { scope?.all == true && scope?.several == true }
-    private var motion: Animation { reduceMotion ? .easeInOut(duration: 0.2) : .smooth }
+    private var motion: Animation { AceDesign.Motion.arriving(reduceMotion) }
 
     var body: some View {
         List {
@@ -172,7 +172,7 @@ private struct SettingsPagePlaceholder: View {
         Section {
             ForEach(0..<rows, id: \.self) { _ in
                 HStack { Text("Setting name here"); Spacer(); Text("Value") }
-                    .aceFont(InsetStyle.label, relativeTo: .body)
+                    .font(AceDesign.Typeface.body)
             }
         }
         .insetRowBackground()
@@ -194,7 +194,7 @@ private struct SettingsClearRow: View {
         Button(clear.label, role: clear.destructive ? .destructive : nil) {
             if clear.ask == nil { run() } else { asking = true }
         }
-        .foregroundStyle(clear.destructive ? Color(uiColor: .systemRed) : AceTheme.Colours.foreground)
+        .foregroundStyle(clear.destructive ? Color(uiColor: .systemRed) : AceDesign.Ink.primary)
         .disabled(!enabled)
         .accessibilityIdentifier("setting.\(row.id).clear")
         .confirmationDialog(clear.ask?.title ?? "", isPresented: $asking, titleVisibility: .visible) {

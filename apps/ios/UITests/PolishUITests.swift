@@ -59,9 +59,7 @@ import XCTest
         // A snooze that starts now, however long the fixture has been running.
         try post("/review/nap", #"{"ms":45000}"#)
         let app = launch()
-        let snoozed = app.buttons["inbox.snoozed"].firstMatch
-        for _ in 0..<6 where !snoozed.isHittable { app.swipeUp() }
-        snoozed.tap()
+        app.buttons["threads.tab.snoozed"].firstMatch.tap()
         let nap = app.buttons["thread.ios-nap"]
         for _ in 0..<6 where !nap.exists { app.swipeUp() }
         XCTAssertTrue(nap.waitForExistence(timeout: 10))
@@ -69,9 +67,14 @@ import XCTest
         try control(online: false)
         defer { try? control(online: true) }
         // Rows read as the web's: at rest a thread shows only its age, so an ended snooze shows as
-        // the row leaving the Snoozed shelf with no "Until".
-        let ended = expectation(for: NSPredicate(format: "exists == true AND NOT (label CONTAINS 'Until')"), evaluatedWith: nap)
-        wait(for: [ended], timeout: 200)
+        // the row leaving the Snoozed tab for the tab its state puts it in, with no "Until".
+        XCTAssertTrue(nap.waitForNonExistence(timeout: 200), "the snooze ends on the phone's clock")
+        for tab in ["inbox", "settled"] where !nap.exists {
+            app.buttons["threads.tab.\(tab)"].firstMatch.tap()
+            for _ in 0..<6 where !nap.exists { app.swipeUp() }
+        }
+        XCTAssertTrue(nap.exists)
+        XCTAssertFalse(nap.label.contains("Until"), nap.label)
         screenshot("snooze-ended-offline")
     }
 

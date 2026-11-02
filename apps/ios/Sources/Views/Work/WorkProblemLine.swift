@@ -21,7 +21,7 @@ struct WorkProblemLine: View {
         StripSurface {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 HStack(spacing: AceTheme.Spacing.sm) {
-                    Text(line.label).fontWeight(.medium).foregroundStyle(AceTheme.StatusText.failed)
+                    Text(line.label).fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceTheme.StatusText.failed)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if model.canOperate {
@@ -40,7 +40,7 @@ struct WorkProblemLine: View {
                 }
             }
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+            .frame(minHeight: AceDesign.Size.tap)
             .accessibilityElement(children: .contain)
         }
         .accessibilityIdentifier("thread.work")
@@ -68,10 +68,9 @@ struct ClearStaleLockWord: View {
     var body: some View {
         if let clear {
             Button("Clear stale lock", action: clear)
-                .fontWeight(.medium)
                 .foregroundStyle(AceTheme.StatusText.failed)
                 .padding(.horizontal, AceTheme.Spacing.sm)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("thread.clearStaleLock")

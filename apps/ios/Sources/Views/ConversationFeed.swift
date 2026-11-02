@@ -100,14 +100,14 @@ struct ConversationFeed: View {
                 if let problem = reading.problem {
                     ServiceProblem(message: problem)
                     Button("Retry loading messages") { reading.retry(model: model, live: thread) }
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                        .frame(minHeight: AceDesign.Size.tap)
                 }
                 if ready {
                     if historyStale {
                         // Cached history is explicitly stale and read-only: a
                         // visible indication with retry that never blocks scroll
                         // or the composer. Rows below are disabled.
-                        HStack(spacing: AceTheme.Spacing.sm) {
+                        HStack(spacing: AceDesign.Space.related) {
                             Text(reading.isStale ? "Cached history" : "Offline — cached history")
                                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                                 .foregroundStyle(AceTheme.Colours.subtleForeground)
@@ -118,8 +118,8 @@ struct ConversationFeed: View {
                                 .disabled(reading.loading)
                                 .accessibilityIdentifier("transcript.cached.retry")
                         }
-                        .padding(.horizontal, AceTheme.Spacing.xl)
-                        .padding(.vertical, AceTheme.Spacing.xs)
+                        .padding(.horizontal, AceDesign.Space.margin)
+                        .padding(.vertical, AceDesign.Space.tight)
                         .accessibilityElement(children: .combine)
                         .accessibilityHint("Shows saved history until the thread reconnects")
                     }
@@ -127,9 +127,11 @@ struct ConversationFeed: View {
                     ForEach(TranscriptFeedRow.rows(shown)) { row in
                         TranscriptFeedRowView(row: row, thread: shown, links: links).id(row.id)
                             .disabled(historyStale)
-                            .onAppear { ThreadOpenTrace.shared.painted(thread.id) }
+                            .onAppear { ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1) }
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("transcript.viewport")) } action: { frame in
+                                let returning = anchor.frames[row.id] == nil
                                 anchor.frames[row.id] = frame
+                                anchor.measured(row.id, height: frame.height, returning: returning)
                                 extent.measure(row.id, height: Double(frame.height))
                                 // Post-gesture shell: refresh the capture from settled
                                 // frames before any drift correction, so a stale
@@ -153,36 +155,29 @@ struct ConversationFeed: View {
                             .onDisappear { anchor.frames[row.id] = nil }
                     }
                     Color.clear.frame(height: extent.after).accessibilityHidden(true)
-                } else { ConversationSkeleton().padding(AceTheme.Spacing.xl) }
+                } else { ConversationSkeleton().padding(AceDesign.Space.margin) }
                 if reading.thread == nil || reading.joined {
                     ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
                         PendingSendRow(row: row, canRetry: model.canOperate, retry: { await model.retrySend(row) },
                                        words: { await model.sendWords(row.id) },
                                        saveWords: { await model.editFailedSend(row.id, text: $0) },
                                        discard: { await model.dismissSend(row.id) })
-                            .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+                            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.tight)
                     }
-                    if let held = thread.screen.queue?.notSent {
-                        HeldSendRow(message: held, canAct: model.canOperate, act: { await model.actOnQueue($0) },
-                                    edit: { message, change in await model.editQueued(message, change: change) },
-                                    words: { await model.queuedWords(held.id) },
-                                    saveWords: { await model.editQueuedWords(held.id, text: $0, revision: $1) })
-                            .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
-                            .transition(.opacity)
-                    }
+                    // A message that wasn't sent is the strip's above the composer (`NotSentStrip`).
                 }
                 // Room for the composer, its strip and the keyboard, and under the last row so it
                 // clears the strip tucked above the composer. The feed itself never changes size as
                 // they move: resizing a long lazy transcript re-estimates its height and throws the
                 // scroll offset, so only this row grows and shrinks.
-                Color.clear.frame(height: barHeight + keyboardLift + AceTheme.Spacing.xxl).accessibilityHidden(true)
+                Color.clear.frame(height: barHeight + keyboardLift + AceDesign.Space.group).accessibilityHidden(true)
                 // The end of the feed: scrolling to it puts the room above at the bottom.
                 TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving && !intent.active { toEnd(proxy) } }
             }
             .modifier(TranscriptTextSize())
-            .padding(.top, AceTheme.Spacing.sm)
+            .padding(.top, AceDesign.Space.related)
             // A message that wasn't sent fades in and out where it was written.
-            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: thread.screen.queue?.notSent?.id)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: thread.screen.queue?.notSent?.id)
             // A comfortable line on a wide window; the scroll itself stays full width.
             .frame(maxWidth: ReadingColumn.maxWidth)
             .frame(maxWidth: .infinity)
@@ -190,11 +185,13 @@ struct ConversationFeed: View {
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { feedFrame = $0; feedBottom = $0.maxY }
         .coordinateSpace(name: "transcript.viewport")
         .defaultScrollAnchor(.bottom, for: .initialOffset)
+        // A short thread sits on the dock, not at the top with empty room under it.
+        .defaultScrollAnchor(.bottom, for: .alignment)
         .background(AceTheme.Colours.background)
         .overlay(alignment: .top) {
             if reading.loading, reading.operation == "older" || reading.operation == "newer" {
-                AceShape.capsule.fill(AceTheme.Colours.fill).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Spacing.sm)
-                    .padding(AceTheme.Spacing.lg).allowsHitTesting(false)
+                AceShape.capsule.fill(AceTheme.Colours.fill).frame(width: AceDesign.Size.tap, height: AceDesign.Space.related)
+                    .padding(AceDesign.Space.margin).allowsHitTesting(false)
                     .accessibilityLabel("Loading messages").accessibilityIdentifier("transcript.paging")
             }
         }
@@ -204,7 +201,7 @@ struct ConversationFeed: View {
         // top. They repeat the thread menu's Turns list, never the only way.
         .background { TurnKeys { stepTurn($0, proxy: proxy) } }
         .accessibilityIdentifier("transcript")
-        .accessibilityValue(ready ? (historyStale ? "Cached history" : reading.paged ? "Reading history" : "Ready") : "Loading")
+        .accessibilityValue(ready ? (historyStale ? "Cached history" : reading.paged && !pinned ? "Reading history" : "Ready") : "Loading")
         .onScrollPhaseChange { old, phase in
             switch phase {
             case .tracking:
@@ -226,14 +223,18 @@ struct ConversationFeed: View {
                 intent.active = false
                 model.endReadingScroll()
                 if touched {
-                    let atEnd = intent.metrics.bottom <= AceTheme.Spacing.xxl
+                    let atEnd = intent.metrics.bottom <= AceDesign.Space.group
                     let live = reading.thread == nil || reading.joined
                     setFollowing(atEnd && live)
                     // The idle-time capture may predate the final layout pass;
                     // refresh it on the next measured geometry so a stale
                     // pre-gesture target can never pull the reader back.
                     needsPostGestureCapture = viewport.mode != .following
+                    endRead(moving: false)
                 }
+                // Scroll to end appears and goes only at rest: mid-fling it would resize the
+                // composer's room under the moving rows.
+                if behind != !pinned { behind = !pinned }
                 pageIfNeeded(proxy)
             case .animating: break
             @unknown default: break
@@ -255,20 +256,22 @@ struct ConversationFeed: View {
                 // What opened grows under the row the person tapped, which stays put; the feed
                 // follows the end again only if the end is still in view.
                 intent.opened = false
-                if reading.thread == nil { setFollowing(new.bottom <= AceTheme.Spacing.xxl) }
+                if reading.thread == nil { setFollowing(new.bottom <= AceDesign.Space.group) }
             }
             // Geometry is an observation, not a new scroll request. The bounded correction
             // already handles lazy-row remeasurement after a content or composer change.
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
             if intent.active {
-                // Hold the rows as soon as the person leaves the live end, before streaming
-                // can trim the messages they are reading out of the tail.
+                // Leaving the end stops following at once; the bridge is told to hold the rows
+                // once the reader is a screen away (`endRead`). The viewport is view state:
+                // write it only when it changes, or every frame of a scroll re-evaluates the
+                // whole feed.
                 if new.y < old.y - 1 {
-                    viewport.noteDirection(-1)
-                    if following, !reading.loading { reading.read("hold", model: model, live: thread, anchorItemId: currentAnchorItemID()) }
-                    setFollowing(false)
+                    if viewport.direction != -1 { viewport.noteDirection(-1) }
+                    if following { setFollowing(false) }
                 }
-                else if new.y > old.y + 1 { viewport.noteDirection(1) }
+                else if new.y > old.y + 1, viewport.direction != 1 { viewport.noteDirection(1) }
+                endRead(moving: true)
                 pageIfNeeded(proxy)
             }
         }
@@ -277,7 +280,7 @@ struct ConversationFeed: View {
 
     private func observeReading<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
         content.onChange(of: acceptedSend) { _, _ in
-            reading.live(model: model, thread: thread)
+            reading.toEnd(model: model, thread: thread)
             setFollowing(true)
             toEnd(proxy)
         }
@@ -419,7 +422,7 @@ struct ConversationFeed: View {
             }
             if duration > 0 { keyboardDuration = duration }
             guard lift != keyboardLift else { return }
-            let motion: Animation? = reduceMotion ? nil : .spring(duration: duration, bounce: 0)
+            let motion: Animation? = reduceMotion ? nil : AceDesign.Motion.keyboard(duration)
             let growth = lift - keyboardLift
             keyboardMoving = true
             // The room is empty space: it changes at once, and only the scroll animates, so the
@@ -431,7 +434,7 @@ struct ConversationFeed: View {
         }
         .onChange(of: barHeight) { old, new in
             // The composer opening as it takes the keyboard moves on the keyboard's spring.
-            let motion = keyboardMoving ? Animation.spring(duration: keyboardDuration, bounce: 0) : AceTheme.Motion.standardCurve
+            let motion = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : AceDesign.Motion.arrive
             roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
@@ -447,9 +450,11 @@ struct ConversationFeed: View {
             model.readingMoved = nil
             model.onReadingNeedsFresh = nil
         }
-        .onChange(of: !following || reading.thread != nil, initial: true) { _, away in if behind != away { behind = away } }
+        // Away from the end, or reading a window apart from it: following a joined window is at
+        // the end, so Scroll to end isn't offered there.
+        .onChange(of: !pinned, initial: true) { _, away in if !intent.active, behind != away { behind = away } }
         .onChange(of: jumps) { _, _ in
-            reading.live(model: model, thread: thread)
+            reading.toEnd(model: model, thread: thread)
             setFollowing(true)
             toEnd(proxy)
         }
@@ -466,12 +471,21 @@ struct ConversationFeed: View {
         withAnimation(motion) { toEnd(proxy) }
     }
     private func toEnd(_ proxy: ScrollViewProxy) {
-        guard !settle.isRunning else { return }
+        // Before the rows land there is no end to reach: a settle started on the placeholder
+        // would hold the budget the first real scroll to the end needs.
+        guard ready, !settle.isRunning else { return }
         proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
         let intent = intent
         guard !UIAccessibility.isVoiceOverRunning else { return }
+        // An animated scroll the settle waits on is one still moving the rows: a scroll with
+        // nowhere to go can leave the phase reading "animating" with nothing in flight.
+        var lastY = intent.metrics.y
         settle.run(gap: { pinned && !intent.active && !keyboardMoving ? intent.metrics.toEnd : nil },
-                   wait: { intent.animating }) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
+                   wait: {
+                       let moving = intent.animating && intent.metrics.y != lastY
+                       lastY = intent.metrics.y
+                       return moving
+                   }) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
     }
     /// The previous or next turn from the one at the top of the screen: its ask scrolls to the
     /// top. Past the rows held, an earlier turn pages older history in; after the last, the end.
@@ -483,11 +497,11 @@ struct ConversationFeed: View {
         setFollowing(false)
         if direction > 0 {
             if let next = starts.first(where: { $0 > first }) { withAnimation { proxy.scrollTo(rows[next].id, anchor: .top) }; return }
-            reading.live(model: model, thread: thread); setFollowing(true); toEnd(proxy)
+            reading.toEnd(model: model, thread: thread); setFollowing(true); toEnd(proxy)
             return
         }
         let here = starts.last { $0 <= first }
-        let sitsBelow = here.map { (anchor.frames[rows[$0].id]?.minY ?? top) < top - AceTheme.Spacing.sm } ?? false
+        let sitsBelow = here.map { (anchor.frames[rows[$0].id]?.minY ?? top) < top - AceDesign.Space.related } ?? false
         if let here, here < first || sitsBelow { withAnimation { proxy.scrollTo(rows[here].id, anchor: .top) }; return }
         if let previous = starts.last(where: { $0 < (here ?? first) }) { withAnimation { proxy.scrollTo(rows[previous].id, anchor: .top) }; return }
         if reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder { reading.read("older", model: model, live: thread, anchorItemId: currentAnchorItemID()) }
@@ -619,6 +633,7 @@ struct ConversationFeed: View {
     }
     private func applyLayoutRevision() {
         let next = currentRevision()
+        if next != extent.revision { anchor.layoutChanged() }
         extent.applyRevision(next)
         if viewport.layoutChanged(to: next), pinned, !intent.active {
             // Following stays pinned through rotation/split/text-size changes.
@@ -724,23 +739,38 @@ struct ConversationFeed: View {
         lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
     }
 
+    /// Tells the bridge the reader left the end or came back to it, when that changed
+    /// (`TranscriptEndRead`), never on each turn of a gesture near the end.
+    private func endRead(moving: Bool) {
+        let facts = TranscriptEndRead.Facts(
+            fromEnd: Double(intent.metrics.bottom), viewport: Double(intent.metrics.viewport),
+            moving: moving, windowOpen: reading.thread != nil, joined: reading.joined,
+            followsEnd: reading.followsEnd, loading: reading.loading,
+            atEndSlack: Double(AceDesign.Space.group))
+        switch TranscriptEndRead.decide(facts) {
+        case .hold: reading.read("hold", model: model, live: thread, anchorItemId: currentAnchorItemID())
+        case .follow: reading.read("follow", model: model, live: thread, anchorItemId: currentAnchorItemID())
+        case .none: break
+        }
+    }
+
     /// Approaching a resident edge loads another page. A fling into retained space keeps
     /// loading after the finger lifts, until real rows cover the viewport again.
     private func pageIfNeeded(_ proxy: ScrollViewProxy) {
         guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil else { return }
         let inRetainedSpace = extent.needsContent(top: intent.metrics.top, bottom: intent.metrics.bottom)
         guard inRetainedSpace || (intent.active && !intent.consumed) else { return }
-        let ahead = max(AceTheme.Dimensions.touchTarget, intent.metrics.viewport * 1.5)
+        let ahead = max(AceDesign.Size.tap, intent.metrics.viewport * 1.5)
         let edge = extent.edge(top: intent.metrics.top, bottom: intent.metrics.bottom, ahead: ahead, direction: viewport.direction)
         if edge == .older, reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder {
             intent.consumed = true
             reading.read("older", model: model, live: thread, anchorItemId: currentAnchorItemID())
         } else if edge == .newer, reading.thread != nil {
             intent.consumed = true
-            if reading.joined, intent.metrics.bottom <= AceTheme.Spacing.xxl {
-                reading.read("follow", model: model, live: thread, anchorItemId: currentAnchorItemID())
-                setFollowing(true)
-            } else if reading.hasNewer { reading.read("newer", model: model, live: thread, anchorItemId: currentAnchorItemID()) }
+            // A joined window has nothing newer to read: following it again is the rest
+            // handler's call (`endRead`), once the reader stops at the end.
+            if reading.joined { intent.consumed = false }
+            else if reading.hasNewer { reading.read("newer", model: model, live: thread, anchorItemId: currentAnchorItemID()) }
             else { intent.consumed = false }
         }
     }

@@ -3,7 +3,7 @@ import type { ClientCore, ReadSnapshotStorage } from "@ace/client";
 import { facts } from "@ace/fake-daemon";
 import { ItemId, ThreadId } from "@ace/protocol";
 import { connect, fixture, native, open, pump, reset, until } from "./thread-harness.ts";
-import { NativeTranscript } from "./native-transcript.ts";
+import { NativeTranscript, phoneWindow } from "./native-transcript.ts";
 
 /*
  * The phone's history window, over the real SDK, the fake daemon and the production pump
@@ -154,6 +154,52 @@ test("each page's rows reach Swift before the read says it settled", async () =>
     expect(settled).toBeGreaterThanOrEqual(0);
     expect(page.slice(settled + 1).filter((frame) => frame.type === "thread.item")).toEqual([]);
   }
+});
+
+test("history read back once stays loaded through a return to the end and a second read back", async () => {
+  const { client } = await longThread(1500);
+  const read = reader(client, phoneWindow);
+  const reads = vi.spyOn(client, "itemsWindow");
+  await read("hold");
+  let state = await read("older");
+  for (let pages = 0; state.hasOlder && pages < 20; pages++) state = await read("older");
+  expect(state.hasOlder).toBe(false);
+  const loaded = held(-1);
+  expect(loaded[0]).toBe(message(0));
+  expect(loaded.at(-1)).toBe(message(1499));
+  expect(contiguous(loaded)).toBe(true);
+  const asked = reads.mock.calls.length;
+  // Back down to the end, then up again over the same history, twice.
+  for (let trip = 0; trip < 2; trip++) {
+    expect(await read("follow")).toMatchObject({ active: true, joined: true, hasNewer: false });
+    await read("hold");
+    expect(await read("older")).toMatchObject({ hasOlder: false });
+  }
+  expect(reads.mock.calls.length).toBe(asked);
+  expect(held(-1)).toEqual(loaded);
+});
+
+test("an older page only adds rows above the ones the reader holds", async () => {
+  const { client } = await longThread(1500);
+  const read = reader(client, phoneWindow);
+  await read("hold");
+  await read("older");
+  const before = held(-1);
+  const mark = native.frames.length;
+  await read("older");
+  const page = native.frames.slice(mark).filter((frame) => frame.epoch === -1);
+  const after = held(-1);
+  // The rows already held stay, in order, at the end; the page's rows come before them.
+  expect(after.slice(after.length - before.length)).toEqual(before);
+  expect(after.length).toBeGreaterThan(before.length);
+  expect(page.some((frame) => frame.type === "thread.reset")).toBe(false);
+  // Only the row the page meets may change (it gains a neighbour); the rest are never re-sent,
+  // so Swift re-lays out nothing the reader was looking at.
+  const kept = new Set(before.slice(1));
+  const resent = page.filter(
+    (frame) => frame.type === "thread.item" && typeof frame.id === "string" && kept.has(frame.id),
+  );
+  expect(resent).toEqual([]);
 });
 
 test("paging newer after reading old history joins the live tail again", async () => {

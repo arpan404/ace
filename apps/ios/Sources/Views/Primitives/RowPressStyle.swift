@@ -10,11 +10,11 @@ struct RowPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .aceConcentricBackground(
-                AceTheme.Colours.fill.opacity(configuration.isPressed || selected ? 1 : 0),
+                AceDesign.Surface.fill.opacity(configuration.isPressed || selected ? 1 : 0),
                 minimum: AceShape.rowRadius
             )
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
-            .animation(.easeOut(duration: AceTheme.Motion.fast), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? AceDesign.Motion.pressScale : 1)
+            .animation(AceDesign.Motion.press, value: configuration.isPressed)
             .aceConcentricContentShape(minimum: AceShape.rowRadius)
     }
 }

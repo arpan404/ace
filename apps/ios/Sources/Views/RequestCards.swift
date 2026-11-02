@@ -7,7 +7,7 @@ struct RequestCardFrame: ViewModifier {
     func body(content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
-            .sensoryFeedback(.selection, trigger: submission?.requestId)
+            .sensoryFeedback(AceDesign.Haptic.approve, trigger: submission?.requestId)
     }
 }
 
@@ -46,7 +46,7 @@ struct RequestHeader: View {
     var detail = ""
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(.semibold)
+            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(AceDesign.Typeface.strong)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
@@ -82,45 +82,115 @@ struct CardButton: View {
     }
 }
 
-/// A plan to approve as is, or send back with what should change.
+/// A plan waiting for review, as one line above the composer like every request strip: "Plan
+/// ready · Kill-all filters · 3 steps", then Review and Approve as plain words. Review opens the
+/// whole plan in a sheet, where it can be approved or sent back with what should change. The
+/// transcript shows nothing big.
 struct PlanReviewCard: View {
     let interaction: ApprovalRow
     let submission: ApprovalSubmission?
     var canAct = true
     let answer: ([String: Any]) -> Void
-    @State private var revising = false
-    @State private var feedback = ""
-    /// The plan's scroll area grows with the text size, so large text still shows a few lines.
-    @ScaledMetric(relativeTo: .body) private var planHeight = AceTheme.Dimensions.touchTarget * 5
+    @State private var reviewing = false
     var body: some View {
         let plan = interaction.plan
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-            RequestHeader(title: plan?.title ?? "Review the plan", detail: "Plan review")
-            if let plan, !plan.summary.isEmpty {
-                Text(plan.summary).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: AceDesign.Space.tight) { line(plan); Spacer(minLength: AceDesign.Space.related); buttons }
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                    line(plan)
+                    HStack(spacing: AceDesign.Space.tight) { Spacer(minLength: AceTheme.Spacing.none); buttons }
+                }
             }
+            RequestFooter(submission: submission, canAct: canAct)
+        }
+        .modifier(RequestCardFrame(submission: submission))
+        .sheet(isPresented: $reviewing) {
+            PlanReviewSheet(plan: plan, submission: submission, canAct: canAct) { decision in
+                reviewing = false
+                answer(decision)
+            }
+        }
+    }
+    private func line(_ plan: PlanRequest?) -> some View {
+        Text(plan?.line ?? plan?.title ?? "Plan ready")
+            .aceFont(AceTheme.Typography.body, relativeTo: .body).fontWeight(AceDesign.Typeface.regular)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .lineLimit(1).truncationMode(.tail)
+            .accessibilityIdentifier("plan.line")
+    }
+    private var buttons: some View {
+        HStack(spacing: AceTheme.Spacing.xxs) {
+            Button("Review") { reviewing = true }
+                .buttonStyle(StripTextButtonStyle())
+                .accessibilityIdentifier("plan.review")
+            Button("Approve") { answer(["kind": "plan", "decision": "approve"]) }
+                .buttonStyle(StripTextButtonStyle(prominent: true))
+                .disabled(submission != nil || !canAct)
+                .accessibilityIdentifier("plan.approve")
+        }
+        .fixedSize()
+    }
+}
+
+/// The whole plan in a native sheet: its summary and markdown as the transcript draws prose, with
+/// no box around it, then Request changes and Approve plan at the bottom. Request changes asks
+/// what should change before it sends.
+struct PlanReviewSheet: View {
+    let plan: PlanRequest?
+    let submission: ApprovalSubmission?
+    let canAct: Bool
+    let answer: ([String: Any]) -> Void
+    @State private var revising = false
+    @State private var feedback = ""
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+                VStack(alignment: .leading, spacing: AceDesign.Space.row) {
+                    if let plan, !plan.summary.isEmpty {
+                        Text(plan.summary).aceFont(AceTheme.Typography.body, relativeTo: .body)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     AceMarkdown(text: plan?.markdown ?? "")
                     ForEach(Array((plan?.todos ?? []).enumerated()), id: \.offset) { _, todo in
                         Label(todo.text, ace: todo.status == "completed" ? .checkCircle : todo.status == "in_progress" ? .circleHalf : .circle)
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
-                    if plan?.truncated == true { Text("The full plan is on your machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                    if plan?.truncated == true {
+                        Text("The full plan is on your machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, AceDesign.Space.margin)
+                .padding(.vertical, AceDesign.Space.row)
+                .accessibilityIdentifier("plan.body")
             }
-            .frame(maxHeight: planHeight)
-            .padding(AceTheme.Spacing.md).requestInset()
-            .accessibilityIdentifier("plan.body")
+            .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { actions }
+            .navigationTitle(plan?.title ?? "Plan")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close").accessibilityIdentifier("plan.close")
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+    private var actions: some View {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             if revising {
                 TextField("What should change?", text: $feedback, axis: .vertical)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(2...5)
-                    .padding(.vertical, AceTheme.Spacing.sm).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .overlay(alignment: .top) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
+                    .padding(.vertical, AceDesign.Space.related).frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("plan.feedback")
             }
-            RequestActions {
+            HStack(spacing: AceDesign.Space.related) {
+                Spacer(minLength: AceTheme.Spacing.none)
                 CardButton(title: revising ? "Cancel" : "Request changes") { revising.toggle() }
                     .accessibilityIdentifier("plan.revise")
                 if revising {
@@ -130,12 +200,15 @@ struct PlanReviewCard: View {
                     }.accessibilityIdentifier("plan.send")
                 } else {
                     CardButton(title: "Approve plan", primary: true) { answer(["kind": "plan", "decision": "approve"]) }
-                        .accessibilityIdentifier("plan.approve")
+                        .accessibilityIdentifier("plan.approveFull")
                 }
-            }.disabled(submission != nil || !canAct)
+            }
+            .disabled(submission != nil || !canAct)
             RequestFooter(submission: submission, canAct: canAct)
         }
-        .modifier(RequestCardFrame(submission: submission))
+        .padding(.horizontal, AceDesign.Space.margin)
+        .padding(.vertical, AceDesign.Space.row)
+        .background(.bar)
     }
 }
 
@@ -149,7 +222,7 @@ struct FormRequestCard: View {
     @State private var values: [String: String] = [:]
     var body: some View {
         let form = interaction.form
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.row) {
             RequestHeader(title: form?.title ?? "", detail: form?.server ?? "")
             if let form, form.message != form.title, !form.message.isEmpty {
                 Text(form.message).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -183,7 +256,7 @@ struct FormRequestCard: View {
         let value = Binding(get: { values[field.key] ?? field.initial }, set: { values[field.key] = $0 })
         GroupedRow(first: first) {
             if field.choices.isEmpty {
-                HStack(spacing: AceTheme.Spacing.md) {
+                HStack(spacing: AceDesign.Space.row) {
                     Text(field.title).lineLimit(1).layoutPriority(1)
                     TextField(field.title, text: value, prompt: Text(prompt(field)).foregroundStyle(AceTheme.Colours.subtleForeground))
                         .keyboardType(field.type == "string" ? .default : field.type == "integer" ? .numberPad : .decimalPad)
@@ -197,12 +270,12 @@ struct FormRequestCard: View {
                         ForEach(field.choices) { choice in Text(choice.label).tag(choice.value) }
                     }
                 } label: {
-                    HStack(spacing: AceTheme.Spacing.md) {
+                    HStack(spacing: AceDesign.Space.row) {
                         Text(field.title).lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)
-                        Spacer(minLength: AceTheme.Spacing.sm)
+                        Spacer(minLength: AceDesign.Space.related)
                         GroupedValue(text: field.choices.first { $0.value == value.wrappedValue }?.label ?? (field.required ? "Choose" : "Optional"))
                     }
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+                    .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
                 }
                 .accessibilityLabel(field.title)
                 .accessibilityValue(field.choices.first { $0.value == value.wrappedValue }?.label ?? "Not chosen")
@@ -237,7 +310,7 @@ struct RequestActions<Content: View>: View {
     @ViewBuilder var content: () -> Content
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: AceTheme.Spacing.xs) { Spacer(minLength: AceTheme.Spacing.none); content() }
+            HStack(spacing: AceDesign.Space.tight) { Spacer(minLength: AceTheme.Spacing.none); content() }
             VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) { content() }.frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
@@ -253,7 +326,7 @@ struct BrowserHelpCard: View {
     var openBrowser: (() -> Void)?
     let answer: ([String: Any]) -> Void
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.row) {
             RequestHeader(title: interaction.help?.title ?? "", detail: "Browser")
             if let detail = interaction.help?.detail, !detail.isEmpty {
                 Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)

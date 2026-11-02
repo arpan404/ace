@@ -49,9 +49,9 @@ struct HostDiagnosticsView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(.smooth, value: checks)
-        .animation(.smooth, value: page)
-        .animation(.smooth, value: bundle)
+        .smoothChange(checks)
+        .smoothChange(page)
+        .smoothChange(bundle)
         .sensoryFeedback(.success, trigger: copied)
         .sensoryFeedback(.success, trigger: resets)
         .navigationTitle("Diagnostics").navigationBarTitleDisplayMode(.inline)
@@ -77,14 +77,14 @@ struct HostDiagnosticsView: View {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                         HStack {
                             Text(row.label)
-                            Spacer(minLength: AceTheme.Spacing.sm)
+                            Spacer(minLength: AceDesign.Space.related)
                             StateLabel(status: StatusDisplay(label: row.word, token: row.status == "ok" ? "done" : "failed"))
                         }
                         Group {
                             Text(row.message)
                             if let fix = row.fix { Text(fix) }
                         }
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                     }
                     .accessibilityElement(children: .combine)
                 }

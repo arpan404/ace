@@ -92,7 +92,10 @@ import XCTest
 
     func testSelectModeArchivesSeveralThreadsWithOneUndo() throws {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.select"].waitForExistence(timeout: 30))
+        // Select threads is in the scope menu under the title.
+        XCTAssertTrue(app.buttons["inbox.projects"].waitForExistence(timeout: 30))
+        app.buttons["inbox.projects"].tap()
+        XCTAssertTrue(app.buttons["inbox.select"].waitForExistence(timeout: 10))
         app.buttons["inbox.select"].tap()
         XCTAssertTrue(app.buttons["select.done"].waitForExistence(timeout: 5))
         // Any two rows the list shows: picking is the system's own check circle.

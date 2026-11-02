@@ -177,14 +177,36 @@ test("a browser that can't decode H.264 says so instead of showing stills", asyn
   expect(browser.draws(live)).toBe(0);
 });
 
-test("a missing macOS permission offers Request, which asks the daemon's Mac", async () => {
+test("granted permissions show their status and let the person open settings to revoke access", async () => {
+  const { app } = await openSettings();
+  app.daemon.screen.enabled = true;
+  await app.open("/settings/computer-use");
+  const permissions = await screen.findByRole("region", { name: "Permissions" });
+  await waitFor(() =>
+    expect(within(permissions).getAllByText("Granted", { exact: true })).toHaveLength(2),
+  );
+  const revoke = within(permissions).getAllByRole("button", { name: /^Revoke .* access$/ });
+  for (const button of revoke) await userEvent.click(button);
+  await waitFor(() =>
+    expect(app.daemon.screen.requested).toEqual(["screenRecording", "accessibility"]),
+  );
+  // Opening System Settings does not itself revoke either grant.
+  expect(within(permissions).getAllByText("Granted", { exact: true })).toHaveLength(2);
+  app.daemon.screen.permissions.accessibility = false;
+  await userEvent.click(within(permissions).getByRole("button", { name: "Check again" }));
+  expect(await within(permissions).findByText("Not granted", { exact: true })).toBeTruthy();
+  expect(within(permissions).getByRole("button", { name: /^Grant .* access$/ })).toBeTruthy();
+});
+
+test("a missing macOS permission shows its status and offers to grant access on the daemon's Mac", async () => {
   const { app } = await openSettings();
   app.daemon.screen.permissions.accessibility = false;
   app.daemon.screen.enabled = true;
   await app.open("/settings/computer-use");
 
   const permissions = await screen.findByRole("region", { name: "Permissions" });
-  await userEvent.click(within(permissions).getByRole("button", { name: "Grant access" }));
+  expect(await within(permissions).findByText("Not granted", { exact: true })).toBeTruthy();
+  await userEvent.click(within(permissions).getByRole("button", { name: /^Grant .* access$/ }));
 
   await waitFor(() => expect(app.daemon.screen.requested).toEqual(["accessibility"]));
 });
@@ -205,9 +227,9 @@ test("permissions that can't be read say why and what to do, then show once Chec
   app.daemon.screen.permissionReadFailure = undefined;
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));
   await waitFor(() => expect(screen.queryByText("Unavailable")).toBeNull());
-  expect(screen.queryByText("Granted", { exact: true })).toBeNull();
+  expect(screen.getAllByText("Granted", { exact: true })).toHaveLength(2);
   expect(screen.queryByText("Unavailable")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
 });
 
 test("permissions refused because computer use is off point at turning it on, and read once it is", async () => {
@@ -235,7 +257,7 @@ test("permissions refused because computer use is off point at turning it on, an
   app.daemon.screen.permissionReadFailure = undefined;
   await userEvent.click(screen.getByRole("switch", { name: "Let agents use apps" }));
   await waitFor(() => expect(screen.queryByText("Unavailable")).toBeNull());
-  expect(screen.queryByText("Granted", { exact: true })).toBeNull();
+  expect(screen.getAllByText("Granted", { exact: true })).toHaveLength(2);
 });
 
 test("sharing a window starts capture and delegates it to this thread's agent", async () => {
@@ -267,11 +289,13 @@ test("enabling computer use replaces cached disabled permissions with the helper
   await page();
   const permissions = await screen.findByRole("region", { name: "Permissions" });
   await waitFor(() =>
-    expect(within(permissions).getAllByRole("button", { name: "Grant access" })).toHaveLength(2),
+    expect(within(permissions).getAllByRole("button", { name: /^Grant .* access$/ })).toHaveLength(
+      2,
+    ),
   );
   await userEvent.click(screen.getByRole("switch", { name: "Let agents use apps" }));
   await waitFor(() =>
-    expect(within(permissions).queryByRole("button", { name: "Grant access" })).toBeNull(),
+    expect(within(permissions).queryByRole("button", { name: /^Grant .* access$/ })).toBeNull(),
   );
 });
 
