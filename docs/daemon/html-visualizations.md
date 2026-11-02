@@ -19,7 +19,7 @@ existed still display.
 
 The document cap is 16 MiB of UTF-8 (`maxHtmlDocumentBytes`), so a page can carry its
 raster images inline as base64 `data:` URLs, with a 160-character title and an optional
-80–2000 px height cap. Only `html_render` (20 MiB, for JSON escaping) and `image_show`
+80–2000 px height cap. Only `html_render` and `html_preview` (20 MiB, for JSON escaping) and `image_show`
 receive a larger MCP input budget; the HTTP and stdio request envelopes admit the
 largest of them, and every other tool keeps its own budget (64 KiB unless it declares more).
 
@@ -30,6 +30,32 @@ attachment for the life of the thread, including after daemon restart. The
 attachment endpoint serves the bytes as plain text. No executable HTML endpoint,
 preview-gateway link, provider credential or daemon token enters the document.
 Remote and relay clients fetch through their owning connection's attachment API.
+
+## Previewing before publishing
+
+`html_preview({ html, mode?, scheme? })` lets an agent look at a page before it publishes
+it. It validates like `html_render` (same `invalid_html` error), then lays the page out in
+the transcript's own document (`inlineVisualizationUrl`: style kit, sandboxed out-of-process
+frame, CSP) at 360 px and 760 px, the phone and the desktop message column. The theme comes
+from `@ace/design-tokens` for `scheme` (default `dark`), with the thread background behind the
+frame. Nothing is stored, posted or shown to the person, and no provider quota is spent.
+
+- **Engine.** `BrowserService.previewPage` drives a Chrome of ace's on its own profile
+  (`<dataDir>/browser/preview`) at device scale 1, whichever backend threads browse with. It
+  starts on the first preview and stops a minute after the last. Each preview gets a
+  throwaway browser context and one hidden tab, and every network request is failed.
+- **Settling.** It waits for load and `document.fonts.ready`, emulates reduced motion (the
+  kit's entry animation does not run), finishes finite authored animations, then waits two
+  frames before measuring and capturing.
+- **Result.** One terse line per width, then the two images (PNG, JPEG above 900 KiB). Each
+  image is the full content height, cut at 2000 px. The line gives the content height, whether
+  the page overflows sideways and which outermost elements reach past the edge, boxes hiding
+  content with `overflow: hidden`, and visible text drawn under 11 px after every scale
+  (SVG `<text>` through its viewBox): a count and the three smallest.
+
+`previewMeasure` (the in-page measurement) and `previewReport` (facts to text) live in
+`@ace/html/src/preview.ts`. A warm preview takes about half a second; the first one starts the
+browser (about a second). The tool's timeout is 45 s, for a first use that downloads Chromium.
 
 ## Posted images
 

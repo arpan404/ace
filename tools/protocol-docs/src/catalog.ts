@@ -115,7 +115,7 @@ export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] 
     if (!("output" in tool)) return entry;
     const output = `${tool.name}.output`;
     entries.push({ name: output, schema: tool.output, io: "output" });
-    return { ...entry, output };
+    return Object.assign(entry, { output });
   });
   return { entries: entries.toSorted((a, b) => a.name.localeCompare(b.name, "en")), tools };
 }

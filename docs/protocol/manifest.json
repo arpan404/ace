@@ -21,8 +21,8 @@
       "sha256": "d371a0f68d1e034fbadfd7ddcafde7857b95194b1f54d811c9593609242e9eba"
     },
     "mcp.md": {
-      "bytes": 59250,
-      "sha256": "e7598b8f82eeda286ea501c461d9c1459ecf72e6e01e7fc940fddc7b8f04dbaf"
+      "bytes": 60169,
+      "sha256": "07153144231d6bd080c8f02b4b2cb1b6b37ae3bbfbb5b4138c30bac1f1f2a41f"
     },
     "models.md": {
       "bytes": 16093,
@@ -1832,6 +1832,10 @@
       "bytes": 1014,
       "sha256": "7f3f37c0a817a2dd93b0ec43c0da68fc94580e982c07b29581afdef6a6d46904"
     },
+    "schema/HtmlColorScheme.json": {
+      "bytes": 188,
+      "sha256": "1cf61730bea5ab3a38a726524ca5c9fba083d6b34ce576ea2d4f09db7c886d8b"
+    },
     "schema/HtmlDiagnostics.json": {
       "bytes": 865,
       "sha256": "0aad26810da837d82d38b39982d78735b44853a096f66abf88271b0f323860d1"
@@ -1853,8 +1857,8 @@
       "sha256": "2978564947b77410822e5b0036e125d04c1533b42f81bec9782db837302884ff"
     },
     "schema/HtmlPreviewInput.json": {
-      "bytes": 308,
-      "sha256": "28ca38ff51afb52e2c37f3e30ef73efe5f999c5b1de086a2358c53c5fdecbb15"
+      "bytes": 491,
+      "sha256": "b516389014c4e2601f4c9d81601d840fa20c0f07705c737f335f3ea883556c54"
     },
     "schema/HtmlRenderInput.json": {
       "bytes": 613,
@@ -4480,6 +4484,10 @@
       "bytes": 1480,
       "sha256": "fc6cd78e98c74e26c37c84bf6c7135e1d19f7dff39631e32815d600104fc2dd8"
     },
+    "schema/html_preview.input.json": {
+      "bytes": 779,
+      "sha256": "f16ab7dac4a2c81854400051e86603dea8e19d399162949c074c1c3ca6b8ce79"
+    },
     "schema/html_render.input.json": {
       "bytes": 966,
       "sha256": "4e5fd969144c17c4275ae2e54b7f640a697fc0a2295857fee5212d54ae83ef22"
@@ -4649,10 +4657,10 @@
       "sha256": "5689abd9740d125fc925f514b8ad6da3bf4252fdd3934fbe5031dc92265ef181"
     },
     "types.md": {
-      "bytes": 958011,
-      "sha256": "c82e289a86d71154482a11bf6b80e4d257efe174b347f505aad652ffb7ce086b"
+      "bytes": 958329,
+      "sha256": "d8a25932c4cbe75a492b08275b430a7a88e7e4fd1f66157e9a833908d654ec17"
     }
   },
-  "input": "08d63a13e251177204755d98eaa7973ca086a14d693ad5a5a1cb18bafb72c6b6",
+  "input": "f79ae9bc5c7745338c7df493e516e121e281b2e8268ebd770a967005567e2e00",
   "version": 1
 }

@@ -99,6 +99,10 @@ function windowsJobs(report?: (error: Error) => void) {
   };
 }
 
+/** Where a profile's Chrome stages downloads before quarantine. */
+const stagingDir = (profileDir: string) =>
+  join(dirname(profileDir), `${basename(profileDir)}-downloads`);
+
 /** First-use acquisition stays in the I/O boundary and shares the service lifetime. */
 export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSignal) {
   let acquiring: Promise<string> | undefined;
@@ -163,8 +167,6 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
     });
     return acquiring;
   };
-  const stagingDir = (profileDir: string) =>
-    join(dirname(profileDir), `${basename(profileDir)}-downloads`);
   const cleanup = { ...defaults.cleanup, ...options.cleanup };
   let owned: ChromeBackend | undefined;
   const backend =

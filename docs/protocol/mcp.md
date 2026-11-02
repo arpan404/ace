@@ -48,6 +48,32 @@ Example:
 }
 ```
 
+## html_preview
+
+See a page as html_render would show it, at 360 px and 760 px, with layout problems listed. Publishes nothing.
+
+Required capability: none beyond session authentication. Timeout: 45000 ms.
+
+Returns MCP content: text and images, no structured result.
+
+## html_preview.input
+
+[JSON Schema](schema/html_preview.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| html | yes | string | {"minLength":1,"maxLength":16777216,"description":"A self-contained HTML document: inline CSS, JS, SVG and data: images; no network."} |
+| mode | no | [HtmlMode.json](schema/HtmlMode.json) | {"description":"interactive runs scripts in a sandbox; static strips them. Default: inferred."} |
+| scheme | no | [HtmlColorScheme.json](schema/HtmlColorScheme.json) | {"description":"The app theme to draw it in. Default: dark."} |
+
+Example:
+
+```json
+{
+  "html": "example"
+}
+```
+
 ## image_show
 
 Post an image into your reply: a screenshot, a rendered chart or diagram, a generated picture. Pass it as base64 data (up to 16 MiB), or a file path on this machine for larger files (up to 128 MiB). PNG, JPEG, WebP or GIF.

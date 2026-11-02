@@ -9,7 +9,7 @@ import {
   styleKitVersion,
   type HtmlTheme,
 } from "@ace/html";
-import { htmlPreviewToolkit, type HtmlPreviewPort } from "@ace/mcp-server";
+import { htmlPreviewToolkit, type HtmlPreviewPort, type HtmlPreviewResult } from "@ace/mcp-server";
 import type { HtmlColorScheme } from "@ace/protocol";
 
 /**
@@ -45,38 +45,42 @@ export function previewTheme(scheme: HtmlColorScheme): HtmlTheme {
   };
 }
 
-/** html_preview: the page in the transcript's own document, captured by ace's hidden Chrome. */
+/** The page in the transcript's own document, captured by ace's hidden Chrome at each width. */
+export async function previewHtml(
+  service: Pick<BrowserService, "previewPage">,
+  page: Parameters<HtmlPreviewPort["preview"]>[0],
+  signal: AbortSignal,
+): Promise<HtmlPreviewResult> {
+  const theme = previewTheme(page.scheme);
+  const shots = await service.previewPage({
+    url: inlineVisualizationUrl(page.html, theme, page.mode, styleKitVersion),
+    widths: previewWidths,
+    scheme: page.scheme,
+    background: theme.background ?? "transparent",
+    maxHeight: previewMaxHeight,
+    measure: previewMeasure,
+    signal,
+  });
+  return {
+    report: previewReport(
+      shots.map((shot) => ({
+        width: shot.width,
+        contentHeight: shot.contentHeight,
+        imageHeight: shot.height,
+        facts: shot.measured,
+      })),
+    ),
+    images: shots.map((shot) => ({ width: shot.width, mimeType: shot.mimeType, data: shot.data })),
+  };
+}
+
+/** html_preview, through whichever browser service the daemon is running. */
 export function htmlPreview(browser: () => BrowserService | undefined) {
-  const port: HtmlPreviewPort = {
-    async preview(page, signal) {
+  return htmlPreviewToolkit({
+    preview(page, signal) {
       const service = browser();
       if (!service) throw new Error("HTML preview unavailable: ace's browser is not running");
-      const theme = previewTheme(page.scheme);
-      const shots = await service.previewPage({
-        url: inlineVisualizationUrl(page.html, theme, page.mode, styleKitVersion),
-        widths: previewWidths,
-        scheme: page.scheme,
-        background: theme.background ?? "transparent",
-        maxHeight: previewMaxHeight,
-        measure: previewMeasure,
-        signal,
-      });
-      return {
-        report: previewReport(
-          shots.map((shot) => ({
-            width: shot.width,
-            contentHeight: shot.contentHeight,
-            imageHeight: shot.height,
-            facts: shot.measured,
-          })),
-        ),
-        images: shots.map((shot) => ({
-          width: shot.width,
-          mimeType: shot.mimeType,
-          data: shot.data,
-        })),
-      };
+      return previewHtml(service, page, signal);
     },
-  };
-  return htmlPreviewToolkit(port);
+  });
 }

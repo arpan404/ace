@@ -118,8 +118,8 @@ export function htmlPreviewToolkit(port: HtmlPreviewPort): Toolkit {
           // Only safety problems stop a preview; layout problems are what it is for, so they are
           // listed beside the pictures that show them (html_render refuses them).
           refuseInvalid(validateHtml(input.html));
-          const layout = lintHtmlLayout(input.html).map(
-            (entry) => `- ${entry.code}: ${entry.message}`.slice(0, 240),
+          const layout = lintHtmlLayout(input.html).map((entry) =>
+            `- ${entry.code}: ${entry.message}`.slice(0, 240),
           );
           const result = await port.preview(
             {

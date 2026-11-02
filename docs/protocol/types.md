@@ -14654,6 +14654,18 @@ Example:
 "win32"
 ```
 
+## HtmlColorScheme
+
+[JSON Schema](schema/HtmlColorScheme.json), input validation.
+
+Type: ["dark","light"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"dark"
+```
+
 ## HtmlDiagnostics
 
 [JSON Schema](schema/HtmlDiagnostics.json), input validation.
@@ -14736,7 +14748,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| html | yes | string | {"maxLength":16777217} |
+| html | yes | [HtmlDocument.json](schema/HtmlDocument.json) |  |
+| mode | no | [HtmlMode.json](schema/HtmlMode.json) |  |
+| scheme | no | [HtmlColorScheme.json](schema/HtmlColorScheme.json) |  |
 
 Example:
 
