@@ -20,7 +20,7 @@ Protocol version 1 gains `context.request` and `context.result` messages with a 
 
 Attachment references are `{sha256}` and mentions are `{path, lines?}`. The existing message command gains an optional context field. Backend composition resolves these to text and verified local blobs before adapters project them. This does not introduce a provider credential or cloud upload API. The transport remains the daemon's authenticated WebSocket and can be mounted behind the remote or relay workstreams when those land.
 
-Metadata lives in a separate SQLite database under the daemon data directory. Upload bytes go to private temporary files. Each acknowledged chunk is synced before advancing the database offset. After a crash, unacknowledged trailing bytes are truncated. Commit streams sha256, sniffs magic bytes and reads only bounded image headers and trailers for dimensions and container validation. A hash mismatch or unsafe image fails and releases the reservation. Committed bytes are immutable and content addressed. SQLite tracks thread references and byte counters; per-thread and global quotas count pending reservations as well as retained attachments. Global accounting is conservative and counts references, even when physical bytes deduplicate. A second occupied-disk counter includes unreferenced blobs until GC actually removes them, so release cannot bypass the storage quota. Abandoned reservations expire through explicit maintenance using an injected clock.
+Metadata lives in a separate SQLite database under the daemon data directory. Upload bytes go to private temporary files. Each acknowledged chunk is synced before advancing the database offset. After a crash, unacknowledged trailing bytes are truncated. Commit streams sha256, sniffs magic bytes and reads only bounded image headers and trailers for dimensions and container validation. A hash mismatch or unsafe image fails and releases the reservation. Committed bytes are immutable and content addressed. SQLite tracks thread references and byte counters; the global quota counts pending reservations (per-thread quotas were removed on 2026-11-01, see below) as well as retained attachments. Global accounting is conservative and counts references, even when physical bytes deduplicate. A second occupied-disk counter includes unreferenced blobs until GC actually removes them, so release cannot bypass the storage quota. Abandoned reservations expire through explicit maintenance using an injected clock.
 
 Garbage collection deletes only blobs with no thread references, in bounded batches. Commit and collection share the same serializer so a newly referenced blob cannot race deletion. Failed commits and crashes can leave an orphan file; collection reconciles filesystem entries in bounded batches. Message owners retain references until attachment release or thread deletion. Deleting or releasing an attachment does not erase another thread's reference.
 
@@ -321,3 +321,24 @@ checks. Watcher updates reconcile changed files and subtrees. Git repositories
 retain their Git listing and ignore semantics. Only Git's explicit non-repository
 response selects the fallback; other repository errors retain their diagnostic.
 This supersedes the non-Git restriction above.
+
+## No per-thread cap; the list pages (2026-11-01)
+
+A long thread full of screenshots hit the per-thread cap of 256 attachments and 2 GiB, and the
+refusal sent the person to delete files by hand. Both per-thread caps are removed: a thread holds
+any number of attachments, and adopting a draft or continuing a fork no longer checks a thread
+quota. What still refuses an upload is one file over the per-file limit (512 MiB), one message
+over the per-message total (1 GiB), too many uploads in flight, and the global store guard
+(8 GiB, 65,536 files across all threads), which exists only so attachments can't fill the disk.
+Each refusal names the limit it hit and what to do; the shared client wording no longer replaces
+`quota` messages with a generic phrase.
+
+`attachment.list` takes an optional opaque `cursor` and `limit` (at most 256) and returns pages
+newest first, with `nextCursor` while older files remain. The cursor is the row id of the last
+file a page returned, so files added or removed between pages never repeat or skip the rest. A
+request without a cursor gets the newest page, so a client from before paging keeps working and
+sees the newest 256 files; a daemon from before paging ignores the cursor and answers one page
+with no `nextCursor`, which ends a new client's walk. `@ace/client`'s `listThreadAttachments`
+follows the cursors, and the web Attachments views, composer and iOS bridge read through it.
+Internal sweeps (thread deletion, draft release and adoption) read every reference rather than
+the first page.

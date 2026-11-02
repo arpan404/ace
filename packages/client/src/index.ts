@@ -58,6 +58,7 @@ export { PermissionClient, threadPermission, accessModes } from "./permissions.t
 export { oppositeFollowUpBehavior } from "./follow-up.ts";
 export { retrySend } from "./send-retry.ts";
 export { readServerQueue } from "./queue-read.ts";
+export { listThreadAttachments } from "./thread-attachment-list.ts";
 export { subscribeSettings } from "./settings-subscription.ts";
 export { subscribeLockedUse } from "./locked-use-subscription.ts";
 export type { LockedUseOwner } from "./locked-use-subscription.ts";

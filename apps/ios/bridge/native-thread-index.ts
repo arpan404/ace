@@ -1,4 +1,4 @@
-import type { ClientCore } from "@ace/client";
+import { listThreadAttachments, type ClientCore } from "@ace/client";
 import { ThreadId, type Attachment } from "@ace/protocol";
 import { formatBytes } from "@ace/ui-core/byte-size";
 import { oneLine, sanitizeUserText } from "@ace/ui-core";
@@ -121,11 +121,13 @@ export async function readNativeThreadFiles(
     });
     if (released.result.kind !== "ok") refused = "Couldn't remove this file. Try again.";
   }
-  const listed = await ask({
-    type: "context.request",
-    operation: { op: "attachment.list", threadId: request.threadId },
-  });
-  if (listed.result.kind !== "attachments") throw new Error("Couldn't load the files.");
-  index.remember(request.threadId, listed.result.attachments);
-  return { files: listed.result.attachments.map(threadFileRow), refused };
+  const files = await listThreadAttachments(
+    request.threadId,
+    async (operation) => (await ask({ type: "context.request", operation })).result,
+    () => {
+      throw new Error("Couldn't load the files.");
+    },
+  );
+  index.remember(request.threadId, files);
+  return { files: files.map(threadFileRow), refused };
 }

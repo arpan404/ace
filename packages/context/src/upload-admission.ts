@@ -6,6 +6,15 @@ import { requireContext } from "./errors.ts";
 import { Metadata } from "./metadata.ts";
 import type { UploadOptions, UploadLimits } from "./upload-options.ts";
 
+/** A byte limit as people read it: whole MiB or GiB. */
+export function formatLimit(bytes: number): string {
+  const gib = bytes / 1024 ** 3;
+  if (gib >= 1) return `${Number.isInteger(gib) ? gib : gib.toFixed(1)} GiB`;
+  const mib = bytes / 1024 ** 2;
+  if (mib >= 1) return `${Number.isInteger(mib) ? mib : mib.toFixed(1)} MiB`;
+  return `${bytes} byte${bytes === 1 ? "" : "s"}`;
+}
+
 export async function beginUpload(
   metadata: Metadata,
   options: UploadOptions,
@@ -16,25 +25,28 @@ export async function beginUpload(
   requireContext(
     op.bytes <= limits.fileBytes,
     "quota",
-    `File exceeds the ${limits.fileBytes} byte attachment limit. Choose a smaller file or increase ACE_ATTACHMENT_FILE_BYTES.`,
+    `This file is larger than the ${formatLimit(limits.fileBytes)} limit for one attachment. Choose a smaller file, or raise ACE_ATTACHMENT_FILE_BYTES and restart ace.`,
   );
-  const occupied = metadata.storage();
-  const thread = metadata.usage(op.threadId),
+  // A thread may hold any number of files. Only the whole store is bounded, so attachments can't
+  // fill the disk.
+  const occupied = metadata.storage(),
     global = metadata.usage("*");
   requireContext(
-    thread.bytes + op.bytes <= limits.threadBytes &&
-      global.bytes + op.bytes <= limits.globalBytes &&
+    global.bytes + op.bytes <= limits.globalBytes &&
       occupied.bytes + op.bytes <= limits.globalBytes &&
       occupied.count < limits.globalEntries &&
-      thread.count < limits.threadEntries &&
       global.count < limits.globalEntries,
     "quota",
-    "Attachment storage is full. Delete older threads or remove unused attachments, then retry.",
+    `ace's attachment storage is full (${formatLimit(limits.globalBytes)} across all threads), which keeps files from filling your disk. Free space in Settings > Storage or delete threads you no longer need, then try again.`,
   );
   const count = z
     .object({ count: z.number() })
     .parse(metadata.get("SELECT COUNT(*) AS count FROM uploads"));
-  requireContext(count.count < limits.uploads, "quota", "Upload reservation limit reached");
+  requireContext(
+    count.count < limits.uploads,
+    "quota",
+    "Too many uploads are in progress. Wait for them to finish, then try again.",
+  );
   const id = z
     .string()
     .regex(/^[\w-]{1,128}$/)

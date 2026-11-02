@@ -103,6 +103,10 @@ export const Attachment = z.object({
   thumbnailAvailable: z.boolean().optional(),
 });
 export type Attachment = z.infer<typeof Attachment>;
+/** Most files one `attachments` page carries; a thread may hold any number. */
+export const attachmentPageMax = 256;
+/** Opaque position in a thread's attachment list, from a previous page's `nextCursor`. */
+export const AttachmentListCursor = z.string().min(1).max(64);
 export const ContextErrorCode = z.enum([
   "invalid_request",
   "forbidden",
@@ -176,7 +180,16 @@ export const ContextOperation = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("upload.commit"), uploadId: key }),
   z.object({ op: z.literal("upload.cancel"), uploadId: key }),
-  z.object({ op: z.literal("attachment.list"), threadId: ThreadId }),
+  /**
+   * One page of the thread's stored files, newest first. Without `cursor` this is the first page;
+   * pass the previous page's `nextCursor` for the next one.
+   */
+  z.object({
+    op: z.literal("attachment.list"),
+    threadId: ThreadId,
+    cursor: AttachmentListCursor.optional(),
+    limit: z.number().int().min(1).max(attachmentPageMax).optional(),
+  }),
   z.object({
     op: z.literal("attachment.read"),
     threadId: ThreadId,
@@ -223,7 +236,12 @@ export const ContextResult = z.object({
       data: z.string().max(87384),
       eof: z.boolean(),
     }),
-    z.object({ kind: z.literal("attachments"), attachments: z.array(Attachment).max(256) }),
+    z.object({
+      kind: z.literal("attachments"),
+      attachments: z.array(Attachment).max(attachmentPageMax),
+      /** Present while more (older) files remain; send it back as `cursor`. */
+      nextCursor: AttachmentListCursor.optional(),
+    }),
     z.object({
       kind: z.literal("mentions"),
       entries: z.array(ResolvedMention),

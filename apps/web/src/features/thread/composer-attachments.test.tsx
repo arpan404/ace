@@ -450,7 +450,7 @@ test("the Attachments sheet lists kept files and removal clears a ready chip and
   );
   await userEvent.click(await screen.findByRole("option", { name: /^Attachments/ }));
   const sheet = await screen.findByRole("dialog", { name: "Attachments" });
-  expect(await within(sheet).findByText("1 of 256 attachments")).toBeTruthy();
+  expect(await within(sheet).findByText("1 attachment")).toBeTruthy();
   await userEvent.click(within(sheet).getByRole("button", { name: "Remove notes.txt" }));
   expect(await within(sheet).findByText("No attachments in this thread.")).toBeTruthy();
   await userEvent.keyboard("{Escape}");
