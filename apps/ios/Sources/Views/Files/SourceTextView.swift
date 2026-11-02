@@ -281,7 +281,7 @@ final class SourceContainer: UIView {
     private func refreshColours() {
         backgroundColor = UIColor(AceTheme.Colours.background)
         text.backgroundColor = UIColor(AceTheme.Colours.background)
-        highlight.backgroundColor = UIColor(AceTheme.Colours.foreground).withAlphaComponent(0.07)
+        highlight.backgroundColor = UIColor(AceDesign.Surface.lineHighlight)
         gutter.setNeedsDisplay()
     }
 }
@@ -326,10 +326,10 @@ final class SourceGutter: UIView {
             switch host.marks[line] {
             case "added", "modified":
                 UIColor(AceTheme.StatusText.done).setFill()
-                UIRectFill(CGRect(x: width - 3, y: y, width: 3, height: frame.height))
+                UIRectFill(CGRect(x: width - FileDiffStyle.bar, y: y, width: FileDiffStyle.bar, height: frame.height))
             case "removed":
                 UIColor(AceTheme.StatusText.failed).setFill()
-                UIRectFill(CGRect(x: 0, y: y, width: width, height: 2))
+                UIRectFill(CGRect(x: 0, y: y, width: width, height: AceDesign.Size.rail))
             default: break
             }
             return true

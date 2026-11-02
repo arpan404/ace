@@ -14,7 +14,7 @@ struct RecentlyDeletedView: View {
     var body: some View {
         List {
             if !loaded && problem == nil {
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
+                SkeletonRows(label: "Loading recently deleted files").listRowSeparator(.hidden).listRowInsets(EdgeInsets())
             } else if loaded && entries.isEmpty {
                 EmptyState(systemImage: "trash", title: "No recently deleted files").listRowSeparator(.hidden)
             }
@@ -31,8 +31,8 @@ struct RecentlyDeletedView: View {
                         .buttonStyle(.borderless).disabled(busy != nil || !model.canOperate)
                         .accessibilityIdentifier("trash.restore.\(entry.path)")
                 }
-                .frame(minHeight: 56)
-                .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xl))
+                .frame(minHeight: AceDesign.Size.rowDetail)
+                .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
                 .listRowBackground(AceTheme.Colours.background)
             }
             if let next {
