@@ -6,6 +6,7 @@ import { agentName, rootRunning } from "./agents.ts";
 import {
   askingLabel,
   describeLive,
+  liveStatusSince,
   waitingOnSubagentsLabel,
   treeWorking,
   type LiveFact,
@@ -285,12 +286,15 @@ export function readTurnActivity(
               : rootActivityLabel(status),
           tone: "working" as const,
           waitingOnSubagents: waitingOnSubagents && !options.stopping ? true : undefined,
+          // The daemon's stamp for the status shown, as the sidebar row reads it; the turn's own
+          // clock only stands in when the daemon hasn't stamped one.
           elapsedFrom:
-            from === undefined
+            liveStatusSince(reader.thread?.live, waitingOnSubagents) ??
+            (from === undefined
               ? undefined
               : from +
                 (clock?.idle ?? stretch.idle) +
-                ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from),
+                ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from)),
           // A root held while its tree works names the hold as its step: "Rate limited · …".
           current:
             (root === "held" && activity ? heldText(activity) : undefined) ??
