@@ -248,9 +248,6 @@ export function RowContext(props: {
         </span>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
-        {/* What an agent is using for the thread, beside who runs it; the row's actions never cover them. */}
-        <BrowsingMark threadId={card.id} />
-        <ComputerUseMark threadId={card.id} />
         {props.remote && (
           <Tip label={card.machine ?? "Another machine"}>
             <span data-machine-mark="" className="inline-flex">

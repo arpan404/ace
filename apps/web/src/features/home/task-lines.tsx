@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { PushPinIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { ProjectMark } from "@/components/project-mark.tsx";
-import { RowContext, RowStatus, titleTone } from "./row-parts.tsx";
+import { BrowsingMark, ComputerUseMark, RowContext, RowStatus, titleTone } from "./row-parts.tsx";
 
 /**
  * An Active row's height: three lines of 16, 20 and 16px, 4px between each, 10px above and below.
@@ -13,8 +13,8 @@ export const taskRowHeight = "h-[80px] py-2.5 px-3 items-start";
 
 /**
  * An Active row's three lines: the project's mark and name and the status (an icon, its time, or its
- * age), the title, then the branch, pull request, browser and computer use, another machine and
- * the provider. Under the pointer or keyboard focus the row's
+ * age, led by the browsing and computer-use marks while an agent uses them), the title, then
+ * the branch, pull request, another machine and the provider. Under the pointer or keyboard focus the row's
  * actions take the status's place: the status hides where it sits, and the project name stops
  * short of the actions.
  */
@@ -55,10 +55,13 @@ export function TaskLines(props: {
             data-row-status=""
             aria-hidden={props.actions ? true : undefined}
             className={cn(
-              "flex shrink-0 items-center",
+              "flex shrink-0 items-center gap-1.5",
               props.actions ? "invisible" : "group-has-[[data-popup-open]]/row:invisible",
             )}
           >
+            {/* What an agent is using, just before the status; hidden with it under the actions. */}
+            <BrowsingMark threadId={card.id} />
+            <ComputerUseMark threadId={card.id} />
             <RowStatus card={card} attention={attention} />
           </span>
         </span>
