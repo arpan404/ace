@@ -53,15 +53,20 @@ test("explicit exhausted or mismatched accounts are rejected without creating ch
     accounts.ingest("claude-quota", {
       provider: "claude",
       payload: new ProviderPayload(
-        JSON.stringify({ auth: "logged_in", error: "usage limit reached" }),
+        JSON.stringify({
+          auth: "logged_in",
+          rate_limits: { five_hour: { utilization: 100, resets_at: "1970-01-01T02:00:00Z" } },
+        }),
       ),
       observedAt: 1000,
       timeZone: "UTC",
     });
-    expect(() => h.service.delegate(parent, request)).toThrow(/quota exhausted/);
+    expect(() => h.service.delegate(parent, request)).toThrow(
+      /Claude Code account Claude is at its limit/,
+    );
     expect(() =>
       h.service.delegate(parent, { ...request, requestId: "mismatched", accountId: "codex-other" }),
-    ).toThrow(/Account unavailable/);
+    ).toThrow(/Account codex-other does not belong to Claude Code/);
     expect(h.store.listThreads()).toHaveLength(1);
     // Use a separate eligible native account rather than changing an exhausted assignment.
     await accounts.register(
@@ -87,6 +92,68 @@ test("explicit exhausted or mismatched accounts are rejected without creating ch
     });
     await h.engine.flush();
     expect(h.contexts.get(child.childId)?.instanceId).toBe("claude-eligible");
+  } finally {
+    await h.close();
+    db.close();
+  }
+});
+
+test("an account named by its label runs the work while near its limit, and is refused at it with when", async () => {
+  const db = new DatabaseSync(":memory:"),
+    accounts = new AccountRegistry(db);
+  const h = setup({}, undefined, false, undefined, false, accounts);
+  const usage = (utilization: number) =>
+    accounts.ingest("claude-346", {
+      provider: "claude",
+      payload: new ProviderPayload(
+        JSON.stringify({
+          auth: "logged_in",
+          rate_limits: { five_hour: { utilization, resets_at: "1970-01-01T02:00:00Z" } },
+        }),
+      ),
+      observedAt: 1000,
+      timeZone: "UTC",
+    });
+  try {
+    await accounts.register(
+      createInstance({
+        id: "claude-346",
+        provider: "claude",
+        label: "346",
+        homeDir: join(h.home, "346"),
+      }),
+    );
+    h.catalog.registerInstance(scriptedModelInstance("claude", h.home, "claude-346"));
+    await h.catalog.refresh({ instance: "claude-346" });
+    usage(92);
+    const parent = await h.parent();
+    const request = {
+      requestId: "near",
+      provider: "claude" as const,
+      accountId: "346",
+      task: "work",
+      role: "near-limit-task",
+      wait: false,
+      estimatedLoad: 30,
+    };
+    const child = h.service.delegate(parent, request);
+    await h.engine.flush();
+    expect(h.contexts.get(child.childId)?.instanceId).toBe("claude-346");
+    usage(100);
+    expect(() =>
+      h.service.delegate(parent, { ...request, requestId: "full", role: "full-limit-task" }),
+    ).toThrow(
+      // Worded in the daemon's own time zone: 02:00 UTC there.
+      /Claude Code account 346 is at its limit until \d{1,2}:\d{2} [AP]M/,
+    );
+    expect(() =>
+      h.service.delegate(parent, {
+        ...request,
+        requestId: "nameless",
+        role: "nameless-task",
+        accountId: "347",
+      }),
+    ).toThrow('No Claude Code account has "347" as its id or label');
   } finally {
     await h.close();
     db.close();
@@ -214,7 +281,9 @@ test("a signed-out default CLI does not block automatic selection of a logged-in
       observedAt: 1001,
       timeZone: "UTC",
     });
-    expect(() => h.delegate(parent, "signed-out-account")).toThrow(/Account unavailable/);
+    expect(() => h.delegate(parent, "signed-out-account")).toThrow(
+      /Claude Code account Managed is signed out/,
+    );
     expect(h.store.listThreads()).toHaveLength(2);
   } finally {
     await h.close();
@@ -279,10 +348,10 @@ test("a child delegated onto an added Antigravity account runs on it; other prov
     ).rejects.toThrow(/does not belong/);
     expect(() =>
       h.service.delegate(parent, { ...request, requestId: "borrowed", provider: "claude" }),
-    ).toThrow(/Account unavailable/);
+    ).toThrow(/does not belong/);
     accounts.recordAcpAuth("work", "logged_out", 1001);
     expect(() => h.service.delegate(parent, { ...request, requestId: "signed-out" })).toThrow(
-      /requires authentication/,
+      /Antigravity account .* is signed out and this model requires authentication/,
     );
     expect(h.store.listThreads()).toHaveLength(2);
   } finally {

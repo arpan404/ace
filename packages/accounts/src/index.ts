@@ -20,10 +20,14 @@ export { parseLimitReset } from "./reset-time.ts";
 export {
   pickInstance,
   explicitInstance,
+  definiteRefusal,
+  automaticRefusal,
   speedHint,
+  type AccountRefusal,
   type Candidate,
   type RolePolicy,
 } from "./scheduler.ts";
+export { refusalWords, resetClock } from "./refusal-words.ts";
 export {
   migrateSession,
   noMigrationLease,

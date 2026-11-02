@@ -9,8 +9,9 @@ import { delegationCommandPolicy } from "./command-policy.ts";
 import { childResultPrompt, launchSlots } from "@ace/orchestrator";
 import { LaunchQueue, drainLaunches, startOrQueue } from "./launch-queue.ts";
 import { childStatus, queuedChildStatus, unlaunchedResult } from "./child-status.ts";
-import { accountProvider, type AccountRegistry } from "@ace/accounts";
+import type { AccountRegistry } from "@ace/accounts";
 import { accountForName, registeredAccounts } from "./account-names.ts";
+import { namedAccountId } from "./selection.ts";
 import {
   CommandId,
   DeviceId,
@@ -58,6 +59,8 @@ export interface DelegationDependencies {
   clock: EngineClock;
   id(): string;
   accounts?: AccountRegistry;
+  /** Where reset times in refusals are worded; the daemon's own zone when unset. */
+  timeZone?: string;
   models: import("@ace/models").ModelCatalogApi;
   modelsReady?: Promise<void>;
   providerEnabled?(provider: import("@ace/protocol").ProviderKind, instance?: string): boolean;
@@ -402,18 +405,7 @@ export class DelegationService {
     const request = delegationRequest(value);
     this.admission.validate(caller, request);
     await this.modelsReady(budget);
-    const account = request.accountId ? this.deps.accounts?.get(request.accountId) : undefined;
-    // An added Antigravity account is stored as an ACP account but belongs to Antigravity.
-    if (
-      request.accountId &&
-      (!account ||
-        (account.instance.provider !== request.provider &&
-          accountProvider(account.instance) !== request.provider))
-    )
-      throw new AgentControlError(
-        "account_unavailable",
-        `Account ${request.accountId} does not belong to ${request.provider}`,
-      );
+    const accountId = namedAccountId(this.deps, request);
     const catalog = this.deps.models;
     const filter = {
       provider: request.provider,
@@ -423,8 +415,8 @@ export class DelegationService {
             installationId: request.installationId,
             instanceId: request.instanceId,
           }
-        : request.accountId
-          ? { instance: request.accountId }
+        : accountId
+          ? { instance: accountId }
           : {}),
     };
     // Auto-selection can choose an account whose catalog is still cold. Loading it keeps a failed

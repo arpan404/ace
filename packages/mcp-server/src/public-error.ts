@@ -203,7 +203,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   account_unavailable: {
     message: "Provider account is unavailable",
-    hint: "Retry with another provider from models, or without naming an account; the person fixes logins and quota.",
+    hint: "detail says why: the account is at its limit (and until when), signed out, or no account has that name. Name another account or provider from models, or omit accountId; the person fixes logins and quota.",
   },
   admission_closed: {
     message: "Daemon is not accepting agent work",
