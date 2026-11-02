@@ -5,11 +5,14 @@ import type { ThreadReader } from "@ace/client";
 import {
   cardDetails,
   inputLine,
+  listTreeFacts,
+  liveStatusSince,
   parseDelegationResults,
   projectBadge,
   settledResults,
   settledSummary,
   systemInput,
+  treeWaiting,
 } from "@ace/ui-core";
 import { host } from "./host.ts";
 
@@ -80,8 +83,11 @@ export function threadRow(thread: Thread | ThreadListEntry) {
     canSteer: thread.capabilities?.steer ?? false,
     /** The pull request the thread's card names ("#1188"), with its state, for the inbox. */
     pr: card.pr === undefined ? null : { number: card.pr, state: card.prState ?? "open" },
-    /** Start of the current working stretch while the tree works, for the row's age. */
-    workingSince: thread.status.state === "working" ? (thread.live?.workingSince ?? null) : null,
+    /** When the shown Working or Waiting began while the tree works, for the row's time. */
+    workingSince:
+      thread.status.state === "working"
+        ? (liveStatusSince(thread.live, treeWaiting(listTreeFacts(thread))) ?? null)
+        : null,
   };
 }
 export function itemRow(item: Item, index?: number, sourceTruncated = false) {

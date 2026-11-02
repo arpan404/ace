@@ -25,6 +25,7 @@ import {
   childAskingLabel,
   describeLive,
   listTreeFacts,
+  liveStatusSince,
   liveStatusText,
   threadLiveFact,
   treeWaiting,
@@ -316,7 +317,7 @@ function currentCard(input: ThreadCardInput): ThreadCard {
   // waits on its subagents.
   const tree = treeState(entry);
   const working = tree !== undefined;
-  const since = entry.live?.workingSince ?? activityOf(entry);
+  const since = liveStatusSince(entry.live, tree?.kind === "waiting") ?? activityOf(entry);
   // Every surface's word for a running tree is Working or Waiting, spoken label and hover card
   // included; what it waits on or runs only follows it.
   const live = working ? undefined : described;

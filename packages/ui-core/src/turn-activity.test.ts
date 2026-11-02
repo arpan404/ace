@@ -144,15 +144,8 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
         status: { state: "working", agents: 1 },
         createdAt: 0,
         updatedAt: 0,
-        ...(liveRunId
-          ? {
-              live: {
-                rootRunId: liveRunId,
-                workingSince: runs.get(liveRunId)?.startedAt,
-                runningSubagentCount: 0,
-              },
-            }
-          : {}),
+        // No daemon stamps: these cases cover the turn's own clock, which stands in without them.
+        ...(liveRunId ? { live: { rootRunId: liveRunId, runningSubagentCount: 0 } } : {}),
       });
     },
     interactionIds: () => [...asked.keys()],

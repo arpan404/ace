@@ -1,4 +1,5 @@
 import { pluralCount } from "./counts.ts";
+import { treeOnlyWaits } from "@ace/projection";
 import type { ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
 import { agentName } from "./agents.ts";
 import { describeWake } from "./snooze.ts";
@@ -207,10 +208,21 @@ export function listTreeFacts(thread: {
 function listRootStand(status: ThreadStatus, live: ThreadRunMetadata | undefined): RootStand {
   if (status.state === "working") {
     if (live?.waitingOn) return "on-tree";
-    const running = live?.runningSubagentCount ?? 0;
-    if (running > 0 && status.agents <= running) return "idle";
+    if (treeOnlyWaits(status, live)) return "idle";
   }
   return rootStand(status);
+}
+
+/**
+ * When a running tree's shown status began, for the time beside it: Waiting since the wait on
+ * its subagents began, Working since its work began. The sidebar row and the composer's strip
+ * both time a status from here, from the daemon's stamps, so a reconnect never moves it.
+ */
+export function liveStatusSince(
+  live: ThreadRunMetadata | undefined,
+  waiting: boolean,
+): number | undefined {
+  return (waiting ? live?.waitingSince : undefined) ?? live?.workingSince;
 }
 
 function rootStand(status: ThreadStatus): RootStand {
