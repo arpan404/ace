@@ -144,6 +144,14 @@
       "bytes": 423,
       "sha256": "446338229cb7365025a92317cf322cb8279a87b2f338dc45e1d82292b2e7c0bf"
     },
+    "schema/AceGrantRequest.json": {
+      "bytes": 414,
+      "sha256": "0d6e5a4dc50964f8f3446d5399d8256bc139eee1602ea66a40e0f957d2e4f666"
+    },
+    "schema/AceGrantResponse.json": {
+      "bytes": 426,
+      "sha256": "5f0b28518d415bc282164da7d7f1f10bcb650fd220b1a3d1dcff65cc7eef95b2"
+    },
     "schema/AceLogin.json": {
       "bytes": 1009,
       "sha256": "175bed5a413f6dd921766d38226675f08c5d30e6d0d4f2844005bc34e469c01f"
@@ -151,6 +159,14 @@
     "schema/AceLoginStatus.json": {
       "bytes": 666,
       "sha256": "e0e170929f75a1a8f7ad37c997717b83cbe29602338aa7eef709b01161ce10e5"
+    },
+    "schema/AceMachine.json": {
+      "bytes": 570,
+      "sha256": "beab7972b1358a085bb841e637ea7f785297ce2a4a18d82a295cba8345b39f16"
+    },
+    "schema/AceMachineList.json": {
+      "bytes": 365,
+      "sha256": "d792346ab8787937f7f0f315cd0428f6b09c24f7c3351bdbaa2ba40a89ef37da"
     },
     "schema/AcpHomeStrategy.json": {
       "bytes": 197,
@@ -4717,10 +4733,10 @@
       "sha256": "5689abd9740d125fc925f514b8ad6da3bf4252fdd3934fbe5031dc92265ef181"
     },
     "types.md": {
-      "bytes": 963187,
-      "sha256": "934df65aff73959385ce9d9450c1caa07c0fcd6b274e187cdbb7b6fc2d4aca29"
+      "bytes": 964702,
+      "sha256": "cee01cb1c1e2fd8217b9cbf8ff66bd1300aac6570d0fb751ca028313250aaa78"
     }
   },
-  "input": "37eaa6bbea3eb95683493b220338decaa875be6f62d5ae7ed9f4a7b06d195b58",
+  "input": "3de5224b313a6717b99e35c3256d738aa0aa60d2fca8a6f33441ee8b0dd07bf7",
   "version": 1
 }

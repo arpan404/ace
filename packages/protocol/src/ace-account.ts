@@ -48,3 +48,27 @@ export const AceLoginStatus = z.discriminatedUnion("status", [
   z.object({ status: z.literal("pending") }),
   z.object({ status: z.literal("complete"), session: AceAccountGrant }),
 ]);
+
+/** `POST /v1/grants` (ADR 0111), authenticated by the ace session token. */
+export const AceGrantRequest = z.object({
+  kind: z.enum(["machine", "device"]),
+  /** The machine's host id, or the requesting device's device id. */
+  subject: z.string().min(1).max(128),
+});
+export type AceGrantRequest = z.infer<typeof AceGrantRequest>;
+export const AceGrantResponse = z.object({
+  /** Signed grant, verified with `@ace/account-grant`. */
+  token: z.string().min(1).max(2048),
+  expiresAt: z.number().int().positive(),
+});
+export type AceGrantResponse = z.infer<typeof AceGrantResponse>;
+
+/** A machine signed in to an account, as `GET /v1/machines` lists it. */
+export const AceMachine = z.object({
+  hostId: z.string().regex(/^[A-Z2-7]{52}$/),
+  name: z.string().max(256),
+  platform: z.string().max(64),
+  lastSeenAt: z.number().int().nonnegative(),
+});
+export type AceMachine = z.infer<typeof AceMachine>;
+export const AceMachineList = z.object({ machines: z.array(AceMachine).max(1000) });

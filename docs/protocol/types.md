@@ -920,6 +920,42 @@ Example:
 }
 ```
 
+## AceGrantRequest
+
+[JSON Schema](schema/AceGrantRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | ["machine","device"] |  |
+| subject | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "kind": "device",
+  "subject": "example"
+}
+```
+
+## AceGrantResponse
+
+[JSON Schema](schema/AceGrantResponse.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| token | yes | string | {"minLength":1,"maxLength":2048} |
+| expiresAt | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "expiresAt": 6,
+  "token": "example"
+}
+```
+
 ## AceLogin
 
 [JSON Schema](schema/AceLogin.json), input validation.
@@ -981,6 +1017,44 @@ Example:
     "token": "6CnMjRq-0eSFcWNY-oXbqfj5KtxPq25eefB2pMIck97"
   },
   "status": "complete"
+}
+```
+
+## AceMachine
+
+[JSON Schema](schema/AceMachine.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| hostId | yes | string | {"pattern":"^[A-Z2-7]{52}$"} |
+| name | yes | string | {"maxLength":256} |
+| platform | yes | string | {"maxLength":64} |
+| lastSeenAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "hostId": "OESU6H7LG6BNJUWRP5VNO3CYBR2JMA4VZ3UVISDALTWVI2RW7R5V",
+  "lastSeenAt": 8,
+  "name": "example",
+  "platform": "example"
+}
+```
+
+## AceMachineList
+
+[JSON Schema](schema/AceMachineList.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| machines | yes | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/AceMachine.json"}} |
+
+Example:
+
+```json
+{
+  "machines": []
 }
 ```
 
