@@ -302,9 +302,8 @@ export class BrowserBackend {
     }
     // The reply is handled after the await, outside any mark the request had: name it here.
     const operation = request.operation;
-    this.mark(
-      `browser reply ${operation.kind === "cdp" ? operation.method : operation.kind}`,
-      () => this.respond(link, request, { result }),
+    this.mark(`browser reply ${operation.kind === "cdp" ? operation.method : operation.kind}`, () =>
+      this.respond(link, request, { result }),
     );
   }
 
