@@ -1,5 +1,6 @@
 import { writableFolder } from "./browser/download-folder.ts";
 import { accountSecrets } from "./account-secrets.ts";
+import { handAccountToDaemon } from "./account-handover.ts";
 import {
   app,
   BrowserWindow,
@@ -103,6 +104,11 @@ export function createHandlers(options: {
     "account.read": (origin) => account.read(origin),
     "account.write": async ({ origin, token }) => {
       await account.write(origin, token);
+      // The machine follows the app's account; a failure here leaves the app signed in.
+      void options
+        .connection()
+        .then((connection) => handAccountToDaemon(connection, origin, token))
+        .catch(() => {});
       return undefined;
     },
     "keymap.update": (bindings) => {
