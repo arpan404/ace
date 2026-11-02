@@ -16,7 +16,7 @@ struct InboxPlaces: View {
                 GlassSwitch(selection: $tab, choices: [
                     .init(value: .threads, title: "Threads", identifier: "sidebar.threads"),
                     .init(value: .chats, title: "Chats", identifier: "sidebar.chats"),
-                    .init(value: .pulls, title: "Pull requests", identifier: "sidebar.pulls", short: "Pulls"),
+                    .init(value: .spade, title: "Spade", identifier: "sidebar.spade"),
                 ])
                 if let compose { ComposeCircle(action: compose, size: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs) }
             }
@@ -48,7 +48,7 @@ private struct PlacesTabBar: View {
         HStack(spacing: AceTheme.Spacing.none) {
             item(.threads, title: "Threads", icon: Image(systemName: "text.bubble"), identifier: "sidebar.threads")
             item(.chats, title: "Chats", icon: Image(systemName: "bubble.left.and.bubble.right"), identifier: "sidebar.chats")
-            item(.pulls, title: "Pulls", icon: Image("tab-pulls"), identifier: "sidebar.pulls")
+            item(.spade, title: "Spade", icon: Image(uiImage: SpadeMark.tabImage), identifier: "sidebar.spade")
         }
         .padding(4)
         .frame(height: Self.height)

@@ -67,33 +67,51 @@ struct SpadeMark: View {
     }
 }
 
-/// Spade in the Threads header, before it launches: its mark as a button that says, in one
-/// sentence, that it is coming (the web rail's "Spade · Coming soon").
-struct SpadeSoonButton: View {
-    var size: CGFloat = 24
-    /// Draws the button as the drawer header's own (a full touch target) rather than a bar item.
-    var framed = false
-    @State private var showing = false
+extension SpadeMark {
+    /// The mark as the tab bar draws it: one colour, the eyes cut out of the head with their
+    /// pupils left in, so the same face reads in the bar's tint (a template image).
+    @MainActor static let tabImage: UIImage = {
+        let size: CGFloat = 26
+        let renderer = ImageRenderer(content: SpadeGlyph().frame(width: size, height: size))
+        renderer.scale = 3
+        return (renderer.uiImage ?? UIImage()).withRenderingMode(.alwaysTemplate)
+    }()
+}
 
+/// The mark in one colour: the head, its eyes cut out, the pupils inside them.
+private struct SpadeGlyph: View {
     var body: some View {
-        Button { showing = true } label: {
-            SpadeMark(size: size)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: framed ? AceTheme.Dimensions.touchTarget : nil, height: framed ? AceTheme.Dimensions.touchTarget : nil)
-                .contentShape(Rectangle())
+        Canvas { context, canvas in
+            let scale = canvas.width / 24
+            context.scaleBy(x: scale, y: scale)
+            context.fill(Path(ellipseIn: CGRect(x: 1.4, y: 1.4, width: 21.2, height: 21.2)), with: .color(.black))
+            context.translateBy(x: 12, y: 12)
+            context.rotate(by: .degrees(-4))
+            context.translateBy(x: -12, y: -12)
+            for centre in [CGPoint(x: 8.7, y: 11.9), CGPoint(x: 15.3, y: 11.9)] {
+                var cut = context
+                cut.blendMode = .destinationOut
+                cut.fill(Path(ellipseIn: CGRect(x: centre.x - 2.3, y: centre.y - 3.55, width: 4.6, height: 7.1)), with: .color(.black))
+                // Pupils resting low and a hair left, as the mark's rest look.
+                let at = CGPoint(x: centre.x - 0.21, y: centre.y + 1.69)
+                context.fill(Path(ellipseIn: CGRect(x: at.x - 1.25, y: at.y - 1.8, width: 2.5, height: 3.6)), with: .color(.black))
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Spade, coming soon")
-        .accessibilityIdentifier("inbox.spade")
-        .popover(isPresented: $showing, arrowEdge: .top) {
+    }
+}
+
+/// The Spade tab before Spade launches: its mark and one quiet sentence, centred.
+struct SpadeSoonScreen: View {
+    var body: some View {
+        VStack(spacing: AceTheme.Spacing.lg) {
+            SpadeMark(size: 56).foregroundStyle(AceTheme.Colours.foreground)
             Text("Spade is coming soon.")
                 .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .padding(.horizontal, AceTheme.Spacing.xl)
-                .padding(.vertical, AceTheme.Spacing.lg)
-                .fixedSize()
-                .presentationCompactAdaptation(.popover)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .accessibilityIdentifier("spade.soon")
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AceTheme.Colours.background)
+        .accessibilityElement(children: .combine)
     }
 }

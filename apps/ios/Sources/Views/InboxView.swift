@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The tabs of the home screen. `compose` is the detached New thread button, never a page.
-enum InboxTab: Hashable { case threads, chats, pulls, compose }
+/// `pulls` is never a page any more: asking for it (a search command) opens More's Pull requests.
+enum InboxTab: Hashable { case threads, chats, spade, pulls, compose }
 
 /// The single inbox (issue #560) across every paired machine, in a system tab bar: Threads,
 /// Chats (plain chats with no project, ADR 0099), Pulls (the web's Pull requests and Issues lists) and the detached New thread button. Grouping
@@ -120,7 +121,11 @@ struct InboxView: View {
         TabView(selection: $tab) {
             Tab("Threads", systemImage: "text.bubble", value: InboxTab.threads) { stack(.threads, path: $threadsPath) }
             Tab("Chats", systemImage: "bubble.left.and.bubble.right", value: InboxTab.chats) { chats }
-            Tab("Pulls", image: "tab-pulls", value: InboxTab.pulls) { stack(.pulls, path: $pullsPath) }
+            // Spade, ace's cloud agent, before it launches: its own place in the bar. Pull requests
+            // live in More.
+            Tab(value: InboxTab.spade) { SpadeSoonScreen() } label: {
+                Label { Text("Spade") } icon: { Image(uiImage: SpadeMark.tabImage) }
+            }
             if inbox.canStartThreads {
                 Tab("New thread", systemImage: "square.and.pencil", value: InboxTab.compose, role: Self.detachedRole) { Color.clear }
             }
@@ -129,6 +134,13 @@ struct InboxView: View {
         .onChange(of: tab) { old, new in
             // Coming back to a tab shows its page, never the drawer left out when it was left.
             if new != .compose { threadsDrawer.close(); pullsDrawer.close() }
+            // Pull requests (a search command) open in More, from where the person is.
+            if new == .pulls {
+                tab = old == .pulls ? .threads : old
+                settingsStart = [.pulls]
+                showingSettings = true
+                return
+            }
             // The compose button opens the New thread sheet and leaves the tab where it was.
             guard new == .compose else { return }
             tab = old == .compose ? .threads : old
@@ -165,7 +177,8 @@ struct InboxView: View {
     private var sheets: some View {
         tabs
         .sheet(isPresented: $showingSettings) {
-            SettingsSheet(inbox: inbox, machines: machines, lock: lock, start: settingsStart)
+            SettingsSheet(inbox: inbox, places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() }),
+                          machines: machines, lock: lock, start: settingsStart)
                 .environment(\.otherMachines, OtherMachines(client: { inbox.client($0) }))
         }
         .sheet(isPresented: $pairing) {
@@ -218,9 +231,9 @@ struct InboxView: View {
                    machine: $machineFilter, project: $projectFilter, forgeKind: $forgeKind,
                    threadsTab: $threadsTab, reveal: $reveal, actions: actions,
                    header: InboxHeaderActions(settings: { settingsStart = []; showingSettings = true },
-                                              machines: { settingsStart = [.machines]; showingSettings = true },
+                                              machines: { settingsStart = [.settings, .machines]; showingSettings = true },
                                               pair: pair,
-                                              page: { route in settingsStart = route; showingSettings = true },
+                                              page: { route in settingsStart = [.settings] + route; showingSettings = true },
                                               // A search result off the list (archived) opens like a
                                               // row: the open page and its client move together.
                                               archived: { key in openThread(key, listed: false) }),
@@ -254,7 +267,7 @@ struct InboxView: View {
                                          },
                                          rename: { key in renamingRow = key },
                                          settings: { settingsStart = []; showingSettings = true },
-                                         machines: { settingsStart = [.machines]; showingSettings = true })) { key in
+                                         machines: { settingsStart = [.settings, .machines]; showingSettings = true })) { key in
             if let client = inbox.client(key.machineId) {
                 ThreadPage(client: client, id: key.id) { child in
                     client.open(child); chatsPath.append(.thread(InboxKey(machineId: key.machineId, id: child)))
@@ -316,7 +329,7 @@ struct InboxView: View {
             if let item = link.itemId { client.focusOnOpen = ThreadFocus(thread: id, item: item) }
             openThread(InboxKey(machineId: machine, id: id))
         case "settings":
-            settingsStart = SettingsRoute.linked(link.page)
+            settingsStart = [.settings] + SettingsRoute.linked(link.page)
             showingSettings = true
         case "new-thread":
             composeProject = link.project
