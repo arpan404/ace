@@ -104,14 +104,21 @@ export async function startServer(options: ServerOptions): Promise<{
   const access = {
     auth,
     pairing,
-    remoteStatus: () =>
-      dynamicRemote?.status() ?? {
+    remoteStatus: () => ({
+      ...(dynamicRemote?.status() ?? {
         enabled: remoteOrigin !== undefined || options.relay !== undefined,
-        transport: options.relay ? "relay" : remoteOrigin ? "lan" : "local",
+        transport: options.relay
+          ? ("relay" as const)
+          : remoteOrigin
+            ? ("lan" as const)
+            : ("local" as const),
         listenOverride: null,
         relayOverride: false,
         ...relayRoute(options.relay, options.hostId),
-      },
+      }),
+      ...(options.machineAccount ? { account: options.machineAccount.status() } : {}),
+    }),
+    account: () => options.machineAccount,
     allowedOrigins: webOriginAllowlist(options.webOrigins),
     // A failed settings read falls back to this computer's own link rather than failing pairing.
     pairingApp: async () =>

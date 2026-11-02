@@ -109,6 +109,8 @@ export interface ServerOptions {
   port: number;
   remote?: RemoteListener;
   remoteConfig?: import("./config.ts").Config;
+  /** This machine's ace account and machine code (ADR 0111). */
+  machineAccount?: import("./account-access/machine-account.ts").MachineAccount;
   network?: import("./network.ts").NetworkRuntime;
   webRoot?: string;
   applyRemoteSetting?: (key: string, value: unknown, commit: () => Promise<void>) => Promise<void>;

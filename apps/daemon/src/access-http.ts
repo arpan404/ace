@@ -1,6 +1,13 @@
 import type { MaintenanceGate } from "@ace/service";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { AppUpdateReport, PairingRedemption, type Device } from "@ace/protocol";
+import {
+  AceAccountHandover,
+  AceAccountLoginStart,
+  AppUpdateReport,
+  MachineCodeChange,
+  PairingRedemption,
+  type Device,
+} from "@ace/protocol";
 import { AccessError, RemoteAuth } from "./remote-auth.ts";
 import { allows } from "./devices.ts";
 import { issuePairing } from "./pairing-issue.ts";
@@ -60,6 +67,8 @@ export interface AccessHttpOptions {
   remoteStatus?: () => import("@ace/protocol").RemoteAccessStatus;
   /** Live provider processes per thread and whether each is busy, idle-warm or releasing. */
   providerProcesses?: () => readonly import("./engine/provider-release.ts").ProviderProcess[];
+  /** This machine's ace account and machine code (ADR 0111). */
+  account?: () => import("./account-access/machine-account.ts").MachineAccount | undefined;
 }
 export function accessHttp({
   shutdown,
@@ -78,6 +87,7 @@ export function accessHttp({
   ready = () => true,
   remoteStatus,
   providerProcesses,
+  account,
 }: AccessHttpOptions) {
   return (request: IncomingMessage, response: ServerResponse) => {
     void (async () => {
@@ -173,7 +183,14 @@ export function accessHttp({
             app,
           );
           result = { url, expiresAt, id };
-        } else if (path === "/v1/devices" && request.method === "GET") result = auth.list();
+        } else if (
+          (path === "/v1/ace-account" ||
+            path === "/v1/ace-account/login" ||
+            path === "/v1/machine-code") &&
+          account
+        )
+          result = await accountRoute(path, request, account(), auth.local(token));
+        else if (path === "/v1/devices" && request.method === "GET") result = auth.list();
         else if (path.startsWith("/v1/devices/") && request.method === "DELETE") {
           if (!auth.revoke(path.slice("/v1/devices/".length)))
             throw new AccessError(404, "Active device not found");
@@ -188,4 +205,40 @@ export function accessHttp({
       );
     });
   };
+}
+
+/**
+ * The machine's ace account and machine code (ADR 0111). Signing in and out is for this
+ * machine only (the host token: the desktop app or `ace`); any admin may set or clear the code.
+ */
+async function accountRoute(
+  path: string,
+  request: IncomingMessage,
+  account: import("./account-access/machine-account.ts").MachineAccount | undefined,
+  host: boolean,
+): Promise<unknown> {
+  if (!account) throw new AccessError(503, "ace account is unavailable");
+  if (path === "/v1/machine-code") {
+    if (request.method === "PUT") {
+      const change = MachineCodeChange.safeParse(await body(request));
+      if (!change.success) throw new AccessError(400, "A machine code has 4 to 128 characters.");
+      return account.setMachineCode(change.data.code);
+    }
+    if (request.method === "DELETE") return account.clearMachineCode();
+    throw new AccessError(405, "Unsupported method");
+  }
+  if (path === "/v1/ace-account" && request.method === "GET") return account.status();
+  if (!host) throw new AccessError(403, "Host token required");
+  if (path === "/v1/ace-account/login" && request.method === "POST") {
+    const start = AceAccountLoginStart.safeParse(await body(request));
+    if (!start.success) throw new AccessError(400, "Invalid ace account address");
+    return account.startLogin(start.data.origin);
+  }
+  if (path === "/v1/ace-account" && request.method === "PUT") {
+    const handover = AceAccountHandover.safeParse(await body(request));
+    if (!handover.success) throw new AccessError(400, "Invalid ace session");
+    return account.handover(handover.data.origin, handover.data.token);
+  }
+  if (path === "/v1/ace-account" && request.method === "DELETE") return account.signOut();
+  throw new AccessError(405, "Unsupported method");
 }

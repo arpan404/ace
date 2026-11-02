@@ -5,6 +5,7 @@ import { resolveDaemonHome } from "@ace/service";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import { WebOrigins } from "./web-origins.ts";
 import { LogMaxBytes, RetentionDays, SettingsValues } from "@ace/protocol";
+import { AceAccountOrigin } from "@ace/protocol/ace-account";
 import { parseByteSize } from "@ace/diagnostics/log-policy";
 
 const LogLevelSchema = z.enum(["debug", "info", "warn", "error", "silent"]);
@@ -41,6 +42,10 @@ const Environment = z.object({
   ACE_CURSOR_SDK_HOME: z.string().min(1).optional(),
   ACE_WORKSPACE_ROOT: z.string().optional(),
   ACE_RELAY_URL: z.url().optional(),
+  /** ace's account backend (ADR 0111), where `ace login` signs in. */
+  ACE_ACCOUNT_URL: AceAccountOrigin.optional(),
+  /** ace's hosted relay: the one relay this daemon offers machine grants to (ADR 0111). */
+  ACE_HOSTED_RELAY_URL: z.url().optional(),
   ACE_ADVERTISE_HOST: z.string().optional(),
   ACE_WEB_ORIGINS: WebOrigins.optional(),
   /** Seconds a done thread keeps its provider process warm before releasing it (default 300). */
@@ -77,6 +82,10 @@ export interface Config {
   cursorSdkHome?: string;
   workspaceRoot?: string;
   relayUrl?: string;
+  /** ACE_ACCOUNT_URL: the account backend `ace login` uses. */
+  accountOrigin?: string;
+  /** ACE_HOSTED_RELAY_URL: ace's hosted relay, which needs a machine grant to register. */
+  hostedRelayUrl?: string;
   host: "127.0.0.1";
   port: number;
   listen: "local" | "lan" | "tailscale";
@@ -146,6 +155,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
       : {}),
     ...(settings.ACE_WORKSPACE_ROOT ? { workspaceRoot: resolve(settings.ACE_WORKSPACE_ROOT) } : {}),
     ...(settings.ACE_RELAY_URL ? { relayUrl: settings.ACE_RELAY_URL } : {}),
+    ...(settings.ACE_ACCOUNT_URL ? { accountOrigin: settings.ACE_ACCOUNT_URL } : {}),
+    ...(settings.ACE_HOSTED_RELAY_URL ? { hostedRelayUrl: settings.ACE_HOSTED_RELAY_URL } : {}),
     host: "127.0.0.1",
     port,
     listen: settings.ACE_LISTEN,

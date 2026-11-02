@@ -16,6 +16,7 @@ import {
 } from "./machine-tables.ts";
 
 import { retiredWorkflowMigration } from "./retired-workflow-migration.ts";
+import { machineCodeTables } from "./account-access/tables.ts";
 
 const migrations = [
   `CREATE TABLE events (
@@ -163,6 +164,8 @@ const migrations = [
   retiredWorkflowMigration,
   // Remote children's proof of life and stops in progress (ADR 0052), backfilled from their rows.
   machineChildLiveness,
+  // The machine code and the account devices that passed it (ADR 0111); no rows exist before it.
+  machineCodeTables,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the

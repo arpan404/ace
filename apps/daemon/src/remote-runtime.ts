@@ -12,6 +12,13 @@ import { startRelayTransport } from "./services/transports.ts";
 import type { ServerOptions } from "./server-options.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import { relayRoute } from "./relay-route.ts";
+import { RelayRefusedError } from "@ace/relay";
+import {
+  RelayNeedsAccount,
+  hostedRelayAccess,
+  isHostedRelay,
+  relayRefusedMachine,
+} from "./relay-account.ts";
 
 import { remotePlan, type RemotePreferences as Preferences } from "./remote-policy.ts";
 const keys = ["remote.enabled", "remote.transport", "remote.relayUrl"] as const;
@@ -50,6 +57,7 @@ export function remoteRuntime(
   let tail = Promise.resolve();
   let stop: (() => void) | undefined;
   let queued = 0;
+  let stopAccount: (() => void) | undefined;
   let reconciling = false;
   let dirty = false;
   let directTransport: "local" | "lan" | "tailscale" = "local";
@@ -106,9 +114,15 @@ export function remoteRuntime(
     if (closed) return;
     const config = options.remoteConfig;
     if (!config) return;
-    const { listen, relayUrl, signature } = remotePlan(config, next);
+    const plan = remotePlan(config, next);
+    const { listen, relayUrl } = plan;
     if (next["remote.enabled"] && next["remote.transport"] === "relay" && !relayUrl)
       throw new SettingsError("validation", "Enter your self-hosted relay address first.");
+    const hosted = isHostedRelay(relayUrl, config.hostedRelayUrl);
+    // ace's relay registers this machine under its account, so another account is another plan.
+    const signature = hosted
+      ? JSON.stringify([plan.signature, options.machineAccount?.account()?.id ?? null])
+      : plan.signature;
     if (signature === active) {
       preferences = next;
       error = undefined;
@@ -131,9 +145,22 @@ export function remoteRuntime(
           : "Couldn't prepare encrypted LAN access. Check your network and OpenSSL installation, then try again.",
       );
     }
-    const relayOptions = relayUrl
-      ? { url: relayUrl, keys: await loadOrCreateHostKeys(join(config.dataDir, "relay")) }
+    const relayKeys = relayUrl
+      ? await loadOrCreateHostKeys(join(config.dataDir, "relay"))
       : undefined;
+    const relayOptions = relayUrl && relayKeys ? { url: relayUrl, keys: relayKeys } : undefined;
+    let relayAccess: ReturnType<typeof hostedRelayAccess> | undefined;
+    try {
+      relayAccess =
+        hosted && relayKeys ? hostedRelayAccess(options.machineAccount, relayKeys) : undefined;
+    } catch (failure) {
+      // Signed out: a relay registered under the old session stops; direct access stays.
+      active = "";
+      await relay?.close();
+      relay = undefined;
+      options.relay = undefined;
+      throw failure;
+    }
     if (closed) return;
     const keepDirect = directSignature === listen;
     if (!keepDirect) await retire();
@@ -186,15 +213,28 @@ export function remoteRuntime(
       directSignature = listen;
       if (relayOptions)
         // `options` itself, not a copy: its service getters must stay live for relay channels.
-        relay = await startRelayTransport(options, auth, relayOptions);
+        relay = await startRelayTransport(options, auth, relayOptions, {
+          ...(relayAccess ? { grant: relayAccess.grant } : {}),
+          onRefused: () => {
+            error = relayRefusedMachine;
+            options.log?.(new Error(error));
+            void serialize(async () => {
+              active = "";
+              await relay?.close();
+              relay = undefined;
+              options.relay = undefined;
+            }).catch(() => {});
+          },
+        });
       options.relay = relay ? relayOptions : undefined;
       preferences = next;
       active = signature;
       error = undefined;
       retryMs = 1000;
-    } catch {
+    } catch (failure) {
       // A relay outage must leave the direct pairing and conversation listener available.
       if (!connection) await retire();
+      if (failure instanceof RelayRefusedError) throw new RelayNeedsAccount(relayRefusedMachine);
       throw new SettingsError(
         "io",
         "Couldn't start remote access. Check the selected network or relay address and try again.",
@@ -207,7 +247,8 @@ export function remoteRuntime(
         ? failure.message
         : "Couldn't start remote access. Check your network or relay address.";
     options.log?.(new Error(error));
-    if (closed || retry) return;
+    // Waits for the person: signing in (or changing settings) applies it again.
+    if (closed || retry || failure instanceof RelayNeedsAccount) return;
     retry = delay(() => {
       retry = undefined;
       void serialize(() => apply(preferences)).catch(recover);
@@ -279,6 +320,12 @@ export function remoteRuntime(
       stop = await options.settings?.subscribe({ keys: [...keys], scope: {} }, (event) => {
         if (event.type === "changed") reconcile();
       });
+      stopAccount = options.machineAccount?.onChange(() => {
+        if (closed) return;
+        retry?.();
+        retry = undefined;
+        void serialize(() => apply(preferences)).catch(recover);
+      });
       if (!closed)
         stopWatch = every(() => {
           if (bound !== undefined && !closed) void serialize(recheck).catch(recover);
@@ -310,6 +357,7 @@ export function remoteRuntime(
     },
     async close() {
       closed = true;
+      stopAccount?.();
       stopWatch?.();
       stopWatch = undefined;
       retry?.();
