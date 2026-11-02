@@ -47,7 +47,7 @@ export function MachineRow(props: {
         leaving={props.leaving}
         machine={mark}
         lead={props.lead}
-        {...(props.shape === "chat" ? { actions: ChatRowActions } : {})}
+        {...(props.shape === "chat" ? { actions: ChatRowActions, compactActions: true } : {})}
       />
     </MachineScope>
   );
