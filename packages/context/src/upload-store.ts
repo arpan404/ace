@@ -63,15 +63,7 @@ export class UploadStore {
       resumeAttachmentCleanup(this.metadata, options.root),
     );
     this.tail = this.initialReady;
-    this.leases = new BlobLeases(this.metadata, {
-      now: options.now,
-      perOwner: this.limits.threadLeases,
-      total: this.limits.leases,
-      // A draft lives in its own table; a thread is gone once the daemon no longer knows it.
-      ownerAlive: (owner) =>
-        Boolean(this.metadata.get("SELECT 1 FROM drafts WHERE id=?", owner)) ||
-        (this.options.threadExists?.(owner) ?? true),
-    });
+    this.leases = new BlobLeases(this.metadata);
     this.maintenance = new Maintenance(this.metadata, options.root, options.now, (row) =>
       this.removeUpload(row),
     );
