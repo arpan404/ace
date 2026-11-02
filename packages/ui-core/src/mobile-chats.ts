@@ -5,7 +5,7 @@ import { inboxPinnedRank, recentRank, type InboxThread } from "./mobile-inbox.ts
 import { activityOf } from "./thread-state.ts";
 import type { ThreadMenuId } from "./thread-menu.ts";
 import { threadMatches } from "./thread-match.ts";
-import { atWork, needsPerson, standingReader, type Standing } from "./threads-panel.ts";
+import { atWork, needsPerson, standingReader, type Standing } from "./thread-standing.ts";
 
 /*
  * The phone's Chats tab (ADR 0099): the Chats panel's list (`chatList`) as sections a client
@@ -49,7 +49,7 @@ const sectionOrder: Record<ChatSectionKey, number> = {
 
 const tail = (thread: InboxThread) => `\u0000${thread.machineId}\u0000${thread.key}`;
 
-const syncing: Standing = { level: "syncing", done: false };
+const syncing: Standing = { level: "syncing", done: false, held: false };
 
 /** Whether a thread belongs in Chats rather than Threads. */
 export function isChatThread(thread: InboxThread): boolean {

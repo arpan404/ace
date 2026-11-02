@@ -15,6 +15,7 @@ import {
   seedInterruptedTurn,
   seedTurnEndings,
   seedLeftRunning,
+  seedSettledHeld,
   seedPanels,
   seedRealCatalogs,
   seedRealThreadState,
@@ -67,6 +68,8 @@ export function bootFake(): {
   installFakeVideoDecoder();
   const daemon = new FakeDaemon({
     clock: () => Date.now(),
+    // Its first start: the world it boots with is history, what happens after is news.
+    seenBefore: Date.now(),
     hostId: "this-mac",
     threadCompletionSchedule: (callback) => void setTimeout(callback, 1200),
     displayName: "This Mac",
@@ -89,6 +92,9 @@ export function bootFake(): {
     new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld");
   const empty = world === "empty";
   if (world === "real-thread-state") seedRealThreadState(daemon);
+  // `?fakeWorld=settled-held`: the dev world plus settled threads held at a usage limit or with
+  // a command left running: they stay in Settled.
+  if (world === "settled-held") seedSettledHeld(daemon, Date.now());
   if (world === "thread-activity")
     for (const scenario of turnStatuses())
       new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();

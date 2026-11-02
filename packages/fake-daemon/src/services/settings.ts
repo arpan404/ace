@@ -210,7 +210,14 @@ export class FakeSettings {
       }
     }
   }
+  private changes = new Set<(keys: readonly string[]) => void>();
+  /** Hear every change of global values, as the daemon's own services do. */
+  onChange(listener: (keys: readonly string[]) => void): () => void {
+    this.changes.add(listener);
+    return () => this.changes.delete(listener);
+  }
   private notify(key: string): void {
+    for (const listener of this.changes) listener([key]);
     for (const subscriber of this.subscribers)
       if (subscriber.keys.has(key))
         subscriber.push({
@@ -221,6 +228,7 @@ export class FakeSettings {
   }
   /** One `settings.changed` per subscriber for everything a batch changed. */
   private notifyMany(keys: readonly string[]): void {
+    for (const listener of this.changes) listener(keys);
     for (const subscriber of this.subscribers) {
       const seen = keys.filter((key) => subscriber.keys.has(key));
       if (seen.length)

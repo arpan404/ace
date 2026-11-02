@@ -19,6 +19,12 @@ export function migrateSidebarRevisions(db: DatabaseSync): void {
       count INTEGER NOT NULL
     );
     INSERT OR IGNORE INTO sidebar_thread_deletes(id, count) VALUES (1, 0);
+    -- Names this database in sidebar resume tokens, so another database's revisions never match.
+    CREATE TABLE IF NOT EXISTS sidebar_epoch (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      token TEXT NOT NULL
+    );
+    INSERT OR IGNORE INTO sidebar_epoch(id, token) VALUES (1, lower(hex(randomblob(8))));
     CREATE TABLE IF NOT EXISTS sidebar_thread_removals (
       revision INTEGER PRIMARY KEY AUTOINCREMENT,
       thread_id TEXT NOT NULL

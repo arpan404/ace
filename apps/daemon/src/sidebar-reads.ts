@@ -47,6 +47,10 @@ export class SidebarReads {
     this.source = source;
     this.live = new SidebarLive((sql) => source.statement(sql));
   }
+  /** The row revision a listed entry was read at, so a resuming list skips rows it holds. */
+  rowRevision(entry: ThreadListEntry): number | undefined {
+    return this.sidebarRowRevisions.get(entry);
+  }
   invalidate(): void {
     this.sidebarPages.clear();
     this.sidebarSummaries.clear();
@@ -108,6 +112,7 @@ export class SidebarReads {
         before: ids.more && last ? sidebarCursor(last, options.archived) : null,
         total: ids.total,
         counts: ids.counts,
+        revision: this.live.revision,
       },
     };
   }

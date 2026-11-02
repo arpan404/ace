@@ -67,7 +67,7 @@ test("machines grouped on their own runtimes merge into the order grouping them 
   expect(merged).toEqual(combined([...mac, ...linux]));
   expect(merged).toEqual({
     "Needs you": ["mac/asks", "linux/broke"],
-    Working: ["linux/t1", "mac/t1", "mac/waits"],
+    Working: ["mac/waits", "linux/t1", "mac/t1"],
     Done: ["linux/fresh", "mac/old"],
     Snoozed: ["linux/nap", "mac/nap"],
   });
@@ -91,7 +91,7 @@ test("an unconfirmed copy from an unreachable machine reads Syncing; the other m
   const merged = merge([inboxSections(mac, [], now), inboxSections(offline, [], now)]);
   expect(merged).toEqual({
     "Needs you": ["linux/asks", "mac/asks"],
-    Working: ["mac/t1", "mac/waits"],
+    Working: ["mac/waits", "mac/t1"],
     Syncing: ["linux/t1", "linux/fresh", "linux/broke"],
     Done: ["mac/old"],
     Snoozed: ["linux/nap", "mac/nap"],

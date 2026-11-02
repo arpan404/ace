@@ -98,12 +98,21 @@ export function patchEntry(
   return next;
 }
 
-/** `entry` with each still-unconfirmed action applied, oldest first. */
+/**
+ * `entry` with each still-unconfirmed action applied, oldest first. The daemon's place predates
+ * them, so it goes: the panel places this one entry by the same rule (`placeThread`) until the
+ * daemon's entry, placed anew, arrives.
+ */
 export function patchedEntry(
   entry: ThreadListEntry,
   pending: readonly { patch: OrganizePatch; at: number }[],
 ): ThreadListEntry {
-  return pending.reduce((current, action) => patchEntry(current, action.patch, action.at), entry);
+  if (!pending.length) return entry;
+  const { place: _predates, ...unplaced } = entry;
+  return pending.reduce<ThreadListEntry>(
+    (current, action) => patchEntry(current, action.patch, action.at),
+    unplaced,
+  );
 }
 
 /**

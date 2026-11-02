@@ -61,6 +61,8 @@ export interface ServerOptions {
   computerUsing?: import("./computer-using.ts").ComputerUsingThreads;
   /** The Activity read cursor (`activity.reads`). */
   activityReads?: import("./activity-reads.ts").ActivityReads;
+  /** What places listed threads in the Threads panel (ADR 0107). */
+  sidebarPlacement?: import("./sidebar-placement.ts").SidebarPlacement;
   /** Local checks and verified batch merges of pull requests (`verify.request`). */
   verify?: import("./verify/verify-service.ts").Verify;
   /** Site and app icons for browser and computer-use steps. */

@@ -9,6 +9,7 @@ import { startCursorAuth } from "./cursor-auth.ts";
 import { startPreviewClient } from "./preview-client.ts";
 import { startBackgroundPorts } from "./background-ports.ts";
 import { startAutomations } from "./automations.ts";
+import { startSidebarPlacement } from "./sidebar-placement.ts";
 import { startActivityReads } from "./activity-reads.ts";
 import { startVerify } from "./verify.ts";
 import { startIcons } from "./icons.ts";
@@ -67,6 +68,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "relay", phase: "core", requires: ["files"], after: [], start: startRelayKeys },
   { name: "plugins", phase: "core", requires: [], after: [], start: startPlugins },
   { name: "activityReads", phase: "core", requires: [], after: [], start: startActivityReads },
+  {
+    name: "sidebarPlacement",
+    phase: "core",
+    requires: [],
+    after: ["settings", "activityReads"],
+    start: startSidebarPlacement,
+  },
   { name: "icons", phase: "core", requires: [], after: [], start: startIcons },
   { name: "userBrowser", phase: "core", requires: [], after: [], start: startUserBrowser },
   {

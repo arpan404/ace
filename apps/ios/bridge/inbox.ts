@@ -5,7 +5,8 @@ import {
   type PendingSend,
   type SidebarSource,
 } from "@ace/client";
-import { settledTotal, type HomeSort } from "@ace/ui-core";
+import { placeReader, settledTotal, type HomeSort, type ThreadPlace } from "@ace/ui-core";
+import type { ThreadListEntry } from "@ace/protocol";
 import {
   inboxNextChange,
   isChatThread,
@@ -79,14 +80,28 @@ const longestWait = 2 ** 31 - 1;
  * (`inbox-checkpoint.ts`).
  */
 
+/**
+ * Each thread with its place: the daemon's, or the shared rule's (`placeReader`) on this
+ * phone's clock and seen baseline for one without (an older daemon, a pin or move not yet
+ * confirmed), so the phone places as the web does.
+ */
 function inboxThread(
   store: SidebarSource,
   organizer: InboxOrganizer,
   id: string,
+  place: (entry: ThreadListEntry) => ThreadPlace | undefined,
 ): InboxThread | undefined {
   const entry = organizer.entry(id);
   const machineId = organizer.machineId;
-  return entry && { key: id, machineId, entry, unconfirmed: store.unconfirmed === true };
+  return (
+    entry && {
+      key: id,
+      machineId,
+      entry,
+      unconfirmed: store.unconfirmed === true,
+      place: place(entry),
+    }
+  );
 }
 
 /**
@@ -125,9 +140,12 @@ export function followInbox(
     accounts: accounts.views(),
     sortBy: sort.current(),
   });
+  /** Places on this moment's clock and sort; entries the daemon placed are only read. */
+  const placer = () =>
+    placeReader({ fallback: { baseline, now: clock.now(), sortBy: sort.current() } });
   const row = (id: string) =>
     pump.put(`inbox:${id}`, () => {
-      const thread = inboxThread(store, organizer, id);
+      const thread = inboxThread(store, organizer, id, placer());
       return {
         type: "inbox.row",
         id,
@@ -180,8 +198,9 @@ export function followInbox(
     pump.put("inbox:sections", () => {
       const now = clock.now();
       const threads: InboxThread[] = [];
+      const place = placer();
       for (const id of store.ids) {
-        const thread = inboxThread(store, organizer, id);
+        const thread = inboxThread(store, organizer, id, place);
         if (thread) threads.push(thread);
       }
       arm(inboxNextChange(threads, now));
@@ -195,6 +214,7 @@ export function followInbox(
         .map((send) => ({ key: send.commandId, machineId, send }));
       // The inbox pages home; while the archive is open the store's own window is the archive's.
       // Only the daemon's own copy has a Settled section, so only it carries the daemon's total.
+      // Chats are the Chats tab's (ADR 0099); Threads leaves them out, as the web's panel does.
       const projects = chats ? threads.filter((thread) => !isChatThread(thread)) : threads;
       return inboxLayout(
         projects,
@@ -204,8 +224,8 @@ export function followInbox(
         {
           settledTotal: store.unconfirmed === true ? undefined : settledTotal(store.homeWindow),
           sortBy: sort.current(),
-          // Ordered as the desktop's Inbox: needs you, running, unseen, then the rest.
-          baseline,
+          // A copy read back from disk claims no dots until the daemon confirms it.
+          attention: store.unconfirmed === true ? undefined : store.homeWindow?.attention,
         },
       );
     });
@@ -215,8 +235,9 @@ export function followInbox(
   const chatLayout = () =>
     pump.put("chats:sections", () => {
       const chats: InboxThread[] = [];
+      const place = placer();
       for (const id of store.ids) {
-        const thread = inboxThread(store, organizer, id);
+        const thread = inboxThread(store, organizer, id, place);
         if (thread && isChatThread(thread)) chats.push(thread);
       }
       return chatsLayout(chats, clock.now(), baseline, chatQuery);

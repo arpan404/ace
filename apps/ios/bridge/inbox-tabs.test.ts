@@ -19,8 +19,8 @@ import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 /*
  * The phone's Threads screen has the desktop's three tabs (ADR 0107): Inbox, Snoozed and
- * Settled. Each section the bridge sends names the tab that lists it, and the layout carries
- * every tab and the Inbox threads that need the person, which light its dot.
+ * Settled, listing what the daemon placed in each. The layout carries those lists, each tab's
+ * words, and the daemon's own count of what needs the person, which lights the Inbox's dot.
  */
 
 const closers: (() => Promise<void> | void)[] = [];
@@ -106,19 +106,15 @@ async function following(seed: (daemon: FakeDaemon) => void) {
 }
 
 type Layout = {
-  sections: { key: string; tab: string; ids: string[] }[];
-  tabs: { id: string; label: string; counted: boolean; empty: string; needsYou: string[] }[];
+  tabs: { inbox: string[]; snoozed: string[]; settled: string[] };
+  tabWords: { id: string; label: string; counted: boolean; empty: string }[];
+  attention?: { threads: { needsYou: number } };
 };
 const layout = (sink: RecordingSink) => sink.read("inbox:sections") as Layout | undefined;
-/** The thread ids each tab lists, section by section in order, as the phone draws them. */
-const tabs = (sink: RecordingSink) => {
-  const listed = { inbox: [] as string[], snoozed: [] as string[], settled: [] as string[] };
-  for (const section of layout(sink)?.sections ?? []) {
-    if (section.tab === "inbox" || section.tab === "snoozed" || section.tab === "settled")
-      listed[section.tab].push(...section.ids);
-  }
-  return listed;
-};
+/** The thread ids each tab lists, as the daemon placed them. */
+const tabs = (sink: RecordingSink) =>
+  layout(sink)?.tabs ?? { inbox: [] as string[], snoozed: [] as string[], settled: [] as string[] };
+const dot = (sink: RecordingSink) => layout(sink)?.attention?.threads.needsYou ?? 0;
 type Row = { snoozedUntil?: number | null; look: { settled: boolean } };
 const row = (sink: RecordingSink, id: string) =>
   (sink.read(`inbox:${id}`) as { row: Row | null } | undefined)?.row ?? undefined;
@@ -140,18 +136,12 @@ test("each tab lists its own threads: live and pinned in Inbox, snoozed with its
   expect(row(sink, "nap")?.snoozedUntil).toBe(wakesAt);
   expect(row(sink, "done")?.look.settled).toBe(true);
   expect(row(sink, "live")?.look.settled).toBe(false);
-  expect(
-    layout(sink)?.tabs.map(({ id, label, counted, needsYou }) => ({
-      id,
-      label,
-      counted,
-      needsYou,
-    })),
-  ).toEqual([
-    { id: "inbox", label: "Inbox", counted: true, needsYou: [] },
-    { id: "snoozed", label: "Snoozed", counted: true, needsYou: [] },
-    { id: "settled", label: "Settled", counted: false, needsYou: [] },
+  expect(layout(sink)?.tabWords.map(({ id, label, counted }) => ({ id, label, counted }))).toEqual([
+    { id: "inbox", label: "Inbox", counted: true },
+    { id: "snoozed", label: "Snoozed", counted: true },
+    { id: "settled", label: "Settled", counted: false },
   ]);
+  expect(dot(sink)).toBe(0);
 });
 
 test("a snoozed thread that asks for the person comes back to the Inbox and lights its dot", async () => {
@@ -161,13 +151,13 @@ test("a snoozed thread that asks for the person comes back to the Inbox and ligh
     finished(machine, "other");
   });
   await until(() => tabs(sink).snoozed.includes("quiet"), "the snooze");
-  expect(layout(sink)?.tabs[0]).toMatchObject({ id: "inbox", needsYou: [] });
+  expect(dot(sink)).toBe(0);
 
   asking(daemon, "asks");
   snooze(daemon, "asks");
   await until(() => tabs(sink).inbox.includes("asks"), "the request");
   expect(tabs(sink).snoozed).toEqual(["quiet"]);
-  expect(layout(sink)?.tabs[0]).toMatchObject({ id: "inbox", needsYou: ["asks"] });
+  await until(() => dot(sink) === 1, "the dot");
 });
 
 test("a pinned thread the person settles rests in Settled, not among the pinned", async () => {

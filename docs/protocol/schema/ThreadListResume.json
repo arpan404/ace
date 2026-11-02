@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadListResume.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "epoch": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "revision": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "revision",
+    "epoch"
+  ],
+  "type": "object"
+}

@@ -85,13 +85,13 @@ test("requests lead, a snoozed request stays exposed and a failure asks the pers
   expect(result).toEqual({ "Needs you": ["mac/broke", "mac/asks"], Working: ["mac/busy"] });
 });
 
-test("Working puts running trees above waiting ones, most recent first", () => {
+test("Working lists running and waiting trees newest first, as the web's Inbox does", () => {
   const result = sections([
     on("mac", entry("waits", { state: "waiting", on: "background_task" }, now)),
     on("mac", entry("old", { state: "working", agents: 2 }, now - 5 * minute)),
     on("mac", entry("fresh", { state: "working", agents: 1 }, now - minute)),
   ]);
-  expect(result.Working).toEqual(["mac/fresh", "mac/old", "mac/waits"]);
+  expect(result.Working).toEqual(["mac/waits", "mac/fresh", "mac/old"]);
 });
 
 test("snoozed threads list the soonest wake first and return to their group once it passes", () => {
@@ -265,21 +265,4 @@ test("the phone's inbox leaves out threads a paired machine's agents delegated t
     on("mac", entry("their-run", { state: "working", agents: 1 }, now, { delegatedFrom })),
   ]);
   expect(result).toEqual({ Working: ["mac/mine"] });
-});
-
-test("with a baseline the inbox reads in the desktop's order: needs you, running, unseen results, then the rest", () => {
-  const threads = [
-    // Finished long ago and opened since: at rest.
-    on("m", entry("read", { state: "done" }, now - 2 * 10_000, { readAt: now })),
-    // Finished earlier, not opened yet: leads the threads at rest, though older.
-    on("m", entry("unseen", { state: "done" }, now - 5 * 10_000)),
-    // A failure already seen rests with the idle threads; it no longer asks.
-    on("m", entry("seen-failure", { state: "failed" }, now - 10_000, { readAt: now })),
-    on("m", entry("busy", { state: "working", agents: 1 }, now - 10 * 10_000)),
-    on("m", entry("asks", { state: "needs_you", interactions: 1 }, now - 20 * 10_000)),
-  ];
-  const ordered = inboxSections(threads, [], now, { baseline: 0 }).flatMap((section) =>
-    section.keys.map((key) => key.slice(2)),
-  );
-  expect(ordered).toEqual(["asks", "busy", "unseen", "seen-failure", "read"]);
 });

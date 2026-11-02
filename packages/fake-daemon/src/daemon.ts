@@ -1,3 +1,4 @@
+import type { PlaceInput } from "@ace/ui-core/thread-place";
 import { FakeComputerAccess } from "./computer-access.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
@@ -119,6 +120,22 @@ export class FakeDaemon implements Host {
   platform: string | undefined;
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
+  /**
+   * Places listed threads as the daemon does: its sort, this clock, and its seen baseline. The
+   * real daemon's is its first start, long before what it lists finished; a fake is seeded just
+   * before it is read, so what it was seeded with counts as seen unless its read time says
+   * otherwise (`seenBefore` sets another moment).
+   */
+  placeInput(): PlaceInput | undefined {
+    if (this.options.placement === false) return undefined;
+    const sorts = ["activity", "created", "manual"] as const;
+    const value = this.services.settings.get("threads.sortBy");
+    return {
+      baseline: this.options.seenBefore ?? Number.MAX_SAFE_INTEGER,
+      now: this.options.clock(),
+      sortBy: sorts.find((sort) => sort === value) ?? "activity",
+    };
+  }
   private options: FakeDaemonOptions;
   private worktreeCreations: FakeWorktreeCreations;
   private servicesWire: FakeServicesWire;
@@ -317,6 +334,11 @@ export class FakeDaemon implements Host {
       this.servicesWire.files,
     );
     this.services.verify.onMerged = (_, number) => this.workspace.mergePullRequest(number);
+    // As the daemon's placement does: a sort change re-places every open thread list.
+    this.services.settings.onChange((keys) => {
+      if (keys.includes("threads.sortBy"))
+        for (const connection of this.connections) connection.replace();
+    });
   }
   /** The PTYs clients reach through `terminal.request`, for seeding a scenario's terminals. */
   get terminals(): FakeTerminals {

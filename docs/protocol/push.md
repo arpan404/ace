@@ -3013,6 +3013,16 @@ Example:
   "threads": {},
   "type": "threads.patch",
   "window": {
+    "attention": {
+      "chats": {
+        "needsYou": 3,
+        "unread": 3
+      },
+      "threads": {
+        "needsYou": 3,
+        "unread": 5
+      }
+    },
     "before": null,
     "counts": [],
     "total": 0

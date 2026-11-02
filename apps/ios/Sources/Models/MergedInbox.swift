@@ -29,11 +29,11 @@ struct MergedInbox: Equatable {
         /// What the section's heading shows: its rows plus every thread it counts but hasn't loaded.
         var count: Int { rows.count + unloaded.values.reduce(0, +) }
     }
-    /// One Threads tab across every machine: the first machine's words, and every machine's
-    /// threads that need the person.
+    /// One Threads tab across every machine: the first machine's words, and how many threads
+    /// need the person by every machine's daemon (its rail dot).
     struct Tab: Identifiable, Equatable {
         let id: String; let label: String; var counted = false; let empty: String; let emptyLine: String?
-        let needsYou: [InboxKey]
+        var needsYou = 0
     }
     let sections: [Section]
     /// Inbox, Snoozed and Settled, in the runtimes' order; empty until a machine sends them.
@@ -52,9 +52,16 @@ struct MergedInbox: Equatable {
         var groups: [String: Group] = [:]
         var seen = 0
         for (machine, part) in parts.enumerated() {
+            // The tab each section is in is the daemon's: whichever of its placed lists holds it.
+            let placed = part.layout.tabs
+            let snoozed = Set(placed?.snoozed ?? []), settled = Set(placed?.settled ?? [])
+            func tab(of section: InboxLayout.Section) -> String {
+                guard let first = section.ids.first else { return "inbox" }
+                return snoozed.contains(first) ? "snoozed" : settled.contains(first) ? "settled" : "inbox"
+            }
             for (position, section) in part.layout.sections.enumerated() {
                 var group = groups[section.key] ?? Group(order: section.order ?? position, first: seen, label: section.label,
-                                                           tab: section.tab ?? "inbox", rows: [])
+                                                           tab: tab(of: section), rows: [])
                 seen += 1
                 for (index, id) in section.ids.enumerated() {
                     // A runtime without ranks keeps its own order after every ranked row.
@@ -74,19 +81,11 @@ struct MergedInbox: Equatable {
                     rows: group.rows.sorted { $0.rank.utf16.lexicographicallyPrecedes($1.rank.utf16) }.map(\.key),
                     tab: group.tab, unloaded: group.unloaded)
         }
-        var tabs: [Tab] = []
-        for part in parts {
-            for tab in part.layout.tabs ?? [] {
-                let asks = (tab.needsYou ?? []).map { InboxKey(machineId: part.machineId, id: $0) }
-                if let at = tabs.firstIndex(where: { $0.id == tab.id }) {
-                    let known = tabs[at]
-                    tabs[at] = Tab(id: known.id, label: known.label, counted: known.counted, empty: known.empty,
-                                   emptyLine: known.emptyLine, needsYou: known.needsYou + asks)
-                } else {
-                    tabs.append(Tab(id: tab.id, label: tab.label, counted: tab.counted ?? false, empty: tab.empty,
-                                    emptyLine: tab.emptyLine, needsYou: asks))
-                }
-            }
+        // The words from the first machine that sends them; the Inbox's dot from every daemon's.
+        let needsYou = parts.reduce(0) { $0 + ($1.layout.attention?.threads.needsYou ?? 0) }
+        let tabs: [Tab] = (parts.lazy.compactMap(\.layout.tabWords).first ?? []).map { words in
+            Tab(id: words.id, label: words.label, counted: words.counted ?? false, empty: words.empty,
+                emptyLine: words.emptyLine, needsYou: words.id == "inbox" ? needsYou : 0)
         }
         return MergedInbox(sections: sections, tabs: tabs, more: parts.filter { $0.layout.more }.map(\.machineId),
                            snooze: parts.first { !$0.layout.snooze.isEmpty }?.layout.snooze ?? [],

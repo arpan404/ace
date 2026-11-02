@@ -1,17 +1,8 @@
-import type { ThreadListEntry } from "@ace/protocol";
+import type { InboxBand, ThreadListEntry, ThreadPlace } from "@ace/protocol";
 import type { PendingSend } from "@ace/client";
-import { threadAttention } from "@ace/projection";
-import {
-  homeListKey,
-  isDraft,
-  isRemoteChild,
-  isRemoved,
-  pinOrderOf,
-  type HomeSort,
-} from "./arrange.ts";
-import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
-import type { ThreadsTab } from "./organizer.ts";
-import { inboxBand, standingReader } from "./threads-panel.ts";
+import { homeListKey, isRemoved, pinOrderOf, type HomeSort } from "./arrange.ts";
+import { activityOf } from "./thread-state.ts";
+import { currentPlace, placeThread } from "./thread-place.ts";
 import {
   mobileThreadStatus,
   syncingStatus,
@@ -73,6 +64,13 @@ export interface InboxThread {
   entry: ThreadListEntry;
   /** The machine's list is a copy the daemon hasn't confirmed (read back from disk). */
   unconfirmed?: boolean | undefined;
+  /**
+   * Where the daemon placed it (`entry.place`), or the shared rule's place for an entry without
+   * one (`placeReader`, on the caller's clock and seen baseline). The bridge always passes it,
+   * with its own baseline; absent, the entry's own place is read, else the rule with no baseline
+   * known (everything finished and never read is news).
+   */
+  place?: ThreadPlace | undefined;
 }
 
 export interface InboxUnsent {
@@ -84,8 +82,6 @@ export interface InboxUnsent {
 export interface InboxSection {
   key: InboxGroupKey;
   label: string;
-  /** The Threads tab that lists it (`inboxSectionTab`). */
-  tab: ThreadsTab;
   /** Row keys in display order. */
   keys: string[];
   /** Each row's rank, parallel to `keys` (`inboxRank`, `unsentRank`). */
@@ -106,13 +102,6 @@ export interface InboxSectionOptions {
    * stays where it is while its state changes. Snoozed and Settled stay apart either way.
    */
   sortBy?: HomeSort | undefined;
-  /**
-   * Order the live threads as the desktop's Inbox does (`inboxBand`): what needs the person
-   * (a request or a failure not yet seen), then what runs, then finished work not yet seen,
-   * then the rest. Results that finished before `baseline` count as seen. Without it the
-   * groups follow the daemon's status alone.
-   */
-  baseline?: number | undefined;
 }
 
 /** The groups that sorting by creation or by hand folds into one Threads list. */
@@ -123,25 +112,40 @@ const listedGroups: ReadonlySet<InboxGroupKey> = new Set([
   "done",
 ]);
 
+/** The Inbox band each section shows, as the daemon placed the thread. */
+const bandGroups: Record<InboxBand, InboxGroupKey> = {
+  pinned: "pinned",
+  "needs-you": "needs-you",
+  running: "working",
+  unseen: "done",
+  idle: "done",
+  listed: "threads",
+};
+
+/** The thread's place: the one it carries, else the shared rule's (`placeThread`). */
+export function inboxPlace(thread: InboxThread, now: number): ThreadPlace | undefined {
+  return (
+    thread.place ??
+    currentPlace(thread.entry, now) ??
+    placeThread(thread.entry, { baseline: 0, now })
+  );
+}
+
 /**
- * Where a thread sits, or undefined when the inbox leaves it out (archived, deleted, a draft
- * nobody sent). Only the daemon's whole-tree status says done: a finished root whose child still
- * works reads Working. A request is never hidden by a snooze, and a failure asks the person to
- * look. An unconfirmed copy claims no state beyond a request, which it keeps exposed. A settled
- * thread (by hand or by itself, as the web's Settled section reads it) leaves Done for Settled;
- * a working tree or a request is never settled away.
+ * Where a thread sits, read from its place in the Threads panel, so the phone shows what web
+ * and desktop show: undefined when the panel leaves it out (archived, deleted, a draft nobody
+ * sent, a child delegated from another machine); Snoozed and Settled as placed; the Inbox's
+ * bands as sections. An unconfirmed copy claims no live state beyond a request, which it keeps
+ * exposed, nor a pin's band beyond its pin.
  */
 export function inboxGroup(thread: InboxThread, now: number): InboxGroupKey | undefined {
-  const { entry } = thread;
-  if (isRemoved(entry) || isDraft(entry) || isRemoteChild(entry)) return undefined;
-  const state = entry.status.state;
-  if (state === "needs_you" || threadAttention(entry) !== undefined) return "needs-you";
-  if (isSnoozed(entry, now)) return "snoozed";
-  if (thread.unconfirmed) return "syncing";
-  if (isSettled(entry)) return "settled";
-  if (state === "failed") return "needs-you";
-  if (state === "done") return "done";
-  return "working";
+  const place = inboxPlace(thread, now);
+  if (!place) return undefined;
+  if (place.tab !== "inbox") return place.tab;
+  const band = place.band ?? "idle";
+  if (thread.unconfirmed && band !== "pinned" && thread.entry.status.state !== "needs_you")
+    return "syncing";
+  return bandGroups[band];
 }
 
 /** What a settled row says once its snooze has passed but its machine hasn't woken it yet. */
@@ -227,6 +231,29 @@ export function recentRank(at: number): string {
   return descending(at);
 }
 
+/** The band's position, one digit, so a group holding two bands keeps them in order. */
+const bandDigits: Record<InboxBand, string> = {
+  pinned: "0",
+  "needs-you": "1",
+  running: "2",
+  unseen: "3",
+  idle: "4",
+  listed: "5",
+};
+
+/**
+ * Where a row sorts within its group, from its place: its band, then each rank key higher
+ * first, then machine and key. Compared as `inboxRank` is, so a client that groups each machine
+ * on its own runtime merges their sections by rank and gets the daemons' order.
+ */
+export function inboxPlaceRank(thread: InboxThread, place: ThreadPlace): string {
+  return (
+    bandDigits[place.band ?? "idle"] +
+    place.rank.map((key) => ordered(-key)).join("") +
+    `\u0000${thread.machineId}\u0000${thread.key}`
+  );
+}
+
 /**
  * Where a row sorts within its group, as a string compared by UTF-16 code units (JavaScript's
  * own `<`). Most recent activity leads; Working puts running trees above those waiting or
@@ -309,33 +336,6 @@ export function inboxGroupRank(key: InboxGroupKey): number {
   return groupRanks[key];
 }
 
-/**
- * The Threads tab (ADR 0107) that lists a group, as the desktop's panel places threads: Snoozed
- * and Settled have their own tabs; every live group, Pinned and Unsent included, is the Inbox's.
- */
-export function inboxSectionTab(key: InboxGroupKey): ThreadsTab {
-  return key === "snoozed" || key === "settled" ? key : "inbox";
-}
-
-/**
- * The Inbox threads that wait on a request from the person, for the Inbox tab's dot, in the
- * order given. As the desktop picks them: unpinned threads whose status needs them, and none
- * from a copy the daemon hasn't confirmed, whose statuses may be stale. A request outranks a
- * snooze, so a snoozed thread that asks is among them.
- */
-export function inboxNeedsYou(threads: Iterable<InboxThread>, now: number): string[] {
-  const keys: string[] = [];
-  for (const thread of threads) {
-    if (thread.unconfirmed || thread.entry.pinned === true) continue;
-    if (thread.entry.status.state !== "needs_you") continue;
-    if (inboxGroup(thread, now) === "needs-you") keys.push(thread.key);
-  }
-  return keys;
-}
-
-/** The live groups the desktop's bands reorder; pinned, syncing, snoozed and settled stay. */
-const bandedGroups: ReadonlySet<InboxGroupKey> = new Set(["needs-you", "working", "done"]);
-
 const byRank = (a: { rank: string }, b: { rank: string }) =>
   a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0;
 
@@ -352,30 +352,18 @@ export function inboxSections(
 ): InboxSection[] {
   const groups = new Map<InboxGroupKey, { key: string; rank: string }[]>();
   const sortBy = options.sortBy ?? "activity";
-  const standing =
-    options.baseline === undefined
-      ? undefined
-      : standingReader({ baseline: options.baseline, now });
   for (const thread of threads) {
+    const place = inboxPlace(thread, now);
     let group = inboxGroup(thread, now);
-    if (!group) continue;
-    // The desktop's bands: a seen failure rests with the idle threads, unseen results lead them.
-    let lead = "";
-    if (standing && thread.entry.pinned !== true && bandedGroups.has(group)) {
-      const band = inboxBand(standing(thread.entry), false);
-      group = band === "needs-you" ? "needs-you" : band === "running" ? "working" : "done";
-      if (group === "done") lead = band === "unseen" ? "0" : "1";
-    }
+    if (!group || !place) continue;
     let rank: string;
-    // A pinned thread leads the Inbox whatever its live state, as on Home; its row still says
-    // it. Snoozed or settled, it rests in that tab like any other, as the desktop's panel has it.
-    if (thread.entry.pinned === true && group !== "snoozed" && group !== "settled") {
-      group = "pinned";
-      rank = inboxPinnedRank(thread);
-    } else if (sortBy !== "activity" && listedGroups.has(group)) {
+    if (group === "syncing") rank = inboxRank(thread, group);
+    else if (sortBy !== "activity" && (group === "threads" || listedGroups.has(group))) {
+      // Sorted by creation or by hand, every unpinned live row ranks by that one key, so a row
+      // placed before the sort was known, or placed here, sorts beside the daemon's.
       group = "threads";
       rank = inboxListRank(thread, sortBy);
-    } else rank = lead + inboxRank(thread, group);
+    } else rank = inboxPlaceRank(thread, place);
     const row = { key: thread.key, rank };
     const list = groups.get(group);
     if (list) list.push(row);
@@ -397,7 +385,6 @@ export function inboxSections(
       sections.push({
         key,
         label: inboxGroupLabels[key],
-        tab: inboxSectionTab(key),
         keys: rows.map((row) => row.key),
         ranks: rows.map((row) => row.rank),
         total,

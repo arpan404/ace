@@ -88,6 +88,9 @@ struct ThreadFocus: Equatable {
     private(set) var revision = 0
     private(set) var paged = false
     private(set) var operation = ""
+    /// The last read sent leaves the window following the live end (or there is none): a
+    /// reader away from the end still owes it a hold.
+    @ObservationIgnored private(set) var followsEnd = true
     /// The window's rows are stale disk cache (or were read while offline):
     /// shown read-only with a cached/retry indication until a fresh complete
     /// window replaces them. Preserved across loads; only a `.current` reply
@@ -200,6 +203,7 @@ struct ThreadFocus: Equatable {
             retryAnchorItemId = anchorItemId
         }
         self.operation = operation
+        followsEnd = operation == "follow" || operation == "live"
         let version = generation
         let asked = CACurrentMediaTime()
         // Going live only ends the window; every other read shows rows under this view's epoch.
@@ -208,8 +212,13 @@ struct ThreadFocus: Equatable {
         if let item { payload["itemId"] = item }
         if let turn { payload["ordinal"] = turn }
         if let anchorItemId { payload["anchorItemId"] = anchorItemId }
-        // A page's rows land together once the bridge says the read settled.
-        if operation != "live" { model.holdReading() }
+        // A page's rows land together once the bridge says the read settled. Holding or
+        // following an open, current window only changes which end it trims and moves no rows,
+        // so the reader turning at the end never holds back the rows streaming in. A stale
+        // window's hold is a reconnect rebuild, whose rows do land together.
+        let turnsOnly = thread != nil && !isStale && (operation == "hold" || operation == "follow")
+        let movesRows = operation != "live" && !turnsOnly
+        if movesRows { model.holdReading() }
         request = Task {
             defer { if generation == version { loading = false } }
             do {
@@ -230,6 +239,14 @@ struct ThreadFocus: Equatable {
         cancel(model: model)
         read("live", model: model, live: thread)
     }
+    /// Back to the live end (Scroll to end, a send). A window joined to the live tail keeps the
+    /// history read into it and follows the end, as the web's does; discarding it would read
+    /// those pages again on the next read back. A window apart from the tail has a gap before
+    /// the end, so it goes.
+    func toEnd(model: ClientModel, thread live: ThreadModel) {
+        if thread != nil, joined, !loading { read("follow", model: model, live: live) }
+        else { self.live(model: model, thread: live) }
+    }
     /// Open a window around `item` (a search hit) and bring it into view.
     func jump(to item: String, model: ClientModel, live: ThreadModel) {
         cancel(model: model)
@@ -245,7 +262,7 @@ struct ThreadFocus: Equatable {
         request?.cancel(); request = nil
         loading = false; problem = nil; focus = nil
         close(model: model)
-        paged = false; hasOlder = true; hasNewer = false; joined = true
+        paged = false; hasOlder = true; hasNewer = false; joined = true; followsEnd = true
         isStale = false
         lastWindow = .empty
         retryAnchorItemId = nil
@@ -255,6 +272,7 @@ struct ThreadFocus: Equatable {
 
     private func open(model: ClientModel, live: ThreadModel) -> ThreadModel {
         Self.epochs += 1
+        PerfProbe.add("reading.windows", 1)
         let next = ThreadModel(id: live.id)
         next.epoch = -Self.epochs
         next.disclosures = live.disclosures

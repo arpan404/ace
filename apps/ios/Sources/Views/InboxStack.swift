@@ -181,7 +181,8 @@ struct InboxStack<Destination: View, Side: View>: View {
     @ViewBuilder private var tabsBar: some View {
         let tabs = inbox.merged.tabs
         if !tabs.isEmpty {
-            let dot = tabs.first { $0.id == "inbox" }?.needsYou.contains(where: includes) ?? false
+            // The daemon's own count of what needs the person, as the desktop's dot.
+            let dot = (tabs.first { $0.id == "inbox" }?.needsYou ?? 0) > 0
             ThreadsTabsBar(tabs: tabs, selection: $threadsTab, dot: dot) { id in
                 inbox.merged.sections.filter { $0.tab == id && $0.key != "unsent" }
                     .compactMap { $0.scoped(includes, whole: whole)?.count }.reduce(0, +)

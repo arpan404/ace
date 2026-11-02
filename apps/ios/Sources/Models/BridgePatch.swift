@@ -216,19 +216,7 @@ struct InboxLayout: Codable, Sendable, Equatable {
         var total: Int? = nil
         /// Chats only: the section's rows are settled and draw dimmed.
         var settled: Bool? = nil
-        /// The Threads tab that lists it ("inbox", "snoozed", "settled"); nil from older bridges,
-        /// whose sections all show in the Inbox.
-        var tab: String? = nil
         var id: String { key }
-    }
-    /// One of the Threads tabs (Inbox, Snoozed, Settled), in order: its words, its count, what it says
-    /// while empty, and (the Inbox's) the threads that need the person, for its dot.
-    struct Tab: Codable, Sendable, Identifiable, Equatable {
-        let id: String; let label: String; let empty: String
-        /// Whether its count shows after the word (Inbox, Snoozed).
-        var counted: Bool? = nil
-        var emptyLine: String? = nil
-        var needsYou: [String]? = nil
     }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
     /// A choice of the machine's Sort threads setting, worded by the shared rules.
@@ -244,8 +232,22 @@ struct InboxLayout: Codable, Sendable, Equatable {
     /// The words for each row's `menu` ids (`threadMenuLabels`).
     var menuLabels: [String: String]? = nil
     var menuSections: [String: String]? = nil
-    /// The Threads tabs; nil from older bridges and the Chats layout.
-    var tabs: [Tab]? = nil
+    /// The Threads panel's tabs as the daemon placed them (Inbox, Snoozed, Settled thread ids in
+    /// order); nil from older bridges and older checkpoints, which `sections` still draw.
+    struct Tabs: Codable, Sendable, Equatable { let inbox: [String]; let snoozed: [String]; let settled: [String] }
+    var tabs: Tabs? = nil
+    /// The machine's rail dots, as its daemon sent them; nil from older daemons and bridges.
+    struct PlaceAttention: Codable, Sendable, Equatable { let needsYou: Int; let unread: Int }
+    struct Attention: Codable, Sendable, Equatable { let threads: PlaceAttention; let chats: PlaceAttention }
+    var attention: Attention? = nil
+    /// Each Threads tab's words, in order (label, whether its count shows, what it says empty);
+    /// nil from older bridges and the Chats layout. The lists are `tabs`, as the daemon placed them.
+    struct TabWords: Codable, Sendable, Identifiable, Equatable {
+        let id: String; let label: String; let empty: String
+        var counted: Bool? = nil
+        var emptyLine: String? = nil
+    }
+    var tabWords: [TabWords]? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
 }
 
