@@ -88,6 +88,9 @@ struct ThreadFocus: Equatable {
     private(set) var revision = 0
     private(set) var paged = false
     private(set) var operation = ""
+    /// The last read sent leaves the window following the live end (or there is none): a
+    /// reader away from the end still owes it a hold.
+    @ObservationIgnored private(set) var followsEnd = true
     /// The window's rows are stale disk cache (or were read while offline):
     /// shown read-only with a cached/retry indication until a fresh complete
     /// window replaces them. Preserved across loads; only a `.current` reply
@@ -200,6 +203,7 @@ struct ThreadFocus: Equatable {
             retryAnchorItemId = anchorItemId
         }
         self.operation = operation
+        followsEnd = operation == "follow" || operation == "live"
         let version = generation
         let asked = CACurrentMediaTime()
         // Going live only ends the window; every other read shows rows under this view's epoch.
@@ -258,7 +262,7 @@ struct ThreadFocus: Equatable {
         request?.cancel(); request = nil
         loading = false; problem = nil; focus = nil
         close(model: model)
-        paged = false; hasOlder = true; hasNewer = false; joined = true
+        paged = false; hasOlder = true; hasNewer = false; joined = true; followsEnd = true
         isStale = false
         lastWindow = .empty
         retryAnchorItemId = nil

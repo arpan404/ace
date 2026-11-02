@@ -234,7 +234,11 @@ struct ConversationFeed: View {
                     // refresh it on the next measured geometry so a stale
                     // pre-gesture target can never pull the reader back.
                     needsPostGestureCapture = viewport.mode != .following
+                    endRead(moving: false)
                 }
+                // Scroll to end appears and goes only at rest: mid-fling it would resize the
+                // composer's room under the moving rows.
+                if behind != !pinned { behind = !pinned }
                 pageIfNeeded(proxy)
             case .animating: break
             @unknown default: break
@@ -262,14 +266,16 @@ struct ConversationFeed: View {
             // already handles lazy-row remeasurement after a content or composer change.
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
             if intent.active {
-                // Hold the rows as soon as the person leaves the live end, before streaming
-                // can trim the messages they are reading out of the tail.
+                // Leaving the end stops following at once; the bridge is told to hold the rows
+                // once the reader is a screen away (`endRead`). The viewport is view state:
+                // write it only when it changes, or every frame of a scroll re-evaluates the
+                // whole feed.
                 if new.y < old.y - 1 {
-                    viewport.noteDirection(-1)
-                    if following, !reading.loading { reading.read("hold", model: model, live: thread, anchorItemId: currentAnchorItemID()) }
-                    setFollowing(false)
+                    if viewport.direction != -1 { viewport.noteDirection(-1) }
+                    if following { setFollowing(false) }
                 }
-                else if new.y > old.y + 1 { viewport.noteDirection(1) }
+                else if new.y > old.y + 1, viewport.direction != 1 { viewport.noteDirection(1) }
+                endRead(moving: true)
                 pageIfNeeded(proxy)
             }
         }
@@ -450,7 +456,7 @@ struct ConversationFeed: View {
         }
         // Away from the end, or reading a window apart from it: following a joined window is at
         // the end, so Scroll to end isn't offered there.
-        .onChange(of: !pinned, initial: true) { _, away in if behind != away { behind = away } }
+        .onChange(of: !pinned, initial: true) { _, away in if !intent.active, behind != away { behind = away } }
         .onChange(of: jumps) { _, _ in
             reading.toEnd(model: model, thread: thread)
             setFollowing(true)
@@ -737,6 +743,21 @@ struct ConversationFeed: View {
         lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
     }
 
+    /// Tells the bridge the reader left the end or came back to it, when that changed
+    /// (`TranscriptEndRead`), never on each turn of a gesture near the end.
+    private func endRead(moving: Bool) {
+        let facts = TranscriptEndRead.Facts(
+            fromEnd: Double(intent.metrics.bottom), viewport: Double(intent.metrics.viewport),
+            moving: moving, windowOpen: reading.thread != nil, joined: reading.joined,
+            followsEnd: reading.followsEnd, loading: reading.loading,
+            atEndSlack: Double(AceTheme.Spacing.xxl))
+        switch TranscriptEndRead.decide(facts) {
+        case .hold: reading.read("hold", model: model, live: thread, anchorItemId: currentAnchorItemID())
+        case .follow: reading.read("follow", model: model, live: thread, anchorItemId: currentAnchorItemID())
+        case .none: break
+        }
+    }
+
     /// Approaching a resident edge loads another page. A fling into retained space keeps
     /// loading after the finger lifts, until real rows cover the viewport again.
     private func pageIfNeeded(_ proxy: ScrollViewProxy) {
@@ -750,10 +771,10 @@ struct ConversationFeed: View {
             reading.read("older", model: model, live: thread, anchorItemId: currentAnchorItemID())
         } else if edge == .newer, reading.thread != nil {
             intent.consumed = true
-            if reading.joined, intent.metrics.bottom <= AceTheme.Spacing.xxl {
-                reading.read("follow", model: model, live: thread, anchorItemId: currentAnchorItemID())
-                setFollowing(true)
-            } else if reading.hasNewer { reading.read("newer", model: model, live: thread, anchorItemId: currentAnchorItemID()) }
+            // A joined window has nothing newer to read: following it again is the rest
+            // handler's call (`endRead`), once the reader stops at the end.
+            if reading.joined { intent.consumed = false }
+            else if reading.hasNewer { reading.read("newer", model: model, live: thread, anchorItemId: currentAnchorItemID()) }
             else { intent.consumed = false }
         }
     }
