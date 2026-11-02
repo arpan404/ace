@@ -22,12 +22,12 @@ async function openWorkbench() {
 const onInbox = () => {
   const panel = screen.getByRole("complementary", { name: "Threads" });
   expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
-  expect(within(panel).getByRole("button", { name: "Search" })).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "Search threads" })).toBeTruthy();
   const filter = screen.getByRole("button", { name: /^Project filter/ });
   expect(filter.textContent).toBe("All projects");
   // The filter sits in the row under the title row, beside New thread.
   const titleRow = within(panel)
-    .getByRole("button", { name: "Search" })
+    .getByRole("button", { name: "Search threads" })
     .closest('[data-slot="panel-top"]');
   expect(
     within(titleRow as HTMLElement).queryByRole("button", { name: /^Project filter/ }),

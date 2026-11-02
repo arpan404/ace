@@ -1,5 +1,5 @@
 import { forwardRef, useId, type SVGProps } from "react";
-import type { IconProps } from "@phosphor-icons/react";
+import { SidebarSimpleIcon, type IconProps } from "@phosphor-icons/react";
 import { agentCursorOutline, agentCursorPath, agentCursorTip } from "@ace/design-tokens/glyphs";
 import { cn } from "@/lib/cn.ts";
 import { AceWings } from "./ace-mark.tsx";
@@ -177,3 +177,13 @@ export const ResumeIcon = forwardRef<SVGSVGElement, IconProps>(function ResumeIc
     </svg>
   );
 });
+
+/**
+ * The sidebar toggle while the sidebar shows: the same window glyph with its side pane filled in,
+ * as the pane on screen is. Hidden, the toggle is the outline (`SidebarSimpleIcon`).
+ */
+export const SidebarShownIcon = forwardRef<SVGSVGElement, IconProps>(
+  function SidebarShownIcon(props, ref) {
+    return <SidebarSimpleIcon ref={ref} {...props} weight="fill" />;
+  },
+);

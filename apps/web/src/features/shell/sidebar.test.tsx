@@ -210,7 +210,7 @@ test("the profile menu closes on Escape and gives focus back to the profile", as
   expect(document.activeElement).toBe(button(/^You, account/));
 });
 
-test("Search in the sidebar opens the launcher over the current screen", async () => {
+test("Search in the Threads title row opens a field in place, not the palette", async () => {
   await harness().open("/new");
   await title("New thread");
   // Row 1 is the title row again: Threads, then Search. Row 2 holds the All projects filter.
@@ -219,7 +219,7 @@ test("Search in the sidebar opens the launcher over the current screen", async (
   const filter = within(panel).getByRole("button", { name: "Project filter: All projects" });
   expect(filter.textContent).toBe("All projects");
   const titleRow = within(panel)
-    .getByRole("button", { name: "Search" })
+    .getByRole("button", { name: "Search threads" })
     .closest('[data-slot="panel-top"]');
   expect(
     within(titleRow as HTMLElement).getByRole("heading", { level: 2, name: "Threads" }),
@@ -227,16 +227,11 @@ test("Search in the sidebar opens the launcher over the current screen", async (
   expect(
     within(titleRow as HTMLElement).queryByRole("button", { name: /^Project filter/ }),
   ).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Search" }));
-  const dialog = await screen.findByRole("dialog", { name: "Command palette" });
-  // Focus lands in its field, ready to type.
-  await waitFor(() =>
-    expect(within(dialog).getByRole("combobox", { name: "Search commands" })).toBe(
-      document.activeElement,
-    ),
-  );
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull());
+  await userEvent.click(within(panel).getByRole("button", { name: "Search threads" }));
+  // Focus lands in its field, ready to type; the palette stays ⌘K's.
+  const field = within(panel).getByRole("searchbox", { name: "Search threads" });
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
   expect(screen.getByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
 });
 
@@ -246,7 +241,7 @@ test("New thread is the pencil at the end of the filter row under the Threads ti
   const panel = screen.getByRole("complementary", { name: "Threads" });
   // Row 1: Threads, then Search.
   expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
-  const search = within(panel).getByRole("button", { name: "Search" });
+  const search = within(panel).getByRole("button", { name: "Search threads" });
   const titleRow = search.closest('[data-slot="panel-top"]');
   if (!titleRow) throw new Error("No title row");
   expect(
