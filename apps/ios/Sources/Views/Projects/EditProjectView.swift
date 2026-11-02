@@ -305,7 +305,7 @@ private struct ProjectIconPreview: View {
     let icon: ProjectIconDraft
     @State private var image: UIImage?
     var body: some View {
-        RoundedRectangle(cornerRadius: AceTheme.Radii.small, style: .continuous)
+        RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous)
             .fill(AceTheme.Colours.background)
             .overlay {
                 if icon.mode == .image, let image {
@@ -316,8 +316,8 @@ private struct ProjectIconPreview: View {
                     Text(initials).font(.system(size: 15, weight: .semibold)).foregroundStyle(AceTheme.Colours.foreground)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: AceTheme.Radii.small, style: .continuous))
-            .overlay { RoundedRectangle(cornerRadius: AceTheme.Radii.small, style: .continuous).strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border) }
+            .clipShape(RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous).strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border) }
             .frame(width: 40, height: 40)
             .accessibilityHidden(true)
             .task(id: icon.image) { image = icon.image.flatMap(ProjectBadgeImage.decode) }

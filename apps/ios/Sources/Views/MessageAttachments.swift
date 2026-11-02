@@ -110,8 +110,8 @@ private struct AttachmentThumb: View {
                 }
             }
             .frame(width: size.width, height: size.height)
-            .clipShape(AceShape.rounded(AceTheme.Radii.code))
-            .contentShape(AceShape.rounded(AceTheme.Radii.code))
+            .clipShape(AceShape.rounded(AceTheme.Radii.lg))
+            .contentShape(AceShape.rounded(AceTheme.Radii.lg))
         }
         .buttonStyle(.plain)
         .disabled(access == nil)

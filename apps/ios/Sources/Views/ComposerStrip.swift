@@ -40,7 +40,7 @@ enum GroupedSurface {
 enum StripMetrics {
     /// Insets inside the surface (a command, a plan) sit `lg` in from its edge, so their corners
     /// are the surface's less that.
-    static let insetRadius = AceShape.nested(in: AceTheme.Radii.composer, inset: AceTheme.Spacing.lg)
+    static let insetRadius = AceShape.nested(in: AceTheme.Radii.xl, inset: AceTheme.Spacing.lg)
 }
 
 /// One row of a request's grouped list: a hairline above every row but the first, the name on

@@ -9,17 +9,17 @@ import SwiftUI
     static let capsule = Capsule(style: .continuous)
     /// The composer and its strip, and the fields inside cards that take several lines: a full
     /// capsule while one line tall, then the composer's radius.
-    static let field = TextCapsule(maxRadius: AceTheme.Radii.composer)
+    static let field = TextCapsule(maxRadius: AceTheme.Radii.xl)
     /// The composer's box (the words and its controls row): the composer's radius.
-    static let composerBox = rounded(AceTheme.Radii.composer)
+    static let composerBox = rounded(AceTheme.Radii.xl)
     /// The request above the composer: a grouped list at the composer's radius.
-    static let group = rounded(AceTheme.Radii.composer)
+    static let group = rounded(AceTheme.Radii.xl)
     /// The person's message: a capsule for a short line, the bubble radius once it wraps.
-    static let bubble = TextCapsule(maxRadius: AceTheme.Radii.bubble)
+    static let bubble = TextCapsule(maxRadius: AceTheme.Radii.lg)
     /// Code inside the person's message: concentric with the bubble's padding.
-    static let bubbleInset = rounded(nested(in: AceTheme.Radii.bubble, inset: AceTheme.Spacing.md))
+    static let bubbleInset = rounded(nested(in: AceTheme.Radii.lg, inset: AceTheme.Spacing.md))
     /// Code blocks, cards and screenshots: the content block radius.
-    static let block = rounded(AceTheme.Radii.card)
+    static let block = rounded(AceTheme.Radii.lg)
     /// A row's pressed or selected fill: this radius on iOS 18, and the floor of its concentric
     /// corners on iOS 26.
     static let rowRadius = AceTheme.Radii.lg

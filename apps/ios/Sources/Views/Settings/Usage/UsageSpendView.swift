@@ -148,7 +148,7 @@ struct UsageTypeBar: View {
             ForEach(Array(types.parts.enumerated()), id: \.offset) { index, part in
                 Hairline()
                 HStack(spacing: AceTheme.Spacing.sm) {
-                    RoundedRectangle(cornerRadius: 2, style: .continuous).fill(tone(index)).frame(width: 8, height: 8)
+                    AceShape.rounded(AceTheme.Radii.xs / 2).fill(tone(index)).frame(width: 8, height: 8)
                     Text(part.label).foregroundStyle(AceTheme.Colours.mutedForeground)
                     Spacer(minLength: AceTheme.Spacing.md)
                     Text(part.text).monospacedDigit().foregroundStyle(AceTheme.Colours.foreground)

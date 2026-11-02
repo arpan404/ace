@@ -148,10 +148,15 @@ for (const key of Object.keys(rowStatusColours.light) as (keyof typeof rowStatus
   );
 }
 lines.push("    }");
+/** DESIGN.md's radius scale: tags 4, small controls 6, rows 8, blocks 12, the composer 18. */
+const designRadii = new Set(["xs", "sm", "md", "lg", "xl"]);
 for (const group of ["spacing", "radii", "dimensions", "elevation"] as const) {
   lines.push(`    enum ${group[0]?.toUpperCase()}${group.slice(1)} {`);
-  for (const [key, value] of Object.entries(tokens[group]))
+  for (const [key, value] of Object.entries(tokens[group])) {
+    // The phone keeps DESIGN.md's one radius scale; the older named radii are Android's.
+    if (group === "radii" && !designRadii.has(key)) continue;
     lines.push(`        static let ${key}: CGFloat = ${value}`);
+  }
   lines.push("    }");
 }
 lines.push("    enum Opacity {");

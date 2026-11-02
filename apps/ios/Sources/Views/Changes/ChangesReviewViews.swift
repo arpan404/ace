@@ -46,7 +46,7 @@ struct ReviewCommentCard: View {
                         .foregroundStyle(AceTheme.Colours.foreground)
                         .padding(AceTheme.Spacing.sm)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(AceTheme.Colours.diffAdd, in: RoundedRectangle(cornerRadius: AceTheme.Radii.sm))
+                        .background(AceTheme.Colours.diffAdd, in: AceShape.rounded(AceTheme.Radii.sm))
                 }
             }
             if let error = draft.error {
@@ -226,7 +226,7 @@ struct ReviewRepliesSheet: View {
                 HStack(spacing: AceTheme.Spacing.sm) {
                     TextField("Reply", text: $text, axis: .vertical).lineLimit(1...5)
                         .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
-                        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg))
+                        .background(AceTheme.Colours.fill, in: AceShape.rounded(AceTheme.Radii.lg))
                     Button("Reply") {
                         request = model.reviewAction("review.reply", ["key": draft.key, "text": String(text.prefix(4096))])
                         text = ""

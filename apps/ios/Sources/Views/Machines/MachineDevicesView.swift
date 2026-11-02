@@ -243,7 +243,7 @@ struct PairDeviceView: View {
                 if let image = Self.qr(url) {
                     Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
                         .frame(maxWidth: 240).padding(AceTheme.Spacing.md)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: AceTheme.Radii.card, style: .continuous))
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
                         .accessibilityLabel("Pairing QR code")
                 }
                 if let code = made.codeText {
