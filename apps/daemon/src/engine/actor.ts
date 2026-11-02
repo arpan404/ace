@@ -141,12 +141,6 @@ export class ThreadActor {
   retainInput(id: number, release: () => void, runId: string | undefined): void {
     // A redelivered intent replaces its earlier lease; the earlier one is released, never lost.
     this.releaseInput(id);
-    if (this.inputLeases.size >= 256) {
-      release();
-      throw new Error(
-        "This thread has too many messages with files still being read. Wait for the current turn to finish, or stop it, then send again.",
-      );
-    }
     this.inputLeases.set(id, { release, runId });
   }
   releaseInput(id: number): void {
