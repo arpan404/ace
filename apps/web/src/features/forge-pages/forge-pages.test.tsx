@@ -2,6 +2,7 @@ import { seedForgeBrowse, workbench } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { listGroups } from "@/test/list-groups.ts";
 import { harness } from "@/test/harness.tsx";
 
 /**
@@ -23,9 +24,7 @@ const numbersIn = (element: HTMLElement) =>
 async function groups(name: ListName) {
   const nav = await screen.findByRole("navigation", { name });
   return Object.fromEntries(
-    within(nav)
-      .getAllByRole("region")
-      .map((section) => [section.getAttribute("aria-label"), numbersIn(section)]),
+    listGroups(nav).map((group) => [group.name, group.rows.flatMap(numbersIn)]),
   );
 }
 /** Each group's heading: its name and GitHub's total for it. */

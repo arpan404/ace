@@ -42,6 +42,8 @@ export function PrRow(props: {
   step?: RowStepView | undefined;
   /** In the merge selection: the row takes the selected fill. */
   selected?: boolean | undefined;
+  /** The last of its group: no rule under it. */
+  last?: boolean | undefined;
 }) {
   const { row, step } = props;
   const navigate = useNavigate();
@@ -56,7 +58,7 @@ export function PrRow(props: {
     action.onPress();
   };
   return (
-    <li className="group/row relative border-b border-border last:border-b-0">
+    <div className={cn("group/row relative", !props.last && "border-b border-border")}>
       <Link
         to="/pulls/$project/$number"
         params={{ project: props.project, number: String(row.ref.number) }}
@@ -152,6 +154,6 @@ export function PrRow(props: {
           void openWeb(row.url).catch(() => toast.error({ title: "Couldn't open GitHub" }))
         }
       />
-    </li>
+    </div>
   );
 }

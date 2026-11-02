@@ -1,4 +1,5 @@
 import { type LinkedThread } from "@ace/ui-core";
+import { cn } from "@/lib/cn.ts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueRow } from "@ace/protocol";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -14,13 +15,15 @@ export function IssueRow(props: {
   /** The list's address, so the issue's page can return to it as it was. */
   back: string;
   thread: LinkedThread | undefined;
+  /** The last of its group: no rule under it. */
+  last?: boolean | undefined;
 }) {
   const { row } = props;
   const navigate = useNavigate();
   const toast = useToast();
   const openWeb = useOpenWebAddress();
   return (
-    <li className="group/row relative border-b border-border last:border-b-0">
+    <div className={cn("group/row relative", !props.last && "border-b border-border")}>
       <Link
         to="/issues/$project/$number"
         params={{ project: props.project, number: String(row.ref.number) }}
@@ -85,6 +88,6 @@ export function IssueRow(props: {
           void openWeb(row.url).catch(() => toast.error({ title: "Couldn't open GitHub" }))
         }
       />
-    </li>
+    </div>
   );
 }

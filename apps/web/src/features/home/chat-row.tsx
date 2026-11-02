@@ -25,6 +25,7 @@ export function ChatRow(props: { id: string; settled: boolean; leaving: boolean 
       leaving={props.leaving}
       lead="none"
       actions={ChatRowActions}
+      compactActions
       dimmed={props.settled}
     />
   );

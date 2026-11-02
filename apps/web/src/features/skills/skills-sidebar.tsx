@@ -10,7 +10,7 @@ import {
   WrenchIcon,
 } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { SlashIcon } from "@/components/slash-icon.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
@@ -26,6 +26,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { VirtualList, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { PanelDisclosure, PanelRowBody, panelRow, PanelSearch } from "@/components/ui/panel.tsx";
 import { useViewListKeys, ViewSidebarError } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
@@ -66,17 +67,50 @@ function matches(skill: Skill, query: string): boolean {
   );
 }
 
-/** Skills' list in the sidebar: every skill the person's agents can load, by where it lives. */
+/** One row of the sidebar's list: a home's folding label, or a skill under it. */
+type CatalogRow =
+  | { kind: "home"; home: SkillHome; label: string; count: number; open: boolean; first: boolean }
+  | { kind: "skill"; skill: Skill };
+
+/** A label and a skill are each one `--row-height` line: the label with the gap above it, the skill with 1px below. */
+const estimateOf = (row: CatalogRow) => (row.kind === "skill" ? 37 : row.first ? 40 : 56);
+
+/**
+ * Skills' list in the sidebar: every skill the person's agents can load, by where it lives. A
+ * library can hold thousands, so the list is one flat run of labels and skills, mounted only near
+ * the viewport.
+ */
 export function SkillsSidebar() {
   const skills = useSkills();
   const discovery = useSkillLibrary();
   useRemovalReconciler();
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<ReadonlySet<SkillHome>>(new Set());
-  const listKeys = useViewListKeys<HTMLElement>();
   const shown = (skills.data ?? []).filter((skill) => matches(skill, query));
-  const groups = groupByHome(shown);
   const searching = !!query.trim();
+  const rows: CatalogRow[] = [];
+  for (const { home, members } of groupByHome(shown)) {
+    const open = searching || !collapsed.has(home);
+    const label = homeLabel(home, discovery.project?.name);
+    rows.push({ kind: "home", home, label, count: members.length, open, first: !rows.length });
+    if (open) for (const skill of members) rows.push({ kind: "skill", skill });
+  }
+  const handle = useRef<VirtualRowsHandle>(null);
+  const listKeys = useViewListKeys<HTMLElement>({
+    count: rows.length,
+    titleAt: (index) => {
+      const row = rows[index];
+      return row?.kind === "skill" ? skillTitle(row.skill) : undefined;
+    },
+    reveal: (index) => handle.current?.scrollToIndex(index, "auto"),
+  });
+  const toggle = (home: SkillHome) =>
+    setCollapsed((before) => {
+      const next = new Set(before);
+      if (next.has(home)) next.delete(home);
+      else next.add(home);
+      return next;
+    });
   return (
     <ViewSidebar
       title="Skills"
@@ -112,36 +146,29 @@ export function SkillsSidebar() {
         />
       ) : (
         <nav aria-label="Skills catalog" {...listKeys}>
-          {groups.map(({ home, members }, index) => {
-            const open = searching || !collapsed.has(home);
-            const label = homeLabel(home, discovery.project?.name);
-            return (
-              <section key={home} aria-label={label} className={index ? "mt-5" : "mt-1"}>
-                <PanelDisclosure
-                  open={open}
-                  onClick={() =>
-                    setCollapsed((before) => {
-                      const next = new Set(before);
-                      if (next.has(home)) next.delete(home);
-                      else next.add(home);
-                      return next;
-                    })
-                  }
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {label} <span className="text-subtle-foreground">· {members.length}</span>
-                  </span>
-                </PanelDisclosure>
-                <ul hidden={!open} aria-label={label} className="flex flex-col gap-px">
-                  {members.map((skill) => (
-                    <li key={skill.id}>
-                      <SkillRow skill={skill} />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            );
-          })}
+          <VirtualList
+            label="Skills"
+            items={rows}
+            handle={handle}
+            rowKey={(row) => (row.kind === "home" ? `home:${row.home}` : row.skill.id)}
+            estimate={estimateOf}
+            render={(row) =>
+              row.kind === "home" ? (
+                // A heading that folds its skills away, so the list still reads as groups.
+                <h3 className={row.first ? "pt-1" : "pt-5"}>
+                  <PanelDisclosure open={row.open} onClick={() => toggle(row.home)}>
+                    <span className="min-w-0 flex-1 truncate">
+                      {row.label} <span className="text-subtle-foreground">· {row.count}</span>
+                    </span>
+                  </PanelDisclosure>
+                </h3>
+              ) : (
+                <div className="pb-px">
+                  <SkillRow skill={row.skill} />
+                </div>
+              )
+            }
+          />
         </nav>
       )}
     </ViewSidebar>

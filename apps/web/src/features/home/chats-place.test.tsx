@@ -238,8 +238,9 @@ test("Move to project takes a chat out of Chats and into its project in Threads"
   const app = everyDay();
   await open(app, "/chats", "Chats");
   await userEvent.click(
-    within(chatsNav()).getByRole("button", { name: "Move to project Three days in Lisbon" }),
+    within(chatsNav()).getByRole("button", { name: "Actions for Three days in Lisbon" }),
   );
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Move to project…" }));
   const search = await screen.findByRole("combobox", { name: "Search projects" });
   await userEvent.type(search, "rel");
   await userEvent.keyboard("{Enter}");
@@ -249,4 +250,60 @@ test("Move to project takes a chat out of Chats and into its project in Threads"
   await visit("/new");
   const threads = await screen.findByRole("navigation", { name: "Threads" });
   expect(await within(threads).findByRole("link", { name: /^Three days in Lisbon/ })).toBeTruthy();
+});
+
+test("Rename from the row's menu puts the row in rename mode and renames the chat", async () => {
+  await open(everyDay(), "/chats", "Chats");
+  await userEvent.click(
+    within(chatsNav()).getByRole("button", { name: "Actions for Three days in Lisbon" }),
+  );
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  const field = await screen.findByRole("textbox", { name: "Thread title" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "Four days in Lisbon{Enter}");
+  await within(chatsNav()).findByRole("link", { name: /^Four days in Lisbon/ });
+  expect(within(chatsNav()).queryByRole("link", { name: /^Three days in Lisbon/ })).toBeNull();
+});
+
+test("Pin from the row's menu pins the chat, and Unpin brings it back", async () => {
+  await open(everyDay(), "/chats", "Chats");
+  const menu = (title: string) =>
+    userEvent.click(within(chatsNav()).getByRole("button", { name: `Actions for ${title}` }));
+  await menu("Three days in Lisbon");
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
+  await waitFor(() =>
+    expect(
+      within(chatsNav()).getByRole("link", { name: /^Three days in Lisbon.*Pinned/ }),
+    ).toBeTruthy(),
+  );
+  await menu("Three days in Lisbon");
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Unpin" }));
+  await waitFor(() =>
+    expect(
+      within(chatsNav()).queryByRole("link", { name: /^Three days in Lisbon.*Pinned/ }),
+    ).toBeNull(),
+  );
+  expect(within(chatsNav()).getByRole("link", { name: /^Three days in Lisbon/ })).toBeTruthy();
+});
+
+test("Delete from the row's menu asks first and removes the chat", async () => {
+  const app = everyDay();
+  await open(app, "/chats", "Chats");
+  await userEvent.click(
+    within(chatsNav()).getByRole("button", { name: "Actions for Three days in Lisbon" }),
+  );
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "Delete thread?" })).getByRole("button", {
+      name: "Delete",
+    }),
+  );
+  await waitFor(() =>
+    expect(within(chatsNav()).queryByRole("link", { name: /^Three days in Lisbon/ })).toBeNull(),
+  );
+  const onDaemon = () =>
+    app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(lisbon.thread.id) }) !==
+    undefined;
+  await waitFor(() => expect(onDaemon()).toBe(false));
+  expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
 });

@@ -197,7 +197,6 @@ export * from "./usage-machines.ts";
 export * from "./join-names.ts";
 export { hostPlatform } from "./host-platform.ts";
 export * from "./usage-report.ts";
-export * from "./usage-suggestion.ts";
 export * from "./usage-tokens.ts";
 export * from "./step-display.ts";
 export * from "./worktree-creation.ts";
