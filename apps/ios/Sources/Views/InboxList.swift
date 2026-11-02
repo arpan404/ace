@@ -95,7 +95,7 @@ struct InboxList: View {
                     Button { for id in inbox.merged.more { inbox.client(id)?.loadOlderThreads() } } label: {
                         Text("Show older threads").meta()
                             .padding(.horizontal, AceDesign.Space.row)
-                            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                     }
                     .buttonStyle(.row)
                     .accessibilityIdentifier("inbox.more")

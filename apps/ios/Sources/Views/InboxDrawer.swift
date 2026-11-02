@@ -22,6 +22,9 @@ struct DrawerButton: View {
 /// the only reader of the finger's hold (`DrawerHold`), so each frame of a drag redraws these
 /// modifiers over content built once outside them, never the thread's or the list's own body.
 struct DrawerPlace: ViewModifier {
+    /// How strongly the pushed page's edge shows, and how much the dark page lifts, at full open.
+    private static let edgeStrength = 0.3
+    private static let liftStrength = 0.2
     enum Part { case page, list, chrome }
     let part: Part
     let hold: DrawerHold
@@ -48,7 +51,7 @@ struct DrawerPlace: ViewModifier {
         case .page:
             content
                 .background(AceTheme.Colours.background.ignoresSafeArea())
-                .displayCorners(place.rounded, edge: AceTheme.Colours.decoration.opacity(0.3 * place.dim))
+                .displayCorners(place.rounded, edge: AceTheme.Colours.decoration.opacity(Self.edgeStrength * place.dim))
                 .offset(x: place.pageOffset)
         case .list:
             content
@@ -64,7 +67,7 @@ struct DrawerPlace: ViewModifier {
     @ViewBuilder private func veil(_ dim: Double) -> some View {
         let scrim = AceTheme.Colours.scrim.opacity(AceTheme.Opacity.scrim(scheme) * 2 * dim)
         if scheme == .dark {
-            scrim.overlay(AceTheme.Colours.decoration.opacity(0.2 * dim))
+            scrim.overlay(AceTheme.Colours.decoration.opacity(Self.liftStrength * dim))
         } else {
             scrim
         }

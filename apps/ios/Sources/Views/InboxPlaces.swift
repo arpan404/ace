@@ -42,6 +42,7 @@ private struct PlacesTabBar: View {
     @Binding var tab: InboxTab
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Namespace private var fill
+    /// The places bar's height: a tab's glyph and word stacked, inside the capsule's inset.
     static let height: CGFloat = 62
 
     var body: some View {
@@ -50,7 +51,7 @@ private struct PlacesTabBar: View {
             item(.chats, title: "Chats", icon: Image(systemName: "bubble.left.and.bubble.right"), identifier: "sidebar.chats")
             item(.spade, title: "Spade", icon: Image(uiImage: SpadeMark.tabImage), identifier: "sidebar.spade")
         }
-        .padding(4)
+        .padding(AceDesign.Space.tight)
         .frame(height: Self.height)
         .aceGlass(in: AceShape.capsule, interactive: true)
     }
@@ -60,23 +61,25 @@ private struct PlacesTabBar: View {
         return Button {
             withAnimation(AceDesign.Motion.arriving(reduceMotion)) { tab = value }
         } label: {
-            VStack(spacing: 2) {
-                icon.font(.system(size: 20, weight: .medium)).frame(height: 24)
-                Text(title).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+            VStack(spacing: AceTheme.Spacing.xxs) {
+                icon.font(.system(size: AceDesign.Size.barIcon)).frame(height: AceDesign.Size.glyphBox)
+                Text(title).font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong)).lineLimit(1)
             }
+            // The bar keeps its height, as the system's tab bar does.
+            .dynamicTypeSize(...DynamicTypeSize.large)
             .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .frame(width: 88)
+            .frame(width: AceDesign.Size.tab)
             .frame(maxHeight: .infinity)
             .background {
                 if chosen {
-                    AceShape.capsule.fill(AceTheme.Colours.foreground.opacity(0.12))
+                    AceShape.capsule.fill(AceDesign.Surface.fill)
                         .matchedGeometryEffect(id: "chosen", in: fill)
                 }
             }
             .contentShape(AceShape.capsule)
         }
         .buttonStyle(.plain)
-        .sensoryFeedback(.selection, trigger: chosen)
+        .sensoryFeedback(AceDesign.Haptic.tab, trigger: chosen)
         .accessibilityLabel(title)
         .accessibilityAddTraits(chosen ? .isSelected : [])
         .accessibilityIdentifier(identifier)
@@ -118,10 +121,10 @@ extension View {
                 VStack(spacing: AceTheme.Spacing.none) {
                     LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background],
                                    startPoint: .top, endPoint: .bottom)
-                        .frame(height: AceDesign.Size.barIcon)
+                        .frame(height: AceDesign.Space.fade)
                     AceTheme.Colours.background
                 }
-                .padding(.top, -AceTheme.Spacing.xl)
+                .padding(.top, -AceDesign.Space.fade)
                 .ignoresSafeArea(edges: .bottom)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)

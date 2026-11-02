@@ -8,6 +8,7 @@ struct InboxSelectionBar: View {
     let selection: Set<InboxKey>
     let organize: InboxOrganize
     let finish: () -> Void
+    @Environment(\.colorScheme) private var scheme
 
     /// Picks in list order, so a bulk pin keeps the order they were listed in.
     private var picked: [InboxKey] {
@@ -55,15 +56,14 @@ struct InboxSelectionBar: View {
         Button(action: action) {
             Text(title)
                 .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
-                // The system's destructive red, as menus and alerts draw Delete.
-                .foregroundStyle(danger ? Color(uiColor: .systemRed) : AceTheme.Colours.foreground)
+                .foregroundStyle(danger ? AceDesign.Ink.destructive : AceTheme.Colours.foreground)
                 .lineLimit(1).minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.4)
+        .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
         .accessibilityIdentifier(id)
     }
 }

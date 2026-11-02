@@ -164,7 +164,7 @@ private struct ChatRow: View {
         HStack(spacing: AceDesign.Space.row) {
             Text(row.title)
                 .aceFont(InboxRowType.title, relativeTo: .body)
-                .fontWeight(look?.strong == true ? .semibold : .regular)
+                .fontWeight(look?.strong == true ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
                 .foregroundStyle(look?.settled == true ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
                 .lineLimit(1)
             Spacer(minLength: AceDesign.Space.related)

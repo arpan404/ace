@@ -101,6 +101,7 @@ private struct RenameThread: ViewModifier {
 /// message" under it. Return saves. A refusal stays on the sheet in words.
 private struct RenameSheet: View {
     let title: String
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let save: (String) async -> String?
     let retitle: () async -> String?
     let done: () -> Void
@@ -135,7 +136,7 @@ private struct RenameSheet: View {
                 Spacer(minLength: AceTheme.Spacing.none)
             }
             .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.related)
-            .animation(.smooth, value: problem)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: problem)
             .background(AceTheme.Colours.background)
             .navigationTitle("Rename thread")
             .navigationBarTitleDisplayMode(.inline)

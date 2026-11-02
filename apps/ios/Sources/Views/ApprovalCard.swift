@@ -13,7 +13,7 @@ struct ApprovalCard: View {
     @State private var details = false
     @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
-        VStack(alignment: .leading, spacing: AceDesign.Space.row - AceTheme.Spacing.xxs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             RequestHeader(title: nonEmpty(approval.heading) ?? approval.title)
             if !approval.command.isEmpty { CommandBlock(command: approval.command) }
             if let level = riskLevel, let text = nonEmpty(approval.riskText) {
@@ -138,7 +138,7 @@ struct CommandBlock: View {
                 .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, AceDesign.Space.row).padding(.vertical, AceDesign.Space.related + AceTheme.Spacing.xxs)
+                .padding(.horizontal, AceDesign.Space.row).padding(.vertical, AceDesign.Space.row)
         }
         .scrollBounceBehavior(.basedOnSize)
         .frame(maxHeight: AceDesign.Size.tap * 3)
@@ -162,11 +162,11 @@ struct RequestButtonStyle: ButtonStyle {
         let shape = AceShape.capsule
         configuration.label
             .aceFont(AceTheme.Typography.body, relativeTo: .body)
-            .fontWeight(primary ? .semibold : .regular)
+            .fontWeight(primary ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .foregroundStyle(primary ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceDesign.Space.related + AceTheme.Spacing.xxs)
+            .padding(.horizontal, AceDesign.Space.row)
             .frame(maxWidth: wide ? .infinity : nil, minHeight: AceDesign.Size.tap)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: shape)
             .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))

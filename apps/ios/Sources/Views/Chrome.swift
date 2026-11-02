@@ -90,7 +90,7 @@ struct PillButtonStyle: ButtonStyle {
             .foregroundStyle(foreground)
             .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             .background(background, in: AceShape.capsule)
-            .opacity(enabled ? (configuration.isPressed ? 0.7 : 1) : AceTheme.Opacity.disabled(scheme))
+            .opacity(enabled ? (configuration.isPressed ? AceDesign.Ink.pressed : 1) : AceTheme.Opacity.disabled(scheme))
             .contentShape(AceShape.capsule)
     }
     private var foreground: Color {

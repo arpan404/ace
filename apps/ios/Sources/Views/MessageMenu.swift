@@ -45,8 +45,8 @@ private struct MessageMenu: ViewModifier {
             } preview: {
                 AceMarkdown(text: String(text.prefix(600)), selectable: false)
                     .padding(AceDesign.Space.margin)
-                    .frame(width: 340, alignment: .topLeading)
-                    .frame(maxHeight: 360, alignment: .top)
+                    .frame(width: AceDesign.Size.popover, alignment: .topLeading)
+                    .frame(maxHeight: AceDesign.Size.popoverHeight, alignment: .top)
                     .clipped()
                     .background(AceTheme.Colours.background)
             }

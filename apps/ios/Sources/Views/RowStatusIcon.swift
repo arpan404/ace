@@ -10,26 +10,39 @@ struct RowStatusIcon: View {
     let kind: String
     let tone: String
     var count: Int? = nil
-    @ScaledMetric(relativeTo: .subheadline) private var size: CGFloat = 16
+    @ScaledMetric private var size: CGFloat
+    /// The count inside the waiting ring, and the dot that stands in above nine: parts of the
+    /// glyph's drawing, as fractions of its size.
+    private static let countScale: CGFloat = 0.56
+    private static let moreDot: CGFloat = 0.22
+    /// SF Symbols draw a hair past their point size; the frame leaves them that room.
+    private static let overhang: CGFloat = 2
+
+    init(kind: String, tone: String, count: Int? = nil, size: CGFloat = AceDesign.Size.icon) {
+        self.kind = kind
+        self.tone = tone
+        self.count = count
+        _size = ScaledMetric(wrappedValue: size, relativeTo: .subheadline)
+    }
 
     var body: some View {
         Group {
             if kind == "agents" {
                 ZStack {
-                    Image(systemName: "circle.dashed").font(.system(size: size, weight: .bold))
+                    Image(systemName: "circle.dashed").font(.system(size: size, weight: AceDesign.Typeface.strong))
                     // 1–9 in the ring; above nine, a small dot.
                     if let count, count > 0, count <= 9 {
-                        Text(count.formatted()).font(.system(size: size * 0.56, weight: .bold)).monospacedDigit()
+                        Text(count.formatted()).font(.system(size: size * Self.countScale, weight: AceDesign.Typeface.strong)).monospacedDigit()
                     } else {
-                        Circle().frame(width: size * 0.22, height: size * 0.22)
+                        Circle().frame(width: size * Self.moreDot, height: size * Self.moreDot)
                     }
                 }
             } else if let symbol = Self.symbol(kind) {
-                Image(systemName: symbol).font(.system(size: size, weight: kind == "working" ? .bold : .regular))
+                Image(systemName: symbol).font(.system(size: size, weight: kind == "working" ? AceDesign.Typeface.strong : AceDesign.Typeface.regular))
             }
         }
         .foregroundStyle(Self.colour(tone))
-        .frame(width: size + 2, height: size + 2)
+        .frame(width: size + Self.overhang, height: size + Self.overhang)
         .accessibilityHidden(true)
     }
 

@@ -48,10 +48,10 @@ struct InboxHeading<Choices: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             if let choices {
                 Menu { choices } label: {
-                    VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                         label(chevron: true)
                         if problem == nil { InboxTitle(scope: scope, problem: nil, openMachines: openMachines) }
                     }
@@ -69,12 +69,12 @@ struct InboxHeading<Choices: View>: View {
     }
 
     private func label(chevron: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(title).accessibilityIdentifier("inbox.heading.title").aceFont(AceTheme.TypeStyle(size: 20, lineHeight: 24, weight: 700, tracking: -0.3), relativeTo: .title3)
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.tight) {
+                Text(title).accessibilityIdentifier("inbox.heading.title").aceFont(AceTheme.Typography.title, relativeTo: .headline)
                     .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
                 if chevron {
-                    Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold))
+                    Image(systemName: "chevron.down").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
             }
@@ -183,14 +183,14 @@ struct InboxFilters: View {
 struct InboxChip: View {
     let title: String
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: AceDesign.Space.tight) {
             Text(title).lineLimit(1)
-            Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+            Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .padding(.horizontal, 14)
-        .frame(minHeight: 36)
+        .padding(.horizontal, AceDesign.Space.row)
+        .frame(minHeight: AceDesign.Size.tap)
         .aceGlass(in: AceShape.capsule, interactive: true)
         .contentShape(AceShape.capsule)
     }

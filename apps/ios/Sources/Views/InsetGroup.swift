@@ -41,12 +41,14 @@ struct InsetHeader: View {
     }
 }
 
-/// The inset rows' measures, from the approved mockup.
+/// The inset rows' measures: the title role for a row's name, the body role for its value and
+/// meta for a section's header (design language §3).
 @MainActor enum InsetStyle {
+    /// A glyph row with room for a subtitle under its name: taller than a one-line row.
     static let rowHeight: CGFloat = 56
-    static let label = AceTheme.TypeStyle(size: 16.5, lineHeight: 22, weight: 400, tracking: -0.1)
-    static let value = AceTheme.TypeStyle(size: 15.5, lineHeight: 20, weight: 400, tracking: 0)
-    static let header = AceTheme.TypeStyle(size: 14, lineHeight: 19, weight: 500, tracking: 0)
+    static let label = AceTheme.Typography.body
+    static let value = AceTheme.Typography.rowTitle
+    static let header = AceTheme.Typography.meta
 }
 
 /// One row: symbol, label (with an optional muted line under it) and a trailing view.
@@ -72,14 +74,14 @@ struct InsetRow<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: AceDesign.Space.row + AceTheme.Spacing.xxs) {
+        HStack(spacing: AceDesign.Space.row) {
             switch glyph {
             case .symbol(let name)?:
-                Image(systemName: name).font(.system(size: 19, weight: .regular))
+                Image(systemName: name).font(.system(size: AceDesign.Size.barIcon))
                     .foregroundStyle(AceTheme.Colours.foreground)
-                    .frame(width: 24).accessibilityHidden(true)
+                    .frame(width: AceDesign.Size.glyphBox).accessibilityHidden(true)
             case .ace(let name)?:
-                AceIcon(name, size: AceDesign.Size.barIcon).foregroundStyle(AceTheme.Colours.foreground).frame(width: 24)
+                AceIcon(name, size: AceDesign.Size.barIcon).foregroundStyle(AceTheme.Colours.foreground).frame(width: AceDesign.Size.glyphBox)
             case nil:
                 EmptyView()
             }

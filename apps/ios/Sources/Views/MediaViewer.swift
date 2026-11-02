@@ -9,9 +9,10 @@ struct MediaViewer: View {
     @Environment(\.dismiss) private var dismiss
     @State private var image: UIImage?
     @State private var failed = false
+    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            AceDesign.Surface.media.ignoresSafeArea()
             if let image {
                 ZoomableImage(image: image, label: title, dismiss: { dismiss() }).ignoresSafeArea()
             } else if failed {
@@ -30,7 +31,7 @@ struct MediaViewer: View {
                     .transition(.opacity)
             }
         }
-        .animation(.smooth, value: image != nil)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: image != nil)
         .environment(\.colorScheme, .dark)
         // VoiceOver's scrub gesture closes it too.
         .accessibilityAction(.escape) { dismiss() }

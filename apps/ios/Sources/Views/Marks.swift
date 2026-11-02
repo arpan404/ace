@@ -39,8 +39,14 @@ struct ProviderMark: View {
     var account: String? = nil
     var quiet = false
     @ScaledMetric private var size: CGFloat
+    /// The account bubble's drawing, against the mark's size: its diameter, its letters, the
+    /// ring cut around it and how far it hangs off the mark's lower right.
+    private static let bubbleScale: CGFloat = 0.75
+    private static let letterScale: CGFloat = 0.62
+    private static let ring: CGFloat = 3
+    private static let hang = CGSize(width: 4, height: 3)
 
-    init(provider: String, size: CGFloat = 15, account: String? = nil, quiet: Bool = false) {
+    init(provider: String, size: CGFloat = AceDesign.Size.icon, account: String? = nil, quiet: Bool = false) {
         self.provider = provider
         self.account = account
         self.quiet = quiet
@@ -48,34 +54,34 @@ struct ProviderMark: View {
     }
 
     var body: some View {
-        let bubble = (size * 0.75).rounded()
+        let bubble = (size * Self.bubbleScale).rounded()
         glyph
             .frame(width: size, height: size)
             .mask {
                 // The bubble's outline: a ring of the glyph's own surface around the bubble.
                 Rectangle().overlay {
                     if account != nil {
-                        Circle().frame(width: bubble + 3, height: bubble + 3)
-                            .offset(x: size / 2 - bubble / 2 + 4, y: size / 2 - bubble / 2 + 3)
+                        Circle().frame(width: bubble + Self.ring, height: bubble + Self.ring)
+                            .offset(x: size / 2 - bubble / 2 + Self.hang.width, y: size / 2 - bubble / 2 + Self.hang.height)
                             .blendMode(.destinationOut)
                     }
                 }
                 .compositingGroup()
             }
             .saturation(quiet ? 0 : 1)
-            .opacity(quiet ? 0.6 : 1)
+            .opacity(quiet ? AceDesign.Ink.quiet : 1)
             .overlay(alignment: .bottomTrailing) {
                 if let account, !account.isEmpty {
                     Text(account.prefix(2))
-                        .font(.system(size: bubble * 0.62, weight: .semibold))
+                        .font(.system(size: bubble * Self.letterScale, weight: AceDesign.Typeface.strong))
                         .minimumScaleFactor(0.6)
                         .foregroundStyle(AceTheme.Colours.background)
                         .frame(width: bubble, height: bubble)
-                        .background(AceTheme.Colours.foreground.opacity(quiet ? 0.6 : 1), in: Circle())
-                        .offset(x: 4, y: 3)
+                        .background(AceTheme.Colours.foreground.opacity(quiet ? AceDesign.Ink.quiet : 1), in: Circle())
+                        .offset(x: Self.hang.width, y: Self.hang.height)
                 }
             }
-            .padding(.trailing, account == nil ? 0 : AceDesign.Space.tight)
+            .padding(.trailing, account == nil ? AceTheme.Spacing.none : AceDesign.Space.tight)
             .accessibilityHidden(true)
     }
 

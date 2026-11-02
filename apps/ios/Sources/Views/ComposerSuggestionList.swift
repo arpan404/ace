@@ -9,7 +9,10 @@ struct ComposerSuggestionList: View {
     let retry: () -> Void
     /// The most the list may take; nil allows about five rows.
     var maxHeight: CGFloat? = nil
+    /// A suggestion's two lines (name and detail), for sizing the list before it measures.
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 48
+    /// Rows shown before it scrolls: the half row says there are more.
+    private static let shownRows: CGFloat = 5.5
     @State private var contentHeight: CGFloat = 0
     var body: some View {
         let shape = AceShape.group
@@ -20,7 +23,7 @@ struct ComposerSuggestionList: View {
                     LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                         ForEach(Array((list?.rows ?? []).enumerated()), id: \.element.id) { index, row in
                             if index == 0 || list?.rows[index - 1].group != row.group { header(row.group, first: index == 0) }
-                            else { Hairline().padding(.leading, AceDesign.Space.margin + 24) }
+                            else { Hairline().padding(.leading, AceDesign.Space.margin + AceDesign.Size.glyphBox) }
                             SuggestionRowView(row: row) { pick(row) }
                         }
                     }
@@ -29,7 +32,7 @@ struct ComposerSuggestionList: View {
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 // As tall as its rows, never past the room the screen leaves it.
-                .frame(height: min(contentHeight, min(rowHeight * 5.5, maxHeight ?? .infinity)))
+                .frame(height: min(contentHeight, min(rowHeight * Self.shownRows, maxHeight ?? .infinity)))
             case "failed":
                 HStack(spacing: AceDesign.Space.related) {
                     Text("Couldn't read suggestions.").foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -78,7 +81,7 @@ private struct SuggestionRowView: View {
             HStack(spacing: AceDesign.Space.row) {
                 AceIcon(SuggestionSymbol.icon(row), size: AceDesign.Size.icon, relativeTo: .body)
                     .foregroundStyle(AceTheme.Colours.decoration)
-                    .frame(width: 24)
+                    .frame(width: AceDesign.Size.glyphBox)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                     title.lineLimit(1).foregroundStyle(AceTheme.Colours.foreground)
                     if let detail = row.detail, !detail.isEmpty {

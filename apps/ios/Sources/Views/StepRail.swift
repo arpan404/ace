@@ -13,7 +13,7 @@ struct LogRowBox<Lead: View, Title: View, Meta: View>: View {
         HStack(spacing: AceDesign.Space.related) {
             lead().foregroundStyle(AceTheme.Colours.subtleForeground)
                 .frame(minWidth: AceDesign.Size.lead)
-            HStack(spacing: AceDesign.Space.tight + AceTheme.Spacing.xxs) {
+            HStack(spacing: AceDesign.Space.tight) {
                 title()
                 if let open { DisclosureCaret(open: open) }
             }
@@ -71,12 +71,12 @@ struct StepRail<Content: View>: View {
                 Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Dimensions.border)
                     .accessibilityHidden(true)
             }
-            .padding(.leading, AceDesign.Space.related - AceTheme.Spacing.xxs)
+            .padding(.leading, AceDesign.Space.tight)
             .environment(\.onRail, true)
             .transition(.opacity)
     }
     /// From the rail's line to the rows on it.
-    static var inset: CGFloat { AceDesign.Space.margin + AceTheme.Spacing.xxs }
+    static var inset: CGFloat { AceDesign.Space.margin }
 }
 
 enum RailState { case done, running, failed }
@@ -106,7 +106,7 @@ private struct RailMarkModifier: ViewModifier {
         switch state {
         case .done: AceIcon(.check, size: AceDesign.Size.glyphSmall, relativeTo: .caption2).foregroundStyle(AceTheme.Colours.subtleForeground)
         case .failed: AceIcon(.x, size: AceDesign.Size.glyphSmall, relativeTo: .caption2).foregroundStyle(AceTheme.StatusText.failed)
-        case .running: Circle().fill(AceTheme.Colours.mutedForeground).frame(width: 6, height: 6)
+        case .running: Circle().fill(AceTheme.Colours.mutedForeground).frame(width: AceDesign.Size.dotSmall, height: AceDesign.Size.dotSmall)
         }
     }
 }

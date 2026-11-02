@@ -89,7 +89,7 @@ struct ChangedFilesRow: View {
     let files: BlockRow.Files
     let open: () -> Void
     var body: some View {
-        ChipFlow(spacing: AceDesign.Space.tight + AceTheme.Spacing.xxs) {
+        ChipFlow(spacing: AceDesign.Space.tight) {
             ForEach(files.chips) { chip in
                 Button(action: open) {
                     HStack(spacing: AceDesign.Space.related) {

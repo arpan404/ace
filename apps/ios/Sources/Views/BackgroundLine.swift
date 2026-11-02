@@ -11,7 +11,7 @@ struct BackgroundLine: View {
     @State private var stopping = false
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            HStack(spacing: AceDesign.Space.related + AceTheme.Spacing.xxs) {
+            HStack(spacing: AceDesign.Space.related) {
                 // The strip's own terminal glyph, quiet here.
                 RowStatusIcon(kind: "background", tone: "idle")
                     .frame(minWidth: AceDesign.Size.lead).accessibilityHidden(true)
@@ -38,7 +38,7 @@ struct BackgroundLine: View {
                 Text(line.command).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .lineLimit(1).truncationMode(.tail)
-                    .padding(.horizontal, AceDesign.Space.tight + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.xxs)
+                    .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceTheme.Spacing.xxs)
                     .background(AceTheme.Colours.fill, in: AceShape.capsule)
                 Spacer(minLength: AceDesign.Space.related)
                 age.aceFont(AceTheme.Typography.caption, relativeTo: .caption)

@@ -6,7 +6,7 @@ import SwiftUI
 /// whatever the theme. At 24pt and under the outline thickens, the pupils grow and the
 /// catchlight goes, so the face still reads. Decorative: the button around it carries the name.
 struct SpadeMark: View {
-    var size: CGFloat = 20
+    var size: CGFloat = AceDesign.Size.barIcon
 
     private static let paper = Color(red: 0xF6 / 255, green: 0xF6 / 255, blue: 0xF7 / 255)
     private static let ink = Color(red: 0x14 / 255, green: 0x14 / 255, blue: 0x16 / 255)
@@ -71,6 +71,7 @@ extension SpadeMark {
     /// The mark as the tab bar draws it: one colour, the eyes cut out of the head with their
     /// pupils left in, so the same face reads in the bar's tint (a template image).
     @MainActor static let tabImage: UIImage = {
+        // The system tab bar's glyph size; the image is a template, so black is only its mask.
         let size: CGFloat = 26
         let renderer = ImageRenderer(content: SpadeGlyph().frame(width: size, height: size))
         renderer.scale = 3
@@ -104,7 +105,7 @@ private struct SpadeGlyph: View {
 struct SpadeSoonScreen: View {
     var body: some View {
         VStack(spacing: AceDesign.Space.margin) {
-            SpadeMark(size: 56).foregroundStyle(AceTheme.Colours.foreground)
+            SpadeMark(size: AceDesign.Size.spade).foregroundStyle(AceTheme.Colours.foreground)
             Text("Spade is coming soon.")
                 .aceFont(AceTheme.Typography.body, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)

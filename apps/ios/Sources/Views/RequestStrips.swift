@@ -7,6 +7,7 @@ import SwiftUI
 /// open in a native sheet; the strip stays a line or two. Answering one brings the next up.
 struct RequestStrip: View {
     let requests: [ApprovalRow]
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     @Binding var questionDraft: QuestionDraftState
     let openBrowser: () -> Void
@@ -19,14 +20,14 @@ struct RequestStrip: View {
             let request = requests[shown]
             DockStrip(line: request.strip ?? StripLineRow(lead: StripLeadRow(), sentence: request.heading ?? request.title),
                       pager: DockPager(index: shown, total: requests.count) { step in
-                          withAnimation(.smooth(duration: 0.2)) { index = min(max(0, shown + step), requests.count - 1) }
+                          withAnimation(AceDesign.Motion.arriving(reduceMotion)) { index = min(max(0, shown + step), requests.count - 1) }
                       },
                       actions: actions(for: request),
                       openPayload: request.kind == "approval" ? nil : { sheet = RequestSheetItem(id: request.id) },
                       identifier: "request.\(request.kind)")
                 .id(request.id)
                 .transition(.opacity)
-                .sensoryFeedback(.selection, trigger: model.approvalSubmissions[request.id]?.requestId)
+                .sensoryFeedback(AceDesign.Haptic.approve, trigger: model.approvalSubmissions[request.id]?.requestId)
                 .sheet(item: $sheet) { item in
                     if let open = requests.first(where: { $0.id == item.id }) {
                         RequestSheet(request: open, model: model, questionDraft: $questionDraft, openBrowser: openBrowser) { sheet = nil }

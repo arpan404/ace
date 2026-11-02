@@ -154,7 +154,7 @@ private struct ChoiceRow<Content: View>: View {
                     .opacity(chosen ? 1 : 0)
                     .accessibilityHidden(true)
             }
-            .padding(.vertical, AceDesign.Space.related + AceTheme.Spacing.xxs)
+            .padding(.vertical, AceDesign.Space.row)
         }
     }
 }

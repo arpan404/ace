@@ -22,13 +22,13 @@ struct InboxThreadRow: View {
     var body: some View {
         let look = look
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.row) {
-            InboxRowMark(look: look).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+            InboxRowMark(look: look).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + InboxRowMark.baseline }
             VStack(alignment: .leading, spacing: AceTheme.density(densityId).inboxLineGap) {
                 HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
                     Text(row.title)
                         .aceFont(InboxRowType.title, relativeTo: .body)
                         // Semibold only while the thread needs the person, as on the desktop.
-                        .fontWeight(look.strong == true ? .semibold : .regular)
+                        .fontWeight(look.strong == true ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
                         .foregroundStyle(look.settled ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                         .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     Spacer(minLength: AceDesign.Space.related)
@@ -52,10 +52,11 @@ struct InboxThreadRow: View {
     }
 }
 
-/// The row's type: a regular 17pt title and a 15pt line under it, as the system's lists set them.
+/// The row's type: the title role for the thread's title and the body role for the line under
+/// it (design language §3), as the system's lists set them.
 enum InboxRowType {
-    static let title = AceTheme.TypeStyle(size: 17, lineHeight: 22, weight: 400, tracking: -0.2)
-    static let line = AceTheme.TypeStyle(size: 15, lineHeight: 20, weight: 400, tracking: -0.1)
+    static let title = AceTheme.Typography.body
+    static let line = AceTheme.Typography.rowTitle
 }
 
 /// The one status mark beside a row: the desktop row's status icon in its state's colour
@@ -64,12 +65,14 @@ enum InboxRowType {
 /// says it in words.
 struct InboxRowMark: View {
     let look: RowLook
+    /// Sits the mark's centre on the title's first line rather than on its baseline.
+    static let baseline: CGFloat = 4
     var body: some View {
         if let icon = look.icon {
             Group {
                 if icon == "none" { Color.clear } else { RowStatusIcon(kind: icon, tone: look.iconTone ?? "idle", count: look.count) }
             }
-            .frame(width: 18)
+            .frame(width: AceDesign.Size.lead)
             .accessibilityHidden(true)
         } else {
             legacy
@@ -79,23 +82,26 @@ struct InboxRowMark: View {
         let tone = AceTone(look.tone)
         return Group {
             switch look.level {
-            case _ where look.level == "needs-you" || tone == .failed: Circle().fill(tone.mark).frame(width: 8, height: 8)
+            case _ where look.level == "needs-you" || tone == .failed: Circle().fill(tone.mark).frame(width: AceDesign.Size.dot, height: AceDesign.Size.dot)
             case "active": InboxWorkingRing()
-            default: Color.clear.frame(width: 8, height: 8)
+            default: Color.clear.frame(width: AceDesign.Size.dot, height: AceDesign.Size.dot)
             }
         }
-        .frame(width: 10)
+        .frame(width: AceDesign.Size.lead)
         .accessibilityHidden(true)
     }
 }
 
 /// Live work's mark on rows from older bridges: an open ring, still (nothing animates on rows).
 private struct InboxWorkingRing: View {
+    /// The ring's drawing: open at the top, a fine stroke, the size of the needs-you dot.
+    private static let gap: CGFloat = 0.12
+    private static let stroke: CGFloat = 1.6
     var body: some View {
-        Circle().trim(from: 0.12, to: 0.88)
-            .stroke(AceTheme.Colours.mutedForeground, lineWidth: 1.6)
+        Circle().trim(from: Self.gap, to: 1 - Self.gap)
+            .stroke(AceTheme.Colours.mutedForeground, lineWidth: Self.stroke)
             .rotationEffect(.degrees(-90))
-            .frame(width: 9, height: 9)
+            .frame(width: AceDesign.Size.dot, height: AceDesign.Size.dot)
     }
 }
 
@@ -195,7 +201,7 @@ struct InboxRowMarks: View {
             // The provider in its own colours at 80% (a one-colour mark in the foreground ink).
             ProviderMark(provider: row.provider, size: AceDesign.Size.icon, quiet: look.settled)
                 .foregroundStyle(look.settled ? AceTheme.Colours.faintForeground : AceTheme.Colours.foreground)
-                .opacity(look.settled ? 1 : 0.8)
+                .opacity(look.settled ? 1 : AceDesign.Ink.markOpacity)
         }
         .foregroundStyle(look.settled ? AceTheme.Colours.faintForeground : AceTheme.Colours.subtleForeground)
     }
@@ -211,9 +217,9 @@ struct InboxUnsentRow: View {
         let tone = AceTone(entry.token ?? "neutral")
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.row) {
             Group {
-                if tone == .needsYou { Circle().fill(tone.mark).frame(width: 8, height: 8) } else { Color.clear.frame(width: 8, height: 8) }
+                if tone == .needsYou { Circle().fill(tone.mark).frame(width: AceDesign.Size.dot, height: AceDesign.Size.dot) } else { Color.clear.frame(width: AceDesign.Size.dot, height: AceDesign.Size.dot) }
             }
-            .frame(width: 10).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+            .frame(width: AceDesign.Size.lead).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + InboxRowMark.baseline }
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.density(densityId).inboxLineGap) {
                 Text(entry.text).aceFont(InboxRowType.title, relativeTo: .body)

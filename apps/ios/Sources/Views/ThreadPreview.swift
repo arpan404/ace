@@ -87,7 +87,7 @@ struct ThreadPreview: View {
             }
         }
         .padding(AceDesign.Space.margin)
-        .frame(width: 320, alignment: .leading)
+        .frame(width: AceDesign.Size.popover, alignment: .leading)
         .background(AceTheme.Colours.background)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("thread.preview")
@@ -95,7 +95,7 @@ struct ThreadPreview: View {
 
     private func fact<Mark: View>(@ViewBuilder _ mark: () -> Mark, text: () -> String) -> some View {
         HStack(spacing: AceDesign.Space.related) {
-            mark().frame(minWidth: 20)
+            mark().frame(minWidth: AceDesign.Size.lead)
             Text(text()).lineLimit(1).truncationMode(.middle)
         }
     }

@@ -13,7 +13,7 @@ struct StripSurface<Content: View>: View {
         ScrollView {
             content()
                 .padding(.horizontal, AceDesign.Space.margin)
-                .padding(.top, AceDesign.Space.row + AceTheme.Spacing.xxs)
+                .padding(.top, AceDesign.Space.row)
                 .padding(.bottom, AceDesign.Space.related)
         }
         .scrollBounceBehavior(.basedOnSize)
@@ -78,18 +78,19 @@ struct StripTextButtonStyle: ButtonStyle {
     var prominent = false
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(prominent ? .semibold : .medium)
+            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(prominent ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(configuration.isPressed || prominent ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceDesign.Space.related)
             // 44pt: the smallest comfortable tap.
             .frame(minHeight: AceDesign.Size.tap)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? AceDesign.Motion.pressScale : 1)
             // Disabled reads as disabled (DESIGN.md §5): dimmed, not hidden.
-            .opacity(enabled ? 1 : 0.45)
-            .animation(.smooth(duration: 0.12), value: configuration.isPressed)
+            .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
+            .animation(configuration.isPressed ? AceDesign.Motion.arriving(reduceMotion) : AceDesign.Motion.leaving(reduceMotion), value: configuration.isPressed)
             .contentShape(Rectangle())
     }
 }

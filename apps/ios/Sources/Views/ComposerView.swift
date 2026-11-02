@@ -120,7 +120,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                 // A file dragged over the composer: its edge brightens where it will land.
                 .overlay {
                     if dropping {
-                        AceShape.field.strokeBorder(AceTheme.Colours.foreground.opacity(0.35), lineWidth: AceTheme.Dimensions.border * 2)
+                        AceShape.field.strokeBorder(AceDesign.Ink.faint, lineWidth: AceTheme.Dimensions.border * 2)
                             .allowsHitTesting(false).transition(.opacity)
                     }
                 }
@@ -137,7 +137,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         // In the glass block the block keeps the edges.
         .padding(.horizontal, inBlock ? 0 : bar.composer).padding(.bottom, inBlock ? 0 : bar.bottom)
         .animation(AceDesign.Motion.arriving(reduceMotion), value: wraps)
-        .sensoryFeedback(.impact(weight: .light), trigger: feedback)
+        .sensoryFeedback(AceDesign.Haptic.send, trigger: feedback)
         .onChange(of: mention) { _, picked in
             guard let picked else { return }
             if let tab = picked.tab {
@@ -192,7 +192,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                         wraps: wraps, onWrap: { wraps = $0 }, card: card, focused: focused,
                         onFocus: { focus, duration in
                             if !focus { suggester?.close() } else { suggester?.readAhead() }
-                            withAnimation(reduceMotion ? nil : .spring(duration: duration, bounce: 0)) { focused = focus }
+                            withAnimation(reduceMotion ? nil : AceDesign.Motion.keyboard(duration)) { focused = focus }
                         },
                         onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks.held) } },
                         place: place, pasteFiles: intake)

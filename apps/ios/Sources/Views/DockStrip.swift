@@ -68,7 +68,7 @@ struct DockStrip: View {
             }
         }
         .padding(.horizontal, AceDesign.Space.margin)
-        .padding(.vertical, AceDesign.Space.related + AceTheme.Spacing.xxs)
+        .padding(.vertical, AceDesign.Space.row)
         .frame(maxWidth: .infinity, alignment: .leading)
         // The top section of the composer's glass block (`GlassBlock`); standing alone (a
         // subagent's view), its own glass.

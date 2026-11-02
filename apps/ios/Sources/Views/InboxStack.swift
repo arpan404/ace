@@ -366,7 +366,7 @@ struct InboxStack<Destination: View, Side: View>: View {
     private func headerButton(_ symbol: String, label: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 19, weight: .medium))
+                .font(.system(size: AceDesign.Size.barIcon))
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
@@ -398,6 +398,7 @@ private struct InboxSearchField: ViewModifier {
     @Binding var searching: Bool
     let prompt: String
     @State private var shown = false
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
@@ -412,7 +413,7 @@ private struct InboxSearchField: ViewModifier {
             .onAppear { if searching { shown = true } }
             .onChange(of: searching) { _, now in
                 // The field joins the bar in the same animation the system uses to focus it.
-                if now { withAnimation(AceMotion.smooth) { shown = true } } else { query = ""; shown = false }
+                if now { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { shown = true } } else { query = ""; shown = false }
             }
     }
 }

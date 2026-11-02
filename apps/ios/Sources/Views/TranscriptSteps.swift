@@ -6,7 +6,7 @@ struct QuietRow<Content: View>: View {
     var tint: Color = AceTheme.Colours.decoration
     @ViewBuilder var content: () -> Content
     var body: some View {
-        HStack(alignment: .center, spacing: AceDesign.Space.related + AceTheme.Spacing.xxs) {
+        HStack(alignment: .center, spacing: AceDesign.Space.related) {
             AceIcon(icon, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(tint)
                 .frame(width: AceDesign.Space.group)
             content()
@@ -73,7 +73,7 @@ struct StepRow: View {
                 if !step.target.isEmpty { TargetChip(target: step.target) }
             }
         } meta: {
-            HStack(spacing: AceDesign.Space.tight + AceTheme.Spacing.xxs) {
+            HStack(spacing: AceDesign.Space.tight) {
                 if let added = step.added, let removed = step.removed, added > 0 || removed > 0 {
                     HStack(spacing: AceDesign.Space.tight) {
                         Text("+\(added)").foregroundStyle(AceTheme.StatusText.done)
@@ -113,7 +113,7 @@ struct TargetChip: View {
         .lineLimit(1)
         .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
         .foregroundStyle(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceDesign.Space.tight + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.xxs)
+        .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceTheme.Spacing.xxs)
         .background(AceTheme.Colours.fill, in: AceShape.capsule)
     }
 }
@@ -126,7 +126,7 @@ struct StepGlyph: View {
     var body: some View {
         Group {
             if step.glyph == "ace" {
-                AceMark().frame(width: 14, height: 13)
+                AceMark().frame(width: AceDesign.Size.glyphMeta, height: AceDesign.Size.glyphMeta)
             } else {
                 AceIcon(Self.icon(step.glyph ?? step.icon), size: AceDesign.Size.icon, relativeTo: .subheadline)
             }
@@ -175,7 +175,7 @@ struct StepDetailView: View {
                         .textSelection(.enabled)
                         .padding(.horizontal, AceDesign.Space.row).padding(.vertical, AceDesign.Space.related)
                 }
-                .frame(maxHeight: 288)
+                .frame(maxHeight: AceDesign.Size.foldedOutput)
                 .background(AceTheme.Colours.fill, in: AceShape.block)
                 .accessibilityLabel("Output")
             }
@@ -219,9 +219,9 @@ private struct StepDiff: View {
                 .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                 .padding(.vertical, AceDesign.Space.tight)
             }
-            .frame(maxHeight: 320)
+            .frame(maxHeight: AceDesign.Size.foldedOutput)
         }
-        .overlay(AceShape.block.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        .background(AceDesign.Surface.fill, in: AceShape.block)
         .clipShape(AceShape.block)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Diff of \(diff.path)")
@@ -276,7 +276,7 @@ struct WorkBlockView: View {
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
             .accessibilityHint(expanded ? "Hides the steps" : "Shows the steps")
             .accessibilityIdentifier("work.toggle")
-            Hairline().padding(.top, AceDesign.Space.tight + AceTheme.Spacing.xxs)
+            Hairline().padding(.top, AceDesign.Space.tight)
             if expanded {
                 Group {
                     if let ordinal = row.ordinal, let steps {
@@ -308,7 +308,7 @@ struct WorkBlockView: View {
 extension View {
     /// What the agent says between steps stands apart from the step rows around it.
     func stepNarration(_ narration: Bool) -> some View {
-        padding(.vertical, narration ? AceDesign.Space.related - AceTheme.Spacing.xxs : AceTheme.Spacing.none)
+        padding(.vertical, narration ? AceDesign.Space.tight : AceTheme.Spacing.none)
     }
 }
 

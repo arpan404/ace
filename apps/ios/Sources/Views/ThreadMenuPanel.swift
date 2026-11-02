@@ -67,7 +67,7 @@ private struct MenuRow: View {
         Button(role: role, action: action) {
             Label(title, ace: icon)
                 .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .foregroundStyle(role == .destructive ? Color.red : AceTheme.Colours.foreground)
+                .foregroundStyle(role == .destructive ? AceDesign.Ink.destructive : AceTheme.Colours.foreground)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
@@ -104,7 +104,7 @@ struct ThreadMenuPanel: View {
         ScrollView { panel }
             .scrollBounceBehavior(.basedOnSize)
             .accessibilityIdentifier("thread.options.scroll")
-            .frame(idealWidth: 340, maxWidth: 380)
+            .frame(idealWidth: AceDesign.Size.popover, maxWidth: AceDesign.Size.popoverWide)
             .accessibilityLabel("Thread options")
     }
 

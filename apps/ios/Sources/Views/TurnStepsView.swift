@@ -56,21 +56,23 @@ struct DaemonSteps: View {
 
 /// Rows standing in for a log's steps while they load.
 private struct StepsSkeleton: View {
+    /// Each placeholder line's share of the row, uneven so they read as words.
+    private static let widths: [CGFloat] = [0.62, 0.48, 0.70]
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
-            ForEach([0.62, 0.48, 0.70], id: \.self) { width in
+            ForEach(Self.widths, id: \.self) { width in
                 HStack(spacing: AceDesign.Space.related) {
-                    AceShape.capsule.frame(width: 14, height: 14)
+                    AceShape.capsule.frame(width: AceDesign.Size.glyphMeta, height: AceDesign.Size.glyphMeta)
                     GeometryReader { geometry in
-                        AceShape.capsule.frame(width: geometry.size.width * width, height: 12)
+                        AceShape.capsule.frame(width: geometry.size.width * width, height: AceDesign.Size.glyphSmall)
                     }
-                    .frame(height: 12)
+                    .frame(height: AceDesign.Size.glyphSmall)
                 }
-                .frame(height: 16)
+                .frame(height: AceDesign.Size.icon)
             }
         }
         .foregroundStyle(AceTheme.Colours.fill)
-        .padding(.vertical, AceDesign.Space.tight + AceTheme.Spacing.xxs).padding(.leading, AceDesign.Space.tight + AceTheme.Spacing.xxs)
+        .padding(.vertical, AceDesign.Space.tight).padding(.leading, AceDesign.Space.tight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Loading steps")
         .accessibilityIdentifier("steps.loading")

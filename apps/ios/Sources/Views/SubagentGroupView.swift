@@ -34,7 +34,7 @@ struct SubagentGroupView: View {
                     .padding(.leading, AceDesign.Space.margin)
                     .overlay(alignment: .leading) {
                         Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Dimensions.border)
-                            .padding(.leading, AceDesign.Space.related + AceTheme.Spacing.xxs)
+                            .padding(.leading, AceDesign.Space.related)
                     }
                     .padding(.top, AceDesign.Space.tight)
                     .transition(.opacity)
@@ -120,7 +120,7 @@ struct AgentRow: View {
     let open: (BlockRow.Agents.Entry) -> Void
     var body: some View {
         Button { open(entry) } label: {
-            HStack(alignment: .top, spacing: AceDesign.Space.related + AceTheme.Spacing.xxs) {
+            HStack(alignment: .top, spacing: AceDesign.Space.related) {
                 ProviderMark(provider: entry.provider, size: AceDesign.Size.icon).padding(.top, AceTheme.Dimensions.border)
                 VStack(alignment: .leading, spacing: AceTheme.Dimensions.border) {
                     HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
@@ -128,7 +128,7 @@ struct AgentRow: View {
                         if !entry.machine.isEmpty { quiet("on \(entry.machine)") }
                         if !entry.meta.isEmpty { quiet(entry.meta) }
                         Spacer(minLength: AceDesign.Space.tight)
-                        HStack(spacing: AceDesign.Space.tight + AceTheme.Spacing.xxs) {
+                        HStack(spacing: AceDesign.Space.tight) {
                             Text(entry.label).foregroundStyle(StateStyle.text(entry.token))
                             AgentElapsed(since: entry.since, settled: entry.elapsed)
                         }

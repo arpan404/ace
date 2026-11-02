@@ -46,7 +46,7 @@ struct ComposerActionButton: View {
                 if saving { ProgressView().tint(AceTheme.Colours.onAccent) }
                 else if stopping {
                     AceShape.stopGlyph
-                        .frame(width: AceDesign.Space.related + AceTheme.Spacing.xxs, height: AceDesign.Space.related + AceTheme.Spacing.xxs)
+                        .frame(width: AceDesign.Size.stopGlyph, height: AceDesign.Size.stopGlyph)
                 } else {
                     AceIcon(glyph, size: AceDesign.Size.icon, relativeTo: .body)
                 }

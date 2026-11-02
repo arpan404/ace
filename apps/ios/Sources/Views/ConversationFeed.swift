@@ -162,7 +162,7 @@ struct ConversationFeed: View {
                                        words: { await model.sendWords(row.id) },
                                        saveWords: { await model.editFailedSend(row.id, text: $0) },
                                        discard: { await model.dismissSend(row.id) })
-                            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.tight + AceTheme.Spacing.xxs)
+                            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.tight)
                     }
                     // A message that wasn't sent is the strip's above the composer (`NotSentStrip`).
                 }
@@ -422,7 +422,7 @@ struct ConversationFeed: View {
             }
             if duration > 0 { keyboardDuration = duration }
             guard lift != keyboardLift else { return }
-            let motion: Animation? = reduceMotion ? nil : .spring(duration: duration, bounce: 0)
+            let motion: Animation? = reduceMotion ? nil : AceDesign.Motion.keyboard(duration)
             let growth = lift - keyboardLift
             keyboardMoving = true
             // The room is empty space: it changes at once, and only the scroll animates, so the
@@ -434,7 +434,7 @@ struct ConversationFeed: View {
         }
         .onChange(of: barHeight) { old, new in
             // The composer opening as it takes the keyboard moves on the keyboard's spring.
-            let motion = keyboardMoving ? Animation.spring(duration: keyboardDuration, bounce: 0) : AceTheme.Motion.standardCurve
+            let motion = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : AceDesign.Motion.arrive
             roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in

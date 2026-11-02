@@ -20,7 +20,7 @@ struct ThreadsTabsBar: View {
         HStack(spacing: AceTheme.Spacing.none) {
             ForEach(tabs) { tab in item(tab) }
         }
-        .padding(AceTheme.Spacing.xxs)
+        .padding(AceDesign.Space.tight)
         .aceGlass(in: AceShape.capsule, interactive: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AceDesign.Space.margin)
@@ -37,7 +37,7 @@ struct ThreadsTabsBar: View {
         return Button {
             withAnimation(AceDesign.Motion.arriving(reduceMotion)) { selection = tab.id }
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: AceDesign.Space.tight) {
                 Text(tab.label).lineLimit(1)
                 if tab.counted && total > 0 {
                     Text(total.formatted()).monospacedDigit()
@@ -45,25 +45,25 @@ struct ThreadsTabsBar: View {
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
                 if lit {
-                    Circle().fill(AceTheme.RowStatus.needsYou).frame(width: 6, height: 6)
+                    Circle().fill(AceTheme.RowStatus.needsYou).frame(width: AceDesign.Size.dot, height: AceDesign.Size.dot)
                         .accessibilityHidden(true)
                 }
             }
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .fontWeight(chosen ? .semibold : .medium)
+            .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceDesign.Space.row)
             .frame(minHeight: AceDesign.Size.tap)
             .background {
                 if chosen {
-                    AceShape.capsule.fill(AceTheme.Colours.foreground.opacity(0.12))
+                    AceShape.capsule.fill(AceDesign.Surface.fill)
                         .matchedGeometryEffect(id: "chosen", in: fill)
                 }
             }
             .contentShape(AceShape.capsule)
         }
         .buttonStyle(.plain)
-        .sensoryFeedback(.selection, trigger: chosen)
+        .sensoryFeedback(AceDesign.Haptic.tab, trigger: chosen)
         .accessibilityLabel("\(tab.label), \(total)")
         .accessibilityValue(lit ? "Needs you" : "")
         .accessibilityAddTraits(chosen ? [.isSelected, .isButton] : .isButton)

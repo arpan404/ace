@@ -365,7 +365,7 @@ struct ThreadView: View {
                         ComposerModelButton(screen: screen, open: { showModels = true }, openTune: { showTune = true })
                     } settings: {
                         Button { showSettings = true } label: {
-                            Image(systemName: "slider.horizontal.3").font(.system(size: 15, weight: .medium))
+                            Image(systemName: "slider.horizontal.3").font(.system(size: AceDesign.Size.icon))
                                 .foregroundStyle(AceTheme.Colours.foreground)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Circle())
                         }

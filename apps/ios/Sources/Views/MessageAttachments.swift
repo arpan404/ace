@@ -104,7 +104,7 @@ private struct AttachmentThumb: View {
                     AceIcon(.image, size: AceDesign.Size.barIcon).foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
                 if more > 0 {
-                    AceTheme.Colours.background.opacity(0.6)
+                    AceDesign.Surface.veil
                     Text("+\(more)").aceFont(AceTheme.Typography.title, relativeTo: .title3).monospacedDigit()
                         .foregroundStyle(AceTheme.Colours.foreground)
                 }
@@ -137,7 +137,7 @@ private struct AttachmentFileLine: View {
         Button { access?.open(row, line) } label: {
             HStack(spacing: AceDesign.Space.related) {
                 AceIcon(line.kind == "image" ? .image : line.kind == "pdf" || line.kind == "text" ? .fileText : .file,
-                        size: 16, relativeTo: .footnote)
+                        size: AceDesign.Size.icon, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                     Text(line.name.isEmpty ? "Attachment" : line.name)
@@ -205,7 +205,7 @@ struct MessageAttachmentRoutes: ViewModifier {
                         ProgressView().controlSize(.small)
                         Text("Opening \(opening)").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     }
-                    .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: 36)
+                    .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.tap)
                     .floatingGlass()
                     .padding(.top, AceDesign.Space.related)
                     .accessibilityIdentifier("attachment.opening")

@@ -102,10 +102,10 @@ private struct BubbleText: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(verbatim: text).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
                             .fixedSize(horizontal: true, vertical: false)
-                            .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceDesign.Space.tight + AceTheme.Spacing.xxs)
+                            .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceDesign.Space.tight)
                     }
                     // Concentric with the bubble: its radius less the bubble's padding.
-                    .background(AceTheme.Colours.background.opacity(0.5),
+                    .background(AceDesign.Surface.nested,
                                 in: AceShape.bubbleInset)
                 }
             }

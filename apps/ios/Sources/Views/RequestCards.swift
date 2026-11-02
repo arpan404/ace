@@ -7,7 +7,7 @@ struct RequestCardFrame: ViewModifier {
     func body(content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
-            .sensoryFeedback(.selection, trigger: submission?.requestId)
+            .sensoryFeedback(AceDesign.Haptic.approve, trigger: submission?.requestId)
     }
 }
 

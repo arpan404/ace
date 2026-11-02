@@ -65,7 +65,7 @@ struct LivePillCapsule: View {
     @ViewBuilder private func part<Words: View>(opens: String, label: String, @ViewBuilder words: () -> Words) -> some View {
         let content = words()
             .lineLimit(1)
-            .padding(.horizontal, AceDesign.Space.row - AceTheme.Spacing.xxs)
+            .padding(.horizontal, AceDesign.Space.row)
             // Each part as tall as the pill (taller with large text), never the space around it.
             .frame(minHeight: Self.height)
             .contentShape(Rectangle())
@@ -92,7 +92,7 @@ private struct StatusWords: View {
     let status: PillRow.Status
     var body: some View {
         let needsYou = status.tone == "needs-you"
-        HStack(spacing: AceDesign.Space.tight + AceTheme.Spacing.xxs) {
+        HStack(spacing: AceDesign.Space.tight) {
             if needsYou { StatusGlyph(.needsYou, tone: .needsYou) }
             else if status.live { StatusGlyph(.working, tone: .working, live: true) }
             words
@@ -121,7 +121,7 @@ private struct StatusWords: View {
 private struct SegmentWords: View {
     let segment: PillRow.Segment
     var body: some View {
-        HStack(spacing: AceDesign.Space.tight + AceTheme.Spacing.xxs) {
+        HStack(spacing: AceDesign.Space.tight) {
             if segment.kind == "goal" { AceIcon(.target, size: AceDesign.Size.glyphMeta, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground) }
             Text(segment.label).monospacedDigit()
         }

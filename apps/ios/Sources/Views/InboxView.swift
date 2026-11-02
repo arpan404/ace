@@ -394,7 +394,7 @@ struct InboxView: View {
             .aceGlass(in: AceShape.capsule)
             // Clear of the tab bar, or of the sidebar's Threads and Pull requests beside a page.
             .padding(.leading, toastBesideList ? AceDesign.Space.margin : AceTheme.Spacing.none)
-            .padding(.bottom, toastBesideList ? AceDesign.Size.tap * 2 + AceDesign.Space.group : 76)
+            .padding(.bottom, toastBesideList ? AceDesign.Size.tap * 2 + AceDesign.Space.group : AceDesign.Space.aboveTabBar)
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .task(id: undo) {
                 // An Undo still waiting stays until its machines answer.

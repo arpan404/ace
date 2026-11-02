@@ -40,7 +40,7 @@ struct EventRowLayout<Lead: View>: View {
             lead().frame(minWidth: AceDesign.Size.lead).foregroundStyle(AceTheme.Colours.subtleForeground)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 Text(title).lineLimit(1).truncationMode(.tail)
-                    .fontWeight(strong ? .medium : .regular)
+                    .fontWeight(strong ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
                     .foregroundStyle(strong ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                 if !subtitle.isEmpty {
                     Text(subtitle).lineLimit(1).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -93,7 +93,7 @@ struct SystemRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
                 }
-                .frame(maxHeight: 288)
+                .frame(maxHeight: AceDesign.Size.foldedOutput)
                 .fixedSize(horizontal: false, vertical: true)
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -181,7 +181,7 @@ struct NotSentLine: View {
     var fenced = false
     var body: some View {
         HStack(spacing: AceDesign.Space.tight) {
-            RowStatusIcon(kind: "approve", tone: "idle").scaleEffect(0.8)
+            RowStatusIcon(kind: "approve", tone: "idle", size: AceDesign.Size.glyphMeta)
             Text("Not sent")
             if !reason.isEmpty { Text("· \(reason)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2) }
             if fenced { ClearStaleLockWord() }
