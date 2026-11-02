@@ -126,7 +126,8 @@ export class FakeDaemon implements Host {
    * before it is read, so what it was seeded with counts as seen unless its read time says
    * otherwise (`seenBefore` sets another moment).
    */
-  placeInput(): PlaceInput {
+  placeInput(): PlaceInput | undefined {
+    if (this.options.placement === false) return undefined;
     const sorts = ["activity", "created", "manual"] as const;
     const value = this.services.settings.get("threads.sortBy");
     return {
@@ -333,6 +334,11 @@ export class FakeDaemon implements Host {
       this.servicesWire.files,
     );
     this.services.verify.onMerged = (_, number) => this.workspace.mergePullRequest(number);
+    // As the daemon's placement does: a sort change re-places every open thread list.
+    this.services.settings.onChange((keys) => {
+      if (keys.includes("threads.sortBy"))
+        for (const connection of this.connections) connection.replace();
+    });
   }
   /** The PTYs clients reach through `terminal.request`, for seeding a scenario's terminals. */
   get terminals(): FakeTerminals {

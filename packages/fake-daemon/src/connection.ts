@@ -30,8 +30,11 @@ export interface Host {
   readonly platform?: string | undefined;
   readonly head: number;
   readonly duplicateEvents: boolean;
-  /** What places listed threads (the daemon's `SidebarPlacement`); absent, the defaults at time 0. */
-  placeInput?(): PlaceInput;
+  /**
+   * What places listed threads (the daemon's `SidebarPlacement`); absent, the defaults at time 0.
+   * Undefined: a daemon from before placement, whose lists carry no places or dots.
+   */
+  placeInput?(): PlaceInput | undefined;
   accepts(credential: { token?: string | undefined; ticket?: string | undefined }): boolean;
   snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined;
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[];
@@ -359,8 +362,13 @@ export class Connection {
     if (paced) this.send({ type: "subscription.ready", subscriptionId: id, seq: head });
   }
   /** A window placed by the daemon's rule (`placeWindow`), so clients see what the daemon sends. */
-  private placed(entries: readonly import("@ace/protocol").ThreadListEntry[]) {
-    return placeWindow(entries, this.host.placeInput?.() ?? { baseline: 0, now: 0 }, isChatEntry);
+  private placed(entries: readonly import("@ace/protocol").ThreadListEntry[]): {
+    threads: readonly import("@ace/protocol").ThreadListEntry[];
+    attention: import("@ace/protocol").ListAttention | undefined;
+  } {
+    const input = this.host.placeInput ? this.host.placeInput() : { baseline: 0, now: 0 };
+    if (!input) return { threads: entries, attention: undefined };
+    return placeWindow(entries, input, isChatEntry);
   }
   /** The dots for a window of `limit` threads: a page adds settled threads, never live ones. */
   private attention(
@@ -370,6 +378,26 @@ export class Connection {
   ) {
     return this.placed(sidebarPage(Object.values(view.threads), { ...window, limit }).threads)
       .attention;
+  }
+  /** What places threads changed (the sort): each open list gets its threads placed anew. */
+  replace(): void {
+    const view = this.host.snapshot({ kind: "threads" });
+    if (!view || view.kind !== "threads") return;
+    for (const [id, subscription] of this.subscriptions) {
+      const window = subscription.scope.kind === "threads" ? subscription.scope.window : undefined;
+      if (!window || !subscription.selected) continue;
+      const limit = subscription.limit ?? window.limit;
+      const current = sidebarPage(Object.values(view.threads), { ...window, limit });
+      const placed = this.placed(current.threads);
+      this.send({
+        type: "threads.patch",
+        subscriptionId: id,
+        seq: subscription.cursor,
+        threads: Object.fromEntries(placed.threads.map((entry) => [entry.id, entry])),
+        removed: [],
+        window: { ...current.window, attention: placed.attention },
+      });
+    }
   }
   /** Fan out one appended batch. Filtered events leave a host-sequence gap, as the daemon does. */
   publish(events: readonly DeliveryEvent[], through: number): void {

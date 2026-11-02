@@ -7,6 +7,8 @@ export interface FakeDaemonOptions {
   clock(): number;
   /** Finished work before this moment counts as seen when placing threads; default: all of it. */
   seenBefore?: number;
+  /** false: speak as a daemon from before placement, sending lists without places or dots. */
+  placement?: false;
   /** Keep creation visible for screenshot capture. */
   worktreeCreationSlow?: boolean;
   worktreeCreationSchedule?: (callback: () => void, delay: number) => () => void;

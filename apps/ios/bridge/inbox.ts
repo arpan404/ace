@@ -5,7 +5,8 @@ import {
   type PendingSend,
   type SidebarSource,
 } from "@ace/client";
-import { settledTotal, type HomeSort } from "@ace/ui-core";
+import { placeReader, settledTotal, type HomeSort, type ThreadPlace } from "@ace/ui-core";
+import type { ThreadListEntry } from "@ace/protocol";
 import {
   inboxNextChange,
   snoozePresets,
@@ -73,14 +74,28 @@ const longestWait = 2 ** 31 - 1;
  * (`inbox-checkpoint.ts`).
  */
 
+/**
+ * Each thread with its place: the daemon's, or the shared rule's (`placeReader`) on this
+ * phone's clock and seen baseline for one without (an older daemon, a pin or move not yet
+ * confirmed), so the phone places as the web does.
+ */
 function inboxThread(
   store: SidebarSource,
   organizer: InboxOrganizer,
   id: string,
+  place: (entry: ThreadListEntry) => ThreadPlace | undefined,
 ): InboxThread | undefined {
   const entry = organizer.entry(id);
   const machineId = organizer.machineId;
-  return entry && { key: id, machineId, entry, unconfirmed: store.unconfirmed === true };
+  return (
+    entry && {
+      key: id,
+      machineId,
+      entry,
+      unconfirmed: store.unconfirmed === true,
+      place: place(entry),
+    }
+  );
 }
 
 /**
@@ -119,9 +134,12 @@ export function followInbox(
     accounts: accounts.views(),
     sortBy: sort.current(),
   });
+  /** Places on this moment's clock and sort; entries the daemon placed are only read. */
+  const placer = () =>
+    placeReader({ fallback: { baseline, now: clock.now(), sortBy: sort.current() } });
   const row = (id: string) =>
     pump.put(`inbox:${id}`, () => {
-      const thread = inboxThread(store, organizer, id);
+      const thread = inboxThread(store, organizer, id, placer());
       return {
         type: "inbox.row",
         id,
@@ -173,8 +191,9 @@ export function followInbox(
     pump.put("inbox:sections", () => {
       const now = clock.now();
       const threads: InboxThread[] = [];
+      const place = placer();
       for (const id of store.ids) {
-        const thread = inboxThread(store, organizer, id);
+        const thread = inboxThread(store, organizer, id, place);
         if (thread) threads.push(thread);
       }
       arm(inboxNextChange(threads, now));

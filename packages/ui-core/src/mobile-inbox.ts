@@ -66,7 +66,9 @@ export interface InboxThread {
   unconfirmed?: boolean | undefined;
   /**
    * Where the daemon placed it (`entry.place`), or the shared rule's place for an entry without
-   * one (`placeReader`). Absent, the entry's own place is read, else the rule with no baseline.
+   * one (`placeReader`, on the caller's clock and seen baseline). The bridge always passes it,
+   * with its own baseline; absent, the entry's own place is read, else the rule with no baseline
+   * known (everything finished and never read is news).
    */
   place?: ThreadPlace | undefined;
 }
@@ -351,8 +353,9 @@ export function inboxSections(
     if (!group || !place) continue;
     let rank: string;
     if (group === "syncing") rank = inboxRank(thread, group);
-    else if (sortBy !== "activity" && listedGroups.has(group)) {
-      // A place worked out before the machine's sort was known: its own order stands.
+    else if (sortBy !== "activity" && (group === "threads" || listedGroups.has(group))) {
+      // Sorted by creation or by hand, every unpinned live row ranks by that one key, so a row
+      // placed before the sort was known, or placed here, sorts beside the daemon's.
       group = "threads";
       rank = inboxListRank(thread, sortBy);
     } else rank = inboxPlaceRank(thread, place);

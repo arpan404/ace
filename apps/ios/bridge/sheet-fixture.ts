@@ -4,13 +4,20 @@ import { DeviceId, type DeviceScope } from "@ace/protocol";
 import type { PatchSink } from "./agents.ts";
 
 /** Test support: a real SDK client on the fake daemon, and a sink that reads like native. */
-export function sheetFixture(options: { scopes?: readonly DeviceScope[] } = {}) {
+export function sheetFixture(
+  options: {
+    scopes?: readonly DeviceScope[];
+    /** A machine whose daemon predates placement: its lists carry no places. */
+    olderDaemon?: boolean;
+  } = {},
+) {
   let now = 1_000;
   let ids = 0;
   const daemon = new FakeDaemon({
     clock: () => (now += 1),
     // A paired phone with these scopes; without, the fixture's device may do everything.
     ...(options.scopes ? { deviceScopes: { "ios-sheet-device": options.scopes } } : {}),
+    ...(options.olderDaemon ? { placement: false as const } : {}),
   });
   const client = new Client({
     deviceId: DeviceId.parse("ios-sheet-device"),
