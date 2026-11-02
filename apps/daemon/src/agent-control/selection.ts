@@ -56,6 +56,9 @@ export function namedAccountId(
   const name = input.accountId;
   if (!name) return undefined;
   const provider = input.provider;
+  // An ACP agent's account is its installation's instance id, checked against its identity at
+  // admission; it has no label to resolve.
+  if (provider === "acp") return name;
   const accounts = registeredAccounts(deps.accounts);
   const match = matchAccountName(accounts, provider, name);
   const words = providerNames[provider];
