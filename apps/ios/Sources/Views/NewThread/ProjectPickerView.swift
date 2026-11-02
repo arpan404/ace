@@ -77,7 +77,7 @@ struct ProjectPickerView: View {
                         .insetRowBackground()
                 }
             default:
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
+                SkeletonRows(count: 3, label: "Loading").listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             }
             Section {
                 if canAdd {
@@ -169,9 +169,9 @@ struct AddProjectView: View {
                 Section {
                     ForEach(folders?.folders ?? []) { folder in
                         Button { add(folder) } label: {
-                            HStack(spacing: AceTheme.Spacing.md + AceTheme.Spacing.xxs) {
-                                Image(systemName: folder.git ? "arrow.triangle.branch" : "folder").font(.system(size: 19))
-                                    .foregroundStyle(AceTheme.Colours.foreground).frame(width: 24)
+                            HStack(spacing: AceDesign.Space.row) {
+                                Image(systemName: folder.git ? "arrow.triangle.branch" : "folder").font(AceDesign.Typeface.title)
+                                    .foregroundStyle(AceTheme.Colours.foreground).frame(width: AceDesign.Size.rowGlyph)
                                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                                     Text(folder.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
                                     Text(folder.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
@@ -194,7 +194,7 @@ struct AddProjectView: View {
                 EmptyState(systemImage: "wifi.exclamationmark", title: "Couldn't search folders", line: "Check the connection and try again.")
                     .listRowBackground(Color.clear)
             default:
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
+                SkeletonRows(count: 3, label: "Loading").listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             }
         }
         .insetGroupedList()

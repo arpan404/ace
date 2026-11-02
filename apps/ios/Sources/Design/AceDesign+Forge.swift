@@ -31,6 +31,8 @@ extension AceDesign.Size {
     /// The side panel's drag handle.
     static let handleWidth: CGFloat = 4
     static let handleHeight: CGFloat = 36
+    /// How wide the strip is that a drag on the panel's edge starts from.
+    static let dragEdge: CGFloat = 24
     /// A file's git status mark: a small outlined square.
     static let fileMark: CGFloat = barIcon
     /// A hairline: a divider, a diff's comment rail, the image-diff split.
@@ -46,11 +48,6 @@ extension AceDesign.Size {
     static let editorHeight: CGFloat = 220
     /// A chip whose text is cut before it pushes its neighbours off the row.
     static let chipMaxWidth: CGFloat = 96
-}
-
-extension AceDesign.Typeface {
-    /// A page's own heading inside its content (the new thread's question).
-    static let hero = Font.title
 }
 
 @MainActor extension AceDesign.Surface {

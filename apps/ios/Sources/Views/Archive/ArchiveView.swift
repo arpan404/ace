@@ -81,7 +81,8 @@ private struct ArchiveRows: View {
     }
     @ViewBuilder private func footer(empty: Bool) -> some View {
         if archive.loading || (!archive.list.loaded && client.connection == "ready") {
-            HStack { Spacer(); ProgressView().accessibilityLabel("Loading archived threads"); Spacer() }
+            if empty { SkeletonRows(label: "Loading archived threads") }
+            else { HStack { Spacer(); ProgressView().accessibilityLabel("Loading older threads"); Spacer() } }
         } else if archive.list.failed {
             Button("Retry loading older threads") { client.loadMoreArchived() }
                 .frame(minHeight: AceTheme.Dimensions.touchTarget).accessibilityIdentifier("archive.retry")

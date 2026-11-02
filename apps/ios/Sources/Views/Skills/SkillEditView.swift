@@ -5,6 +5,7 @@ import SwiftUI
 /// What was typed stays on screen until the machine confirms the save; a save that didn't hear
 /// back can be sent again without applying twice (`bridge/skill-library.ts`).
 struct SkillEditView: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let workspaceId: String?
     let saved: (SkillPage) -> Void
@@ -55,8 +56,8 @@ struct SkillEditView: View {
             }
             .padding(.top, AceTheme.Spacing.md)
             .background(AceTheme.Colours.background)
-            .animation(.smooth, value: conflict)
-            .animation(.smooth, value: problem)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: conflict)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: problem)
             .navigationTitle("Edit \(page.title)").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

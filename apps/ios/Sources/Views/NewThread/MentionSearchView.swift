@@ -22,7 +22,7 @@ struct MentionSearchView: View {
             case "failed":
                 EmptyState(systemImage: "wifi.exclamationmark", title: "Couldn't search files", line: "Check the connection and try again.")
             default:
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
+                SkeletonRows(count: 3, label: "Searching files").listRowSeparator(.hidden).listRowInsets(EdgeInsets())
             }
         }
         .searchable(text: $query, prompt: "Search files")
