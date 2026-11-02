@@ -77,15 +77,15 @@ export function ThreadsTabs(props: {
        * The one selection indicator. A solid-feeling foreground wash (`--pill-thumb`,
        * living with the theme in theme/tokens.ts): the rail's `--active` is tuned for
        * the opaque rail and almost vanishes on the translucent pill, so the thumb takes
-       * 8% foreground in light, 14% in dark. Same `rounded-md` corner as the rail's
-       * current place, never a circle or a ring. It sits under the open tab and slides
+       * 8% foreground in light, 14% in dark. A circle, concentric with the round pill
+       * around it, never a ring. It sits under the open tab and slides
        * on transform only; see threads-tabs.css.
        */}
       <span
         aria-hidden
         data-selected-index={index}
         style={{ "--i": index } as CSSProperties}
-        className="threads-tabs-thumb absolute top-1 left-1 size-7 rounded-md bg-(--pill-thumb)"
+        className="threads-tabs-thumb absolute top-1 left-1 size-7 rounded-full bg-(--pill-thumb)"
       />
       {threadsTabs.map(({ id }) => {
         const current = id === props.tab;
@@ -100,7 +100,7 @@ export function ThreadsTabs(props: {
               aria-label={labels[id]}
               onClick={() => props.onTab(id)}
               className={cn(
-                "threads-tabs-tab relative grid size-7 cursor-pointer place-items-center rounded-md focus-ring-inset active:scale-[0.96]",
+                "threads-tabs-tab relative grid size-7 cursor-pointer place-items-center rounded-full focus-ring-inset active:scale-[0.96]",
                 current
                   ? "text-foreground"
                   : "text-muted-foreground hover:bg-hover hover:text-foreground",
