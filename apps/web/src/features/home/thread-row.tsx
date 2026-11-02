@@ -13,13 +13,12 @@ import {
 } from "@/features/organize/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProjectMark } from "@/components/project-mark.tsx";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { panelRowLine } from "@/components/ui/panel.tsx";
 import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions, type RowActionsProps } from "./row-actions.tsx";
-import { boldTitle, RowWork, threadDetails } from "./row-parts.tsx";
+import { boldTitle, RowProvider, RowWork, threadDetails } from "./row-parts.tsx";
 import { RowIndicator } from "./row-indicator.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
@@ -167,13 +166,10 @@ export function ThreadRow(props: {
       {props.lead === "project" && <ProjectMark id={entry.workspaceId} badge={card.badge} />}
       {props.lead === "indent" && <span aria-hidden className="w-4 shrink-0" />}
       {props.lead === "provider" && (
-        <ProviderIcon
-          provider={card.provider}
-          acpAgentId={card.acpAgentId}
-          size={14}
-          decorative
-          className="shrink-0 text-foreground opacity-80"
-        />
+        // One width with or without the account's badge, so every title starts in line.
+        <span className="flex w-[18px] shrink-0 items-center">
+          <RowProvider card={card} />
+        </span>
       )}
       <span
         className={cn(

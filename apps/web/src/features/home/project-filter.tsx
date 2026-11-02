@@ -142,7 +142,8 @@ function ProjectItem(props: { value: string; label: string; count: number; regis
           )}
         </span>
         {props.label}
-        <span className="ml-auto pl-4 group-hover/project:opacity-0 group-focus-within/project:opacity-0 text-xs text-subtle-foreground">
+        {/* The count stays put under the pointer: ⋯ has its own room beside it. */}
+        <span className="ml-auto pl-4 text-xs text-subtle-foreground tabular-nums">
           {props.count}
         </span>
       </span>

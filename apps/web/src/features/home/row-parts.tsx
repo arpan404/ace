@@ -12,7 +12,7 @@ import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useMachines } from "@/lib/machines.ts";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -199,6 +199,26 @@ function ActiveElapsed(props: { card: ThreadCard }) {
 }
 
 /**
+ * The provider a thread runs on, as every row shows it: its mark at 80%, with the account's badge
+ * on its corner when the person has more than one account for that provider. Decorative: the
+ * row's spoken name and hover card name both.
+ */
+export function RowProvider(props: { card: ThreadCard }) {
+  const { card } = props;
+  return (
+    <ProviderAccountIcon
+      provider={card.provider}
+      acpAgentId={card.acpAgentId}
+      instance={card.account}
+      size={14}
+      decorative
+      tooltip={false}
+      className="text-foreground opacity-80"
+    />
+  );
+}
+
+/**
  * What a one-line snoozed or settled row has to show for its work, where a chat shows its status:
  * its pull request (in the muted ink, opening it as a task row's does) and the lines it changed,
  * "+120 −8". Nothing when it has neither.
@@ -287,13 +307,7 @@ export function RowContext(props: {
               {card.subagents}
             </span>
           )}
-          <ProviderIcon
-            provider={card.provider}
-            acpAgentId={card.acpAgentId}
-            size={14}
-            decorative
-            className="text-foreground opacity-80"
-          />
+          <RowProvider card={card} />
         </span>
       </span>
     </div>

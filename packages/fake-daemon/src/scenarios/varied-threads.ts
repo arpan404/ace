@@ -33,9 +33,17 @@ export type VariedProvider = (typeof providers)[number];
 export interface VariedThread {
   title: string;
   provider: VariedProvider;
+  /** The provider account it runs on, where the fake has more than one (`catalog/accounts.ts`). */
+  account: string | undefined;
   workspaceId: string;
   seed: CardSeed;
 }
+
+/** Claude and Codex each have two accounts in the fake; the others have one. */
+const accounts: Partial<Record<VariedProvider, readonly [string, string]>> = {
+  claude: ["claude-personal", "claude-work"],
+  codex: ["codex-personal", "codex-team"],
+};
 
 const slug = (text: string) =>
   text
@@ -59,5 +67,7 @@ export function variedThread(n: number): VariedThread {
     ...(n % 7 === 3 ? { remote: true } : {}),
     ...(n % 2 === 0 ? { diff: [((n * 13) % 180) + 4, (n * 7) % 60, (n % 6) + 1] } : {}),
   };
-  return { title, provider, workspaceId, seed };
+  // Every other turn round the providers lands on the second account.
+  const account = accounts[provider]?.[Math.floor(n / providers.length) % 2];
+  return { title, provider, account, workspaceId, seed };
 }

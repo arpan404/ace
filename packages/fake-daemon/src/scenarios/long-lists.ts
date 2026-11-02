@@ -166,6 +166,16 @@ function createVaried(daemon: FakeDaemon, id: string, n: number, agoMs: number):
       title: thread.title,
       provider: thread.provider,
       hasSentMessage: true,
+      ...(thread.account
+        ? {
+            execution: {
+              provider: thread.provider,
+              model: thread.provider === "codex" ? "gpt-5.5" : "claude-opus-5-5",
+              instanceId: thread.account,
+              options: {},
+            },
+          }
+        : {}),
       details: cardDetails(thread.seed, thread.workspaceId, {
         host: daemon.hostId,
         name: daemon.displayName,
