@@ -42,10 +42,11 @@ export function TaskLines(props: {
           {card.flags.pinned && (
             <PushPinIcon aria-hidden size={11} className="shrink-0 text-subtle-foreground" />
           )}
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5">
+          {/* Beside the project name, so the row's actions never push them along on hover. */}
           <BrowsingMark threadId={card.id} />
           <ComputerUseMark threadId={card.id} />
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5">
           <span
             data-row-status=""
             aria-hidden={props.actions ? true : undefined}
