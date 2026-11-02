@@ -7,6 +7,7 @@ import { startProviderStatuses } from "./provider-status.ts";
 import { startProjects } from "./projects.ts";
 import { startCursorAuth } from "./cursor-auth.ts";
 import { startPreviewClient } from "./preview-client.ts";
+import { startBackgroundPorts } from "./background-ports.ts";
 import { startAutomations } from "./automations.ts";
 import { startActivityReads } from "./activity-reads.ts";
 import { startVerify } from "./verify.ts";
@@ -208,6 +209,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     start: startExternalMcp,
   },
   { name: "previewClient", phase: "listener", requires: [], after: [], start: startPreviewClient },
+  {
+    name: "backgroundPorts",
+    phase: "listener",
+    requires: ["engine"],
+    after: [],
+    start: startBackgroundPorts,
+  },
   {
     name: "threadOrganization",
     phase: "listener",

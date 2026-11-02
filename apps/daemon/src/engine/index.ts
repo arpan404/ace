@@ -60,6 +60,7 @@ import {
 import { AdapterRegistry } from "./registry.ts";
 import { EngineRepository, type IntentHeader } from "./repository.ts";
 import { SettledTrees } from "./settled-trees.ts";
+import { backgroundPortsHost, type BackgroundPortsHost } from "./background-ports.ts";
 import {
   defaultProviderIdleMs,
   providerProcessState,
@@ -830,6 +831,14 @@ export class Engine {
   ): void {
     const previous = this.hostInteractionHandler;
     this.hostInteractionHandler = (command) => handler(command) ?? previous?.(command);
+  }
+  /** Where the background command port probe reads and reports (ADR 0109). */
+  backgroundPorts(): BackgroundPortsHost {
+    return backgroundPortsHost(
+      this.repo,
+      () => this.clock.now(),
+      (id) => this.actors.get(id)?.schedule(),
+    );
   }
   /** Routes a stop of a background hold whose key starts with `prefix` to its external owner. */
   bindExternalTaskStop(prefix: string, stop: (id: string, threadId: ThreadId) => void): void {
