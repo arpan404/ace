@@ -10,12 +10,12 @@ import { useAccountMachines } from "@/features/ace-account/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { useMachines, usePrimaryMachine } from "@/lib/machines.ts";
 import { useProfileName } from "@/lib/profile.ts";
+import { useProviderAccountModels } from "@/lib/account-views.ts";
 import { MachineAccount } from "../machine-account.tsx";
 import { settingRow } from "../settings-index.ts";
 import { ProfileHero, useProfileAccount } from "./account.tsx";
 import { ActivityGrid } from "./activity-grid.tsx";
-import type { Share } from "./stats.ts";
-import { useProfileActivity, type ProfileActivity } from "./use-stats.ts";
+import { useProfileActivity, type AccountShare, type ProfileActivity } from "./use-stats.ts";
 
 const shortDay = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -67,12 +67,8 @@ export function ProfilePage() {
             )}
           </Section>
           {activity.providers.length > 0 && (
-            <Section title="Top providers">
-              <ul className="flex flex-wrap gap-4">
-                {activity.providers.map((share) => (
-                  <ProviderTile key={share.key} share={share} />
-                ))}
-              </ul>
+            <Section title="Most used providers">
+              <ProviderTiles shares={activity.providers} />
             </Section>
           )}
           <Insights activity={activity} />
@@ -127,25 +123,43 @@ function Highlights(props: { activity: ProfileActivity }) {
   );
 }
 
-function ProviderTile(props: { share: Share }) {
-  const kind = ProviderKind.safeParse(props.share.key);
-  const name = kind.success ? providerNames[kind.data] : props.share.key;
+/** Each of the most used provider accounts: its mark, provider, account and share. */
+function ProviderTiles(props: { shares: readonly AccountShare[] }) {
+  const accounts = useProviderAccountModels().accounts.data;
+  const names = new Map((accounts ?? []).map((account) => [account.id, account.label]));
   return (
-    <li className="flex w-20 flex-col items-center gap-2 text-center">
-      <span className="grid size-14 place-items-center rounded-2xl bg-secondary shadow-[inset_0_0_0_1px_var(--border)]">
-        {kind.success ? (
-          <ProviderIcon provider={kind.data} size={24} decorative />
-        ) : (
-          <span aria-hidden className="text-base font-medium">
-            {name.slice(0, 1).toUpperCase()}
-          </span>
-        )}
-      </span>
-      <span className="w-full truncate text-sm">{name}</span>
-      <span className="-mt-1.5 text-xs text-muted-foreground tabular-nums">
-        {props.share.percent}%
-      </span>
-    </li>
+    <ul className="flex flex-wrap gap-4">
+      {props.shares.map((share) => {
+        const kind = ProviderKind.safeParse(share.provider);
+        const provider = kind.success ? providerNames[kind.data] : share.provider;
+        // Usage from before accounts were recorded, or from an account since removed.
+        const account = names.get(share.account) ?? (share.account ? "Removed account" : "");
+        return (
+          <li
+            key={share.key}
+            aria-label={`${provider}${account ? `, ${account}` : ""}, ${share.percent}%`}
+            className="flex w-28 flex-col items-center gap-2 text-center"
+          >
+            <span className="grid size-14 place-items-center rounded-2xl bg-secondary shadow-[inset_0_0_0_1px_var(--border)]">
+              {kind.success ? (
+                <ProviderIcon provider={kind.data} size={24} decorative />
+              ) : (
+                <span aria-hidden className="text-base font-medium">
+                  {provider.slice(0, 1).toUpperCase()}
+                </span>
+              )}
+            </span>
+            <span aria-hidden className="flex w-full flex-col">
+              <span className="truncate text-sm">{provider}</span>
+              {account && <span className="truncate text-xs text-muted-foreground">{account}</span>}
+              <span className="mt-0.5 text-xs text-subtle-foreground tabular-nums">
+                {share.percent}%
+              </span>
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

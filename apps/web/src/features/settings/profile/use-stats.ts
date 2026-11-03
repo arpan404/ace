@@ -6,12 +6,41 @@ import { useNow } from "@/lib/time.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 import { profileStats, shares, type ProfileStats, type Share } from "./stats.ts";
 
+/** Provider accounts ranked by tokens, the top four, each with its share of all of them. */
+function accountShares(
+  rows: readonly { provider: string; account: string; tokens: number }[],
+): AccountShare[] {
+  const byKey = new Map(rows.map((row) => [`${row.provider}\n${row.account}`, row]));
+  return shares(
+    rows
+      .filter((row) => row.provider)
+      .map((row) => ({
+        key: `${row.provider}\n${row.account}`,
+        tokens: row.tokens,
+      })),
+    4,
+  ).map((share) =>
+    Object.assign(share, {
+      provider: byKey.get(share.key)?.provider ?? "",
+      account: byKey.get(share.key)?.account ?? "",
+    }),
+  );
+}
+
 /** Tokens a row spent: what went in and what came out, as the rail's Usage bars count them. */
 const spent = (row: UsageRow) => row.totals.inputTokens + row.totals.outputTokens;
 
+/** A provider account's share: `key` is the provider and account together. */
+export interface AccountShare extends Share {
+  provider: string;
+  /** The account's id; empty for usage recorded before accounts were. */
+  account: string;
+}
+
 export interface ProfileActivity {
   stats: ProfileStats;
-  providers: Share[];
+  /** The most used provider accounts, each on its own. */
+  providers: AccountShare[];
   models: Share[];
   skills: { used: number; top: Share | undefined };
   /** Percent of tokens subagents and child threads spent. */
@@ -34,20 +63,28 @@ export function useProfileActivity(): ProfileActivity {
     enabled: zone.ready,
     staleTime: 60_000,
     read: async (client, signal) => {
-      const read = async (groupBy: UsageDimension, limit: number) => {
-        const usage = UsageQuery.parse({ from, to: today, groupBy: [groupBy], limit });
-        const reply = await client.request({ type: "usage.summary", query: usage }, { signal });
-        return reply.result.rows.map((row) => ({
+      const summary = async (groupBy: UsageDimension[], limit: number) => {
+        const usage = UsageQuery.parse({ from, to: today, groupBy, limit });
+        return (await client.request({ type: "usage.summary", query: usage }, { signal })).result
+          .rows;
+      };
+      const read = async (groupBy: UsageDimension, limit: number) =>
+        (await summary([groupBy], limit)).map((row) => ({
           key: row.dimensions[groupBy] ?? "",
           tokens: spent(row),
         }));
-      };
+      const accounts = async () =>
+        (await summary(["provider", "account"], 100)).map((row) => ({
+          provider: row.dimensions.provider ?? "",
+          account: row.dimensions.account ?? "",
+          tokens: spent(row),
+        }));
       // An older daemon that doesn't group by skill or role leaves those insights out.
       const optional = (groupBy: UsageDimension, limit: number) =>
         read(groupBy, limit).catch(() => []);
       const [days, providers, models, skills, roles] = await Promise.all([
         read("day", 400),
-        read("provider", 50),
+        accounts(),
         read("model", 50),
         optional("skill", 500),
         optional("role", 10),
@@ -66,10 +103,7 @@ export function useProfileActivity(): ProfileActivity {
       .reduce((sum, row) => sum + row.tokens, 0);
     return {
       stats: profileStats(days, today),
-      providers: shares(
-        (data?.providers ?? []).filter((row) => row.key),
-        4,
-      ),
+      providers: accountShares(data?.providers ?? []),
       models: shares(
         (data?.models ?? []).filter((row) => row.key),
         3,
