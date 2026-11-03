@@ -65,15 +65,21 @@ export function useReviewWrites(options: {
         client,
         ForgeHostedReviewCommand.parse({ type: "forge.hosted.review", workspaceId, pr, action }),
       );
-      await onSettled(rereadAfter(action.kind), true);
-      return { ok: true };
     } catch (error) {
-      void onSettled("review", false);
+      void Promise.resolve(onSettled("review", false)).catch(() => {});
       return {
         ok: false,
         message: error instanceof CommandRefused ? actionErrorText(error.code) : reviewLostText,
       };
     }
+    // The write landed. A failed read afterwards is the read's own failure, shown where the
+    // read is; reporting it as the write's would keep a composer's text and invite a repost.
+    try {
+      await onSettled(rereadAfter(action.kind), true);
+    } catch {
+      /* The page keeps its last read and its read error. */
+    }
+    return { ok: true };
   }, []);
   const write = useCallback(
     (action: ForgeReviewAction): Promise<ReviewWriteResult> => {
