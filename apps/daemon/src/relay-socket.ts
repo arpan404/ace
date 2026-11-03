@@ -3,6 +3,8 @@ import type { HostChannel } from "@ace/relay";
 import type { ChannelClose } from "@ace/protocol";
 import type { MainSocket } from "./main-socket.ts";
 import type { Device } from "./devices.ts";
+import type { DeliveryRuntime } from "./delivery-runtime.ts";
+import { DAEMON_CLOSE_GRACE_MS } from "./server-socket-close.ts";
 
 /** A main channel the relay host authenticated, handed to the daemon's main-socket handler. */
 export interface RelayedMain {
@@ -36,10 +38,15 @@ export class RelaySocket extends EventEmitter implements MainSocket {
   #state: 0 | 1 | 2 | 3 = OPEN;
   #paused = false;
   #resumed: (() => void) | undefined;
-  constructor(channel: HostChannel, options: { deflate: boolean }) {
+  readonly #delay: DeliveryRuntime["delay"];
+  constructor(
+    channel: HostChannel,
+    options: { deflate: boolean; delay: DeliveryRuntime["delay"] },
+  ) {
     super();
     this.#channel = channel;
     this.#deflate = options.deflate;
+    this.#delay = options.delay;
     void channel.closed.then(() => this.#finish(1006, ""));
   }
   get readyState(): 0 | 1 | 2 | 3 {
@@ -106,10 +113,16 @@ export class RelaySocket extends EventEmitter implements MainSocket {
       reason: reason.slice(0, 123),
     };
     // The goodbye is queued behind earlier messages, so it arrives last; then the channel ends.
+    // A reader that stopped consuming never lets it out (flow control holds the queue), so the
+    // channel ends anyway after the daemon's close grace, as a direct socket's would.
+    const cancel = this.#delay(() => this.#channel.close(), DAEMON_CLOSE_GRACE_MS);
     void this.#channel
       .sendText(JSON.stringify(goodbye))
       .catch(() => {})
-      .finally(() => this.#channel.close());
+      .finally(() => {
+        cancel();
+        this.#channel.close();
+      });
     this.#finish(code, reason);
   }
   terminate(): void {

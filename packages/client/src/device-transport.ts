@@ -144,6 +144,8 @@ export function authenticatedChannel(
           ...(options.target.kind === "relay" && kind !== "provider_auth"
             ? { compression: relayCompression() }
             : {}),
+          // A relay route returns credit as it reads, so the relay never holds a backlog.
+          ...(options.target.kind === "relay" ? { flowControl: ["credit"] } : {}),
         });
         if (options.target.kind === "relay") {
           const { connectPortableRelay } = await import("./portable-relay.ts");

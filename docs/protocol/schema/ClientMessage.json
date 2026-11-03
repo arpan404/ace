@@ -2451,6 +2451,14 @@
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/DeviceId.json"
         },
+        "flowControl": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
         "grant": {
           "maxLength": 2048,
           "minLength": 1,

@@ -528,7 +528,10 @@ export async function startServer(options: ServerOptions): Promise<{
   for (const server of servers) server.on("connection", connected);
   // The relay host hands its authenticated main channels here (`files-relay.ts`).
   options.relayMain = (entry) => {
-    const socket = new RelaySocket(entry.channel, { deflate: entry.deflate });
+    const socket = new RelaySocket(entry.channel, {
+      deflate: entry.deflate,
+      delay: runtime.delay,
+    });
     relaySockets.add(socket);
     socket.once("close", () => relaySockets.delete(socket));
     connected(socket, false, undefined, entry);

@@ -15,6 +15,11 @@ export interface Transport {
    * inflates deflated bulk JSON). Absent: the hello asks for none.
    */
   readonly compression?: readonly string[];
+  /**
+   * Flow control this transport takes part in, sent as `hello.flowControl` (a relay route
+   * returns credit as it reads). Absent: the hello asks for none.
+   */
+  readonly flowControl?: readonly string[];
   open(events: TransportEvents): void;
   send(text: string): void;
   close(): void;

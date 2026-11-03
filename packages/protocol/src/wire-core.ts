@@ -239,6 +239,13 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        */
       compression: z.array(z.string().max(32)).max(8).optional(),
       /**
+       * Flow control this client takes part in on a relayed channel: `credit` lets the daemon
+       * turn on credit fragments, so each end sends at most a window the other has consumed and
+       * a slow reader holds back the sender instead of filling the relay (ADR 0110). Unknown
+       * names are ignored.
+       */
+      flowControl: z.array(z.string().max(32)).max(8).optional(),
+      /**
        * Redundant bytes this client can put back, so the daemon may leave them out of snapshots
        * and pages: `item-defaults` (items without `complete`, `synthetic` or `raw` when they hold
        * their defaults), `provider-capabilities` (threads that name their capabilities by a key

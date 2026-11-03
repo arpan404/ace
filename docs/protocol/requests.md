@@ -3331,6 +3331,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode o
 | grant | no | string | {"minLength":1,"maxLength":2048} |
 | machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
 | compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
+| flowControl | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
 
 Example:
