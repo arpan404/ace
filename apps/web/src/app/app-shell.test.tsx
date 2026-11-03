@@ -11,7 +11,7 @@ test("an unknown address keeps the shell and says the page doesn't exist", async
   expect(within(main).getByText("/this/does/not/exist")).toBeTruthy();
   // The app's chrome is still there to go elsewhere.
   expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
-  await userEvent.click(within(main).getByRole("link", { name: "Go to Home" }));
+  await userEvent.click(within(main).getByRole("link", { name: "Back to Home" }));
   await waitFor(() =>
     expect(screen.queryByRole("heading", { name: "This page doesn't exist" })).toBeNull(),
   );
@@ -56,7 +56,7 @@ test.each(["trigger", "item"])(
       await openThreads();
       await screen.findByRole("heading", { level: 1, name: "New thread" });
       await userEvent.click(screen.getByRole("button", { name: /^You, account/ }));
-      await screen.findByRole("menuitem", { name: "Usage" });
+      await screen.findByRole("menuitem", { name: "Archived threads" });
       if (focus === "item") {
         await userEvent.keyboard("{ArrowDown}");
         await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("menuitem"));
@@ -66,9 +66,9 @@ test.each(["trigger", "item"])(
       // Run the actual navigation frame after the person's next interaction, as a busy
       // renderer can. The route's title must not steal focus and dismiss the open menu.
       await flushFrames();
-      expect(screen.getByRole("menuitem", { name: "Usage" })).toBeTruthy();
-      await userEvent.click(screen.getByRole("menuitem", { name: "Usage" }));
-      const title = await screen.findByRole("heading", { level: 1, name: "Usage" });
+      expect(screen.getByRole("menuitem", { name: "Archived threads" })).toBeTruthy();
+      await userEvent.click(screen.getByRole("menuitem", { name: "Archived threads" }));
+      const title = await screen.findByRole("heading", { level: 1, name: "Archived" });
       await flushFrames();
       expect(document.activeElement).toBe(title);
     } finally {
