@@ -107,9 +107,12 @@ function resting(input: ArrangeInput, scope: PaletteScope, all: readonly Row[]):
   }
   // Messages wait for words to look for.
   if (scope === "messages") return [];
-  // All: a few ways to start, then where the person was. What acts on an open thread waits for
-  // a query or the Actions tab, so the palette opens clean.
+  // All: the threads the person picked, if any, then a few ways to start, then where the person
+  // was. What acts on an open thread waits for a query or the Actions tab, so the palette opens
+  // clean.
   const out: RowGroup[] = [];
+  const selected = input.groups.find((group) => group.value === "Selected threads")?.items ?? [];
+  if (selected.length) out.push({ value: "Selected threads", items: selected });
   const quick = input.groups.find((group) => group.value === "Create")?.items ?? [];
   if (quick.length) out.push({ value: "Quick actions", items: quick });
   const threads = recentOf(input, isThread, Math.min(recentEach, input.recentLimit));
