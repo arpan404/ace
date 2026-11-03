@@ -2,25 +2,42 @@ import type { ProviderKind } from "@ace/protocol";
 import { providerSlots } from "@ace/ui-core";
 import { RobotIcon } from "@phosphor-icons/react";
 import type { CSSProperties } from "react";
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
+import type { AgentAccount } from "./agent-account.ts";
 
 /*
- * What leads a row of agents: their providers' marks, plain glyphs with no tile, ring, status dot
- * or account badge. State is the row's words, never the lead's.
+ * What leads a row of agents: their providers' marks, plain glyphs with no tile, ring or status
+ * dot. One agent's mark wears its account's badge, as a thread row's does; a group's lead never
+ * does. State is the row's words, never the lead's.
  */
 
 /** A provider and the model its first agent runs, which may pick the provider's mark. */
-export interface AgentMark {
+export interface AgentMark extends AgentAccount {
   provider?: ProviderKind | undefined;
   model?: string | undefined;
 }
 
-/** One agent's mark: its provider's, else a robot while the provider isn't known. */
+/**
+ * One agent's mark: its provider's, with its account's badge once the account is known, else a
+ * robot while the provider isn't known.
+ */
 export function AgentIcon(
   props: AgentMark & { size: 16 | 18 | 20; className?: string | undefined },
 ) {
-  return props.provider ? (
+  return props.provider && props.instance ? (
+    <ProviderAccountIcon
+      provider={props.provider}
+      model={props.model}
+      instance={props.instance}
+      accounts={props.accounts}
+      size={props.size}
+      className={props.className}
+      tooltip={false}
+      decorative
+    />
+  ) : props.provider ? (
     <ProviderIcon
       provider={props.provider}
       model={props.model}

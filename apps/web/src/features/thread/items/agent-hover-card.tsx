@@ -1,30 +1,23 @@
-import { useSidebarThread, useThreadMeta } from "@ace/client-react";
-import { providerNames, subagentLabels } from "@ace/ui-core";
+import { providerAccount, providerNames, subagentLabels } from "@ace/ui-core";
 import type { ReactElement, ReactNode } from "react";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
-import { AgentIcon } from "./agent-lead.tsx";
+import { AgentIcon, type AgentMark } from "./agent-lead.tsx";
 import { subagentTones, type AgentRowParts } from "./agent-row.tsx";
-
-/** Which agent a card is for: one the provider spawned, or a thread ace delegated. */
-export type AgentCardSubject =
-  | { kind: "subagent"; threadId: string; agentId: string }
-  | { kind: "delegated"; threadId: string; childThreadId: string };
 
 /**
  * An agent row's hover card, the sidebar's in a transcript's shape: who the agent is and how it
  * stands, whole where the row cuts it. Its name with its status and time on the same line, then
  * the account, model and effort it runs on under its provider's mark, then the machine it runs
  * on, then, under a hairline, its latest turn as the row's second line says it, whole: what it
- * does now, what it found, what it waits on, or why it failed. A subagent runs on its parent's
- * account; a delegated thread on its own. It opens under the
+ * does now, what it found, what it waits on, or why it failed. The account is the one the row's
+ * mark wears (`useAgentAccount`), named once its machine's accounts load. It opens under the
  * row (above when there's no room) once the pointer settles, and closes when it leaves.
  */
 export function AgentHoverCard(props: {
-  subject: AgentCardSubject;
   /** The row's own parts: name, status, time, mark, meta and machine. */
   parts: AgentRowParts;
   /** The row's link or button, one element. */
@@ -41,16 +34,16 @@ export function AgentHoverCard(props: {
         aria-label={`Details for ${props.parts.name}`}
         className="w-80 max-w-[calc(100vw-24px)] px-3 py-2.5"
       >
-        <CardBody subject={props.subject} parts={props.parts} />
+        <CardBody parts={props.parts} />
       </HoverCardContent>
     </HoverCard>
   );
 }
 
 /** Mounted only while the card is open, so a closed row reads nothing extra. */
-function CardBody(props: { subject: AgentCardSubject; parts: AgentRowParts }) {
+function CardBody(props: { parts: AgentRowParts }) {
   const { parts } = props;
-  const account = useAgentAccount(props.subject);
+  const account = useAccountLabel(parts.mark);
   const here = usePrimaryMachine();
   // The model and effort as the row's meta reads them, without the row's own word for its kind.
   const model = parts.meta?.replace(/^(Delegated|New thread)( · )?/, "");
@@ -113,12 +106,15 @@ function Fact(props: { children: ReactNode }) {
   return <div className="flex min-h-6 min-w-0 items-center gap-1.5">{props.children}</div>;
 }
 
-/** The account's name: a delegated thread's own, else the parent thread's, which a subagent shares. */
-function useAgentAccount(subject: AgentCardSubject): string | undefined {
-  const parent = useThreadMeta(subject.threadId);
-  const child = useSidebarThread(subject.kind === "delegated" ? subject.childThreadId : "");
-  const accounts = useAccountViews();
-  const source = subject.kind === "delegated" ? child : parent;
-  const id = source?.execution?.instanceId ?? source?.live?.account;
-  return id ? accounts.data?.find((account) => account.id === id)?.label : undefined;
+/**
+ * The name of the account the row's mark wears: one of this window's accounts, or of the
+ * machine the agent runs on.
+ */
+function useAccountLabel(mark: AgentMark): string | undefined {
+  const here = useAccountViews();
+  if (!mark.provider || !mark.instance) return undefined;
+  return providerAccount(mark.accounts ?? here.data, {
+    provider: mark.provider,
+    instance: mark.instance,
+  }).account?.label;
 }
