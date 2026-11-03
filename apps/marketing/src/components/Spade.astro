@@ -113,9 +113,11 @@ import SpadeFace from "./mac/SpadeFace.astro";
 
   for (const section of document.querySelectorAll<HTMLElement>("[data-spade-section]")) {
     spadeLook(section);
-    // The 3D Spade and three.js load only as the section comes near.
+    // The 3D Spade loads only as the section comes near, and not at all when the visitor asked
+    // to save data; the flat face stays then.
     const host = section.querySelector<HTMLElement>("[data-spade-3d]");
-    if (!host) continue;
+    const { connection } = navigator as Navigator & { connection?: { saveData?: boolean } };
+    if (!host || connection?.saveData) continue;
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;

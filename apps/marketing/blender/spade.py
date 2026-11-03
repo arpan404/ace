@@ -1,7 +1,8 @@
 # Spade in 3D, built from the mark's geometry (docs/design/spade/README.md) and exported as the
 # GLB the home page shows (public/spade.glb). Every part of the face lies on the head's surface,
 # with its origin at the head's centre, so turning a pupil about that centre slides it across
-# the eye.
+# the eye. Because everything lies on that sphere, the GLB carries positions and indices only:
+# the page's renderer (src/scripts/spade-3d.ts) takes each normal from the head's centre.
 #
 # The exported public/spade.glb is committed: the site's build only copies it, so building or
 # deploying never needs Blender. Run this by hand only when Spade's shape changes, then commit
@@ -62,7 +63,7 @@ def egg(theta, rx, ry):
     return rx * c * (1 - 0.1 * top), ry * s * (1 - 0.06 * top)
 
 
-def shell(name, centre, radii, lift, bulge, mat, segments=72, rings=10):
+def shell(name, centre, radii, lift, bulge, mat, segments=48, rings=6):
     """An egg-shaped piece lying on the head, domed in its middle by `bulge`."""
     bm = bmesh.new()
     cu, cv = centre
@@ -116,7 +117,7 @@ def build():
     paper = material("Paper", PAPER, 0.12)
     ink = material("Ink", INK, 0.25)
 
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=64, ring_count=32, radius=RADIUS)
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=56, ring_count=28, radius=RADIUS)
     head = bpy.context.active_object
     head.name = "Head"
     bpy.ops.object.shade_smooth()
@@ -126,10 +127,10 @@ def build():
         shell(f"Ring_{side}", eye, (EYE[0] + RING, EYE[1] + RING), 0.004, 0.018, ink)
         shell(f"Eye_{side}", eye, EYE, 0.008, 0.045, paper)
         p = pupil_rest(eye)
-        shell(f"Pupil_{side}", p, PUPIL, 0.052, 0.012, ink, segments=48, rings=6)
+        shell(f"Pupil_{side}", p, PUPIL, 0.052, 0.012, ink, segments=36, rings=4)
         glint = (p[0] + PUPIL[0] * 0.38, p[1] + PUPIL[1] * 0.42)
         r = PUPIL[0] * 0.3
-        shell(f"Glint_{side}", glint, (r, r), 0.066, 0.004, paper, segments=32, rings=4)
+        shell(f"Glint_{side}", glint, (r, r), 0.066, 0.004, paper, segments=16, rings=2)
 
 
 def render_preview(path):
@@ -174,4 +175,10 @@ def render_preview(path):
 build()
 if preview_path:
     render_preview(preview_path)
-bpy.ops.export_scene.gltf(filepath=glb_path, export_format="GLB", export_apply=True)
+bpy.ops.export_scene.gltf(
+    filepath=glb_path,
+    export_format="GLB",
+    export_apply=True,
+    export_normals=False,
+    export_texcoords=False,
+)
