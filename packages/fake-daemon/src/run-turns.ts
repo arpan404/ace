@@ -1,4 +1,5 @@
 import type { EventPayload, Run } from "@ace/protocol";
+import type { ThreadView } from "@ace/projection";
 import { startedRunTurn, startsTurn } from "@ace/projection";
 
 /**
@@ -39,4 +40,30 @@ export class RunTurns {
     this.runs.set(run.id, turn);
     return turn;
   }
+}
+
+/** What numbering a root run needs from its thread's host. */
+export interface RunNumbering {
+  readonly view: Pick<ThreadView, "thread" | "runs">;
+  readonly turns: RunTurns;
+  runOrdinal: number;
+}
+
+/**
+ * A root run's start with its turn and ordinal, as the daemon numbers it before anything else
+ * reads it; every other payload unchanged. The caller has tracked the payload's asks first.
+ */
+export function numberedRun(host: RunNumbering, payload: EventPayload): EventPayload {
+  if (payload.type !== "run.started" || payload.run.agentId !== host.view.thread.rootAgentId)
+    return payload;
+  const run = payload.run;
+  return {
+    ...payload,
+    run: {
+      ...run,
+      turn: host.turns.start(run),
+      ordinal: host.view.runs[run.id]?.ordinal ?? ++host.runOrdinal,
+      checkpoints: { state: "unavailable", error: "scripted_provider" },
+    },
+  };
 }
