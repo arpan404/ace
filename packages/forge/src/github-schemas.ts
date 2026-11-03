@@ -63,6 +63,25 @@ export const ReviewThreadsPage = z.object({
                 diffSide: str.nullable().optional(),
                 startLine: z.number().int().nullable().optional(),
                 startDiffSide: str.nullable().optional(),
+                // Where the thread was written. Lenient: a malformed value reads as missing.
+                originalLine: z.number().int().nullable().optional().catch(undefined),
+                originalStartLine: z.number().int().nullable().optional().catch(undefined),
+                opener: z
+                  .object({
+                    nodes: z
+                      .array(
+                        z.object({
+                          diffHunk: z.string().max(1_048_576).nullable().optional(),
+                          originalCommit: z
+                            .object({ oid: z.string().regex(/^[a-fA-F0-9]{40,64}$/) })
+                            .nullable()
+                            .optional(),
+                        }),
+                      )
+                      .max(1),
+                  })
+                  .optional()
+                  .catch(undefined),
                 comments: z.object({
                   pageInfo: PageInfo,
                   nodes: z

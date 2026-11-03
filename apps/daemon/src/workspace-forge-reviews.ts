@@ -12,6 +12,12 @@ import {
 import { ForgeError, WriteDispatch, type GitHubForge } from "@ace/forge";
 import type { Store } from "./store.ts";
 const scope = forgeResourceKey;
+/** The drafts a write sends. */
+function sentDrafts(action: ForgeReviewAction): readonly string[] {
+  if (action.kind === "submit") return action.draftIds;
+  if (action.kind === "draft.file") return [action.id];
+  return [];
+}
 /** Local draft and remote-write journal. No agent or local review-session state is touched. */
 export class WorkspaceForgeReviews {
   readonly #store: Store;
@@ -130,6 +136,7 @@ export class WorkspaceForgeReviews {
         .map((t) => t.id),
       operations,
       ...decorations,
+      ...(host.pending === undefined ? {} : { hostedPending: host.pending }),
     };
   }
   #assertAvailable(pr: ForgePrRef, action: ForgeReviewAction) {
@@ -145,11 +152,10 @@ export class WorkspaceForgeReviews {
     if (
       unresolved.some((row) => {
         if (row.action === encoded) return true;
-        if (action.kind === "submit") {
+        if (action.kind === "submit" || action.kind === "draft.file") {
+          // One draft is sent once: by a review, or on its file, never both while unknown.
           const prior = ForgeReviewAction.parse(JSON.parse(z.string().parse(row.action)));
-          return (
-            prior.kind === "submit" && prior.draftIds.some((id) => action.draftIds.includes(id))
-          );
+          return sentDrafts(prior).some((id) => sentDrafts(action).includes(id));
         }
         if (action.kind === "comment.hide" || action.kind === "comment.unhide") {
           // Hiding and showing one comment race each other until the earlier outcome is known.
@@ -166,6 +172,27 @@ export class WorkspaceForgeReviews {
       throw new Error("action_outcome_uncertain");
   }
 
+  /**
+   * Move drafts written on earlier commits to `headSha`. Each is replaced only while it is
+   * still the draft the move read: an edit or delete meanwhile wins, and no draft is dropped.
+   */
+  async #move(pr: ForgePrRef, headSha: string, backend: GitHubForge, signal: AbortSignal) {
+    const read = this.#drafts(pr);
+    const moved = await backend.reviews.moveDrafts(pr.number, headSha, read, signal);
+    if (!moved.length) return;
+    this.#store.atomic((db) => {
+      for (const draft of moved) {
+        const before = read.find((d) => d.id === draft.id);
+        if (!before) continue;
+        db.prepare("UPDATE forge_hosted_drafts SET draft=? WHERE scope=? AND id=? AND draft=?").run(
+          JSON.stringify(ForgeReviewDraft.parse(draft)),
+          scope(pr),
+          draft.id,
+          JSON.stringify(before),
+        );
+      }
+    });
+  }
   async execute(
     input: unknown,
     commandId: string,
@@ -242,7 +269,9 @@ export class WorkspaceForgeReviews {
         .array(ForgeReviewDraft)
         .max(100)
         .parse(JSON.parse(z.string().parse(row.drafts)));
-      if (!(await backend.reviews.reconcile(pr.number, original, action.operationId, signal)))
+      if (
+        !(await backend.reviews.reconcile(pr.number, original, action.operationId, signal, drafts))
+      )
         throw new Error("action_outcome_uncertain");
       this.#store.atomic(() => {
         this.#accepted(action.operationId, pr, drafts);
@@ -250,10 +279,25 @@ export class WorkspaceForgeReviews {
       });
       return;
     }
+    if (action.kind === "drafts.move") {
+      await this.#move(pr, action.headSha, backend, signal);
+      completePendingForgeReceipt(this.#store, commandId, { ok: true });
+      return;
+    }
+    // Drafts written before a push follow their lines first; any that can't stay outdated
+    // and the review is refused rather than sent without them.
+    if (action.kind === "submit") {
+      const named = this.#drafts(pr).filter((d) => action.draftIds.includes(d.id));
+      if (named.some((d) => d.anchor.commit !== action.headSha))
+        await this.#move(pr, action.headSha, backend, signal);
+    }
     const drafts =
-      action.kind === "submit"
-        ? this.#drafts(pr).filter((d) => action.draftIds.includes(d.id))
+      action.kind === "submit" || action.kind === "draft.file"
+        ? this.#drafts(pr).filter((d) => sentDrafts(action).includes(d.id))
         : [];
+    if (action.kind === "submit" && drafts.some((d) => d.anchor.commit !== action.headSha))
+      throw new ForgeError("conflict");
+    if (action.kind === "draft.file" && !drafts[0]?.outdated) throw new ForgeError("not_found");
     this.#assertAvailable(pr, action);
     let started = false;
     const dispatch = new WriteDispatch(() => {
@@ -287,7 +331,7 @@ export class WorkspaceForgeReviews {
       }
       if (!signal.aborted) {
         try {
-          if (await backend.reviews.reconcile(pr.number, action, commandId, signal)) {
+          if (await backend.reviews.reconcile(pr.number, action, commandId, signal, drafts)) {
             this.#accepted(commandId, pr, drafts);
             return;
           }
