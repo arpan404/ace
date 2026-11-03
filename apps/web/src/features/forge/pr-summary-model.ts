@@ -1,5 +1,5 @@
 import type { ForgeComment, ForgePrStatus } from "@ace/protocol";
-import { checkFixRequest } from "@ace/ui-core";
+import { checkFixRequest, reviewerOutcomes } from "@ace/ui-core";
 
 /*
  * What the Summary tab lists, worked out from the PR detail without rendering: each reviewer's
@@ -10,8 +10,21 @@ import { checkFixRequest } from "@ace/ui-core";
 const time = (comment: Pick<ForgeComment, "createdAt" | "updatedAt">) =>
   comment.createdAt ?? comment.updatedAt;
 
-/** Something on the PR an agent could fix: a failing check or an open review thread. */
+/**
+ * Something blocking the merge that a person or an agent could act on: a review that asks for
+ * changes (in the reviewer's own words), a conversation nobody resolved, or a failing check.
+ * `title` is the row's first line, `detail` where it is.
+ */
 export type AttentionItem =
+  | {
+      kind: "review";
+      key: string;
+      title: string;
+      detail: string;
+      at: string | null;
+      author: string;
+      body: string;
+    }
   | {
       kind: "check";
       key: string;
@@ -28,27 +41,21 @@ export type AttentionItem =
       at: string | null;
       author: string;
       body: string;
+      file: string;
+      line: number | null;
     };
 
 /**
- * Failing checks first, then review threads nobody resolved, each as one actionable row. A
- * thread whose first comment is hidden on GitHub (`hidden`) is left out: its text must never
- * reach a row or an agent's request.
+ * What blocks the merge, each as one actionable row: reviews whose author's latest verdict
+ * still asks for changes, then conversations nobody resolved, then failing checks. A comment
+ * hidden on GitHub (`hidden`) is left out: its text must never reach a row or an agent's
+ * request. A review that only asked through its line comments shows as those threads.
  */
 export function attentionItems(
-  status: Pick<ForgePrStatus, "checks" | "reviewThreads">,
+  status: Pick<ForgePrStatus, "checks" | "reviewThreads"> &
+    Partial<Pick<ForgePrStatus, "comments">>,
   hidden: (comment: ForgeComment) => boolean = () => false,
 ): AttentionItem[] {
-  const checks = status.checks
-    .filter((check) => check.status === "failure")
-    .map((check): AttentionItem => ({
-      kind: "check",
-      key: `check:${check.id}`,
-      title: check.name,
-      detail: check.conclusion ?? "failed",
-      at: check.completedAt,
-      url: check.url,
-    }));
   const threads = status.reviewThreads
     .filter((thread) => {
       const first = thread.comments[0];
@@ -65,16 +72,70 @@ export function attentionItems(
         at: first ? time(first) : null,
         author: first?.author ?? "",
         body: first?.body ?? "",
+        file: thread.file,
+        line: thread.line,
       };
     });
-  return [...checks, ...threads];
+  const asking = new Set(threads.map((item) => (item.kind === "thread" ? item.author : "")));
+  const outcomes = reviewerOutcomes(status.comments ?? []);
+  const latest = new Map<string, ForgeComment>();
+  for (const comment of status.comments ?? []) {
+    if (comment.kind !== "review" || comment.reviewState?.toUpperCase() !== "CHANGES_REQUESTED")
+      continue;
+    const seen = latest.get(comment.author);
+    if (!seen || time(comment) >= time(seen)) latest.set(comment.author, comment);
+  }
+  const reviews = [...latest.values()]
+    .filter(
+      (review) =>
+        outcomes.get(review.author) === "changes" &&
+        !hidden(review) &&
+        (review.body.trim() !== "" || !asking.has(review.author)),
+    )
+    .map((review): AttentionItem => ({
+      kind: "review",
+      key: `review:${review.id}`,
+      title: review.body.trim().split("\n")[0] ?? "",
+      detail: "requested changes",
+      at: time(review),
+      author: review.author,
+      body: review.body.trim(),
+    }));
+  const checks = status.checks
+    .filter((check) => check.status === "failure")
+    .map((check): AttentionItem => ({
+      kind: "check",
+      key: `check:${check.id}`,
+      title: check.name,
+      detail: check.conclusion ?? "failed",
+      at: check.completedAt,
+      url: check.url,
+    }));
+  return [...reviews, ...threads, ...checks];
 }
+
+const quoted = (body: string) => `> ${body.split("\n").join("\n> ")}`;
 
 /** What "Fix with agent" asks the agent, for the person to read over before sending. */
 export function fixRequest(item: AttentionItem, pr: { number: number; url: string }): string {
   if (item.kind === "check")
     return checkFixRequest({ name: item.title, url: item.url }, pr, undefined);
-  return `Address ${item.author}'s review comment on ${item.detail} in PR #${pr.number}:\n\n> ${item.body.split("\n").join("\n> ")}\n\nMake the change, push it, and reply on the thread.`;
+  if (item.kind === "review")
+    return item.body
+      ? `Address ${item.author}'s requested changes on PR #${pr.number}:\n\n${quoted(item.body)}\n\nMake the changes, push them, and reply on the review.`
+      : `${item.author} requested changes on PR #${pr.number} (${pr.url}). Read their review, make the changes, push them, and reply on the review.`;
+  return `Address ${item.author}'s review comment on ${item.detail} in PR #${pr.number}:\n\n${quoted(item.body)}\n\nMake the change, push it, and reply on the thread.`;
+}
+
+/** What "Fix with agent" asks about one comment from its ⋯ menu. */
+export function commentFixRequest(
+  comment: Pick<ForgeComment, "author" | "body" | "file" | "line">,
+  pr: { number: number; url: string },
+): string {
+  const where = comment.file
+    ? ` on ${comment.file}${comment.line === null ? "" : `:${comment.line}`}`
+    : "";
+  return `Address ${comment.author}'s comment${where} in PR #${pr.number}:\n\n${quoted(comment.body.trim())}\n\nMake the change, push it, and reply to the comment.`;
 }
 
 export interface GlanceFile {

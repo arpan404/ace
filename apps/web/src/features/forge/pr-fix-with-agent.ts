@@ -1,6 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { ForgePrDetail } from "@ace/protocol";
-import { insertTextInComposer, insertTextWhenMounted } from "@/lib/composer-insert.ts";
+import {
+  handTextToNewThread,
+  insertTextInComposer,
+  insertTextWhenMounted,
+} from "@/lib/composer-insert.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { fixRequest, type AttentionItem } from "./pr-summary-model.ts";
@@ -9,7 +13,8 @@ import { useMachineSearch } from "@/lib/machine-routes.ts";
 /**
  * "Fix with agent": the request goes into the composer of the task working on this PR (the
  * one showing it, else the first linked), for the person to read over and send. Nothing is
- * sent on their behalf. With no linked task, a new task starts from the PR.
+ * sent on their behalf. With no linked task, a new task starts from the PR with the request in
+ * its composer.
  */
 export function useFixWithAgent(props: {
   workspaceId: string;
@@ -26,6 +31,7 @@ export function useFixWithAgent(props: {
   /** Put `request` in the composer of the task working on this PR, for the person to send. */
   const ask = (request: string) => {
     if (!target) {
+      handTextToNewThread(detail.status.url, request);
       void navigate({
         to: "/new",
         search: { project: props.workspaceId, pullRequest: detail.status.url, ...machine },

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ForgeCheckRun } from "@ace/protocol";
-import { checkControls, checkFixRequest, checkLogNote } from "./pr-check-model.ts";
+import {
+  checkControls,
+  checkFixRequest,
+  checkLogNote,
+  firstFailureLine,
+} from "./pr-check-model.ts";
 
 const workflow = { runId: 42, attempt: 1, jobId: 99, steps: [] };
 const run = (patch: Partial<ForgeCheckRun> = {}): ForgeCheckRun => ({
@@ -60,5 +65,49 @@ describe("what a check's page offers", () => {
     );
     expect(request).toContain('The check "test" fails on PR #7');
     expect(request).toContain("Error: boom");
+  });
+});
+
+describe("the line that says why a check failed", () => {
+  const annotation = (level: "notice" | "warning" | "failure", message: string) => ({
+    path: "src/a.ts",
+    startLine: 3,
+    endLine: 3,
+    level,
+    title: "",
+    message,
+  });
+
+  it("is the first failure annotation over warnings and notices", () => {
+    const annotations = [
+      annotation("notice", "Node 22 is deprecated"),
+      annotation("warning", "unused import"),
+      annotation("failure", "expected 1 call, got 0\nat socket.test.ts:40"),
+    ];
+    expect(firstFailureLine(run({ annotations }))).toBe("expected 1 call, got 0");
+  });
+
+  it("falls back to the failing step's first error line in the log", () => {
+    const steps = [
+      { number: 1, name: "setup", status: "success" as const, line: 0 },
+      { number: 2, name: "test", status: "failure" as const, line: 2 },
+    ];
+    const log = {
+      text: "Warning: cache miss\nok\nrunning tests\n  FAIL socket.test.ts\n",
+      truncated: false,
+      errors: [0, 3],
+      focus: 2,
+    };
+    expect(firstFailureLine(run({ log, workflow: { ...workflow, steps } }))).toBe(
+      "FAIL socket.test.ts",
+    );
+  });
+
+  it("uses another app's own title, and says nothing when the run says nothing", () => {
+    const output = { title: "2 vulnerabilities found", summary: null, text: null };
+    expect(firstFailureLine(run({ log: null, workflow: null, output }))).toBe(
+      "2 vulnerabilities found",
+    );
+    expect(firstFailureLine(run({ log: null, workflow: null }))).toBeUndefined();
   });
 });

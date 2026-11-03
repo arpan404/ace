@@ -79,3 +79,21 @@ export function mentionTabInComposer(threadId: string, tab: ComposerTab): boolea
   receive(tab);
   return true;
 }
+
+/**
+ * Words for a New thread started from a pull request or issue ("Fix with agent" on a PR no
+ * thread works on), keyed by the source's address. The page puts them in its draft once, and
+ * nothing is sent for the person.
+ */
+const newThreadTexts = new Map<string, string>();
+export function handTextToNewThread(source: string, text: string): void {
+  newThreadTexts.set(source, text);
+}
+/** The words handed to the New thread from `source`, still waiting for its draft. */
+export function handedNewThreadText(source: string | undefined): string | undefined {
+  return source === undefined ? undefined : newThreadTexts.get(source);
+}
+/** The draft has `text` now: a later visit to the same source starts from the draft alone. */
+export function forgetHandedNewThreadText(source: string, text: string): void {
+  if (newThreadTexts.get(source) === text) newThreadTexts.delete(source);
+}

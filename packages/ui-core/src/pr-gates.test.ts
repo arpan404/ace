@@ -1,6 +1,12 @@
 import { expect, test } from "vitest";
 import { ForgeComment, ForgeMergeState, type ForgeCheck } from "@ace/protocol";
-import { mergeBlockers, prGates, reviewerOutcomes, type GateFacts } from "./pr-gates.ts";
+import {
+  mergeBlockers,
+  prFacts,
+  prGates,
+  reviewerOutcomes,
+  type GateFacts,
+} from "./pr-gates.ts";
 
 const check = (name: string, status: ForgeCheck["status"]): ForgeCheck => ({
   id: name,
@@ -183,4 +189,37 @@ test("a comment-only review after a verdict leaves the verdict standing, as GitH
   ]);
   expect(outcomes.get("mira")).toBe("approved");
   expect(outcomes.get("sam")).toBe("commented");
+});
+
+test("the facts line says each gate as a sentence, naming who asked for changes", () => {
+  const sentences = (input: GateFacts) => prFacts(input).map((gate) => gate.value);
+  expect(
+    sentences(
+      facts({
+        status: {
+          state: "open",
+          mergeability: "mergeable",
+          ci: "failure",
+          checks: [check("lint", "success"), check("test", "failure"), check("build", "success")],
+        },
+        reviewDecision: "CHANGES_REQUESTED",
+        outcomes: new Map([
+          ["mira", "changes"],
+          ["dana", "approved"],
+        ]),
+        mergeState: mergeState("CLEAN"),
+      }),
+    ),
+  ).toEqual(["1 of 3 checks failing", "mira requested changes", "No conflicts", "Up to date with main"]);
+  expect(
+    sentences(
+      facts({
+        status: { state: "open", mergeability: "conflicting", ci: "pending", checks: [check("e2e", "pending")] },
+        reviewDecision: "APPROVED",
+        outcomes: new Map([["dana", "approved"]]),
+        mergeState: mergeState("BEHIND"),
+        local: "passed",
+      }),
+    ),
+  ).toEqual(["1 of 2 checks running", "Approved by dana", "Conflicts with main", "Behind main"]);
 });
