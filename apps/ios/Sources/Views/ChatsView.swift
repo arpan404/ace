@@ -1,82 +1,39 @@
 import SwiftUI
 
-/// What the Chats tab asks of the inbox.
+/// What the Chats tab's rows and empty state ask of the inbox.
 struct ChatsActions {
     let open: (InboxKey) -> Void
     let newChat: () -> Void
     let rename: (InboxKey) -> Void
-    let settings: () -> Void
-    let machines: () -> Void
 }
 
-/// The Chats tab (ADR 0099): plain chats with no project, every paired machine's, grouped by
-/// each machine's runtime (`chatSections`: Active, then Today, Yesterday, Previous 7 days,
-/// Earlier) and merged by rank. Its own search narrows them by title on each runtime; New chat
-/// starts one; with more than one machine the title chooses a device. A chat opens in the
-/// thread view on this tab's own stack.
-struct ChatsStack<Destination: View>: View {
+/// The Chats tab (ADR 0099), beside Inbox, Snoozed and Settled: plain chats from every paired
+/// machine, grouped by each machine's runtime (`chatSections`: Active, then Today, Yesterday,
+/// Previous 7 days, Earlier) and merged by rank, in the title's scope. Section labels over
+/// one-line rows, each with its single status mark. A row's menu (long press) and swipes offer
+/// the chat menu (`chatMenu`): Rename, Pin or Unpin, Move to project and Delete, in the shared
+/// words. A chat opens in the thread view on the list's own stack.
+struct ChatsList: View {
     @Bindable var inbox: MachineInbox
-    @Binding var path: [InboxRoute]
-    let actions: ChatsActions
-    @ViewBuilder let destination: (InboxKey) -> Destination
-    @State private var query = ""
-    @State private var device = ""
-
-    var body: some View {
-        NavigationStack(path: $path) {
-            ChatsList(inbox: inbox, device: device, searching: !query.trimmingCharacters(in: .whitespaces).isEmpty, actions: actions)
-                // The system's large title; with several machines the device under it and its
-                // picker in the title's menu.
-                .nativeTitle("Chats", subtitle: scopeLine, hasMenu: inbox.showsMachineNames) {
-                    Picker("Device", selection: $device) {
-                        Text("All devices").tag("")
-                        ForEach(inbox.sessions) { session in Text(inbox.name(session.hostId)).tag(session.hostId) }
-                    }
-                }
-                .toolbar { toolbar }
-                .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: Text("Search chats"))
-                .onChange(of: query) { _, now in for session in inbox.sessions { session.client.searchChats(now) } }
-                .navigationDestination(for: InboxRoute.self) { route in
-                    if let key = route.thread { destination(key) }
-                }
-        }
-    }
-
-    /// One button: New chat. More (and Settings in it) is the Threads header's.
-    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            if inbox.canStartThreads {
-                Button(action: actions.newChat) { Image(systemName: "square.and.pencil") }
-                    .accessibilityLabel("New chat").accessibilityIdentifier("chats.new")
-            }
-        }
-    }
-
-    /// Under the title: what is wrong with the connection, else the device shown (several only).
-    private var scopeLine: String? {
-        if let problem = InboxConnectionProblem.of(inbox) { return problem.text }
-        guard inbox.showsMachineNames else { return nil }
-        return device.isEmpty ? "All devices" : inbox.name(device)
-    }
-}
-
-/// The chats themselves: section labels over one-line rows, each with its single status mark.
-/// A row's menu (long press) and swipes offer the chat menu (`chatMenu`): Rename, Pin or Unpin,
-/// Move to project and Delete, in the shared words.
-private struct ChatsList: View {
-    @Bindable var inbox: MachineInbox
-    let device: String
+    /// The title's scope: a row shows when its machine and project match.
+    let includes: (InboxKey) -> Bool
+    /// Whether the scope takes all of a machine's chats (`MergedInbox.Section.scoped`).
+    let whole: (String) -> Bool
+    /// The scope in words while it narrows the list ("ace"), else nil.
+    let scope: String?
+    /// What the tab says with nothing to list and no scope.
+    let empty: String
     let searching: Bool
     let actions: ChatsActions
     @Environment(\.threadOrganizer) private var organizer
 
     var body: some View {
         let sections = inbox.mergedChats.sections.compactMap { section in
-            section.scoped({ device.isEmpty || $0.machineId == device }, whole: { _ in true })
+            section.scoped(includes, whole: whole)
         }
         Group {
             if sections.isEmpty {
-                empty
+                emptyState
             } else {
                 List {
                     ForEach(sections) { section in
@@ -139,15 +96,15 @@ private struct ChatsList: View {
     }
 
     /// Nothing to list: the shared empty state, worded as the web's Chats panel, or the search's.
-    @ViewBuilder private var empty: some View {
+    @ViewBuilder private var emptyState: some View {
         if searching {
             EmptyState.search("")
         } else if !inbox.anyLoaded {
             SkeletonRows(count: 4, label: "Loading chats")
                 .frame(maxHeight: .infinity, alignment: .top)
         } else {
-            EmptyState(icon: .chatCircle, title: device.isEmpty ? "No chats yet" : "No chats on \(inbox.name(device))") {
-                if device.isEmpty && inbox.canStartThreads { Button("New chat", action: actions.newChat) }
+            EmptyState(icon: .chatCircle, title: scope.map { "No chats in \($0)" } ?? empty) {
+                if scope == nil && inbox.canStartThreads { Button("New chat", action: actions.newChat) }
             }
             .frame(maxHeight: .infinity)
         }

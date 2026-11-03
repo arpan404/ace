@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Inbox, Snoozed and Settled under the Threads title (ADR 0107), as the desktop's panel has
-/// them: three words on one glass capsule, the open one on a filled capsule that slides between
-/// them, Inbox and Snoozed with a quiet count after the word. The Inbox carries a small dot while
-/// it is not open and a thread there needs the person.
+/// Inbox, Chats, Snoozed and Settled under the title (ADR 0107), as the desktop's panel has the
+/// thread tabs: words on one glass capsule, the open one on a filled capsule that slides between
+/// them, Inbox and Snoozed with a quiet count after the word. Inbox and Chats carry a small dot
+/// while not open and something there needs the person.
 /// The tabs, their words and which threads light the dot come from the runtimes (`MergedInbox`).
 struct ThreadsTabsBar: View {
     let tabs: [MergedInbox.Tab]
@@ -32,7 +32,7 @@ struct ThreadsTabsBar: View {
 
     private func item(_ tab: MergedInbox.Tab) -> some View {
         let chosen = selection == tab.id
-        let lit = tab.id == "inbox" && dot && !chosen
+        let lit = !chosen && (tab.id == "inbox" ? dot : tab.chats && tab.needsYou > 0)
         let total = count(tab.id)
         return Button {
             withAnimation(AceDesign.Motion.arriving(reduceMotion)) { selection = tab.id }

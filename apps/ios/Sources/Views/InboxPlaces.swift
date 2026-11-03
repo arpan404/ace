@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Threads, Chats and Pull requests at the foot of the sidebar, where a regular window (iPad, the
+/// ace (the threads and chats) and Spade at the foot of the sidebar, where a regular window (iPad, the
 /// unfolded iPhone Duo, a large iPhone turned) keeps them instead of the tab bar: one two-way
 /// switch, the place showing filled. A compact window has the tab bar back while its list fills
 /// the window; as the drawer over a thread the list keeps New thread here too, beside the switch
@@ -14,8 +14,7 @@ struct InboxPlaces: View {
         if sizeClass == .regular {
             HStack(spacing: AceDesign.Space.related) {
                 GlassSwitch(selection: $tab, choices: [
-                    .init(value: .threads, title: "Threads", identifier: "sidebar.threads"),
-                    .init(value: .chats, title: "Chats", identifier: "sidebar.chats"),
+                    .init(value: .threads, title: "ace", identifier: "sidebar.threads"),
                     .init(value: .spade, title: "Spade", identifier: "sidebar.spade"),
                 ])
                 if let compose { ComposeCircle(action: compose, size: AceDesign.Size.tap + AceDesign.Space.tight) }
@@ -36,7 +35,7 @@ struct InboxPlaces: View {
     }
 }
 
-/// Threads and Pulls as the tab bar draws them: an icon over its word, the place showing on a
+/// ace and Spade as the tab bar draws them: an icon over its word, the place showing on a
 /// filled capsule that slides between them, all on one glass capsule.
 private struct PlacesTabBar: View {
     @Binding var tab: InboxTab
@@ -47,8 +46,7 @@ private struct PlacesTabBar: View {
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.none) {
-            item(.threads, title: "Threads", icon: Image(systemName: "text.bubble"), identifier: "sidebar.threads")
-            item(.chats, title: "Chats", icon: Image(systemName: "bubble.left.and.bubble.right"), identifier: "sidebar.chats")
+            item(.threads, title: "ace", icon: Image(systemName: "bubble.left"), identifier: "sidebar.threads")
             item(.spade, title: "Spade", icon: Image(uiImage: SpadeMark.tabImage), identifier: "sidebar.spade")
         }
         .padding(AceDesign.Space.tight)

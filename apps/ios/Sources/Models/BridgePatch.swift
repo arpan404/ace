@@ -246,6 +246,8 @@ struct InboxLayout: Codable, Sendable, Equatable {
         let id: String; let label: String; let empty: String
         var counted: Bool? = nil
         var emptyLine: String? = nil
+        /// What the compose button starts on this tab: "thread", or "chat" on Chats.
+        var compose: String? = nil
     }
     var tabWords: [TabWords]? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])
