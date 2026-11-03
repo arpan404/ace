@@ -8,7 +8,7 @@ export const product = {
   title: "ace: one app for Claude Code, Codex, Cursor and every agent",
   headline: "Stop babysitting your agents.",
   summary:
-    "Work on many tasks at once. Agents hand work to each other across your machines, and you step in only when one needs you.",
+    "ace runs your agents on many tasks at once, across all your machines. They hand work to each other and call you only when a decision is yours.",
   /** For search results: at most about 160 characters. */
   description:
     "ace is a free, open-source app where Claude Code, Codex and Cursor work as one team across your Mac, Windows and Linux machines, with phone apps.",
