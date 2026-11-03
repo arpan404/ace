@@ -34,11 +34,11 @@ function settledAt(app: ReturnType<typeof harness>) {
   return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
 }
 
-test("a settled thread is a three-line row in the Settled tab, not in the Inbox", async () => {
+test("a settled thread is a one-line row in the Settled tab, not in the Inbox", async () => {
   const { link } = await openSettled();
-  // Project and status, then the title, then branch, pull request and provider.
-  expect(rowText(link)).toMatch(new RegExp(`^ace.*${title}`));
-  expect(rowText(link)).toContain("chore/codex-048");
+  // One line: the title, then its work (the pull request) at the end. The project and branch
+  // are only in its spoken name and hover card.
+  expect(rowText(link)).toBe(`${title}#212`);
   const said = link.getAttribute("aria-label") ?? "";
   expect(said).toMatch(new RegExp(`^${title}\\. Done, Codex`));
   expect(said).not.toContain("Settled");
