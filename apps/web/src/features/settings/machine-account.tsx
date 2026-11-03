@@ -3,22 +3,25 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { MachineAccountSections, type MachineAccountAccess } from "@/features/ace-account/index.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { machineAccountSource } from "./data/machine-account-source.ts";
+import { machineCodeAdminSource } from "./data/machine-code-admin-source.ts";
 import { useSettingsBackend } from "./data/use-settings.ts";
 
 /**
- * A machine's ace account and machine code on its Settings page.
- *
- * TODO(ace/relay-main-conversation): another machine's code needs the wire messages that read,
- * set and clear it over that machine's channel; until they land only this window's own daemon,
- * reached over its HTTP routes, shows these sections.
+ * A machine's ace account and machine code on its Settings page: this window's own daemon over
+ * its HTTP routes (which also sign it in and out), any other connected machine over its own
+ * connection. A machine that is offline, or where this device isn't an admin, shows nothing.
  */
 function useMachineAccountAccess(machine: Machine): MachineAccountAccess | undefined {
   const backend = useSettingsBackend();
   const { endpoint } = useDaemonConnection();
   return useMemo(
     () =>
-      machine.primary ? machineAccountSource(endpoint, () => backend.remoteStatus()) : undefined,
-    [machine.primary, endpoint, backend],
+      machine.primary
+        ? machineAccountSource(endpoint, () => backend.remoteStatus())
+        : machine.client
+          ? machineCodeAdminSource(machine.client)
+          : undefined,
+    [machine.primary, machine.client, endpoint, backend],
   );
 }
 
