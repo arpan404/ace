@@ -1,6 +1,9 @@
 import { machineCodeAdmin, type ClientApi } from "@ace/client";
 import type { MachineAccountAccess } from "@/features/ace-account/index.ts";
 
+const elsewhere = () =>
+  Promise.reject(new Error("Sign that machine in or out on the machine itself."));
+
 /**
  * Another machine's machine code over its own connection (`machine.code.*`, ADR 0111). Signing
  * a machine in or out is for that machine alone, so only the code is offered. A device without
@@ -20,8 +23,6 @@ export function machineCodeAdminSource(client: Pick<ClientApi, "request">): Mach
       );
     return answer.status;
   };
-  const elsewhere = () =>
-    Promise.reject(new Error("Sign that machine in or out on the machine itself."));
   return {
     async status() {
       // A daemon from before machine codes doesn't answer; it has no code to show.
