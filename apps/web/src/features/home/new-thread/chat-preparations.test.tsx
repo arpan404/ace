@@ -47,5 +47,5 @@ test("an existing chat draft with a hidden project id reopens after that project
   await made.open("/");
   await userEvent.click(await screen.findByRole("link", { name: /Saved chat\. Draft/ }));
   expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe("Saved chat");
-  expect(screen.queryByRole("heading", { name: "Project unavailable" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: /^This project isn't on/ })).toBeNull();
 });

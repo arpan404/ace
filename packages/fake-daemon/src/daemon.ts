@@ -87,14 +87,8 @@ import {
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
-import {
-  forkPointError,
-  forkOpening,
-  mergeFacts,
-  limitSwitchEvents,
-  mergeForkError,
-  switchEvents,
-} from "./transitions.ts";
+import { limitSwitchEvents, switchEvents } from "./transitions.ts";
+import { forkThread, mergeFork, type ForkCommandHost } from "./fork-commands.ts";
 import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
 
 export type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
@@ -1101,6 +1095,16 @@ export class FakeDaemon implements Host {
       Date.now(),
     )?.id;
   }
+  /** What `thread.fork` and `thread.merge` reach of this daemon. */
+  private get forkHost(): ForkCommandHost {
+    return {
+      threads: this.threads,
+      context: this.servicesWire.context,
+      createThread: (init) => this.createThread(init),
+      apply: (threadId, facts) => this.apply(threadId, facts),
+    };
+  }
+
   private execute(command: Command): CommandResult {
     const payload = command.payload;
     if (
@@ -1220,64 +1224,10 @@ export class FakeDaemon implements Host {
     switch (payload.type) {
       case "thread.markRead":
         return this.longThreads.markRead(commandId, payload, command.deviceId);
-      case "thread.fork": {
-        const source = this.threads.get(payload.threadId);
-        if (!source || source.view.thread.deletedAt !== undefined)
-          return { commandId, ok: false, error: "thread_not_found" };
-        const refused = forkPointError(source, payload.point);
-        if (refused) return { commandId, ok: false, error: refused };
-        // The first message carries files the source holds, as the daemon gives the fork its own.
-        const attachments = this.servicesWire.context.messageAttachments(
-          payload.threadId,
-          payload.context?.attachments.map((a) => a.sha256) ?? [],
-        );
-        const id = `${payload.threadId}-fork-${commandId}`;
-        if (this.threads.has(id)) return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
-        const from = source.view.thread;
-        const provider = payload.selection?.provider ?? from.provider;
-        const started = startedThread(id, {
-          type: "thread.create",
-          workspaceId: from.workspaceId,
-          provider,
-          ...(payload.selection?.model ? { model: payload.selection.model } : {}),
-          title: payload.title ?? `${from.title} (fork)`,
-          input: [{ type: "text", text: payload.input }],
-        });
-        const opening = forkOpening(source, payload.point, provider);
-        this.createThread({
-          ...started.thread,
-          ...(from.details ? { details: from.details } : {}),
-          execution: payload.selection ?? { provider, options: {} },
-          lineage: opening.lineage,
-        });
-        if (attachments.length)
-          this.servicesWire.context.inherit(
-            payload.threadId,
-            id,
-            attachments.map((attachment) => attachment.sha256),
-          );
-        for (const fact of started.facts)
-          if (
-            fact.type === "item.upsert" &&
-            fact.draft.type === "message" &&
-            fact.draft.role === "user" &&
-            attachments.length
-          )
-            fact.draft.attachments = attachments;
-        const [root, ...rest] = started.facts;
-        this.apply(id, [...(root ? [root] : []), ...opening.facts, ...rest]);
-        return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
-      }
-      case "thread.merge": {
-        const fork = this.threads.get(payload.threadId);
-        if (!fork) return { commandId, ok: false, error: "thread_not_found" };
-        const parent = this.threads.get(fork.view.thread.lineage?.parentThreadId ?? "");
-        const error = mergeForkError(fork, parent, payload);
-        if (error || !parent)
-          return { commandId, ok: false, error: error ?? "source_thread_not_found" };
-        this.apply(parent.id, mergeFacts(payload, commandId));
-        return { commandId, ok: true };
-      }
+      case "thread.fork":
+        return forkThread(this.forkHost, payload, commandId);
+      case "thread.merge":
+        return mergeFork(this.forkHost, payload, commandId);
       case "thread.switch": {
         const host = this.threads.get(payload.threadId);
         if (!host || host.view.thread.deletedAt !== undefined)

@@ -28,3 +28,9 @@ test("a page the panel doesn't name keeps its top-bar title in view", async () =
   expect((await barTitle("New thread")).className).not.toContain("sr-only");
   expect(document.querySelector('[data-boundary="sidebar"]')).not.toBeNull();
 });
+
+test("a screen with no title draws no marker where the sidebar meets the column", async () => {
+  await harness().open("/t/thread-that-was-deleted");
+  await screen.findByRole("heading", { level: 1, name: "This thread doesn't exist" });
+  expect(document.querySelector('[data-boundary="sidebar"]')).toBeNull();
+});

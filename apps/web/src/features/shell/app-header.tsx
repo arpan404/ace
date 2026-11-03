@@ -171,9 +171,11 @@ export function AppHeader(
   // A phone's ⋯ also lists the panel's tools (a thread's Changes); the toggle stays visible.
   const tools = phone && props.trailing;
   const titleHidden = !!props.namedByPanel && frame.sidebarShown && !frame.sheet && !phone;
-  // Nothing in view where the column starts (the title is the panel's): no marker there either.
+  // Nothing in view where the column starts (no title, or the title is the panel's): no marker
+  // there either.
+  const untitled = props.title === "" || props.title == null;
   const bare =
-    titleHidden &&
+    (titleHidden || untitled) &&
     !props.crumb &&
     !props.mark &&
     !props.subtitle &&

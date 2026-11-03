@@ -210,7 +210,7 @@ function ThreadScreen(props: {
                 <InlineRenameField thread={thread} onDone={() => setRenaming(false)} />
               </Suspense>
             ) : error ? (
-              "Thread unavailable"
+              ""
             ) : (
               (title ?? "")
             )
@@ -230,7 +230,8 @@ function ThreadScreen(props: {
             )
           }
           tools={thread && !error && <WorkButton threadId={id} />}
-          workspace={{ scope: id, definition: threadWorkspace }}
+          // A thread that couldn't be opened has nothing to show beside it or below it.
+          workspace={error ? undefined : { scope: id, definition: threadWorkspace }}
         >
           {error ? (
             <ThreadLoadError error={error} />
