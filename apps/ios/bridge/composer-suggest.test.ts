@@ -89,8 +89,14 @@ test("typing / lists the thread's skills and commands, and + offers only what th
     "Attach files",
     "Files and folders",
     "Plan mode",
+    "Attachments",
   ]);
-  expect(adding.rows.map((row) => row.action)).toEqual(["attach", "files", "plan"]);
+  expect(adding.rows.map((row) => row.action ?? row.pick)).toEqual([
+    "attach",
+    "files",
+    "plan",
+    "attachments",
+  ]);
 });
 
 test("New thread's + follows the draft rules: a project to choose, no stored files", async () => {

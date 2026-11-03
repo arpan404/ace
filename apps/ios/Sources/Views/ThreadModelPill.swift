@@ -28,15 +28,15 @@ struct ComposerPills: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             // On the glass block's top edge: inset to its inner edge, close above it.
-            .padding(.horizontal, ReadingColumn.bar(sizeClass).composer + GlassBlock.inset)
-            .padding(.bottom, AceDesign.Space.tight)
+            .padding(.horizontal, GlassBlock.side(sizeClass) + AceDesign.Space.tight)
+            .padding(.bottom, AceDesign.Space.chipGap)
             .animation(AceDesign.Motion.arriving(reduceMotion), value: pill)
         }
     }
 
     private func row(capped: Bool, named: Bool = true) -> some View {
         let cap = capped && width > 0 ? width * (pill == nil ? 0.6 : 0.4) : CGFloat.infinity
-        return HStack(spacing: AceDesign.Space.related) {
+        return HStack(spacing: AceDesign.Space.chipGap) {
             if let model {
                 CappedWidth(max: cap) {
                     ThreadModelPill(screen: model, named: named, openModel: openModel, openTune: openTune, openSettings: openSettings)
@@ -74,25 +74,27 @@ struct ThreadModelPill: View {
         Button(action: openModel) {
             HStack(spacing: AceDesign.Space.tight) {
                 if let provider = screen.controls?.provider, !provider.isEmpty {
-                    ProviderMark(provider: provider, size: AceDesign.Size.icon)
+                    ProviderMark(provider: provider, size: AceDesign.Size.rowMark)
                 }
                 if named {
                     Text(name).lineLimit(1).truncationMode(.middle)
-                        .foregroundStyle(AceTheme.Colours.foreground)
                 }
                 if let tune {
                     Text(named ? "· \(tune)" : tune).lineLimit(1).fixedSize()
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
                         .layoutPriority(1)
                 }
-                AceIcon(queued ? .clock : .caretDown, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .layoutPriority(1)
+                // A switch not in effect yet: a small clock; otherwise nothing after the words.
+                if queued {
+                    AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.subtleForeground)
+                        .layoutPriority(1)
+                }
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
-            .padding(.horizontal, AceDesign.Space.row)
-            .frame(minHeight: LivePillCapsule.height)
-            .contentShape(AceShape.capsule)
+            .aceFont(AceDesign.TextRole.time, relativeTo: .caption)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .padding(.horizontal, AceDesign.Space.chip)
+            .frame(height: AceDesign.Size.chip)
+            .tapBand(drawn: AceDesign.Size.chip)
         }
         .buttonStyle(.plain)
         .aceGlass(in: AceShape.capsule, interactive: true)

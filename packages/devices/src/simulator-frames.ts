@@ -97,9 +97,32 @@ export class SimulatorFrames {
       }
     }
   }
+  /** Keeps `bytes` as the latest frame without publishing it: a still waits for `replay`. */
+  hold(bytes: Buffer, width: number, height: number): void {
+    if (!this.stopped) this.latest = { bytes, width, height };
+  }
+  /** New settings for stills on demand: nothing is published until `replay` asks. */
+  idle(settings: ScreenStreamSettings): void {
+    this.settings = settings;
+    this.revision++;
+    this.cancel?.();
+    this.cancel = undefined;
+    // A still already asked for still gets its frame, made at the new settings.
+    if (this.waiters.size) {
+      this.pending = this.latest;
+      this.start();
+    }
+  }
+  /** Drops the latest frame: the stream it came from closed, so it may no longer be current. */
+  forget(): void {
+    this.latest = undefined;
+  }
   async configure(settings: ScreenStreamSettings): Promise<void> {
     this.settings = settings;
     this.revision++;
+    // A wait timed at the old rate would hold back the next change; the replay covers it.
+    this.cancel?.();
+    this.cancel = undefined;
     await this.replay();
   }
   async replay(): Promise<void> {

@@ -108,13 +108,13 @@ import XCTest
         guard app.windows.firstMatch.frame.width < full.width - 100 else { throw XCTSkip("the window did not resize: windowed apps are off") }
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["sidebar.threads"].reachable)
-        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable, "as on a phone, the tab bar steps aside for a thread")
+        XCTAssertFalse(app.tabBars.buttons["ace"].reachable, "as on a phone, the tab bar steps aside for a thread")
         XCTAssertEqual(input.value as? String, "Keep this draft")
         screenshot("ipad-narrow-window-thread")
         // Back returns to the full-screen list and its tab bar.
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.buttons["thread.ios-approval"].waitForHittable(timeout: 10))
-        XCTAssertTrue(app.tabBars.buttons["Threads"].reachable)
+        XCTAssertTrue(app.tabBars.buttons["ace"].reachable)
         screenshot("ipad-narrow-window")
         app.buttons["thread.ios-approval"].tap()
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
@@ -122,7 +122,7 @@ import XCTest
         // Wide again: the sidebar and its places are back, the tab bar gone, nothing lost.
         resize(app, toWidth: full.width, height: full.height)
         XCTAssertTrue(app.buttons["sidebar.threads"].waitForHittable(timeout: 10))
-        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable)
+        XCTAssertFalse(app.tabBars.buttons["ace"].reachable)
         XCTAssertTrue(app.buttons["thread.ios-approval"].isSelected)
         XCTAssertEqual(input.value as? String, "Keep this draft")
     }
@@ -161,7 +161,7 @@ import XCTest
         XCTAssertTrue(pullsTab.waitForHittable(timeout: 10), "a compact window has the tab bar back")
         XCTAssertTrue(pullsTab.isSelected)
         XCTAssertFalse(app.buttons["sidebar.pulls"].reachable)
-        app.tabBars.buttons["Threads"].tap()
+        app.tabBars.buttons["ace"].tap()
         XCTAssertTrue(list.waitForNotHittable(timeout: 10), "back to compact, the thread stays on top")
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertEqual(input.value as? String, "Keep this draft")

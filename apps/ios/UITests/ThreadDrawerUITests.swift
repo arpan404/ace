@@ -9,10 +9,10 @@ import XCTest
         open("thread.ios-form", in: app)
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["thread.sidebar"].exists)
-        XCTAssertFalse(app.tabBars.buttons["Spade"].isHittable)
+        XCTAssertFalse(app.buttons["sidebar.spade"].isHittable)
         back(in: app)
         XCTAssertTrue(app.buttons["inbox.search"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.tabBars.buttons["Spade"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["sidebar.spade"].waitForExistence(timeout: 10))
         open("thread.ios-question", in: app)
         XCTAssertTrue(title("Clean up the release notes", in: app).waitForExistence(timeout: 20))
         back(in: app)
@@ -22,9 +22,7 @@ import XCTest
 
     func testPullRequestBackReturnsToThePullList() throws {
         let app = try launch()
-        let pulls = app.tabBars.buttons["Spade"].firstMatch
-        XCTAssertTrue(pulls.waitForExistence(timeout: 30))
-        pulls.tap()
+        app.openPulls()
         let row = app.buttons["forge.pull.245"]
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         row.tap()
@@ -32,7 +30,6 @@ import XCTest
         XCTAssertFalse(app.buttons["thread.sidebar"].exists)
         back(in: app)
         XCTAssertTrue(row.waitForExistence(timeout: 10))
-        XCTAssertTrue(pulls.isHittable)
         screenshot("pull-list-after-back")
     }
 

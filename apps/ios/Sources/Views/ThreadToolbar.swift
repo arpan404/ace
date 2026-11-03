@@ -33,6 +33,8 @@ struct ThreadToolbar: ToolbarContent {
     /// "project · branch" (or the machine where there is no branch).
     let subtitle: String
     let status: StatusDisplay?
+    /// A chat (ADR 0099) leads its line with a bubble; a project thread with its folder.
+    var chat = false
     let pageWidth: CGFloat
     /// Rename and name-again from the title's own menu; nil where the thread can't be renamed.
     var rename: (() -> Void)? = nil
@@ -80,10 +82,11 @@ struct ThreadToolbar: ToolbarContent {
             if !subtitle.isEmpty {
                 // The checkout's line opens Work: where the thread runs and what can move it.
                 Button(action: openWork) {
-                    Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
-                        .frame(width: headingWidth)
-                        .frame(minHeight: AceDesign.Space.margin).contentShape(Rectangle())
+                    Text(subtitle).lineLimit(1).truncationMode(.middle)
+                        .aceFont(AceDesign.TextRole.navSubtitle, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.subtleForeground)
+                    .frame(width: headingWidth)
+                    .frame(minHeight: AceDesign.Space.margin).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(subtitle)
@@ -111,12 +114,8 @@ struct ThreadToolbar: ToolbarContent {
     }
     private func titleText(chevron: Bool) -> some View {
         HStack(spacing: AceTheme.Spacing.xxs) {
-            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(AceDesign.Typeface.strong)
+            Text(title).aceFont(AceDesign.TextRole.navTitle, relativeTo: .subheadline)
                 .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-            if chevron {
-                Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
-                    .foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
-            }
         }
         .frame(width: headingWidth)
         .accessibilityElement(children: .combine)
@@ -151,7 +150,7 @@ struct ThreadMenu: View, Equatable {
         Button {
             showing = true
         } label: {
-            AceIcon(.dotsThree, size: AceDesign.Space.group)
+            AceIcon(.dotsThree, size: AceDesign.Size.navGlyph, weight: .bold)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .contentShape(Rectangle())
         }

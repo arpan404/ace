@@ -203,6 +203,10 @@ const extra = [
   "arrows-in-line-vertical",
   "caret-double-down",
   "chat-teardrop-text",
+  // The approved iPhone mockup: the ace tab, More's Devices and Providers rows.
+  "chat-teardrop",
+  "devices",
+  "plugs-connected",
   "arrows-out-simple",
   "folder-simple",
   "git-fork",

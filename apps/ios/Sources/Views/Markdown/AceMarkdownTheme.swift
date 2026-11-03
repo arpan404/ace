@@ -54,16 +54,18 @@ import UIKit
     /// A theme from its look alone, so equal looks always draw alike.
     private static func theme(_ look: Look) -> MarkitTheme {
         let type = AceTheme.Typography.self
+        // The answer's size and lines are the approved scale's (`TextRole.answer`).
+        let answer = AceDesign.TextRole.answer
         let scale = look.scale
         func colour(_ role: String) -> UIColor { dynamic(look.palette[role] ?? defaultPair(role)) }
 
         var theme = MarkitTheme()
-        let body = UIFont.systemFont(ofSize: type.body.size * scale)
+        let body = UIFont.systemFont(ofSize: answer.size * scale)
         theme.bodyFont = .scaled(body, relativeTo: .body)
         theme.headingFonts = [type.title, type.title, type.rowTitle, type.rowTitle, type.rowTitle, type.rowTitle].map { style in
             MarkitFont.scaled(UIFont.systemFont(ofSize: style.size * scale, weight: weight(style.weight)), relativeTo: .headline)
         }
-        theme.monospaceFont = .scaled(.monospacedSystemFont(ofSize: type.code.size * scale, weight: .regular), relativeTo: .footnote)
+        theme.monospaceFont = .scaled(.monospacedSystemFont(ofSize: AceDesign.TextRole.step.size * scale, weight: .regular), relativeTo: .footnote)
         theme.tableFont = .scaled(body, relativeTo: .body)
         theme.captionFont = .scaled(.systemFont(ofSize: type.caption.size * scale, weight: .regular), relativeTo: .caption1)
 
@@ -98,7 +100,7 @@ import UIKit
         theme.syntaxFallback = text
 
         // The transcript's 23pt lines over 16pt type, at the transcript's size.
-        theme.lineSpacing = max(0, type.body.lineHeight * scale - body.lineHeight)
+        theme.lineSpacing = max(0, answer.lineHeight * scale - body.lineHeight)
         theme.paragraphSpacing = AceTheme.Spacing.sm
         theme.blockSpacing = AceTheme.Spacing.sm
         theme.listIndent = AceTheme.Spacing.lg
