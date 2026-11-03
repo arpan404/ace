@@ -4,16 +4,31 @@ import SwiftUI
 struct ComposerDock<Leading: View, Content: View>: View {
     @ViewBuilder var leading: () -> Leading
     @ViewBuilder var content: () -> Content
+    @Environment(\.inGlassBlock) private var inBlock
     var body: some View {
-        HStack(alignment: .bottom, spacing: AceDesign.Space.related) {
-            leading()
-                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .tint(AceTheme.Colours.foreground)
-                .buttonStyle(.plain)
-                .aceGlass(in: Circle(), interactive: true)
-                .padding(.bottom, AceTheme.Spacing.xxs)
-            content()
+        if inBlock {
+            // In the block: + leads the field's row, a plain glyph in a full tap.
+            HStack(alignment: .bottom, spacing: AceTheme.Spacing.none) {
+                leading()
+                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .tint(AceTheme.Colours.mutedForeground)
+                    .buttonStyle(.plain)
+                    .padding(.leading, AceDesign.Space.tight)
+                    .padding(.bottom, AceDesign.Space.tight)
+                content()
+            }
+        } else {
+            HStack(alignment: .bottom, spacing: AceDesign.Space.related) {
+                leading()
+                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .tint(AceTheme.Colours.foreground)
+                    .buttonStyle(.plain)
+                    .aceGlass(in: Circle(), interactive: true)
+                    .padding(.bottom, AceTheme.Spacing.xxs)
+                content()
+            }
         }
     }
 }
@@ -48,10 +63,11 @@ struct ComposerActionButton: View {
                     AceShape.stopGlyph
                         .frame(width: AceDesign.Size.stopGlyph, height: AceDesign.Size.stopGlyph)
                 } else {
-                    AceIcon(glyph, size: AceDesign.Size.icon, relativeTo: .body)
+                    AceIcon(glyph, size: AceDesign.Size.sendGlyph, weight: .bold, relativeTo: .body)
                 }
             }
-            .frame(width: size - AceDesign.Space.related, height: size - AceDesign.Space.related)
+            // A 32pt round inside its full tap.
+            .frame(width: min(AceDesign.Size.send, size), height: min(AceDesign.Size.send, size))
             .foregroundStyle(foreground)
             .background(background, in: Circle())
             .frame(width: size, height: size)

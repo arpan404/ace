@@ -198,7 +198,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
                         place: place, pasteFiles: intake)
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
-                    Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    Text(placeholder).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .body)
                         .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
                         .padding(.top, AceDesign.Space.row)
                         .allowsHitTesting(false).accessibilityHidden(true)

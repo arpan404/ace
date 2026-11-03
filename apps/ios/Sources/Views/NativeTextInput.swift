@@ -36,7 +36,7 @@ struct NativeTextInput: UIViewRepresentable {
         view.inputBegan = inputBegan
         view.laidOut = { [weak coordinator = context.coordinator] view in coordinator?.laidOut(view) }
         context.coordinator.observeKeyboard()
-        view.font = AceTheme.uiFont(AceTheme.Typography.body, relativeTo: .body, traits: view.traitCollection)
+        view.font = AceTheme.uiFont(AceDesign.TextRole.rowTitle, relativeTo: .body, traits: view.traitCollection)
         view.adjustsFontForContentSizeCategory = true
         view.backgroundColor = .clear
         view.textContainerInset = UIEdgeInsets(top: AceDesign.Space.row, left: AceTheme.Spacing.none, bottom: AceDesign.Space.row, right: AceTheme.Spacing.none)
@@ -61,13 +61,13 @@ struct NativeTextInput: UIViewRepresentable {
         view.inputBegan = inputBegan
         view.escape = escape
         view.compact = !card
-        view.font = AceTheme.uiFont(AceTheme.Typography.body, relativeTo: .body, traits: view.traitCollection)
+        view.font = AceTheme.uiFont(AceDesign.TextRole.rowTitle, relativeTo: .body, traits: view.traitCollection)
         view.textColor = UIColor(AceTheme.Colours.foreground)
-        view.typingAttributes = AceTheme.inputAttributes(traits: view.traitCollection)
+        view.typingAttributes = AceDesign.inputAttributes(traits: view.traitCollection)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerTextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
-        let line = UIFontMetrics(forTextStyle: .body).scaledValue(for: AceTheme.Typography.body.lineHeight, compatibleWith: uiView.traitCollection)
+        let line = UIFontMetrics(forTextStyle: .body).scaledValue(for: AceDesign.TextRole.rowTitle.lineHeight, compatibleWith: uiView.traitCollection)
         let content = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
         let fit = ComposerFit(line: line, inset: AceDesign.Space.row * 2, minimum: AceDesign.Size.tap)
         return CGSize(width: width, height: fit.height(content: content, focused: focused))

@@ -323,6 +323,7 @@ struct ThreadView: View {
                 }
                 // A strip rises out of the composer and fades; with Reduce Motion it only fades.
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                if hasStrip { BlockHairline() }
                 if archived {
                     ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
@@ -384,7 +385,8 @@ struct ThreadView: View {
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.row, leading: AceDesign.Space.margin, bottom: AceDesign.Space.row, trailing: AceDesign.Space.margin)))
                 }
                 }
-                .modifier(GlassBlock(active: hasStrip))
+                // Always one block, as the approved mockup: a strip, when there is one, on top.
+                .modifier(GlassBlock(active: true))
             }
             .composerGlassGroup()
         }

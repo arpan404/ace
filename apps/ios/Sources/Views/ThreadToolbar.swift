@@ -81,18 +81,10 @@ struct ThreadToolbar: ToolbarContent {
             titleRow
             if !subtitle.isEmpty {
                 // The checkout's line opens Work: where the thread runs and what can move it.
-                // Led by the project's folder (a chat's bubble) as the desktop's crumb is, and by a
-                // dot while the thread works or needs the person, as its details button carries.
                 Button(action: openWork) {
-                    HStack(spacing: AceDesign.Space.tight) {
-                        if let dot = workDot {
-                            Circle().fill(dot).frame(width: AceDesign.Size.dotSmall, height: AceDesign.Size.dotSmall)
-                        }
-                        AceIcon(chat ? .chatCircle : .folderSimple, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
-                        Text(subtitle).lineLimit(1).truncationMode(.middle)
-                    }
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text(subtitle).lineLimit(1).truncationMode(.middle)
+                        .aceFont(AceDesign.TextRole.navSubtitle, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.subtleForeground)
                     .frame(width: headingWidth)
                     .frame(minHeight: AceDesign.Space.margin).contentShape(Rectangle())
                 }
@@ -108,14 +100,6 @@ struct ThreadToolbar: ToolbarContent {
         .clipped()
         .accessibilityElement(children: .contain)
     }
-    /// The details dot: amber while something needs the person, the working hue while it works.
-    private var workDot: Color? {
-        switch status?.token {
-        case "needsYou": AceDesign.Status.needsYou
-        case "working": AceDesign.Status.working
-        default: nil
-        }
-    }
     @ViewBuilder private var titleRow: some View {
         if let rename {
             Menu {
@@ -130,12 +114,8 @@ struct ThreadToolbar: ToolbarContent {
     }
     private func titleText(chevron: Bool) -> some View {
         HStack(spacing: AceTheme.Spacing.xxs) {
-            Text(title).aceFont(AceTheme.Typography.body, relativeTo: .headline).fontWeight(AceDesign.Typeface.strong)
+            Text(title).aceFont(AceDesign.TextRole.navTitle, relativeTo: .subheadline)
                 .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-            if chevron {
-                Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
-                    .foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
-            }
         }
         .frame(width: headingWidth)
         .accessibilityElement(children: .combine)
@@ -170,7 +150,7 @@ struct ThreadMenu: View, Equatable {
         Button {
             showing = true
         } label: {
-            AceIcon(.dotsThree, size: AceDesign.Space.group)
+            AceIcon(.dotsThree, size: AceDesign.Size.navGlyph, weight: .bold)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .contentShape(Rectangle())
         }

@@ -46,13 +46,14 @@ struct PlacesTabBar: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.none) {
             item(.threads, title: "ace", identifier: "sidebar.threads") {
-                Image(systemName: "bubble.left").font(.system(size: AceDesign.Size.tabIcon, weight: AceDesign.Typeface.regular))
+                AceIcon(.chatTeardrop, size: AceDesign.Size.tabIcon)
             }
             item(.spade, title: "Spade", identifier: "sidebar.spade") { SpadeMark(size: AceDesign.Size.tabIcon) }
         }
-        .padding(AceDesign.Space.tight)
+        .padding(AceDesign.Size.tabInset)
         .frame(height: AceDesign.Size.tabBar)
         .aceGlass(in: AceShape.capsule, interactive: true)
+        .floatingShadow()
     }
 
     private func item<Icon: View>(_ value: InboxTab, title: String, identifier: String, @ViewBuilder icon: () -> Icon) -> some View {
@@ -60,7 +61,7 @@ struct PlacesTabBar: View {
         return Button {
             withAnimation(AceDesign.Motion.arriving(reduceMotion)) { tab = value }
         } label: {
-            VStack(spacing: AceTheme.Spacing.xxs) {
+            VStack(spacing: AceDesign.Space.hair) {
                 icon().frame(width: AceDesign.Size.tabIcon, height: AceDesign.Size.tabIcon)
                 Text(title).aceFont(AceDesign.TextRole.tab, relativeTo: .caption2).lineLimit(1)
             }
@@ -71,7 +72,7 @@ struct PlacesTabBar: View {
             .frame(maxHeight: .infinity)
             .background {
                 if chosen {
-                    AceShape.capsule.fill(AceDesign.Surface.chosen(scheme))
+                    AceShape.capsule.fill(AceDesign.Surface.fill)
                         .matchedGeometryEffect(id: "chosen", in: fill)
                 }
             }
@@ -99,6 +100,7 @@ struct ComposeCircle: View {
         }
         .buttonStyle(.plain)
         .aceGlass(in: Circle(), interactive: true)
+        .floatingShadow()
         .accessibilityLabel(label)
         .accessibilityIdentifier("inbox.compose")
     }

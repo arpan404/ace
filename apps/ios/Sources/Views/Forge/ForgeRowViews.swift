@@ -87,7 +87,7 @@ private struct ForgeRowLayout<Glyph: View, Line: View, Marks: View>: View {
             }
         }
         .padding(.horizontal, AceTheme.Spacing.rowInner)
-        .padding(.vertical, AceDesign.Size.rowPadding)
+        .padding(.top, AceDesign.Size.rowPaddingTop).padding(.bottom, AceDesign.Size.rowPaddingBottom)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }

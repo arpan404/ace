@@ -104,7 +104,9 @@ struct InboxStack<Destination: View, Side: View>: View {
                 // As a compact window's drawer the list is too narrow for the system's bar, which
                 // folds the title and its buttons into one ⋯: the list draws its own header, and
                 // the bar comes back only for search and Select, which live in it.
-                .modifier(DrawerHeaderPlace(own: inDrawer && !pulls && !searching && !selecting) { drawerHeader })
+                // A phone's list, and the drawer, draw their own header at the approved spacing; the
+                // system's bar comes back only for search and Select, which live in it.
+                .modifier(DrawerHeaderPlace(own: (inDrawer || sizeClass == .compact) && !pulls && !searching && !selecting) { drawerHeader })
                 .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                     if selecting && !pulls {
                         InboxSelectionBar(inbox: inbox, selection: selection, organize: organize) { selecting = false; selection = [] }
@@ -370,20 +372,23 @@ struct InboxStack<Destination: View, Side: View>: View {
             Spacer(minLength: AceDesign.Space.related)
             headerCapsule
         }
-        .padding(.horizontal, AceDesign.Space.margin)
-        .padding(.top, AceDesign.Space.row)
-        .padding(.bottom, AceDesign.Space.related)
+        .frame(height: AceDesign.Size.header)
+        .padding(.leading, AceDesign.Space.headerLeading)
+        .padding(.trailing, AceDesign.Space.margin)
+        .padding(.top, AceDesign.Space.headerTop)
     }
     /// More, Pull requests and Search on one glass capsule at the header's height.
     private var headerCapsule: some View {
         HStack(spacing: AceTheme.Spacing.none) {
-            headerButton(label: "More", identifier: "inbox.settings", action: header.settings) { Image(systemName: "ellipsis") }
+            headerButton(label: "More", identifier: "inbox.settings", action: header.settings) {
+                AceIcon(.dotsThree, size: AceDesign.Size.headerGlyph, weight: .bold)
+            }
             headerButton(label: "Pull requests", identifier: "inbox.pulls", action: header.pulls) {
                 AceIcon(.gitPullRequest, size: AceDesign.Size.headerGlyph)
             }
             headerButton(label: "Search", identifier: "inbox.search") {
                 withAnimation(listMotion) { searching = true }
-            } icon: { Image(systemName: "magnifyingglass") }
+            } icon: { AceIcon(.magnifyingGlass, size: AceDesign.Size.headerGlyph) }
         }
         .frame(height: AceDesign.Size.headerBar)
         .aceGlass(in: AceShape.capsule, interactive: true)
@@ -394,10 +399,9 @@ struct InboxStack<Destination: View, Side: View>: View {
                                           @ViewBuilder icon: () -> Icon) -> some View {
         Button(action: action) {
             icon()
-                .font(.system(size: AceDesign.Size.headerGlyph, weight: AceDesign.Typeface.regular))
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.headerBar)
-                .tapBand(drawn: AceDesign.Size.headerBar)
+                .frame(width: AceDesign.Size.headerCell, height: AceDesign.Size.headerBar)
+                .tapBand(drawn: AceDesign.Size.headerBar, width: AceDesign.Size.headerCell)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

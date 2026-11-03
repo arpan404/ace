@@ -17,15 +17,17 @@ struct ThreadsTabsBar: View {
     @Namespace private var fill
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.none) {
+        // A quiet track on the page (not glass: it scrolls with nothing over it), hugging its
+        // tabs; the chosen one sits raised on it.
+        HStack(spacing: AceDesign.Size.segmentInset - 1) {
             ForEach(tabs) { tab in item(tab) }
         }
         .padding(AceDesign.Size.segmentInset)
         .frame(height: AceDesign.Size.segment)
-        .aceGlass(in: AceShape.capsule, interactive: true)
+        .background(AceDesign.Surface.fill, in: AceShape.capsule)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AceDesign.Space.margin)
-        .padding(.top, AceDesign.Space.tight)
+        .padding(.top, AceDesign.Space.aboveSegment)
         .padding(.bottom, AceDesign.Space.belowSegment)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Threads")
@@ -38,12 +40,12 @@ struct ThreadsTabsBar: View {
         return Button {
             withAnimation(AceDesign.Motion.arriving(reduceMotion)) { selection = tab.id }
         } label: {
-            HStack(spacing: AceDesign.Space.tight) {
+            HStack(spacing: AceDesign.Space.tight + 1) {
                 Text(tab.label).lineLimit(1)
                 if tab.counted && total > 0 {
                     Text(total.formatted()).monospacedDigit()
-                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .aceFont(AceDesign.TextRole.time, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
                 if lit {
                     Circle().fill(AceTheme.RowStatus.needsYou).frame(width: AceDesign.Size.dot, height: AceDesign.Size.dot)
@@ -53,11 +55,12 @@ struct ThreadsTabsBar: View {
             .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
             .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceDesign.Space.row)
+            .padding(.horizontal, AceDesign.Space.chipTab)
             .frame(maxHeight: .infinity)
             .background {
                 if chosen {
-                    AceShape.capsule.fill(AceDesign.Surface.fill)
+                    AceShape.capsule.fill(AceDesign.Surface.raised)
+                        .shadow(color: .black.opacity(AceShadow.tabOpacity), radius: AceShadow.tabRadius, y: AceShadow.tabY)
                         .matchedGeometryEffect(id: "chosen", in: fill)
                 }
             }

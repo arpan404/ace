@@ -124,27 +124,42 @@ import UIKit
         static let strong = Font.Weight.semibold
     }
 
-    /// The same roles as sizes for text drawn with `aceFont`, each scaled against the system
-    /// text style named beside it, so Dynamic Type grows them from the default size.
+    /// The approved scale (the "premium" mockup) as sizes for text drawn with `aceFont`, each
+    /// scaled against the system text style named beside it, so Dynamic Type grows them from the
+    /// default size. Nothing on screen is drawn larger than its role.
     enum TextRole {
-        /// A real large title. `.largeTitle`.
-        static let largeTitle = AceTheme.TypeStyle(size: 34, lineHeight: 41, weight: 600, tracking: 0)
-        /// The home screen's own title ("ace ⌄"). `.title3`.
-        static let header = AceTheme.TypeStyle(size: 20, lineHeight: 25, weight: 600, tracking: 0)
-        /// Message text. `.body`.
-        static let message = AceTheme.TypeStyle(size: 17, lineHeight: 22, weight: 400, tracking: 0)
-        /// A row's title: a thread, a chat, a setting. `.callout`.
-        static let rowTitle = AceTheme.TypeStyle(size: 16, lineHeight: 21, weight: 400, tracking: 0)
-        /// A segmented control's words. `.subheadline`.
-        static let segment = AceTheme.TypeStyle(size: 14, lineHeight: 18, weight: 400, tracking: 0)
-        /// Project, time, counts, the scope under a title. `.footnote`.
-        static let meta = AceTheme.TypeStyle(size: 13, lineHeight: 18, weight: 400, tracking: 0)
-        /// A branch on a row's last line, in mono. `.caption`.
-        static let branch = AceTheme.TypeStyle(size: 12, lineHeight: 16, weight: 400, tracking: 0)
+        /// More's and Settings' large title, bold. `.largeTitle`.
+        static let largeTitle = AceTheme.TypeStyle(size: 30, lineHeight: 36, weight: 700, tracking: -0.4)
+        /// The home screen's own title ("ace ⌄"). `.headline`.
+        static let header = AceTheme.TypeStyle(size: 17, lineHeight: 22, weight: 600, tracking: -0.2)
+        /// An open thread's title in its bar. `.subheadline`.
+        static let navTitle = AceTheme.TypeStyle(size: 15, lineHeight: 20, weight: 600, tracking: 0)
+        /// "project · branch" under it. `.caption`.
+        static let navSubtitle = AceTheme.TypeStyle(size: 11.5, lineHeight: 14, weight: 400, tracking: 0)
+        /// The person's message, in its bubble. `.body`.
+        static let message = AceTheme.TypeStyle(size: 15.5, lineHeight: 21.4, weight: 400, tracking: 0)
+        /// The agent's answer, a little more open. `.body`.
+        static let answer = AceTheme.TypeStyle(size: 15.5, lineHeight: 23, weight: 400, tracking: 0)
+        /// A row's title (a thread, a chat), a grouped row's label, the composer's words. `.callout`.
+        static let rowTitle = AceTheme.TypeStyle(size: 15.5, lineHeight: 20, weight: 400, tracking: -0.15)
+        /// A request strip's sentence, and the segmented control's words. `.subheadline`.
+        static let segment = AceTheme.TypeStyle(size: 13.5, lineHeight: 18, weight: 400, tracking: 0)
+        /// A strip's actions, a grouped row's value. `.subheadline`.
+        static let action = AceTheme.TypeStyle(size: 14, lineHeight: 18, weight: 400, tracking: 0)
+        /// A transcript step ("Edited …"). `.footnote`.
+        static let step = AceTheme.TypeStyle(size: 13, lineHeight: 18, weight: 400, tracking: 0)
+        /// Project, the scope under a title, "Worked for", a section label. `.footnote`.
+        static let meta = AceTheme.TypeStyle(size: 12.5, lineHeight: 16, weight: 400, tracking: 0)
+        /// A row's time, a count, a chip's words. `.caption`.
+        static let time = AceTheme.TypeStyle(size: 12, lineHeight: 16, weight: 400, tracking: 0)
+        /// Code in a step or a strip. `.caption`.
+        static let code = AceTheme.TypeStyle(size: 12, lineHeight: 16, weight: 400, tracking: 0)
+        /// A row's last line: branch (mono), pull request, lines changed. `.caption2`.
+        static let branch = AceTheme.TypeStyle(size: 11, lineHeight: 14, weight: 400, tracking: 0)
         /// Tiny labels. `.caption2`.
         static let caption = AceTheme.TypeStyle(size: 11, lineHeight: 13, weight: 400, tracking: 0)
         /// A tab's word under its icon. `.caption2`.
-        static let tab = AceTheme.TypeStyle(size: 10, lineHeight: 12, weight: 600, tracking: 0)
+        static let tab = AceTheme.TypeStyle(size: 10, lineHeight: 12, weight: 400, tracking: 0)
     }
 
     // MARK: Colour
@@ -183,6 +198,9 @@ import UIKit
         static var raised: Color { AceTheme.Colours.card }
         /// A pressed or chosen fill on the page, never a box.
         static var fill: Color { AceTheme.Colours.fill }
+        /// A grouped list's rows and the person's bubble: one step up from the page in either
+        /// appearance (the card colour is the page's own white in light).
+        static var group: Color { AceTheme.Colours.fill }
     }
 
     // MARK: Motion
@@ -215,9 +233,15 @@ extension View {
     }
     /// Takes taps over a full 44pt band while drawn `drawn` tall: the hit area grows above and
     /// below, the layout keeps the drawn height.
-    func tapBand(drawn: CGFloat) -> some View {
+    func tapBand(drawn: CGFloat, width: CGFloat? = nil) -> some View {
         let grow = max(AceDesign.Size.tap - drawn, 0) / 2
-        return padding(.vertical, grow).contentShape(Rectangle()).padding(.vertical, -grow)
+        let wide = width.map { max(AceDesign.Size.tap - $0, 0) / 2 } ?? 0
+        return padding(.vertical, grow).padding(.horizontal, wide).contentShape(Rectangle())
+            .padding(.vertical, -grow).padding(.horizontal, -wide)
+    }
+    /// The soft shadow under floating glass: the bottom bar, the compose circle, the composer block.
+    func floatingShadow() -> some View {
+        shadow(color: .black.opacity(AceShadow.floatOpacity), radius: AceShadow.floatRadius, y: AceShadow.floatY)
     }
     /// A sheet's raised surface.
     func raisedSurface() -> some View { background(AceDesign.Surface.raised) }
@@ -245,7 +269,7 @@ extension AceDesign.Size {
     /// together.
     static let lead: CGFloat = 20
     /// The Stop square inside Send/Stop.
-    static let stopGlyph: CGFloat = 10
+    static let stopGlyph: CGFloat = 9
     /// The round backing behind a small glyph laid on a picture (remove on a thumbnail).
     static let badge: CGFloat = 20
     /// The dot that marks a row or a tab that needs the person.
@@ -267,46 +291,153 @@ extension AceDesign.Size {
 }
 
 /// The home screen's chrome, sized as the system's own at the default Dynamic Type size: rows,
-/// the header's capsule, the segmented control and the bottom bar.
+/// the header's capsule, the segmented control, the bottom bar, the thread's bar and dock, and
+/// grouped lists: the approved mockup's values.
 extension AceDesign.Size {
-    /// A row's padding above and below its lines: a two-line thread row comes to about 60.
-    static let rowPadding: CGFloat = 10
-    /// A grouped list's row (More, Settings), as the system's Settings draws one.
-    static let settingsRow: CGFloat = 52
-    /// A provider mark at a row's trailing edge.
-    static let rowMark: CGFloat = 14
-    /// A three-line row's padding is this much less, so it comes to about 72.
-    static let rowPaddingTrim: CGFloat = 4
-    /// Between a row's lines: three lines come to about 72.
-    static let rowLineGap: CGFloat = 1
-    /// The header's glass capsule (More, Pull requests, Search): drawn this tall, each button
-    /// still a 44pt target.
-    static let headerBar: CGFloat = 40
-    /// A glyph in the header's capsule.
+    /// A row's padding above and below its lines; a two-line thread row comes to about 56.
+    static let rowPaddingTop: CGFloat = 9
+    static let rowPaddingBottom: CGFloat = 10
+    /// A row's side padding inside its soft fill, and the list's inset around the rows.
+    static let rowInset: CGFloat = 12
+    static let listInset: CGFloat = 8
+    /// A pressed or open row's soft fill.
+    static let rowCorner: CGFloat = 16
+    /// Between a title and the lines around it.
+    static let rowLineGap: CGFloat = 2
+    /// The three lines' heights: project and status, title, branch.
+    static let rowLine1: CGFloat = 16
+    static let rowLine2: CGFloat = 20
+    static let rowLine3: CGFloat = 15
+    static let rowLastLineGap: CGFloat = 3
+    /// A row's status icon (line 1), pin and pull request glyphs, and the provider mark.
+    static let rowStatus: CGFloat = 14
+    /// The same status icon as SF Symbols draw it: they fill more of their size than Phosphor.
+    static let rowStatusSymbol: CGFloat = 12
+    static let rowPin: CGFloat = 11
+    static let rowGlyph11: CGFloat = 11
+    /// The mockup's 13pt mark frame draws its glyph inset; ours fill their box, so 11 matches.
+    static let rowMark: CGFloat = 11
+    /// A grouped list's row (More, Settings), its glyph, chevron and corners.
+    static let settingsRow: CGFloat = 48
+    static let groupGlyph: CGFloat = 18
+    static let chevron: CGFloat = 11
+    static let groupCorner: CGFloat = 22
+    /// The header's glass capsule (More, Pull requests, Search): each cell drawn this wide and
+    /// the capsule this tall, every button still a 44pt target.
+    static let headerBar: CGFloat = 36
+    static let headerCell: CGFloat = 42
     static let headerGlyph: CGFloat = 17
-    /// The segmented control under the title, and the inset its chosen capsule sits in.
-    static let segment: CGFloat = 32
-    static let segmentInset: CGFloat = 2
-    /// The bottom bar: the tab pill and the compose circle.
-    static let tabBar: CGFloat = 52
+    /// The home screen's own header row, under the status bar.
+    static let header: CGFloat = 42
+    /// The title's chevron.
+    static let titleChevron: CGFloat = 12
+    /// The segmented control: each tab this tall on a track inset this much.
+    static let segmentTab: CGFloat = 28
+    static let segmentInset: CGFloat = 3
+    static let segment: CGFloat = segmentTab + 2 * segmentInset
+    /// The bottom bar: the tab pill and the compose circle, the pill's inset and one tab.
+    static let tabBar: CGFloat = 50
+    static let tabInset: CGFloat = 4
+    static let tabWidth: CGFloat = 66
     /// A tab's outline icon, and compose's glyph.
-    static let tabIcon: CGFloat = 22
+    static let tabIcon: CGFloat = 21
     static let composeGlyph: CGFloat = 20
-    /// One tab in the pill: room for its icon and word with the chosen capsule around them.
-    static let tabWidth: CGFloat = 72
+    /// An open thread's round glass Back and ⋯, and their glyphs.
+    static let navButton: CGFloat = 36
+    static let navGlyph: CGFloat = 17
+    /// The person's bubble's corners.
+    static let bubbleCorner: CGFloat = 19
+    /// A transcript step's glyph, and the line it sits on.
+    static let stepGlyph: CGFloat = 13
+    static let stepRow: CGFloat = 24
+    /// The dock's chips (model, live) and the glyph in them.
+    static let chip: CGFloat = 28
+    static let chipGlyph: CGFloat = 13
+    /// The composer block's corners, its + glyph and the send or stop circle.
+    static let blockCorner: CGFloat = 26
+    static let plusGlyph: CGFloat = 18
+    static let send: CGFloat = 32
+    /// The arrow in the send circle.
+    static let sendGlyph: CGFloat = 15
+    /// A strip's line of words.
+    static let stripAction: CGFloat = 24
 }
 
 extension AceDesign.Space {
-    /// The bottom bar's gap above the home indicator.
-    static let aboveHome: CGFloat = 8
+    /// The home header's leading and top inset.
+    static let headerLeading: CGFloat = 20
+    static let headerTop: CGFloat = 2
+    /// A grouped row's glyph and its label.
+    static let groupGlyphGap: CGFloat = 13
+    /// A hair: between a tab's icon and its word.
+    static let hair: CGFloat = 1
+    /// The bottom bar's gap above the home indicator: the bar's foot sits 26pt above the screen's.
+    static let aboveHome: CGFloat = 13
     /// The home indicator's top, above the screen's foot.
     static let homeIndicator: CGFloat = 13
     /// Between the segmented control and the first row.
-    static let belowSegment: CGFloat = 12
+    static let belowSegment: CGFloat = 4
+    /// Between the segmented control and the header.
+    static let aboveSegment: CGFloat = 12
+    /// The thread's feed: its side padding and the gap between its parts.
+    static let feedSide: CGFloat = 20
+    static let feedGap: CGFloat = 14
+    /// Inside the person's bubble.
+    static let bubbleV: CGFloat = 9
+    static let bubbleH: CGFloat = 14
+    /// Between the dock's chips, and under them.
+    static let chipGap: CGFloat = 6
+    /// A strip's foot, and the room each of its words takes either side.
+    static let stripBottom: CGFloat = 10
+    static let stripWord: CGFloat = 9
+    /// A chip's side padding, and a segmented tab's.
+    static let chip: CGFloat = 10
+    static let chipTab: CGFloat = 13
+    /// The dock's inset from the screen's sides.
+    static let dockSide: CGFloat = 10
     /// How far the page fades out above a bar pinned to the bottom.
     static let fade: CGFloat = 20
     /// A toast's clearance above the places bar: the bar's height and a gap.
     static let aboveTabBar: CGFloat = 76
+}
+
+extension AceDesign {
+    /// What the composer types with: the approved scale's 15.5pt row size on its own lines.
+    static func inputAttributes(traits: UITraitCollection) -> [NSAttributedString.Key: Any] {
+        let style = TextRole.rowTitle
+        let font = AceTheme.uiFont(style, relativeTo: .body, traits: traits)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = UIFontMetrics(forTextStyle: .body).scaledValue(for: style.lineHeight, compatibleWith: traits)
+        paragraph.maximumLineHeight = paragraph.minimumLineHeight
+        return [.font: font, .foregroundColor: UIColor(AceTheme.Colours.foreground), .paragraphStyle: paragraph]
+    }
+}
+
+extension AceDesign {
+    /// Large titles at 30pt bold and inline titles at 15pt semibold (the approved scale), set
+    /// on the system bar's appearance so every stack draws them, scaled with Dynamic Type.
+    static func applyBarTitles() {
+        let large = TextRole.largeTitle
+        let inline = TextRole.navTitle
+        let bar = UINavigationBar.appearance()
+        bar.largeTitleTextAttributes = [
+            .font: UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: .systemFont(ofSize: large.size, weight: .bold)),
+            .kern: large.tracking,
+        ]
+        bar.titleTextAttributes = [
+            .font: UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: .systemFont(ofSize: inline.size, weight: .semibold)),
+        ]
+    }
+}
+
+/// Shadows for floating glass (the bottom bar, the composer block) and the chosen tab.
+enum AceShadow {
+    static let floatRadius: CGFloat = 12
+    static let floatY: CGFloat = 8
+    static let floatOpacity: Double = 0.35
+    static let tabRadius: CGFloat = 1
+    static let tabY: CGFloat = 1
+    static let tabOpacity: Double = 0.25
 }
 
 extension AceDesign.Surface {
@@ -321,6 +452,13 @@ extension AceDesign.Surface {
 }
 
 extension AceDesign.Ink {
+    /// A row's branch: the faint tier on the dark page, the subtle one on the light page.
+    static func branch(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? AceTheme.Colours.faintForeground : AceTheme.Colours.subtleForeground
+    }
+    /// Lines added and removed on a row: muted green and red.
+    static let added = Color(red: 0x5F / 255, green: 0xB9 / 255, blue: 0x8A / 255)
+    static let removed = Color(red: 0xD9 / 255, green: 0x70 / 255, blue: 0x70 / 255)
     /// Words drawn straight on a picture (a video's length): white with a soft shadow, in
     /// every theme, because the picture decides the background.
     static let onMedia = Color.white

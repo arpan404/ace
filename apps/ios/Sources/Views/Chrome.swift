@@ -30,8 +30,8 @@ private struct SurfaceGlass<S: Shape>: ViewModifier {
 
     func body(content: Content) -> some View {
         if inBlock {
-            // Inside the composer's glass block: a quiet fill, never glass on glass.
-            content.background(AceTheme.Colours.fill, in: shape)
+            // Inside the composer's glass block: nothing of its own, never glass on glass.
+            content
         } else if solid {
             content.background(AceTheme.Colours.card, in: shape)
                 .overlay(shape.stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))

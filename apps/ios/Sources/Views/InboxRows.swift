@@ -25,9 +25,9 @@ struct InboxThreadRow: View {
 
     var body: some View {
         let look = look
-        VStack(alignment: .leading, spacing: AceDesign.Size.rowLineGap) {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             InboxRowHead(row: row, look: look, snoozed: snoozed, project: project)
-            HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+            HStack(alignment: .center, spacing: AceDesign.Space.related) {
                 Text(row.title)
                     .aceFont(InboxRowType.title, relativeTo: .callout)
                     // Semibold only while the thread needs the person, as on the desktop.
@@ -35,12 +35,18 @@ struct InboxThreadRow: View {
                     .foregroundStyle(look.settled ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                 Spacer(minLength: AceDesign.Space.related)
+                // Without a last line the provider ends the title's.
                 if !hasContext { InboxRowMarks(row: row, look: look, machine: machine).fixedSize() }
             }
-            if hasContext { InboxRowContext(row: row, look: look, machine: machine) }
+            .frame(minHeight: AceDesign.Size.rowLine2)
+            .padding(.top, AceDesign.Size.rowLineGap)
+            if hasContext {
+                InboxRowContext(row: row, look: look, machine: machine).padding(.top, AceDesign.Size.rowLastLineGap)
+            }
         }
-        .padding(.horizontal, AceTheme.Spacing.rowInner)
-        .padding(.vertical, InboxRowType.padding(densityId) - (hasContext ? AceDesign.Size.rowPaddingTrim : 0))
+        .padding(.horizontal, AceDesign.Size.rowInset)
+        .padding(.top, InboxRowType.padding(densityId, AceDesign.Size.rowPaddingTop))
+        .padding(.bottom, InboxRowType.padding(densityId, AceDesign.Size.rowPaddingBottom))
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         // What the icon means ("Needs approval"), the title, then the rest, as the desktop row
@@ -68,35 +74,40 @@ struct InboxRowHead: View {
     let project: ProjectMarkLook?
     var body: some View {
         HStack(alignment: .center, spacing: AceDesign.Space.tight) {
-            ProjectMark(initials: "", chat: row.chat == true, look: project, quiet: look.settled)
+            // A project's own image or chosen glyph leads its name; none draws nothing.
+            if project?.artwork != nil || project?.glyph != nil {
+                ProjectMark(initials: "", chat: row.chat == true, look: project, quiet: look.settled)
+            }
             Text(row.project).lineLimit(1)
             if row.pinned == true {
-                AceIcon(.pushPin, size: AceDesign.Size.glyphSmall, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
+                AceIcon(.pushPin, size: AceDesign.Size.rowPin, relativeTo: .footnote)
             }
             if row.browsing != nil {
-                AceIcon(.globe, size: AceDesign.Size.glyphMeta, relativeTo: .footnote).foregroundStyle(AceDesign.Status.working)
+                AceIcon(.globe, size: AceDesign.Size.rowStatus, relativeTo: .footnote).foregroundStyle(AceDesign.Status.working)
             }
             if row.computerUse != nil {
-                AceIcon(.cursor, size: AceDesign.Size.glyphMeta, relativeTo: .footnote).foregroundStyle(AceDesign.Status.working)
+                AceIcon(.cursor, size: AceDesign.Size.rowStatus, relativeTo: .footnote).foregroundStyle(AceDesign.Status.working)
             }
             Spacer(minLength: AceDesign.Space.related)
             if let wake = snoozed && look.level != "needs-you" ? row.snoozedUntil.map(InboxRowLine.wake) : nil {
                 HStack(spacing: AceDesign.Space.tight) {
-                    AceIcon(.clock, size: AceDesign.Size.glyphSmall, relativeTo: .footnote)
+                    AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption)
                     Text(wake).lineLimit(1)
                 }
+                .aceFont(AceDesign.TextRole.time, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .fixedSize()
             } else {
                 HStack(spacing: AceDesign.Space.tight) {
-                    InboxRowMark(look: look).frame(width: AceDesign.Size.icon)
+                    InboxRowMark(look: look, size: AceDesign.Size.rowStatusSymbol)
                     InboxRowAge(row: row, look: look)
                 }
                 .fixedSize()
             }
         }
+        .frame(minHeight: AceDesign.Size.rowLine1)
         .aceFont(InboxRowType.line, relativeTo: .footnote)
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
+        .foregroundStyle(AceTheme.Colours.subtleForeground)
     }
 }
 
@@ -107,18 +118,20 @@ struct InboxRowContext: View {
     let row: ThreadRow
     let look: RowLook
     let machine: MachineMark?
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
-        HStack(alignment: .center, spacing: AceDesign.Space.related) {
+        HStack(alignment: .center, spacing: AceDesign.Space.tight + 2) {
             if let branch = row.branchLabel ?? (row.branch.isEmpty ? nil : row.branch) {
-                Text(branch).aceMonospace(AceDesign.TextRole.branch, relativeTo: .caption)
+                Text(branch)
+                    .foregroundStyle(AceDesign.Ink.branch(scheme))
                     .lineLimit(1).truncationMode(.middle)
                     .layoutPriority(-1)
             }
             if let pr = row.pr {
                 HStack(spacing: AceTheme.Spacing.xxs) {
-                    AceIcon(pr.state == "merged" ? .gitMerge : .gitPullRequest, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
-                    Text(verbatim: "#\(pr.number)").monospacedDigit()
-                    if let more = row.prs?.count, more > 1 { Text(verbatim: "+\(more - 1)").monospacedDigit() }
+                    AceIcon(pr.state == "merged" ? .gitMerge : .gitPullRequest, size: AceDesign.Size.rowGlyph11, relativeTo: .caption2)
+                    Text(verbatim: "#\(pr.number)")
+                    if let more = row.prs?.count, more > 1 { Text(verbatim: "+\(more - 1)") }
                 }
                 .fixedSize()
             }
@@ -126,8 +139,9 @@ struct InboxRowContext: View {
             Spacer(minLength: AceDesign.Space.related)
             InboxRowMarks(row: row, look: look, machine: machine).fixedSize()
         }
-        .aceFont(InboxRowType.line, relativeTo: .footnote)
+        .aceMonospace(AceDesign.TextRole.branch, relativeTo: .caption2)
         .foregroundStyle(AceTheme.Colours.subtleForeground)
+        .frame(minHeight: AceDesign.Size.rowLine3)
     }
 }
 
@@ -137,8 +151,8 @@ struct InboxRowWork: View {
     var body: some View {
         HStack(spacing: AceDesign.Space.tight) {
             // The status text inks, as the desktop's `text-status-done` and `text-status-failed`.
-            Text(verbatim: "+\(work.added)").foregroundStyle(AceTheme.StatusText.done)
-            Text(verbatim: "−\(work.removed)").foregroundStyle(AceTheme.StatusText.failed)
+            Text(verbatim: "+\(work.added)").foregroundStyle(AceDesign.Ink.added)
+            Text(verbatim: "−\(work.removed)").foregroundStyle(AceDesign.Ink.removed)
         }
         .monospacedDigit()
         .accessibilityElement(children: .ignore)
@@ -151,10 +165,10 @@ struct InboxRowWork: View {
 @MainActor enum InboxRowType {
     static let title = AceDesign.TextRole.rowTitle
     static let line = AceDesign.TextRole.meta
-    /// Above and below a row's lines: the phone's row padding, or less where the density is
+    /// Above or below a row's lines: the phone's row padding, or less where the density is
     /// compact.
-    static func padding(_ density: String) -> CGFloat {
-        min(AceTheme.density(density).inboxRowPadding, AceDesign.Size.rowPadding)
+    static func padding(_ density: String, _ wanted: CGFloat = AceDesign.Size.rowPaddingTop) -> CGFloat {
+        min(AceTheme.density(density).inboxRowPadding, wanted)
     }
 }
 
@@ -164,14 +178,15 @@ struct InboxRowWork: View {
 /// says it in words.
 struct InboxRowMark: View {
     let look: RowLook
+    var size: CGFloat = AceDesign.Size.icon
     /// Sits the mark's centre on the title's first line rather than on its baseline.
     nonisolated static let baseline: CGFloat = 4
     var body: some View {
         if let icon = look.icon {
             Group {
-                if icon == "none" { Color.clear } else { RowStatusIcon(kind: icon, tone: look.iconTone ?? "idle", count: look.count) }
+                if icon == "none" { Color.clear } else { RowStatusIcon(kind: icon, tone: look.iconTone ?? "idle", count: look.count, size: size) }
             }
-            .frame(width: AceDesign.Size.lead)
+            .frame(width: size + 2)
             .accessibilityHidden(true)
         } else {
             legacy
@@ -225,7 +240,7 @@ struct InboxRowAge: View {
     }
     private func label(_ text: String) -> some View {
         Text(text).monospacedDigit()
-            .aceFont(InboxRowType.line, relativeTo: .footnote)
+            .aceFont(AceDesign.TextRole.time, relativeTo: .caption)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
             .lineLimit(1).fixedSize()
     }

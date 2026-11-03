@@ -72,6 +72,7 @@ struct SettingsSheet: View {
             .navigationDestination(for: SettingsRoute.self) { route in destination(route) }
         }
         .environment(\.settingsScope, scope)
+        .environment(\.settingsPush) { path.append($0) }
         .escapeCloses { dismiss() }
         .tint(AceDesign.Ink.accent)
         .toggleStyle(.systemSwitch)
@@ -80,14 +81,26 @@ struct SettingsSheet: View {
         .onDisappear { closeMachineViews() }
     }
 
-    /// More's own list: Settings, then each machine's tools.
+    /// More's own list, as the approved mockup: the machine's tools, then the paired devices,
+    /// Providers and Settings.
     private var more: some View {
         List {
+            SettingsTools(inbox: inbox, machine: $toolsMachine, leaving: [.providers])
             Section {
-                link(.settings, "Settings", "gearshape", id: "more.settings")
+                GroupLink(.machines) {
+                    InsetRow("Devices", icon: .devices, value: inbox.sessions.isEmpty ? nil : "\(inbox.sessions.count) paired")
+                }
+                .accessibilityIdentifier("more.devices")
+                if let host = inbox.sessions.first?.hostId {
+                    GroupLink(.tool(.providers, machine: toolsMachine.isEmpty ? host : toolsMachine)) {
+                        InsetRow(SettingsTool.providers.title, icon: SettingsTool.providers.icon)
+                    }
+                    .accessibilityIdentifier(SettingsTool.providers.identifier)
+                }
+                GroupLink(.settings) { InsetRow("Settings", icon: .gearSix) }
+                    .accessibilityIdentifier("more.settings")
             }
             .insetRowBackground()
-            SettingsTools(inbox: inbox, machine: $toolsMachine)
         }
         .insetGroupedList()
         .nativeTitle("More")
@@ -151,7 +164,7 @@ struct SettingsSheet: View {
     }
 
     private func link(_ route: SettingsRoute, _ title: String, _ symbol: String, value: String? = nil, id: String) -> some View {
-        NavigationLink(value: route) { InsetRow(title, systemImage: symbol, value: value) }
+        GroupLink(route) { InsetRow(title, systemImage: symbol, value: value) }
             .accessibilityIdentifier(id)
     }
 

@@ -70,11 +70,11 @@ struct InboxHeading<Choices: View>: View {
 
     private func label(chevron: Bool) -> some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.tight) {
-                Text(title).accessibilityIdentifier("inbox.heading.title").aceFont(AceDesign.TextRole.header, relativeTo: .title3)
+            HStack(alignment: .center, spacing: AceDesign.Space.tight + 1) {
+                Text(title).accessibilityIdentifier("inbox.heading.title").aceFont(AceDesign.TextRole.header, relativeTo: .headline)
                     .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
                 if chevron {
-                    Image(systemName: "chevron.down").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
+                    AceIcon(.caretDown, size: AceDesign.Size.titleChevron, weight: .bold, relativeTo: .headline)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
             }
@@ -111,7 +111,7 @@ struct InboxTitle: View {
                 .accessibilityIdentifier(shown.identifier)
             } else if let scope {
                 Text(scope).accessibilityIdentifier("inbox.heading.scope").aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                    .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
             }
         }
         .task(id: problem) {
