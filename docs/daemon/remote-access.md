@@ -126,6 +126,8 @@ clearing the code makes every device enter the new one.
 
 **Machine code over the wire.** An admin connection can send `machine.code.status`, `machine.code.set` (`code`, 4 to 128 characters) and `machine.code.clear`, each with a `requestId`; the daemon answers `machine.code.result` with `{ ok: true, status }` (the account and machine code state, as `GET /v1/ace-account` returns it) or `{ ok: false, error: "forbidden" | "unavailable" | "busy" }`. An account device that sets the code keeps its own access. A `machine_code_locked` refusal carries `lockedUntil`.
 
+**Settings over the wire.** An admin connection reads and changes the same things Settings reads over HTTP with `fleet.request`: `{ op: "remoteStatus" }` answers `{ kind: "remoteStatus", status }`, what `GET /v1/status` reports as `remoteAccess` (listeners, relay route, ace account); `devices`, `pairing` and `revoke` answer as `GET /v1/devices`, `POST /v1/pairings` and `DELETE /v1/devices/<id>`. Each runs the same code as its route with the same admin rule, and a pairing grants only scopes the caller holds. The web app uses these on every connection, so a machine reached through a relay shows the same Settings. Signing the machine in or out of its ace account stays HTTP only: it needs the host's own credential, which never travels over a relay.
+
 ## HTTP API
 
 All JSON endpoints return HTTP 200 on success and `{ "error": "..." }` otherwise. Responses are `Cache-Control: no-store`; there are no redirects, cookies or query-string credentials. Requests are capped at 4 KiB. Bearer tokens go only in the `Authorization` header.
