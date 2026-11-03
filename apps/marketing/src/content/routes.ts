@@ -1,5 +1,6 @@
 import { agentGuides } from "./agent-guides.ts";
 import { features } from "./features.ts";
+import { privacyPolicy, termsOfService } from "./legal.ts";
 
 /*
  * Every indexable page on the site, in one list. The navigation, footer, breadcrumbs, sitemap
@@ -61,6 +62,18 @@ export const routes: Route[] = [
     parent: "/",
   },
   { path: "/faq/", name: "FAQ", summary: "Questions people ask before trying ace.", parent: "/" },
+  {
+    path: privacyPolicy.path,
+    name: "Privacy policy",
+    summary: "What ace's account, relay and website collect, how it's used and how to delete it.",
+    parent: "/",
+  },
+  {
+    path: termsOfService.path,
+    name: "Terms of service",
+    summary: "The terms for using ace's account, hosted relay and other services.",
+    parent: "/",
+  },
 ];
 
 export function route(path: string): Route {

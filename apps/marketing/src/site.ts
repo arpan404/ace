@@ -9,3 +9,8 @@ export const links = {
   latestRelease: `${github}/releases/latest`,
   license: `${github}/blob/main/LICENSE`,
 } as const;
+
+/** Where people write to us: privacy requests, account deletion, questions about the terms. */
+export const contact = {
+  email: "founders@acehq.dev",
+} as const;
