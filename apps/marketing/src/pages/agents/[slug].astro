@@ -4,7 +4,12 @@ import Closing from "../../components/Closing.astro";
 import Faq from "../../components/Faq.astro";
 import LinkCards from "../../components/site/LinkCards.astro";
 import PageIntro from "../../components/site/PageIntro.astro";
-import { agentGuides, type AgentGuide } from "../../content/agent-guides.ts";
+import {
+  agentGuides,
+  agentQuestions,
+  agentSetup,
+  type AgentGuide,
+} from "../../content/agent-guides.ts";
 import { features } from "../../content/features.ts";
 import Page from "../../layouts/Page.astro";
 import { faqPage, schemaFor } from "../../seo/schema.ts";
@@ -21,26 +26,8 @@ const { guide } = Astro.props;
 const name = guide.label;
 const path = `/agents/${guide.slug}/`;
 
-const steps = [
-  `Install ${name} and sign in, the way its own instructions say. ace uses that login as it is.`,
-  "Download ace for your computer and open a project folder.",
-  `Start a thread and choose ${name}. Give it its own worktree if other agents share the repository.`,
-];
-
-const questions = [
-  {
-    question: `Does ace need a ${name} API key?`,
-    answer: `No. ace starts ${name} through its own command-line tool, signed in the way you already use it, so your existing plan keeps working. ace never asks for, stores or proxies credentials.`,
-  },
-  {
-    question: `Can I run ${name} beside other agents?`,
-    answer: `Yes. Run ${name}, Claude Code, Codex, Cursor and others side by side, each thread in its own git worktree, and hand a thread from one agent to another with its context.`,
-  },
-  {
-    question: `Can ${name} use a browser and my desktop apps in ace?`,
-    answer: `Yes. ace gives ${name} the same MCP tools as every other agent: a real browser, computer use, phone simulators, and delegating to agents on other machines.`,
-  },
-];
+const steps = agentSetup(guide);
+const questions = agentQuestions(guide);
 
 const others = agentGuides
   .filter((other) => other.slug !== guide.slug)

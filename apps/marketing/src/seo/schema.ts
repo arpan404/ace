@@ -3,7 +3,7 @@ import { features } from "../content/features.ts";
 import { product, workbench } from "../content/product.ts";
 import { downloads, platforms } from "../content/release.ts";
 import { trail } from "../content/routes.ts";
-import { links } from "../site.ts";
+import { contact, links } from "../site.ts";
 
 /*
  * schema.org nodes, composed per page into one JSON-LD @graph. Search engines use them for rich
@@ -29,6 +29,25 @@ const id = (schema: Schema, path: string, fragment: string) => {
   return url ? { "@id": `${url}#${fragment}` } : {};
 };
 
+/** Who makes ace: the publisher of the site and the app; on every page. */
+export function organization(schema: Schema): Node {
+  const home = schema.at("/");
+  return {
+    "@type": "Organization",
+    ...id(schema, "/", "organization"),
+    name: product.name,
+    email: contact.email,
+    sameAs: [links.source],
+    ...(home ? { url: home, logo: schema.at("/icon-512.png") } : {}),
+  };
+}
+
+/** A reference to the organization node, once the site's address is known. */
+const publisher = (schema: Schema) => {
+  const home = schema.at("/");
+  return home ? { publisher: { "@id": `${home}#organization` } } : {};
+};
+
 /** The site itself; on every page. */
 export function website(schema: Schema): Node {
   return {
@@ -37,6 +56,7 @@ export function website(schema: Schema): Node {
     name: product.name,
     description: product.description,
     inLanguage: "en",
+    ...publisher(schema),
     ...(schema.at("/") ? { url: schema.at("/") } : {}),
   };
 }
@@ -55,6 +75,8 @@ export function webPage(
     description: page.description,
     inLanguage: "en",
   };
+  // The site is rebuilt with each release, so its date is when the page last changed.
+  if (downloads.publishedAt) node.dateModified = downloads.publishedAt;
   if (url) node.url = url;
   if (home) {
     node.isPartOf = { "@id": `${home}#website` };
@@ -107,6 +129,7 @@ export function softwareApplication(schema: Schema): Node {
     ...(downloads.publishedAt ? { datePublished: downloads.publishedAt } : {}),
     releaseNotes: downloads.notesUrl,
     license: links.license,
+    ...publisher(schema),
     isAccessibleForFree: true,
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     featureList: [
@@ -120,6 +143,8 @@ export function softwareApplication(schema: Schema): Node {
       "coding agents",
       "AI coding agent manager",
       "multi-agent orchestration",
+      "multi-provider agent delegation",
+      "multi-machine coding agents",
       "computer use",
       "browser use",
       "iOS Simulator",

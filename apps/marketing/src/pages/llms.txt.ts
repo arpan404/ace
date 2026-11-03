@@ -1,29 +1,20 @@
 import type { APIRoute } from "astro";
 import { acpAgents, builtInAgents } from "../content/agents.ts";
 import { product, statuses } from "../content/product.ts";
-import { defaultArch, downloads, formatSize, platformInfo, platforms } from "../content/release.ts";
+import { downloads } from "../content/release.ts";
 import { routes } from "../content/routes.ts";
+import { downloadLines, markdownPath } from "../seo/markdown.ts";
 import { links } from "../site.ts";
 
 /*
  * llms.txt (https://llmstxt.org): the site's index as plain Markdown, for AI assistants and
- * answer engines: what ace is, downloads, every page, agents and statuses. Feature, agent, tool
- * and FAQ content is in llms-full.txt, built from the same files, so nothing is said twice.
+ * answer engines: what ace is, quotable key facts, downloads, every page with its Markdown
+ * version, agents and statuses. Every page's full text is in its .md file and in llms-full.txt.
  */
 const names = (list: { label: string }[]) => list.map((agent) => agent.label).join(", ");
 
 export const GET: APIRoute = ({ site }) => {
   const href = (path: string) => (site ? new URL(path, site).href : path);
-  const downloadLinks = platforms.map((platform) => {
-    const { name } = platformInfo[platform];
-    const build = platformInfo[platform].builds[defaultArch[platform]];
-    const { url, bytes } = downloads.byPlatform[platform];
-    const what = bytes
-      ? `ace ${downloads.version} for ${build}, ${formatSize(bytes)}`
-      : `the latest release page, for ${build}`;
-    return `- [Download for ${name}](${url}): ${what}`;
-  });
-
   const text = [
     `# ${product.name}`,
     "",
@@ -31,9 +22,13 @@ export const GET: APIRoute = ({ site }) => {
     "",
     product.about,
     "",
+    "## Key facts",
+    "",
+    ...product.facts.map((fact) => `- ${fact}`),
+    "",
     "## Links",
     "",
-    ...downloadLinks,
+    ...downloadLines(downloads),
     "- ace for iPhone and iPad (Android coming soon): follows and steers agents on every machine you pair or sign in to your ace account",
     `- [Release notes](${downloads.notesUrl})`,
     `- [Source code on GitHub](${links.source}): Apache-2.0`,
@@ -42,7 +37,10 @@ export const GET: APIRoute = ({ site }) => {
     "",
     "## Pages",
     "",
-    ...routes.map((entry) => `- [${entry.name}](${href(entry.path)}): ${entry.summary}`),
+    ...routes.map(
+      (entry) =>
+        `- [${entry.name}](${href(markdownPath(entry.path))}): ${entry.summary} Web page: ${href(entry.path)}`,
+    ),
     "",
     "## Supported agents",
     "",

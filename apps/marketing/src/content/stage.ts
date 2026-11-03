@@ -44,7 +44,7 @@ export const scenes: Scene[] = [
     id: "team",
     title: "Agents hand work to each other",
     body: "Claude fixes the server and hands off the rest: Codex writes the test, Cursor reviews the change, and the soak test goes to your Linux server. The thread isn't done until all of them are.",
-    href: "/mcp/",
+    href: "/features/orchestration/",
   },
   {
     id: "fleet",
@@ -351,6 +351,7 @@ export type DiffLine = (typeof diff.files)[number]["lines"][number];
 
 /** The feature pages that show a scene of the Mac instead of a product panel. */
 export const featureScenes: Record<FeatureSlug, SceneId> = {
+  orchestration: "team",
   status: "parallel",
   review: "review",
   "computer-use": "computer",

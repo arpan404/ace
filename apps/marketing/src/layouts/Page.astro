@@ -7,7 +7,16 @@
 import Breadcrumbs from "../components/site/Breadcrumbs.astro";
 import Footer from "../components/Footer.astro";
 import Nav from "../components/Nav.astro";
-import { breadcrumbs, graph, schemaFor, webPage, website, type Node } from "../seo/schema.ts";
+import {
+  breadcrumbs,
+  graph,
+  organization,
+  schemaFor,
+  webPage,
+  website,
+  type Node,
+} from "../seo/schema.ts";
+import { markdownPath } from "../seo/markdown.ts";
 import Base from "./Base.astro";
 
 interface Props {
@@ -23,6 +32,7 @@ interface Props {
 const { path, title, description, pageType, schema: extra = [] } = Astro.props;
 const schema = schemaFor(Astro.site);
 const data = graph([
+  organization(schema),
   website(schema),
   webPage(schema, { path, title, description, type: pageType }),
   breadcrumbs(schema, path),
@@ -30,7 +40,13 @@ const data = graph([
 ]);
 ---
 
-<Base title={title} description={description} structuredData={data} ogType={path === "/" ? "website" : "article"}>
+<Base
+  title={title}
+  description={description}
+  structuredData={data}
+  ogType={path === "/" ? "website" : "article"}
+  markdown={markdownPath(path)}
+>
   <Nav />
   {path !== "/" && <Breadcrumbs path={path} />}
   <main>

@@ -12,9 +12,18 @@ interface Props {
   structuredData?: object;
   /** Open Graph type: the home page is a website, every other page an article. */
   ogType?: "website" | "article";
+  /** This page's Markdown version, for AI agents (seo/markdown.ts). */
+  markdown?: string;
 }
 
-const { title, description, noindex = false, structuredData, ogType = "website" } = Astro.props;
+const {
+  title,
+  description,
+  noindex = false,
+  structuredData,
+  ogType = "website",
+  markdown,
+} = Astro.props;
 const site = Astro.site;
 const canonical = site ? new URL(Astro.url.pathname, site).href : undefined;
 const ogImage = site ? new URL("/og.png", site).href : "/og.png";
@@ -65,6 +74,7 @@ const jsonLd = structuredData ? JSON.stringify(structuredData).replaceAll("<", "
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="alternate" type="text/plain" title="ace for language models" href="/llms.txt" />
+    {markdown && <link rel="alternate" type="text/markdown" title="This page as Markdown" href={markdown} />}
     {site && <link rel="sitemap" type="application/xml" href="/sitemap.xml" />}
 
     <!--
