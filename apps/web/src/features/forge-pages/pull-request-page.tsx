@@ -15,7 +15,7 @@ import { repositoryFromParam, repositoryParam } from "@/lib/pull-request-route.t
 /** The PR view arrives with its page, never with the app's first paint. */
 const PrDetail = lazy(() => loadPrDetail().then((module) => ({ default: module.PrDetail })));
 
-const tabs = ["summary", "timeline", "code"] as const;
+const tabs = ["summary", "timeline", "code", "checks"] as const;
 export type PullRequestTab = (typeof tabs)[number];
 
 /**

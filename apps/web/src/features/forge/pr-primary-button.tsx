@@ -13,7 +13,6 @@ import {
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
-import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 
 /** How long the first press of a merge waits for the second. */
@@ -48,13 +47,7 @@ function StateBadge(props: { primary: PrPrimary; text: string }) {
         : "text-status-failed"
       : "text-status-working";
   return (
-    <span
-      className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1 rounded-sm px-2 text-xs font-medium",
-        cardEdge,
-        tone,
-      )}
-    >
+    <span className={cn("inline-flex h-6 shrink-0 items-center gap-1 text-xs font-medium", tone)}>
       {Glyph && <Glyph aria-hidden size={14} />}
       {props.text}
     </span>

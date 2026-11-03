@@ -1,4 +1,16 @@
-import { formatAgo, prGates, type Gate, type GateKey } from "@ace/ui-core";
+import type { ReactNode } from "react";
+import {
+  ChatCircleIcon,
+  CheckIcon,
+  CircleDashedIcon,
+  CircleIcon,
+  EyeIcon,
+  GitBranchIcon,
+  WarningIcon,
+  XCircleIcon,
+  type Icon,
+} from "@phosphor-icons/react";
+import { formatAgo, prFacts, prGates, type Gate, type GateKey, type GateTone } from "@ace/ui-core";
 import { hairlineGrid } from "@/components/ui/rules.ts";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -110,57 +122,74 @@ export function PrGatesRow(props: { actions: PrActions; onSelect(key: GateKey): 
   );
 }
 
+const factIcons: Record<GateKey, Partial<Record<GateTone, Icon>>> = {
+  checks: { failed: XCircleIcon, working: CircleDashedIcon, done: CheckIcon },
+  reviews: { failed: ChatCircleIcon, "needs-you": EyeIcon, done: CheckIcon },
+  conflicts: { failed: WarningIcon, working: CircleDashedIcon, done: CheckIcon },
+  branch: { "needs-you": GitBranchIcon, done: CheckIcon },
+  ended: {},
+  into: {},
+};
+
 /**
- * The merge gates as one line of words under a page's byline, each its name and state with a
- * status dot ("Checks 1 failing · Reviews Approved · …"), each jumping to its detail. Only
- * while the PR is open: a merged or closed PR's byline already says how it ended.
+ * The merge gates as one line of sentences under a page's byline, each with a small status
+ * icon ("1 of 3 checks failing · mira requested changes · No conflicts · Up to date with
+ * main"), each jumping to its detail; `after` follows the branch fact (Update). Only while the
+ * PR is open: a merged or closed PR's byline already says how it ended.
  */
-export function PrGatesLine(props: { actions: PrActions; onSelect(key: GateKey): void }) {
+export function PrGatesLine(props: {
+  actions: PrActions;
+  onSelect(key: GateKey): void;
+  after?: ReactNode;
+}) {
   const { actions } = props;
   const { detail, workspaceId } = actions.context;
   const outcomes = useReviewOutcomes(workspaceId, detail);
   const open = detail.status.state === "open" || detail.status.state === "draft";
   if (!open) return null;
-  const gates = prGates({
+  const facts = prFacts({
     status: detail.status,
     reviewDecision: detail.reviewDecision,
     mergeState: actions.mergeState.state,
     baseBranch: detail.baseBranch,
     outcomes,
-    ended: undefined,
-    branchDeleted: undefined,
     local: actions.local.result,
   });
   const branchLoading = actions.mergeState.query.isPending;
   return (
-    <nav aria-label="Merge gates" className="-ml-1.5 mt-3 flex flex-wrap items-center gap-x-1">
-      {gates.map((gate) => {
-        const loading = gate.key === "branch" && branchLoading;
+    <nav
+      aria-label="Merge gates"
+      className="-ml-1.5 mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-0.5"
+    >
+      {facts.map((fact) => {
+        const loading = fact.key === "branch" && branchLoading;
+        const tone = loading ? "idle" : fact.tone;
+        const Glyph = (!loading && factIcons[fact.key][tone]) || CircleIcon;
+        const loud = tone === "failed" || tone === "needs-you";
         return (
-          <button
-            key={gate.key}
-            type="button"
-            onClick={() => props.onSelect(gate.key)}
-            aria-label={`${gate.label}: ${loading ? "checking" : gate.value}`}
-            className="inline-flex h-6 items-center gap-1.5 rounded-sm px-1.5 text-xs tabular-nums transition-colors duration-(--motion-fast) focus-ring hover:bg-hover"
-          >
-            <span
-              aria-hidden
-              data-tone={gate.tone === "idle" || loading ? undefined : gate.tone}
+          <span key={fact.key} className="inline-flex items-center">
+            <button
+              type="button"
+              onClick={() => props.onSelect(fact.key)}
+              aria-label={`${fact.label}: ${loading ? "checking" : fact.value}`}
+              data-tone={tone === "idle" ? undefined : tone}
               className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                gate.tone === "idle" || loading ? "bg-faint-foreground" : "bg-(--tone)",
+                "inline-flex h-6 items-center gap-1.5 rounded-sm px-1.5 text-xs tabular-nums transition-colors duration-(--motion-fast) focus-ring hover:bg-hover",
+                loud ? "text-(--tone-text)" : "text-muted-foreground",
               )}
-            />
-            <span className="text-subtle-foreground">{gate.label}</span>
-            <span
-              className={
-                gate.tone === "idle" || loading ? "text-muted-foreground" : "text-foreground"
-              }
             >
-              {loading ? "…" : gate.value}
-            </span>
-          </button>
+              <Glyph
+                aria-hidden
+                size={14}
+                className={cn(
+                  "shrink-0",
+                  tone === "idle" || tone === "working" ? "text-faint-foreground" : "text-(--tone)",
+                )}
+              />
+              {loading ? "Checking the branch" : fact.value}
+            </button>
+            {fact.key === "branch" && props.after}
+          </span>
         );
       })}
     </nav>

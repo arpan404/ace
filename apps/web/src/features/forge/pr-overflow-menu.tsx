@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useSidebarAll } from "@ace/client-react";
-import { lifecycleLabels, mergeMethods, type MergeMethod } from "@ace/ui-core";
+import { lifecycleLabels } from "@ace/ui-core";
 import { prUrl } from "@ace/forge/pr-reference";
 import {
   ArrowClockwiseIcon,
@@ -32,9 +32,6 @@ import {
   MenuContent,
   MenuGroup,
   MenuItem,
-  MenuLabel,
-  MenuRadioGroup,
-  MenuRadioItem,
   MenuSeparator,
   MenuSub,
   MenuSubTrigger,
@@ -64,7 +61,7 @@ function useProjectTasks(workspaceId: string) {
 
 /**
  * Everything the PR panel can do besides its primary control, in five groups: tasks and
- * refresh, state changes, the merge method, links, and the destructive actions at the bottom.
+ * refresh, state changes, links, and the destructive actions at the bottom.
  */
 export function PrOverflowMenu(props: {
   actions: PrActions;
@@ -336,20 +333,6 @@ export function PrOverflowMenu(props: {
               {lifecycleItem("update.merge", GitBranchIcon)}
               {lifecycleItem("update.rebase", GitBranchIcon)}
             </MenuGroup>
-            <MenuSeparator />
-            <MenuGroup>
-              <MenuLabel>Merge method</MenuLabel>
-              <MenuRadioGroup
-                value={actions.method}
-                onValueChange={(value: MergeMethod) => actions.setMethod(value)}
-              >
-                {mergeMethods.map((choice) => (
-                  <MenuRadioItem key={choice.method} value={choice.method} closeOnClick={false}>
-                    {choice.label}
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            </MenuGroup>
           </>
         )}
         <MenuSeparator />
@@ -364,7 +347,6 @@ export function PrOverflowMenu(props: {
           </MenuItem>
           <MenuItem
             icon={icon(CopyIcon)}
-            keys="c"
             resolve={false}
             onClick={() =>
               copy(

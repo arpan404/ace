@@ -72,7 +72,7 @@ test("the merge gates say what blocks the merge, and the Checks gate opens the c
   expect(gates().getByRole("button", { name: "Checks: 1 failing · 1 ok" })).toBeTruthy();
   expect(gates().getByRole("button", { name: "Reviews: Changes requested" })).toBeTruthy();
   expect(gates().getByRole("button", { name: "Conflicts: None" })).toBeTruthy();
-  // Checks start folded; the gate opens them.
+  // The checks live in their own tab; the gate opens it.
   expect(panel().queryByRole("button", { name: "links: Failed" })).toBeNull();
   await userEvent.click(gates().getByRole("button", { name: "Checks: 1 failing · 1 ok" }));
   expect(await panel().findByRole("button", { name: "links: Failed" })).toBeTruthy();
@@ -111,11 +111,11 @@ test("a PR no task is linked to offers Link to merge, which links this task and 
 
 test("Fix with agent shows the linked task's composer and puts the request there without sending it", async () => {
   await open();
-  await waitFor(() => panel().getByRole("region", { name: "Needs attention" }), {
+  await waitFor(() => panel().getByRole("region", { name: "Blocking the merge" }), {
     timeout: 10_000,
   });
   await userEvent.click(
-    within(panel().getByRole("region", { name: "Needs attention" })).getByRole("button", {
+    within(panel().getByRole("region", { name: "Blocking the merge" })).getByRole("button", {
       name: "Fix with agent: links",
     }),
   );

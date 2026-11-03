@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { formatElapsed } from "@ace/ui-core";
+import { useNow } from "@/lib/time.ts";
 import {
-  ArrowClockwiseIcon,
   CaretRightIcon,
   CheckCircleIcon,
   CircleIcon,
@@ -29,15 +30,33 @@ const checkLook: Record<
   unknown: { icon: CircleIcon, word: "Unknown", tone: "text-subtle-foreground" },
 };
 
+/** Failures first, then what still runs, then the rest; passed last. */
+const order: Record<ForgeCheck["status"], number> = {
+  failure: 0,
+  pending: 1,
+  cancelled: 2,
+  unknown: 3,
+  success: 4,
+};
+
+/** How long a check ran, or has run so far: "4m 12s". Undefined when its start is unknown. */
+function duration(check: ForgeCheck, now: number): string | undefined {
+  const start = check.startedAt ? Date.parse(check.startedAt) : NaN;
+  if (!Number.isFinite(start)) return undefined;
+  const end = check.completedAt ? Date.parse(check.completedAt) : now;
+  return Number.isFinite(end) ? formatElapsed(end - start) : undefined;
+}
+
 /**
- * The PR's checks, folded by default: each with its state, opening in place to its log,
- * annotations and re-runs (read only then). When the host couldn't say, one inline Refresh,
- * the panel's only one.
+ * The PR's checks as the Checks tab: failures first, each with its state and how long it ran,
+ * opening in place to its log, annotations and re-runs (read only then). `focus` opens one
+ * (Open log from Blocking the merge). When the host couldn't say, one inline Refresh.
  */
 export function PrChecks(props: {
   context: PrWorkspaceContext;
   refreshing: boolean;
-  reveal?: number | undefined;
+  /** Opens this check and scrolls to it; `seq` repeats a jump to the same one. */
+  focus?: { id: string; seq: number } | undefined;
   hostThreadId?: string | undefined;
   onRefresh(): void;
   onOpen(number: number): void;
@@ -51,7 +70,25 @@ export function PrChecks(props: {
   // Open PRs always show their local check; finished ones only one that ran.
   const unfinished = status.state === "open" || status.state === "draft";
   const showLocal = local.run !== undefined || (unfinished && local.command !== undefined);
+  const now = useNow();
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
+  // A new focus opens its check during render; the row scrolls itself into view.
+  const [focused, setFocused] = useState(props.focus);
+  if (props.focus !== focused) {
+    setFocused(props.focus);
+    const id = props.focus?.id;
+    if (id && !opened.has(id)) setOpened(new Set([...opened, id]));
+  }
+  useEffect(() => {
+    if (focused)
+      document
+        .getElementById(`pr-check-${focused.id}`)
+        ?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }, [focused]);
+  const checks = status.checks.toSorted(
+    (a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name),
+  );
+  const failing = checks.filter((check) => check.status === "failure").length;
   const toggle = (id: string) =>
     setOpened((current) => {
       const next = new Set(current);
@@ -61,16 +98,14 @@ export function PrChecks(props: {
   return (
     <PrSection
       id="pr-checks"
-      title="Checks"
-      count={status.checks.length || undefined}
-      defaultOpen={false}
-      reveal={props.reveal}
+      title={failing ? `${failing} of ${checks.length} failing` : "Checks"}
+      count={failing ? undefined : checks.length || undefined}
+      fixed
     >
       {stale && (
         <p className="flex items-center gap-2 text-ui text-muted-foreground">
           Check details are out of date.
           <Button variant="ghost" size="xs" disabled={props.refreshing} onClick={props.onRefresh}>
-            <ArrowClockwiseIcon aria-hidden size={14} />
             Refresh
           </Button>
         </p>
@@ -88,12 +123,13 @@ export function PrChecks(props: {
               }
             />
           )}
-          {status.checks.map((check) => {
+          {checks.map((check) => {
             const look = checkLook[check.status];
             const Glyph = look.icon;
             const open = opened.has(check.id);
+            const took = duration(check, now);
             return (
-              <li key={check.id}>
+              <li key={check.id} id={`pr-check-${check.id}`} className="scroll-mt-12">
                 <button
                   type="button"
                   aria-expanded={open}
@@ -103,7 +139,19 @@ export function PrChecks(props: {
                 >
                   <Glyph aria-hidden size={14} className={cn("shrink-0", look.tone)} />
                   <span className="min-w-0 flex-1 break-words">{check.name}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">{look.word}</span>
+                  {took && (
+                    <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+                      {took}
+                    </span>
+                  )}
+                  <span
+                    className={cn(
+                      "w-16 shrink-0 text-right text-xs",
+                      check.status === "failure" ? look.tone : "text-muted-foreground",
+                    )}
+                  >
+                    {look.word}
+                  </span>
                   <CaretRightIcon
                     aria-hidden
                     size={12}

@@ -11,7 +11,6 @@ import {
   type UIEvent,
 } from "react";
 import { useConnectionState } from "@ace/client-react";
-import { ChatCircleIcon, GitCommitIcon, ArrowsDownUpIcon } from "@phosphor-icons/react";
 import { useQueryClient, type Query } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgePrDetail, ForgePrStatus, ForgeRepository } from "@ace/protocol";
@@ -23,6 +22,9 @@ import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
 import { PrPageHeader } from "./pr-page-header.tsx";
 import { PrSummary } from "./pr-summary.tsx";
+import { PrChecks } from "./pr-checks.tsx";
+import { PrPeople } from "./pr-people.tsx";
+import { TextAction } from "./pr-text-action.tsx";
 import { PrQuoteProvider } from "./pr-quote.tsx";
 import { PrUiProvider } from "./pr-ui-store.tsx";
 import { PrChecksPill } from "./pr-presentation.tsx";
@@ -43,22 +45,27 @@ import { PrMergeCommitDialog } from "./pr-merge-commit.tsx";
 import { PrWriteStatus } from "./pr-write-status.tsx";
 import { PrFailure } from "./pr-detail-states.tsx";
 import { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
-import { PrGatesLine, PrGatesRow } from "./pr-gates-row.tsx";
+import { PrGatesRow } from "./pr-gates-row.tsx";
 import { prShortcut } from "./pr-shortcuts.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ForgeContentScope } from "./rich/scope.ts";
 import { useTaskSave } from "./rich/use-task-save.ts";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 
-export type PrTab = "summary" | "timeline" | "code";
+export type PrTab = "summary" | "timeline" | "code" | "checks";
 
 export function prWorkspaceTab(tab: string): PrTab {
   return tab === "timeline" || tab === "commits"
     ? "timeline"
     : tab === "code" || tab === "files"
       ? "code"
-      : "summary";
+      : tab === "checks"
+        ? "checks"
+        : "summary";
 }
+
+/** "1 comment", "9 comments". */
+const counted = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
 /** A page's reading width: the header, summary and timeline; the Code tab takes all of it. */
 const pageWidth = "mx-auto w-full max-w-[64rem]";
@@ -77,13 +84,13 @@ function belongsTo(query: Query, workspaceId: string, status: ForgePrStatus): bo
   );
 }
 
-/** Summary · Timeline · Code as words: the current one on the flat selected fill, no shadow. */
+/** Summary · Timeline · Code · Checks as words: the current one on the flat selected fill, no shadow. */
 const wordTab =
   "h-7 rounded-md px-2 text-ui font-normal hover:not-data-active:bg-hover data-active:bg-active data-active:font-medium";
 
 /**
- * The tab bar: Summary · Timeline · Code as words, with the active tab's context (checks, or
- * counters and order) at its right end. In a panel each tab body is its own scroller. On a page
+ * The tab bar: Summary · Timeline · Code · Checks as words with a quiet count each, and the
+ * active tab's context at its right end. In a panel each tab body is its own scroller. On a page
  * the whole page scrolls as one: the header scrolls away, the bar pins to the top, Summary and
  * Timeline grow with their content, and Code fills the space under the bar with its own
  * scrollers. Switching tabs brings the bar back to the top, so the new tab starts at its start.
@@ -93,12 +100,19 @@ function PrTabs(props: {
   onTab(tab: string): void;
   context: Record<PrTab, ReactNode>;
   panels: Record<PrTab, ReactNode>;
+  /** How many each tab holds: comments, changed files, checks. */
+  counts: Partial<Record<PrTab, number>>;
   onScroll(tab: PrTab, top: number): void;
   /** On a page of its own: the bar and the reading tabs keep a readable width; Code is full. */
   readable?: string | undefined;
 }) {
-  const order: PrTab[] = ["summary", "timeline", "code"];
-  const names: Record<PrTab, string> = { summary: "Summary", timeline: "Timeline", code: "Code" };
+  const order: PrTab[] = ["summary", "timeline", "code", "checks"];
+  const names: Record<PrTab, string> = {
+    summary: "Summary",
+    timeline: "Timeline",
+    code: "Code",
+    checks: "Checks",
+  };
   const page = props.readable !== undefined;
   const bar = useRef<HTMLDivElement | null>(null);
   const codeHeight = usePageCodeHeight(bar, page);
@@ -141,6 +155,14 @@ function PrTabs(props: {
             {order.map((tab) => (
               <TabsTab key={tab} value={tab} className={wordTab}>
                 {names[tab]}
+                {!!props.counts[tab] && (
+                  <span
+                    aria-hidden
+                    className="ml-1 font-normal text-subtle-foreground tabular-nums"
+                  >
+                    {props.counts[tab]}
+                  </span>
+                )}
               </TabsTab>
             ))}
           </TabsList>
@@ -230,18 +252,26 @@ function PrDetailLoaded(props: {
     editCommit: setCommitWhen,
   });
   const [behindOpen, setBehindOpen] = useState(false);
-  const [revealChecks, setRevealChecks] = useState(0);
-  const [codeFocus, setCodeFocus] = useState<{ path: string; seq: number }>();
-  const openCode = (path?: string) => {
+  const [checkFocus, setCheckFocus] = useState<{ id: string; seq: number }>();
+  const [codeFocus, setCodeFocus] = useState<{ path: string; line?: number; seq: number }>();
+  // `line` rides along for the Code tab to land on; it opens the file either way.
+  const openCode = (path?: string, line?: number) => {
     props.onTab("code");
-    if (path) setCodeFocus((current) => ({ path, seq: (current?.seq ?? 0) + 1 }));
+    if (path)
+      setCodeFocus((current) => ({
+        path,
+        ...(line === undefined ? {} : { line }),
+        seq: (current?.seq ?? 0) + 1,
+      }));
+  };
+  const openCheck = (id?: string) => {
+    props.onTab("checks");
+    if (id) setCheckFocus((current) => ({ id, seq: (current?.seq ?? 0) + 1 }));
   };
   // A gate jumps to its detail: the checks, the reviewers, the conflicts, the update menu.
   const onGate = (key: GateKey) => {
-    if (key === "checks") {
-      props.onTab("summary");
-      setRevealChecks((n) => n + 1);
-    } else if (key === "reviews") {
+    if (key === "checks") openCheck();
+    else if (key === "reviews") {
       props.onTab("summary");
       document
         .getElementById("pr-reviewers")
@@ -257,6 +287,7 @@ function PrDetailLoaded(props: {
     summary: false,
     timeline: false,
     code: false,
+    checks: false,
   });
   const onScroll = (tab: PrTab, top: number) =>
     setCondensed((current) => {
@@ -273,21 +304,9 @@ function PrDetailLoaded(props: {
     const shortcut = prShortcut(event);
     if (!shortcut) return;
     event.preventDefault();
-    if (shortcut === "summary" || shortcut === "timeline" || shortcut === "code")
-      props.onTab(shortcut);
-    else if (shortcut === "open")
+    if (shortcut === "open")
       void openWeb(status.url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
-    else if (shortcut === "copy-checkout") {
-      const repository = status.ref.repository;
-      void navigator.clipboard
-        ?.writeText(
-          `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`,
-        )
-        .catch(() => toast.error({ title: "Couldn't copy the checkout command" }));
-    } else
-      event.currentTarget
-        .querySelector<HTMLButtonElement>("[data-pr-primary]:not(:disabled)")
-        ?.click();
+    else props.onTab(shortcut);
   };
   const editable = !!actions.lifecycle.snapshot?.editableFields.length;
   const repository = detail.status.ref.repository;
@@ -359,7 +378,7 @@ function PrDetailLoaded(props: {
                           extensions={props.extensions}
                           behindOpen={behindOpen}
                           onBehindOpen={setBehindOpen}
-                          gates={<PrGatesLine actions={actions} onSelect={onGate} />}
+                          onGate={onGate}
                           onBack={props.onBack}
                           menu={menu}
                         />
@@ -400,36 +419,34 @@ function PrDetailLoaded(props: {
                   onTab={props.onTab}
                   onScroll={onScroll}
                   readable={readable}
+                  counts={{
+                    timeline: detail.status.comments.length,
+                    code: detail.changedFiles,
+                    checks: detail.status.checks.length,
+                  }}
                   context={{
                     // On a page the Summary needs no counter; how many files are viewed is Code's.
                     summary: props.page ? null : <SummaryContext detail={detail} />,
                     timeline: (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span
-                          aria-label={`${detail.status.comments.length} comments`}
-                          className="inline-flex items-center gap-1 tabular-nums"
-                        >
-                          <ChatCircleIcon aria-hidden size={14} />
-                          {detail.status.comments.length}
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+                        <span>{counted(detail.status.comments.length, "comment")}</span>
+                        <span aria-hidden className="text-subtle-foreground">
+                          ·
                         </span>
-                        <span
-                          aria-label={`${detail.commits} commits`}
-                          className="inline-flex items-center gap-1 tabular-nums"
-                        >
-                          <GitCommitIcon aria-hidden size={14} />
-                          {detail.commits}
+                        <span>{counted(detail.commits, "commit")}</span>
+                        <span aria-hidden className="text-subtle-foreground">
+                          ·
                         </span>
-                        <Button
-                          variant="ghost"
-                          size="xs"
+                        <TextAction
+                          aria-label={`Order: ${order === "newest" ? "newest first" : "oldest first"}`}
                           onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
                         >
-                          <ArrowsDownUpIcon aria-hidden size={14} />
                           {order === "newest" ? "Newest first" : "Oldest first"}
-                        </Button>
+                        </TextAction>
                       </div>
                     ),
                     code: null,
+                    checks: props.page ? null : <PrChecksPill status={detail.status} />,
                   }}
                   panels={{
                     summary: (
@@ -438,14 +455,28 @@ function PrDetailLoaded(props: {
                         extensions={props.extensions}
                         hostThreadId={props.hostThreadId}
                         stack={actions.stack}
-                        refreshing={props.refreshing}
-                        revealChecks={revealChecks}
-                        onRefresh={refresh}
                         onOpen={props.onOpen}
                         onOpenCode={openCode}
-                        onRequestReview={canRequestReview ? () => setDialog("review") : undefined}
+                        onOpenCheck={openCheck}
+                        onTimeline={() => props.onTab("timeline")}
                         onEdit={editable ? () => setDialog("edit") : undefined}
-                        details={<PrDetails actions={actions} onDialog={setDialog} />}
+                        about={
+                          <PrDetails
+                            actions={actions}
+                            onDialog={setDialog}
+                            people={
+                              <PrPeople
+                                context={context}
+                                extensions={props.extensions}
+                                assignees={snapshot?.metadata.assignees}
+                                onRequestReview={
+                                  canRequestReview ? () => setDialog("review") : undefined
+                                }
+                                onEdit={editable ? () => setDialog("edit") : undefined}
+                              />
+                            }
+                          />
+                        }
                         onTasks={descriptionTasks}
                       />
                     ),
@@ -457,6 +488,19 @@ function PrDetailLoaded(props: {
                         // On a page the column already sets the width and the edges.
                         className={props.page ? "mx-0 max-w-none" : undefined}
                       />
+                    ),
+                    checks: (
+                      <div className="px-[var(--forge-gutter,1rem)] pt-3 pb-10">
+                        <PrChecks
+                          context={context}
+                          refreshing={props.refreshing}
+                          focus={checkFocus}
+                          hostThreadId={props.hostThreadId}
+                          onRefresh={refresh}
+                          onOpen={props.onOpen}
+                          onOpenCode={openCode}
+                        />
+                      </div>
                     ),
                     code: (
                       <PrFiles

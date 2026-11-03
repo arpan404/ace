@@ -33,7 +33,10 @@ export const ForgeMergeState = z.object({
     .max(10)
     .optional(),
   /** The merge methods the repository allows, in GitHub's order; absent when unknown. */
-  methods: z.array(z.enum(["merge", "squash", "rebase"])).max(3).optional(),
+  methods: z
+    .array(z.enum(["merge", "squash", "rebase"]))
+    .max(3)
+    .optional(),
   canEnable: z.boolean(),
   canDisable: z.boolean(),
   canDequeue: z.boolean(),

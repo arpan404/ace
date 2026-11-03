@@ -211,7 +211,7 @@ test("a conflicting PR offers to resolve its conflicts instead of merging", asyn
   expect(merge.textContent).toContain("Resolve the conflicts with main first");
 });
 
-test("the Summary holds only reviewers, labels, description, checks and comments", async () => {
+test("the Summary leaves the checks and the conversation to their own tabs", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.daemon.workspace.setForgeRead(
@@ -221,19 +221,21 @@ test("the Summary holds only reviewers, labels, description, checks and comments
   notStacked(app);
   await openPullRequest(app, { project: "api", number: 42 });
   await screen.findByRole("heading", { name: "Retry reconnects" });
-  expect(
+  const regions = () =>
     screen
       .getAllByRole("region")
       .map((region) => region.getAttribute("aria-label"))
-      .filter((name) => ["Description", "Checks", "Comments"].includes(name ?? "")),
-  ).toEqual(["Description", "Checks", "Comments"]);
+      .filter((name) => ["Description", "Checks", "Comments"].includes(name ?? ""));
+  expect(regions()).toEqual(["Description"]);
   expect(panel().getByText(/Preserve reconnect ordering\./)).toBeTruthy();
+  // The conversation is one step away, in the Timeline, where its comment box is.
+  await userEvent.click(
+    panel().getByRole("button", { name: /Open the conversation|Leave a comment/ }),
+  );
+  expect(panel().getByRole("tab", { name: /Timeline/, selected: true })).toBeTruthy();
   expect(panel().getByText(/Keep the context\./)).toBeTruthy();
-  // Checks start folded; no Summary control refreshes anything.
-  expect(panel().queryByText("No checks reported.")).toBeNull();
-  await userEvent.click(panel().getByRole("button", { name: "Checks" }));
-  expect(panel().getByText("No checks reported.")).toBeTruthy();
-  expect(panel().queryByRole("button", { name: /^Refresh/ })).toBeNull();
+  await userEvent.click(panel().getByRole("tab", { name: /Checks/ }));
+  expect(await panel().findByText("No checks reported.")).toBeTruthy();
 });
 
 test("the same PR number in another repository gets independent full detail and hosted diffs", async () => {
