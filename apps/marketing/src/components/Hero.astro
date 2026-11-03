@@ -62,6 +62,13 @@ const words = product.headline.split(" ");
     mask-image: linear-gradient(to bottom, black 65%, transparent);
   }
 
+  /* Narrower than this, the mark runs into the headline and buttons, so it steps aside. */
+  @media (max-width: 1180px) {
+    .hero > :global(.ascii) {
+      display: none;
+    }
+  }
+
   .hero-copy {
     position: relative;
     display: grid;
