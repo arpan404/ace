@@ -263,3 +263,69 @@ test("an acknowledged issue creation cannot report success after its CLI identit
     await f.cleanup();
   }
 });
+
+test("labels and assignees change through add and remove calls, so others' additions survive", async () => {
+  const triage = issuePermissions();
+  triage.data.repository.viewerPermission = "TRIAGE";
+  const gh = await fakeGh({
+    "repos/octo/ace/issues/7": [{ body: issueRecord }],
+    graphql: [{ body: triage }],
+    "repos/octo/ace/issues/7/labels": [{ body: [{ name: "bug" }, { name: "ui" }] }],
+    "repos/octo/ace/issues/7/labels/bug": [{ body: [{ name: "ui" }] }],
+    "repos/octo/ace/issues/7/assignees": [{ body: issueRecord }],
+  });
+  try {
+    await gh.forge.writeIssue(
+      { action: "labels", number: 7, add: ["ui"], remove: ["bug"] },
+      "labels",
+      signal(),
+    );
+    await gh.forge.writeIssue(
+      { action: "assignees", number: 7, add: ["sam"], remove: ["maintainer"] },
+      "assignees",
+      signal(),
+    );
+    const writes = (await gh.requests()).filter(
+      (request) => !request.args.includes("GET") && request.path !== "graphql",
+    );
+    expect(
+      writes.map((request) => [
+        request.args[request.args.indexOf("--method") + 1],
+        request.path,
+        request.body,
+      ]),
+    ).toEqual([
+      ["POST", "repos/octo/ace/issues/7/labels", { labels: ["ui"] }],
+      ["DELETE", "repos/octo/ace/issues/7/labels/bug", undefined],
+      ["POST", "repos/octo/ace/issues/7/assignees", { assignees: ["sam"] }],
+      ["DELETE", "repos/octo/ace/issues/7/assignees", { assignees: ["maintainer"] }],
+    ]);
+  } finally {
+    await gh.cleanup();
+  }
+});
+
+test("a label write whose later call fails is uncertain, not failed, once its first call went", async () => {
+  const triage = issuePermissions();
+  triage.data.repository.viewerPermission = "TRIAGE";
+  const gh = await fakeGh({
+    "repos/octo/ace/issues/7": [{ body: issueRecord }],
+    graphql: [{ body: triage }],
+    "repos/octo/ace/issues/7/labels": [{ body: [{ name: "bug" }, { name: "ui" }] }],
+    "repos/octo/ace/issues/7/labels/bug": [{ offline: true }],
+  });
+  const dispatch = new WriteDispatch();
+  try {
+    await expect(
+      gh.forge.writeIssue(
+        { action: "labels", number: 7, add: ["ui"], remove: ["bug"] },
+        "labels",
+        signal(),
+        dispatch,
+      ),
+    ).rejects.toMatchObject({ kind: "outcome_uncertain" });
+    expect(dispatch.definitelyFailed).toBe(false);
+  } finally {
+    await gh.cleanup();
+  }
+});

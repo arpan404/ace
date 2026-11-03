@@ -12,16 +12,45 @@ export type IssueWritePlan =
   | { kind: "done" }
   | { kind: "conflict" }
   | { kind: "forbidden" }
-  | { kind: "patch"; body: Record<string, unknown> };
+  | { kind: "patch"; body: Record<string, unknown> }
+  /**
+   * Labels or assignees change by their own add and remove calls, never by sending the whole
+   * set: a set sent whole would erase what someone else added since it was read.
+   */
+  | { kind: "members"; field: "labels" | "assignees"; add: string[]; remove: string[] };
 
 const unique = (values: readonly string[]) => [...new Set(values)];
 const same = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((value) => b.includes(value));
 
 /** The set after adding and removing, keeping what it had in its own order. */
-function applied(current: readonly string[], add: readonly string[], remove: readonly string[]) {
+export function applyMembers(
+  current: readonly string[],
+  add: readonly string[],
+  remove: readonly string[],
+) {
   const lower = new Set(remove.map((value) => value.toLowerCase()));
   return unique([...current, ...add]).filter((value) => !lower.has(value.toLowerCase()));
+}
+
+/** Only what changes: names not there yet to add, names there (as GitHub spells them) to remove. */
+function members(
+  field: "labels" | "assignees",
+  current: readonly string[],
+  value: { add: readonly string[]; remove: readonly string[] },
+  allowed: boolean | undefined,
+): IssueWritePlan {
+  const next = applyMembers(current, value.add, value.remove);
+  if (same(next, current)) return { kind: "done" };
+  if (!allowed) return { kind: "forbidden" };
+  const kept = new Set(next.map((name) => name.toLowerCase()));
+  const had = new Set(current.map((name) => name.toLowerCase()));
+  return {
+    kind: "members",
+    field,
+    add: next.filter((name) => !had.has(name.toLowerCase())),
+    remove: current.filter((name) => !kept.has(name.toLowerCase())),
+  };
 }
 
 function edit(current: ForgeIssueDetail, value: Extract<Change, { action: "edit" }>) {
@@ -62,16 +91,10 @@ export function planIssueWrite(current: ForgeIssueDetail, value: Change): IssueW
       if (!allowed) return { kind: "forbidden" };
       return { kind: "patch", body: { state: value.state, state_reason: reason } };
     }
-    case "labels": {
-      const next = applied(current.labels, value.add, value.remove);
-      if (same(next, current.labels)) return { kind: "done" };
-      return triage ? { kind: "patch", body: { labels: next } } : { kind: "forbidden" };
-    }
-    case "assignees": {
-      const next = applied(current.assignees, value.add, value.remove);
-      if (same(next, current.assignees)) return { kind: "done" };
-      return triage ? { kind: "patch", body: { assignees: next } } : { kind: "forbidden" };
-    }
+    case "labels":
+      return members("labels", current.labels, value, triage);
+    case "assignees":
+      return members("assignees", current.assignees, value, triage);
     case "milestone":
       if ((current.milestoneNumber ?? null) === value.milestone) return { kind: "done" };
       return triage
@@ -83,8 +106,14 @@ export function planIssueWrite(current: ForgeIssueDetail, value: Change): IssueW
 /** Whether the issue as read now shows a change already made: for recovery after a lost answer. */
 export function issueWriteLanded(current: ForgeIssueDetail, value: Change): boolean {
   switch (value.action) {
-    case "edit":
-      return current.title === value.title && current.body === value.body;
+    case "edit": {
+      // With a base, only the fields this edit changed were sent: the others may hold someone
+      // else's newer text, which says nothing about whether this edit landed.
+      const changed = (["title", "body"] as const).filter(
+        (field) => !value.base || value[field] !== value.base[field],
+      );
+      return changed.every((field) => current[field] === value[field]);
+    }
     case "state":
       return (
         current.state === value.state &&

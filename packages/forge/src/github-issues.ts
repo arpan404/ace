@@ -1,5 +1,5 @@
 import { ForgeMutationOutcome } from "./mutation.ts";
-import type { WriteDispatch } from "./write-dispatch.ts";
+import { WriteDispatch } from "./write-dispatch.ts";
 import { z } from "zod";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import {
@@ -13,7 +13,7 @@ import type { GhApi } from "./http.ts";
 import { ForgeError } from "./errors.ts";
 import { viewerLogin } from "./github-browser-enrichment.ts";
 import { avatars, labelColors } from "./github-row-facts.ts";
-import { issueWriteLanded, planIssueWrite } from "./issue-write-plan.ts";
+import { issueWriteLanded, planIssueWrite, type IssueWritePlan } from "./issue-write-plan.ts";
 
 const user = z.looseObject({ login: z.string().max(256) });
 export const GitHubIssueRecord = z.looseObject({
@@ -321,6 +321,10 @@ export class GitHubIssues {
       if (plan.kind === "forbidden") throw new ForgeError("forbidden");
       if (plan.kind === "done") return current.ref;
       signal.throwIfAborted();
+      if (plan.kind === "members") {
+        await this.#members(value.number, plan, signal, dispatch);
+        return current.ref;
+      }
       const record = decode(
         GitHubIssueRecord,
         (
@@ -336,6 +340,37 @@ export class GitHubIssues {
       if (record.number !== value.number) throw new ForgeError("invalid_data");
     }
     return current.ref;
+  }
+  /**
+   * The add and remove calls for labels or assignees, one after another. Only the first is
+   * journaled through `dispatch`: once it has gone, any later failure leaves the write
+   * uncertain (part of it landed), never failed, and recovery reads what GitHub shows.
+   */
+  async #members(
+    number: number,
+    plan: Extract<IssueWritePlan, { kind: "members" }>,
+    signal: AbortSignal,
+    dispatch: WriteDispatch | undefined,
+  ) {
+    const path = `${this.#root}/issues/${number}/${plan.field}`;
+    const calls: [string, unknown, "POST" | "DELETE"][] = [];
+    if (plan.add.length) calls.push([path, { [plan.field]: plan.add }, "POST"]);
+    if (plan.remove.length && plan.field === "assignees")
+      calls.push([path, { assignees: plan.remove }, "DELETE"]);
+    if (plan.field === "labels")
+      for (const name of plan.remove)
+        calls.push([`${path}/${encodeURIComponent(name)}`, undefined, "DELETE"]);
+    let first = true;
+    for (const [target, body, method] of calls) {
+      signal.throwIfAborted();
+      try {
+        await this.#request(target, signal, body, method, first ? dispatch : new WriteDispatch());
+      } catch (error) {
+        if (first) throw error;
+        throw new ForgeMutationOutcome({ dispatched: true });
+      }
+      first = false;
+    }
   }
   /** Read-only recovery. Absence within the bounded window never authorizes another POST. */
   async reconcile(input: ForgeIssueWrite, actionId: string, signal: AbortSignal) {

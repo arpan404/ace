@@ -7,7 +7,7 @@ import {
   CommandId,
   WorkspaceActionRequest,
 } from "@ace/protocol";
-import { planIssueWrite } from "@ace/forge/issue-write-plan";
+import { applyMembers, planIssueWrite } from "@ace/forge/issue-write-plan";
 import { catalogMilestones } from "./catalog/pr-management.ts";
 
 /**
@@ -168,6 +168,12 @@ export class FakeIssueWire {
       });
     } else if (detail && plan?.kind === "patch") {
       detail = patched(detail, plan.body, at);
+    } else if (detail && plan?.kind === "members") {
+      detail = {
+        ...detail,
+        updatedAt: at,
+        [plan.field]: applyMembers(detail[plan.field], plan.add, plan.remove),
+      };
     } else if (detail && input.action === "comment") {
       detail = { ...detail, updatedAt: at, commentCount: (detail.commentCount ?? 0) + 1 };
     }
@@ -274,9 +280,6 @@ export class FakeIssueWire {
   }
 }
 
-const names = (value: unknown) =>
-  Array.isArray(value) ? value.filter((each) => typeof each === "string") : undefined;
-
 /** An issue after a PATCH GitHub would apply: the fields named change, the rest stay. */
 function patched(detail: ForgeIssueDetail, body: Record<string, unknown>, at: string) {
   const next: ForgeIssueDetail = { ...detail, updatedAt: at };
@@ -289,8 +292,6 @@ function patched(detail: ForgeIssueDetail, body: Record<string, unknown>, at: st
     body.state_reason === "reopened"
   )
     next.stateReason = body.state_reason;
-  next.labels = names(body.labels) ?? next.labels;
-  next.assignees = names(body.assignees) ?? next.assignees;
   if ("milestone" in body) {
     const found = catalogMilestones.find((milestone) => milestone.number === body.milestone);
     next.milestone = found?.title ?? null;

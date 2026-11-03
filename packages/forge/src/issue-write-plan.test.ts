@@ -74,11 +74,12 @@ test("a body edit conflicts only when someone else changed the body to something
   ).toEqual({ kind: "conflict" });
 });
 
-test("labels and assignees change from the issue as it is now, keeping others' additions", () => {
-  const current = { ...issue, labels: ["bug", "added-meanwhile"] };
+test("labels and assignees change by what was added and removed, never by the whole set", () => {
+  const current = { ...issue, labels: ["Bug", "added-meanwhile"] };
+  // Only the change is sent, so a label someone adds after this read survives the write.
   expect(
-    planIssueWrite(current, { action: "labels", number: 7, add: ["ui"], remove: ["bug"] }),
-  ).toEqual({ kind: "patch", body: { labels: ["added-meanwhile", "ui"] } });
+    planIssueWrite(current, { action: "labels", number: 7, add: ["ui", "BUG"], remove: ["bug"] }),
+  ).toEqual({ kind: "members", field: "labels", add: ["ui"], remove: ["Bug"] });
   expect(
     planIssueWrite(issue, { action: "assignees", number: 7, add: ["mira"], remove: [] }),
   ).toEqual({ kind: "done" });
@@ -101,4 +102,18 @@ test("a lost milestone or label write is recognised once GitHub shows it", () =>
   expect(issueWriteLanded(issue, { action: "labels", number: 7, add: ["ui"], remove: [] })).toBe(
     false,
   );
+});
+
+test("a lost title edit that kept someone else's newer body is recognised once the title shows", () => {
+  const edit = {
+    action: "edit",
+    number: 7,
+    expectedUpdatedAt: readAt,
+    title: "Retry in order",
+    body: "Keep order.",
+    base: { title: "Handle retries", body: "Keep order." },
+  } as const;
+  const landed = { ...issue, title: "Retry in order", body: "Someone's newer text." };
+  expect(issueWriteLanded(landed, edit)).toBe(true);
+  expect(issueWriteLanded({ ...issue, body: "Someone's newer text." }, edit)).toBe(false);
 });
