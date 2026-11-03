@@ -7,6 +7,7 @@ import type { ScreenOptions } from "./options.ts";
 import { nodeScheduler } from "./runtime.ts";
 import { bundles } from "./policy.ts";
 import { readTree, findElements } from "./semantic.ts";
+const StreamCodec = z.object({ codec: z.enum(["jpeg", "h264"]) });
 type ObservationPorts = {
   host: HelperHost;
   live(id: string): Session;
@@ -105,9 +106,9 @@ export class SessionObservations {
       !session.helper.capabilities.codecs.includes("h264")
     )
       return { codec: "jpeg" };
-    const result = z
-      .object({ codec: z.enum(["jpeg", "h264"]) })
-      .parse(await session.helper.request({ op: "stream.configure", settings }));
+    const result = StreamCodec.parse(
+      await session.helper.request({ op: "stream.configure", settings }),
+    );
     // A view may ask just before its subscription lands; the last one leaving switches back.
     if (result.codec === "h264") session.viewerVideo = true;
     return result;

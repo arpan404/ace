@@ -25,6 +25,12 @@ import { AncestryProbe } from "./ancestry.ts";
 import { cleanupOwned } from "./cleanup.ts";
 import { SessionOwnership } from "./ownership.ts";
 import { RecoveryEvidence } from "./recovery-evidence.ts";
+const PreviousModel = z.object({
+  providerID: z.string(),
+  id: z.string(),
+  variant: z.string().optional(),
+});
+const InterruptResult = z.object({ interrupted: z.boolean() });
 export class OpenCodeSession implements ProviderSession {
   private mcpDirectories = new Set<string>();
   private ctx: SessionContext;
@@ -186,9 +192,7 @@ export class OpenCodeSession implements ProviderSession {
       }
       if (ctx.resume) {
         const model = selectedModel(ctx.model, ctx.options);
-        const previous = z
-          .object({ providerID: z.string(), id: z.string(), variant: z.string().optional() })
-          .safeParse(info.model);
+        const previous = PreviousModel.safeParse(info.model);
         if (
           model &&
           (!previous.success ||
@@ -363,11 +367,9 @@ export class OpenCodeSession implements ProviderSession {
     const ids = target.cascade ? this.ownership.descendants(root).concat(root) : [root];
     let stopped = false;
     for (const sessionID of ids) {
-      const result = z
-        .object({ interrupted: z.boolean() })
-        .parse(
-          await request("interrupt request", () => this.client.session.interrupt({ sessionID })),
-        );
+      const result = InterruptResult.parse(
+        await request("interrupt request", () => this.client.session.interrupt({ sessionID })),
+      );
       stopped ||= result.interrupted;
     }
     // A Stop also ends the tree's shells, including ones still running after every turn ended.

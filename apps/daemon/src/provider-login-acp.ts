@@ -18,6 +18,8 @@ import {
 import type { OpenTerminalOptions } from "@ace/terminal";
 import type { ProviderKind, ProviderLoginInput } from "@ace/protocol";
 
+const EmptyResult = z.object({});
+
 const Method = z.object({
   id: z.string().min(1).max(128),
   name: z.string().min(1).max(128),
@@ -242,7 +244,7 @@ export function acpLoginDriver(options: {
           throw new Error("Unexpected installed agent");
         if (options.action === "logout") {
           if (!init.agentCapabilities?.auth?.logout) return { success: false };
-          z.object({}).parse(await peer.request("logout", {}, { signal }));
+          EmptyResult.parse(await peer.request("logout", {}, { signal }));
           return { success: true };
         }
         // Secrets stay in the installed agent, including its advertised interactive terminal. A
@@ -350,7 +352,7 @@ export function acpLoginDriver(options: {
               },
         );
         // Bounded like the sign-in session itself: an agent that never answers can't hold it.
-        z.object({}).parse(
+        EmptyResult.parse(
           await peer.request("authenticate", { methodId }, { signal, timeoutMs: authenticateMs }),
         );
         signedInWith = methodId;

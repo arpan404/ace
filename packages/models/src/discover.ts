@@ -16,6 +16,7 @@ import { normalizeAcp, normalizeClaude, normalizeCodex, normalizeCursorSdk } fro
 import type { DiscoverModels, ModelInstance } from "./types.ts";
 import type { CatalogModel } from "@ace/protocol";
 
+const InitializeReply = z.object({ protocolVersion: z.literal(1) }).passthrough();
 export type DiscoveryOptions = {
   spawn?: (options: SpawnOptions) => SupervisedProcess;
   cursorSlots?: CursorHostSlots;
@@ -145,20 +146,17 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         }
         throw new Error("Model pagination limit reached");
       }
-      const initialized = z
-        .object({ protocolVersion: z.literal(1) })
-        .passthrough()
-        .parse(
-          await rpc.request(
-            "initialize",
-            {
-              protocolVersion: 1,
-              clientInfo: { name: "ace_models", version: "0.0.0" },
-              clientCapabilities: { _meta: { parameterizedModelPicker: true } },
-            },
-            { signal },
-          ),
-        );
+      const initialized = InitializeReply.parse(
+        await rpc.request(
+          "initialize",
+          {
+            protocolVersion: 1,
+            clientInfo: { name: "ace_models", version: "0.0.0" },
+            clientCapabilities: { _meta: { parameterizedModelPicker: true } },
+          },
+          { signal },
+        ),
+      );
       void initialized;
       const peer = rpc;
       const session = await openWithSignIn(

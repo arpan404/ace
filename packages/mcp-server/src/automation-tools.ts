@@ -18,6 +18,7 @@ const automations = {
   timeoutMs: controlToolTimeoutMs,
   capability: "automations",
 } as const;
+const AutomationDefinitions = z.array(z.record(z.string(), z.unknown()));
 const automationId = z.string().min(1).max(256).describe("The id you gave it in automation_put.");
 
 const automationsList = controlTool({
@@ -51,7 +52,7 @@ const automationsList = controlTool({
       op: "automation.manage",
       request: { type: "automation.list", requestId: "list" },
     });
-    const definitions = z.array(z.record(z.string(), z.unknown())).safeParse(listed.data);
+    const definitions = AutomationDefinitions.safeParse(listed.data);
     return definitions.success
       ? { ...listed, data: { automations: definitions.data.map(summary) } }
       : listed;
@@ -107,7 +108,7 @@ const automationPut = controlTool({
       op: "automation.manage",
       request: { type: "automation.list", requestId: `put-read:${automation.id}` },
     });
-    const definitions = z.array(z.record(z.string(), z.unknown())).safeParse(listed.data);
+    const definitions = AutomationDefinitions.safeParse(listed.data);
     const entry = definitions.success
       ? definitions.data.find((candidate) => candidate["id"] === automation.id)
       : undefined;

@@ -20,6 +20,8 @@ import { certificateErrors } from "./certificate-errors.ts";
 import { FileChooserPrompt } from "./file-chooser.ts";
 import { needsOpener, opensWindow, PopupPairing, type PopupKind } from "./popup-kind.ts";
 
+const EvaluateOutcome = z.object({ exceptionDetails: z.unknown().optional() });
+
 const Navigated = z.object({
   frame: z.object({
     url: z.string(),
@@ -304,7 +306,7 @@ export class ChromeTabs {
     const tab = this.tabs.get(id);
     if (!tab) throw new Error("Browser tab unavailable");
     await tab.certificates.shown(url);
-    const result = z.object({ exceptionDetails: z.unknown().optional() }).parse(
+    const result = EvaluateOutcome.parse(
       await tab.cdp.send("Runtime.evaluate", {
         expression: proceedOnWarningPage,
         awaitPromise: true,

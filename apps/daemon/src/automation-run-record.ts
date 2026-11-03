@@ -2,6 +2,8 @@ import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "./store.ts";
 
+const StopCommands = z.array(CommandId);
+
 /**
  * One durable record per automation run, shared by every automation executor: the thread the
  * run went to, the command that carries its message now (a resend replaces it), the engine run
@@ -92,9 +94,7 @@ export class RunRecords {
       disposition: value.disposition,
       cancel: value.cancel ?? undefined,
       stopTarget: value.stop_target ?? undefined,
-      stopCommands: value.stop_commands
-        ? z.array(CommandId).parse(JSON.parse(value.stop_commands))
-        : [],
+      stopCommands: value.stop_commands ? StopCommands.parse(JSON.parse(value.stop_commands)) : [],
       stopAttempts: value.stop_attempts,
       stopRetryAt: value.stop_retry_at ?? undefined,
       stopError: value.stop_error ?? undefined,

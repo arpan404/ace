@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { CommandRequest } from "./command.ts";
 import { ForgeError } from "./errors.ts";
 
+const GraphqlRequest = z.object({ query: z.string() });
+
 /** CLI reads (including GraphQL queries) must not be mistaken for remote writes. */
 export function isForgeMutation(request: CommandRequest): boolean {
   if (request.args[0] === "pr" && request.args[1] === "merge") return true;
@@ -14,7 +16,7 @@ export function isForgeMutation(request: CommandRequest): boolean {
   if (request.args[1] === "markdown") return false;
   if (request.args[1] === "graphql") {
     try {
-      const query = z.object({ query: z.string() }).parse(JSON.parse(request.input ?? "")).query;
+      const query = GraphqlRequest.parse(JSON.parse(request.input ?? "")).query;
       if (/^\s*(?:query\b|\{)/.test(query)) return false;
     } catch {
       /* An unrecognized request cannot be admitted as a read. */

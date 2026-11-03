@@ -17,6 +17,7 @@ const PackageManifest = z.object({
   version: z.string(),
   bin: z.union([z.string(), z.record(z.string(), z.string())]),
 });
+const PackageLock = z.object({ packages: z.record(z.string(), z.unknown()) });
 export type InstallRuntime = {
   fetch?: typeof fetch;
   spawn?: (options: SpawnOptions) => SupervisedProcess;
@@ -143,9 +144,9 @@ async function packageEvidence(plan: InstallPlan, root: string) {
   const spec = plan.agent.distribution.npx?.package ?? plan.agent.distribution.uvx?.package ?? "";
   let integrity: string | undefined;
   if (plan.preview.runtime === "npm") {
-    const lock = z
-      .object({ packages: z.record(z.string(), z.unknown()) })
-      .parse(await readBoundedJson(join(root, "package-lock.json"), 4 * 1024 * 1024));
+    const lock = PackageLock.parse(
+      await readBoundedJson(join(root, "package-lock.json"), 4 * 1024 * 1024),
+    );
     const name = spec.slice(0, spec.lastIndexOf("@"));
     const entry = z
       .object({

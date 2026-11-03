@@ -8,6 +8,7 @@ const nonnegative = z
   .union([z.number(), z.string().regex(/^\d+(?:\.\d+)?$/)])
   .transform(Number)
   .pipe(z.number().finite().nonnegative());
+const NonnegativeValues = z.array(nonnegative);
 const windowsDisk = z.object({ DiskBytesPersec: nonnegative });
 export type CpuTimes = { idle: number; total: number }[];
 export function cpuActivity(before: CpuTimes, after: CpuTimes): number | null {
@@ -34,7 +35,7 @@ export function macDiskActivity(output: string): number | null {
     columns.some((value, index) => value !== ["KB/t", "tps", "MB/s"][index % 3])
   )
     return null;
-  const values = z.array(nonnegative).safeParse(rows.at(-1)?.trim().split(/\s+/));
+  const values = NonnegativeValues.safeParse(rows.at(-1)?.trim().split(/\s+/));
   if (!values.success || values.data.length !== columns.length) return null;
   return values.data.reduce(
     (sum, value, index) => sum + (index % 3 === 2 ? value * 1024 ** 2 : 0),
@@ -48,7 +49,7 @@ export function linuxDiskBytes(output: string): number | null {
   for (const line of output.trim().split(/\r?\n/)) {
     const fields = line.trim().split(/\s+/);
     if (fields.length < 14) return null;
-    const values = z.array(nonnegative).safeParse(fields.slice(3));
+    const values = NonnegativeValues.safeParse(fields.slice(3));
     if (!values.success) return null;
     const read = values.data[2],
       written = values.data[6];

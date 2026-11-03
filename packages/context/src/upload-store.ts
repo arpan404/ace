@@ -28,6 +28,13 @@ import { defaultUploadLimits, type UploadOptions, type UploadLimits } from "./up
 export { defaultUploadLimits, type UploadOptions, type UploadLimits } from "./upload-options.ts";
 
 type Result = ContextResult["result"];
+const DraftRow = z.object({
+  device: z.string(),
+  workspace: z.string(),
+  expires: z.number(),
+  adopted: z.string().nullable(),
+});
+const BlobHashes = z.array(BlobHash).max(64);
 export class UploadStore {
   private metadata: Metadata;
   private options: UploadOptions;
@@ -112,14 +119,7 @@ export class UploadStore {
   }
   async draftWorkspace(device: string, id: string): Promise<string> {
     const row = this.metadata.get("SELECT * FROM drafts WHERE id=?", id);
-    const draft = z
-      .object({
-        device: z.string(),
-        workspace: z.string(),
-        expires: z.number(),
-        adopted: z.string().nullable(),
-      })
-      .safeParse(row);
+    const draft = DraftRow.safeParse(row);
     requireContext(
       draft.success && draft.data.device === device && draft.data.expires > this.options.now(),
       "not_found",
@@ -559,7 +559,7 @@ export class UploadStore {
   }
   /** Atomically validate and pin every reference before asynchronous preparation. */
   async acquire(device: string, thread: string, hashes: readonly string[]): Promise<BlobLease> {
-    const parsed = z.array(BlobHash).max(64).parse(hashes);
+    const parsed = BlobHashes.parse(hashes);
     return this.serialize(async () => {
       await this.authorized(device, thread);
       const blobs = parsed.map((hash) => {

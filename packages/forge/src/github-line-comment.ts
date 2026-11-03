@@ -14,6 +14,7 @@ const Inline = z.looseObject({
   path: text.optional(),
   user: z.looseObject({ login: text }).nullable(),
 });
+const PatchedFile = z.looseObject({ filename: text, patch: z.string().max(4_194_304).optional() });
 
 /** Every anchor must name a line GitHub's own patch for the PR draws, never a local worktree's. */
 export async function assertHostedAnchors(
@@ -24,7 +25,7 @@ export async function assertHostedAnchors(
 ): Promise<void> {
   const files = await io.records(
     `${io.root}/pulls/${number}/files?per_page=100`,
-    z.looseObject({ filename: text, patch: z.string().max(4_194_304).optional() }),
+    PatchedFile,
     signal,
   );
   for (const anchor of anchors) {

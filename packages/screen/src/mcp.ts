@@ -9,6 +9,7 @@ import { agentOwner } from "./agent-binding.ts";
 import { computerUseHandler, settledResult } from "./tools.ts";
 import { computerUseSchemas, screenToolMetadata, type ScreenToolName } from "./tool-schemas.ts";
 
+const SelectedSession = z.object({ sessionId: ScreenId.optional() });
 function resultMetadata(state: ScreenState) {
   return {
     "ace/screen": {
@@ -97,7 +98,7 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
                 return { content: text(await manager.listAppWindows(bundleId)) };
               }
               if (name === "screen_open_app") return await openApp(manager, args, context);
-              const selected = z.object({ sessionId: ScreenId.optional() }).parse(args);
+              const selected = SelectedSession.parse(args);
               const observing =
                 name === "screen_measure" &&
                 computerUseSchemas.screen_measure.parse(args).action === undefined;

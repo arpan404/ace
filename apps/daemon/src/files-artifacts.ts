@@ -7,6 +7,8 @@ import { z } from "zod";
 import type { WorkspaceId, ThreadId } from "@ace/protocol";
 import type { Store } from "./store.ts";
 
+const OutputChunk = z.object({ bytes: z.instanceof(Buffer), nextOffset: z.number().int() });
+
 /** Local producers publish bounded files; clients address only the resulting registry ID. */
 export function daemonArtifacts(
   files: FilesService,
@@ -112,15 +114,9 @@ export function daemonArtifacts(
               let offset = 0;
               while (offset < info.size) {
                 assertAuthorized();
-                const chunk = z
-                  .object({ bytes: z.instanceof(Buffer), nextOffset: z.number().int() })
-                  .parse(
-                    store.readOutputBytes(
-                      streamId,
-                      offset,
-                      Math.min(64 * 1024, info.size - offset),
-                    ),
-                  );
+                const chunk = OutputChunk.parse(
+                  store.readOutputBytes(streamId, offset, Math.min(64 * 1024, info.size - offset)),
+                );
                 if (chunk.nextOffset <= offset || chunk.nextOffset > info.size)
                   throw new FileError("CONFLICT", "Output snapshot changed during export");
                 await file.writeFile(chunk.bytes);

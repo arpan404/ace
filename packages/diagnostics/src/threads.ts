@@ -4,6 +4,10 @@ import { Worker } from "node:worker_threads";
 import type { LogWorkerRuntime } from "./worker-sink.ts";
 import { z } from "zod";
 import type { RedactionContext } from "@ace/redaction";
+const ExportBatch = z.object({
+  done: z.boolean(),
+  lines: z.array(z.string().max(128000)).max(16),
+});
 /** Pull one bounded batch at a time. The bundle owns this generator's lifetime. */
 export async function* recentThreadEvents(
   path: string,
@@ -48,9 +52,7 @@ export async function* recentThreadEvents(
         }, runtime.deadlineMs);
         worker.postMessage("next", []);
       }).finally(() => cancel());
-      const result = z
-        .object({ done: z.boolean(), lines: z.array(z.string().max(128000)).max(16) })
-        .parse(input);
+      const result = ExportBatch.parse(input);
       for (const line of result.lines) yield line;
       if (result.done) return;
     }

@@ -15,6 +15,17 @@ import { navigateCdp } from "./cdp-navigation.ts";
 
 const TabEvent = z.object({ tabId: z.string(), method: z.string(), params: z.unknown() });
 const Crashed = z.object({ crashes: z.number().int().optional(), reason: z.string().optional() });
+const Audio = z.object({ audible: z.boolean(), muted: z.boolean() });
+const Viewport = z.object({ width: z.number().positive(), height: z.number().positive() });
+const DialogOpening = z.object({
+  type: BrowserDialog.shape.type,
+  message: z.string(),
+  defaultPrompt: z.string().optional(),
+});
+const WebSocketCheck = z.object({ id: z.string(), url: z.string() });
+const FrameTarget = z.object({ aceTabId: z.string().optional() });
+const Popup = z.object({ url: z.string().max(8192), tabId: z.string().optional() });
+const OpenedTab = z.object({ tabId: z.string() });
 type Guard = Awaited<ReturnType<typeof installOriginGuard>>;
 interface Tab {
   state: BrowserTab;
@@ -107,29 +118,21 @@ export class EmbeddedTabs {
     }
     if (method === "ace.printRequested") this.request.print?.(tab.state.tabId);
     if (method === "ace.audio") {
-      const audio = z.object({ audible: z.boolean(), muted: z.boolean() }).safeParse(params);
+      const audio = Audio.safeParse(params);
       if (audio.success) {
         tab.audio = audio.data;
         this.request.changed?.();
       }
     }
     if (method === "ace.viewport") {
-      const parsed = z
-        .object({ width: z.number().positive(), height: z.number().positive() })
-        .safeParse(params);
+      const parsed = Viewport.safeParse(params);
       if (parsed.success) {
         tab.viewport = parsed.data;
         this.request.changed?.();
       }
     }
     if (method === "Page.javascriptDialogOpening") {
-      const parsed = z
-        .object({
-          type: BrowserDialog.shape.type,
-          message: z.string(),
-          defaultPrompt: z.string().optional(),
-        })
-        .safeParse(params);
+      const parsed = DialogOpening.safeParse(params);
       if (parsed.success) {
         tab.dialog = BrowserDialog.parse({
           dialogId: `${tab.state.tabId}-dialog-${++this.sequence}`,
@@ -147,7 +150,7 @@ export class EmbeddedTabs {
     if (method === "Page.frameNavigated" || method === "Page.navigatedWithinDocument")
       this.request.navigation(event.data.tabId);
     if (method === "ace.webSocketRequested") {
-      const check = z.object({ id: z.string(), url: z.string() }).safeParse(params);
+      const check = WebSocketCheck.safeParse(params);
       if (check.success)
         void this.request
           .allowed(check.data.url)
@@ -181,7 +184,7 @@ export class EmbeddedTabs {
     await this.update(state);
   }
   private frame = (raw: unknown) => {
-    const target = z.object({ aceTabId: z.string().optional() }).safeParse(raw);
+    const target = FrameTarget.safeParse(raw);
     if (target.success && (!target.data.aceTabId || target.data.aceTabId === this.activeId))
       this.entries.get(this.activeId)?.events.emit("Page.screencastFrame", raw);
   };
@@ -189,9 +192,7 @@ export class EmbeddedTabs {
     this.entries.get(this.activeId)?.events.emit("ace.permissionDenied", raw);
   };
   private popup = (raw: unknown) => {
-    const parsed = z
-      .object({ url: z.string().max(8192), tabId: z.string().optional() })
-      .safeParse(raw);
+    const parsed = Popup.safeParse(raw);
     if (!parsed.success || this.stopped) return;
     const id = parsed.data.tabId ?? this.activeId;
     const tab = this.entries.get(id);
@@ -458,7 +459,7 @@ export class EmbeddedTabs {
     const state = decodeNativeTabs(raw)?.state;
     if (!state) return this.activeId;
     await this.update(state);
-    const opened = z.object({ tabId: z.string() }).safeParse(raw);
+    const opened = OpenedTab.safeParse(raw);
     return opened.success && this.entries.has(opened.data.tabId)
       ? opened.data.tabId
       : this.activeId;

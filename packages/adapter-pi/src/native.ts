@@ -1,5 +1,6 @@
 import { z } from "zod";
 export const ObjectValue = z.record(z.string(), z.unknown());
+const UnknownList = z.array(z.unknown());
 export function obj(value: unknown): Record<string, unknown> {
   const p = ObjectValue.safeParse(value);
   return p.success ? p.data : {};
@@ -8,7 +9,7 @@ export function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 export function list(value: unknown): unknown[] {
-  return Array.isArray(value) ? z.array(z.unknown()).parse(value) : [];
+  return Array.isArray(value) ? UnknownList.parse(value) : [];
 }
 export const Envelope = z.looseObject({ type: z.string() });
 export const Response = z.looseObject({

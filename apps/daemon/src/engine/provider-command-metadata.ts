@@ -20,6 +20,10 @@ const piCommands = z.object({
   data: z.object({ commands: z.array(z.unknown()).max(512) }),
 });
 const piControlCommands = new Set(["ace-context", "ace-rollback", "ace-permissions"]);
+const NamedCommand = z.object({ name: z.string() });
+const CommandsUpdate = z
+  .object({ sessionUpdate: z.literal("available_commands_update") })
+  .passthrough();
 /** Decode only metadata channels; deltas and retained transcript bodies never enter command discovery. */
 export function providerCommandMetadata(
   frame: Frame,
@@ -46,7 +50,7 @@ export function providerCommandMetadata(
     return {
       sessionUpdate: "available_commands_update",
       availableCommands: pi.data.data.commands.filter((command) => {
-        const name = z.object({ name: z.string() }).safeParse(command);
+        const name = NamedCommand.safeParse(command);
         return !name.success || !piControlCommands.has(name.data.name);
       }),
     };
@@ -57,9 +61,6 @@ export function providerCommandMetadata(
     return { type: "system", subtype: "init", slash_commands: data.commands };
   if (data.type === "system" && data.subtype === "init" && Array.isArray(data.slash_commands))
     return data;
-  const update = z
-    .object({ sessionUpdate: z.literal("available_commands_update") })
-    .passthrough()
-    .safeParse(data.params?.update);
+  const update = CommandsUpdate.safeParse(data.params?.update);
   return data.method === "session/update" && update.success ? update.data : undefined;
 }

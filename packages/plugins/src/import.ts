@@ -51,6 +51,7 @@ const portableManifest = z.object({
   extensions: z.unknown().optional(),
 });
 const object = z.record(z.string(), z.unknown());
+const PortableMcpFile = z.strictObject({ $schema: z.literal(agentMcpSchema), mcpServers: object });
 function directoryPath(input: string): string {
   return normalizePath(input.endsWith("/") ? input.slice(0, -1) : input);
 }
@@ -190,8 +191,7 @@ export function importPlugin(files: Record<string, string>): ImportedPlugin {
       : ".mcp.json";
   if (files[mcpFile] !== undefined && !(isCursor && manifest.mcpServers !== undefined)) {
     const value = parseJson(files[mcpFile]);
-    if (isPortable)
-      z.strictObject({ $schema: z.literal(agentMcpSchema), mcpServers: object }).parse(value);
+    if (isPortable) PortableMcpFile.parse(value);
     readMcp(value);
   }
   if (!isPortable && manifest.mcpServers !== undefined) readMcp(manifest.mcpServers);

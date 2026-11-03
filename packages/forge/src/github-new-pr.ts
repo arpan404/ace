@@ -66,6 +66,8 @@ const Templates = z.object({
       .nullable(),
   }),
 });
+const ForkHeadRef = z.looseObject({ object: z.looseObject({ sha }) });
+const Milestones = z.array(Milestone).max(100);
 
 function decode<T>(schema: z.ZodType<T>, body: unknown): T {
   const parsed = schema.safeParse(body);
@@ -89,10 +91,11 @@ export class GitHubNewPr {
     const items: T[] = [];
     let endpoint: string | undefined = path;
     let page = 0;
+    const listed = z.array(schema).max(100);
     for (; endpoint && page < maxPages; page++) {
       const response = await this.#api.request(endpoint, signal);
       budget.add(response.bytes);
-      items.push(...decode(z.array(schema).max(100), response.body));
+      items.push(...decode(listed, response.body));
       endpoint = this.#api.next(response, path);
     }
     return { items, truncated: endpoint !== undefined };
@@ -104,7 +107,7 @@ export class GitHubNewPr {
         `repos/${head.owner}/${head.name}/git/ref/heads/${branchPath(head.branch)}`,
         signal,
       );
-      return decode(z.looseObject({ object: z.looseObject({ sha }) }), response.body).object.sha;
+      return decode(ForkHeadRef, response.body).object.sha;
     } catch (error) {
       if (error instanceof ForgeError && error.kind === "not_found")
         throw new ForgeError("head_missing");
@@ -160,7 +163,7 @@ export class GitHubNewPr {
       `${this.#root}/milestones?state=open&sort=due_on&direction=asc&per_page=100`,
       signal,
     );
-    return decode(z.array(Milestone).max(100), response.body).map((milestone) => ({
+    return decode(Milestones, response.body).map((milestone) => ({
       number: milestone.number,
       title: milestone.title,
       state: milestone.state,

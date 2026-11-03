@@ -2,6 +2,11 @@ import { OpenCodeServer, type ServerOptions } from "./server.ts";
 import { discoveryFailureCode, discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { metadataFailure } from "./metadata-failure.ts";
 import { z } from "zod";
+const ModelListData = z.array(z.unknown()).max(8192);
+const DefaultModelData = z
+  .object({ providerID: z.string(), modelID: z.string() })
+  .passthrough()
+  .nullable();
 /** Metadata-only, owned lifecycle. No session, prompt, login or credential APIs. */
 export async function discoverOpenCodeModels(
   options: ServerOptions,
@@ -24,7 +29,7 @@ export async function discoverOpenCodeModels(
     const validated = z
       .object({
         location: z.object({ directory: z.literal(directory) }),
-        data: z.array(z.unknown()).max(8192),
+        data: ModelListData,
       })
       .passthrough()
       .parse(payload);
@@ -35,7 +40,7 @@ export async function discoverOpenCodeModels(
       const selected = z
         .object({
           location: z.object({ directory: z.literal(directory) }),
-          data: z.object({ providerID: z.string(), modelID: z.string() }).passthrough().nullable(),
+          data: DefaultModelData,
         })
         .parse(reply);
       if (selected.data) configuredDefault = `${selected.data.providerID}/${selected.data.modelID}`;

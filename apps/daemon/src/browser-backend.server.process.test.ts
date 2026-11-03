@@ -105,6 +105,32 @@ it("registers only a matching local desktop credential and refuses a second conn
     message: expect.stringContaining("already registered"),
   });
 });
+it("refuses desktop browser events from a connection that never registered a backend", async () => {
+  const f = await setup();
+  const desktop = await f.connect(f.credential.device.id);
+  for (const message of [
+    {
+      type: "browser.backend.event",
+      backendId: "backend",
+      sessionId: "session",
+      method: "ace.tabs.event",
+      params: {},
+    },
+    { type: "browser.backend.drawable", drawable: false },
+  ]) {
+    const reply = next(desktop);
+    desktop.send(JSON.stringify(message));
+    expect(await reply).toMatchObject({
+      type: "error",
+      code: "browser_backend_denied",
+      message: "Desktop backend not registered",
+    });
+  }
+  // The refusal leaves the connection usable: registering afterwards still works.
+  expect(await f.register(desktop, f.credential.token)).toMatchObject({
+    type: "browser.backend.registered",
+  });
+});
 it("desktop credentials cannot be paired or converted to remote socket tickets", async () => {
   const f = await setup();
   const auth = new RemoteAuth(f.store.devices, token, {

@@ -10,6 +10,8 @@ import {
   type BrowserHelpTab,
 } from "./browser-help.ts";
 
+const HelpInput = z.object({ machine: z.string().optional() }).passthrough();
+
 /**
  * A tab of the thread's ace browser, as the agent may name it. A backend without a tab list
  * holds one page, which is the agent's current tab. Private tabs are never offered.
@@ -52,10 +54,7 @@ export function browserHelpToolkit(help: BrowserHelp, route?: BrowserMachineRout
         capability: "browser",
         timeoutMs: 250_000,
         run: async (input, context) => {
-          const { machine, ...args } = z
-            .object({ machine: z.string().optional() })
-            .passthrough()
-            .parse(input);
+          const { machine, ...args } = HelpInput.parse(input);
           if (route && machine)
             return route(
               { machine, tool: "browser_request_help", args, timeoutMs: 245_000 },
