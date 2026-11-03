@@ -46,7 +46,7 @@ const lines = {
     unreachable: "fail  WorkOS couldn't be reached to check the API key; try again",
   }[apiKey],
   keyFormat: {
-    ok: "ok    the API key is one sk_live_/sk_test_ value",
+    ok: "ok    the API key is one sk_… value",
     unexpected: "fail  the API key has extra text or spaces around it: paste only the sk_… value",
   }[keyFormat],
   clientId: {

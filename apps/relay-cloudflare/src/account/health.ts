@@ -7,7 +7,7 @@ import type { AccountConfig } from "./config.ts";
 export interface WorkosHealth {
   /** WorkOS accepted the API key (`refused`: 401/403; `unreachable`: anything else). */
   apiKey: "accepted" | "refused" | "unreachable";
-  /** The key reads as one `sk_live_…`/`sk_test_…` value, with nothing pasted around it. */
+  /** The key reads as one `sk_…` value, with nothing pasted around it. */
   keyFormat: "ok" | "unexpected";
   /** WorkOS knows the client id (it publishes keys for it). */
   clientId: "known" | "unknown" | "unreachable";
@@ -16,7 +16,7 @@ export interface WorkosHealth {
 /** How long one answer is reused, so the route can't be used to hammer WorkOS. */
 export const HEALTH_REUSE_MS = 30_000;
 
-const keyShape = /^sk_(live|test)_\S+$/;
+const keyShape = /^sk_\S+$/;
 
 async function status(fetcher: typeof fetch, url: string, init: RequestInit) {
   try {
