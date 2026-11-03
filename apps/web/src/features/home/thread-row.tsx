@@ -18,7 +18,7 @@ import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions, type RowActionsProps } from "./row-actions.tsx";
-import { boldTitle, threadDetails } from "./row-parts.tsx";
+import { RowProvider, RowWork, threadDetails } from "./row-parts.tsx";
 import { RowIndicator } from "./row-indicator.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
@@ -35,9 +35,10 @@ const row = cn(panelRowLine, "relative outline-none");
  * What leads a row: in Active, which spans projects, its project (`task`: three lines led by the
  * project's mark and name, `project`: one line led by its mark, as a pinned row); inside its
  * project, room the width of the project's folder glyph, so its title lines up with the
- * project's name; else nothing.
+ * project's name; a chat (`provider`), the mark of the provider it runs on, as an Inbox row's
+ * third line shows it; else nothing.
  */
-export type RowLead = "task" | "project" | "indent" | "none";
+export type RowLead = "task" | "project" | "provider" | "indent" | "none";
 
 /**
  * Another machine's thread (ADR 0102), drawn under that machine's client. It opens on that
@@ -88,6 +89,11 @@ export function ThreadRow(props: {
   compactActions?: boolean | undefined;
   /** At rest: the title in muted ink (full ink while open), as a settled row's. */
   dimmed?: boolean | undefined;
+  /**
+   * What a one-line row ends with: its status mark (a chat's), or its work (`work`: the pull
+   * request and lines changed, a snoozed or settled row's), unless it needs the person.
+   */
+  end?: "status" | "work" | undefined;
 }) {
   const { machine } = props;
   const Actions = props.actions ?? RowActions;
@@ -148,6 +154,7 @@ export function ThreadRow(props: {
   const body = task ? (
     <TaskLines
       card={card}
+      projectId={entry.workspaceId}
       attention={attention}
       remote={machine !== undefined || !data.machinePrimary}
       actions={actions}
@@ -158,16 +165,19 @@ export function ThreadRow(props: {
     <>
       {props.lead === "project" && <ProjectMark id={entry.workspaceId} badge={card.badge} />}
       {props.lead === "indent" && <span aria-hidden className="w-4 shrink-0" />}
+      {props.lead === "provider" && (
+        // One width with or without the account's badge, so every title starts in line.
+        <span className="flex w-[18px] shrink-0 items-center">
+          <RowProvider card={card} />
+        </span>
+      )}
       <span
         className={cn(
           "min-w-0 flex-1 truncate",
-          boldTitle(attention)
-            ? "font-semibold text-foreground"
-            : current
-              ? "text-foreground"
-              : props.dimmed
-                ? "text-subtle-foreground"
-                : "text-foreground",
+          // Attention is brightness alone: what needs the person and the open thread in full ink.
+          attention.level === "needs-you" || current || !props.dimmed
+            ? "text-foreground"
+            : "text-subtle-foreground",
           // Under the pointer or keyboard focus the row's actions take the mark's place: the
           // title stops short of them. An action's menu keeps them up after the pointer leaves.
           actions ? hoverPad : restingPad,
@@ -177,7 +187,14 @@ export function ThreadRow(props: {
       </span>
       {!actions && !renaming && (
         <span className="flex shrink-0 items-center group-has-[[data-popup-open]]/row:hidden">
-          <RowIndicator attention={attention} card={card} />
+          {/* A snoozed or settled row ends with its work (PR, lines changed) unless it needs the person. */}
+          {props.end === "work" &&
+          attention.level !== "needs-you" &&
+          attention.level !== "failed" ? (
+            <RowWork card={card} />
+          ) : (
+            <RowIndicator attention={attention} card={card} />
+          )}
         </span>
       )}
     </>

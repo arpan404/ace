@@ -12,18 +12,18 @@ struct StripSurface<Content: View>: View {
         let shape = AceShape.group
         ScrollView {
             content()
-                .padding(.horizontal, AceTheme.Spacing.lg)
-                .padding(.top, AceTheme.Spacing.md + AceTheme.Spacing.xxs)
-                .padding(.bottom, AceTheme.Spacing.sm)
+                .padding(.horizontal, AceDesign.Space.margin)
+                .padding(.top, AceDesign.Space.row)
+                .padding(.bottom, AceDesign.Space.related)
         }
         .scrollBounceBehavior(.basedOnSize)
         .scrollIndicators(.hidden)
         .frame(maxHeight: maxHeight)
         .fixedSize(horizontal: false, vertical: true)
-        .containerShape(shape)
+        .concentricContainer()
         .background(GroupedSurface.colour, in: shape)
         .padding(.horizontal, ReadingColumn.bar(sizeClass).composer)
-        .padding(.bottom, AceTheme.Spacing.sm)
+        .padding(.bottom, AceDesign.Space.related)
     }
 }
 
@@ -40,7 +40,7 @@ enum GroupedSurface {
 enum StripMetrics {
     /// Insets inside the surface (a command, a plan) sit `lg` in from its edge, so their corners
     /// are the surface's less that.
-    static let insetRadius = AceShape.nested(in: AceTheme.Radii.composer, inset: AceTheme.Spacing.lg)
+    static let insetRadius = AceDesign.Corner.nested(in: AceDesign.Corner.containerFloor, inset: AceDesign.Space.margin)
 }
 
 /// One row of a request's grouped list: a hairline above every row but the first, the name on
@@ -52,7 +52,7 @@ struct GroupedRow<Content: View>: View {
         content()
             .aceFont(AceTheme.Typography.body, relativeTo: .body)
             .foregroundStyle(AceTheme.Colours.foreground)
-            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
             .overlay(alignment: .top) {
                 if !first { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border).accessibilityHidden(true) }
             }
@@ -64,9 +64,9 @@ struct GroupedRow<Content: View>: View {
 struct GroupedValue: View {
     let text: String
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
+        HStack(spacing: AceDesign.Space.tight) {
             Text(text).lineLimit(1).foregroundStyle(AceTheme.Colours.mutedForeground)
-            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+            Image(systemName: "chevron.right").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.subtleForeground)
                 .accessibilityHidden(true)
         }
     }
@@ -78,18 +78,19 @@ struct StripTextButtonStyle: ButtonStyle {
     var prominent = false
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(prominent ? .semibold : .medium)
+            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(prominent ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(configuration.isPressed || prominent ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.sm)
+            .padding(.horizontal, AceDesign.Space.related)
             // 44pt: the smallest comfortable tap.
-            .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.xs)
+            .frame(minHeight: AceDesign.Size.tap)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? AceDesign.Motion.pressScale : 1)
             // Disabled reads as disabled (DESIGN.md §5): dimmed, not hidden.
-            .opacity(enabled ? 1 : 0.45)
-            .animation(.smooth(duration: 0.12), value: configuration.isPressed)
+            .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
+            .animation(configuration.isPressed ? AceDesign.Motion.arriving(reduceMotion) : AceDesign.Motion.leaving(reduceMotion), value: configuration.isPressed)
             .contentShape(Rectangle())
     }
 }

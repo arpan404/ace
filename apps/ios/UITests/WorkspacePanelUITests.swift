@@ -16,7 +16,7 @@ import XCTest
         open("thread.ios-plan", in: app)
         XCTAssertTrue(title("Plan the kill-all filters", in: app).waitForExistence(timeout: 20))
         // Beside the list there is no tab bar: the sidebar carries Threads and Pull requests.
-        XCTAssertTrue(app.tabBars.buttons["Pulls"].waitForNotHittable(timeout: 5), "a launch in landscape keeps the tab bar hidden")
+        XCTAssertTrue(app.tabBars.buttons["Spade"].waitForNotHittable(timeout: 5), "a launch in landscape keeps the tab bar hidden")
         // A fresh thread's panel opens on Changes beside Files, the list still beside the thread.
         let toggle = app.buttons["thread.panel"]
         XCTAssertTrue(toggle.waitForHittable(timeout: 10))
@@ -73,7 +73,7 @@ import XCTest
         menuItem("Close other tabs", in: app).tap()
         XCTAssertTrue(agents.waitForNonExistence(timeout: 10))
         XCTAssertTrue(changes.reachable && files.reachable && terminal.reachable)
-        XCTAssertFalse(app.tabBars.buttons["Pulls"].reachable, "opening and closing the panel keeps the tab bar hidden")
+        XCTAssertFalse(app.tabBars.buttons["Spade"].reachable, "opening and closing the panel keeps the tab bar hidden")
         screenshot("ipad-panel-pinned")
 
         // A file opened from Files stays in the panel, beside the thread.

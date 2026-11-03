@@ -18,6 +18,8 @@ extension ClientModel {
         await inboxCommand(["kind": "pin", "threadId": threadId, "pinned": pinned])
     }
     func loadOlderThreads() { inboxRequest(["kind": "more"]) }
+    /// The Chats tab's search: the runtime narrows its chats by title; empty lists them all.
+    func searchChats(_ query: String) { inboxRequest(["kind": "chatsQuery", "query": query]) }
     /// A failed send the person took back into the composer or discarded: it leaves the transcript
     /// and Unsent on this phone. `restoreSend` is Undo.
     func dismissSend(_ commandId: String) async -> Bool { await inboxCommand(["kind": "dismissSend", "commandId": commandId]) }

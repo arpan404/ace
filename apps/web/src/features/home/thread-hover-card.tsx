@@ -36,7 +36,13 @@ export function ThreadHoverContent(props: {
   card: ThreadCard;
   entry: ThreadListEntry;
   instance: string | undefined;
+  /**
+   * Where it opens: beside the row (a sidebar row's, the default), or under it (`below`, a
+   * transcript row's), flipping above when there's no room under it.
+   */
+  placement?: "beside" | "below" | undefined;
 }) {
+  const below = props.placement === "below";
   const { card, entry } = props;
   const accounts = useAccountViews();
   const account = props.instance
@@ -53,9 +59,10 @@ export function ThreadHoverContent(props: {
   return (
     <HoverCardContent
       // Beside the row, level with its top, so it never covers the rows below; it flips to the
-      // left only when the window has no room on the right.
-      side="right"
-      sideOffset={8}
+      // left only when the window has no room on the right. Under a transcript row instead,
+      // aligned with its start, flipping above it when the window has no room below.
+      side={below ? "bottom" : "right"}
+      sideOffset={below ? 4 : 8}
       align="start"
       collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
       aria-label={`Details for ${card.title}`}

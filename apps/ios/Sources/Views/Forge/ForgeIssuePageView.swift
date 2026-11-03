@@ -31,9 +31,9 @@ struct ForgeIssuePageView: View {
                 EmptyState(icon: nil, title: "Couldn't load this issue", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.pageState)
             } else {
-                ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
+                SkeletonPage()
             }
         }
         .background(AceTheme.Colours.background)
@@ -41,7 +41,7 @@ struct ForgeIssuePageView: View {
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
             if let page, client.canOperate {
                 Button { start(page) } label: {
-                    Text("Start thread").fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: 44)
+                    Text("Start thread").fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
@@ -192,7 +192,7 @@ struct ForgeIssuePageView: View {
     @ViewBuilder private func eventRow(_ event: ForgeIssuePage.Event) -> some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             HStack(spacing: AceTheme.Spacing.sm) {
-                Text(event.actor).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
+                Text(event.actor).foregroundStyle(AceTheme.Colours.foreground)
                 if !event.comment { Text(event.event) }
                 Spacer(minLength: AceTheme.Spacing.sm)
                 age(event.at)

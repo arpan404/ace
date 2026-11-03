@@ -21,6 +21,7 @@ struct GlassChoice: View {
     let select: (String) -> Void
     @Namespace private var thumb
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollViewReader { scroller in
@@ -28,7 +29,7 @@ struct GlassChoice: View {
                 HStack(spacing: AceTheme.Spacing.xxs) {
                     ForEach(items) { item in segment(item).id(item.id) }
                 }
-                .padding(AceTheme.Spacing.xxs + 1)
+                .padding(AceDesign.Space.tight)
             }
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             .modifier(GlassTrack(interactive: !disabled))
@@ -36,34 +37,34 @@ struct GlassChoice: View {
             .opacity(disabled ? AceTheme.Opacity.disabled(scheme) : 1)
             .onAppear { if let selection { scroller.scrollTo(selection, anchor: .center) } }
             .onChange(of: selection) { _, id in
-                if let id { withAnimation(.easeOut(duration: 0.2)) { scroller.scrollTo(id, anchor: .center) } }
+                if let id { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { scroller.scrollTo(id, anchor: .center) } }
             }
         }
         .fixedSize(horizontal: false, vertical: true)
     }
 
     /// A lifted white thumb in light; in dark, a lighter wash of the ink so it reads on the bar.
-    private var thumbFill: Color { scheme == .dark ? AceTheme.Colours.foreground.opacity(0.16) : AceTheme.Colours.glass }
+    private var thumbFill: Color { AceDesign.Surface.chosen(scheme) }
 
     private func segment(_ item: GlassChoiceItem) -> some View {
         let on = item.id == selection
         return Button {
             guard !on, !disabled else { return }
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { select(item.id) }
+            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { select(item.id) }
         } label: {
-            HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+            HStack(spacing: AceDesign.Space.tight) {
                 switch item.glyph {
-                case .provider(let provider, let quiet)?: ProviderMark(provider: provider, size: 16, quiet: quiet)
-                case .symbol(let name)?: Image(systemName: name).font(.system(size: 13, weight: .semibold))
+                case .provider(let provider, let quiet)?: ProviderMark(provider: provider, size: AceDesign.Size.icon, quiet: quiet)
+                case .symbol(let name)?: Image(systemName: name).font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
                 case nil: EmptyView()
                 }
                 Text(item.label).lineLimit(1)
             }
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-            .fontWeight(on ? .semibold : .medium)
+            .fontWeight(on ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(on ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceTheme.Spacing.md)
-            .frame(minHeight: 34)
+            .frame(minHeight: AceDesign.Size.pill)
             .background {
                 if on { AceShape.capsule.fill(thumbFill).matchedGeometryEffect(id: "thumb", in: thumb) }
             }

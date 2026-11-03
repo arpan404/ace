@@ -14,7 +14,7 @@ struct BrowserDeviceBar: View {
     }
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.lg) {
+        HStack(spacing: AceDesign.Space.margin) {
             Menu {
                 Section {
                     choice("This phone", id: "this-phone")
@@ -24,7 +24,7 @@ struct BrowserDeviceBar: View {
                 section("Computers", kind: "computer")
             } label: {
                 Text(device.label)
-                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .foregroundStyle(AceDesign.Ink.primary)
                     .lineLimit(1)
             }
             .disabled(!enabled)
@@ -33,7 +33,7 @@ struct BrowserDeviceBar: View {
             Text(size)
                 .monospacedDigit()
                 .accessibilityLabel(size.replacingOccurrences(of: " × ", with: " by "))
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .foregroundStyle(AceDesign.Ink.muted)
                 .lineLimit(1)
                 .accessibilityIdentifier("browser.device.size")
             Spacer(minLength: 0)
@@ -44,11 +44,11 @@ struct BrowserDeviceBar: View {
                 .accessibilityLabel("Hide device toolbar")
                 .accessibilityIdentifier("browser.device.hide")
         }
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-        .tint(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceTheme.Spacing.xl)
+        .font(AceDesign.Typeface.body)
+        .tint(AceDesign.Ink.accent)
+        .padding(.horizontal, AceDesign.Space.margin)
         .overlay(alignment: .top) {
             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
         }

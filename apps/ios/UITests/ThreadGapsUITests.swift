@@ -10,14 +10,19 @@ import XCTest
         open("ios-plan", in: app)
         XCTAssertTrue(app.buttons["plan.approve"].waitForExistence(timeout: 25))
         screenshot("plan-review")
+        // The strip's Review opens the whole plan, where it can be sent back.
+        app.buttons["plan.review"].tap()
+        XCTAssertTrue(app.buttons["plan.revise"].waitForExistence(timeout: 10))
         app.buttons["plan.revise"].tap()
         let feedback = app.textFields["plan.feedback"]
         XCTAssertTrue(feedback.waitForExistence(timeout: 10))
         feedback.tap()
         feedback.typeText("Also cover zombie processes")
         screenshot("plan-revise")
-        // The model chip's effort part opens effort and speed, the levels in words.
-        app.composerControl("composer.effort", timeout: 25).tap()
+        app.buttons["plan.close"].tap()
+        // The model pill's long press offers effort and speed, the levels in words.
+        app.threadModelPill(timeout: 25).press(forDuration: 1)
+        app.buttons["Effort and speed"].firstMatch.tap()
         let high = app.buttons["composer.tune.high"]
         XCTAssertTrue(high.waitForExistence(timeout: 25))
         high.tap()

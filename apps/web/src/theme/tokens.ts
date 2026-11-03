@@ -1,6 +1,7 @@
 import {
   oklchToHex,
   rampSteps,
+  rowStatusColours,
   sharedStatus,
   type Palette,
   type Scheme,
@@ -71,28 +72,15 @@ function neutralRamp(p: Palette): Record<`--neutral-${number}`, string> {
 }
 
 /**
- * Thread-row status icons, one colour per state, the same in every theme of a scheme. Each is a
- * mark (an icon, no words), so it needs 3:1 against the sidebar's surfaces, the panel, hover and
- * the open row's fill included (readability.test.ts).
+ * Thread-row status icons, one colour per state, the same in every theme of a scheme
+ * (`rowStatusColours`, shared with the iPhone). Each is a mark (an icon, no words), so it needs
+ * 3:1 against the sidebar's surfaces, the panel, hover and the open row's fill
+ * (readability.test.ts).
  */
-const rowStatus: Record<Scheme, Record<`--row-status-${string}`, string>> = {
-  dark: {
-    "--row-status-needs-you": "#EDB250",
-    "--row-status-failed": "#F47670",
-    "--row-status-working": "#7E9FD6",
-    "--row-status-waiting": "#A08FD4",
-    "--row-status-background": "#7E8692",
-    "--row-status-finished": "#6CBF8C",
-  },
-  light: {
-    "--row-status-needs-you": "#AD7200",
-    "--row-status-failed": "#C93A33",
-    "--row-status-working": "#3D63A6",
-    "--row-status-waiting": "#6A55A8",
-    "--row-status-background": "#6B7380",
-    "--row-status-finished": "#2E7D4F",
-  },
-};
+const rowStatus = (scheme: Scheme): Record<`--row-status-${string}`, string> =>
+  Object.fromEntries(
+    Object.entries(rowStatusColours[scheme]).map(([key, value]) => [`--row-status-${key}`, value]),
+  );
 
 export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTranslucency) {
   const light = scheme === "light";
@@ -151,7 +139,10 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--faint-foreground": p.faint,
     // Modal backdrops: a light neutral scrim when solid, a barely-there tint over blur when glass.
     "--scrim": light ? `rgb(${p.shadow} / 0.14)` : "rgb(0 0 0 / 0.36)",
-    "--scrim-glass": light ? "rgb(255 255 255 / 0.16)" : "rgb(0 0 0 / 0.18)",
+    // Over a modal's blurred page: a wash of the theme's own canvas in light, never plain white,
+    // and a dim in dark, with the page's colour never boosted, so in every theme the palette
+    // (the canvas raised, `tintedLike`) reads as the same colour lifted off the page.
+    "--scrim-glass": light ? `color-mix(in srgb, ${p.s0} 16%, transparent)` : "rgb(0 0 0 / 0.18)",
     "--skel": wash(p.t1, light ? 6 : 8),
     "--skel-hi": wash(p.s0, light ? 70 : 12),
 
@@ -191,7 +182,7 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     "--status-done-text": p.doneText,
     "--status-waiting": status.waiting,
     "--status-unresponsive": status.unresponsive,
-    ...rowStatus[scheme],
+    ...rowStatus(scheme),
 
     // Diffs and code.
     "--diff-add": p.diffAdd,

@@ -288,11 +288,12 @@ test("the details card's Agents names a subagent's parent and its siblings, with
   expect(
     within(lineage).getByRole("button", { name: new RegExp(`^Open parent ${parentTitle}, `) }),
   ).toBeTruthy();
-  // The one on screen is marked, not offered as somewhere to go, and Completed opens around it.
+  // The one on screen is marked, not offered as somewhere to go, and the settled agents' toggle
+  // (counting what happened, "1 working · 1 finished") opens around it.
   expect(within(lineage).getByRole("group", { name: /^resume-sweep, Done, shown$/ })).toBeTruthy();
   expect(
     within(lineage)
-      .getByRole("button", { name: /^Completed / })
+      .getByRole("button", { name: /\b1 finished\b/ })
       .getAttribute("aria-expanded"),
   ).toBe("true");
 
@@ -369,4 +370,17 @@ test("a long delegated thread still names its parent when its launch message isn
       name: /^Open parent Long parent/,
     }),
   ).toBeTruthy();
+});
+
+test("a subagent the loaded thread doesn't have says so, with no panel, and opens its thread", async () => {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("audit-done");
+  await app.open("/t/thread-cold-start/agents/no-such-agent");
+  const alert = await screen.findByRole("alert");
+  expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual([
+    "This subagent isn't in the loaded thread",
+  ]);
+  expect(screen.queryByRole("button", { name: /side panel/ })).toBeNull();
+  await userEvent.click(within(alert).getByRole("link", { name: "Open the thread" }));
+  await screen.findByRole("heading", { level: 1, name: parentTitle });
 });

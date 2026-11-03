@@ -8,11 +8,13 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/daemon-command.ts";
 import {
   deleteQuestion,
+  isChatEntry,
   runningWork,
   stopAndDeleteQuestion,
   type OrganizePatch,
 } from "@ace/ui-core";
 import { useArchiveConfirmation, useDeleteConfirmation } from "./delete-confirmation.ts";
+import { chatChoice } from "@/lib/chat-choice.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useOrganizeOverlay, type OrganizeOverlay } from "./overlay.ts";
 
@@ -358,6 +360,15 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
    * as one Stop and delete, which stops that work on the daemon and then deletes.
    */
   const removeAll = (entries: readonly ThreadTarget[], force = false) => {
+    // Read before the delete: a chat's hidden project goes with its last thread (ADR 0099).
+    const lease = client.threads();
+    const chats = new Set(
+      entries.flatMap((entry) => {
+        const listed = lease.store.thread(entry.id);
+        return listed && isChatEntry(listed) ? [entry.id] : [];
+      }),
+    );
+    lease.release();
     void Promise.all(entries.map((entry) => deleteOne(entry, force))).then((outcomes) => {
       const refused = outcomes.filter((outcome) => outcome !== undefined);
       const removed = entries.length - refused.length;
@@ -371,10 +382,14 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
             (shown.machine ?? undefined) === machine.machine &&
             !refused.some((refusal) => refusal.entry.id === entry.id),
         );
+        // A deleted chat opens a new chat, not its hidden project, which may be gone.
         if (activeDeleted)
           void navigate({
             to: "/new",
-            search: { project: activeDeleted.workspaceId, ...machine },
+            search: {
+              project: chats.has(activeDeleted.id) ? chatChoice : activeDeleted.workspaceId,
+              ...machine,
+            },
             replace: true,
           });
       }

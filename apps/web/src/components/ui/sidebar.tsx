@@ -112,15 +112,20 @@ function Sidebar(props: { children: ReactNode; edge?: ReactNode; className?: str
   );
 }
 
-function SidebarTrigger(props: Omit<ComponentProps<typeof IconButton>, "icon" | "onClick">) {
+/** The sidebar toggle; `icon` defaults to the outline (a shown sidebar's passes its filled one). */
+function SidebarTrigger(
+  props: Omit<ComponentProps<typeof IconButton>, "icon" | "onClick"> & {
+    icon?: ComponentProps<typeof IconButton>["icon"];
+  },
+) {
   const { toggleSidebar } = useSidebar();
   return (
     <IconButton
       data-sidebar="trigger"
       data-slot="sidebar-trigger"
-      icon={SidebarSimpleIcon}
       onClick={toggleSidebar}
       {...props}
+      icon={props.icon ?? SidebarSimpleIcon}
     />
   );
 }

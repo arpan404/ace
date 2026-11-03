@@ -80,13 +80,13 @@ struct SourceControlView: View {
                         Text(status.transportInstructions).textSelection(.enabled)
                     }
                 } header: { InsetHeader("Repository transport") }
-                if busy, status == nil { ProgressView("Checking source control…") }
+                if busy, status == nil { SkeletonRows(count: 2, label: "Checking source control").listRowInsets(EdgeInsets()) }
                 ServiceProblem(message: problem)
             }
             .insetRowBackground()
         }
         .insetGroupedList()
-        .navigationTitle("Source control").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Source control")
         .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(Self.readinessRead(project))]) {
             guard model.connection == "ready" else { return }
             do {

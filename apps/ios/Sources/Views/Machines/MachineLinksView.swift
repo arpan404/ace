@@ -29,7 +29,7 @@ struct MachineLinksView: View {
             } else if let problem {
                 Section { ServiceProblem(message: problem); Button("Retry") { Task { await read() } } }.insetRowBackground()
             } else {
-                Section { HStack { ProgressView().controlSize(.small); Text("Reading this machine's links…").foregroundStyle(AceTheme.Colours.mutedForeground) } }
+                Section { SkeletonRows(count: 2, label: "Reading this machine's links").listRowInsets(EdgeInsets()) }
                     .insetRowBackground()
             }
         }
@@ -59,15 +59,15 @@ struct MachineLinksView: View {
     @ViewBuilder private func linked(_ overview: FleetOverview) -> some View {
         Section {
             if overview.links.isEmpty, overview.linksProblem == nil {
-                Text("\(name) doesn't link to another machine yet.").foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text("\(name) doesn't link to another machine yet.").foregroundStyle(AceDesign.Ink.muted)
             }
             ForEach(overview.links) { link in
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(link.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                        Text(link.line).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        Text(link.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+                        Text(link.line).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                     }
-                    Spacer(minLength: AceTheme.Spacing.sm)
+                    Spacer(minLength: AceDesign.Space.related)
                     if client?.canOperate == true, link.hostId != nil {
                         Button("Unlink", role: .destructive) { unlinking = link }
                             .buttonStyle(.borderless).foregroundStyle(AceTheme.Status.failed).rowButtonTarget()
@@ -87,7 +87,7 @@ struct MachineLinksView: View {
             Section {
                 ForEach(candidates) { session in
                     HStack {
-                        Text(inbox.name(session.hostId)).aceFont(InsetStyle.label, relativeTo: .body)
+                        Text(inbox.name(session.hostId)).font(AceDesign.Typeface.body)
                         Spacer()
                         Button("Link") { linking = session }.buttonStyle(.borderless).rowButtonTarget()
                             .disabled(session.client.connection != "ready")

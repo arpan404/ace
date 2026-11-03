@@ -58,15 +58,15 @@ struct ProjectPickerView: View {
             }
             switch compose.projectsState {
             case "failed":
-                ContentUnavailableView {
-                    Label("Couldn't read projects", systemImage: "wifi.exclamationmark")
-                } description: { Text("Your computer didn't answer.") } actions: { Button("Try again", action: reload) }
+                EmptyState(icon: nil, title: "Couldn't read projects", line: "Your computer didn't answer.", failed: true) {
+                    Button("Try again", action: reload)
+                }
                 .listRowBackground(Color.clear)
             case "ready":
                 let recent = matches.filter(\.recent)
                 let rest = matches.filter { !$0.recent }
                 if matches.isEmpty, !query.isEmpty {
-                    ContentUnavailableView("No projects match", systemImage: "folder")
+                    EmptyState(systemImage: "folder", title: "No projects match")
                         .listRowBackground(Color.clear)
                 }
                 if !recent.isEmpty {
@@ -77,7 +77,7 @@ struct ProjectPickerView: View {
                         .insetRowBackground()
                 }
             default:
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
+                SkeletonRows(count: 3, label: "Loading").listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             }
             Section {
                 if canAdd {
@@ -155,7 +155,7 @@ struct AddProjectView: View {
                     Text(failure).foregroundStyle(AceTheme.StatusText.failed).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     if let allowable, client.canOperate {
                         Button("Allow this folder") { Task { await allow(allowable) } }
-                            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                            .frame(minHeight: AceDesign.Size.tap)
                             .disabled(adding != nil)
                             .accessibilityIdentifier("folder.allow")
                     }
@@ -165,13 +165,13 @@ struct AddProjectView: View {
             }
             switch folders?.state {
             case "ready":
-                if folders?.folders.isEmpty == true { ContentUnavailableView.search(text: query).listRowBackground(Color.clear) }
+                if folders?.folders.isEmpty == true { EmptyState.search(query).listRowBackground(Color.clear) }
                 Section {
                     ForEach(folders?.folders ?? []) { folder in
                         Button { add(folder) } label: {
-                            HStack(spacing: AceTheme.Spacing.md + AceTheme.Spacing.xxs) {
-                                Image(systemName: folder.git ? "arrow.triangle.branch" : "folder").font(.system(size: 19))
-                                    .foregroundStyle(AceTheme.Colours.foreground).frame(width: 24)
+                            HStack(spacing: AceDesign.Space.row) {
+                                Image(systemName: folder.git ? "arrow.triangle.branch" : "folder").font(AceDesign.Typeface.title)
+                                    .foregroundStyle(AceTheme.Colours.foreground).frame(width: AceDesign.Size.rowGlyph)
                                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                                     Text(folder.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
                                     Text(folder.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
@@ -187,14 +187,14 @@ struct AddProjectView: View {
                 }
                 .insetRowBackground()
             case "forbidden":
-                ContentUnavailableView("Add it on your computer", systemImage: "desktopcomputer",
-                                       description: Text("This computer doesn't let this phone browse its folders. In ace on your computer, choose Add project."))
+                EmptyState(systemImage: "desktopcomputer", title: "Add it on your computer",
+                           line: "This computer doesn't let this phone browse its folders. In ace on your computer, choose Add project.")
                     .listRowBackground(Color.clear)
             case "failed":
-                ContentUnavailableView("Couldn't search folders", systemImage: "wifi.exclamationmark", description: Text("Check the connection and try again."))
+                EmptyState(systemImage: "wifi.exclamationmark", title: "Couldn't search folders", line: "Check the connection and try again.")
                     .listRowBackground(Color.clear)
             default:
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
+                SkeletonRows(count: 3, label: "Loading").listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             }
         }
         .insetGroupedList()

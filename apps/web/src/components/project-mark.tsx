@@ -35,12 +35,7 @@ export function ProjectMarkView(props: {
     <ProjectImage
       icon={image}
       // Quiet marks recede whatever the person chose: a custom image goes grey and half-strength.
-      className={cn(
-        size.tile,
-        "shrink-0 object-contain",
-        (props.quiet || props.size !== "large") && "grayscale",
-        props.quiet && "opacity-50",
-      )}
+      className={cn(size.tile, "shrink-0 object-contain", props.quiet && "grayscale opacity-50")}
       fallback={
         <span
           aria-hidden
@@ -49,11 +44,8 @@ export function ProjectMarkView(props: {
           className={cn(
             "inline-flex shrink-0 items-center justify-center leading-none font-semibold",
             size.tile,
-            props.quiet
-              ? "bg-secondary text-faint-foreground"
-              : props.size === "large"
-                ? "bg-(--tint)/12 text-(--tint)"
-                : "bg-secondary text-muted-foreground",
+            // In the project's colour at every size; only a quiet mark recedes.
+            props.quiet ? "bg-secondary text-faint-foreground" : "bg-(--tint)/12 text-(--tint)",
           )}
         >
           {Glyph ? <Glyph aria-hidden size={size.glyph} weight="bold" /> : props.badge.initials}

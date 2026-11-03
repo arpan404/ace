@@ -54,12 +54,12 @@ struct ChangesSheet: View {
                     LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none, pinnedViews: [.sectionHeaders]) {
                         content
                     }
-                    .animation(reduceMotion ? nil : .smooth(duration: AceTheme.Motion.standard), value: summary?.open ?? [])
+                    .animation(AceDesign.Motion.arriving(reduceMotion), value: summary?.open ?? [])
                     .environment(\.changesCommentable, commentable)
                 }
                 .onChange(of: target) { _, path in
                     guard let path else { return }
-                    withAnimation(reduceMotion ? nil : .smooth) { proxy.scrollTo(path, anchor: .top) }
+                    withAnimation(AceDesign.Motion.arriving(reduceMotion)) { proxy.scrollTo(path, anchor: .top) }
                     target = nil
                 }
             }
@@ -181,10 +181,10 @@ struct ChangesSheet: View {
         .aceFont(AceTheme.Typography.label, relativeTo: .footnote)
         .foregroundStyle(AceTheme.Colours.foreground)
         .padding(.horizontal, AceTheme.Spacing.lg)
-        .frame(minHeight: 44)
+        .frame(minHeight: AceDesign.Size.rowLine)
     }
 
-    private var loading: some View { ProgressView().controlSize(.large).centredInSheet().accessibilityLabel("Reading changes") }
+    private var loading: some View { SkeletonRows(label: "Reading changes") }
 
     private func emptyLine(_ summary: ChangesSummary) -> String {
         if summary.scope?.workingTree == false { return "This turn didn't change any files." }
@@ -226,7 +226,7 @@ struct ChangesSheet: View {
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                 .padding(AceTheme.Spacing.lg)
         }
-        Color.clear.frame(height: 72)
+        Color.clear.frame(height: AceDesign.Size.floatingBarClearance)
     }
 
     // MARK: Actions
@@ -268,12 +268,13 @@ struct ChangesSheet: View {
 
 extension View {
     /// An empty, error or loading state in the middle of the sheet rather than pinned to its top.
+    /// The 0.7 is layout, not a design value: the state sits a little above the sheet's middle.
     func centredInSheet() -> some View {
         frame(maxWidth: .infinity).containerRelativeFrame(.vertical, alignment: .center) { height, _ in height * 0.7 }
     }
 }
 
-/// A file's sticky 52pt header: disclosure, status mark, the path in mono with its name in bold,
+/// A file's sticky header: disclosure, status mark, the path in mono with its name in full ink,
 /// −N +N, and a box to tick once it's been read (the tick clears when the file's diff changes).
 struct ChangedFileHeader: View {
     let file: ChangesSummary.File
@@ -284,19 +285,19 @@ struct ChangedFileHeader: View {
     @Environment(\.aceReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
+        HStack(spacing: AceDesign.Space.related) {
             Button(action: toggle) {
-                HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
+                HStack(spacing: AceDesign.Space.related) {
                     Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
                         .rotationEffect(.degrees(open ? 90 : 0))
-                        .animation(reduceMotion ? nil : .smooth(duration: AceTheme.Motion.standard), value: open)
+                        .animation(AceDesign.Motion.arriving(reduceMotion), value: open)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                     FileStatusMark(status: file.status)
                     path
                     Spacer(minLength: AceTheme.Spacing.xs)
                     counts
                 }
-                .frame(minHeight: 52).contentShape(Rectangle())
+                .frame(minHeight: AceDesign.Size.rowDetail).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
@@ -305,7 +306,7 @@ struct ChangedFileHeader: View {
             Button(action: review) {
                 Image(systemName: reviewed ? "checkmark.square.fill" : "square").font(.title3)
                     .foregroundStyle(reviewed ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
-                    .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .sensoryFeedback(.selection, trigger: reviewed)
@@ -315,14 +316,14 @@ struct ChangedFileHeader: View {
         .padding(.horizontal, AceTheme.Spacing.lg)
         .background(AceTheme.Colours.background)
         .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
-        .opacity(reviewed && !open ? 0.6 : 1)
+        .opacity(reviewed && !open ? AceDesign.Ink.settledOpacity : 1)
     }
     private var path: some View {
         let folder = (file.path as NSString).deletingLastPathComponent
         let name = (file.path as NSString).lastPathComponent
         return VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             (Text(folder.isEmpty ? "" : folder + "/").foregroundStyle(AceTheme.Colours.mutedForeground)
-             + Text(name).foregroundStyle(AceTheme.Colours.foreground).fontWeight(.medium))
+             + Text(name).foregroundStyle(AceTheme.Colours.foreground))
                 .aceMonospace(FileDiffStyle.path, relativeTo: .footnote).lineLimit(1).truncationMode(.head)
             if let from = file.from {
                 Text("from \(from)").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -348,11 +349,11 @@ struct ChangedFileHeader: View {
 struct FileStatusMark: View {
     let status: String
     var body: some View {
-        AceShape.glyph.stroke(colour, lineWidth: 1.5)
-            .frame(width: 20, height: 20)
+        AceShape.glyph.stroke(colour, lineWidth: AceDesign.Size.glyphStroke)
+            .frame(width: AceDesign.Size.fileMark, height: AceDesign.Size.fileMark)
             .overlay {
-                if status == "modified" { Circle().fill(colour).frame(width: 6, height: 6) }
-                else { Image(systemName: symbol).font(.system(size: 10, weight: .bold)).foregroundStyle(colour) }
+                if status == "modified" { Circle().fill(colour).frame(width: AceDesign.Size.dotTiny, height: AceDesign.Size.dotTiny) }
+                else { Image(systemName: symbol).font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong)).foregroundStyle(colour) }
             }
             .accessibilityLabel(status.capitalized)
     }

@@ -9,6 +9,7 @@ import { placeReader, settledTotal, type HomeSort, type ThreadPlace } from "@ace
 import type { ThreadListEntry } from "@ace/protocol";
 import {
   inboxNextChange,
+  isChatThread,
   snoozePresets,
   unsentStatus,
   unsentText,
@@ -19,7 +20,7 @@ import { z } from "zod";
 import { host } from "./host.ts";
 import { preview } from "./presentation.ts";
 import { followAccounts } from "./inbox-accounts.ts";
-import { inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
+import { chatsLayout, inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
 import { followCheckpoint, inboxCheckpoint } from "./inbox-checkpoint.ts";
 import { followInboxSort } from "./inbox-sort.ts";
 import { dispatchCommand } from "./commands.ts";
@@ -33,7 +34,12 @@ import { ManageAction, runManage } from "./inbox-manage.ts";
  * Stops following; also what `inboxAction` needs to pin and move: the pins and moves shown
  * before the daemon confirms them, and the machine's sort.
  */
-export type InboxFollow = (() => void) & PlaceContext & { dismissed?: DismissedSends };
+export type InboxFollow = (() => void) &
+  PlaceContext & {
+    dismissed?: DismissedSends;
+    /** Narrows the Chats tab by title; empty lists every chat. */
+    chatQuery?: (query: string) => void;
+  };
 import type { PatchSink } from "./agents.ts";
 
 /**
@@ -188,6 +194,7 @@ export function followInbox(
   const sections = () => {
     if (!shown) return;
     if (save) checkpoint.touch();
+    chatLayout();
     pump.put("inbox:sections", () => {
       const now = clock.now();
       const threads: InboxThread[] = [];
@@ -197,6 +204,8 @@ export function followInbox(
         if (thread) threads.push(thread);
       }
       arm(inboxNextChange(threads, now));
+      // Chats are the Chats tab's (ADR 0099); Threads leaves them out, as the web's panel does.
+      const chats = threads.some(isChatThread);
       const unsent = sends
         .getSnapshot()
         .filter(
@@ -205,14 +214,34 @@ export function followInbox(
         .map((send) => ({ key: send.commandId, machineId, send }));
       // The inbox pages home; while the archive is open the store's own window is the archive's.
       // Only the daemon's own copy has a Settled section, so only it carries the daemon's total.
-      return inboxLayout(threads, unsent, now, (store.homeWindow ?? store.window)?.before != null, {
-        settledTotal: store.unconfirmed === true ? undefined : settledTotal(store.homeWindow),
-        sortBy: sort.current(),
-        // A copy read back from disk claims no dots until the daemon confirms it.
-        attention: store.unconfirmed === true ? undefined : store.homeWindow?.attention,
-      });
+      // Chats are the Chats tab's (ADR 0099); Threads leaves them out, as the web's panel does.
+      const projects = chats ? threads.filter((thread) => !isChatThread(thread)) : threads;
+      return inboxLayout(
+        projects,
+        unsent,
+        now,
+        (store.homeWindow ?? store.window)?.before != null,
+        {
+          settledTotal: store.unconfirmed === true ? undefined : settledTotal(store.homeWindow),
+          sortBy: sort.current(),
+          // A copy read back from disk claims no dots until the daemon confirms it.
+          attention: store.unconfirmed === true ? undefined : store.homeWindow?.attention,
+        },
+      );
     });
   };
+  let chatQuery = "";
+  // Its own reader, read at delivery like the inbox's sections.
+  const chatLayout = () =>
+    pump.put("chats:sections", () => {
+      const chats: InboxThread[] = [];
+      const place = placer();
+      for (const id of store.ids) {
+        const thread = inboxThread(store, organizer, id, place);
+        if (thread && isChatThread(thread)) chats.push(thread);
+      }
+      return chatsLayout(chats, clock.now(), baseline, chatQuery);
+    });
   const pending = (id: string) =>
     pump.put(`pending:${id}`, () => {
       // A send sent again stands aside for its newer attempt, the one to act on.
@@ -322,7 +351,16 @@ export function followInbox(
     checkpoint.stop();
     arm(undefined);
   };
-  return Object.assign(stop, { organizer, sortBy: () => sort.current(), dismissed });
+  const narrowChats = (query: string) => {
+    chatQuery = query.trim();
+    sections();
+  };
+  return Object.assign(stop, {
+    organizer,
+    sortBy: () => sort.current(),
+    dismissed,
+    chatQuery: narrowChats,
+  });
 }
 
 function pendingRow(send: PendingSend, connection: string) {
@@ -362,6 +400,8 @@ const InboxAction = z.discriminatedUnion("kind", [
   /** Named again from its opening request, as a new thread is. */
   z.object({ kind: z.literal("retitle"), threadId: ThreadId }),
   z.object({ kind: z.literal("more") }),
+  /** The Chats tab's search: chats whose title matches, or every chat when empty. */
+  z.object({ kind: z.literal("chatsQuery"), query: z.string().max(1024) }),
   /** A failed send the person took back into the composer or discarded; `restore` is Undo. */
   z.object({ kind: z.literal("dismissSend"), commandId: z.string().min(1).max(256) }),
   z.object({ kind: z.literal("restoreSend"), commandId: z.string().min(1).max(256) }),
@@ -414,7 +454,10 @@ export function inboxAction(
   raw: unknown,
   requestId: string,
   pump: PatchSink,
-  inbox?: PlaceContext & { dismissed?: DismissedSends },
+  inbox?: PlaceContext & {
+    dismissed?: DismissedSends;
+    chatQuery?: (query: string) => void;
+  },
 ): void {
   const place = PlaceAction.safeParse(raw);
   if (place.success && inbox) {
@@ -444,6 +487,10 @@ export function inboxAction(
     action.kind === "editSend"
   ) {
     void settleSend(owner, action, requestId, pump, inbox?.dismissed);
+    return;
+  }
+  if (action.kind === "chatsQuery") {
+    inbox?.chatQuery?.(action.query);
     return;
   }
   if (action.kind === "more") {

@@ -32,20 +32,20 @@ struct ProviderSettingsView: View {
             Section {
                 ForEach(model.providers?.providers ?? []) { provider in
                     NavigationLink { ProviderPageView(model: model, provider: provider.provider, name: provider.name) } label: {
-                        HStack(spacing: AceTheme.Spacing.md + AceTheme.Spacing.xxs) {
-                            ProviderMark(provider: provider.provider, size: 20).frame(width: 24)
+                        HStack(spacing: AceDesign.Space.row) {
+                            ProviderMark(provider: provider.provider, size: AceDesign.Size.icon).frame(width: AceDesign.Size.icon + AceDesign.Space.related)
                             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                                Text(provider.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                                Text(provider.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
                                 // The status word already says "Sign in needed"; the line adds only something new.
                                 if provider.summary.caseInsensitiveCompare(provider.status.label) != .orderedSame {
-                                    Text(provider.summary).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
+                                    Text(provider.summary).font(AceDesign.Typeface.meta)
+                                        .foregroundStyle(AceDesign.Ink.muted).lineLimit(2)
                                 }
                             }
-                            Spacer(minLength: AceTheme.Spacing.sm)
+                            Spacer(minLength: AceDesign.Space.related)
                             StateLabel(status: provider.status)
                         }
-                        .padding(.vertical, AceTheme.Spacing.xs)
+                        .padding(.vertical, AceDesign.Space.tight)
                         .accessibilityElement(children: .combine)
                     }
                 }
@@ -60,7 +60,7 @@ struct ProviderSettingsView: View {
         }
         .insetGroupedList()
         .followOtherProviders(model, $others)
-        .navigationTitle("Providers").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Providers")
         .readWhenConnected(model) { model.refreshMachine() }.refreshable { model.refreshMachine() }
     }
 }

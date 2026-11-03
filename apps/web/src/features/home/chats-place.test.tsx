@@ -307,3 +307,22 @@ test("Delete from the row's menu asks first and removes the chat", async () => {
   await waitFor(() => expect(onDaemon()).toBe(false));
   expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
 });
+
+test("deleting the open chat opens a new chat, not its hidden project", async () => {
+  const app = everyDay();
+  await open(app, `/t/${lisbon.thread.id}`, "Chats");
+  await screen.findByRole("heading", { level: 1, name: "Three days in Lisbon" });
+  await userEvent.click(
+    within(chatsNav()).getByRole("button", { name: "Actions for Three days in Lisbon" }),
+  );
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog", { name: "Delete thread?" })).getByRole("button", {
+      name: "Delete",
+    }),
+  );
+  await waitFor(() => expect(location().pathname).toBe("/new"));
+  expect(location().search).toBe("?project=chat");
+  expect(await screen.findByRole("button", { name: "Project: none" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: /^This project isn't on/ })).toBeNull();
+});

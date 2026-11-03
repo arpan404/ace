@@ -5,7 +5,7 @@ import UIKit
 /// roundness at its leading edge.
 enum DisplayCornerRadius {
     /// Before the window is known, and on iOS 18, which has no way to ask.
-    @MainActor static var fallback: CGFloat { AceTheme.Spacing.xxl * 1.5 }
+    @MainActor static var fallback: CGFloat { AceDesign.Space.group * 1.5 }
 }
 
 /// Reads the display's corner radius from the window it lands in. On iOS 26 a full-window view

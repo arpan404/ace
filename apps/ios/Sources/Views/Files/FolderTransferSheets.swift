@@ -110,6 +110,7 @@ struct FolderDownloadSheet: View {
 /// Upload: the picked files go into a folder of the checkout, one after another, asking before
 /// anything already there is replaced.
 struct UploadSheet: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let threadId: String
     let folders: [String]
@@ -133,7 +134,7 @@ struct UploadSheet: View {
                 }
                 if let conflict {
                     Section {
-                        Text("\(conflict.path) is already there.").fontWeight(.medium)
+                        Text("\(conflict.path) is already there.")
                         if (upload?.items.filter { $0.state == "queued" }.count ?? 0) > 0 {
                             Toggle("Do the same for the rest", isOn: $all)
                         }
@@ -165,7 +166,7 @@ struct UploadSheet: View {
                     if upload?.phase == "waiting" { Text("Waiting for the connection. It carries on by itself.") }
                 }
             }
-            .animation(.smooth(duration: AceTheme.Motion.standard), value: upload)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: upload)
             .navigationTitle(staged.count == 1 ? "Upload file" : "Upload \(staged.count) files").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -6,6 +6,7 @@ import {
   elicitationContent,
   elicitationForm,
 } from "@ace/ui-core";
+import { planReviewLine } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import { preview } from "./presentation.ts";
 
@@ -48,6 +49,13 @@ function planRow(request: Extract<Request, { kind: "plan_review" }>) {
       text: preview(todo.content, 512),
       status: todo.status,
     })),
+
+    /** The strip's one line: "Plan ready · Kill-all filters · 3 steps" (`planReviewLine`). */
+    line: planReviewLine({
+      title: request.title,
+      markdown: request.markdown,
+      todos: request.todos,
+    }),
   };
 }
 

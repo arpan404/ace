@@ -2,6 +2,7 @@ import { CaretDownIcon } from "@phosphor-icons/react";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { PanelTitle, panelTitleText } from "@/components/ui/panel.tsx";
+import { cn } from "@/lib/cn.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useOrganizer } from "@/features/organize/index.ts";
 import { useMachines } from "@/lib/machines.ts";
@@ -27,7 +28,8 @@ export function ChatsFilter() {
             aria-label={`Chats, Device: ${device?.name ?? "All devices"}`}
             className="inline-flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 transition-colors duration-(--motion-fast) focus-ring hover:bg-hover aria-expanded:bg-active"
           >
-            <span className={panelTitleText}>Chats</span>
+            {/* The place's name always reads whole; the device beside it shortens instead. */}
+            <span className={cn(panelTitleText, "shrink-0")}>Chats</span>
             {device && (
               <span
                 aria-hidden

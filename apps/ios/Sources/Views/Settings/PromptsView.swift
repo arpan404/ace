@@ -50,7 +50,7 @@ struct PromptsView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .navigationTitle("Prompts").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Prompts")
         .task(id: model.readGeneration(Self.listRead)) { await read() }.refreshable { await read() }
     }
     private func read() async {
@@ -75,7 +75,7 @@ private struct PromptEditor: View {
         Form {
             Group {
                 if file == nil { TextField("filename.md", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                TextEditor(text: $text).frame(minHeight: AceTheme.Dimensions.touchTarget * 5).scrollContentBackground(.hidden)
+                TextEditor(text: $text).frame(minHeight: AceDesign.Size.tap * 5).scrollContentBackground(.hidden)
                     .accessibilityLabel("Prompt instructions")
                 ServiceProblem(message: problem)
                 Button(saved ? "Saved" : "Save prompt") { Task { await save() } }

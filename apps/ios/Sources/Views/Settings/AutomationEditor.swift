@@ -30,7 +30,7 @@ struct AutomationEditor: View {
     /// reply names the same automation, which the bridge counts as saved instead of a second.
     @State private var newId = "auto-\(UUID().uuidString.lowercased())"
     private var zone: String { TimeZone.current.identifier }
-    private var motion: Animation { reduceMotion ? AceTheme.Motion.standardCurve : .smooth }
+    private var motion: Animation { AceDesign.Motion.arriving(reduceMotion) }
 
     init(model: ClientModel, editing: AutomationListRow?, saved: @escaping (String) -> Void) {
         self.model = model
@@ -58,13 +58,12 @@ struct AutomationEditor: View {
                 .safeAreaInset(edge: .bottom) { footer }
                 .transition(.opacity)
             } else {
-                ProgressView().accessibilityLabel("Opening the automation")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                SkeletonPage(label: "Opening the automation")
                     .transition(.opacity)
             }
         }
         .animation(motion, value: form == nil)
-        .background(AceTheme.Colours.background)
+        .background(AceDesign.Surface.background)
         .navigationTitle(editing == nil ? "New automation" : "Edit automation").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.accessibilityIdentifier("automation.cancel") }
@@ -95,7 +94,7 @@ struct AutomationEditor: View {
     private func about(_ form: Binding<AutomationFormValues>) -> some View {
         Section {
             field("title") {
-                TextField("Name", text: touching(form.title, "title")).aceFont(InsetStyle.label, relativeTo: .body)
+                TextField("Name", text: touching(form.title, "title")).font(AceDesign.Typeface.body)
                     .accessibilityIdentifier("automation.title")
             }
             field("prompt") {
@@ -120,28 +119,28 @@ struct AutomationEditor: View {
             }
             Button { choosingModel = true } label: {
                 HStack {
-                    Text("Model").foregroundStyle(AceTheme.Colours.foreground)
+                    Text("Model").foregroundStyle(AceDesign.Ink.primary)
                     Spacer()
-                    if let pick { ProviderMark(provider: pick.provider, size: 16, quiet: true) }
-                    Text(modelLabel).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                    if let pick { ProviderMark(provider: pick.provider, size: AceDesign.Size.icon, quiet: true) }
+                    Text(modelLabel).foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                     Image(systemName: "chevron.forward").font(.footnote.weight(.semibold))
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .foregroundStyle(AceDesign.Ink.muted)
                 }
-                .frame(minHeight: 44).contentShape(Rectangle())
+                .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("automation.model")
             if let efforts = chosenModel?.efforts, efforts.count > 1 {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                    Text("Effort").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    GlassChoice(items: efforts.map { GlassChoiceItem(id: $0.id, label: $0.label) },
-                                selection: pick?.effort ?? chosenModel?.defaultEffort, idPrefix: "automation.effort") { effort in
+                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                    Text("Effort").font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                    CapsuleSegments<String>(efforts.map { (id: $0.id, label: $0.label) },
+                                    selection: pick?.effort ?? chosenModel?.defaultEffort, idPrefix: "automation.effort") { effort in
                         pick?.effort = effort
                         pickChanged = true
                     }
                 }
-                .padding(.vertical, AceTheme.Spacing.xs)
+                .padding(.vertical, AceDesign.Space.tight)
             }
             if let access = model.compose.access, access.provider == pick?.provider, !access.choices.isEmpty {
                 // Unset follows the project's (else the machine's) default, as it is saved: the
@@ -153,8 +152,8 @@ struct AutomationEditor: View {
                 }
                 .accessibilityIdentifier("automation.access")
                 if let note = access.problem ?? access.stricter ?? access.choices.first(where: { $0.mode == (form.wrappedValue.access ?? access.selected) })?.description {
-                    Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text(note).font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
                 }
             }
             Toggle("Run in a worktree", isOn: form.worktree).toggleStyle(.systemSwitch)
@@ -165,45 +164,45 @@ struct AutomationEditor: View {
 
     /// The bar at the foot: when it runs (or what to fix), and Save.
     private var footer: some View {
-        HStack(spacing: AceTheme.Spacing.md) {
+        HStack(spacing: AceDesign.Space.row) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 if let shown = shownProblem {
-                    Text(shown).foregroundStyle(attempted || problem != nil ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
+                    Text(shown).foregroundStyle(attempted || problem != nil ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
                         .accessibilityIdentifier("automation.problem")
                 } else {
-                    Text(view?.summary ?? "").foregroundStyle(AceTheme.Colours.foreground)
+                    Text(view?.summary ?? "").foregroundStyle(AceDesign.Ink.primary)
                         .accessibilityIdentifier("automation.summary")
                     if let line = view?.line, !line.isEmpty {
-                        Text(line).foregroundStyle(AceTheme.Colours.mutedForeground).accessibilityIdentifier("automation.upcoming")
+                        Text(line).foregroundStyle(AceDesign.Ink.muted).accessibilityIdentifier("automation.upcoming")
                     }
                 }
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+            .font(AceDesign.Typeface.meta)
             .lineLimit(2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentTransition(.opacity)
             .animation(motion, value: shownProblem)
             Button { Task { await save() } } label: {
                 Text(saving ? "Saving…" : "Save").fontWeight(.semibold)
-                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+                    .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.tap)
             }
             .modifier(PlainGlassButton())
             .disabled(saving || !model.canOperate || form == nil)
             .accessibilityIdentifier("automation.save")
         }
-        .padding(.leading, AceTheme.Spacing.lg)
-        .padding(.trailing, AceTheme.Spacing.xs)
-        .padding(.vertical, AceTheme.Spacing.xs)
+        .padding(.leading, AceDesign.Space.margin)
+        .padding(.trailing, AceDesign.Space.tight)
+        .padding(.vertical, AceDesign.Space.tight)
         // Plain system glass, so the rows passing under it never read through the words.
         .floatingGlass()
-        .padding(.horizontal, AceTheme.Spacing.md)
-        .padding(.bottom, AceTheme.Spacing.xs)
+        .padding(.horizontal, AceDesign.Space.row)
+        .padding(.bottom, AceDesign.Space.tight)
     }
 
     @ViewBuilder private func field<Content: View>(_ name: String, @ViewBuilder _ content: () -> Content) -> some View {
         content()
         if let message = error(name) {
-            Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+            Text(message).font(AceDesign.Typeface.meta)
                 .foregroundStyle(AceTheme.StatusText.failed)
                 .transition(.opacity)
         }

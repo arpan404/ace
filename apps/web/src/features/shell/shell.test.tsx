@@ -46,7 +46,7 @@ test("removed pages are gone: their addresses show Not found and the palette nev
     "/activity",
   ]) {
     const view = await harness().open(path);
-    await title("Not found");
+    await title("This page doesn't exist");
     view.unmount();
   }
   await harness().open("/");

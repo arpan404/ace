@@ -28,7 +28,7 @@ struct MessageAttachments: View {
     var body: some View {
         let images = attachments.filter(\.previewed)
         let files = attachments.filter { !$0.previewed }
-        VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
             if !images.isEmpty { ImageGroup(row: row, images: images) }
             ForEach(Array(files.enumerated()), id: \.offset) { _, file in AttachmentFileLine(row: row, line: file) }
             if more > 0 {
@@ -63,14 +63,14 @@ private struct ImageGroup: View {
         } else {
             let shown = Array(images.prefix(4))
             let rest = images.count > 4 ? images.count - 3 : 0
-            let columns = [GridItem(.fixed(Self.cell), spacing: AceTheme.Spacing.xs), GridItem(.fixed(Self.cell), spacing: AceTheme.Spacing.xs)]
-            LazyVGrid(columns: columns, alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+            let columns = [GridItem(.fixed(Self.cell), spacing: AceDesign.Space.tight), GridItem(.fixed(Self.cell), spacing: AceDesign.Space.tight)]
+            LazyVGrid(columns: columns, alignment: .trailing, spacing: AceDesign.Space.tight) {
                 ForEach(Array(shown.enumerated()), id: \.offset) { index, image in
                     AttachmentThumb(row: row, line: image, size: CGSize(width: Self.cell, height: Self.cell),
                                     more: index == 3 ? rest : 0)
                 }
             }
-            .frame(width: Self.cell * 2 + AceTheme.Spacing.xs)
+            .frame(width: Self.cell * 2 + AceDesign.Space.tight)
         }
     }
     /// A lone image keeps its shape within 240×240 (4:3 when its shape isn't known).
@@ -101,17 +101,17 @@ private struct AttachmentThumb: View {
                     Image(uiImage: image).resizable().scaledToFill()
                         .frame(width: size.width, height: size.height).clipped()
                 } else if failed {
-                    AceIcon(.image, size: 20).foregroundStyle(AceTheme.Colours.subtleForeground)
+                    AceIcon(.image, size: AceDesign.Size.barIcon).foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
                 if more > 0 {
-                    AceTheme.Colours.background.opacity(0.6)
+                    AceDesign.Surface.veil
                     Text("+\(more)").aceFont(AceTheme.Typography.title, relativeTo: .title3).monospacedDigit()
                         .foregroundStyle(AceTheme.Colours.foreground)
                 }
             }
             .frame(width: size.width, height: size.height)
-            .clipShape(AceShape.rounded(AceTheme.Radii.code))
-            .contentShape(AceShape.rounded(AceTheme.Radii.code))
+            .clipShape(AceDesign.Shape.block)
+            .contentShape(AceDesign.Shape.block)
         }
         .buttonStyle(.plain)
         .disabled(access == nil)
@@ -135,9 +135,9 @@ private struct AttachmentFileLine: View {
     var body: some View {
         let opens = line.opens == true && access != nil
         Button { access?.open(row, line) } label: {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 AceIcon(line.kind == "image" ? .image : line.kind == "pdf" || line.kind == "text" ? .fileText : .file,
-                        size: 16, relativeTo: .footnote)
+                        size: AceDesign.Size.icon, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                     Text(line.name.isEmpty ? "Attachment" : line.name)
@@ -151,7 +151,7 @@ private struct AttachmentFileLine: View {
                     }
                 }
             }
-            .frame(minHeight: AceTheme.Spacing.xxxl + AceTheme.Spacing.sm)
+            .frame(minHeight: AceDesign.Space.section + AceDesign.Space.related)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -201,13 +201,13 @@ struct MessageAttachmentRoutes: ViewModifier {
             .quickLookPreview($preview)
             .overlay(alignment: .top) {
                 if let opening {
-                    HStack(spacing: AceTheme.Spacing.sm) {
+                    HStack(spacing: AceDesign.Space.related) {
                         ProgressView().controlSize(.small)
                         Text("Opening \(opening)").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     }
-                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 36)
+                    .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.tap)
                     .floatingGlass()
-                    .padding(.top, AceTheme.Spacing.sm)
+                    .padding(.top, AceDesign.Space.related)
                     .accessibilityIdentifier("attachment.opening")
                 }
             }

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { useScrollLayout } from "@/test/scroll-layout.ts";
+import { openPanelSearch } from "@/test/panel-search.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 afterEach(() => localStorage.clear());
@@ -61,7 +62,7 @@ test("End reaches the last skill, scrolled into view, and ↑ steps back from it
 
 test("searching a long library finds a skill far down it", async () => {
   const catalog = await open();
-  await userEvent.type(screen.getByRole("searchbox", { name: "Search skills" }), "skill-0777");
+  await userEvent.type(await openPanelSearch("Search skills"), "skill-0777");
   expect(await catalog.findByRole("link", { name: /^Skill 0777/ })).toBeTruthy();
   expect(catalog.getAllByRole("link")).toHaveLength(1);
 });

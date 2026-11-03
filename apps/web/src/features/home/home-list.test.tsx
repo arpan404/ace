@@ -174,9 +174,9 @@ test("an approval leads the Inbox, which spans projects; a long-settled thread r
   ]);
   expect(top).toContain("Backpressure on broadcast fan-out");
   expect(top).toContain("Dedupe thread events after reconnect");
-  // Each row names its project in words, with no mark.
+  // Each row leads with its project's mark and names the project.
   const refund = card(/^Partial refunds double-count tax/);
-  expect(refund.querySelector("[data-project-mark]")).toBeNull();
+  expect(refund.querySelector("[data-project-mark]")?.textContent).toBe("BA");
   expect(refund.getAttribute("aria-label")).toContain("Project billing-api");
   // Long settled, the Codex bump rests in Settled, never in the Inbox.
   expect(top).not.toContain("Bump Codex app-server to 0.48");
@@ -420,7 +420,7 @@ test("hovering a row's link shows what its marks mean in a tooltip", async () =>
   expect(within(prs).getByRole("listitem", { name: /^#74, open\b/ })).toBeTruthy();
 });
 
-test("Settle moves a finished thread to Settled in muted ink, and Unsettle puts it back", async () => {
+test("Settle moves a finished thread to Settled, and Unsettle puts it back", async () => {
   const app = workbenchApp(soon);
   const settledAt = () => {
     const view = app.daemon.snapshot({ kind: "threads" });

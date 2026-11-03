@@ -51,26 +51,26 @@ struct AgentsSheet: View {
                     Group {
                         BudgetLine(totals: sheet.totals, context: sheet.context)
                         if !model.canOperate {
-                            Text("View only: this phone can't stop agents.").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground).accessibilityIdentifier("agents.readOnly")
+                            Text("View only: this phone can't stop agents.").font(AceDesign.Typeface.meta)
+                                .foregroundStyle(AceDesign.Ink.muted).accessibilityIdentifier("agents.readOnly")
                         }
                     }
                     .listRowSeparator(.hidden).listRowBackground(Color.clear)
                 } else {
-                    ProgressView("Loading agents…").frame(maxWidth: .infinity).listRowBackground(Color.clear)
+                    SkeletonRows(count: 3, label: "Loading agents").listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
                 }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(AceTheme.Colours.background)
+            .background(AceDesign.Surface.background)
             .navigationTitle("Agents")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: SubagentRoute.self) { route in
                 SubagentView(route: route, model: model, thread: thread, push: { path.append($0) },
                              openThread: { child in dismiss(); openThread?(child) })
             }
-            .animation(reduceMotion ? nil : .smooth, value: sheet?.rows.count)
-            .animation(reduceMotion ? nil : .smooth, value: sheet?.tasks.count)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: sheet?.rows.count)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: sheet?.tasks.count)
             .onChange(of: sheet?.rows.count) { _, _ in if paging == "agents" { paging = nil } }
             .onChange(of: sheet?.tasks.count) { _, _ in if paging == "tasks" { paging = nil } }
             .sheetEscape { dismiss() }
@@ -97,7 +97,7 @@ struct AgentsSheet: View {
                 Button("Cancel", role: .cancel) { stop.cancel() }
             } message: { Text(stop.asking?.message ?? "") }
         }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.accent)
         .onAppear { model.sheet(["kind": "agents", "open": true]) }
         .onDisappear { model.sheet(["kind": "agents", "open": false]) }
     }
@@ -111,7 +111,7 @@ struct AgentsSheet: View {
                 Button { dismiss(); openThread(child) } label: {
                     HStack {
                         AgentRowView(row: row, provider: provider)
-                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceTheme.Colours.decoration)
+                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(AceDesign.Ink.faint)
                     }
                     .contentShape(Rectangle())
                 }
@@ -151,12 +151,12 @@ private struct MoreRow: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(loading ? "Loading…" : title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.semibold)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(loading ? "Loading…" : title).font(AceDesign.Typeface.body).fontWeight(.semibold)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                Text(detail).font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
             }
-            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

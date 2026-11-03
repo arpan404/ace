@@ -53,23 +53,23 @@ struct SubagentView: View {
                     .listRowSeparator(.hidden).listRowBackground(Color.clear)
             } else if info != nil {
                 Text("Nothing from this subagent yet.")
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
                     .listRowSeparator(.hidden).listRowBackground(Color.clear)
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(AceTheme.Colours.background)
+        .background(AceDesign.Surface.background)
         .overlay {
-            // Reserved room, not a spinner that pushes rows: the page fills in place.
+            // Reserved room that doesn't push rows: the page fills in place.
             if info == nil && lane?.missing != true && (lane?.order.isEmpty ?? true) {
-                ProgressView().accessibilityLabel("Loading subagent").transition(.opacity)
+                SkeletonPage(label: "Loading subagent").transition(.opacity)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { bottom }
-        .animation(reduceMotion ? .easeInOut(duration: 0.15) : .smooth, value: info)
-        .animation(reduceMotion ? .easeInOut(duration: 0.15) : .smooth, value: lane?.order.count)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: info)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: lane?.order.count)
         .accessibilityIdentifier("lane.transcript")
         .navigationTitle(info?.name ?? route.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -80,10 +80,10 @@ struct SubagentView: View {
             }
             ToolbarItem(placement: .principal) {
                 VStack(spacing: AceTheme.Spacing.xxs) {
-                    Text(info?.name ?? route.title).aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
+                    Text(info?.name ?? route.title).font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong)).lineLimit(1)
                     if let parent = info?.parent.name, !parent.isEmpty {
-                        Text("Started by \(parent)").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                        Text("Started by \(parent)").font(AceDesign.Typeface.meta)
+                            .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                     }
                 }
                 .accessibilityElement(children: .combine)
@@ -107,7 +107,7 @@ struct SubagentView: View {
                 SubagentStatusBar(info: info, model: model)
             }
             .composerGlassGroup()
-            .animation(reduceMotion ? nil : .smooth, value: request?.id)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: request?.id)
             .transition(.opacity)
         }
     }
@@ -119,14 +119,14 @@ private struct PromptBubble: View {
     let prompt: SubagentInfo.Prompt
     let parent: String
     var body: some View {
-        VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+        VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
             UserBubble(text: prompt.bubble.segments.map(\.text).joined(), bubble: prompt.bubble, id: "prompt")
             Text(Date(timeIntervalSince1970: prompt.at / 1000), format: .dateTime.hour().minute())
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
+                .font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.subtle)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(.vertical, AceTheme.Spacing.sm)
+        .padding(.vertical, AceDesign.Space.related)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(parent.isEmpty ? "Prompt" : "Asked by \(parent)")
         .accessibilityIdentifier("subagent.prompt")

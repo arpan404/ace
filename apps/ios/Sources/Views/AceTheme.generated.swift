@@ -31,7 +31,7 @@ import UIKit
         "ace": [
             "theme": [:],
             "blue": [
-                "accent": .init(light: 0x09739A, dark: 0x4FB6F5),
+                "accent": .init(light: 0x097095, dark: 0x4FB6F5),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x001421),
             ],
             "teal": [
@@ -43,7 +43,7 @@ import UIKit
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x091504),
             ],
             "orange": [
-                "accent": .init(light: 0xBD3F0C, dark: 0xF5925A),
+                "accent": .init(light: 0xB83E0B, dark: 0xF5925A),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x1F0B02),
             ],
             "magenta": [
@@ -59,12 +59,12 @@ import UIKit
             "theme": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
-                "subtleForeground": .init(light: 0x6C675F, dark: 0x8B8985),
+                "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
                 "separator": .init(light: 0xE5E1DC, dark: 0x25221D),
-                "fill": .init(light: 0xF8F2E9, dark: 0x201E19),
+                "fill": .init(light: 0xE9E3DB, dark: 0x201E19),
                 "accent": .init(light: 0x924A00, dark: 0xFAA08B),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x190F0B),
                 "decoration": .init(light: 0x928D86, dark: 0x66635F),
@@ -72,25 +72,25 @@ import UIKit
             "blue": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
-                "subtleForeground": .init(light: 0x6C675F, dark: 0x8B8985),
+                "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
                 "separator": .init(light: 0xE5E1DC, dark: 0x25221D),
-                "fill": .init(light: 0xF8F2E9, dark: 0x201E19),
-                "accent": .init(light: 0x09739A, dark: 0x4FB6F5),
+                "fill": .init(light: 0xE9E3DB, dark: 0x201E19),
+                "accent": .init(light: 0x096D91, dark: 0x4FB6F5),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x001421),
                 "decoration": .init(light: 0x928D86, dark: 0x66635F),
             ],
             "teal": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
-                "subtleForeground": .init(light: 0x6C675F, dark: 0x8B8985),
+                "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
                 "separator": .init(light: 0xE5E1DC, dark: 0x25221D),
-                "fill": .init(light: 0xF8F2E9, dark: 0x201E19),
+                "fill": .init(light: 0xE9E3DB, dark: 0x201E19),
                 "accent": .init(light: 0x00676A, dark: 0x56E0DD),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x001615),
                 "decoration": .init(light: 0x928D86, dark: 0x66635F),
@@ -98,12 +98,12 @@ import UIKit
             "green": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
-                "subtleForeground": .init(light: 0x6C675F, dark: 0x8B8985),
+                "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
                 "separator": .init(light: 0xE5E1DC, dark: 0x25221D),
-                "fill": .init(light: 0xF8F2E9, dark: 0x201E19),
+                "fill": .init(light: 0xE9E3DB, dark: 0x201E19),
                 "accent": .init(light: 0x2F6E12, dark: 0x84CF5E),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x091504),
                 "decoration": .init(light: 0x928D86, dark: 0x66635F),
@@ -111,25 +111,25 @@ import UIKit
             "orange": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
-                "subtleForeground": .init(light: 0x6C675F, dark: 0x8B8985),
+                "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
                 "separator": .init(light: 0xE5E1DC, dark: 0x25221D),
-                "fill": .init(light: 0xF8F2E9, dark: 0x201E19),
-                "accent": .init(light: 0xBD3F0C, dark: 0xF5925A),
+                "fill": .init(light: 0xE9E3DB, dark: 0x201E19),
+                "accent": .init(light: 0xB33C0B, dark: 0xF5925A),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x1F0B02),
                 "decoration": .init(light: 0x928D86, dark: 0x66635F),
             ],
             "magenta": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
-                "subtleForeground": .init(light: 0x6C675F, dark: 0x8B8985),
+                "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
                 "separator": .init(light: 0xE5E1DC, dark: 0x25221D),
-                "fill": .init(light: 0xF8F2E9, dark: 0x201E19),
+                "fill": .init(light: 0xE9E3DB, dark: 0x201E19),
                 "accent": .init(light: 0xA0289F, dark: 0xFCA1FE),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x1A0B1B),
                 "decoration": .init(light: 0x928D86, dark: 0x66635F),
@@ -137,12 +137,12 @@ import UIKit
             "ink": [
                 "background": .init(light: 0xFFFAF4, dark: 0x13100C),
                 "secondaryBackground": .init(light: 0xFCF6EE, dark: 0x16140F),
-                "card": .init(light: 0xFFFCF7, dark: 0x191611),
+                "card": .init(light: 0xFFFAF4, dark: 0x191612),
                 "foreground": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "mutedForeground": .init(light: 0x58534C, dark: 0xA7A5A2),
-                "subtleForeground": .init(light: 0x6C675F, dark: 0x8B8985),
+                "subtleForeground": .init(light: 0x69645D, dark: 0x8B8985),
                 "separator": .init(light: 0xE5E1DC, dark: 0x25221D),
-                "fill": .init(light: 0xF8F2E9, dark: 0x201E19),
+                "fill": .init(light: 0xE9E3DB, dark: 0x201E19),
                 "accent": .init(light: 0x24211B, dark: 0xE0DFDC),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x121210),
                 "decoration": .init(light: 0x928D86, dark: 0x66635F),
@@ -152,12 +152,12 @@ import UIKit
             "theme": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
                 "separator": .init(light: 0xDFE2E8, dark: 0x1D222C),
-                "fill": .init(light: 0xEEF0F2, dark: 0x181E28),
+                "fill": .init(light: 0xE5E7EB, dark: 0x181E28),
                 "accent": .init(light: 0x6C4BB4, dark: 0xA8B4FF),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x0F111A),
                 "decoration": .init(light: 0x8A8E95, dark: 0x5E636C),
@@ -165,25 +165,25 @@ import UIKit
             "blue": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
                 "separator": .init(light: 0xDFE2E8, dark: 0x1D222C),
-                "fill": .init(light: 0xEEF0F2, dark: 0x181E28),
-                "accent": .init(light: 0x09739A, dark: 0x4FB6F5),
+                "fill": .init(light: 0xE5E7EB, dark: 0x181E28),
+                "accent": .init(light: 0x097095, dark: 0x4FB6F5),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x001421),
                 "decoration": .init(light: 0x8A8E95, dark: 0x5E636C),
             ],
             "teal": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
                 "separator": .init(light: 0xDFE2E8, dark: 0x1D222C),
-                "fill": .init(light: 0xEEF0F2, dark: 0x181E28),
+                "fill": .init(light: 0xE5E7EB, dark: 0x181E28),
                 "accent": .init(light: 0x00676A, dark: 0x56E0DD),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x001615),
                 "decoration": .init(light: 0x8A8E95, dark: 0x5E636C),
@@ -191,12 +191,12 @@ import UIKit
             "green": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
                 "separator": .init(light: 0xDFE2E8, dark: 0x1D222C),
-                "fill": .init(light: 0xEEF0F2, dark: 0x181E28),
+                "fill": .init(light: 0xE5E7EB, dark: 0x181E28),
                 "accent": .init(light: 0x2F6E12, dark: 0x84CF5E),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x091504),
                 "decoration": .init(light: 0x8A8E95, dark: 0x5E636C),
@@ -204,25 +204,25 @@ import UIKit
             "orange": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
                 "separator": .init(light: 0xDFE2E8, dark: 0x1D222C),
-                "fill": .init(light: 0xEEF0F2, dark: 0x181E28),
-                "accent": .init(light: 0xBD3F0C, dark: 0xF5925A),
+                "fill": .init(light: 0xE5E7EB, dark: 0x181E28),
+                "accent": .init(light: 0xB83E0B, dark: 0xF5925A),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x1F0B02),
                 "decoration": .init(light: 0x8A8E95, dark: 0x5E636C),
             ],
             "magenta": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
                 "separator": .init(light: 0xDFE2E8, dark: 0x1D222C),
-                "fill": .init(light: 0xEEF0F2, dark: 0x181E28),
+                "fill": .init(light: 0xE5E7EB, dark: 0x181E28),
                 "accent": .init(light: 0xA0289F, dark: 0xFCA1FE),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x1A0B1B),
                 "decoration": .init(light: 0x8A8E95, dark: 0x5E636C),
@@ -230,12 +230,12 @@ import UIKit
             "ink": [
                 "background": .init(light: 0xFEFFFF, dark: 0x0B111A),
                 "secondaryBackground": .init(light: 0xF8FAFC, dark: 0x0E141E),
-                "card": .init(light: 0xFFFFFF, dark: 0x111620),
+                "card": .init(light: 0xFFFFFF, dark: 0x101620),
                 "foreground": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "mutedForeground": .init(light: 0x50545B, dark: 0xA1A5AC),
                 "subtleForeground": .init(light: 0x63686F, dark: 0x858991),
                 "separator": .init(light: 0xDFE2E8, dark: 0x1D222C),
-                "fill": .init(light: 0xEEF0F2, dark: 0x181E28),
+                "fill": .init(light: 0xE5E7EB, dark: 0x181E28),
                 "accent": .init(light: 0x1E2126, dark: 0xDDDFE4),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x101215),
                 "decoration": .init(light: 0x8A8E95, dark: 0x5E636C),
@@ -245,12 +245,12 @@ import UIKit
             "theme": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
                 "separator": .init(light: 0xDFE3DF, dark: 0x1F241F),
-                "fill": .init(light: 0xEEF1EE, dark: 0x1A201B),
+                "fill": .init(light: 0xE5E7E5, dark: 0x1A201B),
                 "accent": .init(light: 0x466B00, dark: 0xA6DA7A),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x0F130A),
                 "decoration": .init(light: 0x8A8F8A, dark: 0x606561),
@@ -258,25 +258,25 @@ import UIKit
             "blue": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
                 "separator": .init(light: 0xDFE3DF, dark: 0x1F241F),
-                "fill": .init(light: 0xEEF1EE, dark: 0x1A201B),
-                "accent": .init(light: 0x09739A, dark: 0x4FB6F5),
+                "fill": .init(light: 0xE5E7E5, dark: 0x1A201B),
+                "accent": .init(light: 0x096D91, dark: 0x4FB6F5),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x001421),
                 "decoration": .init(light: 0x8A8F8A, dark: 0x606561),
             ],
             "teal": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
                 "separator": .init(light: 0xDFE3DF, dark: 0x1F241F),
-                "fill": .init(light: 0xEEF1EE, dark: 0x1A201B),
+                "fill": .init(light: 0xE5E7E5, dark: 0x1A201B),
                 "accent": .init(light: 0x00676A, dark: 0x56E0DD),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x001615),
                 "decoration": .init(light: 0x8A8F8A, dark: 0x606561),
@@ -284,12 +284,12 @@ import UIKit
             "green": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
                 "separator": .init(light: 0xDFE3DF, dark: 0x1F241F),
-                "fill": .init(light: 0xEEF1EE, dark: 0x1A201B),
+                "fill": .init(light: 0xE5E7E5, dark: 0x1A201B),
                 "accent": .init(light: 0x2F6E12, dark: 0x84CF5E),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x091504),
                 "decoration": .init(light: 0x8A8F8A, dark: 0x606561),
@@ -297,25 +297,25 @@ import UIKit
             "orange": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
                 "separator": .init(light: 0xDFE3DF, dark: 0x1F241F),
-                "fill": .init(light: 0xEEF1EE, dark: 0x1A201B),
-                "accent": .init(light: 0xBD3F0C, dark: 0xF5925A),
+                "fill": .init(light: 0xE5E7E5, dark: 0x1A201B),
+                "accent": .init(light: 0xB83E0B, dark: 0xF5925A),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x1F0B02),
                 "decoration": .init(light: 0x8A8F8A, dark: 0x606561),
             ],
             "magenta": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
                 "separator": .init(light: 0xDFE3DF, dark: 0x1F241F),
-                "fill": .init(light: 0xEEF1EE, dark: 0x1A201B),
+                "fill": .init(light: 0xE5E7E5, dark: 0x1A201B),
                 "accent": .init(light: 0xA0289F, dark: 0xFCA1FE),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x1A0B1B),
                 "decoration": .init(light: 0x8A8F8A, dark: 0x606561),
@@ -323,12 +323,12 @@ import UIKit
             "ink": [
                 "background": .init(light: 0xFEFFFE, dark: 0x0D120E),
                 "secondaryBackground": .init(light: 0xF8FAF8, dark: 0x101611),
-                "card": .init(light: 0xFFFFFF, dark: 0x121813),
+                "card": .init(light: 0xFEFFFE, dark: 0x131814),
                 "foreground": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "mutedForeground": .init(light: 0x505651, dark: 0xA3A6A3),
                 "subtleForeground": .init(light: 0x636964, dark: 0x868A87),
                 "separator": .init(light: 0xDFE3DF, dark: 0x1F241F),
-                "fill": .init(light: 0xEEF1EE, dark: 0x1A201B),
+                "fill": .init(light: 0xE5E7E5, dark: 0x1A201B),
                 "accent": .init(light: 0x1E221F, dark: 0xDEE0DE),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x111211),
                 "decoration": .init(light: 0x8A8F8A, dark: 0x606561),
@@ -338,12 +338,12 @@ import UIKit
             "theme": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
                 "separator": .init(light: 0xDCE3E6, dark: 0x1B2428),
-                "fill": .init(light: 0xECF1F2, dark: 0x162024),
+                "fill": .init(light: 0xE3E7EA, dark: 0x162024),
                 "accent": .init(light: 0x006E83, dark: 0x78C7E7),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x071416),
                 "decoration": .init(light: 0x868F93, dark: 0x5D6568),
@@ -351,25 +351,25 @@ import UIKit
             "blue": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
                 "separator": .init(light: 0xDCE3E6, dark: 0x1B2428),
-                "fill": .init(light: 0xECF1F2, dark: 0x162024),
-                "accent": .init(light: 0x09739A, dark: 0x4FB6F5),
+                "fill": .init(light: 0xE3E7EA, dark: 0x162024),
+                "accent": .init(light: 0x096D91, dark: 0x4FB6F5),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x001421),
                 "decoration": .init(light: 0x868F93, dark: 0x5D6568),
             ],
             "teal": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
                 "separator": .init(light: 0xDCE3E6, dark: 0x1B2428),
-                "fill": .init(light: 0xECF1F2, dark: 0x162024),
+                "fill": .init(light: 0xE3E7EA, dark: 0x162024),
                 "accent": .init(light: 0x00676A, dark: 0x56E0DD),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x001615),
                 "decoration": .init(light: 0x868F93, dark: 0x5D6568),
@@ -377,12 +377,12 @@ import UIKit
             "green": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
                 "separator": .init(light: 0xDCE3E6, dark: 0x1B2428),
-                "fill": .init(light: 0xECF1F2, dark: 0x162024),
+                "fill": .init(light: 0xE3E7EA, dark: 0x162024),
                 "accent": .init(light: 0x2F6E12, dark: 0x84CF5E),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x091504),
                 "decoration": .init(light: 0x868F93, dark: 0x5D6568),
@@ -390,25 +390,25 @@ import UIKit
             "orange": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
                 "separator": .init(light: 0xDCE3E6, dark: 0x1B2428),
-                "fill": .init(light: 0xECF1F2, dark: 0x162024),
-                "accent": .init(light: 0xBD3F0C, dark: 0xF5925A),
+                "fill": .init(light: 0xE3E7EA, dark: 0x162024),
+                "accent": .init(light: 0xB83E0B, dark: 0xF5925A),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x1F0B02),
                 "decoration": .init(light: 0x868F93, dark: 0x5D6568),
             ],
             "magenta": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
                 "separator": .init(light: 0xDCE3E6, dark: 0x1B2428),
-                "fill": .init(light: 0xECF1F2, dark: 0x162024),
+                "fill": .init(light: 0xE3E7EA, dark: 0x162024),
                 "accent": .init(light: 0xA0289F, dark: 0xFCA1FE),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x1A0B1B),
                 "decoration": .init(light: 0x868F93, dark: 0x5D6568),
@@ -416,12 +416,12 @@ import UIKit
             "ink": [
                 "background": .init(light: 0xFDFFFF, dark: 0x091216),
                 "secondaryBackground": .init(light: 0xF6FAFC, dark: 0x0C161A),
-                "card": .init(light: 0xFEFFFF, dark: 0x0E181C),
+                "card": .init(light: 0xFDFFFF, dark: 0x0F181C),
                 "foreground": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "mutedForeground": .init(light: 0x4D555A, dark: 0xA0A6A9),
                 "subtleForeground": .init(light: 0x60696E, dark: 0x838A8E),
                 "separator": .init(light: 0xDCE3E6, dark: 0x1B2428),
-                "fill": .init(light: 0xECF1F2, dark: 0x162024),
+                "fill": .init(light: 0xE3E7EA, dark: 0x162024),
                 "accent": .init(light: 0x1C2225, dark: 0xDCE0E1),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x0F1213),
                 "decoration": .init(light: 0x868F93, dark: 0x5D6568),
@@ -431,12 +431,12 @@ import UIKit
             "theme": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
                 "separator": .init(light: 0xE4E0E5, dark: 0x252026),
-                "fill": .init(light: 0xF1EEF2, dark: 0x221C22),
+                "fill": .init(light: 0xE8E6E9, dark: 0x221C22),
                 "accent": .init(light: 0x833A8F, dark: 0xDDA2E6),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x160F17),
                 "decoration": .init(light: 0x918B92, dark: 0x666167),
@@ -444,25 +444,25 @@ import UIKit
             "blue": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
                 "separator": .init(light: 0xE4E0E5, dark: 0x252026),
-                "fill": .init(light: 0xF1EEF2, dark: 0x221C22),
-                "accent": .init(light: 0x09739A, dark: 0x4FB6F5),
+                "fill": .init(light: 0xE8E6E9, dark: 0x221C22),
+                "accent": .init(light: 0x096D91, dark: 0x4FB6F5),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x001421),
                 "decoration": .init(light: 0x918B92, dark: 0x666167),
             ],
             "teal": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
                 "separator": .init(light: 0xE4E0E5, dark: 0x252026),
-                "fill": .init(light: 0xF1EEF2, dark: 0x221C22),
+                "fill": .init(light: 0xE8E6E9, dark: 0x221C22),
                 "accent": .init(light: 0x00676A, dark: 0x56E0DD),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x001615),
                 "decoration": .init(light: 0x918B92, dark: 0x666167),
@@ -470,12 +470,12 @@ import UIKit
             "green": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
                 "separator": .init(light: 0xE4E0E5, dark: 0x252026),
-                "fill": .init(light: 0xF1EEF2, dark: 0x221C22),
+                "fill": .init(light: 0xE8E6E9, dark: 0x221C22),
                 "accent": .init(light: 0x2F6E12, dark: 0x84CF5E),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x091504),
                 "decoration": .init(light: 0x918B92, dark: 0x666167),
@@ -483,25 +483,25 @@ import UIKit
             "orange": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
                 "separator": .init(light: 0xE4E0E5, dark: 0x252026),
-                "fill": .init(light: 0xF1EEF2, dark: 0x221C22),
-                "accent": .init(light: 0xBD3F0C, dark: 0xF5925A),
+                "fill": .init(light: 0xE8E6E9, dark: 0x221C22),
+                "accent": .init(light: 0xB83E0B, dark: 0xF5925A),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x1F0B02),
                 "decoration": .init(light: 0x918B92, dark: 0x666167),
             ],
             "magenta": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
                 "separator": .init(light: 0xE4E0E5, dark: 0x252026),
-                "fill": .init(light: 0xF1EEF2, dark: 0x221C22),
+                "fill": .init(light: 0xE8E6E9, dark: 0x221C22),
                 "accent": .init(light: 0xA0289F, dark: 0xFCA1FE),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x1A0B1B),
                 "decoration": .init(light: 0x918B92, dark: 0x666167),
@@ -509,12 +509,12 @@ import UIKit
             "ink": [
                 "background": .init(light: 0xFFFEFF, dark: 0x140E15),
                 "secondaryBackground": .init(light: 0xFBF9FC, dark: 0x181218),
-                "card": .init(light: 0xFFFFFF, dark: 0x1A141B),
+                "card": .init(light: 0xFFFEFF, dark: 0x1A141B),
                 "foreground": .init(light: 0x232024, dark: 0xE0DEE1),
                 "mutedForeground": .init(light: 0x575258, dark: 0xA8A4A8),
                 "subtleForeground": .init(light: 0x6B656C, dark: 0x8C878D),
                 "separator": .init(light: 0xE4E0E5, dark: 0x252026),
-                "fill": .init(light: 0xF1EEF2, dark: 0x221C22),
+                "fill": .init(light: 0xE8E6E9, dark: 0x221C22),
                 "accent": .init(light: 0x232024, dark: 0xE0DEE1),
                 "onAccent": .init(light: 0xFFFFFF, dark: 0x121113),
                 "decoration": .init(light: 0x918B92, dark: 0x666167),
@@ -620,6 +620,14 @@ import UIKit
         static let done = adaptive(0x007856, 0x57BD9B)
         static let failed = adaptive(0xA3233A, 0xE4697D)
     }
+    @MainActor enum RowStatus {
+        static let needsYou = adaptive(0xAD7200, 0xEDB250)
+        static let failed = adaptive(0xC93A33, 0xF47670)
+        static let working = adaptive(0x3D63A6, 0x7E9FD6)
+        static let waiting = adaptive(0x6A55A8, 0xA08FD4)
+        static let background = adaptive(0x6B7380, 0x7E8692)
+        static let finished = adaptive(0x2E7D4F, 0x6CBF8C)
+    }
     enum Spacing {
         static let none: CGFloat = 0
         static let xxs: CGFloat = 2
@@ -630,24 +638,6 @@ import UIKit
         static let xl: CGFloat = 20
         static let xxl: CGFloat = 24
         static let xxxl: CGFloat = 32
-    }
-    enum Radii {
-        static let badge: CGFloat = 4
-        static let small: CGFloat = 8
-        static let code: CGFloat = 12
-        static let button: CGFloat = 14
-        static let card: CGFloat = 16
-        static let group: CGFloat = 18
-        static let bubble: CGFloat = 20
-        static let approval: CGFloat = 22
-        static let composer: CGFloat = 26
-        static let sheet: CGFloat = 28
-        static let pill: CGFloat = 999
-        static let xs: CGFloat = 4
-        static let sm: CGFloat = 6
-        static let md: CGFloat = 8
-        static let lg: CGFloat = 12
-        static let xl: CGFloat = 18
     }
     enum Dimensions {
         static let touchTarget: CGFloat = 48
@@ -684,29 +674,23 @@ import UIKit
     }
     struct TypeStyle: Sendable { let size: CGFloat; let lineHeight: CGFloat; let weight: CGFloat; let tracking: CGFloat }
     enum Typography {
-        static let caption = TypeStyle(size: 13, lineHeight: 17, weight: 400, tracking: 0)
-        static let label = TypeStyle(size: 14, lineHeight: 19, weight: 500, tracking: 0)
-        static let body = TypeStyle(size: 16, lineHeight: 23, weight: 400, tracking: -0.16)
-        static let rowTitle = TypeStyle(size: 17, lineHeight: 22, weight: 500, tracking: -0.17)
-        static let title = TypeStyle(size: 18, lineHeight: 23, weight: 700, tracking: -0.18)
-        static let wordmark = TypeStyle(size: 25, lineHeight: 30, weight: 700, tracking: -0.5)
-        static let code = TypeStyle(size: 13, lineHeight: 19, weight: 400, tracking: 0)
+        static let largeTitle = TypeStyle(size: 34, lineHeight: 41, weight: 600, tracking: 0)
+        static let wordmark = TypeStyle(size: 34, lineHeight: 41, weight: 600, tracking: 0)
+        static let title = TypeStyle(size: 17, lineHeight: 22, weight: 600, tracking: 0)
+        static let body = TypeStyle(size: 17, lineHeight: 22, weight: 400, tracking: 0)
+        static let rowTitle = TypeStyle(size: 15, lineHeight: 20, weight: 400, tracking: 0)
+        static let label = TypeStyle(size: 15, lineHeight: 20, weight: 400, tracking: 0)
+        static let caption = TypeStyle(size: 13, lineHeight: 18, weight: 400, tracking: 0)
+        static let meta = TypeStyle(size: 13, lineHeight: 18, weight: 400, tracking: 0)
+        static let code = TypeStyle(size: 13, lineHeight: 18, weight: 400, tracking: 0)
+        static let small = TypeStyle(size: 11, lineHeight: 13, weight: 400, tracking: 0)
     }
+    /// Two weights: regular, and semibold for what needs the person and emphasis.
     static func fontWeight(_ value: CGFloat) -> Font.Weight {
-        switch value {
-        case 500: .medium
-        case 600: .semibold
-        case 700: .bold
-        default: .regular
-        }
+        value >= 600 ? .semibold : .regular
     }
     static func uiFont(_ style: TypeStyle, relativeTo: UIFont.TextStyle, traits: UITraitCollection) -> UIFont {
-        let weight: UIFont.Weight = switch style.weight {
-        case 500: .medium
-        case 600: .semibold
-        case 700: .bold
-        default: .regular
-        }
+        let weight: UIFont.Weight = style.weight >= 600 ? .semibold : .regular
         return UIFontMetrics(forTextStyle: relativeTo).scaledFont(for: .systemFont(ofSize: style.size, weight: weight), compatibleWith: traits)
     }
     static func inputAttributes(traits: UITraitCollection) -> [NSAttributedString.Key: Any] {

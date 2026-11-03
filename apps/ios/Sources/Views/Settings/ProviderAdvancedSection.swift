@@ -5,6 +5,7 @@ import SwiftUI
 /// Typed values are checked by the bridge (`@ace/ui-core` provider preferences), which says why
 /// one can't be saved.
 struct ProviderAdvancedSection: View {
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let page: ProviderPageData
     let removeCLI: () -> Void
@@ -25,7 +26,7 @@ struct ProviderAdvancedSection: View {
         Section {
             if page.settings.editable { editableRows } else { readOnlyRows }
             if let command = page.settings.approvedCommand {
-                LabeledContent("CLI path") { Text(command).foregroundStyle(AceTheme.Colours.mutedForeground).multilineTextAlignment(.trailing) }
+                LabeledContent("CLI path") { Text(command).foregroundStyle(AceDesign.Ink.muted).multilineTextAlignment(.trailing) }
             }
             if let native = page.settings.nativeMode {
                 Picker("Native mode", selection: Binding(get: { native.value }, set: { mode in save(["kind": "nativeMode", "mode": mode]) })) {
@@ -36,13 +37,13 @@ struct ProviderAdvancedSection: View {
             }
             if page.signOut {
                 Button(signingOut ? "Signing out…" : "Sign out", role: .destructive) { confirmSignOut = true }
-                    .disabled(signingOut).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                if let signOutResult { Text(signOutResult).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground) }
+                    .disabled(signingOut).frame(minHeight: AceDesign.Size.tap)
+                if let signOutResult { Text(signOutResult).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted) }
             }
             if page.settings.removable {
                 // Shows the removal plan; its red Remove CLI is the confirmation.
                 Button("Remove provider…", role: .destructive, action: removeCLI)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("provider.remove")
             }
             ServiceProblem(message: problem)
@@ -81,15 +82,15 @@ struct ProviderAdvancedSection: View {
         }
         if let saved = page.settings.checkpoint {
             LabeledContent("Checkpoint budget per thread") {
-                HStack(spacing: AceTheme.Spacing.xs) {
+                HStack(spacing: AceDesign.Space.tight) {
                     TextField("32", text: $checkpoint).multilineTextAlignment(.trailing).keyboardType(.numberPad)
-                        .focused($focus, equals: .checkpoint).frame(maxWidth: 64)
+                        .focused($focus, equals: .checkpoint).frame(maxWidth: AceDesign.Size.numberField)
                         .accessibilityIdentifier("provider.checkpoint")
-                    Text("MB").foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text("MB").foregroundStyle(AceDesign.Ink.muted)
                 }
             }
             if let checkpointProblem { problemLine(checkpointProblem) }
-            if focus == .checkpoint { Button("Save budget") { commitCheckpoint(saved) }.frame(minHeight: AceTheme.Dimensions.touchTarget) }
+            if focus == .checkpoint { Button("Save budget") { commitCheckpoint(saved) }.frame(minHeight: AceDesign.Size.tap) }
         }
     }
     /// The same preferences as values, for a phone the computer lets read them only.
@@ -107,7 +108,7 @@ struct ProviderAdvancedSection: View {
         }
     }
     private func problemLine(_ text: String) -> some View {
-        Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.StatusText.failed)
+        Text(text).font(AceDesign.Typeface.meta).foregroundStyle(AceTheme.StatusText.failed)
             .transition(.opacity)
     }
     private func syncFields() {
@@ -129,11 +130,11 @@ struct ProviderAdvancedSection: View {
             defer { saving = false }
             do {
                 try await model.editProvider(page.provider, change)
-                withAnimation(.smooth) { field?(nil) }
+                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { field?(nil) }
                 saved()
                 model.refreshMachine()
             } catch {
-                withAnimation(.smooth) {
+                withAnimation(AceDesign.Motion.arriving(reduceMotion)) {
                     if let field { field(error.localizedDescription) } else { problem = error.localizedDescription }
                 }
             }

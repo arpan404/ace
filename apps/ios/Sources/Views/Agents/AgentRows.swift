@@ -8,22 +8,22 @@ struct AgentRowView: View {
     let provider: String
     @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.md) {
-            ProviderMark(provider: provider, size: 20).foregroundStyle(AceTheme.Colours.foreground)
+        HStack(spacing: AceDesign.Space.row) {
+            ProviderMark(provider: provider, size: AceDesign.Size.icon).foregroundStyle(AceDesign.Ink.primary)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(row.depth == 0 ? "Main agent" : row.name)
-                    .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                    .font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 1)
-                Text(detail).aceFont(AceTheme.Typography.label, relativeTo: .footnote).fontWeight(.regular)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(detail).font(AceDesign.Typeface.body).fontWeight(.regular)
+                    .foregroundStyle(AceDesign.Ink.muted)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 1)
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             StateLabel(status: row.status)
         }
         // Depth beyond a few levels keeps its own line rather than squeezing the name.
-        .padding(.leading, CGFloat(min(row.depth, 4)) * AceTheme.Spacing.lg)
-        .padding(.vertical, AceTheme.Spacing.xs)
+        .padding(.leading, CGFloat(min(row.depth, 4)) * AceDesign.Space.margin)
+        .padding(.vertical, AceDesign.Space.tight)
         .accessibilityElement(children: .combine)
     }
     /// What it is doing; the model when that says no more than the status word.
@@ -37,7 +37,7 @@ struct AgentRowView: View {
     }
 }
 
-/// A background command or task with its state; a Stop pill where ace can stop it on its own.
+/// A background command or task with its state; Stop, in words, where ace can stop it on its own.
 struct TaskRowView: View {
     let task: AgentSheet.BackgroundTask
     let canStop: Bool
@@ -46,22 +46,22 @@ struct TaskRowView: View {
     var body: some View {
         // At accessibility sizes Stop goes under the command instead of squeezing it.
         let stacked = typeSize.isAccessibilitySize
-        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.sm))
-                             : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.md))
+        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceDesign.Space.related))
+                             : AnyLayout(HStackLayout(spacing: AceDesign.Space.row))
         layout {
-            HStack(spacing: AceTheme.Spacing.md) {
-                Image(systemName: task.kind == "shell" ? "terminal" : "gearshape.2").foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .frame(width: 20)
+            HStack(spacing: AceDesign.Space.row) {
+                Image(systemName: task.kind == "shell" ? "terminal" : "gearshape.2").foregroundStyle(AceDesign.Ink.muted)
+                    .frame(width: AceDesign.Size.icon + AceDesign.Space.tight)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                     // Only a shell's title is its command; anything else is words, never code.
                     Group {
                         if task.kind == "shell" {
-                            Text(task.title).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                            Text(task.title).font(AceDesign.Typeface.code)
                         } else {
-                            Text(task.title).aceFont(AceTheme.Typography.label, relativeTo: .footnote)
+                            Text(task.title).font(AceDesign.Typeface.body)
                         }
                     }
-                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .foregroundStyle(AceDesign.Ink.primary)
                     .lineLimit(stacked ? 4 : 2)
                     StateLabel(status: StatusDisplay(label: task.status.label.capitalized, token: task.status.token))
                 }
@@ -69,12 +69,11 @@ struct TaskRowView: View {
             if !stacked { Spacer(minLength: AceTheme.Spacing.none) }
             if canStop && task.stoppable {
                 Button("Stop", action: stop)
-                    .aceFont(AceTheme.Typography.label, relativeTo: .footnote).fontWeight(.semibold)
+                    .font(AceDesign.Typeface.body).fontWeight(.semibold)
                     .foregroundStyle(AceTheme.StatusText.failed)
-                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 34)
-                    .background(AceTheme.Colours.diffDelete, in: AceShape.capsule)
+                    .padding(.horizontal, AceDesign.Space.related)
                     .buttonStyle(.plain)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("agents.task.stop.\(task.id)")
             }
         }
@@ -93,8 +92,8 @@ struct BudgetLine: View {
             totals.costUsd.map { $0.formatted(.currency(code: "USD")) },
         ].compactMap { $0 }
         if !parts.isEmpty {
-            Text(parts.joined(separator: " · ")).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
+            Text(parts.joined(separator: " · ")).font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.muted)
                 .accessibilityIdentifier("agents.budget")
         }
     }

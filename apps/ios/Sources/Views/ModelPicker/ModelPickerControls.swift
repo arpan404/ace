@@ -36,9 +36,9 @@ struct ModelChoiceRow: View {
             .accessibilityIdentifier(identifier)
             Button(action: star) {
                 Image(systemName: row.starred ? "star.fill" : "star")
-                    .font(.system(size: 16, weight: .regular))
+                    .font(AceDesign.Typeface.title)
                     .foregroundStyle(row.starred ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
-                    .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -46,9 +46,9 @@ struct ModelChoiceRow: View {
             .accessibilityIdentifier("star.\(row.label)")
             .sensoryFeedback(.selection, trigger: row.starred)
         }
-        .opacity(enabled ? 1 : 0.5)
+        .opacity(enabled ? 1 : AceDesign.Ink.dimmedOpacity)
         .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xs))
+        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.tight))
         .sensoryFeedback(.selection, trigger: row.chosen)
     }
 }

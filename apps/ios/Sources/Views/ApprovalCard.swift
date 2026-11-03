@@ -13,11 +13,11 @@ struct ApprovalCard: View {
     @State private var details = false
     @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md - AceTheme.Spacing.xxs) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             RequestHeader(title: nonEmpty(approval.heading) ?? approval.title)
             if !approval.command.isEmpty { CommandBlock(command: approval.command) }
             if let level = riskLevel, let text = nonEmpty(approval.riskText) {
-                (Text(level).fontWeight(.medium).foregroundStyle(approval.risk == "high" ? AceTheme.StatusText.failed : AceTheme.StatusText.needsYou)
+                (Text(level).fontWeight(AceDesign.Typeface.regular).foregroundStyle(approval.risk == "high" ? AceTheme.StatusText.failed : AceTheme.StatusText.needsYou)
                  + Text(" · \(text)").foregroundStyle(AceTheme.Colours.mutedForeground))
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .fixedSize(horizontal: false, vertical: true)
@@ -72,10 +72,10 @@ struct ApprovalCard: View {
     }
     @ViewBuilder private var detailsToggle: some View {
         if hasDetails {
-            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { details.toggle() } } label: {
-                HStack(spacing: AceTheme.Spacing.xs) {
+            Button { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { details.toggle() } } label: {
+                HStack(spacing: AceDesign.Space.tight) {
                     Text("Details")
-                    AceIcon(.caretRight, size: 12, relativeTo: .caption)
+                    AceIcon(.caretRight, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                         .rotationEffect(.degrees(details ? 90 : 0))
                 }
@@ -104,7 +104,7 @@ struct ApprovalCard: View {
         }
     }
     private var detailsBody: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             if let reason {
                 Text(reason).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -112,7 +112,7 @@ struct ApprovalCard: View {
             }
             if !others.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: AceTheme.Spacing.xs) {
+                    HStack(spacing: AceDesign.Space.tight) {
                         ForEach(others) { other in
                             Button(other.label) { resolve(other.option) }
                                 .buttonStyle(StripTextButtonStyle())
@@ -138,10 +138,10 @@ struct CommandBlock: View {
                 .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
+                .padding(.horizontal, AceDesign.Space.row).padding(.vertical, AceDesign.Space.row)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .frame(maxHeight: AceTheme.Dimensions.touchTarget * 3)
+        .frame(maxHeight: AceDesign.Size.tap * 3)
         .fixedSize(horizontal: false, vertical: true)
         .requestInset()
         .accessibilityElement(children: .combine)
@@ -162,12 +162,12 @@ struct RequestButtonStyle: ButtonStyle {
         let shape = AceShape.capsule
         configuration.label
             .aceFont(AceTheme.Typography.body, relativeTo: .body)
-            .fontWeight(primary ? .semibold : .regular)
+            .fontWeight(primary ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .foregroundStyle(primary ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
-            .frame(maxWidth: wide ? .infinity : nil, minHeight: AceTheme.Dimensions.touchTarget)
+            .padding(.horizontal, AceDesign.Space.row)
+            .frame(maxWidth: wide ? .infinity : nil, minHeight: AceDesign.Size.tap)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: shape)
             .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
             .contentShape(shape)

@@ -69,9 +69,10 @@ struct MessageEditSheet: View {
     @State var editor: MessageEditor
     @State private var saved = 0
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.aceReduceMotion) private var reduceMotion
     @FocusState private var focused: Bool
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             header
             if editor.loaded {
                 TextEditor(text: $editor.text)
@@ -83,7 +84,7 @@ struct MessageEditSheet: View {
                     .transition(.opacity)
             } else if editor.problem == nil {
                 // Loading: the field's place, not a spinner (DESIGN.md §3).
-                AceShape.capsule.fill(AceTheme.Colours.fill).frame(height: AceTheme.Spacing.lg).frame(maxWidth: 240)
+                SkeletonBar(height: AceDesign.Space.margin)
                     .accessibilityLabel("Loading the message")
             }
             if editor.attachments > 0 {
@@ -107,19 +108,19 @@ struct MessageEditSheet: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxHeight: 120)
+                .frame(maxHeight: AceDesign.Size.tap * 3)
                 .accessibilityLabel("It now says")
                 .accessibilityValue(newer)
                 .accessibilityIdentifier("edit.newer")
                 .transition(.opacity)
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.sm)
+        .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AceTheme.Colours.background)
-        .animation(.smooth(duration: 0.2), value: editor.loaded)
-        .animation(.smooth(duration: 0.2), value: editor.problem)
-        .animation(.smooth(duration: 0.2), value: editor.newer)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: editor.loaded)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: editor.problem)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: editor.newer)
         .task {
             await editor.load()
             focused = editor.loaded
@@ -130,10 +131,10 @@ struct MessageEditSheet: View {
         .interactiveDismissDisabled(editor.saving)
     }
     private var header: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        HStack(spacing: AceDesign.Space.related) {
             Button("Cancel") { dismiss() }
                 .buttonStyle(StripTextButtonStyle())
-                .padding(.leading, -AceTheme.Spacing.sm)
+                .padding(.leading, -AceDesign.Space.related)
                 .accessibilityIdentifier("edit.cancel")
             Spacer(minLength: AceTheme.Spacing.none)
             Text("Edit message").aceFont(AceTheme.Typography.label, relativeTo: .headline)
@@ -144,11 +145,11 @@ struct MessageEditSheet: View {
                 Task { if await editor.save() { saved += 1; dismiss() } }
             }
             .buttonStyle(StripTextButtonStyle(prominent: true))
-            .padding(.trailing, -AceTheme.Spacing.sm)
+            .padding(.trailing, -AceDesign.Space.related)
             .disabled(!editor.canSave)
             .accessibilityIdentifier("edit.save")
         }
-        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+        .frame(minHeight: AceDesign.Size.tap)
     }
 }
 

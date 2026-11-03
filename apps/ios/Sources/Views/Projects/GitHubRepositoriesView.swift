@@ -47,16 +47,16 @@ struct GitHubRepositoriesView: View {
             }
             Section {
                 if let rows {
-                    if rows.isEmpty { Text(query.isEmpty ? "No repositories." : "No repositories match \(query).").foregroundStyle(AceTheme.Colours.mutedForeground) }
+                    if rows.isEmpty { Text(query.isEmpty ? "No repositories." : "No repositories match \(query).").foregroundStyle(AceDesign.Ink.muted) }
                     ForEach(rows) { row in
                         Button { picked(row); dismiss() } label: {
                             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                                Text(row.fullName).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                                Text(row.fullName).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
                                 let facts = [row.private ? "Private" : "Public", row.archived ? "Archived" : nil, row.fork ? "Fork" : nil, row.description.isEmpty ? nil : row.description].compactMap { $0 }
-                                Text(facts.joined(separator: " · ")).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
+                                Text(facts.joined(separator: " · ")).font(AceDesign.Typeface.meta)
+                                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(2)
                             }
-                            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+                            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)

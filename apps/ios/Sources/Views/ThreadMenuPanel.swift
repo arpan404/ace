@@ -26,24 +26,24 @@ private struct MenuScreenGrid: View {
 
     var body: some View {
         // Large text gets two columns so labels never clip; otherwise four across.
-        let columns = Array(repeating: GridItem(.flexible(), spacing: AceTheme.Spacing.xs),
+        let columns = Array(repeating: GridItem(.flexible(), spacing: AceDesign.Space.tight),
                             count: typeSize.isAccessibilitySize ? 2 : 4)
-        LazyVGrid(columns: columns, spacing: AceTheme.Spacing.sm) {
+        LazyVGrid(columns: columns, spacing: AceDesign.Space.related) {
             ForEach(screens) { screen in
                 Button {
                     open(screen.destination)
                     dismiss()
                 } label: {
                     VStack(spacing: AceTheme.Spacing.xxs) {
-                        AceIcon(screen.icon, size: 20, relativeTo: .body)
+                        AceIcon(screen.icon, size: AceDesign.Size.barIcon, relativeTo: .body)
                             .foregroundStyle(AceTheme.Colours.foreground)
-                            .frame(height: AceTheme.Spacing.xl)
+                            .frame(height: AceDesign.Size.barIcon)
                         Text(screen.title)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.foreground)
                             .lineLimit(1)
                     }
-                    .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
+                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -67,9 +67,9 @@ private struct MenuRow: View {
         Button(role: role, action: action) {
             Label(title, ace: icon)
                 .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .foregroundStyle(role == .destructive ? Color.red : AceTheme.Colours.foreground)
+                .foregroundStyle(role == .destructive ? AceDesign.Ink.destructive : AceTheme.Colours.foreground)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -104,14 +104,14 @@ struct ThreadMenuPanel: View {
         ScrollView { panel }
             .scrollBounceBehavior(.basedOnSize)
             .accessibilityIdentifier("thread.options.scroll")
-            .frame(idealWidth: 340, maxWidth: 380)
+            .frame(idealWidth: AceDesign.Size.popover, maxWidth: AceDesign.Size.popoverWide)
             .accessibilityLabel("Thread options")
     }
 
     private var panel: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             MenuScreenGrid(open: open, dismiss: dismiss)
-                .padding(.bottom, AceTheme.Spacing.sm)
+                .padding(.bottom, AceDesign.Space.related)
             Divider()
             Menu { conversation } label: { groupLabel("Conversation", icon: .notePencil) }
                 .accessibilityIdentifier("thread.options.conversation")
@@ -141,21 +141,21 @@ struct ThreadMenuPanel: View {
             }
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, AceTheme.Spacing.lg)
-        .padding(.vertical, AceTheme.Spacing.md)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .padding(.vertical, AceDesign.Space.row)
     }
 
     private func groupLabel(_ title: String, icon: AceIcon.Name) -> some View {
         HStack {
             Label(title, ace: icon)
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
+                .font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
         }
         .aceFont(AceTheme.Typography.body, relativeTo: .body)
         .foregroundStyle(AceTheme.Colours.foreground)
-        .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
         .contentShape(Rectangle())
     }
 
@@ -210,7 +210,7 @@ struct ThreadMenuPanel: View {
                 .aceFont(AceTheme.Typography.body, relativeTo: .body)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .accessibilityIdentifier("thread.openIn")
@@ -238,7 +238,7 @@ struct ThreadMenuPanel: View {
             .disabled(!ready)
             .accessibilityIdentifier("thread.continueOn")
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            .frame(minHeight: AceDesign.Size.tap)
         }
         if hasActivity, let hostId = model.hostId {
             MenuRow(title: "Show on Lock Screen", icon: .squaresFour) {
@@ -260,7 +260,7 @@ struct ThreadMenuPanel: View {
                 } label: {
                     Label("Snooze", ace: .bellSimpleZ)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                        .frame(minHeight: AceDesign.Size.tap)
                         .contentShape(Rectangle())
                 }
             }

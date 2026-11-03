@@ -26,6 +26,6 @@ struct TranscriptFeedRowView: View {
         // Compact trims it (Settings › Appearance).
         BlockView(block: row.block, thread: thread, links: links)
             .padding(.bottom, row.room * AceTheme.density(densityId).transcriptRoom)
-            .padding(.horizontal, AceTheme.Spacing.xl)
+            .padding(.horizontal, AceDesign.Space.margin)
     }
 }

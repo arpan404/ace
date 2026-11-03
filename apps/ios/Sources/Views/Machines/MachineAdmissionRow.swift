@@ -11,16 +11,16 @@ struct MachineAdmissionRow: View {
 
     var body: some View {
         if let admission = model.admission, admission.known {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 if model.canOperate {
                     Button { set(!admission.paused) } label: {
                         HStack {
-                            Text(admission.action).aceFont(InsetStyle.label, relativeTo: .body)
-                                .foregroundStyle(admission.canChange ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-                            Spacer(minLength: AceTheme.Spacing.sm)
-                            if working { ProgressView().controlSize(.small).transition(.opacity) }
+                            Text(admission.action).font(AceDesign.Typeface.body)
+                                .foregroundStyle(admission.canChange ? AceDesign.Ink.primary : AceDesign.Ink.muted)
+                            Spacer(minLength: AceDesign.Space.related)
+                            if working { WorkingMark().transition(.opacity) }
                         }
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                        .frame(minHeight: AceDesign.Size.tap)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -28,15 +28,15 @@ struct MachineAdmissionRow: View {
                     .accessibilityIdentifier("machine.admission")
                 }
                 if let line = admission.line {
-                    Text(line).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text(line).font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
                         .transition(.opacity)
                         .accessibilityIdentifier("machine.admission.line")
                 }
                 ServiceProblem(message: problem)
             }
-            .animation(.smooth, value: admission)
-            .animation(.smooth, value: working)
+            .smoothChange(admission)
+            .smoothChange(working)
             .sensoryFeedback(.success, trigger: changes)
         }
     }

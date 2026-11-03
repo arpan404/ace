@@ -79,9 +79,9 @@ struct WorkWordButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(label).fontWeight(.medium)
+            Text(label)
                 .padding(.horizontal, AceTheme.Spacing.sm)
-                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

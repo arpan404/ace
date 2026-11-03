@@ -2,6 +2,8 @@ import SwiftUI
 
 /// Every screen Settings pushes inside its own stack.
 enum SettingsRoute: Hashable {
+    /// More's own places: Settings' list, and Pull requests with its pages.
+    case settings, pulls, forge(ForgeRoute)
     case account
     case machines, machine(String), pair
     case notifications, lock, appearance, keyboard
@@ -11,11 +13,20 @@ enum SettingsRoute: Hashable {
     case licences
 }
 
-/// Settings, opened from the inbox: connections (machines, notifications, Face ID), the
-/// interface, threads (archive, profiles), each machine's tools, and the app itself. Everything
-/// pushes inside this sheet's own stack.
+/// What More's Pull requests asks of the inbox: a thread or New thread opens there, after More
+/// closes.
+struct MorePlaces {
+    let openThread: (InboxKey) -> Void
+    let startThread: () -> Void
+}
+
+/// More, opened from the inbox header: the app's secondary places as a grouped list. Pull
+/// requests and Settings first, then each machine's tools. Settings is the connections
+/// (machines, notifications, Face ID), the interface, threads (archive, profiles) and the app
+/// itself. Everything pushes inside this sheet's own stack.
 struct SettingsSheet: View {
     let inbox: MachineInbox
+    var places: MorePlaces? = nil
     var machines: MachinesModel?
     var lock: AppLock?
     @Environment(NotificationCoordinator.self) private var notifications: NotificationCoordinator?
@@ -29,8 +40,14 @@ struct SettingsSheet: View {
     /// Where machine settings changes go while Settings is open (`SettingsScope`).
     @State private var scope: SettingsScope
 
-    init(inbox: MachineInbox, machines: MachinesModel? = nil, lock: AppLock? = nil, start: [SettingsRoute] = []) {
+    @State private var forgeMachine = ""
+    @State private var forgeProject = ""
+    @State private var forgeKind = ForgeKind.pulls
+    @State private var forgeQuery = ""
+
+    init(inbox: MachineInbox, places: MorePlaces? = nil, machines: MachinesModel? = nil, lock: AppLock? = nil, start: [SettingsRoute] = []) {
         self.inbox = inbox
+        self.places = places
         self.machines = machines
         self.lock = lock
         _path = State(initialValue: start)
@@ -39,6 +56,35 @@ struct SettingsSheet: View {
 
     var body: some View {
         NavigationStack(path: $path) {
+            List {
+                Section {
+                    if places != nil { link(.pulls, "Pull requests", "arrow.triangle.branch", id: "more.pulls") }
+                    link(.settings, "Settings", "gearshape", id: "more.settings")
+                }
+                .insetRowBackground()
+                SettingsTools(inbox: inbox, machine: $toolsMachine)
+            }
+            .insetGroupedList()
+            .nativeTitle("More")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close").accessibilityIdentifier("settings.close")
+                }
+            }
+            .navigationDestination(for: SettingsRoute.self) { route in destination(route) }
+        }
+        .environment(\.settingsScope, scope)
+        .escapeCloses { dismiss() }
+        .tint(AceDesign.Ink.accent)
+        .toggleStyle(.systemSwitch)
+        .presentationDetents([.large]).presentationDragIndicator(.visible)
+        .onChange(of: path) { old, new in navigated(from: old, to: new) }
+        .onDisappear { closeMachineViews() }
+    }
+
+    /// Settings' own list, one step into More.
+    private var settingsList: some View {
             List {
                 Section {
                     link(.account, "Profile", "person.crop.circle", id: "settings.account")
@@ -63,7 +109,6 @@ struct SettingsSheet: View {
                     link(.cache, "Cached chats", "internaldrive", id: "settings.cache")
                 } header: { InsetHeader("Threads") }
                 .insetRowBackground()
-                SettingsTools(inbox: inbox, machine: $toolsMachine)
                 Section {
                     InsetRow("About", systemImage: "info.circle", value: "\(app.version) (\(app.build))")
                         .accessibilityElement(children: .combine)
@@ -77,22 +122,26 @@ struct SettingsSheet: View {
                 .insetRowBackground()
             }
             .insetGroupedList()
-            .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close").accessibilityIdentifier("settings.close")
-                }
-            }
-            .navigationDestination(for: SettingsRoute.self) { route in destination(route) }
-        }
-        .environment(\.settingsScope, scope)
-        .escapeCloses { dismiss() }
-        .tint(AceTheme.Colours.foreground)
-        .toggleStyle(.systemSwitch)
-        .presentationDetents([.large]).presentationDragIndicator(.visible)
-        .onChange(of: path) { old, new in navigated(from: old, to: new) }
-        .onDisappear { closeMachineViews() }
+            .nativeTitle("Settings")
+    }
+
+    /// Pull requests, Issues and Notifications (the forge's lists), each row pushing its page on
+    /// More's stack. A thread or New thread opens on the inbox once More closes.
+    private var pullRequests: some View {
+        ForgeHome(inbox: inbox, machine: $forgeMachine, project: $forgeProject, query: forgeQuery, kind: $forgeKind,
+                  actions: ForgeTabActions(open: { path.append(.forge($0)) }, openThread: { leave(to: $0) },
+                                           startThread: { start() }),
+                  openMachines: { path.append(.machines) })
+            .searchable(text: $forgeQuery, prompt: Text(forgeKind == .pulls ? "Search pull requests" : forgeKind == .issues ? "Search issues" : "Search notifications"))
+            .modifier(ProjectDefaultsHook(inbox: inbox))
+    }
+    private func leave(to key: InboxKey) {
+        dismiss()
+        places?.openThread(key)
+    }
+    private func start() {
+        dismiss()
+        places?.startThread()
     }
 
     private func link(_ route: SettingsRoute, _ title: String, _ symbol: String, value: String? = nil, id: String) -> some View {
@@ -103,6 +152,11 @@ struct SettingsSheet: View {
     @ViewBuilder private func destination(_ route: SettingsRoute) -> some View {
         switch route {
         case .account: AceAccountView(machines: machines)
+        case .settings: settingsList
+        case .pulls: pullRequests
+        case .forge(let page):
+            ForgePage(inbox: inbox, route: page, open: { path.append(.forge($0)) }, openThread: { leave(to: $0) },
+                      startThread: inbox.canStartThreads ? { start() } : nil)
         case .machines: MachinesView(inbox: inbox, machines: machines)
         case .machine(let hostId): MachineDetailView(inbox: inbox, machines: machines, hostId: hostId)
         case .pair:

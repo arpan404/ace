@@ -29,15 +29,15 @@ struct ProjectFoldersView: View {
     var body: some View {
         List {
             Section {
-                if loaded && folders.isEmpty { Text("Any folder in the machine's home.").foregroundStyle(AceTheme.Colours.mutedForeground) }
+                if loaded && folders.isEmpty { Text("Any folder in the machine's home.").foregroundStyle(AceDesign.Ink.muted) }
                 ForEach(folders) { folder in
-                    HStack(spacing: AceTheme.Spacing.sm) {
+                    HStack(spacing: AceDesign.Space.related) {
                         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                            Text(folder.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                            Text(folder.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
+                            Text(folder.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+                            Text(folder.path).font(AceDesign.Typeface.code)
+                                .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
                         }
-                        Spacer(minLength: AceTheme.Spacing.sm)
+                        Spacer(minLength: AceDesign.Space.related)
                         if model.canOperate {
                             Button("Remove", role: .destructive) { removing = folder }
                                 .buttonStyle(.borderless).foregroundStyle(AceTheme.Status.failed).rowButtonTarget()
@@ -45,13 +45,13 @@ struct ProjectFoldersView: View {
                         }
                     }
                 }
-                if !loaded, problem == nil { ProgressView().frame(maxWidth: .infinity) }
+                if !loaded, problem == nil { SkeletonRows(count: 2, label: "Reading folders").listRowInsets(EdgeInsets()) }
             } header: { InsetHeader("Allowed folders") } footer: { Text("ace opens and creates projects only inside these folders on this machine.") }
             .insetRowBackground()
             if model.canOperate {
                 Section {
                     TextField("Folder path, such as ~/code", text: $typed)
-                        .aceMonospace(AceTheme.Typography.caption, relativeTo: .body)
+                        .font(AceDesign.Typeface.code)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .submitLabel(.done).onSubmit { Task { await allow(create: false) } }
                         .accessibilityIdentifier("folders.path")

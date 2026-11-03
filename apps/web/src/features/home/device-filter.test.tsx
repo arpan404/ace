@@ -84,7 +84,7 @@ test("the filter button shows a shortened selected device name and reveals its f
   // Row 1 is the title row again: Threads, then Search.
   const panel = screen.getByRole("complementary", { name: "Threads" });
   expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
-  expect(within(panel).getByRole("button", { name: "Search" })).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "Search threads" })).toBeTruthy();
   await chooseDevice(name);
   const control = await screen.findByRole("button", {
     name: `Project filter: All projects, Device: ${name}`,
@@ -97,7 +97,7 @@ test("the filter button shows a shortened selected device name and reveals its f
   while (row && !within(row).queryByRole("link", { name: "New thread" })) row = row.parentElement;
   expect(row).toBeTruthy();
   const titleRow = within(panel)
-    .getByRole("button", { name: "Search" })
+    .getByRole("button", { name: "Search threads" })
     .closest('[data-slot="panel-top"]');
   expect(row).not.toBe(titleRow);
   await userEvent.hover(control);
@@ -118,7 +118,7 @@ test("choosing a device shows its name in the filter", async () => {
   // Row 1 is the title row again: Threads, then Search.
   const panel = screen.getByRole("complementary", { name: "Threads" });
   expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
-  expect(within(panel).getByRole("button", { name: "Search" })).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "Search threads" })).toBeTruthy();
   await chooseDevice("Build server");
   const control = await screen.findByRole("button", {
     name: "Project filter: All projects, Device: Build server",
@@ -178,7 +178,7 @@ test("choosing a device narrows the Inbox, Snoozed and Settled tabs to its threa
   );
   // Row 1 is the title row again: Threads, then Search; the filter sits below it.
   expect(screen.getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Search" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Search threads" })).toBeTruthy();
 
   await chooseDevice("Build server");
   await waitFor(() => expect(listed()).toEqual(["Remote inbox"]));

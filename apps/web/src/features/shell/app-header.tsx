@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn.ts";
 import { boundaryMarker } from "@/components/ui/rules.ts";
 import { Suspense, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { SidebarShownIcon } from "@/components/ace-icons.tsx";
 import { SidebarTrigger } from "@/components/ui/sidebar.tsx";
 import { HeaderMenu } from "./sidebar-menu.tsx";
 import { usePhone } from "@/lib/breakpoints.ts";
@@ -75,7 +76,8 @@ export function NavButtons() {
       />
       <IconButton
         data-sidebar="trigger"
-        icon={SidebarSimpleIcon}
+        // Filled while the sidebar shows, an outline while it's hidden.
+        icon={frame.sidebarShown ? SidebarShownIcon : SidebarSimpleIcon}
         label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
         shortcut="toggleSidebar"
         onClick={(event) => {
@@ -123,7 +125,7 @@ export function HeaderNav() {
       {!phone ? (
         <NavButtons />
       ) : frame.sidebarShown ? (
-        <SidebarTrigger label="Hide sidebar" shortcut="toggleSidebar" />
+        <SidebarTrigger icon={SidebarShownIcon} label="Hide sidebar" shortcut="toggleSidebar" />
       ) : (
         // A phone's list is the sidebar sheet: going back to it is the header's first control.
         <IconButton
@@ -169,9 +171,11 @@ export function AppHeader(
   // A phone's ⋯ also lists the panel's tools (a thread's Changes); the toggle stays visible.
   const tools = phone && props.trailing;
   const titleHidden = !!props.namedByPanel && frame.sidebarShown && !frame.sheet && !phone;
-  // Nothing in view where the column starts (the title is the panel's): no marker there either.
+  // Nothing in view where the column starts (no title, or the title is the panel's): no marker
+  // there either.
+  const untitled = props.title === "" || props.title == null;
   const bare =
-    titleHidden &&
+    (titleHidden || untitled) &&
     !props.crumb &&
     !props.mark &&
     !props.subtitle &&

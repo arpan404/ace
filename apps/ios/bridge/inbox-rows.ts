@@ -1,5 +1,8 @@
 import {
+  emptyInboxLine,
+  emptyTabTitle,
   listOrderOf,
+  threadsTabs,
   threadMenu,
   threadMenuLabels,
   threadMenuSection,
@@ -9,7 +12,10 @@ import {
 } from "@ace/ui-core";
 import type { ListAttention } from "@ace/protocol";
 import {
+  chatMenu,
+  chatSections,
   inboxGroup,
+  isChatThread,
   inboxGroupRank,
   inboxSections,
   inboxStatus,
@@ -47,6 +53,11 @@ export interface RowContext {
 export function inboxRow(thread: InboxThread, context: RowContext) {
   const { entry } = thread;
   const look = inboxLook(thread, context.baseline, context.now);
+  const menu = threadMenu(entry, {
+    settled: look.settled,
+    unread: look.unread,
+    pinned: entry.pinned === true,
+  });
   return {
     ...threadRow(entry),
     machineId: context.machineId,
@@ -70,11 +81,9 @@ export function inboxRow(thread: InboxThread, context: RowContext) {
      * What its menus offer, in order, by the web's rules (`threadMenu`); the words are the
      * layout's `menuLabels`.
      */
-    menu: threadMenu(entry, {
-      settled: look.settled,
-      unread: look.unread,
-      pinned: entry.pinned === true,
-    }),
+    menu,
+    /** A chat's row menu in the Chats tab (`chatMenu`); null for a project thread. */
+    chatMenu: isChatThread(thread) ? chatMenu(menu) : null,
   };
 }
 
@@ -120,6 +129,17 @@ export function inboxLayout(
     type: "inbox.sections",
     // The tabs, kept in the launch checkpoint too, so its first frame lists them as placed.
     tabs: tabsOf(sections),
+    /**
+     * Each tab's words, in order: its label, whether its count shows (Inbox and Snoozed, as
+     * DESIGN.md has it), and what it says while empty. The lists are `tabs`, as placed.
+     */
+    tabWords: threadsTabs.map(({ id, label }) => ({
+      id,
+      label,
+      counted: id !== "settled",
+      empty: emptyTabTitle(id, undefined, false),
+      emptyLine: id === "inbox" ? emptyInboxLine : null,
+    })),
     ...(options.attention ? { attention: options.attention } : {}),
     sections: sections.map((section) => ({
       key: section.key,
@@ -139,5 +159,28 @@ export function inboxLayout(
     /** The words for each row's `menu` ids, and the block each belongs to. */
     menuLabels: threadMenuLabels,
     menuSections: menuSections,
+  };
+}
+
+/** The Chats tab's sections (`chatSections`), in the inbox layout's shape so Swift merges them alike. */
+export function chatsLayout(
+  chats: readonly InboxThread[],
+  now: number,
+  baseline: number,
+  query: string,
+) {
+  return {
+    type: "chats.sections",
+    sections: chatSections(chats, { now, baseline, query }).map((section) => ({
+      key: section.key,
+      label: section.label,
+      ids: section.keys,
+      ranks: section.ranks,
+      order: section.order,
+      settled: section.settled,
+    })),
+    more: false,
+    snooze: [],
+    query,
   };
 }

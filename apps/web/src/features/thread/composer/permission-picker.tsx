@@ -61,6 +61,8 @@ export function PermissionPicker(props: PermissionPickerProps) {
           className={cn(
             chipControl,
             "w-fit max-w-40 shrink-0 justify-start text-ui",
+            // In a narrow composer only the icon shows; the name stays in its tooltip and label.
+            "@max-md/composer-footer:size-(--composer-control) @max-md/composer-footer:justify-center @max-md/composer-footer:px-0",
             attention &&
               "text-status-needs-you hover:text-status-needs-you focus-visible:text-status-needs-you aria-expanded:text-status-needs-you",
           )}
@@ -71,7 +73,7 @@ export function PermissionPicker(props: PermissionPickerProps) {
             size={16}
             weight={attention ? "fill" : "regular"}
           />
-          <span className="min-w-0 truncate">{label}</span>
+          <span className="min-w-0 truncate @max-md/composer-footer:hidden">{label}</span>
         </MenuTrigger>
       </Tip>
       <MenuContent

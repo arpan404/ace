@@ -33,7 +33,7 @@ ace never copies another product's look. It is recognisably itself: grey ink, on
 
   | State                                 | Dark      | Light     | Icon                                  |
   | ------------------------------------- | --------- | --------- | ------------------------------------- |
-  | Needs you (model, approval, question) | #EDB250   | #AD7200   | sliders · raised hand · question mark |
+  | Needs you (model, approval, question) | #EDB250   | #AD7200   | sparkle · raised hand · question mark |
   | Failed                                | #F47670   | #C93A33   | warning circle                        |
   | Working                               | #7E9FD6   | #3D63A6   | dashed circle (still)                 |
   | Waiting on agents                     | #A08FD4   | #6A55A8   | dashed circle with the count          |
@@ -58,7 +58,7 @@ One family per platform (Inter/SF on desktop and web, SF Pro on iOS), five roles
 | Meta        | Project, branch, time, counts             |
 | Caption     | Tooltips, tiny labels                     |
 
-Bold only for rows that need the person, and for emphasis in prose.
+Bold only for emphasis in prose. Rows show attention by brightness alone: what needs the person in full ink, what rests in the muted ink, never by weight.
 
 ### Space
 
@@ -89,7 +89,7 @@ Plain, short, specific. Say what happened and what the person can do: "Codex is 
 
 ## 4. Shared patterns
 
-- **Thread row:** project · status icon (and time for live work) / title (semibold only when the person is needed) / branch · PR · another machine · provider mark. No status words, no project badges, no account bubbles on rows.
+- **Thread row:** project · status icon (and time for live work) / title (regular weight; full ink when the person is needed) / branch · PR · another machine · provider mark. No status words. The provider mark carries the account's badge only when there is more than one account for that provider.
 - **Lists:** one flat list per tab (Inbox · Snoozed · Settled), ordered pinned → needs you → running → finished unseen → idle. No section labels.
 - **The composer block:** one object at the bottom of a thread. From top: the pill row (model, live state), the request strip when there is one, the field with + and Send/Stop. Stop lives in the send button.
 - **Request strip:** leads with the provider mark or status icon, one sentence, at most one line of detail (a command in mono, truncated in the middle), text actions on the right; several waiting show "1 of 3". Anything long (a plan, a question with options) opens in a sheet from "Review".

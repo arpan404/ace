@@ -28,7 +28,7 @@ enum InboxCheckpoint {
         // Only inbox patches: a copy can never restore a connection state or a thread.
         return patches.filter {
             switch $0 {
-            case .inboxReset, .inbox, .inboxSections: true
+            case .inboxReset, .inbox, .inboxSections, .chatSections: true
             default: false
             }
         }

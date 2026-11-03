@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Threads and Pull requests at the foot of the sidebar, where a regular window (iPad, the
+/// Threads, Chats and Pull requests at the foot of the sidebar, where a regular window (iPad, the
 /// unfolded iPhone Duo, a large iPhone turned) keeps them instead of the tab bar: one two-way
 /// switch, the place showing filled. A compact window has the tab bar back while its list fills
 /// the window; as the drawer over a thread the list keeps New thread here too, beside the switch
@@ -12,25 +12,26 @@ struct InboxPlaces: View {
 
     var body: some View {
         if sizeClass == .regular {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 GlassSwitch(selection: $tab, choices: [
                     .init(value: .threads, title: "Threads", identifier: "sidebar.threads"),
-                    .init(value: .pulls, title: "Pull requests", identifier: "sidebar.pulls", short: "Pulls"),
+                    .init(value: .chats, title: "Chats", identifier: "sidebar.chats"),
+                    .init(value: .spade, title: "Spade", identifier: "sidebar.spade"),
                 ])
-                if let compose { ComposeCircle(action: compose, size: AceTheme.Dimensions.touchTarget + AceTheme.Spacing.xs) }
+                if let compose { ComposeCircle(action: compose, size: AceDesign.Size.tap + AceDesign.Space.tight) }
             }
-            .padding(.horizontal, AceTheme.Spacing.md)
-            .padding(.vertical, AceTheme.Spacing.sm)
+            .padding(.horizontal, AceDesign.Space.row)
+            .padding(.vertical, AceDesign.Space.related)
         } else {
             // A compact window's drawer and full list wear the same bar the window shows with
             // nothing open: Threads and Pulls with their icons, New thread on its own circle.
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceDesign.Space.related) {
                 PlacesTabBar(tab: $tab)
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Spacer(minLength: AceDesign.Space.related)
                 if let compose { ComposeCircle(action: compose, size: PlacesTabBar.height) }
             }
-            .padding(.horizontal, AceTheme.Spacing.lg)
-            .padding(.bottom, AceTheme.Spacing.xs)
+            .padding(.horizontal, AceDesign.Space.margin)
+            .padding(.bottom, AceDesign.Space.tight)
         }
     }
 }
@@ -41,14 +42,16 @@ private struct PlacesTabBar: View {
     @Binding var tab: InboxTab
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Namespace private var fill
+    /// The places bar's height: a tab's glyph and word stacked, inside the capsule's inset.
     static let height: CGFloat = 62
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.none) {
             item(.threads, title: "Threads", icon: Image(systemName: "text.bubble"), identifier: "sidebar.threads")
-            item(.pulls, title: "Pulls", icon: Image("tab-pulls"), identifier: "sidebar.pulls")
+            item(.chats, title: "Chats", icon: Image(systemName: "bubble.left.and.bubble.right"), identifier: "sidebar.chats")
+            item(.spade, title: "Spade", icon: Image(uiImage: SpadeMark.tabImage), identifier: "sidebar.spade")
         }
-        .padding(4)
+        .padding(AceDesign.Space.tight)
         .frame(height: Self.height)
         .aceGlass(in: AceShape.capsule, interactive: true)
     }
@@ -56,25 +59,27 @@ private struct PlacesTabBar: View {
     private func item(_ value: InboxTab, title: String, icon: Image, identifier: String) -> some View {
         let chosen = tab == value
         return Button {
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { tab = value }
+            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { tab = value }
         } label: {
-            VStack(spacing: 2) {
-                icon.font(.system(size: 20, weight: .medium)).frame(height: 24)
-                Text(title).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+            VStack(spacing: AceTheme.Spacing.xxs) {
+                icon.font(.system(size: AceDesign.Size.barIcon)).frame(height: AceDesign.Size.glyphBox)
+                Text(title).font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong)).lineLimit(1)
             }
+            // The bar keeps its height, as the system's tab bar does.
+            .dynamicTypeSize(...DynamicTypeSize.large)
             .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .frame(width: 88)
+            .frame(width: AceDesign.Size.tab)
             .frame(maxHeight: .infinity)
             .background {
                 if chosen {
-                    AceShape.capsule.fill(AceTheme.Colours.foreground.opacity(0.12))
+                    AceShape.capsule.fill(AceDesign.Surface.fill)
                         .matchedGeometryEffect(id: "chosen", in: fill)
                 }
             }
             .contentShape(AceShape.capsule)
         }
         .buttonStyle(.plain)
-        .sensoryFeedback(.selection, trigger: chosen)
+        .sensoryFeedback(AceDesign.Haptic.tab, trigger: chosen)
         .accessibilityLabel(title)
         .accessibilityAddTraits(chosen ? .isSelected : [])
         .accessibilityIdentifier(identifier)
@@ -87,7 +92,7 @@ private struct ComposeCircle: View {
     let size: CGFloat
     var body: some View {
         Button(action: action) {
-            AceIcon(.notePencil, size: 22)
+            AceIcon(.notePencil, size: AceDesign.Size.barIcon)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(width: size, height: size)
                 .contentShape(Circle())
@@ -116,10 +121,10 @@ extension View {
                 VStack(spacing: AceTheme.Spacing.none) {
                     LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background],
                                    startPoint: .top, endPoint: .bottom)
-                        .frame(height: AceTheme.Spacing.xl)
+                        .frame(height: AceDesign.Space.fade)
                     AceTheme.Colours.background
                 }
-                .padding(.top, -AceTheme.Spacing.xl)
+                .padding(.top, -AceDesign.Space.fade)
                 .ignoresSafeArea(edges: .bottom)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)

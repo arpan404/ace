@@ -227,6 +227,7 @@ describe("inbox attention", () => {
     tone: string;
     muted: boolean;
     glyph: string | null;
+    since: number | null;
   };
   const look = (sink: RecordingSink, id: string) =>
     (sink.read(`inbox:${id}`) as { row: { look: Look } } | undefined)?.row.look;
@@ -264,6 +265,13 @@ describe("inbox attention", () => {
       settled: false,
       subagents: 0,
       unread: false,
+      // The desktop row's mark: the raised hand in the needs-you colour, alone, title semibold.
+      icon: "approve",
+      iconTone: "needs-you",
+      count: null,
+      mode: "icon",
+      meaning: "Needs approval",
+      strong: true,
     });
     await until(() => look(sink, "busy")?.level === "active", "the working row");
     expect(look(sink, "busy")).toMatchObject({
@@ -271,7 +279,13 @@ describe("inbox attention", () => {
       tone: "working",
       muted: true,
       glyph: "working",
+      // A dashed circle with the elapsed time since the work began; the title stays regular.
+      icon: "working",
+      iconTone: "working",
+      mode: "elapsed",
+      strong: false,
     });
+    expect(look(sink, "busy")?.since).toEqual(expect.any(Number));
     // Finished before the phone started following: read, so it claims no word, only its age.
     expect(look(sink, "notes")).toMatchObject({
       level: "quiet",

@@ -31,10 +31,10 @@ struct ModelEffortChip: View {
         HStack(spacing: AceTheme.Spacing.none) {
             Button(action: openModel) {
                 HStack(spacing: AceTheme.Spacing.xs) {
-                    if let provider, !provider.isEmpty { ProviderMark(provider: provider, size: 14) }
+                    if let provider, !provider.isEmpty { ProviderMark(provider: provider, size: AceDesign.Size.metaIcon) }
                     if loading { ProgressView().controlSize(.mini) }
                     Text(model).lineLimit(1).truncationMode(.tail)
-                        .frame(maxWidth: AceTheme.Spacing.xxxl * 3, alignment: .leading)
+                        .frame(maxWidth: AceDesign.Size.chipMaxWidth, alignment: .leading)
                     caret
                 }
                 .padding(.horizontal, AceTheme.Spacing.sm)
@@ -63,7 +63,7 @@ struct ModelEffortChip: View {
         .foregroundStyle(AceTheme.Colours.mutedForeground)
     }
     private var caret: some View {
-        AceIcon(queued ? .clock : .caretDown, size: 11, relativeTo: .caption)
+        AceIcon(queued ? .clock : .caretDown, size: AceDesign.Size.caret, relativeTo: .caption)
             .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
     }
 }
@@ -107,10 +107,10 @@ struct AccessChip: View {
         Button { choosing = true } label: {
             HStack(spacing: AceTheme.Spacing.xs) {
                 if loading { ProgressView().controlSize(.mini) }
-                else { AceIcon(AccessItem.icon(for: selected), size: 14, relativeTo: .subheadline) }
+                else { AceIcon(AccessItem.icon(for: selected), size: AceDesign.Size.metaIcon, relativeTo: .subheadline) }
                 if roomy {
                     Text(label).lineLimit(1).fixedSize()
-                    AceIcon(.caretDown, size: 11, relativeTo: .caption)
+                    AceIcon(.caretDown, size: AceDesign.Size.caret, relativeTo: .caption)
                         .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
             }
@@ -168,7 +168,7 @@ struct AccessRows: View {
         ForEach(items) { item in
             Button { choose(item.mode) } label: {
                 HStack(spacing: AceTheme.Spacing.md) {
-                    AceIcon(AccessItem.icon(for: item.mode), size: 20)
+                    AceIcon(AccessItem.icon(for: item.mode), size: AceDesign.Size.barIcon)
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                         Text(item.label).aceFont(InsetStyle.label, relativeTo: .body)
                             .foregroundStyle(AceTheme.Colours.foreground)

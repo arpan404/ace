@@ -39,20 +39,20 @@ struct RootView: View {
 struct LockView: View {
     let lock: AppLock
     var body: some View {
-        VStack(spacing: AceTheme.Spacing.lg) {
-            Image(systemName: "lock.fill").aceFont(AceTheme.Typography.title, relativeTo: .largeTitle)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-            Text("ace is locked").aceFont(AceTheme.Typography.title, relativeTo: .title2).foregroundStyle(AceTheme.Colours.foreground)
+        VStack(spacing: AceDesign.Space.margin) {
+            Image(systemName: "lock.fill").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong))
+                .foregroundStyle(AceDesign.Ink.muted)
+            Text("ace is locked").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong)).foregroundStyle(AceDesign.Ink.primary)
             if lock.failed {
-                Text("Couldn't verify it's you.").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text("Couldn't verify it's you.").font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
             }
             Button("Unlock") { Task { await lock.unlock() } }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).disabled(lock.authenticating)
                 .accessibilityIdentifier("lock.unlock")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AceTheme.Colours.background)
+        .background(AceDesign.Surface.background)
         .task { await lock.unlock() }
     }
 }
@@ -60,7 +60,7 @@ struct LockView: View {
 /// Hides content from the app switcher snapshot.
 struct PrivacyCover: View {
     var body: some View {
-        AceTheme.Colours.background.ignoresSafeArea()
-            .overlay { Image(systemName: "lock.fill").foregroundStyle(AceTheme.Colours.decoration) }
+        AceDesign.Surface.background.ignoresSafeArea()
+            .overlay { Image(systemName: "lock.fill").foregroundStyle(AceDesign.Ink.faint) }
     }
 }

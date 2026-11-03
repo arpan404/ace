@@ -1,3 +1,4 @@
+import { InteractionRequest } from "@ace/protocol";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import { z } from "zod";
 
@@ -236,4 +237,51 @@ export function requestScenarios(daemon: FakeDaemon, details: Details): void {
   seedRequest(daemon, "plan", "ios-plan", details);
   seedRequest(daemon, "form", "ios-form", details);
   seedRequest(daemon, "stop", "ios-stop", details);
+  threeAsks(daemon, details);
+}
+
+/** One approval the agent asks for, with Deny, Always and Allow. */
+const ask = (key: string, title: string, target: Record<string, unknown>) => ({
+  type: "interaction.opened" as const,
+  agent: "root",
+  interaction: key,
+  blocking: true,
+  request: InteractionRequest.parse({
+    kind: "approval",
+    title,
+    target: { tool: "Bash", access: "execute", ...target },
+    options: [
+      { id: "deny", label: "Deny", kind: "deny" },
+      { id: "always", label: "Always", kind: "allow_session" },
+      { id: "allow", label: "Allow", kind: "allow_once" },
+    ],
+  }),
+});
+
+/** ios-three-asks: three approvals waiting at once, so the strip pages them ("1 of 3"). */
+function threeAsks(daemon: FakeDaemon, details: Details): void {
+  const id = "ios-three-asks";
+  daemon.createThread({
+    hasSentMessage: true,
+    id,
+    workspaceId: "ace",
+    title: "Ship the relay fix",
+    provider: "claude",
+    details: details("fix/relay-ship"),
+    access: "ask",
+  });
+  daemon.apply(id, [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Ship the relay fix: test, edit the changelog, push."),
+    ask("test", "Run bun run test --filter relay", { command: "bun run test --filter relay" }),
+    ask("notes", "Edit CHANGELOG.md", {
+      tool: "Edit",
+      access: "write",
+      paths: ["/Users/dev/acme/packages/relay/CHANGELOG.md"],
+    }),
+    ask("push", "Run git push origin fix/relay-ship", {
+      command: "git push origin fix/relay-ship",
+    }),
+  ]);
 }

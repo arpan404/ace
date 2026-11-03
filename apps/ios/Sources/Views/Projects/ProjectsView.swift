@@ -45,9 +45,9 @@ struct ProjectsView: View {
                 ForEach(projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.path.localizedCaseInsensitiveContains(query) }) { project in
                     NavigationLink { ProjectDetailView(model: model, project: project) } label: {
                         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                            Text(project.name).aceFont(InsetStyle.label, relativeTo: .body)
-                            Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
-                        }.padding(.vertical, AceTheme.Spacing.xs)
+                            Text(project.name).font(AceDesign.Typeface.body)
+                            Text(project.path).font(AceDesign.Typeface.code).foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
+                        }.padding(.vertical, AceDesign.Space.tight)
                     }.accessibilityIdentifier("projects.row.\(project.id)")
                 }
                 if next != nil { Button("Show more projects") { Task { await read(more: true) } }.disabled(loading) }
@@ -58,8 +58,8 @@ struct ProjectsView: View {
             }
             .insetRowBackground()
             Group {
-                if loading, !loaded { HStack { Spacer(); ProgressView().accessibilityLabel("Loading projects"); Spacer() } }
-                if loaded && !loading && projects.isEmpty && problem == nil { ContentUnavailableView("No projects", systemImage: "folder") }
+                if loading, !loaded { SkeletonRows(count: 4, label: "Loading projects").listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
+                if loaded && !loading && projects.isEmpty && problem == nil { EmptyState(systemImage: "folder", title: "No projects") }
             }
             .listRowBackground(Color.clear)
             if query.isEmpty {
@@ -74,7 +74,7 @@ struct ProjectsView: View {
         }
         .insetGroupedList()
         .searchable(text: $query, prompt: "Search projects")
-        .navigationTitle("Projects").navigationBarTitleDisplayMode(.inline)
+        .nativeTitle("Projects")
         .toolbar {
             if model.canOperate {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -93,7 +93,7 @@ struct ProjectsView: View {
                         }
                     }
             }
-            .tint(AceTheme.Colours.foreground)
+            .tint(AceDesign.Ink.accent)
             .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
     }

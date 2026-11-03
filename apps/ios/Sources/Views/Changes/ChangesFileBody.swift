@@ -48,8 +48,7 @@ struct ChangesFileBody: View {
                 model.sheet(["kind": "changes.more", "path": path])
             } label: {
                 Text(header.remaining.map { "Show \(min($0, 300).formatted()) more of \($0.formatted()) lines" } ?? "Show more lines")
-                    .fontWeight(.medium)
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowLine)
             }
             .buttonStyle(.plain)
             .foregroundStyle(AceTheme.Colours.foreground)
@@ -60,7 +59,7 @@ struct ChangesFileBody: View {
     }
 
     private var loading: some View {
-        ProgressView().frame(maxWidth: .infinity, minHeight: 44).padding(.vertical, AceTheme.Spacing.sm)
+        SkeletonRows(count: 1, label: "Reading lines")
     }
     private func note(_ text: String) -> some View {
         Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)

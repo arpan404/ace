@@ -8,6 +8,7 @@ interface Strip {
   kind: string;
   sentence: string;
   actions: { id: string; label: string; primary: boolean }[];
+  lead: unknown;
 }
 interface Queue {
   label: string;
@@ -15,7 +16,13 @@ interface Queue {
   more: number;
   control: { id: string; label: string } | null;
   strip: Strip | null;
-  notSent: { id: string; text: string; reason: string; detail: string } | null;
+  notSent: {
+    id: string;
+    text: string;
+    reason: string;
+    detail: string;
+    strip: { sentence: string; detail: string };
+  } | null;
 }
 const queue = () => latest("thread.queue") as Queue | undefined;
 
@@ -85,6 +92,11 @@ test("a message that wasn't sent leaves the queue's list for the transcript, wit
   });
   await until(() => queue()?.notSent, "the message that wasn't sent");
   expect(queue()?.notSent).toMatchObject({ text: "Ship it", reason: "Codex couldn't start" });
+  // Its strip above the composer says why once, with the message's opening words under it.
+  expect(queue()?.notSent?.strip).toMatchObject({
+    sentence: "Not sent · Codex couldn't start",
+    detail: "Ship it",
+  });
   expect(queue()?.messages.map((message) => message.text)).toEqual(["Then tag it"]);
   expect(queue()?.label).toBe("1 queued message");
   // The transcript says it; the strip above the composer doesn't repeat it.
@@ -134,6 +146,8 @@ test("a usage limit holds the turn with Switch, Resume at reset and Continue", a
   await until(() => queue()?.strip?.kind === "limit", "the limit strip");
   const strip = queue()?.strip;
   expect(strip?.sentence).toMatch(/^Codex is out of usage until /);
+  // Led by the row's usage-limit icon, the gauge in muted ink.
+  expect(strip?.lead).toEqual({ icon: "limited", tone: "limited" });
   expect(strip?.actions.map((action) => action.label)).toEqual([
     "Switch",
     "Resume at reset",

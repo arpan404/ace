@@ -40,9 +40,9 @@ struct ForgeFilesView: View {
                 EmptyState(icon: nil, title: "Couldn't load the files", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
                 }
-                .padding(.top, 120)
+                .padding(.top, AceDesign.Space.pageState)
             } else {
-                ProgressView().padding(.top, 120).frame(maxWidth: .infinity)
+                SkeletonPage()
             }
         }
         .animation(AceMotion.smooth, value: list)
@@ -81,7 +81,7 @@ struct ForgeFilesView: View {
                 Spacer(minLength: AceTheme.Spacing.sm)
                 if file.conversations > 0 {
                     HStack(spacing: AceTheme.Spacing.xxs) {
-                        AceIcon(.chatCircle, size: 13, relativeTo: .footnote)
+                        AceIcon(.chatCircle, size: AceDesign.Size.metaIcon, relativeTo: .footnote)
                         Text(verbatim: "\(file.conversations)").monospacedDigit()
                     }
                     .meta()
@@ -89,7 +89,7 @@ struct ForgeFilesView: View {
                 }
                 ForgeDiffStat(additions: file.additions, deletions: file.deletions)
             }
-            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 44)
+            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
             .contentShape(Rectangle())
         }
         .buttonStyle(.row)

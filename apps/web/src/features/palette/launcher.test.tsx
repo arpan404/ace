@@ -29,7 +29,7 @@ async function run(words: string, name: RegExp) {
   await userEvent.click(await screen.findByRole("option", { name }));
 }
 
-test("⌘K, ⇧⌘K and the sidebar's Search all open the one launcher", async () => {
+test("⌘K and ⇧⌘K both open the one launcher", async () => {
   await openThread();
   await userEvent.keyboard("{Meta>}k{/Meta}");
   expect(await launcher()).toBeTruthy();
@@ -44,8 +44,6 @@ test("⌘K, ⇧⌘K and the sidebar's Search all open the one launcher", async (
   await waitFor(() =>
     expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull(),
   );
-  await userEvent.click(screen.getByRole("button", { name: "Search" }));
-  expect(await launcher()).toBeTruthy();
 });
 
 test("typing approve answers the open thread's approval from the launcher", async () => {

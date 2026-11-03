@@ -20,4 +20,11 @@ import Testing
         #expect(ActivityTime.age(since: now.addingTimeInterval(-9 * 60), now: now, locale: english) == "9m")
         #expect(ActivityTime.age(since: now.addingTimeInterval(-8 * 86_400), now: now, locale: english) == "Jan 4")
     }
+    @Test func workUnderWayCountsToTheSecondAsTheDesktopRowDoes() {
+        #expect(ActivityTime.running(since: now.addingTimeInterval(-38), now: now) == "38s")
+        #expect(ActivityTime.running(since: now.addingTimeInterval(-94), now: now) == "1m 34s")
+        #expect(ActivityTime.running(since: now.addingTimeInterval(-3720), now: now) == "1h 2m")
+        // A daemon clock slightly ahead never reads as negative time.
+        #expect(ActivityTime.running(since: now.addingTimeInterval(4), now: now) == "0s")
+    }
 }

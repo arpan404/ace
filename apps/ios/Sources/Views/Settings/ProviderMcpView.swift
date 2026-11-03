@@ -40,7 +40,7 @@ struct ProviderMcpView: View {
                     Section {
                         ForEach(screen.servers) { server in row(server) }
                         if screen.canAdd, model.canOperate {
-                            Button("Add MCP server") { adding = true }.frame(minHeight: 44)
+                            Button("Add MCP server") { adding = true }.frame(minHeight: AceDesign.Size.tap)
                         }
                     } footer: { if let text = screen.note { Text(text) } }
                 } else if problem == nil {
@@ -58,7 +58,7 @@ struct ProviderMcpView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth, value: screen)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen)
         .navigationTitle("MCP servers").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model, id: provider) { await read() }.refreshable { await read() }
         .sensoryFeedback(.success, trigger: changed)
@@ -72,28 +72,28 @@ struct ProviderMcpView: View {
         }
     }
     private func row(_ server: McpServerRowData) -> some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             HStack {
-                Text(server.name).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                Spacer(minLength: AceTheme.Spacing.sm)
-                if working == server.name { ProgressView().controlSize(.small) }
+                Text(server.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
+                Spacer(minLength: AceDesign.Space.related)
+                if working == server.name { WorkingMark() }
                 else if let word = server.word {
-                    Text(word).aceFont(InsetStyle.value, relativeTo: .body)
-                        .foregroundStyle(server.failed ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
+                    Text(word).font(AceDesign.Typeface.body)
+                        .foregroundStyle(server.failed ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
                         .contentTransition(.opacity)
                 }
             }
             if model.canOperate {
-                HStack(spacing: AceTheme.Spacing.lg) {
+                HStack(spacing: AceDesign.Space.margin) {
                     Button(server.off ? "Turn on" : "Turn off") { control(server, server.off ? "enable" : "disable") }
                     if !server.off { Button("Reconnect") { control(server, "reconnect") } }
                 }
                 .buttonStyle(.borderless)
-                .aceFont(InsetStyle.value, relativeTo: .body)
+                .font(AceDesign.Typeface.body)
                 .disabled(working != nil)
             }
         }
-        .padding(.vertical, AceTheme.Spacing.sm)
+        .padding(.vertical, AceDesign.Space.related)
     }
     private func control(_ server: McpServerRowData, _ action: String) {
         working = server.name; note = nil
@@ -103,7 +103,7 @@ struct ProviderMcpView: View {
                 _ = try await model.manage(["type": "mcp.screen.control", "provider": provider, "name": server.name, "action": action], as: PlainAnswer.self)
                 changed += 1
                 await read()
-            } catch { withAnimation(.smooth) { note = error.localizedDescription } }
+            } catch { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { note = error.localizedDescription } }
         }
     }
     private func read() async {
@@ -146,7 +146,7 @@ struct AddMcpServerView: View {
                         Text("URL").tag("http")
                     }
                     .pickerStyle(.segmented)
-                    .listRowInsets(EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.md, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.md))
+                    .listRowInsets(EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.row, bottom: AceDesign.Space.related, trailing: AceDesign.Space.row))
                     TextField(transport == "http" ? "https://example.com/mcp" : "npx -y @scope/server --flag", text: $address, axis: .vertical)
                         .lineLimit(1...4)
                         .monospaced()
@@ -161,8 +161,8 @@ struct AddMcpServerView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(.smooth(duration: 0.2), value: transport)
-        .animation(.smooth(duration: 0.2), value: check?.problem)
+        .smoothChange(transport)
+        .smoothChange(check?.problem)
         .navigationTitle("Add MCP server").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) }
@@ -177,7 +177,7 @@ struct AddMcpServerView: View {
         .interactiveDismissDisabled(busy)
     }
     private func fieldProblem(_ text: String) -> some View {
-        Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+        Text(text).font(AceDesign.Typeface.meta)
             .foregroundStyle(AceTheme.StatusText.failed).transition(.opacity)
     }
     private func add() async {

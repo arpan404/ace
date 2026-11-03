@@ -38,7 +38,7 @@ struct SkillOpenOnComputer: View {
                     .foregroundStyle(AceTheme.Colours.foreground)
                 Spacer(minLength: AceTheme.Spacing.sm)
             }
-            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            .frame(minHeight: AceDesign.Size.tap)
             .contentShape(Rectangle())
         }
         .disabled(model.connection != "ready")

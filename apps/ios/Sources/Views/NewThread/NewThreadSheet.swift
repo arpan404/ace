@@ -86,7 +86,8 @@ struct NewThreadSheet: View {
                 if draft.machineId == nil, draft.projectId != nil { drafts.edit { $0.machineId = machineId } }
                 else { drafts.edit { $0 = memory.load().open($0, on: machineId) } }
             }
-            if draft.projectId == nil, let initialProject { drafts.edit { $0.projectId = initialProject } }
+            // New chat always starts a chat, whatever the last draft was in.
+            if let initialProject, draft.projectId == nil || initialProject == NewThreadDraft.chat { drafts.edit { $0.projectId = initialProject } }
             client.composeAction(["kind": "open"])
             client.composeChoice(draft)
             if let project = draft.projectId {

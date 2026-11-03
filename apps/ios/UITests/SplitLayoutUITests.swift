@@ -33,7 +33,7 @@ import XCTest
         open("thread.ios-form", in: app)
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
         // No tab bar beside the list: its places sit at the sidebar's foot, New thread in its bar.
-        XCTAssertFalse(app.tabBars.buttons["Pulls"].reachable)
+        XCTAssertFalse(app.tabBars.buttons["Spade"].reachable)
         let threads = app.buttons["sidebar.threads"], pulls = app.buttons["sidebar.pulls"]
         XCTAssertTrue(threads.reachable)
         XCTAssertTrue(threads.isSelected)
@@ -77,6 +77,9 @@ import XCTest
         app.typeKey(".", modifierFlags: .command)
         XCTAssertTrue(close.waitForNonExistence(timeout: 10))
         app.buttons["inbox.settings"].tap()
+        // Settings is one step into More.
+        XCTAssertTrue(app.buttons["more.settings"].waitForExistence(timeout: 10))
+        app.buttons["more.settings"].tap()
         let settings = app.buttons["settings.close"]
         XCTAssertTrue(settings.waitForExistence(timeout: 10))
         app.typeKey(".", modifierFlags: .command)
@@ -150,11 +153,11 @@ import XCTest
 
         // Beside the list the tab bar's places are the sidebar's; Pull requests stays chosen as
         // the window turns compact, where the tab bar is back.
-        XCTAssertFalse(app.tabBars.buttons["Pulls"].reachable)
+        XCTAssertFalse(app.tabBars.buttons["Spade"].reachable)
         app.buttons["sidebar.pulls"].tap()
         XCTAssertTrue(app.buttons["sidebar.pulls"].isSelected)
         XCUIDevice.shared.orientation = .portrait
-        let pullsTab = app.tabBars.buttons["Pulls"]
+        let pullsTab = app.tabBars.buttons["Spade"]
         XCTAssertTrue(pullsTab.waitForHittable(timeout: 10), "a compact window has the tab bar back")
         XCTAssertTrue(pullsTab.isSelected)
         XCTAssertFalse(app.buttons["sidebar.pulls"].reachable)

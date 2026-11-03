@@ -51,7 +51,7 @@ struct OpenFilesSheet: View {
                                 Button { pick(path) } label: { row(path) }.buttonStyle(.plain)
                                 Button("Close") { model.fileClosed(scope, path) }
                                     .buttonStyle(.plain).foregroundStyle(AceTheme.Colours.mutedForeground)
-                                    .frame(minHeight: 44)
+                                    .frame(minHeight: AceDesign.Size.tap)
                                     .accessibilityIdentifier("files.close.\(path)")
                             }
                             .listRowSeparator(.hidden)
@@ -77,7 +77,7 @@ struct OpenFilesSheet: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
-            .animation(reduceMotion ? nil : .smooth(duration: AceTheme.Motion.standard), value: memory)
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: memory)
             .navigationTitle("Files").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
@@ -101,7 +101,7 @@ struct OpenFilesSheet: View {
                     .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowDetail, alignment: .leading)
         .contentShape(Rectangle())
     }
 }

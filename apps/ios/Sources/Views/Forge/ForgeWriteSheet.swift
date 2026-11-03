@@ -46,7 +46,7 @@ struct ForgeWriteSheet: View {
     @ViewBuilder private var buttons: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             if let secondary = compose.secondary {
-                Button { send(secondary) } label: { Text(secondary.label).frame(maxWidth: .infinity, minHeight: 44) }
+                Button { send(secondary) } label: { Text(secondary.label).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap) }
                     .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
                     .disabled(empty || compose.off != nil || !desk.ready)
                     .accessibilityIdentifier("forge.write.secondary")
@@ -56,7 +56,7 @@ struct ForgeWriteSheet: View {
                     if desk.writing { ProgressView().controlSize(.small) }
                     Text(compose.primary.label).fontWeight(.semibold)
                 }
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             }
             .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
             .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)

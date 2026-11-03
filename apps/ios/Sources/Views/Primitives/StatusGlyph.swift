@@ -20,20 +20,17 @@ enum GlyphState: String, Sendable {
         case .idle: self = .idle
         }
     }
-    /// Live states move while their work runs (`StatusGlyph.live`).
-    var moves: Bool { self == .working || self == .background || self == .subagents }
 }
 
-/// A status glyph in its tone's colour, 12pt beside meta text by default. `live` lets a moving
-/// state move; lists keep it still so nothing pulls the eye that doesn't need the person.
-/// Decorative: the word beside it is what VoiceOver reads.
+/// A status glyph in its tone's colour, 12pt beside meta text by default. Always still
+/// (DESIGN.md: nothing animates on its own): live work says so in words and its running time.
+/// `live` is kept for callers and changes nothing. Decorative: the word beside it is what
+/// VoiceOver reads.
 struct StatusGlyph: View {
     let state: GlyphState
     let tone: AceTone
     var live = false
     @ScaledMetric private var size: CGFloat
-    @Environment(\.aceReduceMotion) private var reduceMotion
-    @State private var phase = false
 
     init(_ state: GlyphState, tone: AceTone, size: CGFloat = 12, live: Bool = false) {
         self.state = state
@@ -42,8 +39,6 @@ struct StatusGlyph: View {
         _size = ScaledMetric(wrappedValue: size, relativeTo: .caption)
     }
 
-    private var moving: Bool { live && state.moves && !reduceMotion }
-
     var body: some View {
         let unit = size / 16
         let stroke = StrokeStyle(lineWidth: 1.5 * unit, lineCap: .round, lineJoin: .round)
@@ -51,34 +46,22 @@ struct StatusGlyph: View {
             .frame(width: size, height: size)
             .foregroundStyle(tone.mark)
             .accessibilityHidden(true)
-            .onAppear { if moving { withAnimation(motion) { phase = true } } }
-            .onChange(of: moving) { _, now in
-                if now { withAnimation(motion) { phase = true } } else { phase = false }
-            }
-    }
-
-    private var motion: Animation {
-        state == .subagents ? .easeInOut(duration: 0.9).repeatForever(autoreverses: false)
-            : .easeInOut(duration: state == .background ? 1.6 : 0.9).repeatForever(autoreverses: state == .working)
     }
 
     @ViewBuilder private func drawing(_ stroke: StrokeStyle) -> some View {
         switch state {
         case .working:
-            GlyphPath.arc(from: 300, to: 420).stroke(style: stroke).rotationEffect(.degrees(moving && phase ? 28 : 0))
-            GlyphPath.arc(from: 120, to: 240).stroke(style: stroke).rotationEffect(.degrees(moving && phase ? -28 : 0))
+            GlyphPath.arc(from: 300, to: 420).stroke(style: stroke)
+            GlyphPath.arc(from: 120, to: 240).stroke(style: stroke)
         case .background:
             GlyphPath.arc(from: 130, to: 410).stroke(style: stroke)
             GlyphPath.dot(1.6).fill()
-                .offset(x: moving && phase ? size * 0.4 : 0)
-                .opacity(moving && phase ? 0 : 1)
         case .subagents:
             ZStack {
                 GlyphPath.arc(from: 20, to: 100).stroke(style: stroke)
                 GlyphPath.arc(from: 140, to: 220).stroke(style: stroke)
                 GlyphPath.arc(from: 260, to: 340).stroke(style: stroke)
             }
-            .rotationEffect(.degrees(moving && phase ? 120 : 0))
         case .needsYou:
             GlyphPath.needsYou.fill(style: FillStyle(eoFill: true))
         case .done:
