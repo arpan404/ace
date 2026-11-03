@@ -196,7 +196,7 @@ test("deleting the open thread from the sidebar opens New thread", async () => {
   await choose(/Invoice PDF/, "Delete thread");
   await waitFor(() => expect(listed(app, "thread-pdf-locale")).toBeUndefined());
   expect(await screen.findByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
-  expect(screen.queryByText("Thread unavailable")).toBeNull();
+  expect(screen.queryByText("This thread doesn't exist")).toBeNull();
 });
 
 test("deleting another thread and a refused active delete preserve the open thread", async () => {

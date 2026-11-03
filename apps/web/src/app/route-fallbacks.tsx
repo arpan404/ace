@@ -1,27 +1,47 @@
-import { CompassIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link, useRouter, useRouterState, type ErrorComponentProps } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { MissingState } from "@/components/ui/missing-state.tsx";
+import type { ReactNode } from "react";
 import { BootFailure } from "@/features/connect/index.ts";
-import { Screen } from "@/features/shell/index.ts";
+import { ThreadsSidebar } from "@/features/home/index.ts";
+import { Screen, ViewFrame } from "@/features/shell/index.ts";
 
-/** An address no route matches: inside the shell, with the address and a way home. */
+/**
+ * The Threads frame a fallback stands in, as `/_home` gives the thread and New thread screens:
+ * the same column and sidebar, so a missing page looks like a missing thread.
+ */
+function ThreadsFrame(props: { children: ReactNode }) {
+  return (
+    <ViewFrame label="Threads" sidebar={<ThreadsSidebar />} place="threads">
+      {props.children}
+    </ViewFrame>
+  );
+}
+
+/** An address no route matches: inside the shell, with the address and the ways on. */
 export function RouteNotFound() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   return (
-    <Screen title="Not found">
-      <EmptyState
-        icon={CompassIcon}
-        title="This page doesn't exist"
-        description={<code className="font-mono text-sm break-all">{pathname}</code>}
-        action={
-          <Link to="/" className={buttonVariants({ variant: "primary" })}>
-            Go to Home
-          </Link>
-        }
-        heading
-      />
-    </Screen>
+    <ThreadsFrame>
+      <Screen title="">
+        <MissingState
+          title="This page doesn't exist"
+          description={<code className="font-mono text-sm break-all">{pathname}</code>}
+          actions={
+            <>
+              <Link to="/new" className={buttonVariants({ size: "sm", variant: "primary" })}>
+                New thread
+              </Link>
+              <Link to="/" className={buttonVariants({ size: "sm" })}>
+                Back to Home
+              </Link>
+            </>
+          }
+        />
+      </Screen>
+    </ThreadsFrame>
   );
 }
 
@@ -30,34 +50,36 @@ export function RouteError(props: ErrorComponentProps) {
   const router = useRouter();
   const message = props.error instanceof Error ? props.error.message : String(props.error);
   return (
-    <Screen title="Something went wrong">
-      <EmptyState
-        icon={WarningCircleIcon}
-        title="Something went wrong on this page"
-        description={
-          <code className="block max-h-40 overflow-auto font-mono text-sm break-words whitespace-pre-wrap">
-            {message}
-          </code>
-        }
-        action={
-          <span className="flex gap-2">
-            <Button
-              variant="primary"
-              onClick={() => {
-                props.reset();
-                void router.invalidate();
-              }}
-            >
-              Try again
-            </Button>
-            <Link to="/" className={buttonVariants()}>
-              Go to Home
-            </Link>
-          </span>
-        }
-        heading
-      />
-    </Screen>
+    <ThreadsFrame>
+      <Screen title="Something went wrong">
+        <EmptyState
+          icon={WarningCircleIcon}
+          title="Something went wrong on this page"
+          description={
+            <code className="block max-h-40 overflow-auto font-mono text-sm break-words whitespace-pre-wrap">
+              {message}
+            </code>
+          }
+          action={
+            <span className="flex gap-2">
+              <Button
+                variant="primary"
+                onClick={() => {
+                  props.reset();
+                  void router.invalidate();
+                }}
+              >
+                Try again
+              </Button>
+              <Link to="/" className={buttonVariants()}>
+                Go to Home
+              </Link>
+            </span>
+          }
+          heading
+        />
+      </Screen>
+    </ThreadsFrame>
   );
 }
 
