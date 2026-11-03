@@ -36,6 +36,7 @@ async function body(request: IncomingMessage): Promise<unknown> {
  */
 function crossOrigin(path: string): boolean {
   return (
+    accountPath(path) ||
     path === "/v1/status" ||
     path === "/v1/pair" ||
     path === "/v1/tickets" ||
@@ -44,6 +45,16 @@ function crossOrigin(path: string): boolean {
     /^\/v1\/devices\/[^/]+$/.test(path)
   );
 }
+/**
+ * This machine's ace account and machine code (ADR 0111), for the hosted web app and dev:web on
+ * the same allowlist. Each still needs an admin credential, and signing in or out the host's.
+ */
+function accountPath(path: string): boolean {
+  return (
+    path === "/v1/ace-account" || path === "/v1/ace-account/login" || path === "/v1/machine-code"
+  );
+}
+
 export interface AccessHttpOptions {
   shutdown?: import("./shutdown-receipt.ts").ShutdownControl;
   auth: RemoteAuth;
@@ -103,7 +114,10 @@ export function accessHttp({
         if (request.method === "OPTIONS") {
           request.resume();
           if (!allowed) throw new AccessError(403, "Origin not allowed");
-          response.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE");
+          response.setHeader(
+            "Access-Control-Allow-Methods",
+            accountPath(path) ? "GET, POST, PUT, DELETE" : "GET, POST, DELETE",
+          );
           response.setHeader("Access-Control-Allow-Headers", "authorization, content-type");
           response.setHeader("Access-Control-Max-Age", "600");
           response.statusCode = 204;
